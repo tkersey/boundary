@@ -254,7 +254,7 @@ fn executeReturnErrorAtInstruction(
     };
 }
 
-fn runtimeValueMatchesCodec(comptime codec: program_plan.ValueCodec, value: lowered_machine.ProgramValue) bool {
+fn runtimeValueMatchesCodec(codec: program_plan.ValueCodec, value: lowered_machine.ProgramValue) bool {
     return switch (codec) {
         .unit => value == .none,
         .bool => value == .bool,
@@ -683,6 +683,9 @@ fn executeFunction(
     const locals = locals_storage[0..];
     if (args.len != function.parameter_count) return error.ProgramContractViolation;
     for (args, 0..) |arg, arg_index| {
+        const expected_codec = functionLocalCodec(compiled_plan, function, @intCast(arg_index)) orelse
+            return error.ProgramContractViolation;
+        if (!runtimeValueMatchesCodec(expected_codec, arg)) return error.ProgramContractViolation;
         setLocal(locals, @intCast(arg_index), arg);
     }
 
@@ -742,11 +745,13 @@ fn helperArgStorageCapacity(comptime compiled_plan: program_plan.ProgramPlan) us
     return @max(@as(usize, 1), maxFunctionParameterCount(compiled_plan));
 }
 
-fn requirementForOutputLabel(
+fn entryRequirementForOutputLabel(
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime label: []const u8,
 ) ?program_plan.RequirementPlan {
-    inline for (compiled_plan.requirements) |requirement| {
+    const entry_function = compiled_plan.functions[compiled_plan.entry_index];
+    const entry_requirements = compiled_plan.requirements[entry_function.first_requirement..][0..entry_function.requirement_count];
+    inline for (entry_requirements) |requirement| {
         if (std.mem.eql(u8, requirement.label, label)) return requirement;
     }
     return null;
@@ -761,7 +766,7 @@ pub fn collectOutputsForPlan(
     var value: ResultOutputsTypeForPlan(compiled_plan) = std.mem.zeroInit(ResultOutputsTypeForPlan(compiled_plan), .{});
     inline for (outputs) |output| {
         const handler_ptr = &@field(handlers_ptr.*, output.label);
-        const requirement = comptime requirementForOutputLabel(compiled_plan, output.label) orelse
+        const requirement = comptime entryRequirementForOutputLabel(compiled_plan, output.label) orelse
             @compileError("ProgramPlan outputs must map to one requirement");
         switch (comptime requirement.output_tag) {
             .none => {
@@ -918,6 +923,7 @@ test "program plan interpreter rejects const_i32 instructions targeting usize lo
             .{ .kind = .return_value, .operand = 0 },
         },
     };
+    try compiled_plan.validate();
 
     var handlers = struct {}{};
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
@@ -977,6 +983,110 @@ test "program plan interpreter rejects invalid call_nested_with aux codecs" {
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     try std.testing.expectError(error.ProgramContractViolation, executeDispatch(&runtime, compiled_plan, &handlers, 0, &.{}));
+}
+
+test "program plan interpreter rejects entry argument codec mismatches" {
+    const compiled_plan: program_plan.ProgramPlan = .{
+        .label = "interpreter.invalid.entry_arg_codec",
+        .ir_hash = 0x309,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{.{ .kind = .return_value, .operand = 0 }},
+    };
+
+    var handlers = struct {}{};
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, executeDispatch(&runtime, compiled_plan, &handlers, 0, &.{.{ .bool = true }}));
+}
+
+test "program plan interpreter resolves output tags from entry requirement span" {
+    const compiled_plan: program_plan.ProgramPlan = .{
+        .label = "interpreter.entry_scoped_output_requirement",
+        .ir_hash = 0x30a,
+        .entry_index = 1,
+        .functions = &.{
+            .{
+                .symbol_name = "helper",
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 1,
+                .first_local = 0,
+                .local_count = 0,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 0,
+            },
+            .{
+                .symbol_name = "root",
+                .first_requirement = 1,
+                .requirement_count = 1,
+                .first_output = 1,
+                .output_count = 1,
+                .first_local = 0,
+                .local_count = 0,
+                .first_block = 1,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 0,
+            },
+        },
+        .requirements = &.{
+            .{ .label = "state", .first_op = 0, .op_count = 0, .output_tag = .accumulator },
+            .{ .label = "state", .first_op = 0, .op_count = 0, .output_tag = .final_state },
+        },
+        .ops = &.{},
+        .outputs = &.{
+            .{ .label = "state", .codec = .i32 },
+            .{ .label = "state", .codec = .i32 },
+        },
+        .locals = &.{},
+        .blocks = &.{
+            .{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 },
+            .{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 1 },
+        },
+        .terminators = &.{
+            .{ .kind = .return_unit },
+            .{ .kind = .return_unit },
+        },
+        .instructions = &.{},
+    };
+    try compiled_plan.validate();
+
+    var handlers = struct {
+        state: struct {
+            state: i32 = 42,
+        } = .{},
+    }{};
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    const result = try runEntry(&runtime, compiled_plan, &handlers);
+    try std.testing.expectEqual(@as(i32, 42), result.outputs.state);
 }
 
 test "program plan interpreter returns ProgramContractViolation on i32 sub_one overflow" {
