@@ -25,6 +25,38 @@ const CliShapeIssue = union(enum) {
     unknown_flag: []const u8,
 };
 
+const ParsedCliOptions = struct {
+    program_id: ?[]const u8 = null,
+    source_path: ?[]const u8 = null,
+    entry_symbol: ?[]const u8 = null,
+    surface_kind: ?source_lowering.SurfaceKind = null,
+    emit_mode: ?EmitMode = null,
+    output_path: ?[]const u8 = null,
+};
+
+const RequiredCliOptions = struct {
+    program_id: []const u8,
+    source_path: []const u8,
+    entry_symbol: []const u8,
+    surface_kind: source_lowering.SurfaceKind,
+    emit_mode: EmitMode,
+    output_path: []const u8,
+};
+
+const MissingRequiredFlag = enum {
+    emit,
+    entry,
+    flag_id,
+    out,
+    source,
+    surface,
+};
+
+const RequiredCliOptionsResult = union(enum) {
+    config: RequiredCliOptions,
+    missing: MissingRequiredFlag,
+};
+
 fn usage() noreturn {
     std.debug.print(usage_text, .{});
     std.process.exit(1);
@@ -57,6 +89,39 @@ fn cliShapeIssue(args: []const []const u8) ?CliShapeIssue {
     }
     if (args.len > expected_arg_count) return .{ .unexpected_arg_count = args.len - 1 };
     return null;
+}
+
+fn requiredCliOptions(options: ParsedCliOptions) RequiredCliOptionsResult {
+    const program_id = options.program_id orelse return .{ .missing = .flag_id };
+    const source_path = options.source_path orelse return .{ .missing = .source };
+    const entry_symbol = options.entry_symbol orelse return .{ .missing = .entry };
+    const surface_kind = options.surface_kind orelse return .{ .missing = .surface };
+    const emit_mode = options.emit_mode orelse return .{ .missing = .emit };
+    const output_path = options.output_path orelse return .{ .missing = .out };
+
+    return .{ .config = .{
+        .program_id = program_id,
+        .source_path = source_path,
+        .entry_symbol = entry_symbol,
+        .surface_kind = surface_kind,
+        .emit_mode = emit_mode,
+        .output_path = output_path,
+    } };
+}
+
+fn missingRequiredFlagName(flag: MissingRequiredFlag) []const u8 {
+    return switch (flag) {
+        .emit => "--emit",
+        .entry => "--entry",
+        .flag_id => "--id",
+        .out => "--out",
+        .source => "--source",
+        .surface => "--surface",
+    };
+}
+
+fn missingRequiredFlag(flag: MissingRequiredFlag) noreturn {
+    usageError("missing required {s}", .{missingRequiredFlagName(flag)});
 }
 
 fn parseSurface(value: []const u8) ?source_lowering.SurfaceKind {
@@ -615,35 +680,35 @@ pub fn main(init: std.process.Init) anyerror!void {
         }
     }
 
-    var program_id: ?[]const u8 = null;
-    var source_path: ?[]const u8 = null;
-    var entry_symbol: ?[]const u8 = null;
-    var surface_kind: ?source_lowering.SurfaceKind = null;
-    var emit: ?EmitMode = null;
-    var out_path: ?[]const u8 = null;
+    var parsed: ParsedCliOptions = .{};
 
     var idx: usize = 1;
     while (idx < args.len) : (idx += 2) {
         const flag = args[idx];
         const value = args[idx + 1];
         if (std.mem.eql(u8, flag, "--id")) {
-            program_id = value;
+            parsed.program_id = value;
         } else if (std.mem.eql(u8, flag, "--source")) {
-            source_path = value;
+            parsed.source_path = value;
         } else if (std.mem.eql(u8, flag, "--entry")) {
-            entry_symbol = value;
+            parsed.entry_symbol = value;
         } else if (std.mem.eql(u8, flag, "--surface")) {
-            surface_kind = parseSurface(value) orelse usageError("unsupported --surface value '{s}'", .{value});
+            parsed.surface_kind = parseSurface(value) orelse usageError("unsupported --surface value '{s}'", .{value});
         } else if (std.mem.eql(u8, flag, "--emit")) {
-            emit = parseEmit(value) orelse usageError("unsupported --emit value '{s}'", .{value});
+            parsed.emit_mode = parseEmit(value) orelse usageError("unsupported --emit value '{s}'", .{value});
         } else if (std.mem.eql(u8, flag, "--out")) {
-            out_path = value;
+            parsed.output_path = value;
         } else {
             usageError("unknown flag '{s}'", .{flag});
         }
     }
 
-    const output_path = out_path orelse usageError("missing required --out", .{});
+    const cli_options = switch (requiredCliOptions(parsed)) {
+        .config => |config| config,
+        .missing => |flag| missingRequiredFlag(flag),
+    };
+
+    const output_path = cli_options.output_path;
     if (!generatedOutputPathAllowed(output_path)) {
         usageError("--out must be a generated relative path under zig-out/, .zig-cache/, or zig-cache/: '{s}'", .{output_path});
     }
@@ -660,10 +725,10 @@ pub fn main(init: std.process.Init) anyerror!void {
     defer bound_output_path.close();
 
     var program = try source_lowering.inspectSource(allocator, .{
-        .case_id = program_id orelse usageError("missing required --id", .{}),
-        .source_path = source_path orelse usageError("missing required --source", .{}),
-        .entry_symbol = entry_symbol orelse usageError("missing required --entry", .{}),
-        .surface_kind = surface_kind orelse usageError("missing required --surface", .{}),
+        .case_id = cli_options.program_id,
+        .source_path = cli_options.source_path,
+        .entry_symbol = cli_options.entry_symbol,
+        .surface_kind = cli_options.surface_kind,
     });
     defer program.deinit(allocator);
 
@@ -681,7 +746,7 @@ pub fn main(init: std.process.Init) anyerror!void {
         .dir = bound_output_path.dir,
         .io = init.io,
         .allocator = allocator,
-        .emit_mode = emit orelse usageError("missing required --emit", .{}),
+        .emit_mode = cli_options.emit_mode,
         .out_path = bound_output_path.basename,
         .program = &program,
     });
@@ -739,6 +804,32 @@ test "cli shape lets missing required flags reach named diagnostics" {
         "json",
     };
     try std.testing.expectEqual(@as(?CliShapeIssue, null), cliShapeIssue(&args));
+}
+
+test "required cli options reports missing emit before output validation" {
+    const result = requiredCliOptions(.{
+        .program_id = "source.branch_resume",
+        .source_path = "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        .entry_symbol = "wrong",
+        .surface_kind = .source_case,
+        .output_path = "zig-out/source-lower/out.json",
+    });
+    try std.testing.expectEqual(MissingRequiredFlag.emit, result.missing);
+}
+
+test "required cli options resolve all required flags before side effects" {
+    const result = requiredCliOptions(.{
+        .program_id = "source.branch_resume",
+        .source_path = "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+        .emit_mode = .json,
+        .output_path = "zig-out/source-lower/out.json",
+    });
+    const config = result.config;
+    try std.testing.expectEqualStrings("source.branch_resume", config.program_id);
+    try std.testing.expectEqual(EmitMode.json, config.emit_mode);
+    try std.testing.expectEqualStrings("zig-out/source-lower/out.json", config.output_path);
 }
 
 test "cli output path guard admits only generated relative paths" {
