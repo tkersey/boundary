@@ -724,12 +724,18 @@ pub fn main(init: std.process.Init) anyerror!void {
     };
     defer bound_output_path.close();
 
-    var program = try source_lowering.inspectSource(allocator, .{
+    var program = source_lowering.inspectSource(allocator, .{
         .case_id = cli_options.program_id,
         .source_path = cli_options.source_path,
         .entry_symbol = cli_options.entry_symbol,
         .surface_kind = cli_options.surface_kind,
-    });
+    }) catch |err| switch (err) {
+        error.UnsupportedSourceCase => usageError(
+            "unsupported --id '{s}' for --surface '{s}'",
+            .{ cli_options.program_id, @tagName(cli_options.surface_kind) },
+        ),
+        else => return err,
+    };
     defer program.deinit(allocator);
 
     if (!program.isAccepted()) {
