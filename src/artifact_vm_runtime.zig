@@ -439,14 +439,29 @@ fn hostLogEntryByteSize(
     return std.math.add(usize, request_bytes, response_bytes) catch error.DataValueTooManyBytes;
 }
 
-fn chargeHostLogBytes(ctx: *ExecutionContext, entry_bytes: usize) !?host.FailureV1 {
+fn ensureHostLogByteCapacity(ctx: *ExecutionContext, entry_bytes: usize) !?host.FailureV1 {
     const charged = std.math.add(usize, ctx.budget.host_log_bytes, entry_bytes) catch
         return try resourceExhaustedFailure(ctx.allocator, "artifact host-log byte budget exceeded");
     if (charged > ctx.options.max_log_bytes) {
         return try resourceExhaustedFailure(ctx.allocator, "artifact host-log byte budget exceeded");
     }
-    ctx.budget.host_log_bytes = charged;
     return null;
+}
+
+fn chargeHostLogBytes(ctx: *ExecutionContext, entry_bytes: usize) !?host.FailureV1 {
+    if (try ensureHostLogByteCapacity(ctx, entry_bytes)) |failure| return failure;
+    ctx.budget.host_log_bytes += entry_bytes;
+    return null;
+}
+
+fn ensureHostLogRequestByteCapacity(ctx: *ExecutionContext, request: host.HostEffectRequestV1) !?host.FailureV1 {
+    const request_bytes = request.boundedByteSize(ctx.options.data_value_bounds) catch |err| switch (err) {
+        error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
+            return try resourceExhaustedFailure(ctx.allocator, "artifact host-log payload budget exceeded");
+        },
+        else => return err,
+    };
+    return try ensureHostLogByteCapacity(ctx, request_bytes);
 }
 
 fn appendHostLog(ctx: *ExecutionContext, request: host.HostEffectRequestV1, response: host.HostEffectResultV1) !?host.FailureV1 {
@@ -838,6 +853,7 @@ fn callHostOp(
         else => return err,
     };
     defer dispatch_request.deinit(ctx.allocator);
+    if (try ensureHostLogRequestByteCapacity(ctx, dispatch_request)) |failure| return .{ .failed = failure };
     ctx.next_request_id.* += 1;
 
     var response: host.HostEffectResultV1 = ctx.adapter.dispatch(ctx.allocator, dispatch_request) catch |err|
@@ -1133,6 +1149,7 @@ fn callHostAfterOp(
         else => return err,
     };
     defer dispatch_request.deinit(ctx.allocator);
+    if (try ensureHostLogRequestByteCapacity(ctx, dispatch_request)) |failure| return .{ .failed = failure };
     ctx.next_request_id.* += 1;
 
     var response: host.HostEffectResultV1 = ctx.adapter.dispatch(ctx.allocator, dispatch_request) catch |err|
@@ -1475,7 +1492,7 @@ test "artifact runtime checks host-log budget before dispatch" {
         },
         .logs = &logs,
         .next_request_id = &next_request_id,
-        .options = .{ .max_log_entries = 0 },
+        .options = .{ .max_log_bytes = 0 },
     };
 
     var result = try executeFunction(&ctx, 0, &.{});
@@ -1483,13 +1500,14 @@ test "artifact runtime checks host-log budget before dispatch" {
         .failed => |*failure| {
             defer failure.deinit(allocator);
             try std.testing.expectEqualStrings("resource_exhausted", failure.code);
-            try std.testing.expectEqualStrings("artifact host-log budget exceeded", failure.message);
+            try std.testing.expectEqualStrings("artifact host-log byte budget exceeded", failure.message);
         },
         else => return error.TestUnexpectedRuntimeResult,
     }
     try std.testing.expectEqual(@as(usize, 0), dispatch_calls);
     try std.testing.expectEqual(@as(usize, 0), logs.items.len);
     try std.testing.expectEqual(@as(u64, 1), next_request_id);
+    try std.testing.expectEqual(@as(usize, 0), ctx.budget.host_log_bytes);
 }
 
 const RejectLargeAllocator = struct {
@@ -1817,6 +1835,7 @@ test "artifact runtime checks after-call log budget before dispatch" {
         logs.deinit(allocator);
     }
     var next_request_id: u64 = 1;
+    const first_call_log_bytes = "generated/tooling@v1".len + "dispatch".len + "generated/tooling@v1".len;
     var ctx: ExecutionContext = .{
         .allocator = allocator,
         .decoded = &decoded,
@@ -1850,7 +1869,7 @@ test "artifact runtime checks after-call log budget before dispatch" {
         },
         .logs = &logs,
         .next_request_id = &next_request_id,
-        .options = .{ .max_log_entries = 1 },
+        .options = .{ .max_log_bytes = first_call_log_bytes },
     };
 
     var result = try executeFunction(&ctx, 0, &.{});
@@ -1858,13 +1877,14 @@ test "artifact runtime checks after-call log budget before dispatch" {
         .failed => |*failure| {
             defer failure.deinit(allocator);
             try std.testing.expectEqualStrings("resource_exhausted", failure.code);
-            try std.testing.expectEqualStrings("artifact host-log budget exceeded", failure.message);
+            try std.testing.expectEqualStrings("artifact host-log byte budget exceeded", failure.message);
         },
         else => return error.TestUnexpectedRuntimeResult,
     }
     try std.testing.expectEqual(@as(usize, 1), counts.call);
     try std.testing.expectEqual(@as(usize, 0), counts.after);
     try std.testing.expectEqual(@as(usize, 1), logs.items.len);
+    try std.testing.expectEqual(@as(usize, first_call_log_bytes), ctx.budget.host_log_bytes);
 }
 
 test "artifact runtime tracks after-frame budget globally across helpers" {
