@@ -224,6 +224,49 @@ test "lowerFileBackedSourceText rejects mismatched expected_status before canoni
     try std.testing.expectEqualStrings("expected_status_mismatch", lowered.diagnostics[0].code);
 }
 
+test "lowerSourceText entry-missing diagnostic names the expected symbol" {
+    const case = testCanonicalSourceCase();
+    const actual_path = try resolveRepoSourcePathAlloc(std.testing.allocator, case.source_path);
+    defer std.testing.allocator.free(actual_path);
+
+    var lowered = try lowerSourceText(std.testing.allocator, case, .{
+        .display_path = case.source_path,
+        .actual_path = actual_path,
+        .source_text =
+        \\pub fn helper() void {}
+        ,
+        .expected_status = case.status,
+    });
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(LowerStatus.rejected, lowered.status);
+    try std.testing.expectEqualStrings("entry_missing", lowered.diagnostics[0].code);
+    try std.testing.expect(std.mem.find(u8, lowered.diagnostics[0].message, "'run'") != null);
+    try std.testing.expect(std.mem.find(u8, lowered.diagnostics[0].message, "--entry") != null);
+}
+
+test "lowerSourceFile unreadable-source diagnostic gives path recovery guidance" {
+    var case = testCanonicalSourceCase();
+    case.source_path = "test/source_lowering_corpus/fixtures/missing_for_unreadable_diagnostic.zig";
+    const actual_path = try resolveRepoSourcePathAlloc(std.testing.allocator, case.source_path);
+    defer std.testing.allocator.free(actual_path);
+
+    var lowered = try lowerSourceFile(
+        std.testing.allocator,
+        case,
+        case.source_path,
+        actual_path,
+        case.status,
+    );
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(LowerStatus.rejected, lowered.status);
+    try std.testing.expectEqualStrings("source_unreadable", lowered.diagnostics[0].code);
+    try std.testing.expect(std.mem.find(u8, lowered.diagnostics[0].message, "--source") != null);
+    try std.testing.expect(std.mem.find(u8, lowered.diagnostics[0].message, "readable") != null);
+    try std.testing.expect(std.mem.find(u8, lowered.diagnostics[0].message, "canonical repo file") != null);
+}
+
 test "canonical fast-path requires the frozen admitted baseline" {
     const case = testCanonicalSourceCase();
     const canonical_source = try readCanonicalSource(std.testing.allocator, case.source_path);
@@ -894,6 +937,20 @@ fn rejectedExpectedStatusMismatch(
     }));
 }
 
+fn entryMissingMessage(entry_symbol: []const u8) []const u8 {
+    if (std.mem.eql(u8, entry_symbol, "run")) return "entry function 'run' was not found at the top level; pass a top-level function name with --entry";
+    if (std.mem.eql(u8, entry_symbol, "main")) return "entry function 'main' was not found at the top level; pass a top-level function name with --entry";
+    if (std.mem.eql(u8, entry_symbol, "runBody")) return "entry function 'runBody' was not found at the top level; pass a top-level function name with --entry";
+    if (std.mem.eql(u8, entry_symbol, "runAtmResumeTransform")) return "entry function 'runAtmResumeTransform' was not found at the top level; pass a top-level function name with --entry";
+    if (std.mem.eql(u8, entry_symbol, "runDirectReturn")) return "entry function 'runDirectReturn' was not found at the top level; pass a top-level function name with --entry";
+    if (std.mem.eql(u8, entry_symbol, "runMultiPrompt")) return "entry function 'runMultiPrompt' was not found at the top level; pass a top-level function name with --entry";
+    if (std.mem.eql(u8, entry_symbol, "runResumeOrReturnReturnNow")) return "entry function 'runResumeOrReturnReturnNow' was not found at the top level; pass a top-level function name with --entry";
+    if (std.mem.eql(u8, entry_symbol, "runResumeOrReturnResume")) return "entry function 'runResumeOrReturnResume' was not found at the top level; pass a top-level function name with --entry";
+    if (std.mem.eql(u8, entry_symbol, "runStaticRedelim")) return "entry function 'runStaticRedelim' was not found at the top level; pass a top-level function name with --entry";
+    if (std.mem.eql(u8, entry_symbol, "runGenerator")) return "entry function 'runGenerator' was not found at the top level; pass a top-level function name with --entry";
+    return "entry function named by --entry was not found at the top level; pass a top-level function name with --entry";
+}
+
 /// Lower one inline source text against one canonical covered case.
 pub fn lowerSourceText(
     allocator: std.mem.Allocator,
@@ -955,7 +1012,7 @@ fn lowerAnalyzedSourceText(
             .allocator = allocator,
             .display_path = input.display_path,
             .code = "entry_missing",
-            .message = "entry function was not found at the top level",
+            .message = entryMissingMessage(case.entry_symbol),
             .line = 1,
             .column = 1,
         }));
@@ -1041,7 +1098,7 @@ pub fn lowerSourceFile(
             .allocator = allocator,
             .display_path = display_path,
             .code = "source_unreadable",
-            .message = "source file could not be read",
+            .message = "source file could not be read; check that --source exists, is readable, and points to the canonical repo file for this case",
             .line = 1,
             .column = 1,
         }));

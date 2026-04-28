@@ -955,7 +955,13 @@ pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!Genera
         const source = std.Io.Dir.cwd().readFileAlloc(std.Io.Threaded.global_single_threaded.io(), resolved_source_path, allocator, .limited(1 << 20)) catch {
             lowered.deinit(allocator);
             lowered_owned = false;
-            return generatedRejectedProgram(allocator, spec, case, "source_read_failed", "source file could not be read");
+            return generatedRejectedProgram(
+                allocator,
+                spec,
+                case,
+                "source_read_failed",
+                "source file could not be read; check that --source exists, is readable, and points to the canonical repo file for this case",
+            );
         };
         defer allocator.free(source);
         if (!(try sourceMatchesCanonicalLayout(allocator, case, source))) {
