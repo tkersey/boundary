@@ -45,7 +45,7 @@ const Body = struct {
 
     pub const source = sourceBytes();
     pub const source_hash = ability.sourceHash(sourceBytes());
-    pub const source_file = "main.zig";
+    pub const source_file = sourceLocation().file;
     pub const source_location = sourceLocation();
     pub const source_identity = "main.Body";
 

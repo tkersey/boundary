@@ -84,7 +84,7 @@ pub fn LexicalHandle(
             var current_handle = self;
             var authored = algebraic.activeEngineContext(Cap, self.ctx.?).performProgramWithContext(Cap.RequestOp(), {}, &current_handle, request_state);
             if (comptime !(@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan)) {
-                @compileError("optional lexical choice continuations must lower to a compiled ProgramPlan; interpreted frontend fallback is unsupported");
+                @compileError("optional lexical choice continuations must compile to supported direct execution; interpreted frontend fallback is unsupported");
             }
             return try authored.runCompiled(self.runtime.?);
         }
@@ -360,13 +360,13 @@ test "optional handle can resume and transform the resumed answer" {
                 }
             }));
             comptime {
-                if (!ProgramType.has_compiled_plan) @compileError("optional bound program should expose a compiled ProgramPlan");
+                if (!ProgramType.has_compiled_plan) @compileError("optional bound program should expose supported compiled execution");
                 const compiled_plan = ProgramType.compiledPlan().?;
                 if (compiled_plan.functions[compiled_plan.entry_index].value_codec != .i32) {
-                    @compileError("optional bound program should preserve the continuation resume codec in ProgramPlan");
+                    @compileError("optional bound program should preserve the continuation resume codec in compiled execution");
                 }
                 if (compiled_plan.functions[compiled_plan.entry_index].result_codec.? != .string) {
-                    @compileError("optional bound program should preserve the final answer codec separately in ProgramPlan");
+                    @compileError("optional bound program should preserve the final answer codec separately in compiled execution");
                 }
             }
             return requestBoundProgram(Cap, ctx, struct {

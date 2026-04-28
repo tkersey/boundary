@@ -1279,7 +1279,7 @@ pub fn Program(
                     if (comptime @hasDecl(Body, "program")) {
                         var authored = Body.program(&ctx);
                         if (comptime !(@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan)) {
-                            @compileError("algebraic authored programs must lower to a compiled ProgramPlan; interpreted frontend fallback is unsupported");
+                            @compileError("algebraic authored programs must compile to supported direct execution; interpreted frontend fallback is unsupported");
                         }
                         return try authored.runCompiled(runtime);
                     }

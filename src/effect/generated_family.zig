@@ -867,7 +867,7 @@ pub fn Build(comptime spec: anytype) type {
                         var current_handle = self;
                         var authored = activeEngineContext(Config.Capability, self.ctx.?).performProgramWithContext(OpTypeValue, {}, &current_handle, request_state);
                         if (comptime !(@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan)) {
-                            @compileError("generated lexical choice continuations must lower to a compiled ProgramPlan; interpreted frontend fallback is unsupported");
+                            @compileError("generated lexical choice continuations must compile to supported direct execution; interpreted frontend fallback is unsupported");
                         }
                         return try authored.runCompiled(self.runtime.?);
                     }
@@ -918,7 +918,7 @@ pub fn Build(comptime spec: anytype) type {
                         var current_handle = self;
                         var authored = activeEngineContext(Config.Capability, self.ctx.?).performProgramWithContext(OpTypeValue, payload, &current_handle, request_state);
                         if (comptime !(@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan)) {
-                            @compileError("generated lexical choice continuations must lower to a compiled ProgramPlan; interpreted frontend fallback is unsupported");
+                            @compileError("generated lexical choice continuations must compile to supported direct execution; interpreted frontend fallback is unsupported");
                         }
                         return try authored.runCompiled(self.runtime.?);
                     }
