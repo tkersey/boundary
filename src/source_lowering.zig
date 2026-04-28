@@ -855,7 +855,7 @@ fn inspectSourceText(
         return generatedRejectedProgram(allocator, spec, case, "requested entry symbol is not supported for this case; use the case's canonical entry symbol");
     }
     if (spec.expected_status != case.status) {
-        return generatedRejectedProgram(allocator, spec, case, "requested expected_status does not match this case; use the case's supported status or update the case definition");
+        return generatedRejectedProgram(allocator, spec, case, "requested support status does not match this case; use the registered case status or update the case definition before lowering");
     }
 
     const resolved_source_path = resolvedRepoSourcePathAlloc(allocator, spec.source_path) catch try allocator.dupe(u8, spec.source_path);
@@ -876,7 +876,7 @@ fn inspectSourceText(
     if (lowered.status != .rejected and !(try sourceMatchesCanonicalLayout(allocator, case, source_text))) {
         lowered.deinit(allocator);
         lowered_owned = false;
-        return generatedRejectedProgram(allocator, spec, case, "source differs from the supported artifact layout for this case; use the canonical fixture shape or update the case baseline");
+        return generatedRejectedProgram(allocator, spec, case, "source differs from the registered artifact layout for this case; use the registered source file or update the case registry and baseline before rerunning");
     }
     const program = try generatedProgramFromLowered(allocator, spec, case, lowered);
     lowered_owned = false;
@@ -894,7 +894,7 @@ fn inspectFileBackedSourceText(
         return generatedRejectedProgram(allocator, spec, case, "requested entry symbol is not supported for this case; use the case's canonical entry symbol");
     }
     if (spec.expected_status != case.status) {
-        return generatedRejectedProgram(allocator, spec, case, "requested expected_status does not match this case; use the case's supported status or update the case definition");
+        return generatedRejectedProgram(allocator, spec, case, "requested support status does not match this case; use the registered case status or update the case definition before lowering");
     }
 
     var lowered = try authoring_lowerer.lowerFileBackedSourceText(.{
@@ -910,7 +910,7 @@ fn inspectFileBackedSourceText(
     if (lowered.status != .rejected and !(try sourceMatchesCanonicalLayout(allocator, case, source_text))) {
         lowered.deinit(allocator);
         lowered_owned = false;
-        return generatedRejectedProgram(allocator, spec, case, "source differs from the supported artifact layout for this case; use the canonical fixture shape or update the case baseline");
+        return generatedRejectedProgram(allocator, spec, case, "source differs from the registered artifact layout for this case; use the registered source file or update the case registry and baseline before rerunning");
     }
     const program = try generatedProgramFromLowered(allocator, spec, case, lowered);
     lowered_owned = false;
@@ -927,7 +927,7 @@ pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!Genera
         return generatedRejectedProgram(allocator, spec, case, "requested entry symbol is not supported for this case; use the case's canonical entry symbol");
     }
     if (spec.expected_status != case.status) {
-        return generatedRejectedProgram(allocator, spec, case, "requested expected_status does not match this case; use the case's supported status or update the case definition");
+        return generatedRejectedProgram(allocator, spec, case, "requested support status does not match this case; use the registered case status or update the case definition before lowering");
     }
     const resolved_source_path = resolvedRepoSourcePathAlloc(allocator, spec.source_path) catch try allocator.dupe(u8, spec.source_path);
     defer allocator.free(resolved_source_path);
@@ -950,7 +950,7 @@ pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!Genera
         if (!(try sourceMatchesCanonicalLayout(allocator, case, source))) {
             lowered.deinit(allocator);
             lowered_owned = false;
-            return generatedRejectedProgram(allocator, spec, case, "source differs from the supported artifact layout for this case; use the canonical fixture shape or update the case baseline");
+            return generatedRejectedProgram(allocator, spec, case, "source differs from the registered artifact layout for this case; use the registered source file or update the case registry and baseline before rerunning");
         }
     }
     const program = try generatedProgramFromLowered(allocator, spec, case, lowered);

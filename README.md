@@ -29,6 +29,11 @@ tests, but it is a separate package module rather than part of the
 want compiled lexical execution for ordinary local body structs must make the
 source witness part of the body type itself:
 
+For a copy-runnable starting point, use `examples/state_basic.zig` or run it
+from this checkout with `zig build run-state-basic`. The excerpt below shows the
+source-witness fields that named external bodies add when they need compiled
+lexical execution from a downstream package.
+
 ```zig
 const Body = struct {
     fn sourceBytes() []const u8 {
@@ -150,7 +155,9 @@ Manual run, tool, generator, and benchmark surfaces still exist for local
 iteration, but they are not additional test contracts:
 
 - `zig build run-*` for retained examples
-- `zig build source-lower`
+- `zig build source-lower` to build `./zig-out/bin/ability-source-lower`
+  (`./zig-out/bin/ability-source-lower --help` prints the tool contract)
 - `zig build generate-ability-agent-vm-fixture`
+  (`zig build generate-ability-agent-vm-fixture -- --help` prints generator help)
 - `zig build bench*`
 - `zig build zprof-hotspots`

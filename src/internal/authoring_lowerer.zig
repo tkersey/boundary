@@ -725,13 +725,13 @@ fn findMismatch(actual: []const NormalizedToken, canonical: []const NormalizedTo
         if (std.mem.eql(u8, actual[index].value, canonical[index].value)) continue;
         return .{
             .token_index = actual[index].token_index,
-            .message = "source differs from the supported lowering pattern for this case; use the canonical fixture shape or update the admitted case baseline",
+            .message = "source differs from the registered lowering pattern for this case; use the registered source file or update the case registry and baseline before rerunning",
         };
     }
     if (actual.len != canonical.len) {
         return .{
             .token_index = if (actual.len == 0) null else actual[actual.len - 1].token_index,
-            .message = "source token stream differs from the supported lowering pattern for this case; use the canonical fixture shape or update the admitted case baseline",
+            .message = "source token stream differs from the registered lowering pattern for this case; use the registered source file or update the case registry and baseline before rerunning",
         };
     }
     return null;
@@ -888,7 +888,7 @@ fn rejectedExpectedStatusMismatch(
         .allocator = allocator,
         .display_path = display_path,
         .code = "expected_status_mismatch",
-        .message = "requested expected_status does not match the supported status for this case",
+        .message = "requested support status does not match the registered status for this case",
         .line = 1,
         .column = 1,
     }));
@@ -965,7 +965,7 @@ fn lowerAnalyzedSourceText(
             .allocator = allocator,
             .display_path = input.display_path,
             .code = "expected_status_mismatch",
-            .message = "requested expected_status does not match the supported status for this case",
+            .message = "requested support status does not match the registered status for this case",
             .line = 1,
             .column = 1,
         }));
@@ -978,7 +978,7 @@ fn lowerAnalyzedSourceText(
             .allocator = allocator,
             .display_path = case.source_path,
             .code = "canonical_source_drift",
-            .message = "canonical source on disk differs from the admitted case baseline; regenerate or update the baseline before lowering",
+            .message = "registered source on disk differs from the admitted baseline; regenerate the baseline or update the registry before lowering",
             .line = 1,
             .column = 1,
         }));
