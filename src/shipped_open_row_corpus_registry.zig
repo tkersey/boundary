@@ -30,7 +30,7 @@ pub const custom_examples = [_]CustomExample{
         .example_case_id = "example.open_row_transform_basic",
         .fixture_name = "open_row_transform_basic.txt",
         .run_step_name = "run-open-row-transform-basic",
-        .run_step_desc = "Run the retained transform walkthrough.",
+        .run_step_desc = "Run the open-row transform walkthrough.",
         .user_defined_case_id = "user_defined.transform",
     },
     .{
@@ -40,7 +40,7 @@ pub const custom_examples = [_]CustomExample{
         .example_case_id = "example.open_row_choice_basic",
         .fixture_name = "open_row_choice_basic.txt",
         .run_step_name = "run-open-row-choice-basic",
-        .run_step_desc = "Run the retained choice walkthrough.",
+        .run_step_desc = "Run the open-row choice walkthrough.",
         .user_defined_case_id = "user_defined.choice",
     },
     .{
@@ -50,7 +50,7 @@ pub const custom_examples = [_]CustomExample{
         .example_case_id = "example.open_row_abort_basic",
         .fixture_name = "open_row_abort_basic.txt",
         .run_step_name = "run-open-row-abort-basic",
-        .run_step_desc = "Run the retained abort walkthrough.",
+        .run_step_desc = "Run the open-row abort walkthrough.",
         .user_defined_case_id = "user_defined.abort",
     },
     .{
@@ -60,7 +60,7 @@ pub const custom_examples = [_]CustomExample{
         .example_case_id = "example.open_row_workflow",
         .fixture_name = "open_row_workflow.txt",
         .run_step_name = "run-open-row-workflow",
-        .run_step_desc = "Run the retained workflow walkthrough.",
+        .run_step_desc = "Run the open-row workflow walkthrough.",
     },
     .{
         .kind = .abortive_validation,
@@ -69,7 +69,7 @@ pub const custom_examples = [_]CustomExample{
         .example_case_id = "example.open_row_abortive_validation",
         .fixture_name = "open_row_abortive_validation.txt",
         .run_step_name = "run-open-row-abortive-validation",
-        .run_step_desc = "Run the retained abortive-validation walkthrough.",
+        .run_step_desc = "Run the open-row abortive-validation walkthrough.",
     },
     .{
         .kind = .artifact_search,
@@ -78,7 +78,7 @@ pub const custom_examples = [_]CustomExample{
         .example_case_id = "example.open_row_artifact_search",
         .fixture_name = "open_row_artifact_search.txt",
         .run_step_name = "run-open-row-artifact-search",
-        .run_step_desc = "Run the retained artifact-search walkthrough.",
+        .run_step_desc = "Run the open-row artifact-search walkthrough.",
     },
     .{
         .kind = .generator,
@@ -87,7 +87,7 @@ pub const custom_examples = [_]CustomExample{
         .example_case_id = "example.open_row_generator",
         .fixture_name = "open_row_generator.txt",
         .run_step_name = "run-open-row-generator",
-        .run_step_desc = "Run the retained generator walkthrough.",
+        .run_step_desc = "Run the open-row generator walkthrough.",
     },
 };
 

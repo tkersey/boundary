@@ -149,6 +149,36 @@ test aliases. It keeps coverage on:
 - source-lowering CLI safety checks
 - interpreter behavior where it still underpins the lexical stack
 
+For focused local iteration, `zig build test -Dtest-suites=<ids>` accepts a
+comma-separated list of exact suite ids. Supported ids are:
+
+```text
+root
+ability-agent-vm-consumer
+ability-agent-vm-freshness
+ability-agent-vm-smoke
+artifact-vm-runtime-build-host-log-budget
+frontend
+admitted-body-v1
+program-plan-review
+program-bridge
+witness-corpus
+runtime-contract
+prompt-token
+portability-contract
+program-frontend-boundary
+source-lowering-corpus
+source-lowering-boundary
+source-lowering-promoted
+source-lowering-completion
+source-lowering-tool
+open-row-lowering
+source-ownership-probe
+source-lowering-witness
+lexical-witness
+lexical-with
+```
+
 Deleted child-build and package-export probes are not hidden behind opt-in test
 steps; coverage that remains valuable is represented by fast default tests.
 

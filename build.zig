@@ -4321,7 +4321,7 @@ pub fn build(b: *std.Build) void {
     const test_suites_raw = b.option(
         []const u8,
         "test-suites",
-        "Restrict `zig build test` to a comma-separated list of exact suite ids.",
+        "Restrict `zig build test` to exact suite ids; README lists ids and invalid ids print them.",
     );
     const test_requested_from_argv = buildInvocationRequestsRunnableStep("test");
     const lint_requested_from_argv = buildInvocationRequestsStep("lint");
@@ -5174,7 +5174,7 @@ pub fn build(b: *std.Build) void {
         .root_module = source_lowering_tool_mod,
     });
     const source_lowering_tool_install = b.addInstallArtifact(source_lowering_tool_exe, .{});
-    const source_lowering_tool_step = b.step("source-lower", "Build the internal source-lowering tool.");
+    const source_lowering_tool_step = b.step("source-lower", "Build the source-lowering inspection tool.");
     source_lowering_tool_step.dependOn(&source_lowering_tool_exe.step);
     source_lowering_tool_step.dependOn(&source_lowering_tool_install.step);
     const source_lowering_tool_tests = addFilteredTest(b, source_lowering_tool_mod, test_runner_args.filters.items);
@@ -5562,9 +5562,13 @@ pub fn build(b: *std.Build) void {
         .name = "ability-runtime-backend-matrix-bench",
         .root_module = runtime_backend_bench_mod,
     });
-    const runtime_backend_bench_run = b.addRunArtifact(runtime_backend_bench_exe);
     const runtime_backend_bench_step = b.step("bench-runtime-backends", "Compare the current stack runtime against the lowered runtime over the supported bridge corpus.");
-    runtime_backend_bench_step.dependOn(&runtime_backend_bench_run.step);
+    if (target.query.isNative()) {
+        const runtime_backend_bench_run = b.addRunArtifact(runtime_backend_bench_exe);
+        runtime_backend_bench_step.dependOn(&runtime_backend_bench_run.step);
+    } else {
+        runtime_backend_bench_step.dependOn(&runtime_backend_bench_exe.step);
+    }
 
     const zprof_hotspots_step = b.step("zprof-hotspots", "Profile writer/resource allocator hotspots with zprof.");
     if (b.lazyDependency("zprof", .{
