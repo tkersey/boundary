@@ -68,6 +68,8 @@ pub const LowerError = effect_ir.NormalizeError || ValidationError;
 
 const max_validation_source_bytes = 1 << 20;
 const validation_source_read_limit = max_validation_source_bytes + 1;
+const executable_codec_support_message =
+    "public lowering runtime execution supports only bool, i32, string, unit, and usize values; change the body result or handler payload type";
 
 fn sentinelBytes(comptime bytes: []const u8) [:0]const u8 {
     const raw = std.fmt.comptimePrint("{s}\x00", .{bytes});
@@ -2397,7 +2399,7 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
         error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
         error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
         error.UnsupportedHelperCallEdge => @compileError("public lowering runtime execution supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
-        error.UnsupportedCodecType => @compileError("public lowering runtime execution supports only bool, i32, string, string list, unit, and usize values; change the body result or handler payload type"),
+        error.UnsupportedCodecType => @compileError(executable_codec_support_message),
         error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
     };
     assertExecutableCodecSupport(compiled_plan);
@@ -2453,7 +2455,7 @@ fn Lower(comptime source_ref: SourceRef, comptime spec: LowerSpec) type {
             error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
             error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
             error.UnsupportedHelperCallEdge => @compileError("public lowering runtime execution supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
-            error.UnsupportedCodecType => @compileError("public lowering runtime execution supports only bool, i32, string, string list, unit, and usize values; change the body result or handler payload type"),
+            error.UnsupportedCodecType => @compileError(executable_codec_support_message),
             error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
         };
         assertExecutableCodecSupport(compiled_plan);
@@ -2694,7 +2696,7 @@ fn CompileIrType(comptime label: []const u8, comptime program: effect_ir.Program
         error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
         error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
         error.UnsupportedHelperCallEdge => @compileError("public lowering runtime execution supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
-        error.UnsupportedCodecType => @compileError("public lowering runtime execution supports only bool, i32, string, string list, unit, and usize values; change the body result or handler payload type"),
+        error.UnsupportedCodecType => @compileError(executable_codec_support_message),
         error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
     };
     assertExecutableCodecSupport(compiled_plan);
