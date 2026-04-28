@@ -122,24 +122,9 @@ pub const ArtifactV1 = struct {
 
     /// Validate that the artifact manifest and rebuilt program plan are self-consistent.
     pub fn validate(self: @This(), allocator: std.mem.Allocator) anyerror!void {
-        try validateManifest(self.manifest_build_fingerprint, self.capabilities);
-        const recomputed_build_fingerprint = try buildFingerprintForCapabilitiesForArtifactVersion(
-            allocator,
-            self.artifact_version,
-            self.manifest_build_fingerprint,
-            self.capabilities,
-        );
-        if (!std.mem.eql(u8, &recomputed_build_fingerprint, &self.build_fingerprint_blake3_256)) {
-            return error.BuildFingerprintMismatch;
-        }
-        if (self.entry_function_index >= self.functions.len) return error.InvalidEntryFunctionIndex;
-        if (self.functions[self.entry_function_index].parameter_count != 0) return error.UnsupportedEntryParameters;
         const plan = try self.toProgramPlan(allocator);
         defer deepFreeProgramPlan(allocator, plan);
-        try plan.validate();
-        try validateExecutableCodecSupport(plan);
-        try validateExecutableInstructionSupport(plan);
-        try validateRequirementCapabilityMappings(plan, self.requirement_capability_ids, self.capabilities);
+        try validateWithProgramPlan(self, allocator, plan);
     }
 
     /// Rebuild one runtime-owned ProgramPlan from this artifact payload.
@@ -194,6 +179,19 @@ pub const ArtifactV1 = struct {
         allocator.free(self.blocks);
         allocator.free(self.terminators);
         deepFreeInstructions(allocator, self.instructions);
+        self.* = undefined;
+    }
+};
+
+/// One decoded ArtifactV1 plus the validated runtime-owned plan derived from it.
+pub const DecodedProgramPlanV1 = struct {
+    artifact: ArtifactV1,
+    plan: program_plan.ProgramPlan,
+
+    /// Release both the decoded artifact and the derived runtime plan.
+    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        deepFreeProgramPlan(allocator, self.plan);
+        self.artifact.deinit(allocator);
         self.* = undefined;
     }
 };
@@ -536,11 +534,8 @@ fn encodeProgramPlanVersioned(
     for (directories) |directory| try encodeDirectoryEntry(&out, allocator, directory);
     for (payloads) |payload| try out.appendSlice(allocator, payload.bytes);
 
-    var hash_input = try allocator.dupe(u8, out.items);
-    defer allocator.free(hash_input);
-    @memset(hash_input[hash_offset .. hash_offset + 32], 0);
     var digest = std.mem.zeroes([32]u8);
-    std.crypto.hash.Blake3.hash(hash_input, &digest, .{});
+    artifactHashWithZeroedDigest(out.items, &digest);
     @memcpy(out.items[hash_offset .. hash_offset + 32], &digest);
 
     return out.toOwnedSlice(allocator);
@@ -548,6 +543,13 @@ fn encodeProgramPlanVersioned(
 
 /// Decode canonical ArtifactV1 bytes into the in-memory artifact surface.
 pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!ArtifactV1 {
+    const decoded = try decodeWithProgramPlan(allocator, bytes);
+    defer deepFreeProgramPlan(allocator, decoded.plan);
+    return decoded.artifact;
+}
+
+/// Decode canonical ArtifactV1 bytes and return the validated executable plan.
+pub fn decodeWithProgramPlan(allocator: std.mem.Allocator, bytes: []const u8) anyerror!DecodedProgramPlanV1 {
     if (bytes.len < artifact_header_len) return error.InvalidDirectoryBounds;
     if (!std.mem.eql(u8, bytes[0..8], artifact_magic)) return error.BadMagic;
     if (readU16(bytes, 8) != artifact_header_len) return error.UnsupportedVersion;
@@ -711,8 +713,36 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     errdefer artifact.deinit(allocator);
     @memcpy(&artifact.artifact_hash_blake3_256, expected_hash);
     if (artifact.entry_function_index >= artifact.functions.len) return error.InvalidEntryFunctionIndex;
-    try artifact.validate(allocator);
-    return artifact;
+    const plan = try artifact.toProgramPlan(allocator);
+    errdefer deepFreeProgramPlan(allocator, plan);
+    try validateWithProgramPlan(artifact, allocator, plan);
+    return .{
+        .artifact = artifact,
+        .plan = plan,
+    };
+}
+
+fn validateWithProgramPlan(
+    self: ArtifactV1,
+    allocator: std.mem.Allocator,
+    plan: program_plan.ProgramPlan,
+) anyerror!void {
+    try validateManifest(self.manifest_build_fingerprint, self.capabilities);
+    const recomputed_build_fingerprint = try buildFingerprintForCapabilitiesForArtifactVersion(
+        allocator,
+        self.artifact_version,
+        self.manifest_build_fingerprint,
+        self.capabilities,
+    );
+    if (!std.mem.eql(u8, &recomputed_build_fingerprint, &self.build_fingerprint_blake3_256)) {
+        return error.BuildFingerprintMismatch;
+    }
+    if (self.entry_function_index >= self.functions.len) return error.InvalidEntryFunctionIndex;
+    if (self.functions[self.entry_function_index].parameter_count != 0) return error.UnsupportedEntryParameters;
+    try plan.validate();
+    try validateExecutableCodecSupport(plan);
+    try validateExecutableInstructionSupport(plan);
+    try validateRequirementCapabilityMappings(plan, self.requirement_capability_ids, self.capabilities);
 }
 
 fn artifactHashWithZeroedDigest(bytes: []const u8, out: *[32]u8) void {

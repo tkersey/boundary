@@ -71,6 +71,8 @@ fail at compile time instead of falling back to interpreted execution.
 
 ## Dependency
 
+Requires Zig 0.16.0 for the commands below.
+
 Pin a release tag or exact commit rather than an unqualified branch:
 
 ```bash

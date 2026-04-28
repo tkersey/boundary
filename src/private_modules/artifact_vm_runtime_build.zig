@@ -96,11 +96,11 @@ pub fn runArtifactWithOptions(
     adapter: host.HostAdapterV1,
     options: RunOptionsV1,
 ) anyerror!RunArtifactResultV1 {
-    var decoded = try artifact.decode(allocator, bytes);
-    defer decoded.deinit(allocator);
-    const plan = try decoded.toProgramPlan(allocator);
-    defer deepFreeProgramPlan(allocator, plan);
-    var dispatch_table = try DispatchTable.init(allocator, decoded, plan);
+    var decoded_with_plan = try artifact.decodeWithProgramPlan(allocator, bytes);
+    defer decoded_with_plan.deinit(allocator);
+    const decoded = &decoded_with_plan.artifact;
+    const plan = decoded_with_plan.plan;
+    var dispatch_table = try DispatchTable.init(allocator, decoded.*, plan);
     defer dispatch_table.deinit(allocator);
 
     var logs = std.ArrayList(host.HostLogEntryV1).empty;
@@ -112,7 +112,7 @@ pub fn runArtifactWithOptions(
     var next_request_id: u64 = 1;
     var execution: ExecutionContext = .{
         .allocator = allocator,
-        .decoded = &decoded,
+        .decoded = decoded,
         .plan = plan,
         .adapter = adapter,
         .logs = &logs,
@@ -1243,24 +1243,6 @@ fn decodeI32InstructionLiteral(instruction: program_plan.Instruction) i32 {
     const low = @as(u32, instruction.operand);
     const high = @as(u32, instruction.aux) << 16;
     return @bitCast(high | low);
-}
-
-fn deepFreeProgramPlan(allocator: std.mem.Allocator, plan: program_plan.ProgramPlan) void {
-    allocator.free(plan.label);
-    for (plan.functions) |item| allocator.free(item.symbol_name);
-    allocator.free(@constCast(plan.functions));
-    for (plan.requirements) |item| allocator.free(item.label);
-    allocator.free(@constCast(plan.requirements));
-    for (plan.ops) |item| allocator.free(item.op_name);
-    allocator.free(@constCast(plan.ops));
-    for (plan.outputs) |item| allocator.free(item.label);
-    allocator.free(@constCast(plan.outputs));
-    allocator.free(@constCast(plan.locals));
-    allocator.free(@constCast(plan.call_args));
-    allocator.free(@constCast(plan.blocks));
-    allocator.free(@constCast(plan.terminators));
-    for (plan.instructions) |item| allocator.free(item.string_literal);
-    allocator.free(@constCast(plan.instructions));
 }
 
 fn cloneProgramValue(allocator: std.mem.Allocator, value: lowered_machine.ProgramValue) !lowered_machine.ProgramValue {

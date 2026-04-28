@@ -10,5 +10,9 @@ pub const CapabilityV1 = inner.CapabilityV1;
 pub const HostOpKind = inner.HostOpKind;
 /// Re-exported ArtifactV1 decoder.
 pub const decode = inner.decode;
+/// Re-exported ArtifactV1 decoder that also returns the validated runtime plan.
+pub const decodeWithProgramPlan = inner.decodeWithProgramPlan;
+/// Re-exported decoded ArtifactV1 plus validated runtime plan bundle.
+pub const DecodedProgramPlanV1 = inner.DecodedProgramPlanV1;
 /// Re-exported terminal result codec resolver.
 pub const terminalResultCodecForOp = inner.terminalResultCodecForOp;
