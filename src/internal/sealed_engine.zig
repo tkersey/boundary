@@ -94,7 +94,7 @@ pub fn runWithSealedEngine(
                 if (@typeInfo(AuthoredType) == .@"struct") {
                     var authored = Body.program(Cap, ctx);
                     if (comptime !(@hasDecl(AuthoredType, "has_compiled_plan") and AuthoredType.has_compiled_plan)) {
-                        @compileError("sealed lexical authored programs must lower to a compiled ProgramPlan; interpreted frontend fallback is unsupported");
+                        @compileError("sealed lexical authored programs must compile to supported direct execution; interpreted frontend fallback is unsupported");
                     }
                     return try authored.runCompiled(state.runtime);
                 }

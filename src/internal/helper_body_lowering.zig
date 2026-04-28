@@ -364,7 +364,7 @@ fn appendBoolLiteralValue(state: *BodyBuildState, value: bool) u16 {
 
 fn failUnsupportedBodyLowering(comptime function: source_graph_embed.ProgramFunction) noreturn {
     @compileError(std.fmt.comptimePrint(
-        "public lowering cannot synthesize unsupported helper or entry bodies; {s}:{s} must stay within the retained lowered-body subset",
+        "public lowering supports direct effect calls, locals, branches, and supported helper calls; {s}:{s} uses an unsupported helper or entry body shape. Inline or simplify that body.",
         .{ function.module_path, function.name },
     ));
 }

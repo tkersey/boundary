@@ -10,8 +10,12 @@ const Sample = struct {
     elapsed_ns: u64,
 };
 
-fn runSample(iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn elapsedNsSince(io: std.Io, start: std.Io.Timestamp) u64 {
+    return @intCast(start.durationTo(std.Io.Timestamp.now(io, .boot)).toNanoseconds());
+}
+
+fn runSample(io: std.Io, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var sum: usize = 0;
 
     var i: usize = 0;
@@ -37,7 +41,7 @@ fn runSample(iterations: usize) !Sample {
 
     return .{
         .checksum = sum,
-        .elapsed_ns = timer.read(),
+        .elapsed_ns = elapsedNsSince(io, start),
     };
 }
 
@@ -55,13 +59,13 @@ fn sortAscending(values: []u64) void {
 
 /// Run the direct-style first-suspend benchmark.
 pub fn main(init: std.process.Init) anyerror!void {
-    _ = try runSample(warmup_iterations);
+    _ = try runSample(init.io, warmup_iterations);
 
     var sample_ns = [_]u64{0} ** samples_per_run;
     var expected_checksum: ?usize = null;
     var i: usize = 0;
     while (i < samples_per_run) : (i += 1) {
-        const sample = try runSample(timed_iterations);
+        const sample = try runSample(init.io, timed_iterations);
         if (expected_checksum) |checksum| {
             if (checksum != sample.checksum) return error.ChecksumMismatch;
         } else {

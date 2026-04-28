@@ -995,7 +995,7 @@ fn failRepoOwnedAnonymousSource(comptime Body: type) noreturn {
 
 fn failUnsupportedBody(comptime Body: type) noreturn {
     @compileError(std.fmt.comptimePrint(
-        "ability.with bodies must lower to ProgramPlan; external body types must declare pub const source containing embedded source bytes: body={s}",
+        "ability.with could not compile this body shape; external body types must declare source/source_hash/source_file/source_location/source_identity from their owning source bytes: body={s}",
         .{@typeName(Body)},
     ));
 }
@@ -1350,7 +1350,7 @@ fn tryRepoOwnedAnonymousCompiledWith(
         synthesized.entry_symbol,
     ) == null) {
         @compileError(std.fmt.comptimePrint(
-            "ability.with repo-owned anonymous body must lower to ProgramPlan: source={s} entry={s}",
+            "ability.with could not compile this repo-owned anonymous body; use a supported lexical body shape or add an explicit source-backed named body: source={s} entry={s}",
             .{ synthesized.source_path, synthesized.entry_symbol },
         ));
     }
@@ -1448,7 +1448,7 @@ fn tryRepoOwnedNamedCompiledWith(
         entry_symbol,
     ) == null) {
         @compileError(std.fmt.comptimePrint(
-            "ability.with repo-owned named body must lower to ProgramPlan: source={s} entry={s}",
+            "ability.with could not compile this repo-owned named body; keep the body within supported lexical effect operations or simplify unsupported helpers: source={s} entry={s}",
             .{ source_path, entry_symbol },
         ));
     }

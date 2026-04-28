@@ -68,6 +68,8 @@ pub const LowerError = effect_ir.NormalizeError || ValidationError;
 
 const max_validation_source_bytes = 1 << 20;
 const validation_source_read_limit = max_validation_source_bytes + 1;
+const executable_codec_support_message =
+    "public lowering runtime execution supports only bool, i32, string, unit, and usize values; change the body result or handler payload type";
 
 fn sentinelBytes(comptime bytes: []const u8) [:0]const u8 {
     const raw = std.fmt.comptimePrint("{s}\x00", .{bytes});
@@ -2380,7 +2382,7 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
         error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
         error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
         error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
-        error.UnsupportedHelperCallEdge => @compileError("public lowering rejected helper call edges outside the retained open-row shell"),
+        error.UnsupportedHelperCallEdge => @compileError("public lowering supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
         error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
     };
     const compiled_plan = program_plan.planFromOpenRowProgram(spec.label, lowered_program.program) catch |err| switch (err) {
@@ -2396,8 +2398,8 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
         error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
         error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
         error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
-        error.UnsupportedHelperCallEdge => @compileError("public lowering runtime plan rejected helper call edges outside the retained open-row shell"),
-        error.UnsupportedCodecType => @compileError("public lowering runtime plan rejected a type outside the first-wave codec set"),
+        error.UnsupportedHelperCallEdge => @compileError("public lowering runtime execution supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
+        error.UnsupportedCodecType => @compileError(executable_codec_support_message),
         error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
     };
     assertExecutableCodecSupport(compiled_plan);
@@ -2430,13 +2432,13 @@ fn Lower(comptime source_ref: SourceRef, comptime spec: LowerSpec) type {
             error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
             error.EmptyRequirementLabel => @compileError("public lowering rejected an empty requirement label"),
             error.EmptyOpName => @compileError("public lowering rejected an empty op name"),
-            error.InvalidProgramBodyShape => @compileError("public lowering rejected one helper body outside the retained lowered-body subset"),
+            error.InvalidProgramBodyShape => @compileError("public lowering supports direct effect calls, locals, branches, and supported helper calls; one helper body uses an unsupported source shape"),
             error.InvalidRequirementShape => @compileError("public lowering rejected a requirement shape produced by source lowering"),
             error.InvalidRowShape => @compileError("public lowering rejected a row shape produced by source lowering"),
             error.OutputWithoutRequirement => @compileError("public lowering rejected source-lowered outputs without matching requirements"),
             error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
             error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
-            error.UnsupportedHelperCallEdge => @compileError("public lowering rejected helper call edges outside the retained open-row shell"),
+            error.UnsupportedHelperCallEdge => @compileError("public lowering supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
             error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
         };
         const compiled_plan = program_plan.planFromOpenRowProgram(spec.label, lowered_program.program) catch |err| switch (err) {
@@ -2452,8 +2454,8 @@ fn Lower(comptime source_ref: SourceRef, comptime spec: LowerSpec) type {
             error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
             error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
             error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
-            error.UnsupportedHelperCallEdge => @compileError("public lowering runtime plan rejected helper call edges outside the retained open-row shell"),
-            error.UnsupportedCodecType => @compileError("public lowering runtime plan rejected a type outside the first-wave codec set"),
+            error.UnsupportedHelperCallEdge => @compileError("public lowering runtime execution supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
+            error.UnsupportedCodecType => @compileError(executable_codec_support_message),
             error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
         };
         assertExecutableCodecSupport(compiled_plan);
@@ -2520,7 +2522,7 @@ pub fn maybeLowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
         error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
         error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
         error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
-        error.UnsupportedHelperCallEdge => @compileError("public lowering rejected helper call edges outside the retained open-row shell"),
+        error.UnsupportedHelperCallEdge => @compileError("public lowering supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
         error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
     };
     const compiled_plan = program_plan.planFromOpenRowProgram(spec.label, lowered_program.program) catch |err| switch (err) {
@@ -2537,7 +2539,7 @@ pub fn maybeLowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
         error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
         error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
         error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
-        error.UnsupportedHelperCallEdge => @compileError("public lowering runtime plan rejected helper call edges outside the retained open-row shell"),
+        error.UnsupportedHelperCallEdge => @compileError("public lowering runtime execution supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
         error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
     };
     if (!executableCodecSupported(compiled_plan)) return null;
@@ -2581,13 +2583,13 @@ pub fn maybeLower(comptime source_ref: SourceRef, comptime spec: LowerSpec) ?sou
             error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
             error.EmptyRequirementLabel => @compileError("public lowering rejected an empty requirement label"),
             error.EmptyOpName => @compileError("public lowering rejected an empty op name"),
-            error.InvalidProgramBodyShape => @compileError("public lowering rejected one helper body outside the retained lowered-body subset"),
+            error.InvalidProgramBodyShape => @compileError("public lowering supports direct effect calls, locals, branches, and supported helper calls; one helper body uses an unsupported source shape"),
             error.InvalidRequirementShape => @compileError("public lowering rejected a requirement shape produced by source lowering"),
             error.InvalidRowShape => @compileError("public lowering rejected a row shape produced by source lowering"),
             error.OutputWithoutRequirement => @compileError("public lowering rejected source-lowered outputs without matching requirements"),
             error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
             error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
-            error.UnsupportedHelperCallEdge => @compileError("public lowering rejected helper call edges outside the retained open-row shell"),
+            error.UnsupportedHelperCallEdge => @compileError("public lowering supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
             error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
         };
         const compiled_plan = program_plan.planFromOpenRowProgram(spec.label, lowered_program.program) catch |err| switch (err) {
@@ -2604,7 +2606,7 @@ pub fn maybeLower(comptime source_ref: SourceRef, comptime spec: LowerSpec) ?sou
             error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
             error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
             error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
-            error.UnsupportedHelperCallEdge => @compileError("public lowering runtime plan rejected helper call edges outside the retained open-row shell"),
+            error.UnsupportedHelperCallEdge => @compileError("public lowering runtime execution supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
             error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
         };
         if (!executableCodecSupported(compiled_plan)) return null;
@@ -2693,8 +2695,8 @@ fn CompileIrType(comptime label: []const u8, comptime program: effect_ir.Program
         error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
         error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
         error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
-        error.UnsupportedHelperCallEdge => @compileError("public lowering runtime plan rejected helper call edges outside the retained open-row shell"),
-        error.UnsupportedCodecType => @compileError("public lowering runtime plan rejected a type outside the first-wave codec set"),
+        error.UnsupportedHelperCallEdge => @compileError("public lowering runtime execution supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
+        error.UnsupportedCodecType => @compileError(executable_codec_support_message),
         error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
     };
     assertExecutableCodecSupport(compiled_plan);
