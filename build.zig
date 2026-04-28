@@ -1091,17 +1091,11 @@ fn appendOwnedPathIfMissing(
 }
 
 fn sortOwnedPaths(paths: [][]const u8) void {
-    var left: usize = 0;
-    while (left < paths.len) : (left += 1) {
-        var right = left + 1;
-        while (right < paths.len) : (right += 1) {
-            if (std.mem.order(u8, paths[right], paths[left]) == .lt) {
-                const tmp = paths[left];
-                paths[left] = paths[right];
-                paths[right] = tmp;
-            }
+    std.mem.sort([]const u8, paths, {}, struct {
+        fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
+            return std.mem.lessThan(u8, lhs, rhs);
         }
-    }
+    }.lessThan);
 }
 
 fn freeOwnedPathList(allocator: std.mem.Allocator, paths: []const []const u8) void {
@@ -4815,6 +4809,7 @@ pub fn build(b: *std.Build) void {
         .root_module = ability_agent_vm_fixture_mod,
     });
     const run_ability_agent_vm_fixture = b.addRunArtifact(ability_agent_vm_fixture_exe);
+    if (b.args) |args| run_ability_agent_vm_fixture.addArgs(args);
     const ability_agent_vm_fixture_step = b.step(
         "generate-ability-agent-vm-fixture",
         "Generate the committed ability_agent_vm compatibility artifact fixture.",
@@ -5358,7 +5353,6 @@ pub fn build(b: *std.Build) void {
             .name = example.name,
             .root_module = mod,
         });
-        b.installArtifact(exe);
         check_step.dependOn(&exe.step);
 
         const run = b.addRunArtifact(exe);
@@ -5380,7 +5374,6 @@ pub fn build(b: *std.Build) void {
             .name = example.name,
             .root_module = mod,
         });
-        b.installArtifact(exe);
         check_step.dependOn(&exe.step);
 
         const run = b.addRunArtifact(exe);

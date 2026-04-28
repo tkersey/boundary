@@ -10,7 +10,13 @@ const EmitMode = enum {
     zig,
 };
 
-const usage_text = "usage: ability-source-lower --id <source.case> --source <path> --entry <symbol> --surface <source_case|example|effect|user_defined_effect|witness> --emit <json|zig> --out <path>\n";
+const usage_text =
+    "usage: ability-source-lower --id <source.case> --source <path> --entry <symbol> --surface <source_case|example|effect|user_defined_effect|witness> --emit <json|zig> --out <path>\n" ++
+    "\n" ++
+    "flags:\n" ++
+    "  --version        print the tool version\n" ++
+    "  --help, -h       print this help\n" ++
+    "  --out <path>     write only under zig-out, .zig-cache, or zig-cache\n";
 const expected_flag_value_pair_count = 6;
 const expected_arg_count = 1 + expected_flag_value_pair_count * 2;
 const generated_output_roots = [_][]const u8{
@@ -393,7 +399,7 @@ fn writeZigContributors(writer: anytype, contributors: anytype) !void {
 
 fn writeJson(program: source_lowering.GeneratedProgram, writer: anytype) !void {
     const artifact = program.kernelProgramArtifact();
-    try writer.writeAll("{\"case_id\":");
+    try writer.writeAll("{\"schema_version\":1,\"case_id\":");
     try writeJsonStringLiteral(writer, program.case_id);
     try writer.writeAll(",\"surface_kind\":");
     try writeJsonStringLiteral(writer, @tagName(program.surface_kind));
@@ -1068,6 +1074,7 @@ test "accepted source-lower output replaces final symlink instead of following i
 
     const generated_bytes = try tmp.dir.readFileAlloc(std.testing.io, "zig-out/safe/out.json", std.testing.allocator, .limited(1024));
     defer std.testing.allocator.free(generated_bytes);
+    try std.testing.expect(std.mem.find(u8, generated_bytes, "\"schema_version\":1") != null);
     try std.testing.expect(std.mem.find(u8, generated_bytes, "\"case_id\":\"source.test\"") != null);
 }
 

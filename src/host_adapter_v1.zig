@@ -79,6 +79,38 @@ pub const DataValueV1 = union(enum) {
         return try self.cloneBoundedInner(allocator, bounds, &state, 0);
     }
 
+    /// Count the string/byte payload footprint under the same tree bounds used for cloning.
+    pub fn boundedByteSize(self: @This(), bounds: DataValueBoundsV1) anyerror!usize {
+        var state = DataValueCloneState{};
+        try self.chargeBoundedInner(bounds, &state, 0);
+        return state.bytes;
+    }
+
+    fn chargeBoundedInner(
+        self: @This(),
+        bounds: DataValueBoundsV1,
+        state: *DataValueCloneState,
+        depth: usize,
+    ) anyerror!void {
+        if (depth > bounds.max_depth) return error.DataValueTooDeep;
+        try state.chargeNode(bounds);
+        switch (self) {
+            .null, .bool, .i64, .u64 => {},
+            .string, .bytes => |value| try state.chargeBytes(bounds, value.len),
+            .array => |items| {
+                if (!state.canFitNodes(bounds, items.len)) return error.DataValueTooManyNodes;
+                for (items) |item| try item.chargeBoundedInner(bounds, state, depth + 1);
+            },
+            .object => |fields| {
+                if (!state.canFitNodes(bounds, fields.len)) return error.DataValueTooManyNodes;
+                for (fields) |field| {
+                    try state.chargeBytes(bounds, field.key.len);
+                    try field.value.chargeBoundedInner(bounds, state, depth + 1);
+                }
+            },
+        }
+    }
+
     fn cloneBoundedInner(
         self: @This(),
         allocator: std.mem.Allocator,
@@ -237,11 +269,14 @@ pub const ToolCallRequestV1 = struct {
 
     /// Clone one tool-call request into allocator-owned memory with bounded payload cloning.
     pub fn cloneBounded(self: @This(), allocator: std.mem.Allocator, bounds: DataValueBoundsV1) anyerror!@This() {
+        var state = DataValueCloneState{};
+        try state.chargeBytes(bounds, self.tool_id.len);
+        try state.chargeBytes(bounds, self.op_name.len);
         const tool_id = try allocator.dupe(u8, self.tool_id);
         errdefer allocator.free(tool_id);
         const op_name = try allocator.dupe(u8, self.op_name);
         errdefer allocator.free(op_name);
-        const arguments = try self.arguments.cloneBounded(allocator, bounds);
+        const arguments = try self.arguments.cloneBoundedInner(allocator, bounds, &state, 0);
         errdefer {
             var owned_arguments = arguments;
             owned_arguments.deinit(allocator);
@@ -255,6 +290,15 @@ pub const ToolCallRequestV1 = struct {
             .owns_op_name = true,
             .arguments_ownership = .deep,
         };
+    }
+
+    /// Count request metadata and payload bytes under the same bounds used for cloning.
+    pub fn boundedByteSize(self: @This(), bounds: DataValueBoundsV1) anyerror!usize {
+        var state = DataValueCloneState{};
+        try state.chargeBytes(bounds, self.tool_id.len);
+        try state.chargeBytes(bounds, self.op_name.len);
+        try self.arguments.chargeBoundedInner(bounds, &state, 0);
+        return state.bytes;
     }
 
     /// Release any allocator-owned memory held by this tool-call request.
@@ -282,9 +326,11 @@ pub const ToolCallResultV1 = struct {
 
     /// Clone one tool-call result into allocator-owned memory with bounded payload cloning.
     pub fn cloneBounded(self: @This(), allocator: std.mem.Allocator, bounds: DataValueBoundsV1) anyerror!@This() {
+        var state = DataValueCloneState{};
+        try state.chargeBytes(bounds, self.tool_id.len);
         const tool_id = try allocator.dupe(u8, self.tool_id);
         errdefer allocator.free(tool_id);
-        const value = try self.value.cloneBounded(allocator, bounds);
+        const value = try self.value.cloneBoundedInner(allocator, bounds, &state, 0);
         errdefer {
             var owned_value = value;
             owned_value.deinit(allocator);
@@ -297,6 +343,14 @@ pub const ToolCallResultV1 = struct {
             .owns_tool_id = true,
             .value_ownership = .deep,
         };
+    }
+
+    /// Count result metadata and payload bytes under the same bounds used for cloning.
+    pub fn boundedByteSize(self: @This(), bounds: DataValueBoundsV1) anyerror!usize {
+        var state = DataValueCloneState{};
+        try state.chargeBytes(bounds, self.tool_id.len);
+        try self.value.chargeBoundedInner(bounds, &state, 0);
+        return state.bytes;
     }
 
     /// Release any allocator-owned memory held by this tool-call result.
@@ -334,6 +388,14 @@ pub const FailureV1 = struct {
         };
     }
 
+    /// Count failure payload bytes under the same bounds used for cloning.
+    pub fn boundedByteSize(self: @This(), bounds: DataValueBoundsV1) anyerror!usize {
+        var state = DataValueCloneState{};
+        try state.chargeBytes(bounds, self.code.len);
+        try state.chargeBytes(bounds, self.message.len);
+        return state.bytes;
+    }
+
     /// Release any allocator-owned memory held by this failure payload.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         if (self.owns_code) allocator.free(self.code);
@@ -360,6 +422,13 @@ pub const HostEffectRequestBodyV1 = union(HostEffectKindV1) {
     pub fn cloneBounded(self: @This(), allocator: std.mem.Allocator, bounds: DataValueBoundsV1) anyerror!@This() {
         return switch (self) {
             .tool_call => |value| .{ .tool_call = try value.cloneBounded(allocator, bounds) },
+        };
+    }
+
+    /// Count request-body bytes under the same bounds used for cloning.
+    pub fn boundedByteSize(self: @This(), bounds: DataValueBoundsV1) anyerror!usize {
+        return switch (self) {
+            .tool_call => |value| try value.boundedByteSize(bounds),
         };
     }
 
@@ -396,6 +465,11 @@ pub const HostEffectRequestV1 = struct {
         };
     }
 
+    /// Count host-effect request bytes under the same bounds used for cloning.
+    pub fn boundedByteSize(self: @This(), bounds: DataValueBoundsV1) anyerror!usize {
+        return try self.body.boundedByteSize(bounds);
+    }
+
     /// Release any allocator-owned memory held by this host-effect request.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         self.body.deinit(allocator);
@@ -430,6 +504,15 @@ pub const HostEffectResultBodyV1 = union(HostEffectStatusV1) {
         };
     }
 
+    /// Count result-body bytes under the same bounds used for cloning.
+    pub fn boundedByteSize(self: @This(), bounds: DataValueBoundsV1) anyerror!usize {
+        return switch (self) {
+            .success => |value| try value.boundedByteSize(bounds),
+            .rejected => |value| try value.boundedByteSize(bounds),
+            .failed => |value| try value.boundedByteSize(bounds),
+        };
+    }
+
     /// Release any allocator-owned memory held by this result-body variant.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -461,6 +544,11 @@ pub const HostEffectResultV1 = struct {
         };
     }
 
+    /// Count host-effect result bytes under the same bounds used for cloning.
+    pub fn boundedByteSize(self: @This(), bounds: DataValueBoundsV1) anyerror!usize {
+        return try self.body.boundedByteSize(bounds);
+    }
+
     /// Release any allocator-owned memory held by this host-effect result.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         self.body.deinit(allocator);
@@ -478,6 +566,13 @@ pub const HostLogEntryV1 = struct {
         self.request.deinit(allocator);
         self.result.deinit(allocator);
         self.* = undefined;
+    }
+
+    /// Count logged request/result bytes under the same bounds used for cloning.
+    pub fn boundedByteSize(self: @This(), bounds: DataValueBoundsV1) anyerror!usize {
+        const request_bytes = try self.request.boundedByteSize(bounds);
+        const result_bytes = try self.result.boundedByteSize(bounds);
+        return std.math.add(usize, request_bytes, result_bytes) catch error.DataValueTooManyBytes;
     }
 };
 
@@ -592,5 +687,36 @@ test "FailureV1 bounded clone rejects excessive byte count" {
         .max_depth = 4,
         .max_nodes = 8,
         .max_bytes = 8,
+    }));
+}
+
+test "ToolCallRequestV1 bounded clone charges metadata bytes" {
+    const allocator = std.testing.allocator;
+    const request: ToolCallRequestV1 = .{
+        .tool_id = "tooling",
+        .call_id = 1,
+        .op_name = "dispatch",
+        .arguments = .null,
+    };
+
+    try std.testing.expectError(error.DataValueTooManyBytes, request.cloneBounded(allocator, .{
+        .max_depth = 4,
+        .max_nodes = 8,
+        .max_bytes = 4,
+    }));
+}
+
+test "ToolCallResultV1 bounded clone charges metadata bytes" {
+    const allocator = std.testing.allocator;
+    const result: ToolCallResultV1 = .{
+        .tool_id = "oversized-tool-id",
+        .call_id = 1,
+        .value = .null,
+    };
+
+    try std.testing.expectError(error.DataValueTooManyBytes, result.cloneBounded(allocator, .{
+        .max_depth = 4,
+        .max_nodes = 8,
+        .max_bytes = 4,
     }));
 }

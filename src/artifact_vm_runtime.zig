@@ -69,6 +69,8 @@ pub const RunArtifactResultV1 = union(enum) {
     }
 };
 
+const default_max_log_bytes = 16 * 1024 * 1024;
+
 /// Resource envelope for synchronous ArtifactV1 execution.
 pub const RunOptionsV1 = struct {
     max_block_steps: usize = 100_000,
@@ -77,6 +79,7 @@ pub const RunOptionsV1 = struct {
     max_call_depth: usize = 256,
     max_after_frames: usize = 100_000,
     max_log_entries: usize = 100_000,
+    max_log_bytes: usize = default_max_log_bytes,
     data_value_bounds: host.DataValueBoundsV1 = .{},
 };
 
@@ -234,6 +237,7 @@ const ExecutionBudget = struct {
     host_calls: usize = 0,
     active_call_depth: usize = 0,
     pending_after_frames: usize = 0,
+    host_log_bytes: usize = 0,
 };
 
 const ExecutionContext = struct {
@@ -425,8 +429,35 @@ fn ensureHostLogCapacity(ctx: *ExecutionContext) !?host.FailureV1 {
     return null;
 }
 
+fn hostLogEntryByteSize(
+    request: host.HostEffectRequestV1,
+    response: host.HostEffectResultV1,
+    bounds: host.DataValueBoundsV1,
+) !usize {
+    const request_bytes = try request.boundedByteSize(bounds);
+    const response_bytes = try response.boundedByteSize(bounds);
+    return std.math.add(usize, request_bytes, response_bytes) catch error.DataValueTooManyBytes;
+}
+
+fn chargeHostLogBytes(ctx: *ExecutionContext, entry_bytes: usize) !?host.FailureV1 {
+    const charged = std.math.add(usize, ctx.budget.host_log_bytes, entry_bytes) catch
+        return try resourceExhaustedFailure(ctx.allocator, "artifact host-log byte budget exceeded");
+    if (charged > ctx.options.max_log_bytes) {
+        return try resourceExhaustedFailure(ctx.allocator, "artifact host-log byte budget exceeded");
+    }
+    ctx.budget.host_log_bytes = charged;
+    return null;
+}
+
 fn appendHostLog(ctx: *ExecutionContext, request: host.HostEffectRequestV1, response: host.HostEffectResultV1) !?host.FailureV1 {
     if (try ensureHostLogCapacity(ctx)) |failure| return failure;
+    const entry_bytes = hostLogEntryByteSize(request, response, ctx.options.data_value_bounds) catch |err| switch (err) {
+        error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
+            return try resourceExhaustedFailure(ctx.allocator, "artifact host-log payload budget exceeded");
+        },
+        else => return err,
+    };
+    if (try chargeHostLogBytes(ctx, entry_bytes)) |failure| return failure;
     var log_entry: host.HostLogEntryV1 = blk: {
         var request_clone = request.cloneBounded(ctx.allocator, ctx.options.data_value_bounds) catch |err| switch (err) {
             error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
@@ -2404,6 +2435,103 @@ test "artifact runtime host-log response budget failure is allocation-failure sa
         expectHostLogPayloadBudgetFailureNoDoubleFree,
         .{},
     );
+}
+
+test "artifact runtime enforces aggregate host-log byte budget" {
+    const allocator = std.testing.allocator;
+    var logs = std.ArrayList(host.HostLogEntryV1).empty;
+    defer {
+        for (logs.items) |*entry| entry.deinit(allocator);
+        logs.deinit(allocator);
+    }
+    const plan: program_plan.ProgramPlan = .{
+        .label = "host-log-byte-budget",
+        .ir_hash = 0,
+        .entry_index = 0,
+        .functions = &.{},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{},
+        .terminators = &.{},
+        .instructions = &.{},
+    };
+    const decoded = artifact.ArtifactV1{
+        .semantic_ir_hash64 = plan.ir_hash,
+        .manifest_build_fingerprint = std.mem.zeroes([32]u8),
+        .build_fingerprint_blake3_256 = std.mem.zeroes([32]u8),
+        .capabilities = &.{},
+        .requirement_capability_ids = &.{},
+        .functions = plan.functions,
+        .requirements = plan.requirements,
+        .ops = plan.ops,
+        .outputs = plan.outputs,
+        .locals = plan.locals,
+        .call_args = plan.call_args,
+        .blocks = plan.blocks,
+        .terminators = plan.terminators,
+        .instructions = plan.instructions,
+    };
+    var next_request_id: u64 = 1;
+    var ctx: ExecutionContext = .{
+        .allocator = allocator,
+        .decoded = &decoded,
+        .plan = plan,
+        .adapter = .{
+            .ctx = null,
+            .dispatchFn = struct {
+                fn dispatch(
+                    _: ?*anyopaque,
+                    _: std.mem.Allocator,
+                    _: host.HostEffectRequestV1,
+                ) anyerror!host.HostEffectResultV1 {
+                    return error.TestUnexpectedDispatch;
+                }
+            }.dispatch,
+        },
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+        .options = .{
+            .max_log_bytes = 11,
+            .data_value_bounds = .{
+                .max_depth = 4,
+                .max_nodes = 8,
+                .max_bytes = 1024,
+            },
+        },
+    };
+    const request: host.HostEffectRequestV1 = .{
+        .request_id = 1,
+        .capability_id = 0,
+        .op_id = 0,
+        .body = .{ .tool_call = .{
+            .tool_id = "tool",
+            .call_id = 1,
+            .op_name = "call",
+            .arguments = .null,
+        } },
+    };
+    const response: host.HostEffectResultV1 = .{
+        .request_id = 1,
+        .body = .{ .success = .{
+            .tool_id = "tool",
+            .call_id = 1,
+            .value = .null,
+        } },
+    };
+
+    var maybe_failure = try appendHostLog(&ctx, request, response);
+    if (maybe_failure) |*failure| {
+        defer failure.deinit(allocator);
+        try std.testing.expectEqualStrings("resource_exhausted", failure.code);
+        try std.testing.expectEqualStrings("artifact host-log byte budget exceeded", failure.message);
+        try std.testing.expectEqual(@as(usize, 0), logs.items.len);
+        try std.testing.expectEqual(@as(usize, 0), ctx.budget.host_log_bytes);
+    } else {
+        return error.TestUnexpectedRuntimeResult;
+    }
 }
 
 test "artifact runtime bounds completed value before completion" {
