@@ -99,7 +99,10 @@ pub fn runArtifactWithOptions(
     adapter: host.HostAdapterV1,
     options: RunOptionsV1,
 ) anyerror!RunArtifactResultV1 {
-    var decoded_with_plan = try artifact.decodeWithProgramPlan(allocator, bytes);
+    var decoded_with_plan = artifact.decodeWithProgramPlan(allocator, bytes) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return try invalidArtifactResult(allocator, err),
+    };
     defer decoded_with_plan.deinit(allocator);
     const decoded = &decoded_with_plan.artifact;
     const plan = decoded_with_plan.plan;
@@ -356,6 +359,25 @@ fn resourceExhaustedFailure(allocator: std.mem.Allocator, message: []const u8) !
         .owns_code = true,
         .owns_message = true,
     };
+}
+
+fn invalidArtifactFailure(allocator: std.mem.Allocator, err: anyerror) !host.FailureV1 {
+    const code = try allocator.dupe(u8, "invalid_artifact");
+    errdefer allocator.free(code);
+    const owned_message = try allocator.dupe(u8, @errorName(err));
+    return .{
+        .code = code,
+        .message = owned_message,
+        .owns_code = true,
+        .owns_message = true,
+    };
+}
+
+fn invalidArtifactResult(allocator: std.mem.Allocator, err: anyerror) !RunArtifactResultV1 {
+    return .{ .rejected = .{
+        .failure = try invalidArtifactFailure(allocator, err),
+        .logs = try allocator.alloc(host.HostLogEntryV1, 0),
+    } };
 }
 
 fn chargeBlockStep(ctx: *ExecutionContext) !?host.FailureV1 {

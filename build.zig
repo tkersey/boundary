@@ -4879,6 +4879,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const fixture_gen_options = b.addOptions();
+    fixture_gen_options.addOption([]const u8, "version", packageVersionAlloc(b));
+    ability_agent_vm_fixture_mod.addOptions("fixture_generator_options", fixture_gen_options);
     ability_agent_vm_fixture_mod.addImport("ability_compile", ability_compile_mod);
     const ability_agent_vm_fixture_exe = b.addExecutable(.{
         .name = "generate-ability-agent-vm-fixture",

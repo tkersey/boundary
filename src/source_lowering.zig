@@ -59,6 +59,7 @@ pub const GeneratedProgram = struct {
     feature_flags: []const []const u8,
     diagnostics: []const Diagnostic,
     error_witness: error_witness.ErrorWitnessV1,
+    owned_diagnostic_messages: []const []const u8 = &.{},
 
     /// Return the executable kernel program artifact for this lowered result.
     pub fn kernelProgramArtifact(self: *const GeneratedProgram) KernelProgramArtifact {
@@ -76,6 +77,10 @@ pub const GeneratedProgram = struct {
         allocator.free(self.source_path);
         allocator.free(self.steps);
         allocator.free(self.feature_flags);
+        if (self.owned_diagnostic_messages.len != 0) {
+            for (self.owned_diagnostic_messages) |message| allocator.free(message);
+            allocator.free(self.owned_diagnostic_messages);
+        }
         allocator.free(self.diagnostics);
         if (self.error_witness.diagnostics.len != 0) allocator.free(self.error_witness.diagnostics);
         self.* = undefined;
@@ -739,21 +744,7 @@ fn generatedProgramFromLowered(
     lowered: authoring_lowerer.LoweredAuthoring,
 ) std.mem.Allocator.Error!GeneratedProgram {
     const artifact = lowered.kernelProgramArtifact();
-    const diagnostics = blk: {
-        if (lowered.status != .rejected) break :blk lowered.diagnostics;
-        const translated = try allocator.dupe(Diagnostic, lowered.diagnostics);
-        allocator.free(lowered.diagnostics);
-        for (translated) |*diag| {
-            if (std.mem.eql(u8, diag.code, "structural_mismatch") or
-                std.mem.eql(u8, diag.code, "canonical_source_drift") or
-                std.mem.eql(u8, diag.code, "expected_status_mismatch") or
-                std.mem.eql(u8, diag.code, "entry_missing"))
-            {
-                diag.code = "unsupported_shape";
-            }
-        }
-        break :blk translated;
-    };
+    const diagnostics = lowered.diagnostics;
 
     const witness = blk: {
         if (lowered.status == .rejected) {
@@ -802,6 +793,7 @@ fn generatedRejectedProgram(
     allocator: std.mem.Allocator,
     spec: Spec,
     case: SupportedCase,
+    code: []const u8,
     message: []const u8,
 ) std.mem.Allocator.Error!GeneratedProgram {
     const source_path = try duplicateSourcePath(allocator, spec.source_path);
@@ -809,7 +801,7 @@ fn generatedRejectedProgram(
     const diagnostics = try allocator.alloc(Diagnostic, 1);
     errdefer allocator.free(diagnostics);
     diagnostics[0] = .{
-        .code = "unsupported_shape",
+        .code = code,
         .message = message,
         .path = source_path,
         .line = 1,
@@ -845,6 +837,25 @@ fn generatedRejectedProgram(
     };
 }
 
+fn generatedEntrySymbolMismatchProgram(
+    allocator: std.mem.Allocator,
+    spec: Spec,
+    case: SupportedCase,
+) std.mem.Allocator.Error!GeneratedProgram {
+    const message = try std.fmt.allocPrint(
+        allocator,
+        "requested entry symbol is not supported for this case; expected entry symbol '{s}'",
+        .{case.entry_symbol},
+    );
+    errdefer allocator.free(message);
+    const owned_messages = try allocator.alloc([]const u8, 1);
+    errdefer allocator.free(owned_messages);
+    owned_messages[0] = message;
+    var program = try generatedRejectedProgram(allocator, spec, case, "entry_symbol_mismatch", message);
+    program.owned_diagnostic_messages = owned_messages;
+    return program;
+}
+
 fn inspectSourceText(
     allocator: std.mem.Allocator,
     spec: Spec,
@@ -852,10 +863,10 @@ fn inspectSourceText(
     source_text: []const u8,
 ) !GeneratedProgram {
     if (!std.mem.eql(u8, spec.entry_symbol, case.entry_symbol)) {
-        return generatedRejectedProgram(allocator, spec, case, "requested entry symbol is not supported for this case; use the case's canonical entry symbol");
+        return generatedEntrySymbolMismatchProgram(allocator, spec, case);
     }
     if (spec.expected_status != case.status) {
-        return generatedRejectedProgram(allocator, spec, case, "requested support status does not match this case; use the registered case status or update the case definition before lowering");
+        return generatedRejectedProgram(allocator, spec, case, "expected_status_mismatch", "requested support status does not match this case; use the registered case status or update the case definition before lowering");
     }
 
     const resolved_source_path = resolvedRepoSourcePathAlloc(allocator, spec.source_path) catch try allocator.dupe(u8, spec.source_path);
@@ -876,7 +887,7 @@ fn inspectSourceText(
     if (lowered.status != .rejected and !(try sourceMatchesCanonicalLayout(allocator, case, source_text))) {
         lowered.deinit(allocator);
         lowered_owned = false;
-        return generatedRejectedProgram(allocator, spec, case, "source differs from the registered artifact layout for this case; use the registered source file or update the case registry and baseline before rerunning");
+        return generatedRejectedProgram(allocator, spec, case, "canonical_source_drift", "source differs from the registered artifact layout for this case; use the registered source file or update the case registry and baseline before rerunning");
     }
     const program = try generatedProgramFromLowered(allocator, spec, case, lowered);
     lowered_owned = false;
@@ -891,10 +902,10 @@ fn inspectFileBackedSourceText(
     source_text: []const u8,
 ) !GeneratedProgram {
     if (!std.mem.eql(u8, spec.entry_symbol, case.entry_symbol)) {
-        return generatedRejectedProgram(allocator, spec, case, "requested entry symbol is not supported for this case; use the case's canonical entry symbol");
+        return generatedEntrySymbolMismatchProgram(allocator, spec, case);
     }
     if (spec.expected_status != case.status) {
-        return generatedRejectedProgram(allocator, spec, case, "requested support status does not match this case; use the registered case status or update the case definition before lowering");
+        return generatedRejectedProgram(allocator, spec, case, "expected_status_mismatch", "requested support status does not match this case; use the registered case status or update the case definition before lowering");
     }
 
     var lowered = try authoring_lowerer.lowerFileBackedSourceText(.{
@@ -910,7 +921,7 @@ fn inspectFileBackedSourceText(
     if (lowered.status != .rejected and !(try sourceMatchesCanonicalLayout(allocator, case, source_text))) {
         lowered.deinit(allocator);
         lowered_owned = false;
-        return generatedRejectedProgram(allocator, spec, case, "source differs from the registered artifact layout for this case; use the registered source file or update the case registry and baseline before rerunning");
+        return generatedRejectedProgram(allocator, spec, case, "canonical_source_drift", "source differs from the registered artifact layout for this case; use the registered source file or update the case registry and baseline before rerunning");
     }
     const program = try generatedProgramFromLowered(allocator, spec, case, lowered);
     lowered_owned = false;
@@ -924,10 +935,10 @@ pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!Genera
         .example, .effect, .user_defined_effect, .witness => promotedSupportedCase(spec.case_id, spec.surface_kind) orelse return error.UnsupportedSourceCase,
     };
     if (!std.mem.eql(u8, spec.entry_symbol, case.entry_symbol)) {
-        return generatedRejectedProgram(allocator, spec, case, "requested entry symbol is not supported for this case; use the case's canonical entry symbol");
+        return generatedEntrySymbolMismatchProgram(allocator, spec, case);
     }
     if (spec.expected_status != case.status) {
-        return generatedRejectedProgram(allocator, spec, case, "requested support status does not match this case; use the registered case status or update the case definition before lowering");
+        return generatedRejectedProgram(allocator, spec, case, "expected_status_mismatch", "requested support status does not match this case; use the registered case status or update the case definition before lowering");
     }
     const resolved_source_path = resolvedRepoSourcePathAlloc(allocator, spec.source_path) catch try allocator.dupe(u8, spec.source_path);
     defer allocator.free(resolved_source_path);
@@ -944,13 +955,13 @@ pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!Genera
         const source = std.Io.Dir.cwd().readFileAlloc(std.Io.Threaded.global_single_threaded.io(), resolved_source_path, allocator, .limited(1 << 20)) catch {
             lowered.deinit(allocator);
             lowered_owned = false;
-            return generatedRejectedProgram(allocator, spec, case, "source file could not be read");
+            return generatedRejectedProgram(allocator, spec, case, "source_read_failed", "source file could not be read");
         };
         defer allocator.free(source);
         if (!(try sourceMatchesCanonicalLayout(allocator, case, source))) {
             lowered.deinit(allocator);
             lowered_owned = false;
-            return generatedRejectedProgram(allocator, spec, case, "source differs from the registered artifact layout for this case; use the registered source file or update the case registry and baseline before rerunning");
+            return generatedRejectedProgram(allocator, spec, case, "canonical_source_drift", "source differs from the registered artifact layout for this case; use the registered source file or update the case registry and baseline before rerunning");
         }
     }
     const program = try generatedProgramFromLowered(allocator, spec, case, lowered);

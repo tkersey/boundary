@@ -154,6 +154,36 @@ test "ability_agent_vm public smoke rejects mismatched success request ids" {
     }
 }
 
+test "ability_agent_vm public runtime rejects malformed artifact bytes" {
+    const allocator = std.testing.allocator;
+    var bytes = std.mem.zeroes([128]u8);
+
+    const adapter: ability_agent_vm.host.Adapter = .{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                _: ability_agent_vm.host.Request,
+            ) anyerror!ability_agent_vm.host.Response {
+                return error.TestUnexpectedDispatch;
+            }
+        }.dispatch,
+    };
+
+    var result = try ability_agent_vm.runtime.runArtifact(allocator, &bytes, adapter);
+    defer result.deinit(allocator);
+
+    switch (result) {
+        .rejected => |failure| {
+            try std.testing.expectEqualStrings("invalid_artifact", failure.failure.code);
+            try std.testing.expectEqualStrings("BadMagic", failure.failure.message);
+            try std.testing.expectEqual(@as(usize, 0), failure.logs.len);
+        },
+        else => return error.TestUnexpectedRuntimeResult,
+    }
+}
+
 test "ability_agent_vm public options expose host-call budget failures" {
     const allocator = std.testing.allocator;
     const bytes = try loadFixtureBytes(allocator);
