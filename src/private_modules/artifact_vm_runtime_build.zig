@@ -757,15 +757,20 @@ fn callHostOp(
     const resolved = resolvedCapabilityOp(ctx, op_index) orelse return error.ProgramContractViolation;
     if (try ensureHostLogCapacity(ctx)) |failure| return .{ .failed = failure };
     var request: host.HostEffectRequestV1 = blk: {
-        const tool_id = try ctx.allocator.dupe(u8, resolved.capability.label);
-        errdefer ctx.allocator.free(tool_id);
-        const op_name = try ctx.allocator.dupe(u8, plan_op.op_name);
-        errdefer ctx.allocator.free(op_name);
-        const arguments = try programValueToDataValue(ctx.allocator, plan_op.payload_codec, payload);
+        const arguments = programValueToBoundedDataValue(ctx.allocator, ctx.options.data_value_bounds, plan_op.payload_codec, payload) catch |err| switch (err) {
+            error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
+                return .{ .failed = try resourceExhaustedFailure(ctx.allocator, "artifact host-request payload budget exceeded") };
+            },
+            else => return err,
+        };
         errdefer {
             var owned_arguments = arguments;
             owned_arguments.deinit(ctx.allocator);
         }
+        const tool_id = try ctx.allocator.dupe(u8, resolved.capability.label);
+        errdefer ctx.allocator.free(tool_id);
+        const op_name = try ctx.allocator.dupe(u8, plan_op.op_name);
+        errdefer ctx.allocator.free(op_name);
         break :blk .{
             .request_id = ctx.next_request_id.*,
             .capability_id = resolved.capability.capability_id,
@@ -1047,15 +1052,20 @@ fn callHostAfterOp(
     const op_name = try afterMethodNameAlloc(ctx.allocator, plan_op.op_name);
     defer ctx.allocator.free(op_name);
     var request: host.HostEffectRequestV1 = blk: {
-        const tool_id = try ctx.allocator.dupe(u8, resolved.capability.label);
-        errdefer ctx.allocator.free(tool_id);
-        const request_op_name = try ctx.allocator.dupe(u8, op_name);
-        errdefer ctx.allocator.free(request_op_name);
-        const arguments = try programValueToDataValue(ctx.allocator, function_value_codec, answer.value);
+        const arguments = programValueToBoundedDataValue(ctx.allocator, ctx.options.data_value_bounds, function_value_codec, answer.value) catch |err| switch (err) {
+            error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
+                return .{ .failed = try resourceExhaustedFailure(ctx.allocator, "artifact host-request payload budget exceeded") };
+            },
+            else => return err,
+        };
         errdefer {
             var owned_arguments = arguments;
             owned_arguments.deinit(ctx.allocator);
         }
+        const tool_id = try ctx.allocator.dupe(u8, resolved.capability.label);
+        errdefer ctx.allocator.free(tool_id);
+        const request_op_name = try ctx.allocator.dupe(u8, op_name);
+        errdefer ctx.allocator.free(request_op_name);
         break :blk .{
             .request_id = ctx.next_request_id.*,
             .capability_id = resolved.capability.capability_id,
@@ -1114,8 +1124,17 @@ fn callHostAfterOp(
     }
 }
 
-fn programValueToDataValue(
+fn programValueToBoundedDataValue(
     allocator: std.mem.Allocator,
+    bounds: host.DataValueBoundsV1,
+    codec: program_plan.ValueCodec,
+    value: lowered_machine.ProgramValue,
+) !host.DataValueV1 {
+    const borrowed = try programValueToBorrowedDataValue(codec, value);
+    return try borrowed.cloneBounded(allocator, bounds);
+}
+
+fn programValueToBorrowedDataValue(
     codec: program_plan.ValueCodec,
     value: lowered_machine.ProgramValue,
 ) !host.DataValueV1 {
@@ -1130,7 +1149,7 @@ fn programValueToDataValue(
             else => error.ProgramContractViolation,
         },
         .string => switch (value) {
-            .string => |typed| .{ .string = try allocator.dupe(u8, typed) },
+            .string => |typed| .{ .string = typed },
             else => error.ProgramContractViolation,
         },
         .usize => switch (value) {
@@ -1421,8 +1440,60 @@ test "artifact runtime checks host-log budget before dispatch" {
     try std.testing.expectEqual(@as(u64, 1), next_request_id);
 }
 
+const RejectLargeAllocator = struct {
+    child: std.mem.Allocator,
+    max_allocation_len: usize,
+    rejected_allocs: usize = 0,
+
+    fn init(child: std.mem.Allocator, max_allocation_len: usize) @This() {
+        return .{
+            .child = child,
+            .max_allocation_len = max_allocation_len,
+        };
+    }
+
+    fn allocator(self: *@This()) std.mem.Allocator {
+        return .{
+            .ptr = self,
+            .vtable = &.{
+                .alloc = alloc,
+                .resize = resize,
+                .remap = remap,
+                .free = free,
+            },
+        };
+    }
+
+    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        if (len > self.max_allocation_len) {
+            self.rejected_allocs += 1;
+            return null;
+        }
+        return self.child.rawAlloc(len, alignment, ret_addr);
+    }
+
+    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        if (new_len > self.max_allocation_len) return false;
+        return self.child.rawResize(memory, alignment, new_len, ret_addr);
+    }
+
+    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        if (new_len > self.max_allocation_len) return null;
+        return self.child.rawRemap(memory, alignment, new_len, ret_addr);
+    }
+
+    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        self.child.rawFree(memory, alignment, ret_addr);
+    }
+};
+
 test "artifact runtime bounds tool-call request payload before dispatch" {
-    const allocator = std.testing.allocator;
+    var rejecting = RejectLargeAllocator.init(std.testing.allocator, 64);
+    const allocator = rejecting.allocator();
     const plan: program_plan.ProgramPlan = .{
         .label = "artifact.host_request_payload_pre_dispatch",
         .ir_hash = 0x313,
@@ -1494,7 +1565,9 @@ test "artifact runtime bounds tool-call request payload before dispatch" {
         } },
     };
 
-    var result = try callHostOp(&ctx, 0, .{ .string = "oversized" });
+    const oversized_payload =
+        "oversized payload that must be rejected by data_value_bounds before any request payload allocation";
+    var result = try callHostOp(&ctx, 0, .{ .string = oversized_payload });
     switch (result) {
         .failed => |*failure| {
             defer failure.deinit(allocator);
@@ -1506,10 +1579,12 @@ test "artifact runtime bounds tool-call request payload before dispatch" {
     try std.testing.expectEqual(@as(usize, 0), dispatch_calls);
     try std.testing.expectEqual(@as(usize, 0), logs.items.len);
     try std.testing.expectEqual(@as(u64, 1), next_request_id);
+    try std.testing.expectEqual(@as(usize, 0), rejecting.rejected_allocs);
 }
 
 test "artifact runtime bounds after-call request payload before dispatch" {
-    const allocator = std.testing.allocator;
+    var rejecting = RejectLargeAllocator.init(std.testing.allocator, 64);
+    const allocator = rejecting.allocator();
     const plan: program_plan.ProgramPlan = .{
         .label = "artifact.after_request_payload_pre_dispatch",
         .ir_hash = 0x314,
@@ -1591,13 +1666,15 @@ test "artifact runtime bounds after-call request payload before dispatch" {
         } },
     };
 
+    const oversized_payload =
+        "oversized payload that must be rejected by data_value_bounds before any after-call payload allocation";
     var result = try callHostAfterOp(
         &ctx,
         .string,
         .unit,
         0,
         7,
-        .{ .value = .{ .string = "oversized" } },
+        .{ .value = .{ .string = oversized_payload } },
     );
     switch (result) {
         .failed => |*failure| {
@@ -1610,6 +1687,7 @@ test "artifact runtime bounds after-call request payload before dispatch" {
     try std.testing.expectEqual(@as(usize, 0), dispatch_calls);
     try std.testing.expectEqual(@as(usize, 0), logs.items.len);
     try std.testing.expectEqual(@as(u64, 1), next_request_id);
+    try std.testing.expectEqual(@as(usize, 0), rejecting.rejected_allocs);
 }
 
 test "artifact runtime checks after-call log budget before dispatch" {
