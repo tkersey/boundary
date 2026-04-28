@@ -392,7 +392,7 @@ fn hostFailureResultFromInternal(
     result: runtime_api.HostFailureResultV1,
     bounds: host_api.DataValueBoundsV1,
 ) !runtime.HostFailureResult {
-    var failure = try result.failure.cloneBounded(allocator, bounds);
+    var failure = try cloneFailureEnvelope(allocator, result.failure);
     errdefer failure.deinit(allocator);
     const logs = try hostLogsFromInternal(allocator, result.logs, bounds);
     errdefer deinitHostLogs(allocator, logs);
@@ -400,6 +400,17 @@ fn hostFailureResultFromInternal(
         .failure = failure,
         .logs = logs,
     };
+}
+
+fn cloneFailureEnvelope(
+    allocator: std.mem.Allocator,
+    failure: host_api.FailureV1,
+) !host.Failure {
+    return try failure.cloneBounded(allocator, .{
+        .max_depth = std.math.maxInt(usize),
+        .max_nodes = std.math.maxInt(usize),
+        .max_bytes = std.math.maxInt(usize),
+    });
 }
 
 fn executionOutputsFromInternal(

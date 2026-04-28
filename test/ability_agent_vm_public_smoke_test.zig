@@ -190,6 +190,49 @@ test "ability_agent_vm public options expose host-call budget failures" {
     }
 }
 
+test "ability_agent_vm public failure envelopes survive tight payload bounds" {
+    const allocator = std.testing.allocator;
+    const bytes = try loadFixtureBytes(allocator);
+    defer allocator.free(bytes);
+
+    const adapter: ability_agent_vm.host.Adapter = .{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                _: ability_agent_vm.host.Request,
+            ) anyerror!ability_agent_vm.host.Response {
+                return error.TestUnexpectedDispatch;
+            }
+        }.dispatch,
+    };
+
+    var result = try ability_agent_vm.runtime.runArtifactWithOptions(
+        allocator,
+        bytes,
+        adapter,
+        .{
+            .max_host_calls = 0,
+            .data_value_bounds = .{
+                .max_depth = 0,
+                .max_nodes = 0,
+                .max_bytes = 0,
+            },
+        },
+    );
+    defer result.deinit(allocator);
+
+    switch (result) {
+        .failed => |failure| {
+            try std.testing.expectEqualStrings("resource_exhausted", failure.failure.code);
+            try std.testing.expectEqualStrings("artifact host-call budget exceeded", failure.failure.message);
+            try std.testing.expectEqual(@as(usize, 0), failure.logs.len);
+        },
+        else => return error.TestUnexpectedRuntimeResult,
+    }
+}
+
 test "ability_agent_vm public options bound response payload conversion" {
     const allocator = std.testing.allocator;
     const bytes = try loadFixtureBytes(allocator);
