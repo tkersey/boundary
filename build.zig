@@ -884,6 +884,44 @@ fn addFilteredTest(
     });
 }
 
+fn testFilterCouldMatchSuiteDefault(user_filter: []const u8, default_filter: []const u8) bool {
+    return std.mem.find(u8, default_filter, user_filter) != null or
+        std.mem.find(u8, user_filter, default_filter) != null;
+}
+
+fn defaultSuiteFiltersForUserFiltersAlloc(
+    allocator: std.mem.Allocator,
+    user_filters: []const []const u8,
+    default_filters: []const []const u8,
+    no_match_filters: []const []const u8,
+) ![]const []const u8 {
+    if (user_filters.len == 0) return try allocator.dupe([]const u8, default_filters);
+
+    var match_count: usize = 0;
+    for (default_filters) |default_filter| {
+        for (user_filters) |user_filter| {
+            if (testFilterCouldMatchSuiteDefault(user_filter, default_filter)) {
+                match_count += 1;
+                break;
+            }
+        }
+    }
+    if (match_count == 0) return try allocator.dupe([]const u8, no_match_filters);
+
+    const selected = try allocator.alloc([]const u8, match_count);
+    var selected_index: usize = 0;
+    for (default_filters) |default_filter| {
+        for (user_filters) |user_filter| {
+            if (testFilterCouldMatchSuiteDefault(user_filter, default_filter)) {
+                selected[selected_index] = default_filter;
+                selected_index += 1;
+                break;
+            }
+        }
+    }
+    return selected;
+}
+
 fn addRunArtifactWithArgs(
     b: *std.Build,
     artifact: *std.Build.Step.Compile,
@@ -3695,6 +3733,65 @@ test "test runner args still reject malformed recognized args when foreign share
     }
 }
 
+test "suite default filters are narrowed by explicit user test filters" {
+    const default_filters = [_][]const u8{
+        "private regression alpha",
+        "private regression beta",
+    };
+    const no_match_filters = [_][]const u8{"private regression no-match sentinel"};
+
+    const no_user_filters = try defaultSuiteFiltersForUserFiltersAlloc(
+        std.testing.allocator,
+        &.{},
+        &default_filters,
+        &no_match_filters,
+    );
+    defer std.testing.allocator.free(no_user_filters);
+    try std.testing.expectEqual(@as(usize, 2), no_user_filters.len);
+    try std.testing.expectEqualStrings("private regression alpha", no_user_filters[0]);
+    try std.testing.expectEqualStrings("private regression beta", no_user_filters[1]);
+
+    const user_filters = [_][]const u8{"alpha"};
+    const selected_filters = try defaultSuiteFiltersForUserFiltersAlloc(
+        std.testing.allocator,
+        &user_filters,
+        &default_filters,
+        &no_match_filters,
+    );
+    defer std.testing.allocator.free(selected_filters);
+    try std.testing.expectEqual(@as(usize, 1), selected_filters.len);
+    try std.testing.expectEqualStrings("private regression alpha", selected_filters[0]);
+
+    const full_name_filters = [_][]const u8{"prefix private regression beta suffix"};
+    const full_name_selected_filters = try defaultSuiteFiltersForUserFiltersAlloc(
+        std.testing.allocator,
+        &full_name_filters,
+        &default_filters,
+        &no_match_filters,
+    );
+    defer std.testing.allocator.free(full_name_selected_filters);
+    try std.testing.expectEqual(@as(usize, 1), full_name_selected_filters.len);
+    try std.testing.expectEqualStrings("private regression beta", full_name_selected_filters[0]);
+}
+
+test "suite default filters use no-match sentinel when user filters miss bounded defaults" {
+    const default_filters = [_][]const u8{
+        "private regression alpha",
+        "private regression beta",
+    };
+    const no_match_filters = [_][]const u8{"private regression no-match sentinel"};
+    const user_filters = [_][]const u8{"broad private regression"};
+    const selected_filters = try defaultSuiteFiltersForUserFiltersAlloc(
+        std.testing.allocator,
+        &user_filters,
+        &default_filters,
+        &no_match_filters,
+    );
+    defer std.testing.allocator.free(selected_filters);
+    try std.testing.expectEqual(@as(usize, 1), selected_filters.len);
+    try std.testing.expectEqualStrings("private regression no-match sentinel", selected_filters[0]);
+}
+
 test "lint shared-tail args keep lint-owned flags while stripping recognized test args" {
     const filtered_args = try lintSharedTailArgsAlloc(
         std.testing.allocator,
@@ -4762,10 +4859,19 @@ pub fn build(b: *std.Build) void {
         "bounds completed value",
         "completed value budget failure cleans",
     };
+    const vm_build_no_match_filters = [_][]const u8{
+        "__ability_vm_build_suite_no_user_filter_match__",
+    };
+    const vm_build_effective_filters = defaultSuiteFiltersForUserFiltersAlloc(
+        b.allocator,
+        test_runner_args.filters.items,
+        &vm_build_filters,
+        &vm_build_no_match_filters,
+    ) catch |err| std.process.fatal("unable to prepare VM build test filters: {s}", .{@errorName(err)});
     const vm_build_tests = addFilteredTest(
         b,
         private_artifact_vm_core_mod,
-        &vm_build_filters,
+        vm_build_effective_filters,
     );
     const run_vm_build_tests = addRunArtifactWithArgs(
         b,
