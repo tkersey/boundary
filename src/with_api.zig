@@ -1448,7 +1448,7 @@ fn tryRepoOwnedNamedCompiledWith(
         entry_symbol,
     ) == null) {
         @compileError(std.fmt.comptimePrint(
-            "ability.with could not compile this repo-owned named body; keep the body within supported lexical effect operations or simplify unsupported helpers: source={s} entry={s}",
+            "ability.with could not compile this source-backed named body; keep the body within supported lexical effect operations, simplify unsupported helpers, or provide a complete source witness: source={s} entry={s}",
             .{ source_path, entry_symbol },
         ));
     }
@@ -1456,7 +1456,7 @@ fn tryRepoOwnedNamedCompiledWith(
         HandlersType,
         Body,
         source_ref,
-        "ability.with repo-owned named body",
+        "ability.with source-backed named body",
         entry_symbol,
     );
     return try program_type.run(

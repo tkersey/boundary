@@ -134,6 +134,7 @@ fn cliShapeIssue(args: []const []const u8) ?CliShapeIssue {
         const flag = args[idx];
         if (!isKnownFlag(flag)) return .{ .unknown_flag = flag };
         if (idx + 1 >= args.len) return .{ .missing_value = flag };
+        if (std.mem.startsWith(u8, args[idx + 1], "--")) return .{ .missing_value = flag };
     }
     if (args.len > expected_arg_count) return .{ .unexpected_arg_count = args.len - 1 };
     return null;
@@ -368,7 +369,7 @@ fn writeJsonContributors(writer: anytype, contributors: anytype) !void {
 fn writeRejectedProgramDiagnostics(writer: anytype, program: source_lowering.GeneratedProgram) !void {
     if (program.diagnostics.len == 0) {
         try writer.print(
-            "ability-source-lower: rejected {s}: no source diagnostic was emitted\n",
+            "ability-source-lower: rejected {s}: no source diagnostic was emitted; check that --id, --surface, --source, and --entry describe the same supported case, or run --list-cases --surface <kind>\n",
             .{program.case_id},
         );
         return;
@@ -870,6 +871,40 @@ test "cli shape reports missing values before arity" {
     try std.testing.expectEqualStrings("--id", issue.missing_value);
 }
 
+test "cli shape reports flag tokens in value position as missing values" {
+    const missing_id_value = [_][]const u8{
+        "ability-source-lower",
+        "--id",
+        "--source",
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        "--entry",
+        "run",
+        "--surface",
+        "source_case",
+        "--emit",
+        "json",
+        "--out",
+        "zig-out/source-lower/out.json",
+    };
+    try std.testing.expectEqualStrings("--id", cliShapeIssue(&missing_id_value).?.missing_value);
+
+    const missing_source_value = [_][]const u8{
+        "ability-source-lower",
+        "--id",
+        "source.branch_resume",
+        "--source",
+        "--entry",
+        "run",
+        "--surface",
+        "source_case",
+        "--emit",
+        "json",
+        "--out",
+        "zig-out/source-lower/out.json",
+    };
+    try std.testing.expectEqualStrings("--source", cliShapeIssue(&missing_source_value).?.missing_value);
+}
+
 test "cli shape lets missing required flags reach named diagnostics" {
     const args = [_][]const u8{
         "ability-source-lower",
@@ -1207,4 +1242,29 @@ test "rejected source-lower programs print structured diagnostics" {
     try std.testing.expect(std.mem.find(u8, bytes, "ability-source-lower:") != null);
     try std.testing.expect(std.mem.find(u8, bytes, "entry_symbol_mismatch") != null);
     try std.testing.expect(std.mem.find(u8, bytes, "expected entry symbol 'run'") != null);
+}
+
+test "rejected source-lower programs without diagnostics include recovery guidance" {
+    const program = source_lowering.GeneratedProgram{
+        .case_id = "source.test",
+        .label = "source.test",
+        .source_path = "test.zig",
+        .surface_kind = .source_case,
+        .status = .rejected,
+        .canonical_scenario_id = null,
+        .expected_transcript = "",
+        .steps = &.{},
+        .feature_flags = &.{},
+        .diagnostics = &.{},
+        .error_witness = error_witness.ErrorWitnessV1.empty(.ordinary),
+    };
+
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try writeRejectedProgramDiagnostics(&output.writer, program);
+    const bytes = try output.toOwnedSlice();
+    defer std.testing.allocator.free(bytes);
+
+    try std.testing.expect(std.mem.find(u8, bytes, "check that --id, --surface, --source, and --entry") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "--list-cases --surface <kind>") != null);
 }
