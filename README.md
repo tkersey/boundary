@@ -105,6 +105,7 @@ const ability_dep = b.dependency("ability", .{
     .optimize = optimize,
 });
 const ability_mod = ability_dep.module("ability");
+exe.root_module.addImport("ability", ability_mod);
 ```
 
 For local dependency development, prefer Zig's package override flag:
@@ -190,7 +191,14 @@ iteration, but they are not additional test contracts:
 - `zig build run-*` for retained examples
 - `zig build source-lower` to build `./zig-out/bin/ability-source-lower`
   (`./zig-out/bin/ability-source-lower --help` prints the tool contract)
-- `zig build generate-ability-agent-vm-fixture`
+- `zig build check-ability-agent-vm-fixture` to verify the committed
+  compatibility artifact fixture is current
+- `zig build generate-ability-agent-vm-fixture` to regenerate the committed
+  compatibility artifact fixture
   (`zig build generate-ability-agent-vm-fixture -- --help` prints generator help)
-- `zig build bench*`
+- `zig build bench`
+- `zig build bench-first-suspend`
+- `zig build bench-state-effect`
+- `zig build bench-family-matrix`
+- `zig build bench-runtime-backends`
 - `zig build zprof-hotspots`
