@@ -569,6 +569,12 @@ test "file-backed inline source lowering preserves parse-error locations" {
 
     try std.testing.expect(!lowered.isAccepted());
     try std.testing.expectEqualStrings("parse_error", lowered.diagnostics[0].code);
+    try std.testing.expect(lowered.diagnostics[0].message.len != 0);
+    try std.testing.expect(!std.mem.eql(
+        u8,
+        lowered.diagnostics[0].message,
+        "source did not parse as Zig; fix the syntax near this parser diagnostic and rerun",
+    ));
     try std.testing.expectEqual(@as(usize, 2), lowered.diagnostics[0].line);
     try std.testing.expectEqual(@as(usize, 10), lowered.diagnostics[0].column);
 }
