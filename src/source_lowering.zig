@@ -17,72 +17,6 @@ pub const SurfaceKind = enum {
     witness,
 };
 
-const source_case_ids = [_][]const u8{
-    "source.local_mutation_resume",
-    "source.branch_resume",
-    "source.loop_resume",
-    "source.helper_call_resume",
-    "source.nested_prompt_static_redelim",
-    "source.typed_error_try",
-    "source.defer_resume",
-    "source.errdefer_error",
-};
-
-const example_case_ids = [_][]const u8{
-    "example.open_row_transform_basic",
-    "example.open_row_choice_basic",
-    "example.open_row_abort_basic",
-    "example.open_row_workflow",
-    "example.open_row_abortive_validation",
-    "example.open_row_artifact_search",
-    "example.open_row_generator",
-    "example.early_exit",
-    "example.resume_or_return",
-    "example.nested_workflow",
-    "example.state_basic",
-    "example.reader_basic",
-    "example.optional_basic",
-    "example.exception_basic",
-    "example.resource_basic",
-    "example.writer_basic",
-};
-
-const effect_case_ids = [_][]const u8{
-    "effect.state_basic",
-    "effect.reader_basic",
-    "effect.optional_basic",
-    "effect.exception_basic",
-    "effect.resource_basic",
-    "effect.writer_basic",
-};
-
-const user_defined_case_ids = [_][]const u8{
-    "user_defined.transform",
-    "user_defined.choice",
-    "user_defined.abort",
-};
-
-const witness_case_ids = [_][]const u8{
-    "witness.atm_resume_transform",
-    "witness.direct_return",
-    "witness.multi_prompt",
-    "witness.resume_or_return_return_now",
-    "witness.resume_or_return_resume",
-    "witness.static_redelim",
-    "witness.generator",
-};
-
-/// Return supported source-lowering case ids for one CLI surface.
-pub fn supportedCaseIds(surface_kind: SurfaceKind) []const []const u8 {
-    return switch (surface_kind) {
-        .source_case => source_case_ids[0..],
-        .example => example_case_ids[0..],
-        .effect => effect_case_ids[0..],
-        .user_defined_effect => user_defined_case_ids[0..],
-        .witness => witness_case_ids[0..],
-    };
-}
-
 /// Metadata needed to invoke one supported source-lowering case from the CLI.
 pub const SupportedCaseInfo = struct {
     case_id: []const u8,
@@ -90,35 +24,6 @@ pub const SupportedCaseInfo = struct {
     entry_symbol: []const u8,
     surface_kind: SurfaceKind,
 };
-
-fn caseIdListContains(ids: []const []const u8, needle: []const u8) bool {
-    for (ids) |id| {
-        if (std.mem.eql(u8, id, needle)) return true;
-    }
-    return false;
-}
-
-test "supported case-id listings stay aligned with admitted cases" {
-    for (source_registry.cases) |case| {
-        try std.testing.expect(caseIdListContains(supportedCaseIds(.source_case), case.case_id));
-    }
-    for (shipped_open_row_corpus.custom_examples) |row| {
-        try std.testing.expect(caseIdListContains(supportedCaseIds(.example), row.example_case_id));
-        if (row.user_defined_case_id) |case_id| {
-            try std.testing.expect(caseIdListContains(supportedCaseIds(.user_defined_effect), case_id));
-        }
-    }
-    inline for (@typeInfo(SurfaceKind).@"enum".fields) |field| {
-        const surface_kind: SurfaceKind = @enumFromInt(field.value);
-        for (supportedCaseIds(surface_kind)) |case_id| {
-            const supported = switch (surface_kind) {
-                .source_case => source_registry.find(case_id) != null,
-                .example, .effect, .user_defined_effect, .witness => promotedSupportedCase(case_id, surface_kind) != null,
-            };
-            try std.testing.expect(supported);
-        }
-    }
-}
 
 /// Progress state for one source-lowering result.
 pub const LowerStatus = authoring_lowerer.LowerStatus;
@@ -250,6 +155,365 @@ const SupportedCase = struct {
     compare_scope: authoring_lowerer.CompareScope = .file,
     feature_flags: []const []const u8,
 };
+
+const promoted_example_cases = [_]SupportedCase{
+    .{
+        .case_id = "example.early_exit",
+        .label = "source.example.early_exit",
+        .source_path = "examples/early_exit.zig",
+        .scenario_id = .early_exit,
+        .status = .canonical,
+        .feature_flags = &.{ "lexical_exception", "direct_return", "promoted_example" },
+    },
+    .{
+        .case_id = "example.resume_or_return",
+        .label = "source.example.resume_or_return",
+        .source_path = "examples/resume_or_return.zig",
+        .scenario_id = .resume_or_return,
+        .status = .canonical,
+        .feature_flags = &.{ "lexical_optional", "return_now", "resume_with", "promoted_example" },
+    },
+    .{
+        .case_id = "example.nested_workflow",
+        .label = "source.example.nested_workflow",
+        .source_path = "examples/nested_workflow.zig",
+        .scenario_id = .nested_workflow_publish,
+        .status = .canonical,
+        .feature_flags = &.{ "lexical_optional", "nested_workflow", "promoted_example" },
+    },
+    .{
+        .case_id = "example.state_basic",
+        .label = "source.example.state_basic",
+        .source_path = "examples/state_basic.zig",
+        .scenario_id = .state_basic,
+        .status = .canonical,
+        .feature_flags = &.{ "state_effect", "lexical_effect", "promoted_cohort_a" },
+    },
+    .{
+        .case_id = "example.reader_basic",
+        .label = "source.example.reader_basic",
+        .source_path = "examples/reader_basic.zig",
+        .scenario_id = .reader_basic,
+        .status = .canonical,
+        .feature_flags = &.{ "reader_effect", "lexical_effect", "promoted_cohort_a" },
+    },
+    .{
+        .case_id = "example.optional_basic",
+        .label = "source.example.optional_basic",
+        .source_path = "examples/optional_basic.zig",
+        .scenario_id = .optional_basic,
+        .status = .canonical,
+        .feature_flags = &.{ "optional_effect", "lexical_effect", "promoted_cohort_a" },
+    },
+    .{
+        .case_id = "example.exception_basic",
+        .label = "source.example.exception_basic",
+        .source_path = "examples/exception_basic.zig",
+        .scenario_id = .exception_basic,
+        .status = .canonical,
+        .feature_flags = &.{ "exception_effect", "lexical_effect", "promoted_cohort_a" },
+    },
+    .{
+        .case_id = "example.resource_basic",
+        .label = "source.example.resource_basic",
+        .source_path = "examples/resource_basic.zig",
+        .scenario_id = .resource_basic,
+        .status = .canonical,
+        .feature_flags = &.{ "resource_effect", "lexical_effect", "source_canonical" },
+    },
+    .{
+        .case_id = "example.writer_basic",
+        .label = "source.example.writer_basic",
+        .source_path = "examples/writer_basic.zig",
+        .scenario_id = .writer_basic,
+        .status = .canonical,
+        .feature_flags = &.{ "writer_effect", "lexical_effect", "source_canonical" },
+    },
+};
+
+const promoted_effect_cases = [_]SupportedCase{
+    .{
+        .case_id = "effect.state_basic",
+        .label = "source.effect.state_basic",
+        .source_path = "examples/state_basic.zig",
+        .scenario_id = .state_basic,
+        .status = .canonical,
+        .feature_flags = &.{ "state_effect", "lexical_effect", "promoted_cohort_a" },
+    },
+    .{
+        .case_id = "effect.reader_basic",
+        .label = "source.effect.reader_basic",
+        .source_path = "examples/reader_basic.zig",
+        .scenario_id = .reader_basic,
+        .status = .canonical,
+        .feature_flags = &.{ "reader_effect", "lexical_effect", "promoted_cohort_a" },
+    },
+    .{
+        .case_id = "effect.optional_basic",
+        .label = "source.effect.optional_basic",
+        .source_path = "examples/optional_basic.zig",
+        .scenario_id = .optional_basic,
+        .status = .canonical,
+        .feature_flags = &.{ "optional_effect", "lexical_effect", "promoted_cohort_a" },
+    },
+    .{
+        .case_id = "effect.exception_basic",
+        .label = "source.effect.exception_basic",
+        .source_path = "examples/exception_basic.zig",
+        .scenario_id = .exception_basic,
+        .status = .canonical,
+        .feature_flags = &.{ "exception_effect", "lexical_effect", "promoted_cohort_a" },
+    },
+    .{
+        .case_id = "effect.resource_basic",
+        .label = "source.effect.resource_basic",
+        .source_path = "examples/resource_basic.zig",
+        .scenario_id = .resource_basic,
+        .status = .canonical,
+        .feature_flags = &.{ "resource_effect", "lexical_effect", "source_canonical" },
+    },
+    .{
+        .case_id = "effect.writer_basic",
+        .label = "source.effect.writer_basic",
+        .source_path = "examples/writer_basic.zig",
+        .scenario_id = .writer_basic,
+        .status = .canonical,
+        .feature_flags = &.{ "writer_effect", "lexical_effect", "source_canonical" },
+    },
+};
+
+const promoted_witness_cases = [_]SupportedCase{
+    .{
+        .case_id = "witness.atm_resume_transform",
+        .label = "source.witness.atm_resume_transform",
+        .source_path = "src/witness_sources.zig",
+        .scenario_id = .atm_resume_transform,
+        .status = .canonical,
+        .entry_symbol = "runAtmResumeTransform",
+        .compare_scope = .entry,
+        .feature_flags = &.{ "witness", "transform", "source_canonical" },
+    },
+    .{
+        .case_id = "witness.direct_return",
+        .label = "source.witness.direct_return",
+        .source_path = "src/witness_sources.zig",
+        .scenario_id = .direct_return,
+        .status = .canonical,
+        .entry_symbol = "runDirectReturn",
+        .compare_scope = .entry,
+        .feature_flags = &.{ "witness", "abort", "source_canonical" },
+    },
+    .{
+        .case_id = "witness.multi_prompt",
+        .label = "source.witness.multi_prompt",
+        .source_path = "src/witness_sources.zig",
+        .scenario_id = .multi_prompt,
+        .status = .canonical,
+        .entry_symbol = "runMultiPrompt",
+        .compare_scope = .entry,
+        .feature_flags = &.{ "witness", "multi_prompt", "source_canonical" },
+    },
+    .{
+        .case_id = "witness.resume_or_return_return_now",
+        .label = "source.witness.resume_or_return_return_now",
+        .source_path = "src/witness_sources.zig",
+        .scenario_id = .resume_or_return_return_now,
+        .status = .canonical,
+        .entry_symbol = "runResumeOrReturnReturnNow",
+        .compare_scope = .entry,
+        .feature_flags = &.{ "witness", "choice_return_now", "source_canonical" },
+    },
+    .{
+        .case_id = "witness.resume_or_return_resume",
+        .label = "source.witness.resume_or_return_resume",
+        .source_path = "src/witness_sources.zig",
+        .scenario_id = .resume_or_return_resume,
+        .status = .canonical,
+        .entry_symbol = "runResumeOrReturnResume",
+        .compare_scope = .entry,
+        .feature_flags = &.{ "witness", "choice_resume", "source_canonical" },
+    },
+    .{
+        .case_id = "witness.static_redelim",
+        .label = "source.witness.static_redelim",
+        .source_path = "src/witness_sources.zig",
+        .scenario_id = .static_redelim,
+        .status = .canonical,
+        .entry_symbol = "runStaticRedelim",
+        .compare_scope = .entry,
+        .feature_flags = &.{ "witness", "static_redelim", "source_canonical" },
+    },
+    .{
+        .case_id = "witness.generator",
+        .label = "source.witness.generator",
+        .source_path = "src/witness_sources.zig",
+        .scenario_id = .generator,
+        .status = .canonical,
+        .entry_symbol = "runGenerator",
+        .compare_scope = .entry,
+        .feature_flags = &.{ "witness", "generator", "source_canonical" },
+    },
+};
+
+fn assertNonEmptyCaseField(comptime surface_kind: SurfaceKind, comptime case_id: []const u8, comptime field_name: []const u8, comptime value: []const u8) void {
+    if (value.len == 0) {
+        @compileError(std.fmt.comptimePrint("source-lowering {s} case {s} has empty {s}", .{ @tagName(surface_kind), case_id, field_name }));
+    }
+}
+
+fn assertSupportedCaseShape(comptime surface_kind: SurfaceKind, comptime case: SupportedCase) void {
+    assertNonEmptyCaseField(surface_kind, case.case_id, "case_id", case.case_id);
+    assertNonEmptyCaseField(surface_kind, case.case_id, "label", case.label);
+    assertNonEmptyCaseField(surface_kind, case.case_id, "source_path", case.source_path);
+    assertNonEmptyCaseField(surface_kind, case.case_id, "entry_symbol", case.entry_symbol);
+    if (case.feature_flags.len == 0) {
+        @compileError(std.fmt.comptimePrint("source-lowering {s} case {s} has no feature flags", .{ @tagName(surface_kind), case.case_id }));
+    }
+}
+
+fn assertUniqueCaseIds(comptime surface_kind: SurfaceKind, comptime ids: []const []const u8) void {
+    inline for (ids, 0..) |id, index| {
+        if (id.len == 0) {
+            @compileError(std.fmt.comptimePrint("source-lowering {s} case id must not be empty", .{@tagName(surface_kind)}));
+        }
+        inline for (ids[index + 1 ..]) |other| {
+            if (std.mem.eql(u8, id, other)) {
+                @compileError(std.fmt.comptimePrint("duplicate source-lowering {s} case id: {s}", .{ @tagName(surface_kind), id }));
+            }
+        }
+    }
+}
+
+fn assertSupportedCaseTable(comptime surface_kind: SurfaceKind, comptime cases: []const SupportedCase) void {
+    inline for (cases) |case| {
+        assertSupportedCaseShape(surface_kind, case);
+    }
+}
+
+fn assertSourceRegistryCaseShape(comptime case: source_registry.Case) void {
+    assertNonEmptyCaseField(.source_case, case.case_id, "case_id", case.case_id);
+    assertNonEmptyCaseField(.source_case, case.case_id, "label", case.label);
+    assertNonEmptyCaseField(.source_case, case.case_id, "fixture_path", case.fixture_path);
+    assertNonEmptyCaseField(.source_case, case.case_id, "entry_symbol", case.entry_symbol);
+    _ = sourceCaseFeatureFlags(case.case_id);
+}
+
+fn assertCustomExampleShape(comptime row: shipped_open_row_corpus.CustomExample) void {
+    assertNonEmptyCaseField(.example, row.example_case_id, "example_case_id", row.example_case_id);
+    assertNonEmptyCaseField(.example, row.example_case_id, "source_path", row.source_path);
+    assertNonEmptyCaseField(.example, row.example_case_id, "name", row.name);
+    assertNonEmptyCaseField(.example, row.example_case_id, "run_step_name", row.run_step_name);
+    if (row.user_defined_case_id) |case_id| {
+        assertNonEmptyCaseField(.user_defined_effect, case_id, "user_defined_case_id", case_id);
+    }
+}
+
+fn supportedCaseIdsFromTable(comptime surface_kind: SurfaceKind, comptime cases: []const SupportedCase) [cases.len][]const u8 {
+    comptime assertSupportedCaseTable(surface_kind, cases);
+    var ids = [_][]const u8{""} ** cases.len;
+    inline for (cases, 0..) |case, index| ids[index] = case.case_id;
+    assertUniqueCaseIds(surface_kind, ids[0..]);
+    return ids;
+}
+
+fn sourceRegistryCaseIds() [source_registry.cases.len][]const u8 {
+    var ids = [_][]const u8{""} ** source_registry.cases.len;
+    inline for (source_registry.cases, 0..) |case, index| {
+        assertSourceRegistryCaseShape(case);
+        ids[index] = case.case_id;
+    }
+    assertUniqueCaseIds(.source_case, ids[0..]);
+    return ids;
+}
+
+fn customUserDefinedCaseIdCount() usize {
+    var count: usize = 0;
+    inline for (shipped_open_row_corpus.custom_examples) |row| {
+        if (row.user_defined_case_id != null) count += 1;
+    }
+    return count;
+}
+
+const source_case_ids = sourceRegistryCaseIds();
+const effect_case_ids = supportedCaseIdsFromTable(.effect, promoted_effect_cases[0..]);
+const witness_case_ids = supportedCaseIdsFromTable(.witness, promoted_witness_cases[0..]);
+
+const example_case_ids = blk: {
+    var ids = [_][]const u8{""} ** (shipped_open_row_corpus.custom_examples.len + promoted_example_cases.len);
+    var index: usize = 0;
+    for (shipped_open_row_corpus.custom_examples) |row| {
+        assertCustomExampleShape(row);
+        ids[index] = row.example_case_id;
+        index += 1;
+    }
+    for (promoted_example_cases) |case| {
+        assertSupportedCaseShape(.example, case);
+        ids[index] = case.case_id;
+        index += 1;
+    }
+    assertUniqueCaseIds(.example, ids[0..]);
+    break :blk ids;
+};
+
+const user_defined_case_ids = blk: {
+    var ids = [_][]const u8{""} ** customUserDefinedCaseIdCount();
+    var index: usize = 0;
+    for (shipped_open_row_corpus.custom_examples) |row| {
+        assertCustomExampleShape(row);
+        if (row.user_defined_case_id) |case_id| {
+            ids[index] = case_id;
+            index += 1;
+        }
+    }
+    assertUniqueCaseIds(.user_defined_effect, ids[0..]);
+    break :blk ids;
+};
+
+/// Return supported source-lowering case ids for one CLI surface.
+pub fn supportedCaseIds(surface_kind: SurfaceKind) []const []const u8 {
+    return switch (surface_kind) {
+        .source_case => source_case_ids[0..],
+        .example => example_case_ids[0..],
+        .effect => effect_case_ids[0..],
+        .user_defined_effect => user_defined_case_ids[0..],
+        .witness => witness_case_ids[0..],
+    };
+}
+
+fn caseIdListContains(ids: []const []const u8, needle: []const u8) bool {
+    for (ids) |id| {
+        if (std.mem.eql(u8, id, needle)) return true;
+    }
+    return false;
+}
+
+test "supported case-id listings are derived from canonical registries" {
+    try std.testing.expectEqual(source_registry.cases.len, supportedCaseIds(.source_case).len);
+    try std.testing.expectEqual(shipped_open_row_corpus.custom_examples.len + promoted_example_cases.len, supportedCaseIds(.example).len);
+    try std.testing.expectEqual(promoted_effect_cases.len, supportedCaseIds(.effect).len);
+    try std.testing.expectEqual(customUserDefinedCaseIdCount(), supportedCaseIds(.user_defined_effect).len);
+    try std.testing.expectEqual(promoted_witness_cases.len, supportedCaseIds(.witness).len);
+
+    for (source_registry.cases) |case| {
+        try std.testing.expect(caseIdListContains(supportedCaseIds(.source_case), case.case_id));
+    }
+    for (shipped_open_row_corpus.custom_examples) |row| {
+        try std.testing.expect(caseIdListContains(supportedCaseIds(.example), row.example_case_id));
+        if (row.user_defined_case_id) |case_id| {
+            try std.testing.expect(caseIdListContains(supportedCaseIds(.user_defined_effect), case_id));
+        }
+    }
+    inline for (@typeInfo(SurfaceKind).@"enum".fields) |field| {
+        const surface_kind: SurfaceKind = @enumFromInt(field.value);
+        for (supportedCaseIds(surface_kind)) |case_id| {
+            const supported = switch (surface_kind) {
+                .source_case => source_registry.find(case_id) != null,
+                .example, .effect, .user_defined_effect, .witness => promotedSupportedCase(case_id, surface_kind) != null,
+            };
+            try std.testing.expect(supported);
+        }
+    }
+}
 
 test "lowerOpenRowProgram preserves label and normalization digest" {
     const row = effect_ir.rowFromSpec(.{
@@ -432,6 +696,13 @@ fn rejectedWitnessTemplate(spec: Spec) WitnessTemplate {
     };
 }
 
+fn findSupportedCase(comptime cases: []const SupportedCase, case_id: []const u8) ?SupportedCase {
+    inline for (cases) |case| {
+        if (std.mem.eql(u8, case_id, case.case_id)) return case;
+    }
+    return null;
+}
+
 fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?SupportedCase {
     if (surface_kind == .example) {
         inline for (shipped_open_row_corpus.custom_examples) |row| {
@@ -444,128 +715,10 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
                 .feature_flags = customFeatureFlags(row.kind),
             };
         }
-        if (std.mem.eql(u8, case_id, "example.early_exit")) return .{
-            .case_id = case_id,
-            .label = "source.example.early_exit",
-            .source_path = "examples/early_exit.zig",
-            .scenario_id = .early_exit,
-            .status = .canonical,
-            .feature_flags = &.{ "lexical_exception", "direct_return", "promoted_example" },
-        };
-        if (std.mem.eql(u8, case_id, "example.resume_or_return")) return .{
-            .case_id = case_id,
-            .label = "source.example.resume_or_return",
-            .source_path = "examples/resume_or_return.zig",
-            .scenario_id = .resume_or_return,
-            .status = .canonical,
-            .feature_flags = &.{ "lexical_optional", "return_now", "resume_with", "promoted_example" },
-        };
-        if (std.mem.eql(u8, case_id, "example.nested_workflow")) return .{
-            .case_id = case_id,
-            .label = "source.example.nested_workflow",
-            .source_path = "examples/nested_workflow.zig",
-            .scenario_id = .nested_workflow_publish,
-            .status = .canonical,
-            .feature_flags = &.{ "lexical_optional", "nested_workflow", "promoted_example" },
-        };
-        if (std.mem.eql(u8, case_id, "example.state_basic")) return .{
-            .case_id = case_id,
-            .label = "source.example.state_basic",
-            .source_path = "examples/state_basic.zig",
-            .scenario_id = .state_basic,
-            .status = .canonical,
-            .feature_flags = &.{ "state_effect", "lexical_effect", "promoted_cohort_a" },
-        };
-        if (std.mem.eql(u8, case_id, "example.reader_basic")) return .{
-            .case_id = case_id,
-            .label = "source.example.reader_basic",
-            .source_path = "examples/reader_basic.zig",
-            .scenario_id = .reader_basic,
-            .status = .canonical,
-            .feature_flags = &.{ "reader_effect", "lexical_effect", "promoted_cohort_a" },
-        };
-        if (std.mem.eql(u8, case_id, "example.optional_basic")) return .{
-            .case_id = case_id,
-            .label = "source.example.optional_basic",
-            .source_path = "examples/optional_basic.zig",
-            .scenario_id = .optional_basic,
-            .status = .canonical,
-            .feature_flags = &.{ "optional_effect", "lexical_effect", "promoted_cohort_a" },
-        };
-        if (std.mem.eql(u8, case_id, "example.exception_basic")) return .{
-            .case_id = case_id,
-            .label = "source.example.exception_basic",
-            .source_path = "examples/exception_basic.zig",
-            .scenario_id = .exception_basic,
-            .status = .canonical,
-            .feature_flags = &.{ "exception_effect", "lexical_effect", "promoted_cohort_a" },
-        };
-        if (std.mem.eql(u8, case_id, "example.resource_basic")) return .{
-            .case_id = case_id,
-            .label = "source.example.resource_basic",
-            .source_path = "examples/resource_basic.zig",
-            .scenario_id = .resource_basic,
-            .status = .canonical,
-            .feature_flags = &.{ "resource_effect", "lexical_effect", "source_canonical" },
-        };
-        if (std.mem.eql(u8, case_id, "example.writer_basic")) return .{
-            .case_id = case_id,
-            .label = "source.example.writer_basic",
-            .source_path = "examples/writer_basic.zig",
-            .scenario_id = .writer_basic,
-            .status = .canonical,
-            .feature_flags = &.{ "writer_effect", "lexical_effect", "source_canonical" },
-        };
+        return findSupportedCase(promoted_example_cases[0..], case_id);
     }
     if (surface_kind == .effect) {
-        if (std.mem.eql(u8, case_id, "effect.state_basic")) return .{
-            .case_id = case_id,
-            .label = "source.effect.state_basic",
-            .source_path = "examples/state_basic.zig",
-            .scenario_id = .state_basic,
-            .status = .canonical,
-            .feature_flags = &.{ "state_effect", "lexical_effect", "promoted_cohort_a" },
-        };
-        if (std.mem.eql(u8, case_id, "effect.reader_basic")) return .{
-            .case_id = case_id,
-            .label = "source.effect.reader_basic",
-            .source_path = "examples/reader_basic.zig",
-            .scenario_id = .reader_basic,
-            .status = .canonical,
-            .feature_flags = &.{ "reader_effect", "lexical_effect", "promoted_cohort_a" },
-        };
-        if (std.mem.eql(u8, case_id, "effect.optional_basic")) return .{
-            .case_id = case_id,
-            .label = "source.effect.optional_basic",
-            .source_path = "examples/optional_basic.zig",
-            .scenario_id = .optional_basic,
-            .status = .canonical,
-            .feature_flags = &.{ "optional_effect", "lexical_effect", "promoted_cohort_a" },
-        };
-        if (std.mem.eql(u8, case_id, "effect.exception_basic")) return .{
-            .case_id = case_id,
-            .label = "source.effect.exception_basic",
-            .source_path = "examples/exception_basic.zig",
-            .scenario_id = .exception_basic,
-            .status = .canonical,
-            .feature_flags = &.{ "exception_effect", "lexical_effect", "promoted_cohort_a" },
-        };
-        if (std.mem.eql(u8, case_id, "effect.resource_basic")) return .{
-            .case_id = case_id,
-            .label = "source.effect.resource_basic",
-            .source_path = "examples/resource_basic.zig",
-            .scenario_id = .resource_basic,
-            .status = .canonical,
-            .feature_flags = &.{ "resource_effect", "lexical_effect", "source_canonical" },
-        };
-        if (std.mem.eql(u8, case_id, "effect.writer_basic")) return .{
-            .case_id = case_id,
-            .label = "source.effect.writer_basic",
-            .source_path = "examples/writer_basic.zig",
-            .scenario_id = .writer_basic,
-            .status = .canonical,
-            .feature_flags = &.{ "writer_effect", "lexical_effect", "source_canonical" },
-        };
+        return findSupportedCase(promoted_effect_cases[0..], case_id);
     }
     if (surface_kind == .user_defined_effect) {
         inline for (shipped_open_row_corpus.custom_examples) |row| {
@@ -581,76 +734,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
         }
     }
     if (surface_kind == .witness) {
-        if (std.mem.eql(u8, case_id, "witness.atm_resume_transform")) return .{
-            .case_id = case_id,
-            .label = "source.witness.atm_resume_transform",
-            .source_path = "src/witness_sources.zig",
-            .scenario_id = .atm_resume_transform,
-            .status = .canonical,
-            .entry_symbol = "runAtmResumeTransform",
-            .compare_scope = .entry,
-            .feature_flags = &.{ "witness", "transform", "source_canonical" },
-        };
-        if (std.mem.eql(u8, case_id, "witness.direct_return")) return .{
-            .case_id = case_id,
-            .label = "source.witness.direct_return",
-            .source_path = "src/witness_sources.zig",
-            .scenario_id = .direct_return,
-            .status = .canonical,
-            .entry_symbol = "runDirectReturn",
-            .compare_scope = .entry,
-            .feature_flags = &.{ "witness", "abort", "source_canonical" },
-        };
-        if (std.mem.eql(u8, case_id, "witness.multi_prompt")) return .{
-            .case_id = case_id,
-            .label = "source.witness.multi_prompt",
-            .source_path = "src/witness_sources.zig",
-            .scenario_id = .multi_prompt,
-            .status = .canonical,
-            .entry_symbol = "runMultiPrompt",
-            .compare_scope = .entry,
-            .feature_flags = &.{ "witness", "multi_prompt", "source_canonical" },
-        };
-        if (std.mem.eql(u8, case_id, "witness.resume_or_return_return_now")) return .{
-            .case_id = case_id,
-            .label = "source.witness.resume_or_return_return_now",
-            .source_path = "src/witness_sources.zig",
-            .scenario_id = .resume_or_return_return_now,
-            .status = .canonical,
-            .entry_symbol = "runResumeOrReturnReturnNow",
-            .compare_scope = .entry,
-            .feature_flags = &.{ "witness", "choice_return_now", "source_canonical" },
-        };
-        if (std.mem.eql(u8, case_id, "witness.resume_or_return_resume")) return .{
-            .case_id = case_id,
-            .label = "source.witness.resume_or_return_resume",
-            .source_path = "src/witness_sources.zig",
-            .scenario_id = .resume_or_return_resume,
-            .status = .canonical,
-            .entry_symbol = "runResumeOrReturnResume",
-            .compare_scope = .entry,
-            .feature_flags = &.{ "witness", "choice_resume", "source_canonical" },
-        };
-        if (std.mem.eql(u8, case_id, "witness.static_redelim")) return .{
-            .case_id = case_id,
-            .label = "source.witness.static_redelim",
-            .source_path = "src/witness_sources.zig",
-            .scenario_id = .static_redelim,
-            .status = .canonical,
-            .entry_symbol = "runStaticRedelim",
-            .compare_scope = .entry,
-            .feature_flags = &.{ "witness", "static_redelim", "source_canonical" },
-        };
-        if (std.mem.eql(u8, case_id, "witness.generator")) return .{
-            .case_id = case_id,
-            .label = "source.witness.generator",
-            .source_path = "src/witness_sources.zig",
-            .scenario_id = .generator,
-            .status = .canonical,
-            .entry_symbol = "runGenerator",
-            .compare_scope = .entry,
-            .feature_flags = &.{ "witness", "generator", "source_canonical" },
-        };
+        return findSupportedCase(promoted_witness_cases[0..], case_id);
     }
     return null;
 }
