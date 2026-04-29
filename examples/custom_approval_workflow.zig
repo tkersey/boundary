@@ -131,8 +131,13 @@ pub const RunResult = struct {
 
 const DirectoryState = enum { missing, present };
 
-fn approvalPresentRuntimeBody(eff: anytype) anyerror![]const u8 {
-    _ = try eff.directory.exists.perform("request-7");
+fn abortIfMissing(present: bool, eff: anytype) anyerror!void {
+    if (!present) try eff.guard.invalid.abort("missing") else return;
+}
+
+fn approvalRuntimeBody(eff: anytype) anyerror![]const u8 {
+    const present = try eff.directory.exists.perform("request-7");
+    try abortIfMissing(present, eff);
     return try eff.approval.request.perform("request-7", struct {
         /// Publish only after the approval handler resumes.
         pub fn apply(_: []const u8, _: anytype) anyerror![]const u8 {
@@ -141,32 +146,15 @@ fn approvalPresentRuntimeBody(eff: anytype) anyerror![]const u8 {
     });
 }
 
-fn approvalInvalidRuntimeBody(eff: anytype) anyerror![]const u8 {
-    _ = try eff.directory.exists.perform("request-7");
-    try eff.guard.invalid.abort("missing");
-}
-
-const approval_present_body = struct {
+const approval_runtime_body = struct {
     /// Source path for the named runtime carrier used by compiled workflow proof.
     pub const source_path = "examples/custom_approval_workflow.zig";
     /// Entry symbol for the named runtime carrier used by compiled workflow proof.
-    pub const body_symbol = "approvalPresentRuntimeBody";
+    pub const body_symbol = "approvalRuntimeBody";
 
-    /// Exercise the generated transform and choice families through `ability.with`.
+    /// Exercise the generated transform, choice, and abort families through `ability.with`.
     pub fn body(eff: anytype) anyerror![]const u8 {
-        return approvalPresentRuntimeBody(eff);
-    }
-};
-
-const approval_invalid_body = struct {
-    /// Source path for the named runtime carrier used by compiled workflow proof.
-    pub const source_path = "examples/custom_approval_workflow.zig";
-    /// Entry symbol for the named runtime carrier used by compiled workflow proof.
-    pub const body_symbol = "approvalInvalidRuntimeBody";
-
-    /// Exercise the generated transform and abort families through `ability.with`.
-    pub fn body(eff: anytype) anyerror![]const u8 {
-        return approvalInvalidRuntimeBody(eff);
+        return approvalRuntimeBody(eff);
     }
 };
 
@@ -180,29 +168,14 @@ fn runCase(
         .present => true,
         .missing => false,
     };
-    return switch (state) {
-        .present => blk: {
-            const result = try ability.with(runtime, .{
-                .directory = directory.use(.{ .handler = DirectoryHandler{ .exists_value = exists_value } }),
-                .guard = guard.use(.{ .handler = guard_handler{} }),
-                .approval = approval.use(.{ .handler = ApprovalHandler{ .branch = branch } }),
-            }, approval_present_body);
-            break :blk .{
-                .value = result.value,
-                .transcript = currentTranscript(),
-            };
-        },
-        .missing => blk: {
-            const result = try ability.with(runtime, .{
-                .directory = directory.use(.{ .handler = DirectoryHandler{ .exists_value = exists_value } }),
-                .guard = guard.use(.{ .handler = guard_handler{} }),
-                .approval = approval.use(.{ .handler = ApprovalHandler{ .branch = branch } }),
-            }, approval_invalid_body);
-            break :blk .{
-                .value = result.value,
-                .transcript = currentTranscript(),
-            };
-        },
+    const result = try ability.with(runtime, .{
+        .directory = directory.use(.{ .handler = DirectoryHandler{ .exists_value = exists_value } }),
+        .guard = guard.use(.{ .handler = guard_handler{} }),
+        .approval = approval.use(.{ .handler = ApprovalHandler{ .branch = branch } }),
+    }, approval_runtime_body);
+    return .{
+        .value = result.value,
+        .transcript = currentTranscript(),
     };
 }
 

@@ -24,6 +24,17 @@ fn functionLocalCodec(compiled_plan: program_plan.ProgramPlan, function: program
     return compiled_plan.locals[function.first_local + local_id].codec;
 }
 
+fn functionOwnsOpTarget(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime function: program_plan.FunctionPlan,
+    comptime target: u16,
+) bool {
+    if (target >= compiled_plan.ops.len) return false;
+    const requirement_index = compiled_plan.ops[target].requirement_index;
+    const requirement_end = function.first_requirement + function.requirement_count;
+    return requirement_index >= function.first_requirement and requirement_index < requirement_end;
+}
+
 fn entryOutputsForPlan(comptime compiled_plan: program_plan.ProgramPlan) []const program_plan.OutputPlan {
     const entry_function = compiled_plan.functions[compiled_plan.entry_index];
     return compiled_plan.outputs[entry_function.first_output..][0..entry_function.output_count];
@@ -439,6 +450,7 @@ fn callOp(
 
 fn applyAfter(
     comptime compiled_plan: program_plan.ProgramPlan,
+    comptime function: program_plan.FunctionPlan,
     handlers_ptr: anytype,
     comptime function_value_codec: program_plan.ValueCodec,
     comptime function_result_codec: program_plan.ValueCodec,
@@ -448,7 +460,9 @@ fn applyAfter(
     if (compiled_plan.ops.len == 0) return error.ProgramContractViolation;
     return switch (op_index) {
         inline 0...(compiled_plan.ops.len - 1) => |active_index| blk: {
+            if (!comptime functionOwnsOpTarget(compiled_plan, function, @intCast(active_index))) break :blk answer;
             const op = compiled_plan.ops[active_index];
+            if (!op.has_after) break :blk answer;
             const requirement = compiled_plan.requirements[op.requirement_index];
             const handler_ptr = effectiveHandlerPtr(&@field(handlers_ptr.*, requirement.label));
             const HandlerType = @TypeOf(handler_ptr.*);
@@ -468,6 +482,7 @@ fn applyAfter(
 
 fn unwindAfterStack(
     comptime compiled_plan: program_plan.ProgramPlan,
+    comptime function: program_plan.FunctionPlan,
     handlers_ptr: anytype,
     comptime function_value_codec: program_plan.ValueCodec,
     comptime function_result_codec: program_plan.ValueCodec,
@@ -475,14 +490,18 @@ fn unwindAfterStack(
     result: FunctionResult,
 ) anyerror!FunctionResult {
     if (function_value_codec != function_result_codec) switch (result) {
-        .value => if (after_stack.items.len != 1) return error.ProgramContractViolation,
+        .value => |typed| if (after_stack.items.len != 1 and
+            !(function_value_codec == .unit and typed == .none and after_stack.items.len == 0))
+        {
+            return error.ProgramContractViolation;
+        },
         .terminal => {},
     };
     var final_result = result;
     while (after_stack.items.len != 0) {
         const op_index = after_stack.pop().?;
         final_result = switch (final_result) {
-            .value => |typed| .{ .value = try applyAfter(compiled_plan, handlers_ptr, function_value_codec, function_result_codec, op_index, typed) },
+            .value => |typed| .{ .value = try applyAfter(compiled_plan, function, handlers_ptr, function_value_codec, function_result_codec, op_index, typed) },
             .terminal => |typed| .{ .terminal = typed },
         };
     }
@@ -543,8 +562,18 @@ fn continueFunction(
                     const result = try executeDispatchInSource(runtime, compiled_plan, NestedSourceModule, handlers_ptr, instruction.operand, helper_args);
                     switch (result) {
                         .value => |typed| {
-                            if (helper_result_codec != .unit) {
-                                if (instruction.dst >= locals.len) return error.ProgramContractViolation;
+                            const completion_codec = if (runtimeValueMatchesCodec(callee.value_codec, typed))
+                                callee.value_codec
+                            else if (runtimeValueMatchesCodec(helper_result_codec, typed))
+                                helper_result_codec
+                            else
+                                return error.ProgramContractViolation;
+                            if (completion_codec != .unit) {
+                                if (instruction.dst >= locals.len or
+                                    functionLocalCodec(compiled_plan, function, instruction.dst) != completion_codec)
+                                {
+                                    return error.ProgramContractViolation;
+                                }
                                 setLocal(locals, instruction.dst, typed);
                             }
                         },
@@ -552,6 +581,7 @@ fn continueFunction(
                             if (!runtimeValueMatchesCodec(function_result_codec, terminal)) return error.ProgramContractViolation;
                             return unwindAfterStack(
                                 compiled_plan,
+                                function,
                                 handlers_ptr,
                                 function.value_codec,
                                 function_result_codec,
@@ -595,6 +625,7 @@ fn continueFunction(
                         },
                         .terminal => |terminal| return unwindAfterStack(
                             compiled_plan,
+                            function,
                             handlers_ptr,
                             function.value_codec,
                             function_result_codec,
@@ -605,6 +636,7 @@ fn continueFunction(
                 },
                 .compare_eq_zero => setLocal(locals, instruction.dst, .{
                     .bool = switch (getLocal(locals, instruction.operand)) {
+                        .bool => |typed| !typed,
                         .i32 => |typed| typed == 0,
                         .usize => |typed| typed == 0,
                         else => unreachable,
@@ -652,6 +684,7 @@ fn continueFunction(
             },
             .return_unit => return unwindAfterStack(
                 compiled_plan,
+                function,
                 handlers_ptr,
                 function.value_codec,
                 function_result_codec,
@@ -660,6 +693,7 @@ fn continueFunction(
             ),
             .return_value => return unwindAfterStack(
                 compiled_plan,
+                function,
                 handlers_ptr,
                 function.value_codec,
                 function_result_codec,

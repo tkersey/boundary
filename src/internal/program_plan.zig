@@ -323,9 +323,10 @@ pub const ProgramPlan = struct {
                         {
                             return error.InvalidInstructionLocalIndex;
                         }
-                        if (helper_result_codec != .unit and
+                        const helper_completion_codec = try functionCompletionValueCodec(self, callee, &completion_reachability);
+                        if (helper_completion_codec != .unit and
                             completion_reachability[instruction.operand] and
-                            !functionLocalHasCodec(self, function, instruction.dst, helper_result_codec))
+                            !functionLocalHasCodec(self, function, instruction.dst, helper_completion_codec))
                         {
                             return error.InvalidInstructionLocalIndex;
                         }
@@ -395,7 +396,7 @@ pub const ProgramPlan = struct {
                         } else if (instruction.kind == .compare_eq_zero) {
                             const operand_codec = functionLocalCodec(self, function, instruction.operand) orelse
                                 return error.InvalidInstructionLocalIndex;
-                            if (operand_codec != .i32 and operand_codec != .usize) return error.InvalidInstructionLocalIndex;
+                            if (operand_codec != .bool and operand_codec != .i32 and operand_codec != .usize) return error.InvalidInstructionLocalIndex;
                             if (!functionLocalHasCodec(self, function, instruction.dst, .bool)) return error.InvalidInstructionLocalIndex;
                         } else if (instruction.kind == .const_i32) {
                             const dst_codec = functionLocalCodec(self, function, instruction.dst) orelse
@@ -580,6 +581,44 @@ pub fn codecForType(comptime T: type) CodecError!ValueCodec {
 /// Return the externally observable result codec for one function plan.
 pub fn functionResultCodec(function: FunctionPlan) ValueCodec {
     return function.result_codec orelse function.value_codec;
+}
+
+fn functionCompletionValueCodec(
+    self: ProgramPlan,
+    function: FunctionPlan,
+    completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
+) ValidationError!ValueCodec {
+    if (function.value_codec != .unit) return function.value_codec;
+    const result_codec = function.result_codec orelse return .unit;
+    if (result_codec == .unit) return .unit;
+    if (!try functionCanApplyAfterOnCompletion(self, function, completion_reachability)) return .unit;
+    return result_codec;
+}
+
+fn functionCanApplyAfterOnCompletion(
+    self: ProgramPlan,
+    function: FunctionPlan,
+    completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
+) ValidationError!bool {
+    var executable_blocks = [_]bool{false} ** (std.math.maxInt(u16) + 1);
+    try markFunctionExecutableBlocks(self, function, completion_reachability, &executable_blocks);
+    const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+    for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+        const block_index = @as(usize, function.first_block) + relative_block_index;
+        if (!executable_blocks[block_index]) continue;
+        const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
+        if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, completion_reachability)) continue;
+        for (self.instructions[block.first_instruction..instruction_end]) |instruction| {
+            if (instruction.kind == .call_op and
+                instruction.operand < self.ops.len and
+                functionOwnsOpTarget(self, function, instruction.operand) and
+                self.ops[instruction.operand].has_after)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 fn hashBytes(hasher: *std.hash.Wyhash, value: []const u8) void {
@@ -1619,6 +1658,7 @@ pub fn planFromOpenRowProgram(
     const terminator_total = countBodyTerminators(program);
     const instruction_total = countBodyInstructions(program);
     const ir_hash = try irHashForProgram(summary_program);
+    const program_result_codec = try valueCodecFromEffectType(program.functions[program.entry_index].ValueType);
 
     const functions = comptime blk: {
         var buf: [program.functions.len]FunctionPlan = undefined;
@@ -1634,9 +1674,11 @@ pub fn planFromOpenRowProgram(
                 for (body.blocks) |block| total += block.instructions.len;
                 break :count total;
             };
+            const value_codec = try valueCodecFromEffectType(function.ValueType);
             buf[index] = .{
                 .symbol_name = function.symbol.symbol_name,
-                .value_codec = try valueCodecFromEffectType(function.ValueType),
+                .value_codec = value_codec,
+                .result_codec = if (value_codec == program_result_codec) null else program_result_codec,
                 .parameter_count = @intCast(function.parameter_codecs.len),
                 .first_requirement = requirement_index,
                 .requirement_count = @intCast(function.row.requirements.len),

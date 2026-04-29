@@ -671,23 +671,31 @@ fn parseIfLocalEqZeroBranch(effect_param: ?[]const u8, aliases: []const Alias, i
     else_action: BranchAction,
 } {
     if (statement.len < 10) return null;
-    if (statement[0].tag != .keyword_if or
-        statement[1].tag != .l_paren or
-        statement[2].tag != .identifier or
-        statement[3].tag != .equal_equal or
-        statement[4].tag != .number_literal or
-        !std.mem.eql(u8, statement[4].lexeme, "0") or
-        statement[5].tag != .r_paren)
-    {
+    if (statement[0].tag != .keyword_if or statement[1].tag != .l_paren) return null;
+    const Condition = struct {
+        local_name: []const u8,
+        body_start: usize,
+    };
+    const condition: Condition = if (statement[2].tag == .identifier and
+        statement[3].tag == .equal_equal and
+        statement[4].tag == .number_literal and
+        std.mem.eql(u8, statement[4].lexeme, "0") and
+        statement[5].tag == .r_paren)
+        .{ .local_name = statement[2].lexeme, .body_start = 6 }
+    else if (statement[2].tag == .bang and
+        statement[3].tag == .identifier and
+        statement[4].tag == .r_paren)
+        .{ .local_name = statement[3].lexeme, .body_start = 5 }
+    else
         return null;
-    }
-    const else_index = for (statement[6..], 6..) |item, index| {
+
+    const else_index = for (statement[condition.body_start..], condition.body_start..) |item, index| {
         if (item.tag == .keyword_else) break index;
     } else return null;
-    if (else_index == 6 or else_index + 1 >= statement.len) return null;
+    if (else_index == condition.body_start or else_index + 1 >= statement.len) return null;
     return .{
-        .local_name = statement[2].lexeme,
-        .then_action = parseBranchAction(effect_param, aliases, imports, statement[6..else_index]) orelse return null,
+        .local_name = condition.local_name,
+        .then_action = parseBranchAction(effect_param, aliases, imports, statement[condition.body_start..else_index]) orelse return null,
         .else_action = parseBranchAction(effect_param, aliases, imports, statement[(else_index + 1)..]) orelse return null,
     };
 }

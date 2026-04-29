@@ -682,8 +682,18 @@ fn executeFunction(
                     const helper_result = try executeFunction(ctx, instruction.operand, helper_args);
                     switch (helper_result) {
                         .value => |value| {
-                            if (helper_result_codec != .unit) {
-                                if (instruction.dst >= locals.len) return error.ProgramContractViolation;
+                            const completion_codec = if (programValueMatchesCodec(callee.value_codec, value.value))
+                                callee.value_codec
+                            else if (programValueMatchesCodec(helper_result_codec, value.value))
+                                helper_result_codec
+                            else
+                                return error.ProgramContractViolation;
+                            if (completion_codec != .unit) {
+                                if (instruction.dst >= locals.len or
+                                    functionLocalCodec(ctx.plan, function, instruction.dst) != completion_codec)
+                                {
+                                    return error.ProgramContractViolation;
+                                }
                                 setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, value);
                             }
                         },
@@ -731,6 +741,7 @@ fn executeFunction(
                     instruction.dst,
                     .{
                         .value = switch (locals[instruction.operand]) {
+                            .bool => |typed| .{ .bool = !typed },
                             .i32 => |typed| .{ .bool = typed == 0 },
                             .usize => |typed| .{ .bool = typed == 0 },
                             else => return error.ProgramContractViolation,
@@ -1087,7 +1098,11 @@ fn unwindAfterStack(
     result: FunctionResult,
 ) anyerror!FunctionResult {
     if (function_value_codec != function_result_codec) switch (result) {
-        .value => if (after_stack.items.len != 1) return error.ProgramContractViolation,
+        .value => |value| if (after_stack.items.len != 1 and
+            !(function_value_codec == .unit and value.value == .none and after_stack.items.len == 0))
+        {
+            return error.ProgramContractViolation;
+        },
         .terminal, .failed, .rejected => {},
     };
     var final_result = result;
@@ -1313,6 +1328,17 @@ fn releaseLocals(allocator: std.mem.Allocator, locals: []lowered_machine.Program
 fn functionLocalCodec(plan: program_plan.ProgramPlan, function: program_plan.FunctionPlan, local_id: u16) ?program_plan.ValueCodec {
     if (local_id >= function.local_count) return null;
     return plan.locals[function.first_local + local_id].codec;
+}
+
+fn programValueMatchesCodec(codec: program_plan.ValueCodec, value: lowered_machine.ProgramValue) bool {
+    return switch (codec) {
+        .unit => value == .none,
+        .bool => value == .bool,
+        .i32 => value == .i32,
+        .string => value == .string,
+        .usize => value == .usize,
+        .string_list => false,
+    };
 }
 
 fn decodeI32InstructionLiteral(instruction: program_plan.Instruction) i32 {

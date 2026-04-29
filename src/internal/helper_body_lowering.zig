@@ -2340,7 +2340,7 @@ fn buildLinearBodyForFunction(
                     if (step_index + 1 != admitted_body.step_count) break :blk null;
                     if (context.functions[context.lowered_function_index].ValueType != void) break :blk null;
                     const condition_local = findBoundLocal(local_bindings[0..binding_count], branch_statement.local_name) orelse break :blk null;
-                    if (condition_local.codec != .i32 and condition_local.codec != .usize) break :blk null;
+                    if (condition_local.codec != .bool and condition_local.codec != .i32 and condition_local.codec != .usize) break :blk null;
 
                     const predicate_local = appendAnonymousLocal(&local_storage, .bool);
                     appendInstruction(instructions[0..], &instruction_count, .{
