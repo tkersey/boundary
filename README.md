@@ -147,7 +147,8 @@ test aliases. It keeps coverage on:
 - the public lexical root
 - the core semantic witness set
 - fast source-ownership and source-backed body witnesses
-- retained `ability_agent_vm` source-path consumer, fixture-freshness, and smoke checks
+- retained `ability_agent_vm` source-path consumer, fixture-freshness, smoke,
+  and no-host budget conformance checks
 - source-lowering validation and execution
 - source-lowering CLI safety checks
 - interpreter behavior where it still underpins the lexical stack
@@ -160,6 +161,7 @@ root
 ability-agent-vm-consumer
 ability-agent-vm-freshness
 ability-agent-vm-smoke
+ability-agent-vm-conformance
 artifact-vm-runtime-build-host-log-budget
 frontend
 admitted-body-v1
@@ -175,6 +177,7 @@ source-lowering-boundary
 source-lowering-promoted
 source-lowering-completion
 source-lowering-tool
+agent-vm-artifact-report
 open-row-lowering
 source-ownership-probe
 comptime-contract
@@ -192,6 +195,14 @@ iteration, but they are not additional test contracts:
 - `zig build run-*` for retained examples
 - `zig build source-lower` to build `./zig-out/bin/ability-source-lower`
   (`./zig-out/bin/ability-source-lower --help` prints the tool contract)
+- `zig build agent-vm-artifact-report -Dagent-vm-artifact=<path>` to classify
+  one ArtifactV1 payload under the fixed no-host conformance profile. The
+  report is runtime-only: it reads user-provided ArtifactV1 bytes, executes
+  through `ability_agent_vm.runtime.runArtifactWithOptions`, rejects host-call
+  artifacts as unsupported, and applies the fixed v1 budget profile
+  (16 MiB artifact cap, zero host/log allowance, DataValue depth 64, nodes 4096,
+  bytes 1 MiB). Artifact-size and log-budget envelope expansion are deferred
+  follow-up surfaces, not part of this conformance report.
 - `zig build check-ability-agent-vm-fixture` to verify the committed
   compatibility artifact fixture is current
 - `zig build generate-ability-agent-vm-fixture` to regenerate the committed

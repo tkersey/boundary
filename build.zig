@@ -4484,6 +4484,11 @@ pub fn build(b: *std.Build) void {
         "test-suites",
         "Restrict `zig build test` to exact suite ids; README lists ids and invalid ids print them.",
     );
+    const agent_vm_artifact_report_path = b.option(
+        []const u8,
+        "agent-vm-artifact",
+        "ArtifactV1 payload to classify with `zig build agent-vm-artifact-report`.",
+    );
     const lint_verbose = b.option(
         bool,
         "lint-verbose",
@@ -5117,6 +5122,44 @@ pub fn build(b: *std.Build) void {
         ability_agent_vm_smoke_tests,
         test_runner_args.passthrough.items,
     );
+    const avm_fixture_mod = b.createModule(.{
+        .root_source_file = b.path("tools/generate_agent_vm_conformance_fixtures.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    avm_fixture_mod.addImport("artifact_api", artifact_api_mod);
+    avm_fixture_mod.addImport("internal_program_plan", internal_program_plan_mod);
+    const avm_fixture_exe = b.addExecutable(.{
+        .name = "generate-agent-vm-conformance-fixtures",
+        .root_module = avm_fixture_mod,
+    });
+    const run_avm_fixture_gen = b.addRunArtifact(avm_fixture_exe);
+    const no_host_artifact = run_avm_fixture_gen.addOutputFileArg("agent-vm-no-host.artifact");
+    const host_call_artifact = run_avm_fixture_gen.addOutputFileArg("agent-vm-host-call.artifact");
+    const output_snapshot_artifact = run_avm_fixture_gen.addOutputFileArg("agent-vm-output-snapshot.artifact");
+    const oversized_return_artifact = run_avm_fixture_gen.addOutputFileArg("agent-vm-oversized-return.artifact");
+    const avm_fixture_options = b.addOptions();
+    avm_fixture_options.addOptionPath("no_host_artifact_path", no_host_artifact);
+    avm_fixture_options.addOptionPath("host_call_artifact_path", host_call_artifact);
+    avm_fixture_options.addOptionPath("output_snapshot_artifact_path", output_snapshot_artifact);
+    avm_fixture_options.addOptionPath("oversized_return_artifact_path", oversized_return_artifact);
+    const avm_conformance_mod = b.createModule(.{
+        .root_source_file = b.path("test/ability_agent_vm_conformance_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    avm_conformance_mod.addOptions("agent_vm_conformance_fixture_options", avm_fixture_options);
+    avm_conformance_mod.addImport("ability_agent_vm", ability_agent_vm_mod);
+    const avm_conformance_tests = addFilteredTest(
+        b,
+        avm_conformance_mod,
+        test_runner_args.filters.items,
+    );
+    const run_avm_conformance = addRunArtifactWithArgs(
+        b,
+        avm_conformance_tests,
+        test_runner_args.passthrough.items,
+    );
     const vm_build_filters = [_][]const u8{
         "host-log response budget",
         "bounds completed value",
@@ -5380,6 +5423,38 @@ pub fn build(b: *std.Build) void {
         source_lowering_tool_tests,
         test_runner_args.passthrough.items,
     );
+    const agent_vm_report_mod = b.createModule(.{
+        .root_source_file = b.path("tools/agent_vm_artifact_report.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    agent_vm_report_mod.addImport("ability_agent_vm", ability_agent_vm_mod);
+    const agent_vm_report_exe = b.addExecutable(.{
+        .name = "agent-vm-artifact-report",
+        .root_module = agent_vm_report_mod,
+    });
+    const run_agent_vm_report = b.addRunArtifact(agent_vm_report_exe);
+    if (agent_vm_artifact_report_path) |artifact_path| {
+        run_agent_vm_report.addArgs(&.{ "--artifact", artifact_path });
+    }
+    const agent_vm_report_step = b.step(
+        "agent-vm-artifact-report",
+        "Classify one ArtifactV1 payload under the fixed no-host conformance profile.",
+    );
+    agent_vm_report_step.dependOn(&run_agent_vm_report.step);
+    const agent_vm_report_test_mod = b.createModule(.{
+        .root_source_file = b.path("test/agent_vm_artifact_report_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    agent_vm_report_test_mod.addOptions("agent_vm_conformance_fixture_options", avm_fixture_options);
+    agent_vm_report_test_mod.addImport("agent_vm_artifact_report", agent_vm_report_mod);
+    const agent_vm_report_tests = addFilteredTest(b, agent_vm_report_test_mod, test_runner_args.filters.items);
+    const run_agent_vm_report_tests = addRunArtifactWithArgs(
+        b,
+        agent_vm_report_tests,
+        test_runner_args.passthrough.items,
+    );
 
     // zlinter-disable declaration_naming - lexical witness module/test handles mirror suite ids for traceable proof receipts.
     const lexical_witness_direct_mod = b.createModule(.{
@@ -5560,6 +5635,7 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "ability-agent-vm-consumer", .description = "ability_agent_vm source-path consumer compile witness", .run_step = &ability_agent_vm_consumer_exe.step },
         .{ .suite_id = "ability-agent-vm-freshness", .description = "ability_agent_vm fixture freshness check", .run_step = &run_agent_vm_fixture_tests.step },
         .{ .suite_id = "ability-agent-vm-smoke", .description = "ability_agent_vm public runtime smoke", .run_step = &run_ability_agent_vm_smoke.step },
+        .{ .suite_id = "ability-agent-vm-conformance", .description = "ability_agent_vm no-host budget conformance and report", .run_step = &run_avm_conformance.step },
         .{ .suite_id = "artifact-vm-runtime-build-host-log-budget", .description = "Private artifact VM runtime host-log budget regression", .run_step = &run_vm_build_tests.step },
         .{ .suite_id = "frontend", .description = "Frontend internal module", .run_step = &run_frontend_internal_tests.step },
         .{ .suite_id = "admitted-body-v1", .description = "Admitted body parser suite", .run_step = &run_admitted_body_v1_tests.step },
@@ -5575,6 +5651,7 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "source-lowering-promoted", .description = "Promoted source lowering cohort", .run_step = &run_src_lower_promoted_tests.step },
         .{ .suite_id = "source-lowering-completion", .description = "Source lowering completion suite", .run_step = &run_src_lower_completion_tests.step },
         .{ .suite_id = "source-lowering-tool", .description = "Source lowering CLI tool suite", .run_step = &run_source_lowering_tool_tests.step },
+        .{ .suite_id = "agent-vm-artifact-report", .description = "Agent VM artifact report CLI suite", .run_step = &run_agent_vm_report_tests.step },
         .{ .suite_id = "open-row-lowering", .description = "Open-row lowering suite", .run_step = &run_open_row_lowering_tests.step },
         .{ .suite_id = "source-ownership-probe", .description = "Source ownership probe suite", .run_step = &run_src_ownership_probe_tests.step },
         .{ .suite_id = "comptime-contract", .description = "Public comptime contract suite", .run_step = &run_comptime_contract_tests.step },
