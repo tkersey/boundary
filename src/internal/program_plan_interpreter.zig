@@ -386,8 +386,8 @@ fn callOp(
             const method = @field(HandlerType, op.op_name);
             const ResumeType = runtimeValueType(op.resume_codec);
             const ResultType = runtimeValueType(function_result_codec);
-            const after_name = comptime resolvedAfterMethodName(HandlerType, op.op_name);
-            const has_after = after_name != null;
+            const maybe_after_name = comptime resolvedAfterMethodName(HandlerType, op.op_name);
+            const has_after = op.has_after and maybe_after_name != null;
 
             switch (op.mode) {
                 .transform => {
@@ -1011,6 +1011,62 @@ test "program plan interpreter rejects invalid call_nested_with aux codecs" {
             /// Compile-only no-op handler for unreachable call_op branches.
             pub fn noop(_: *@This()) void {
                 // The malformed nested-with instruction returns before this handler can run.
+            }
+        } = .{},
+    }{};
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, executeDispatch(&runtime, compiled_plan, &handlers, 0, &.{}));
+}
+
+test "program plan interpreter gates after frames on plan metadata" {
+    const compiled_plan: program_plan.ProgramPlan = .{
+        .label = "interpreter.after_frame_plan_metadata_gate",
+        .ir_hash = 0x30b,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .unit,
+            .result_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "dispatch",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .unit,
+            .has_after = false,
+        }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{ .kind = .call_op, .operand = 0, .aux = std.math.maxInt(u16) }},
+    };
+    try compiled_plan.validate();
+
+    var handlers = struct {
+        tooling: struct {
+            pub fn dispatch(_: *@This()) anyerror!void {
+                // The test targets after-frame gating, so the primary op deliberately resumes with unit.
+            }
+
+            pub fn afterDispatch(_: *@This(), _: void) anyerror![]const u8 {
+                return "wrapped";
             }
         } = .{},
     }{};
