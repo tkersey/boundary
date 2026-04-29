@@ -430,9 +430,13 @@ fn rejectUnsupportedSharedTailForNoTailStep(
     std.process.fatal("`zig build {s}` does not accept post-`--` arguments; remove the shared tail or use a step with documented tail options", .{step_name});
 }
 
-fn buildInvocationSharedTailOwnerRequested(test_requested: ?bool, lint_requested: ?bool) ?bool {
-    if ((test_requested orelse false) or (lint_requested orelse false)) return true;
-    if (test_requested == null or lint_requested == null) return null;
+fn buildInvocationSharedTailOwnerRequested(step_requests: []const ?bool) ?bool {
+    var unknown_request = false;
+    for (step_requests) |step_requested| {
+        if (step_requested orelse false) return true;
+        if (step_requested == null) unknown_request = true;
+    }
+    if (unknown_request) return null;
     return false;
 }
 
@@ -4276,7 +4280,7 @@ test "shared-tail invocation inference stays fail-closed on mixed step signals" 
 
 test "shared-tail no-tail guard defers unavailable argv when documented test tail owns the args" {
     const inference = inferBuildInvocationFromSharedTail(&.{ "--seed", "123" });
-    const tail_owner_requested = buildInvocationSharedTailOwnerRequested(inference.test_requested, inference.lint_requested);
+    const tail_owner_requested = buildInvocationSharedTailOwnerRequested(&.{ inference.test_requested, inference.lint_requested });
 
     try std.testing.expect(!unsupportedSharedTailForNoTailStep(
         &.{ "--seed", "123" },
@@ -4300,7 +4304,7 @@ test "shared-tail no-tail guard rejects mixed no-tail steps without a tail owner
     };
     const source_lower_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "source-lower");
     const fixture_check_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "check-ability-agent-vm-fixture");
-    const tail_owner_requested = buildInvocationSharedTailOwnerRequested(false, false);
+    const tail_owner_requested = buildInvocationSharedTailOwnerRequested(&.{ false, false });
 
     try std.testing.expect(!buildInvocationRequestsOnlyStepInArgs(&args, "source-lower"));
     try std.testing.expect(!buildInvocationRequestsOnlyStepInArgs(&args, "check-ability-agent-vm-fixture"));
@@ -4332,11 +4336,37 @@ test "shared-tail no-tail guard allows selected no-tail steps when a documented 
     };
     const source_lower_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "source-lower");
     const test_requested: ?bool = buildInvocationRequestsRunnableStepInArgs(&args, "test");
-    const tail_owner_requested = buildInvocationSharedTailOwnerRequested(test_requested, false);
+    const tail_owner_requested = buildInvocationSharedTailOwnerRequested(&.{ test_requested, false });
 
     try std.testing.expectEqual(@as(?bool, true), source_lower_requested);
     try std.testing.expect(!unsupportedSharedTailForNoTailStep(
         &.{ "--seed", "123" },
+        source_lower_requested,
+        tail_owner_requested,
+    ));
+}
+
+test "shared-tail no-tail guard allows selected no-tail steps when the fixture generator owns the args" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "generate-ability-agent-vm-fixture",
+        "source-lower",
+        "--",
+        "--help",
+    };
+    const fixture_generator_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "generate-ability-agent-vm-fixture");
+    const source_lower_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "source-lower");
+    const tail_owner_requested = buildInvocationSharedTailOwnerRequested(&.{ false, false, fixture_generator_requested });
+
+    try std.testing.expectEqual(@as(?bool, true), fixture_generator_requested);
+    try std.testing.expectEqual(@as(?bool, true), source_lower_requested);
+    try std.testing.expect(!unsupportedSharedTailForNoTailStep(
+        &.{"--help"},
         source_lower_requested,
         tail_owner_requested,
     ));
@@ -4427,6 +4457,7 @@ pub fn build(b: *std.Build) void {
     const lint_requested_from_argv = buildInvocationRequestsStep("lint");
     const source_lower_requested = buildInvocationRequestsStep("source-lower");
     const fixture_check_requested = buildInvocationRequestsStep("check-ability-agent-vm-fixture");
+    const fixture_generator_requested = buildInvocationRequestsStep("generate-ability-agent-vm-fixture");
     const bench_requested = buildInvocationRequestsStep("bench");
     const bench_first_requested = buildInvocationRequestsStep("bench-first-suspend");
     const bench_state_requested = buildInvocationRequestsStep("bench-state-effect");
@@ -4435,7 +4466,7 @@ pub fn build(b: *std.Build) void {
     const inferred_shared_tail = inferBuildInvocationFromSharedTail(b.args);
     const test_requested_opt = test_requested_from_argv orelse inferred_shared_tail.test_requested;
     const lint_requested_opt = lint_requested_from_argv orelse inferred_shared_tail.lint_requested;
-    const shared_tail_owner_requested = buildInvocationSharedTailOwnerRequested(test_requested_opt, lint_requested_opt);
+    const shared_tail_owner_requested = buildInvocationSharedTailOwnerRequested(&.{ test_requested_opt, lint_requested_opt, fixture_generator_requested });
     rejectUnsupportedSharedTailForNoTailStep(b, source_lower_requested, shared_tail_owner_requested, "source-lower");
     rejectUnsupportedSharedTailForNoTailStep(b, fixture_check_requested, shared_tail_owner_requested, "check-ability-agent-vm-fixture");
     rejectUnsupportedSharedTailForNoTailStep(b, bench_requested, shared_tail_owner_requested, "bench");
@@ -4451,8 +4482,7 @@ pub fn build(b: *std.Build) void {
         );
     }
     const test_requested = test_requested_opt orelse (test_suites_raw != null);
-    // `lint` currently owns the only documented non-test shared-tail CLI surface (`--max-warnings`),
-    // so mixed `lint test -- ...` invocations must ignore unknown args while still honoring test flags.
+    // Mixed `lint test -- ...` invocations must ignore unknown args while still honoring test flags.
     const strip_test_args_from_lint = test_requested and
         ((lint_requested_opt orelse false) or
             (lint_requested_from_argv == null and inferred_shared_tail.test_requested == true));
