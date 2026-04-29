@@ -950,6 +950,9 @@ fn CompiledLexicalProgram(
     comptime label: []const u8,
     comptime entry_symbol: []const u8,
 ) type {
+    comptime {
+        @setEvalBranchQuota(10_000_000);
+    }
     const compiled_plan = comptime lowering_api.lower(
         source_ref,
         .{

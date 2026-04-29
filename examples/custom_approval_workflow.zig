@@ -1,9 +1,6 @@
 const ability = @import("ability");
 const std = @import("std");
 
-const request_id = "request-7";
-const missing_id = "missing";
-
 /// Generated transform family used by the custom workflow row.
 pub const directory = ability.effect.Define(.{
     .state_type = void,
@@ -81,6 +78,12 @@ const ApprovalHandler = struct {
             .deny => ability.effect.choice.Decision([]const u8, []const u8).returnNow("denied"),
         };
     }
+
+    /// Record that the approval continuation resumed and preserve its answer.
+    pub fn afterRequest(_: *@This(), answer: []const u8) []const u8 {
+        transcript.current.continuations += 1;
+        return answer;
+    }
 };
 
 const guard_handler = struct {
@@ -128,40 +131,78 @@ pub const RunResult = struct {
 
 const DirectoryState = enum { missing, present };
 
+fn approvalPresentRuntimeBody(eff: anytype) anyerror![]const u8 {
+    _ = try eff.directory.exists.perform("request-7");
+    return try eff.approval.request.perform("request-7", struct {
+        /// Publish only after the approval handler resumes.
+        pub fn apply(_: []const u8, _: anytype) anyerror![]const u8 {
+            return "published:approved";
+        }
+    });
+}
+
+fn approvalInvalidRuntimeBody(eff: anytype) anyerror![]const u8 {
+    _ = try eff.directory.exists.perform("request-7");
+    try eff.guard.invalid.abort("missing");
+}
+
+const approval_present_body = struct {
+    /// Source path for the named runtime carrier used by compiled workflow proof.
+    pub const source_path = "examples/custom_approval_workflow.zig";
+    /// Entry symbol for the named runtime carrier used by compiled workflow proof.
+    pub const body_symbol = "approvalPresentRuntimeBody";
+
+    /// Exercise the generated transform and choice families through `ability.with`.
+    pub fn body(eff: anytype) anyerror![]const u8 {
+        return approvalPresentRuntimeBody(eff);
+    }
+};
+
+const approval_invalid_body = struct {
+    /// Source path for the named runtime carrier used by compiled workflow proof.
+    pub const source_path = "examples/custom_approval_workflow.zig";
+    /// Entry symbol for the named runtime carrier used by compiled workflow proof.
+    pub const body_symbol = "approvalInvalidRuntimeBody";
+
+    /// Exercise the generated transform and abort families through `ability.with`.
+    pub fn body(eff: anytype) anyerror![]const u8 {
+        return approvalInvalidRuntimeBody(eff);
+    }
+};
+
 fn runCase(
     runtime: *ability.Runtime,
     state: DirectoryState,
     branch: ApprovalBranch,
 ) anyerror!RunResult {
     resetTranscript();
-    _ = runtime;
     const exists_value = switch (state) {
         .present => true,
         .missing => false,
     };
-    var directory_driver = DirectoryHandler{ .exists_value = exists_value };
-    if (!directory_driver.exists(request_id)) {
-        var guard_driver = guard_handler{};
-        const value = guard_driver.invalid(missing_id);
-        return .{
-            .value = value,
-            .transcript = currentTranscript(),
-        };
-    }
-
-    var approval_driver = ApprovalHandler{ .branch = branch };
-    const decision = approval_driver.request(request_id);
-    const value: []const u8 = switch (decision) {
-        .return_now => |answer| answer,
-        .resume_with => |answer| blk: {
-            transcript.current.continuations += 1;
-            if (std.mem.eql(u8, answer, "approved")) break :blk "published:approved";
-            break :blk "published:unexpected";
+    return switch (state) {
+        .present => blk: {
+            const result = try ability.with(runtime, .{
+                .directory = directory.use(.{ .handler = DirectoryHandler{ .exists_value = exists_value } }),
+                .guard = guard.use(.{ .handler = guard_handler{} }),
+                .approval = approval.use(.{ .handler = ApprovalHandler{ .branch = branch } }),
+            }, approval_present_body);
+            break :blk .{
+                .value = result.value,
+                .transcript = currentTranscript(),
+            };
         },
-    };
-    return .{
-        .value = value,
-        .transcript = currentTranscript(),
+        .missing => blk: {
+            const result = try ability.with(runtime, .{
+                .directory = directory.use(.{ .handler = DirectoryHandler{ .exists_value = exists_value } }),
+                .guard = guard.use(.{ .handler = guard_handler{} }),
+                .approval = approval.use(.{ .handler = ApprovalHandler{ .branch = branch } }),
+            }, approval_invalid_body);
+            break :blk .{
+                .value = result.value,
+                .transcript = currentTranscript(),
+            };
+        },
     };
 }
 
