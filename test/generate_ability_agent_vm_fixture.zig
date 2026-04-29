@@ -93,6 +93,16 @@ fn checkCommittedFixtureFreshness(
     }
 }
 
+fn writeFixtureBytesAtomic(dir: std.Io.Dir, io: std.Io, path: []const u8, bytes: []const u8) !void {
+    var atomic_file = try dir.createFileAtomic(io, path, .{ .replace = true });
+    defer atomic_file.deinit(io);
+    var buffer: [1024]u8 = undefined;
+    var file_writer = atomic_file.file.writer(io, &buffer);
+    try file_writer.interface.writeAll(bytes);
+    try file_writer.flush();
+    try atomic_file.replace(io);
+}
+
 /// Regenerate the committed public agent-vm artifact fixture.
 pub fn main(init: std.process.Init) anyerror!void {
     var arena_buffer: [1 << 20]u8 = undefined;
@@ -131,11 +141,15 @@ pub fn main(init: std.process.Init) anyerror!void {
         },
         .write => {
             const bytes = try generateFixtureBytes(allocator);
-            try std.Io.Dir.cwd().writeFile(init.io, .{
-                .sub_path = fixture.artifact_path,
-                .data = bytes,
-                .flags = .{ .truncate = true },
-            });
+            try writeFixtureBytesAtomic(std.Io.Dir.cwd(), init.io, fixture.artifact_path, bytes);
+            var stdout_buffer: [160]u8 = undefined;
+            var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+            const stdout = &stdout_writer.interface;
+            try stdout.print(
+                "wrote {s} ({d} bytes); verify with `zig build check-ability-agent-vm-fixture`\n",
+                .{ fixture.artifact_path, bytes.len },
+            );
+            try stdout.flush();
         },
         .check => try checkCommittedFixtureFreshness(init.io, allocator, std.heap.page_allocator),
     }
@@ -165,4 +179,19 @@ test "ability_agent_vm fixture freshness check matches committed artifact" {
         std.testing.allocator,
         std.testing.allocator,
     );
+}
+
+test "ability_agent_vm fixture writer atomically replaces target contents" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "fixture.artifact",
+        .data = "old",
+    });
+    try writeFixtureBytesAtomic(tmp.dir, std.testing.io, "fixture.artifact", "new-bytes");
+
+    const bytes = try tmp.dir.readFileAlloc(std.testing.io, "fixture.artifact", std.testing.allocator, .limited(32));
+    defer std.testing.allocator.free(bytes);
+    try std.testing.expectEqualStrings("new-bytes", bytes);
 }

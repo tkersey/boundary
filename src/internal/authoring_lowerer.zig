@@ -650,7 +650,7 @@ fn parseFailureDiagnostic(
         .allocator = allocator,
         .display_path = display_path,
         .code = "parse_error",
-        .message = @tagName(parse_error.tag),
+        .message = "source did not parse as Zig; fix the syntax near this parser diagnostic and rerun",
         .line = loc.line + 1,
         .column = loc.column + 1,
     });
@@ -768,13 +768,13 @@ fn findMismatch(actual: []const NormalizedToken, canonical: []const NormalizedTo
         if (std.mem.eql(u8, actual[index].value, canonical[index].value)) continue;
         return .{
             .token_index = actual[index].token_index,
-            .message = "source differs from the registered lowering pattern for this case; use the registered source file or update the case registry and baseline before rerunning",
+            .message = "source differs from the registered lowering pattern for this case; use the canonical --source path for this case or choose a supported case with --list-cases --surface <kind>",
         };
     }
     if (actual.len != canonical.len) {
         return .{
             .token_index = if (actual.len == 0) null else actual[actual.len - 1].token_index,
-            .message = "source token stream differs from the registered lowering pattern for this case; use the registered source file or update the case registry and baseline before rerunning",
+            .message = "source token stream differs from the registered lowering pattern for this case; use the canonical --source path for this case or choose a supported case with --list-cases --surface <kind>",
         };
     }
     return null;

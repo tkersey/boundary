@@ -21,7 +21,7 @@ const usage_text =
     "  --surface <kind> one of source_case, example, effect, user_defined_effect, witness\n" ++
     "  --emit <format>  one of json or zig\n" ++
     "  --out <path>     write only under zig-out, .zig-cache, or zig-cache; parent directories must already exist\n" ++
-    "  --list-cases     print supported case ids, optionally restricted by --surface\n" ++
+    "  --list-cases     print supported cases with source and entry metadata, optionally restricted by --surface\n" ++
     "  --version        print the tool version\n" ++
     "  --help, -h       print this help\n" ++
     "\n" ++
@@ -29,7 +29,7 @@ const usage_text =
     "  mkdir -p zig-out/source-lower\n" ++
     "  ./zig-out/bin/ability-source-lower --list-cases --surface example\n" ++
     "  ./zig-out/bin/ability-source-lower --id source.branch_resume --source test/source_lowering_corpus/fixtures/branch_resume.zig --entry run --surface source_case --emit json --out zig-out/source-lower/branch.json\n" ++
-    "  ./zig-out/bin/ability-source-lower --id example.state_basic --source examples/state_basic.zig --entry main --surface example --emit zig --out zig-out/source-lower/state.zig\n";
+    "  ./zig-out/bin/ability-source-lower --id example.state_basic --source examples/state_basic.zig --entry run --surface example --emit zig --out zig-out/source-lower/state.zig\n";
 const expected_flag_value_pair_count = 6;
 const expected_arg_count = 1 + expected_flag_value_pair_count * 2;
 const generated_output_roots = [_][]const u8{
@@ -90,10 +90,14 @@ fn writeUsage(writer: anytype) !void {
     try writer.writeAll(usage_text);
 }
 
-fn writeSupportedCaseIds(writer: anytype, surface_kind: source_lowering.SurfaceKind) !void {
+fn writeSupportedCases(writer: anytype, surface_kind: source_lowering.SurfaceKind) !void {
     try writer.print("{s}:\n", .{@tagName(surface_kind)});
     for (source_lowering.supportedCaseIds(surface_kind)) |case_id| {
-        try writer.print("  {s}\n", .{case_id});
+        const case = source_lowering.supportedCaseInfo(surface_kind, case_id) orelse continue;
+        try writer.print(
+            "  {s} --source {s} --entry {s} --surface {s}\n",
+            .{ case.case_id, case.source_path, case.entry_symbol, @tagName(case.surface_kind) },
+        );
     }
 }
 
@@ -105,14 +109,14 @@ fn listCases(allocator: std.mem.Allocator, io: std.Io, args: []const []const u8)
     if (args.len == 2) {
         inline for (@typeInfo(source_lowering.SurfaceKind).@"enum".fields, 0..) |field, index| {
             if (index != 0) try stdout.writeByte('\n');
-            try writeSupportedCaseIds(stdout, @enumFromInt(field.value));
+            try writeSupportedCases(stdout, @enumFromInt(field.value));
         }
         try stdout.flush();
         return;
     }
     if (args.len == 4 and std.mem.eql(u8, args[2], "--surface")) {
         const surface_kind = parseSurface(args[3]) orelse usageError("unsupported --surface value '{s}'", .{args[3]});
-        try writeSupportedCaseIds(stdout, surface_kind);
+        try writeSupportedCases(stdout, surface_kind);
         try stdout.flush();
         return;
     }
@@ -248,7 +252,6 @@ fn generatedOutputRootBound(allocator: std.mem.Allocator, io: std.Io, package_ro
     const root = generatedOutputRoot(path) orelse return false;
     var package_dir = std.Io.Dir.openDirAbsolute(io, package_root, .{}) catch return false;
     defer package_dir.close(io);
-    package_dir.createDirPath(io, root) catch return false;
 
     const root_real = package_dir.realPathFileAlloc(io, root, allocator) catch return false;
     defer allocator.free(root_real);
@@ -726,7 +729,7 @@ pub fn main(init: std.process.Init) anyerror!void {
     if (cliShapeIssue(args)) |issue| {
         switch (issue) {
             .missing_value => |flag| usageError("missing value for flag '{s}'", .{flag}),
-            .unexpected_arg_count => |count| usageError("expected exactly six flag/value pairs, got {d} argument(s)", .{count}),
+            .unexpected_arg_count => |count| usageError("expected six flag/value pairs after the program name; got {d} argument token(s)", .{count}),
             .unknown_flag => |flag| usageError("unknown flag '{s}'", .{flag}),
         }
     }
@@ -849,19 +852,19 @@ test "usage text documents required flags and recovery examples" {
     try std.testing.expect(std.mem.find(u8, usage_text, "--list-cases") != null);
     try std.testing.expect(std.mem.find(u8, usage_text, "./zig-out/bin/ability-source-lower") != null);
     try std.testing.expect(std.mem.find(u8, usage_text, "source.branch_resume") != null);
-    try std.testing.expect(std.mem.find(u8, usage_text, "example.state_basic") != null);
+    try std.testing.expect(std.mem.find(u8, usage_text, "example.state_basic --source examples/state_basic.zig --entry run") != null);
 }
 
 test "case listing prints supported ids for a selected surface" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
 
-    try writeSupportedCaseIds(&output.writer, .example);
+    try writeSupportedCases(&output.writer, .example);
     const bytes = try output.toOwnedSlice();
     defer std.testing.allocator.free(bytes);
 
     try std.testing.expect(std.mem.find(u8, bytes, "example:\n") != null);
-    try std.testing.expect(std.mem.find(u8, bytes, "example.state_basic") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "example.state_basic --source examples/state_basic.zig --entry run --surface example") != null);
     try std.testing.expect(std.mem.find(u8, bytes, "example.open_row_transform_basic") != null);
 }
 
@@ -1001,6 +1004,24 @@ test "cli output root guard rejects symlinked generated root" {
     ));
 }
 
+test "cli output root guard does not create missing generated root" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const tmp_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(tmp_path);
+
+    try std.testing.expect(!try generatedOutputRootBound(
+        std.testing.allocator,
+        std.testing.io,
+        tmp_path,
+        "zig-cache/source-lower/out.json",
+    ));
+    try std.testing.expectError(
+        error.FileNotFound,
+        tmp.dir.openDir(std.testing.io, "zig-cache", .{}),
+    );
+}
+
 test "cli output path binder accepts native separators under generated roots" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -1044,6 +1065,7 @@ test "cli output path binder anchors generated roots to package root from subdir
     try tmp.dir.createDirPath(std.testing.io, "examples");
     const examples_path = try tmp.dir.realPathFileAlloc(std.testing.io, "examples", std.testing.allocator);
     defer std.testing.allocator.free(examples_path);
+    try tmp.dir.createDirPath(std.testing.io, "zig-out");
 
     try std.process.setCurrentPath(std.testing.io, examples_path);
     defer std.process.setCurrentPath(std.testing.io, original_cwd) catch unreachable;
