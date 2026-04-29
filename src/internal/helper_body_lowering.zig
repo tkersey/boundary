@@ -460,6 +460,30 @@ fn moduleImportsForFunction(
     return module_graph.imports;
 }
 
+fn admittedBodyForFunction(
+    comptime context: FunctionBuildContext,
+) ?admitted_body_v1.Body {
+    const function = context.graph.functions[context.graph_function_index];
+    if (function.body_end_offset <= function.body_start_offset) return null;
+    const module_source = source_graph_embed.sourceBytes(
+        function.module_path,
+        context.root_source.path,
+        context.root_source.content,
+        context.root_source.imported_sources,
+    ) catch |err| switch (err) {
+        error.MissingImport => @compileError("public lowering recursive helper subset could not resolve one caller-owned helper module"),
+        else => unreachable,
+    };
+    return admitted_body_v1.parseFunctionBody(
+        module_source,
+        function.module_path,
+        function.body_start_offset,
+        function.body_end_offset,
+        function.effect_param,
+        moduleImportsForFunction(function.module_path, context.root_source),
+    );
+}
+
 fn statementRangesForTokens(comptime tokens: []const BodyToken) []const StatementRange {
     return comptime blk: {
         var statement_count: usize = 0;
@@ -2153,25 +2177,7 @@ fn buildLinearBodyForFunction(
     comptime context: FunctionBuildContext,
 ) ?program_frontend.FunctionBody {
     const function = context.graph.functions[context.graph_function_index];
-    if (function.body_end_offset <= function.body_start_offset) return null;
-    const module_source = source_graph_embed.sourceBytes(
-        function.module_path,
-        context.root_source.path,
-        context.root_source.content,
-        context.root_source.imported_sources,
-    ) catch |err| switch (err) {
-        error.MissingImport => @compileError("public lowering recursive helper subset could not resolve one caller-owned helper module"),
-        else => unreachable,
-    };
-    const module_imports = moduleImportsForFunction(function.module_path, context.root_source);
-    const admitted_body = admitted_body_v1.parseFunctionBody(
-        module_source,
-        function.module_path,
-        function.body_start_offset,
-        function.body_end_offset,
-        function.effect_param,
-        module_imports,
-    ) orelse return null;
+    const admitted_body = admittedBodyForFunction(context) orelse return null;
 
     return comptime blk: {
         var local_bindings: [admitted_body_v1.max_steps * max_statement_bound_locals + source_graph_engine.max_function_params]BoundLocal = [_]BoundLocal{.{
@@ -2340,7 +2346,10 @@ fn buildLinearBodyForFunction(
                     if (step_index + 1 != admitted_body.step_count) break :blk null;
                     if (context.functions[context.lowered_function_index].ValueType != void) break :blk null;
                     const condition_local = findBoundLocal(local_bindings[0..binding_count], branch_statement.local_name) orelse break :blk null;
-                    if (condition_local.codec != .i32 and condition_local.codec != .usize) break :blk null;
+                    switch (branch_statement.condition_kind) {
+                        .bang => if (condition_local.codec != .bool) break :blk null,
+                        .eq_zero => if (condition_local.codec != .i32 and condition_local.codec != .usize) break :blk null,
+                    }
 
                     const predicate_local = appendAnonymousLocal(&local_storage, .bool);
                     appendInstruction(instructions[0..], &instruction_count, .{
@@ -3133,6 +3142,10 @@ pub fn buildFunctionBodiesForGraph(
                 continue;
             }
 
+            if (admittedBodyForFunction(context) != null) {
+                failUnsupportedBodyLowering(function);
+            }
+
             if (buildReturnLiteralBodyForFunction(context)) |return_literal_body| {
                 buffer[lowered_function_index] = return_literal_body;
                 continue;
@@ -3195,6 +3208,8 @@ pub fn maybeBuildFunctionBodiesForGraph(
                 buffer[lowered_function_index] = linear_body;
                 continue;
             }
+
+            if (admittedBodyForFunction(context) != null) break :blk null;
 
             if (buildReturnLiteralBodyForFunction(context)) |return_literal_body| {
                 buffer[lowered_function_index] = return_literal_body;

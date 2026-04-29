@@ -232,6 +232,11 @@ const FunctionResult = union(enum) {
     value: RuntimeValue,
 };
 
+const UnitCompletionMode = enum {
+    helper_allows_unit_completion,
+    strict_result_codec,
+};
+
 const AfterFrame = struct {
     op_index: u16,
     call_id: u64,
@@ -598,10 +603,11 @@ fn materializeExecutionOutputs(ctx: *ExecutionContext) anyerror!OutputMaterializ
     return .{ .outputs = outputs };
 }
 
-fn executeFunction(
+fn executeFunctionWithCompletionMode(
     ctx: *ExecutionContext,
     function_index: u16,
     args: []const lowered_machine.ProgramValue,
+    unit_completion_mode: UnitCompletionMode,
 ) anyerror!FunctionResult {
     if (try enterFunctionCall(ctx)) |failure| return .{ .failed = failure };
     defer leaveFunctionCall(ctx);
@@ -679,15 +685,25 @@ fn executeFunction(
                         const local_id = ctx.plan.call_args[instruction.aux + arg_index];
                         slot.* = locals[local_id];
                     }
-                    const helper_result = try executeFunction(ctx, instruction.operand, helper_args);
+                    const helper_result = try executeFunctionWithCompletionMode(ctx, instruction.operand, helper_args, .helper_allows_unit_completion);
                     switch (helper_result) {
                         .value => |value| {
-                            if (helper_result_codec != .unit) {
-                                if (instruction.dst >= locals.len) return error.ProgramContractViolation;
+                            const completion_codec = if (programValueMatchesCodec(callee.value_codec, value.value))
+                                callee.value_codec
+                            else if (programValueMatchesCodec(helper_result_codec, value.value))
+                                helper_result_codec
+                            else
+                                return error.ProgramContractViolation;
+                            if (completion_codec != .unit) {
+                                if (instruction.dst >= locals.len or
+                                    functionLocalCodec(ctx.plan, function, instruction.dst) != completion_codec)
+                                {
+                                    return error.ProgramContractViolation;
+                                }
                                 setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, value);
                             }
                         },
-                        .terminal => |value| return try unwindAfterStack(ctx, function.value_codec, function_result_codec, &after_stack, .{ .terminal = value }),
+                        .terminal => |value| return try unwindAfterStack(ctx, function.value_codec, function_result_codec, unit_completion_mode, &after_stack, .{ .terminal = value }),
                         .rejected => |failure| return .{ .rejected = failure },
                         .failed => |failure| return .{ .failed = failure },
                     }
@@ -719,7 +735,7 @@ fn executeFunction(
                                 reserved_after_frame = false;
                             }
                         },
-                        .terminal => |value| return try unwindAfterStack(ctx, function.value_codec, function_result_codec, &after_stack, .{ .terminal = value }),
+                        .terminal => |value| return try unwindAfterStack(ctx, function.value_codec, function_result_codec, unit_completion_mode, &after_stack, .{ .terminal = value }),
                         .rejected => |failure| return .{ .rejected = failure },
                         .failed => |failure| return .{ .failed = failure },
                     }
@@ -731,6 +747,7 @@ fn executeFunction(
                     instruction.dst,
                     .{
                         .value = switch (locals[instruction.operand]) {
+                            .bool => |typed| .{ .bool = !typed },
                             .i32 => |typed| .{ .bool = typed == 0 },
                             .usize => |typed| .{ .bool = typed == 0 },
                             else => return error.ProgramContractViolation,
@@ -797,16 +814,25 @@ fn executeFunction(
                 instruction_index = ctx.plan.blocks[current_block_index].first_instruction;
                 return_local = null;
             },
-            .return_unit => return try unwindAfterStack(ctx, function.value_codec, function_result_codec, &after_stack, .{ .value = .{ .value = .none } }),
+            .return_unit => return try unwindAfterStack(ctx, function.value_codec, function_result_codec, unit_completion_mode, &after_stack, .{ .value = .{ .value = .none } }),
             .return_value => return try unwindAfterStack(
                 ctx,
                 function.value_codec,
                 function_result_codec,
+                unit_completion_mode,
                 &after_stack,
                 .{ .value = takeLocalValue(locals, local_owns_value, return_local orelse return error.ProgramContractViolation) },
             ),
         }
     }
+}
+
+fn executeFunction(
+    ctx: *ExecutionContext,
+    function_index: u16,
+    args: []const lowered_machine.ProgramValue,
+) anyerror!FunctionResult {
+    return executeFunctionWithCompletionMode(ctx, function_index, args, .strict_result_codec);
 }
 
 const ResumedOp = struct {
@@ -1079,15 +1105,21 @@ fn afterMethodNameAlloc(allocator: std.mem.Allocator, op_name: []const u8) ![]u8
     return buffer.toOwnedSlice(allocator);
 }
 
+// zlinter-disable max_positional_args - the artifact unwind bridge keeps context, value/result codecs, helper-completion mode, frame stack, and result explicit for direct-interpreter parity.
 fn unwindAfterStack(
     ctx: *ExecutionContext,
     function_value_codec: program_plan.ValueCodec,
     function_result_codec: program_plan.ValueCodec,
+    unit_completion_mode: UnitCompletionMode,
     after_stack: *std.ArrayList(AfterFrame),
     result: FunctionResult,
 ) anyerror!FunctionResult {
     if (function_value_codec != function_result_codec) switch (result) {
-        .value => if (after_stack.items.len != 1) return error.ProgramContractViolation,
+        .value => |value| if (after_stack.items.len != 1 and
+            !(unit_completion_mode == .helper_allows_unit_completion and function_value_codec == .unit and value.value == .none and after_stack.items.len == 0))
+        {
+            return error.ProgramContractViolation;
+        },
         .terminal, .failed, .rejected => {},
     };
     var final_result = result;
@@ -1313,6 +1345,17 @@ fn releaseLocals(allocator: std.mem.Allocator, locals: []lowered_machine.Program
 fn functionLocalCodec(plan: program_plan.ProgramPlan, function: program_plan.FunctionPlan, local_id: u16) ?program_plan.ValueCodec {
     if (local_id >= function.local_count) return null;
     return plan.locals[function.first_local + local_id].codec;
+}
+
+fn programValueMatchesCodec(codec: program_plan.ValueCodec, value: lowered_machine.ProgramValue) bool {
+    return switch (codec) {
+        .unit => value == .none,
+        .bool => value == .bool,
+        .i32 => value == .i32,
+        .string => value == .string,
+        .usize => value == .usize,
+        .string_list => false,
+    };
 }
 
 fn decodeI32InstructionLiteral(instruction: program_plan.Instruction) i32 {
@@ -3665,6 +3708,71 @@ test "artifact runtime stores helper values using helper result codecs" {
         else => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqual(@as(usize, 1), after_calls);
+}
+
+test "artifact runtime rejects non-diagonal unit returns without after frames" {
+    const allocator = std.testing.allocator;
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "entry",
+        .value_codec = .unit,
+        .result_codec = .string,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 0,
+    }};
+    const blocks = [_]program_plan.BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = 0,
+        .terminator_index = 0,
+    }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_unit }};
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.non_diagonal_without_after",
+        .ir_hash = 0x307,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &.{},
+    };
+    var artifact_value = std.mem.zeroes(artifact.ArtifactV1);
+    var logs = std.ArrayList(host.HostLogEntryV1).empty;
+    defer logs.deinit(allocator);
+    var next_request_id: u64 = 1;
+    var ctx: ExecutionContext = .{
+        .allocator = allocator,
+        .decoded = &artifact_value,
+        .plan = plan,
+        .adapter = .{
+            .ctx = null,
+            .dispatchFn = struct {
+                fn dispatch(
+                    _: ?*anyopaque,
+                    _: std.mem.Allocator,
+                    _: host.HostEffectRequestV1,
+                ) anyerror!host.HostEffectResultV1 {
+                    return error.TestUnexpectedDispatch;
+                }
+            }.dispatch,
+        },
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+    };
+
+    try std.testing.expectError(error.ProgramContractViolation, executeFunction(&ctx, 0, &.{}));
 }
 
 test "artifact runtime resolves reordered repeated-requirement after hooks by capability id" {

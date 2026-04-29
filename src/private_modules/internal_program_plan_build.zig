@@ -298,6 +298,13 @@ pub const ProgramPlan = struct {
         }
 
         for (self.functions) |function| {
+            const result_codec = function.result_codec orelse continue;
+            if (result_codec == function.value_codec) continue;
+            const completion_codecs = try functionCompletionCodecReachability(self, function, &completion_reachability);
+            if (completion_codecs.value_codec and completion_codecs.result_codec) return error.InvalidFunctionResultCodec;
+        }
+
+        for (self.functions) |function| {
             const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
             const function_instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return error.InvalidFunctionInstructionSpan;
             const function_returns_value = function.value_codec != .unit;
@@ -321,9 +328,10 @@ pub const ProgramPlan = struct {
                         {
                             return error.InvalidInstructionLocalIndex;
                         }
-                        if (helper_result_codec != .unit and
+                        const helper_completion_codec = try functionCompletionValueCodec(self, callee, &completion_reachability);
+                        if (helper_completion_codec != .unit and
                             completion_reachability[instruction.operand] and
-                            !functionLocalHasCodec(self, function, instruction.dst, helper_result_codec))
+                            !functionLocalHasCodec(self, function, instruction.dst, helper_completion_codec))
                         {
                             return error.InvalidInstructionLocalIndex;
                         }
@@ -393,8 +401,10 @@ pub const ProgramPlan = struct {
                         } else if (instruction.kind == .compare_eq_zero) {
                             const operand_codec = functionLocalCodec(self, function, instruction.operand) orelse
                                 return error.InvalidInstructionLocalIndex;
-                            if (operand_codec != .i32 and operand_codec != .usize) return error.InvalidInstructionLocalIndex;
-                            if (!functionLocalHasCodec(self, function, instruction.dst, .bool)) return error.InvalidInstructionLocalIndex;
+                            if (operand_codec != .bool and operand_codec != .i32 and operand_codec != .usize)
+                                return error.InvalidInstructionLocalIndex;
+                            if (!functionLocalHasCodec(self, function, instruction.dst, .bool))
+                                return error.InvalidInstructionLocalIndex;
                         } else if (instruction.kind == .const_i32) {
                             const dst_codec = functionLocalCodec(self, function, instruction.dst) orelse
                                 return error.InvalidInstructionLocalIndex;
@@ -546,6 +556,7 @@ pub const ValidationError = error{
     InvalidFunctionLocalSpan,
     InvalidFunctionOutputSpan,
     InvalidFunctionRequirementSpan,
+    InvalidFunctionResultCodec,
     InvalidInstructionLocalIndex,
     InvalidAfterHookMode,
     InvalidOpRequirementIndex,
@@ -578,6 +589,104 @@ pub fn codecForType(comptime T: type) CodecError!ValueCodec {
 /// Return the externally observable result codec for one function plan.
 pub fn functionResultCodec(function: FunctionPlan) ValueCodec {
     return function.result_codec orelse function.value_codec;
+}
+
+fn functionCompletionValueCodec(
+    self: ProgramPlan,
+    function: FunctionPlan,
+    completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
+) ValidationError!ValueCodec {
+    const result_codec = function.result_codec orelse return function.value_codec;
+    if (result_codec == function.value_codec) return function.value_codec;
+    const completion_codecs = try functionCompletionCodecReachability(self, function, completion_reachability);
+    if (completion_codecs.value_codec and completion_codecs.result_codec) return error.InvalidFunctionResultCodec;
+    if (!completion_codecs.result_codec) return function.value_codec;
+    return result_codec;
+}
+
+const FunctionCompletionCodecs = struct {
+    value_codec: bool = false,
+    result_codec: bool = false,
+};
+
+fn markFunctionCompletionState(
+    states: *[std.math.maxInt(u16) + 1]bool,
+    target: u16,
+) bool {
+    if (states[target]) return false;
+    states[target] = true;
+    return true;
+}
+
+fn blockAppliesAfterOnCompletion(
+    self: ProgramPlan,
+    function: FunctionPlan,
+    first_instruction: u16,
+    instruction_end: usize,
+) ValidationError!bool {
+    for (self.instructions[first_instruction..instruction_end]) |instruction| {
+        if (instruction.kind == .call_op and
+            instruction.operand < self.ops.len and
+            functionOwnsOpTarget(self, function, instruction.operand) and
+            self.ops[instruction.operand].has_after)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn functionCompletionCodecReachability(
+    self: ProgramPlan,
+    function: FunctionPlan,
+    completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
+) ValidationError!FunctionCompletionCodecs {
+    var plain_blocks = [_]bool{false} ** (std.math.maxInt(u16) + 1);
+    var after_blocks = [_]bool{false} ** (std.math.maxInt(u16) + 1);
+    const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+    const entry_block_index = @as(usize, function.first_block) + function.entry_block;
+    plain_blocks[entry_block_index] = true;
+
+    var completion_codecs = FunctionCompletionCodecs{};
+    var changed = true;
+    while (changed) {
+        changed = false;
+        completion_block_scan: for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+            const block_index = @as(usize, function.first_block) + relative_block_index;
+            if (!plain_blocks[block_index] and !after_blocks[block_index]) continue :completion_block_scan;
+            const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
+            if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, completion_reachability)) continue :completion_block_scan;
+
+            const block_applies_after = try blockAppliesAfterOnCompletion(self, function, block.first_instruction, instruction_end);
+            const completes_plain = plain_blocks[block_index] and !block_applies_after;
+            const completes_after = after_blocks[block_index] or (plain_blocks[block_index] and block_applies_after);
+            const terminator = self.terminators[block.terminator_index];
+            switch (terminator.kind) {
+                .return_unit, .return_value => {
+                    completion_codecs.value_codec = completion_codecs.value_codec or completes_plain;
+                    completion_codecs.result_codec = completion_codecs.result_codec or completes_after;
+                },
+                .jump => {
+                    if (!isOwnedBlockTarget(function.first_block, block_end, terminator.primary)) return error.InvalidTerminatorTarget;
+                    if (completes_plain) changed = markFunctionCompletionState(&plain_blocks, terminator.primary) or changed;
+                    if (completes_after) changed = markFunctionCompletionState(&after_blocks, terminator.primary) or changed;
+                },
+                .branch_if => {
+                    if (!isOwnedBlockTarget(function.first_block, block_end, terminator.primary)) return error.InvalidTerminatorTarget;
+                    if (!isOwnedBlockTarget(function.first_block, block_end, terminator.secondary)) return error.InvalidTerminatorTarget;
+                    if (completes_plain) {
+                        changed = markFunctionCompletionState(&plain_blocks, terminator.primary) or changed;
+                        changed = markFunctionCompletionState(&plain_blocks, terminator.secondary) or changed;
+                    }
+                    if (completes_after) {
+                        changed = markFunctionCompletionState(&after_blocks, terminator.primary) or changed;
+                        changed = markFunctionCompletionState(&after_blocks, terminator.secondary) or changed;
+                    }
+                },
+            }
+        }
+    }
+    return completion_codecs;
 }
 
 fn hashBytes(hasher: *std.hash.Wyhash, value: []const u8) void {
@@ -969,6 +1078,258 @@ fn countBodyInstructions(comptime program: program_frontend.LoweredOpenRowProgra
     return total;
 }
 
+fn loweredFunctionOp(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime function_index: usize,
+    comptime op_index: u16,
+) PlanError!?effect_ir.OpSpec {
+    var current_op_index: u16 = 0;
+    for (program.functions, 0..) |function, owner_index| {
+        for (function.row.requirements) |requirement| {
+            for (requirement.ops) |op| {
+                if (current_op_index == op_index) {
+                    if (owner_index != function_index) return error.InvalidProgramBodyShape;
+                    return op;
+                }
+                current_op_index += 1;
+            }
+        }
+    }
+    return error.InvalidProgramBodyShape;
+}
+
+fn loweredBlockCanResumeToTerminator(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime function_index: usize,
+    comptime block: effect_ir.Block,
+    completion_reachability: *const [program.functions.len]bool,
+) PlanError!bool {
+    for (block.instructions) |instruction| {
+        if (instruction.kind == .call_helper) {
+            if (instruction.operand >= program.functions.len) return error.InvalidProgramBodyShape;
+            if (!completion_reachability[instruction.operand]) return false;
+        } else if (instruction.kind == .call_op) {
+            const plan_op = (try loweredFunctionOp(program, function_index, instruction.operand)).?;
+            if (plan_op.mode == .abort) return false;
+        }
+    }
+    return true;
+}
+
+fn markLoweredFunctionExecutableBlocks(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime function_index: usize,
+    completion_reachability: *const [program.functions.len]bool,
+    executable_blocks: *[program.function_bodies[function_index].blocks.len]bool,
+) PlanError!void {
+    const body = program.function_bodies[function_index];
+    if (body.blocks.len == 0 or body.entry_block >= body.blocks.len) return error.InvalidProgramBodyShape;
+    executable_blocks[body.entry_block] = true;
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        executable_block_scan: for (body.blocks, 0..) |block, block_index| {
+            if (!executable_blocks[block_index]) continue :executable_block_scan;
+            if (!try loweredBlockCanResumeToTerminator(program, function_index, block, completion_reachability)) continue :executable_block_scan;
+            switch (block.terminator.kind) {
+                .branch_if => {
+                    if (block.terminator.primary >= body.blocks.len or block.terminator.secondary >= body.blocks.len) {
+                        return error.InvalidProgramBodyShape;
+                    }
+                    if (!executable_blocks[block.terminator.primary]) {
+                        executable_blocks[block.terminator.primary] = true;
+                        changed = true;
+                    }
+                    if (!executable_blocks[block.terminator.secondary]) {
+                        executable_blocks[block.terminator.secondary] = true;
+                        changed = true;
+                    }
+                },
+                .jump => {
+                    if (block.terminator.primary >= body.blocks.len) return error.InvalidProgramBodyShape;
+                    if (!executable_blocks[block.terminator.primary]) {
+                        executable_blocks[block.terminator.primary] = true;
+                        changed = true;
+                    }
+                },
+                .return_unit, .return_value => {},
+            }
+        }
+    }
+}
+
+fn loweredFunctionCanComplete(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime function_index: usize,
+    completion_reachability: *const [program.functions.len]bool,
+) PlanError!bool {
+    const body = program.function_bodies[function_index];
+    var executable_blocks = [_]bool{false} ** body.blocks.len;
+    try markLoweredFunctionExecutableBlocks(program, function_index, completion_reachability, &executable_blocks);
+    for (body.blocks, 0..) |block, block_index| {
+        if (!executable_blocks[block_index]) continue;
+        if (!try loweredBlockCanResumeToTerminator(program, function_index, block, completion_reachability)) continue;
+        switch (block.terminator.kind) {
+            .return_unit, .return_value => return true,
+            .branch_if, .jump => {},
+        }
+    }
+    return false;
+}
+
+fn loweredBlockCanEscapeTerminally(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime function_index: usize,
+    comptime block: effect_ir.Block,
+    completion_reachability: *const [program.functions.len]bool,
+    terminal_reachability: *const [program.functions.len]bool,
+) PlanError!bool {
+    for (block.instructions) |instruction| {
+        if (instruction.kind == .call_helper) {
+            if (instruction.operand >= program.functions.len) return error.InvalidProgramBodyShape;
+            if (terminal_reachability[instruction.operand]) return true;
+            if (!completion_reachability[instruction.operand]) return false;
+        } else if (instruction.kind == .call_op) {
+            const plan_op = (try loweredFunctionOp(program, function_index, instruction.operand)).?;
+            if (plan_op.mode != .transform) return true;
+        }
+    }
+    return false;
+}
+
+fn loweredFunctionCanEscapeTerminally(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime function_index: usize,
+    completion_reachability: *const [program.functions.len]bool,
+    terminal_reachability: *const [program.functions.len]bool,
+) PlanError!bool {
+    const body = program.function_bodies[function_index];
+    var executable_blocks = [_]bool{false} ** body.blocks.len;
+    try markLoweredFunctionExecutableBlocks(program, function_index, completion_reachability, &executable_blocks);
+    for (body.blocks, 0..) |block, block_index| {
+        if (!executable_blocks[block_index]) continue;
+        if (try loweredBlockCanEscapeTerminally(program, function_index, block, completion_reachability, terminal_reachability)) return true;
+    }
+    return false;
+}
+
+fn loweredFunctionCompletionCodecReachability(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime function_index: usize,
+    completion_reachability: *const [program.functions.len]bool,
+) PlanError!LoweredCompletionCodecs {
+    const body = program.function_bodies[function_index];
+    var plain_blocks = [_]bool{false} ** body.blocks.len;
+    var after_blocks = [_]bool{false} ** body.blocks.len;
+    plain_blocks[body.entry_block] = true;
+
+    var completion_codecs = LoweredCompletionCodecs{};
+    var changed = true;
+    while (changed) {
+        changed = false;
+        completion_block_scan: for (body.blocks, 0..) |block, block_index| {
+            if (!plain_blocks[block_index] and !after_blocks[block_index]) continue :completion_block_scan;
+            if (!try loweredBlockCanResumeToTerminator(program, function_index, block, completion_reachability)) continue :completion_block_scan;
+            const block_applies_after = try loweredBlockAppliesAfterOnCompletion(program, function_index, block);
+            const completes_plain = plain_blocks[block_index] and !block_applies_after;
+            const completes_after = after_blocks[block_index] or (plain_blocks[block_index] and block_applies_after);
+            switch (block.terminator.kind) {
+                .return_unit, .return_value => {
+                    completion_codecs.value_codec = completion_codecs.value_codec or completes_plain;
+                    completion_codecs.result_codec = completion_codecs.result_codec or completes_after;
+                },
+                .jump => {
+                    if (completes_plain) changed = try markLoweredCompletionState(body.blocks.len, &plain_blocks, block.terminator.primary) or changed;
+                    if (completes_after) changed = try markLoweredCompletionState(body.blocks.len, &after_blocks, block.terminator.primary) or changed;
+                },
+                .branch_if => {
+                    if (completes_plain) {
+                        changed = try markLoweredCompletionState(body.blocks.len, &plain_blocks, block.terminator.primary) or changed;
+                        changed = try markLoweredCompletionState(body.blocks.len, &plain_blocks, block.terminator.secondary) or changed;
+                    }
+                    if (completes_after) {
+                        changed = try markLoweredCompletionState(body.blocks.len, &after_blocks, block.terminator.primary) or changed;
+                        changed = try markLoweredCompletionState(body.blocks.len, &after_blocks, block.terminator.secondary) or changed;
+                    }
+                },
+            }
+        }
+    }
+    return completion_codecs;
+}
+
+const LoweredCompletionCodecs = struct {
+    value_codec: bool = false,
+    result_codec: bool = false,
+};
+
+fn markLoweredCompletionState(
+    comptime block_count: usize,
+    states: *[block_count]bool,
+    target: u16,
+) PlanError!bool {
+    if (target >= block_count) return error.InvalidProgramBodyShape;
+    if (states[target]) return false;
+    states[target] = true;
+    return true;
+}
+
+fn loweredBlockAppliesAfterOnCompletion(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime function_index: usize,
+    comptime block: effect_ir.Block,
+) PlanError!bool {
+    for (block.instructions) |instruction| {
+        if (instruction.kind != .call_op) continue;
+        const plan_op = (try loweredFunctionOp(program, function_index, instruction.operand)).?;
+        if (plan_op.has_after) return true;
+    }
+    return false;
+}
+
+fn loweredFunctionResultCodecReachability(comptime program: program_frontend.LoweredOpenRowProgram) PlanError![program.functions.len]bool {
+    const program_result_codec = try valueCodecFromEffectType(program.functions[program.entry_index].ValueType);
+    var completion_reachability = [_]bool{false} ** program.functions.len;
+    var terminal_reachability = [_]bool{false} ** program.functions.len;
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        function_completion_scan: for (program.functions, 0..) |_, function_index| {
+            if (completion_reachability[function_index]) continue :function_completion_scan;
+            if (try loweredFunctionCanComplete(program, function_index, &completion_reachability)) {
+                completion_reachability[function_index] = true;
+                changed = true;
+            }
+        }
+    }
+
+    changed = true;
+    while (changed) {
+        changed = false;
+        function_terminal_scan: for (program.functions, 0..) |_, function_index| {
+            if (terminal_reachability[function_index]) continue :function_terminal_scan;
+            if (try loweredFunctionCanEscapeTerminally(program, function_index, &completion_reachability, &terminal_reachability)) {
+                terminal_reachability[function_index] = true;
+                changed = true;
+            }
+        }
+    }
+
+    var result_codec_reachability = [_]bool{false} ** program.functions.len;
+    for (program.functions, 0..) |function, function_index| {
+        const value_codec = try valueCodecFromEffectType(function.ValueType);
+        const completion_codecs = try loweredFunctionCompletionCodecReachability(program, function_index, &completion_reachability);
+        if (value_codec != program_result_codec and completion_codecs.value_codec and completion_codecs.result_codec) {
+            return error.InvalidProgramBodyShape;
+        }
+        result_codec_reachability[function_index] =
+            terminal_reachability[function_index] or completion_codecs.result_codec;
+    }
+    return result_codec_reachability;
+}
+
 fn invalidGeneratedPlan(err: ValidationError) noreturn {
     @compileError(switch (err) {
         error.EmptyFunctionSymbol => "runtime plan generator produced an empty function symbol",
@@ -989,6 +1350,7 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
         error.InvalidFunctionLocalSpan => "runtime plan generator produced an invalid function local span",
         error.InvalidFunctionOutputSpan => "runtime plan generator produced an invalid function output span",
         error.InvalidFunctionRequirementSpan => "runtime plan generator produced an invalid function requirement span",
+        error.InvalidFunctionResultCodec => "runtime plan generator produced a function with mixed completion result codecs",
         error.InvalidInstructionCodec => "runtime plan generator produced an instruction whose encoded codec is invalid",
         error.InvalidInstructionLocalIndex => "runtime plan generator produced an instruction with an out-of-range function-local reference",
         error.InvalidNestedWithMetadata => "runtime plan generator produced an incomplete nested lexical-with metadata packet",
@@ -1600,6 +1962,8 @@ pub fn planFromOpenRowProgram(
     const terminator_total = countBodyTerminators(program);
     const instruction_total = countBodyInstructions(program);
     const ir_hash = try irHashForProgram(summary_program);
+    const program_result_codec = try valueCodecFromEffectType(program.functions[program.entry_index].ValueType);
+    const result_codec_reachability = try loweredFunctionResultCodecReachability(program);
 
     const functions = comptime blk: {
         var buf: [program.functions.len]FunctionPlan = undefined;
@@ -1615,9 +1979,14 @@ pub fn planFromOpenRowProgram(
                 for (body.blocks) |block| total += block.instructions.len;
                 break :count total;
             };
+            const value_codec = try valueCodecFromEffectType(function.ValueType);
             buf[index] = .{
                 .symbol_name = function.symbol.symbol_name,
-                .value_codec = try valueCodecFromEffectType(function.ValueType),
+                .value_codec = value_codec,
+                .result_codec = if (value_codec != program_result_codec and result_codec_reachability[index])
+                    program_result_codec
+                else
+                    null,
                 .parameter_count = @intCast(function.parameter_codecs.len),
                 .first_requirement = requirement_index,
                 .requirement_count = @intCast(function.row.requirements.len),

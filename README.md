@@ -125,6 +125,12 @@ The ordinary user-facing examples live under `examples/`.
 - `zig build run-resource-basic`
 - `zig build run-writer-basic`
 
+`examples/custom_approval_workflow.zig` is the package-like custom-effect proof
+example. It defines separate generated families for directory lookup,
+approval choice, and invalid-request abort, then pairs the public root surface
+with a same-source maintainer lowering check in the `custom-effect-workflow`
+test suite.
+
 Retained lowering, hosted-runtime, and proof fixtures also live under `examples/`
 for maintainer workflows. Those files are executable and tested, but they are not
 the ordinary public API story and should not be read as a second supported front
@@ -180,10 +186,23 @@ source-lowering-tool
 agent-vm-artifact-report
 open-row-lowering
 source-ownership-probe
+custom-effect-workflow
 comptime-contract
 source-lowering-witness
 lexical-witness
 lexical-with
+```
+
+The focused custom-effect proof lane is:
+
+```bash
+zig build test -Dtest-suites=custom-effect-workflow --summary none
+```
+
+The regression bundle for the generalized effects path is:
+
+```bash
+zig build test -Dtest-suites=custom-effect-workflow,comptime-contract,source-ownership-probe,lexical-with,program-plan-review --summary none
 ```
 
 Deleted child-build and package-export probes are not hidden behind opt-in test

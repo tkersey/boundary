@@ -147,6 +147,86 @@ test "planFromProgram preserves row-only parameter returns inside the function l
     try plan.validate();
 }
 
+test "planFromProgram keeps plain helper result codec local to its own value type" {
+    comptime {
+        @setEvalBranchQuota(20_000);
+    }
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/mixed_helper_result.zig",
+        .symbol_name = "root",
+    };
+    const helper_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/mixed_helper_result.zig",
+        .symbol_name = "helper",
+    };
+    const root_row = comptime effect_ir.rowFromSpec(.{
+        .noop = .{
+            .dispatch = effect_ir.Transform(void, void),
+        },
+    });
+    const program = comptime effect_ir.Program{
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol = root_symbol,
+                .row = root_row,
+                .ValueType = []const u8,
+            },
+            .{
+                .symbol = helper_symbol,
+                .row = effect_ir.rowFromSpec(.{}),
+                .ValueType = i32,
+            },
+        },
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = helper_symbol,
+        }},
+        .function_bodies = &.{
+            .{
+                .local_codecs = &.{ .i32, .string },
+                .blocks = &.{.{
+                    .instructions = &.{
+                        .{ .kind = .call_helper, .dst = 0, .operand = 1, .aux = std.math.maxInt(u16) },
+                        .{ .kind = .const_string, .dst = 1, .string_literal = "done" },
+                        .{ .kind = .return_value, .operand = 1 },
+                    },
+                    .terminator = .{ .kind = .return_value },
+                }},
+            },
+            .{
+                .local_codecs = &.{.i32},
+                .blocks = &.{.{
+                    .instructions = &.{
+                        .{ .kind = .const_i32, .dst = 0, .operand = 42 },
+                        .{ .kind = .return_value, .operand = 0 },
+                    },
+                    .terminator = .{ .kind = .return_value },
+                }},
+            },
+        },
+    };
+
+    const plan = comptime try internal_program_plan.planFromProgram("example.mixed_helper_result", program);
+
+    try std.testing.expect(plan.functions[1].result_codec == null);
+    try plan.validate();
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers = struct {
+        noop: struct {
+            /// Unused handler kept to give the executable plan a non-empty op table.
+            pub fn dispatch(_: *@This()) void {
+                // Intentionally unused by this regression.
+            }
+        } = .{},
+    }{};
+    const result = try lowering_api.runExecutablePlan(&runtime, plan, &handlers);
+
+    try std.testing.expectEqualStrings("done", result.value);
+}
+
 test "planFromProgram rejects ambiguous row-only multi-parameter returns without explicit bodies" {
     const program = comptime effect_ir.Program{
         .functions = &.{.{
@@ -1047,6 +1127,433 @@ test "ProgramPlan.validate accepts helper value destinations typed by helper res
         },
     };
 
+    try plan.validate();
+}
+
+test "ProgramPlan.validate accepts non-unit helper destinations typed by after result codecs" {
+    const plan = internal_program_plan.ProgramPlan{
+        .label = "valid.helper_non_unit_after_result_codec_match",
+        .ir_hash = 4,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "root",
+                .value_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 2,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .i32,
+                .result_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 1,
+                .local_count = 1,
+                .first_block = 1,
+                .block_count = 1,
+                .first_instruction = 2,
+                .instruction_count = 2,
+            },
+        },
+        .requirements = &.{.{
+            .label = "tooling",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "dispatch",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .i32,
+            .has_after = true,
+        }},
+        .outputs = &.{},
+        .locals = &.{
+            .{ .codec = .string },
+            .{ .codec = .i32 },
+        },
+        .call_args = &.{},
+        .blocks = &.{
+            .{
+                .first_instruction = 0,
+                .instruction_count = 2,
+                .terminator_index = 0,
+            },
+            .{
+                .first_instruction = 2,
+                .instruction_count = 2,
+                .terminator_index = 1,
+            },
+        },
+        .terminators = &.{
+            .{ .kind = .return_value },
+            .{ .kind = .return_value },
+        },
+        .instructions = &.{
+            .{
+                .kind = .call_helper,
+                .dst = 0,
+                .operand = 1,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+            .{
+                .kind = .call_op,
+                .dst = 0,
+                .operand = 0,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+
+    try plan.validate();
+
+    const Handlers = struct {
+        tooling: struct {
+            /// Supplies the helper's raw value before the after hook rewrites the result codec.
+            pub fn dispatch(_: *@This()) i32 {
+                return 42;
+            }
+
+            /// Converts the helper's normal completion value into the externally visible result.
+            pub fn afterDispatch(_: *@This(), answer: i32) []const u8 {
+                if (answer != 42) return "unexpected";
+                return "wrapped=42";
+            }
+        } = .{},
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers = Handlers{};
+    const result = try lowering_api.runExecutablePlan(&runtime, plan, &handlers);
+
+    try std.testing.expectEqualStrings("wrapped=42", result.value);
+}
+
+test "ProgramPlan.validate rejects helpers with mixed plain and after completion codecs" {
+    const plan = internal_program_plan.ProgramPlan{
+        .label = "invalid.helper_mixed_plain_after_result_codec",
+        .ir_hash = 6,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "root",
+                .value_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 2,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .i32,
+                .result_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 1,
+                .local_count = 3,
+                .first_block = 1,
+                .block_count = 3,
+                .first_instruction = 2,
+                .instruction_count = 6,
+            },
+        },
+        .requirements = &.{.{
+            .label = "tooling",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "dispatch",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .i32,
+            .has_after = true,
+        }},
+        .outputs = &.{},
+        .locals = &.{
+            .{ .codec = .string },
+            .{ .codec = .i32 },
+            .{ .codec = .bool },
+            .{ .codec = .i32 },
+        },
+        .call_args = &.{},
+        .blocks = &.{
+            .{
+                .first_instruction = 0,
+                .instruction_count = 2,
+                .terminator_index = 0,
+            },
+            .{
+                .first_instruction = 2,
+                .instruction_count = 2,
+                .terminator_index = 1,
+            },
+            .{
+                .first_instruction = 4,
+                .instruction_count = 2,
+                .terminator_index = 2,
+            },
+            .{
+                .first_instruction = 6,
+                .instruction_count = 2,
+                .terminator_index = 3,
+            },
+        },
+        .terminators = &.{
+            .{ .kind = .return_value },
+            .{ .kind = .branch_if, .primary = 2, .secondary = 3 },
+            .{ .kind = .return_value },
+            .{ .kind = .return_value },
+        },
+        .instructions = &.{
+            .{
+                .kind = .call_helper,
+                .dst = 0,
+                .operand = 1,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+            .{
+                .kind = .const_i32,
+                .dst = 0,
+                .operand = 0,
+            },
+            .{
+                .kind = .compare_eq_zero,
+                .dst = 1,
+                .operand = 0,
+            },
+            .{
+                .kind = .call_op,
+                .dst = 2,
+                .operand = 0,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 2,
+            },
+            .{
+                .kind = .const_i32,
+                .dst = 2,
+                .operand = 7,
+            },
+            .{
+                .kind = .return_value,
+                .operand = 2,
+            },
+        },
+    };
+
+    try std.testing.expectError(error.InvalidFunctionResultCodec, plan.validate());
+}
+
+test "planFromProgram rejects source-lowered helpers with mixed plain and after completion codecs" {
+    comptime {
+        @setEvalBranchQuota(20_000);
+    }
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/mixed_after_helper.zig",
+        .symbol_name = "root",
+    };
+    const helper_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/mixed_after_helper.zig",
+        .symbol_name = "helper",
+    };
+    const program = comptime effect_ir.Program{
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol = root_symbol,
+                .row = effect_ir.rowFromSpec(.{}),
+                .ValueType = []const u8,
+            },
+            .{
+                .symbol = helper_symbol,
+                .row = effect_ir.Row{ .requirements = &.{.{
+                    .label = "tooling",
+                    .ops = &.{.{
+                        .requirement_label = "tooling",
+                        .op_name = "dispatch",
+                        .mode = .transform,
+                        .PayloadType = void,
+                        .ResumeType = i32,
+                        .has_after = true,
+                    }},
+                }} },
+                .ValueType = i32,
+            },
+        },
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = helper_symbol,
+        }},
+        .function_bodies = &.{
+            .{
+                .local_codecs = &.{.string},
+                .blocks = &.{.{
+                    .instructions = &.{
+                        .{ .kind = .call_helper, .dst = 0, .operand = 1, .aux = std.math.maxInt(u16) },
+                        .{ .kind = .return_value, .operand = 0 },
+                    },
+                    .terminator = .{ .kind = .return_value },
+                }},
+            },
+            .{
+                .local_codecs = &.{ .i32, .bool, .i32 },
+                .blocks = &.{
+                    .{
+                        .instructions = &.{
+                            .{ .kind = .const_i32, .dst = 0, .operand = 0 },
+                            .{ .kind = .compare_eq_zero, .dst = 1, .operand = 0 },
+                        },
+                        .terminator = .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                    },
+                    .{
+                        .instructions = &.{
+                            .{ .kind = .call_op, .dst = 2, .operand = 0, .aux = std.math.maxInt(u16) },
+                            .{ .kind = .return_value, .operand = 2 },
+                        },
+                        .terminator = .{ .kind = .return_value },
+                    },
+                    .{
+                        .instructions = &.{
+                            .{ .kind = .const_i32, .dst = 2, .operand = 7 },
+                            .{ .kind = .return_value, .operand = 2 },
+                        },
+                        .terminator = .{ .kind = .return_value },
+                    },
+                },
+            },
+        },
+    };
+
+    const result = comptime internal_program_plan.planFromProgram("example.mixed_after_helper", program);
+    try std.testing.expectError(error.InvalidProgramBodyShape, result);
+}
+
+test "planFromProgram propagates terminal result codecs for value-returning helpers" {
+    comptime {
+        @setEvalBranchQuota(20_000);
+    }
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/value_terminal_helper.zig",
+        .symbol_name = "root",
+    };
+    const helper_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/value_terminal_helper.zig",
+        .symbol_name = "helper",
+    };
+    const program = comptime effect_ir.Program{
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol = root_symbol,
+                .row = effect_ir.Row{ .requirements = &.{.{
+                    .label = "entry",
+                    .ops = &.{.{
+                        .requirement_label = "entry",
+                        .op_name = "stop",
+                        .mode = .abort,
+                        .PayloadType = void,
+                        .ResumeType = noreturn,
+                    }},
+                }} },
+                .ValueType = []const u8,
+            },
+            .{
+                .symbol = helper_symbol,
+                .row = effect_ir.Row{ .requirements = &.{.{
+                    .label = "helper",
+                    .ops = &.{.{
+                        .requirement_label = "helper",
+                        .op_name = "stop",
+                        .mode = .abort,
+                        .PayloadType = void,
+                        .ResumeType = noreturn,
+                    }},
+                }} },
+                .ValueType = i32,
+            },
+        },
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = helper_symbol,
+        }},
+        .function_bodies = &.{
+            .{
+                .local_codecs = &.{.i32},
+                .blocks = &.{.{
+                    .instructions = &.{
+                        .{ .kind = .call_helper, .dst = 0, .operand = 1, .aux = std.math.maxInt(u16) },
+                        .{ .kind = .call_op, .operand = 0, .aux = std.math.maxInt(u16) },
+                    },
+                    .terminator = .{ .kind = .return_unit },
+                }},
+            },
+            .{
+                .local_codecs = &.{ .i32, .bool },
+                .blocks = &.{
+                    .{
+                        .instructions = &.{
+                            .{ .kind = .const_i32, .dst = 0, .operand = 0 },
+                            .{ .kind = .compare_eq_zero, .dst = 1, .operand = 0 },
+                        },
+                        .terminator = .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                    },
+                    .{
+                        .instructions = &.{.{ .kind = .call_op, .operand = 1, .aux = std.math.maxInt(u16) }},
+                        .terminator = .{ .kind = .return_unit },
+                    },
+                    .{
+                        .instructions = &.{
+                            .{ .kind = .const_i32, .dst = 0, .operand = 7 },
+                            .{ .kind = .return_value, .operand = 0 },
+                        },
+                        .terminator = .{ .kind = .return_value },
+                    },
+                },
+            },
+        },
+    };
+
+    const plan = comptime internal_program_plan.planFromProgram("example.value_terminal_helper", program) catch |err|
+        @compileError(@errorName(err));
+    try std.testing.expectEqual(internal_program_plan.ValueCodec.i32, plan.functions[1].value_codec);
+    try std.testing.expectEqual(internal_program_plan.ValueCodec.string, plan.functions[1].result_codec.?);
     try plan.validate();
 }
 
