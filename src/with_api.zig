@@ -1536,8 +1536,8 @@ fn tryRepoOwnedNamedCompiledWith(
         entry_symbol,
     ) == null) {
         @compileError(std.fmt.comptimePrint(
-            "ability.with could not compile this source-backed named body; keep the body within supported lexical effect operations, simplify unsupported helpers, or provide a complete source witness: source={s} entry={s}",
-            .{ source_path, entry_symbol },
+            "ability.with could not lower source-backed named body entry={s} from source={s}; supported shapes are direct effect calls, locals, branches, and validated helper calls. Simplify the unsupported body/helper or verify source/source_hash/source_file/source_location/source_identity all point to this declaration.",
+            .{ entry_symbol, source_path },
         ));
     }
     const program_type = CompiledLexicalProgram(

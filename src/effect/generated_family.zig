@@ -1202,7 +1202,7 @@ pub fn Build(comptime spec: anytype) type {
         /// Public proof-helper surface for generated families.
         pub const proof = struct {
             /// Expected compile-fail marker for missing-context misuse.
-            pub const expected_missing_context = "expected a pointer to a ability.effect context";
+            pub const expected_missing_context = "expected a pointer to an ability.effect context";
             /// Expected compile-fail marker for forged-context misuse.
             pub const expected_forged_context = "expected exact ability.effect context type";
             /// Expected compile-fail marker for cross-instance misuse.

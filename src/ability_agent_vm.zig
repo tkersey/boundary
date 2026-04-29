@@ -22,6 +22,8 @@ pub const host = struct {
         /// Optional declared-output label echoed by the adapter.
         /// Multi-output snapshots must carry the matching label so same-codec
         /// values cannot be silently associated with the wrong output.
+        /// Labels are borrowed for the duration of the collection callback;
+        /// adapters should reuse labels from declared_outputs or static storage.
         label: ?[]const u8 = null,
         value: DataValue,
         value_ownership: DataValueOwnership = .borrowed,
@@ -162,14 +164,16 @@ pub const host = struct {
     /// Supported synchronous adapter surface for artifact execution.
     pub const Adapter = struct {
         ctx: ?*anyopaque,
-        dispatchFn: *const fn (ctx: ?*anyopaque, allocator: std.mem.Allocator, request: Request) anyerror!Response,
+        /// Dispatch receives a borrowed request owned by the runtime. The
+        /// adapter must not deinit it or retain its slices after returning.
+        dispatchFn: *const fn (ctx: ?*anyopaque, allocator: std.mem.Allocator, request: *const Request) anyerror!Response,
         collectOutputSnapshotsFn: ?*const fn (ctx: ?*anyopaque, allocator: std.mem.Allocator, declared_outputs: []const OutputDescriptor) anyerror![]OutputSnapshot = null,
         /// Legacy completion hook for declared ArtifactV1 entry outputs.
         /// Returned values must be allocator-owned and match the declared outputs exactly.
         collectOutputsFn: ?*const fn (ctx: ?*anyopaque, allocator: std.mem.Allocator, declared_outputs: []const OutputDescriptor) anyerror![]DataValue = null,
 
         /// Dispatch one structural host request.
-        pub fn dispatch(self: @This(), allocator: std.mem.Allocator, request: Request) anyerror!Response {
+        pub fn dispatch(self: @This(), allocator: std.mem.Allocator, request: *const Request) anyerror!Response {
             return self.dispatchFn(self.ctx, allocator, request);
         }
 
@@ -366,7 +370,7 @@ fn bridgeDispatch(
     var public_request = try requestFromInternal(allocator, request, bridge_context.data_value_bounds);
     defer public_request.deinit(allocator);
 
-    var public_response = try bridge_context.adapter.dispatch(allocator, public_request);
+    var public_response = try bridge_context.adapter.dispatch(allocator, &public_request);
     defer public_response.deinit(allocator);
 
     return try responseToInternal(allocator, request.request_id, public_response, bridge_context.data_value_bounds);
@@ -997,7 +1001,7 @@ test "output bridge validates snapshot count before cloning payloads" {
                 fn dispatch(
                     _: ?*anyopaque,
                     _: std.mem.Allocator,
-                    _: host.Request,
+                    _: *const host.Request,
                 ) anyerror!host.Response {
                     return error.TestUnexpectedDispatch;
                 }

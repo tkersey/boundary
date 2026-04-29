@@ -214,7 +214,9 @@ iteration, but they are not additional test contracts:
 - `zig build run-*` for retained examples
 - `zig build source-lower` to build `./zig-out/bin/ability-source-lower`
   (`./zig-out/bin/ability-source-lower --help` prints the tool contract)
-- `zig build agent-vm-artifact-report -Dagent-vm-artifact=<path>` to classify
+- `zig build agent-vm-artifact-report` to build
+  `./zig-out/bin/agent-vm-artifact-report`
+- `zig build run-agent-vm-artifact-report -Dagent-vm-artifact=<path>` to classify
   one ArtifactV1 payload under the fixed no-host conformance profile. The
   report is runtime-only: it reads user-provided ArtifactV1 bytes, executes
   through `ability_agent_vm.runtime.runArtifactWithOptions`, rejects host-call

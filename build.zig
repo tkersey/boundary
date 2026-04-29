@@ -4487,7 +4487,7 @@ pub fn build(b: *std.Build) void {
     const agent_vm_artifact_report_path = b.option(
         []const u8,
         "agent-vm-artifact",
-        "ArtifactV1 payload to classify with `zig build agent-vm-artifact-report`.",
+        "ArtifactV1 payload to classify with `zig build run-agent-vm-artifact-report`.",
     );
     const lint_verbose = b.option(
         bool,
@@ -5467,20 +5467,30 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const agent_vm_report_options = b.addOptions();
+    agent_vm_report_options.addOption([]const u8, "version", packageVersionAlloc(b));
+    agent_vm_report_mod.addOptions("tool_build_options", agent_vm_report_options);
     agent_vm_report_mod.addImport("ability_agent_vm", ability_agent_vm_mod);
     const agent_vm_report_exe = b.addExecutable(.{
         .name = "agent-vm-artifact-report",
         .root_module = agent_vm_report_mod,
     });
+    const agent_vm_report_install = b.addInstallArtifact(agent_vm_report_exe, .{});
     const run_agent_vm_report = b.addRunArtifact(agent_vm_report_exe);
     if (agent_vm_artifact_report_path) |artifact_path| {
         run_agent_vm_report.addArgs(&.{ "--artifact", artifact_path });
     }
     const agent_vm_report_step = b.step(
         "agent-vm-artifact-report",
+        "Build the Agent VM ArtifactV1 conformance report tool.",
+    );
+    agent_vm_report_step.dependOn(&agent_vm_report_exe.step);
+    agent_vm_report_step.dependOn(&agent_vm_report_install.step);
+    const run_agent_vm_report_step = b.step(
+        "run-agent-vm-artifact-report",
         "Classify one ArtifactV1 payload under the fixed no-host conformance profile.",
     );
-    agent_vm_report_step.dependOn(&run_agent_vm_report.step);
+    run_agent_vm_report_step.dependOn(&run_agent_vm_report.step);
     const agent_vm_report_test_mod = b.createModule(.{
         .root_source_file = b.path("test/agent_vm_artifact_report_test.zig"),
         .target = target,
