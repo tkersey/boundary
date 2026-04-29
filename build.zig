@@ -409,22 +409,31 @@ fn buildInvocationRequestsStep(step_name: []const u8) ?bool {
     return buildInvocationRequestsStepFromArgsResult(step_name, buildInvocationArgsAlloc());
 }
 
-fn buildInvocationRequestsOnlyStep(step_name: []const u8) ?bool {
-    var args = buildInvocationArgsAlloc() catch return null;
-    defer args.deinit();
-
-    return buildInvocationRequestsOnlyStepInArgs(args.items, step_name);
+fn unsupportedSharedTailForNoTailStep(
+    shared_tail_args: ?[]const []const u8,
+    step_requested: ?bool,
+    tail_owner_requested: ?bool,
+) bool {
+    const args = shared_tail_args orelse return false;
+    if (args.len == 0) return false;
+    if (tail_owner_requested orelse false) return false;
+    return step_requested orelse false;
 }
 
-fn rejectUnsupportedSharedTailForOnlyStep(b: *std.Build, requested_only: ?bool, step_name: []const u8) void {
-    const args = b.args orelse return;
-    if (args.len == 0) return;
-    if (requested_only orelse false) {
-        std.process.fatal("`zig build {s}` does not accept post-`--` arguments; remove the shared tail or use a step with documented tail options", .{step_name});
-    }
-    if (requested_only == null) {
-        std.process.fatal("unable to attribute post-`--` arguments for `zig build {s}` on this host; remove the shared tail or use a supported host", .{step_name});
-    }
+fn rejectUnsupportedSharedTailForNoTailStep(
+    b: *std.Build,
+    step_requested: ?bool,
+    tail_owner_requested: ?bool,
+    step_name: []const u8,
+) void {
+    if (!unsupportedSharedTailForNoTailStep(b.args, step_requested, tail_owner_requested)) return;
+    std.process.fatal("`zig build {s}` does not accept post-`--` arguments; remove the shared tail or use a step with documented tail options", .{step_name});
+}
+
+fn buildInvocationSharedTailOwnerRequested(test_requested: ?bool, lint_requested: ?bool) ?bool {
+    if ((test_requested orelse false) or (lint_requested orelse false)) return true;
+    if (test_requested == null or lint_requested == null) return null;
+    return false;
 }
 
 fn hostBuildInvocationArgsSupported() bool {
@@ -4265,6 +4274,74 @@ test "shared-tail invocation inference stays fail-closed on mixed step signals" 
     try std.testing.expectEqual(@as(?bool, null), inference.lint_requested);
 }
 
+test "shared-tail no-tail guard defers unavailable argv when documented test tail owns the args" {
+    const inference = inferBuildInvocationFromSharedTail(&.{ "--seed", "123" });
+    const tail_owner_requested = buildInvocationSharedTailOwnerRequested(inference.test_requested, inference.lint_requested);
+
+    try std.testing.expect(!unsupportedSharedTailForNoTailStep(
+        &.{ "--seed", "123" },
+        null,
+        tail_owner_requested,
+    ));
+}
+
+test "shared-tail no-tail guard rejects mixed no-tail steps without a tail owner" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "source-lower",
+        "check-ability-agent-vm-fixture",
+        "--",
+        "--bad",
+    };
+    const source_lower_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "source-lower");
+    const fixture_check_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "check-ability-agent-vm-fixture");
+    const tail_owner_requested = buildInvocationSharedTailOwnerRequested(false, false);
+
+    try std.testing.expect(!buildInvocationRequestsOnlyStepInArgs(&args, "source-lower"));
+    try std.testing.expect(!buildInvocationRequestsOnlyStepInArgs(&args, "check-ability-agent-vm-fixture"));
+    try std.testing.expect(unsupportedSharedTailForNoTailStep(
+        &.{"--bad"},
+        source_lower_requested,
+        tail_owner_requested,
+    ));
+    try std.testing.expect(unsupportedSharedTailForNoTailStep(
+        &.{"--bad"},
+        fixture_check_requested,
+        tail_owner_requested,
+    ));
+}
+
+test "shared-tail no-tail guard allows selected no-tail steps when a documented test step owns the args" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "source-lower",
+        "test",
+        "--",
+        "--seed",
+        "123",
+    };
+    const source_lower_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "source-lower");
+    const test_requested: ?bool = buildInvocationRequestsRunnableStepInArgs(&args, "test");
+    const tail_owner_requested = buildInvocationSharedTailOwnerRequested(test_requested, false);
+
+    try std.testing.expectEqual(@as(?bool, true), source_lower_requested);
+    try std.testing.expect(!unsupportedSharedTailForNoTailStep(
+        &.{ "--seed", "123" },
+        source_lower_requested,
+        tail_owner_requested,
+    ));
+}
+
 test "build invocation exclusive test detection accepts pure test invocations" {
     const args = [_][]const u8{
         "build-helper",
@@ -4348,23 +4425,24 @@ pub fn build(b: *std.Build) void {
     ) orelse false;
     const test_requested_from_argv = buildInvocationRequestsRunnableStep("test");
     const lint_requested_from_argv = buildInvocationRequestsStep("lint");
-    const source_lower_requested_only = buildInvocationRequestsOnlyStep("source-lower");
-    const fixture_check_requested_only = buildInvocationRequestsOnlyStep("check-ability-agent-vm-fixture");
-    const bench_requested_only = buildInvocationRequestsOnlyStep("bench");
-    const bench_first_only = buildInvocationRequestsOnlyStep("bench-first-suspend");
-    const bench_state_only = buildInvocationRequestsOnlyStep("bench-state-effect");
-    const bench_matrix_only = buildInvocationRequestsOnlyStep("bench-family-matrix");
-    const bench_backends_only = buildInvocationRequestsOnlyStep("bench-runtime-backends");
-    rejectUnsupportedSharedTailForOnlyStep(b, source_lower_requested_only, "source-lower");
-    rejectUnsupportedSharedTailForOnlyStep(b, fixture_check_requested_only, "check-ability-agent-vm-fixture");
-    rejectUnsupportedSharedTailForOnlyStep(b, bench_requested_only, "bench");
-    rejectUnsupportedSharedTailForOnlyStep(b, bench_first_only, "bench-first-suspend");
-    rejectUnsupportedSharedTailForOnlyStep(b, bench_state_only, "bench-state-effect");
-    rejectUnsupportedSharedTailForOnlyStep(b, bench_matrix_only, "bench-family-matrix");
-    rejectUnsupportedSharedTailForOnlyStep(b, bench_backends_only, "bench-runtime-backends");
+    const source_lower_requested = buildInvocationRequestsStep("source-lower");
+    const fixture_check_requested = buildInvocationRequestsStep("check-ability-agent-vm-fixture");
+    const bench_requested = buildInvocationRequestsStep("bench");
+    const bench_first_requested = buildInvocationRequestsStep("bench-first-suspend");
+    const bench_state_requested = buildInvocationRequestsStep("bench-state-effect");
+    const bench_matrix_requested = buildInvocationRequestsStep("bench-family-matrix");
+    const bench_backends_requested = buildInvocationRequestsStep("bench-runtime-backends");
     const inferred_shared_tail = inferBuildInvocationFromSharedTail(b.args);
     const test_requested_opt = test_requested_from_argv orelse inferred_shared_tail.test_requested;
     const lint_requested_opt = lint_requested_from_argv orelse inferred_shared_tail.lint_requested;
+    const shared_tail_owner_requested = buildInvocationSharedTailOwnerRequested(test_requested_opt, lint_requested_opt);
+    rejectUnsupportedSharedTailForNoTailStep(b, source_lower_requested, shared_tail_owner_requested, "source-lower");
+    rejectUnsupportedSharedTailForNoTailStep(b, fixture_check_requested, shared_tail_owner_requested, "check-ability-agent-vm-fixture");
+    rejectUnsupportedSharedTailForNoTailStep(b, bench_requested, shared_tail_owner_requested, "bench");
+    rejectUnsupportedSharedTailForNoTailStep(b, bench_first_requested, shared_tail_owner_requested, "bench-first-suspend");
+    rejectUnsupportedSharedTailForNoTailStep(b, bench_state_requested, shared_tail_owner_requested, "bench-state-effect");
+    rejectUnsupportedSharedTailForNoTailStep(b, bench_matrix_requested, shared_tail_owner_requested, "bench-family-matrix");
+    rejectUnsupportedSharedTailForNoTailStep(b, bench_backends_requested, shared_tail_owner_requested, "bench-runtime-backends");
     const invocation_args_unknown = test_requested_opt == null or lint_requested_opt == null;
     if (invocation_args_unknown and (b.args != null or hostBuildInvocationArgsSupported())) {
         std.process.fatal(
