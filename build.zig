@@ -132,6 +132,13 @@ fn buildInvocationRequestsRunnableStepFromArgsResult(
     return buildInvocationRequestsRunnableStepInArgs(args.items, step_name);
 }
 
+fn buildInvocationSkipsStepExecutionFromArgsResult(args_result: anyerror!BuildInvocationArgs) ?bool {
+    var args = args_result catch return null;
+    defer args.deinit();
+
+    return buildInvocationSkipsStepExecutionInArgs(args.items);
+}
+
 fn buildInvocationRequestsStepFromArgsResult(
     step_name: []const u8,
     args_result: anyerror!BuildInvocationArgs,
@@ -405,8 +412,8 @@ fn buildInvocationRequestsRunnableStep(step_name: []const u8) ?bool {
     return buildInvocationRequestsRunnableStepFromArgsResult(step_name, buildInvocationArgsAlloc());
 }
 
-fn buildInvocationRequestsStep(step_name: []const u8) ?bool {
-    return buildInvocationRequestsStepFromArgsResult(step_name, buildInvocationArgsAlloc());
+fn buildInvocationSkipsStepExecution() ?bool {
+    return buildInvocationSkipsStepExecutionFromArgsResult(buildInvocationArgsAlloc());
 }
 
 fn unsupportedSharedTailForNoTailStep(
@@ -4149,6 +4156,7 @@ test "build invocation runnable step detection skips discovery and fetch exit mo
         "--",
         "--test-filtre=foo",
     };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&help_args, "test"));
     try std.testing.expect(!buildInvocationRequestsRunnableStepInArgs(&help_args, "test"));
 
     const list_args = [_][]const u8{
@@ -4162,6 +4170,7 @@ test "build invocation runnable step detection skips discovery and fetch exit mo
         "test",
         "-Dtest-suites=does-not-exist",
     };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&list_args, "test"));
     try std.testing.expect(!buildInvocationRequestsRunnableStepInArgs(&list_args, "test"));
 
     const fetch_args = [_][]const u8{
@@ -4175,6 +4184,7 @@ test "build invocation runnable step detection skips discovery and fetch exit mo
         "test",
         "-Dtest-suites=does-not-exist",
     };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&fetch_args, "test"));
     try std.testing.expect(!buildInvocationRequestsRunnableStepInArgs(&fetch_args, "test"));
 }
 
@@ -4320,6 +4330,32 @@ test "shared-tail no-tail guard rejects mixed no-tail steps without a tail owner
     ));
 }
 
+test "shared-tail no-tail guard ignores discovery-mode no-tail steps" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--help",
+        "source-lower",
+        "--",
+        "--bad",
+    };
+    const source_lower_requested: ?bool = buildInvocationRequestsRunnableStepInArgs(&args, "source-lower");
+    const tail_owner_requested = buildInvocationSharedTailOwnerRequested(&.{ false, false });
+
+    try std.testing.expect(buildInvocationSkipsStepExecutionInArgs(&args));
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "source-lower"));
+    try std.testing.expectEqual(@as(?bool, false), source_lower_requested);
+    try std.testing.expect(!unsupportedSharedTailForNoTailStep(
+        &.{"--bad"},
+        source_lower_requested,
+        tail_owner_requested,
+    ));
+}
+
 test "shared-tail no-tail guard allows selected no-tail steps when a documented test step owns the args" {
     const args = [_][]const u8{
         "build-helper",
@@ -4453,17 +4489,18 @@ pub fn build(b: *std.Build) void {
         "lint-verbose",
         "Print verbose zlinter command output during `zig build lint`.",
     ) orelse false;
+    const skip_execution = buildInvocationSkipsStepExecution();
     const test_requested_from_argv = buildInvocationRequestsRunnableStep("test");
-    const lint_requested_from_argv = buildInvocationRequestsStep("lint");
-    const source_lower_requested = buildInvocationRequestsStep("source-lower");
-    const fixture_check_requested = buildInvocationRequestsStep("check-ability-agent-vm-fixture");
-    const fixture_generator_requested = buildInvocationRequestsStep("generate-ability-agent-vm-fixture");
-    const bench_requested = buildInvocationRequestsStep("bench");
-    const bench_first_requested = buildInvocationRequestsStep("bench-first-suspend");
-    const bench_state_requested = buildInvocationRequestsStep("bench-state-effect");
-    const bench_matrix_requested = buildInvocationRequestsStep("bench-family-matrix");
-    const bench_backends_requested = buildInvocationRequestsStep("bench-runtime-backends");
-    const zprof_hotspots_requested = buildInvocationRequestsStep("zprof-hotspots");
+    const lint_requested_from_argv = buildInvocationRequestsRunnableStep("lint");
+    const source_lower_requested = buildInvocationRequestsRunnableStep("source-lower");
+    const fixture_check_requested = buildInvocationRequestsRunnableStep("check-ability-agent-vm-fixture");
+    const fixture_generator_requested = buildInvocationRequestsRunnableStep("generate-ability-agent-vm-fixture");
+    const bench_requested = buildInvocationRequestsRunnableStep("bench");
+    const bench_first_requested = buildInvocationRequestsRunnableStep("bench-first-suspend");
+    const bench_state_requested = buildInvocationRequestsRunnableStep("bench-state-effect");
+    const bench_matrix_requested = buildInvocationRequestsRunnableStep("bench-family-matrix");
+    const bench_backends_requested = buildInvocationRequestsRunnableStep("bench-runtime-backends");
+    const zprof_hotspots_requested = buildInvocationRequestsRunnableStep("zprof-hotspots");
     const inferred_shared_tail = inferBuildInvocationFromSharedTail(b.args);
     const test_requested_opt = test_requested_from_argv orelse inferred_shared_tail.test_requested;
     const lint_requested_opt = lint_requested_from_argv orelse inferred_shared_tail.lint_requested;
@@ -4476,7 +4513,8 @@ pub fn build(b: *std.Build) void {
     rejectUnsupportedSharedTailForNoTailStep(b, bench_matrix_requested, shared_tail_owner_requested, "bench-family-matrix");
     rejectUnsupportedSharedTailForNoTailStep(b, bench_backends_requested, shared_tail_owner_requested, "bench-runtime-backends");
     rejectUnsupportedSharedTailForNoTailStep(b, zprof_hotspots_requested, shared_tail_owner_requested, "zprof-hotspots");
-    const invocation_args_unknown = test_requested_opt == null or lint_requested_opt == null;
+    const invocation_args_unknown = skip_execution != true and
+        (test_requested_opt == null or lint_requested_opt == null);
     if (invocation_args_unknown and (b.args != null or hostBuildInvocationArgsSupported())) {
         std.process.fatal(
             "unable to attribute requested build steps or build runner post-`--` args on this host; rerun without shared-tail args or use a supported host",
