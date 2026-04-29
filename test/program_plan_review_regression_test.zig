@@ -147,6 +147,86 @@ test "planFromProgram preserves row-only parameter returns inside the function l
     try plan.validate();
 }
 
+test "planFromProgram keeps plain helper result codec local to its own value type" {
+    comptime {
+        @setEvalBranchQuota(20_000);
+    }
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/mixed_helper_result.zig",
+        .symbol_name = "root",
+    };
+    const helper_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/mixed_helper_result.zig",
+        .symbol_name = "helper",
+    };
+    const root_row = comptime effect_ir.rowFromSpec(.{
+        .noop = .{
+            .dispatch = effect_ir.Transform(void, void),
+        },
+    });
+    const program = comptime effect_ir.Program{
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol = root_symbol,
+                .row = root_row,
+                .ValueType = []const u8,
+            },
+            .{
+                .symbol = helper_symbol,
+                .row = effect_ir.rowFromSpec(.{}),
+                .ValueType = i32,
+            },
+        },
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = helper_symbol,
+        }},
+        .function_bodies = &.{
+            .{
+                .local_codecs = &.{ .i32, .string },
+                .blocks = &.{.{
+                    .instructions = &.{
+                        .{ .kind = .call_helper, .dst = 0, .operand = 1, .aux = std.math.maxInt(u16) },
+                        .{ .kind = .const_string, .dst = 1, .string_literal = "done" },
+                        .{ .kind = .return_value, .operand = 1 },
+                    },
+                    .terminator = .{ .kind = .return_value },
+                }},
+            },
+            .{
+                .local_codecs = &.{.i32},
+                .blocks = &.{.{
+                    .instructions = &.{
+                        .{ .kind = .const_i32, .dst = 0, .operand = 42 },
+                        .{ .kind = .return_value, .operand = 0 },
+                    },
+                    .terminator = .{ .kind = .return_value },
+                }},
+            },
+        },
+    };
+
+    const plan = comptime try internal_program_plan.planFromProgram("example.mixed_helper_result", program);
+
+    try std.testing.expect(plan.functions[1].result_codec == null);
+    try plan.validate();
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers = struct {
+        noop: struct {
+            /// Unused handler kept to give the executable plan a non-empty op table.
+            pub fn dispatch(_: *@This()) void {
+                // Intentionally unused by this regression.
+            }
+        } = .{},
+    }{};
+    const result = try lowering_api.runExecutablePlan(&runtime, plan, &handlers);
+
+    try std.testing.expectEqualStrings("done", result.value);
+}
+
 test "planFromProgram rejects ambiguous row-only multi-parameter returns without explicit bodies" {
     const program = comptime effect_ir.Program{
         .functions = &.{.{

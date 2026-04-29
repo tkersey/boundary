@@ -1009,6 +1009,201 @@ fn countBodyInstructions(comptime program: program_frontend.LoweredOpenRowProgra
     return total;
 }
 
+fn loweredFunctionOp(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime function_index: usize,
+    comptime op_index: u16,
+) PlanError!?effect_ir.OpSpec {
+    var current_op_index: u16 = 0;
+    for (program.functions, 0..) |function, owner_index| {
+        for (function.row.requirements) |requirement| {
+            for (requirement.ops) |op| {
+                if (current_op_index == op_index) {
+                    if (owner_index != function_index) return error.InvalidProgramBodyShape;
+                    return op;
+                }
+                current_op_index += 1;
+            }
+        }
+    }
+    return error.InvalidProgramBodyShape;
+}
+
+fn loweredBlockCanResumeToTerminator(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime function_index: usize,
+    comptime block: effect_ir.Block,
+    completion_reachability: *const [program.functions.len]bool,
+) PlanError!bool {
+    for (block.instructions) |instruction| {
+        if (instruction.kind == .call_helper) {
+            if (instruction.operand >= program.functions.len) return error.InvalidProgramBodyShape;
+            if (!completion_reachability[instruction.operand]) return false;
+        } else if (instruction.kind == .call_op) {
+            const plan_op = (try loweredFunctionOp(program, function_index, instruction.operand)).?;
+            if (plan_op.mode == .abort) return false;
+        }
+    }
+    return true;
+}
+
+fn markLoweredFunctionExecutableBlocks(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime function_index: usize,
+    completion_reachability: *const [program.functions.len]bool,
+    executable_blocks: *[program.function_bodies[function_index].blocks.len]bool,
+) PlanError!void {
+    const body = program.function_bodies[function_index];
+    if (body.blocks.len == 0 or body.entry_block >= body.blocks.len) return error.InvalidProgramBodyShape;
+    executable_blocks[body.entry_block] = true;
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        executable_block_scan: for (body.blocks, 0..) |block, block_index| {
+            if (!executable_blocks[block_index]) continue :executable_block_scan;
+            if (!try loweredBlockCanResumeToTerminator(program, function_index, block, completion_reachability)) continue :executable_block_scan;
+            switch (block.terminator.kind) {
+                .branch_if => {
+                    if (block.terminator.primary >= body.blocks.len or block.terminator.secondary >= body.blocks.len) {
+                        return error.InvalidProgramBodyShape;
+                    }
+                    if (!executable_blocks[block.terminator.primary]) {
+                        executable_blocks[block.terminator.primary] = true;
+                        changed = true;
+                    }
+                    if (!executable_blocks[block.terminator.secondary]) {
+                        executable_blocks[block.terminator.secondary] = true;
+                        changed = true;
+                    }
+                },
+                .jump => {
+                    if (block.terminator.primary >= body.blocks.len) return error.InvalidProgramBodyShape;
+                    if (!executable_blocks[block.terminator.primary]) {
+                        executable_blocks[block.terminator.primary] = true;
+                        changed = true;
+                    }
+                },
+                .return_unit, .return_value => {},
+            }
+        }
+    }
+}
+
+fn loweredFunctionCanComplete(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime function_index: usize,
+    completion_reachability: *const [program.functions.len]bool,
+) PlanError!bool {
+    const body = program.function_bodies[function_index];
+    var executable_blocks = [_]bool{false} ** body.blocks.len;
+    try markLoweredFunctionExecutableBlocks(program, function_index, completion_reachability, &executable_blocks);
+    for (body.blocks, 0..) |block, block_index| {
+        if (!executable_blocks[block_index]) continue;
+        if (!try loweredBlockCanResumeToTerminator(program, function_index, block, completion_reachability)) continue;
+        switch (block.terminator.kind) {
+            .return_unit, .return_value => return true,
+            .branch_if, .jump => {},
+        }
+    }
+    return false;
+}
+
+fn loweredBlockCanEscapeTerminally(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime function_index: usize,
+    comptime block: effect_ir.Block,
+    completion_reachability: *const [program.functions.len]bool,
+    terminal_reachability: *const [program.functions.len]bool,
+) PlanError!bool {
+    for (block.instructions) |instruction| {
+        if (instruction.kind == .call_helper) {
+            if (instruction.operand >= program.functions.len) return error.InvalidProgramBodyShape;
+            if (terminal_reachability[instruction.operand]) return true;
+            if (!completion_reachability[instruction.operand]) return false;
+        } else if (instruction.kind == .call_op) {
+            const plan_op = (try loweredFunctionOp(program, function_index, instruction.operand)).?;
+            if (plan_op.mode != .transform) return true;
+        }
+    }
+    return false;
+}
+
+fn loweredFunctionCanEscapeTerminally(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime function_index: usize,
+    completion_reachability: *const [program.functions.len]bool,
+    terminal_reachability: *const [program.functions.len]bool,
+) PlanError!bool {
+    const body = program.function_bodies[function_index];
+    var executable_blocks = [_]bool{false} ** body.blocks.len;
+    try markLoweredFunctionExecutableBlocks(program, function_index, completion_reachability, &executable_blocks);
+    for (body.blocks, 0..) |block, block_index| {
+        if (!executable_blocks[block_index]) continue;
+        if (try loweredBlockCanEscapeTerminally(program, function_index, block, completion_reachability, terminal_reachability)) return true;
+    }
+    return false;
+}
+
+fn loweredFunctionCanApplyAfterOnCompletion(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime function_index: usize,
+    completion_reachability: *const [program.functions.len]bool,
+) PlanError!bool {
+    const body = program.function_bodies[function_index];
+    var executable_blocks = [_]bool{false} ** body.blocks.len;
+    try markLoweredFunctionExecutableBlocks(program, function_index, completion_reachability, &executable_blocks);
+    for (body.blocks, 0..) |block, block_index| {
+        if (!executable_blocks[block_index]) continue;
+        if (!try loweredBlockCanResumeToTerminator(program, function_index, block, completion_reachability)) continue;
+        instruction_scan: for (block.instructions) |instruction| {
+            if (instruction.kind != .call_op) continue :instruction_scan;
+            const plan_op = (try loweredFunctionOp(program, function_index, instruction.operand)).?;
+            if (plan_op.has_after) return true;
+        }
+    }
+    return false;
+}
+
+fn loweredFunctionResultCodecReachability(comptime program: program_frontend.LoweredOpenRowProgram) PlanError![program.functions.len]bool {
+    var completion_reachability = [_]bool{false} ** program.functions.len;
+    var terminal_reachability = [_]bool{false} ** program.functions.len;
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        function_completion_scan: for (program.functions, 0..) |_, function_index| {
+            if (completion_reachability[function_index]) continue :function_completion_scan;
+            if (try loweredFunctionCanComplete(program, function_index, &completion_reachability)) {
+                completion_reachability[function_index] = true;
+                changed = true;
+            }
+        }
+    }
+
+    changed = true;
+    while (changed) {
+        changed = false;
+        function_terminal_scan: for (program.functions, 0..) |_, function_index| {
+            if (terminal_reachability[function_index]) continue :function_terminal_scan;
+            if (try loweredFunctionCanEscapeTerminally(program, function_index, &completion_reachability, &terminal_reachability)) {
+                terminal_reachability[function_index] = true;
+                changed = true;
+            }
+        }
+    }
+
+    var result_codec_reachability = [_]bool{false} ** program.functions.len;
+    for (program.functions, 0..) |function, function_index| {
+        const value_codec = try valueCodecFromEffectType(function.ValueType);
+        result_codec_reachability[function_index] =
+            (terminal_reachability[function_index] and
+                (!completion_reachability[function_index] or value_codec == .unit)) or
+            try loweredFunctionCanApplyAfterOnCompletion(program, function_index, &completion_reachability);
+    }
+    return result_codec_reachability;
+}
+
 fn invalidGeneratedPlan(err: ValidationError) noreturn {
     @compileError(switch (err) {
         error.EmptyFunctionSymbol => "runtime plan generator produced an empty function symbol",
@@ -1641,6 +1836,7 @@ pub fn planFromOpenRowProgram(
     const instruction_total = countBodyInstructions(program);
     const ir_hash = try irHashForProgram(summary_program);
     const program_result_codec = try valueCodecFromEffectType(program.functions[program.entry_index].ValueType);
+    const result_codec_reachability = try loweredFunctionResultCodecReachability(program);
 
     const functions = comptime blk: {
         var buf: [program.functions.len]FunctionPlan = undefined;
@@ -1660,7 +1856,10 @@ pub fn planFromOpenRowProgram(
             buf[index] = .{
                 .symbol_name = function.symbol.symbol_name,
                 .value_codec = value_codec,
-                .result_codec = if (value_codec == program_result_codec) null else program_result_codec,
+                .result_codec = if (value_codec != program_result_codec and result_codec_reachability[index])
+                    program_result_codec
+                else
+                    null,
                 .parameter_count = @intCast(function.parameter_codecs.len),
                 .first_requirement = requirement_index,
                 .requirement_count = @intCast(function.row.requirements.len),
