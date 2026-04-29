@@ -83,6 +83,14 @@ pub fn supportedCaseIds(surface_kind: SurfaceKind) []const []const u8 {
     };
 }
 
+/// Metadata needed to invoke one supported source-lowering case from the CLI.
+pub const SupportedCaseInfo = struct {
+    case_id: []const u8,
+    source_path: []const u8,
+    entry_symbol: []const u8,
+    surface_kind: SurfaceKind,
+};
+
 fn caseIdListContains(ids: []const []const u8, needle: []const u8) bool {
     for (ids) |id| {
         if (std.mem.eql(u8, id, needle)) return true;
@@ -647,6 +655,20 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
     return null;
 }
 
+/// Return CLI-facing metadata for one supported source-lowering case.
+pub fn supportedCaseInfo(surface_kind: SurfaceKind, case_id: []const u8) ?SupportedCaseInfo {
+    const case = switch (surface_kind) {
+        .source_case => sourceSupportedCase(source_registry.find(case_id) orelse return null),
+        .example, .effect, .user_defined_effect, .witness => promotedSupportedCase(case_id, surface_kind) orelse return null,
+    };
+    return .{
+        .case_id = case.case_id,
+        .source_path = case.source_path,
+        .entry_symbol = case.entry_symbol,
+        .surface_kind = surface_kind,
+    };
+}
+
 fn loweringSurfaceKind(surface_kind: SurfaceKind) authoring_lowerer.SurfaceKind {
     return switch (surface_kind) {
         .effect => .effect,
@@ -958,7 +980,7 @@ fn generatedCanonicalSourceDriftProgram(
 ) std.mem.Allocator.Error!GeneratedProgram {
     const message = try std.fmt.allocPrint(
         allocator,
-        "source differs from the registered artifact layout for this case; rerun with --source {s}, or update the case registry and baseline before rerunning",
+        "source differs from the supported artifact layout for this case; rerun with --source {s}; edited sources are not accepted by this tool",
         .{case.source_path},
     );
     errdefer allocator.free(message);
