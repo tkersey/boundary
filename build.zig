@@ -4463,6 +4463,7 @@ pub fn build(b: *std.Build) void {
     const bench_state_requested = buildInvocationRequestsStep("bench-state-effect");
     const bench_matrix_requested = buildInvocationRequestsStep("bench-family-matrix");
     const bench_backends_requested = buildInvocationRequestsStep("bench-runtime-backends");
+    const zprof_hotspots_requested = buildInvocationRequestsStep("zprof-hotspots");
     const inferred_shared_tail = inferBuildInvocationFromSharedTail(b.args);
     const test_requested_opt = test_requested_from_argv orelse inferred_shared_tail.test_requested;
     const lint_requested_opt = lint_requested_from_argv orelse inferred_shared_tail.lint_requested;
@@ -4474,6 +4475,7 @@ pub fn build(b: *std.Build) void {
     rejectUnsupportedSharedTailForNoTailStep(b, bench_state_requested, shared_tail_owner_requested, "bench-state-effect");
     rejectUnsupportedSharedTailForNoTailStep(b, bench_matrix_requested, shared_tail_owner_requested, "bench-family-matrix");
     rejectUnsupportedSharedTailForNoTailStep(b, bench_backends_requested, shared_tail_owner_requested, "bench-runtime-backends");
+    rejectUnsupportedSharedTailForNoTailStep(b, zprof_hotspots_requested, shared_tail_owner_requested, "zprof-hotspots");
     const invocation_args_unknown = test_requested_opt == null or lint_requested_opt == null;
     if (invocation_args_unknown and (b.args != null or hostBuildInvocationArgsSupported())) {
         std.process.fatal(
