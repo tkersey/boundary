@@ -781,7 +781,7 @@ pub fn main(init: std.process.Init) anyerror!void {
         .surface_kind = cli_options.surface_kind,
     }) catch |err| switch (err) {
         error.UnsupportedSourceCase => usageError(
-            "unsupported --id '{s}' for --surface '{s}'; run `ability-source-lower --list-cases --surface {s}` to see valid ids",
+            "unsupported --id '{s}' for --surface '{s}'; run the same executable with `--list-cases --surface {s}` to see valid ids",
             .{ cli_options.program_id, @tagName(cli_options.surface_kind), @tagName(cli_options.surface_kind) },
         ),
         else => return err,
