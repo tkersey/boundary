@@ -369,6 +369,11 @@ pub const FunctionResult = union(enum) {
     terminal: lowered_machine.ProgramValue,
 };
 
+const UnitCompletionMode = enum {
+    helper_allows_unit_completion,
+    strict_result_codec,
+};
+
 fn callOp(
     comptime compiled_plan: program_plan.ProgramPlan,
     handlers_ptr: anytype,
@@ -486,12 +491,13 @@ fn unwindAfterStack(
     handlers_ptr: anytype,
     comptime function_value_codec: program_plan.ValueCodec,
     comptime function_result_codec: program_plan.ValueCodec,
+    comptime unit_completion_mode: UnitCompletionMode,
     after_stack: *std.ArrayList(u16),
     result: FunctionResult,
 ) anyerror!FunctionResult {
     if (function_value_codec != function_result_codec) switch (result) {
         .value => |typed| if (after_stack.items.len != 1 and
-            !(function_value_codec == .unit and typed == .none and after_stack.items.len == 0))
+            !(unit_completion_mode == .helper_allows_unit_completion and function_value_codec == .unit and typed == .none and after_stack.items.len == 0))
         {
             return error.ProgramContractViolation;
         },
@@ -519,6 +525,7 @@ fn continueFunction(
     initial_block_index: u16,
     initial_instruction_index: u16,
     initial_return_local: ?u16,
+    comptime unit_completion_mode: UnitCompletionMode,
 ) anyerror!FunctionResult {
     const function = compiled_plan.functions[function_index];
     const function_result_codec = comptime program_plan.functionResultCodec(function);
@@ -559,7 +566,18 @@ fn continueFunction(
                         }
                         break :helper_args helper_args_storage[0..callee.parameter_count];
                     };
-                    const result = try executeDispatchInSource(runtime, compiled_plan, NestedSourceModule, handlers_ptr, instruction.operand, helper_args);
+                    const result = switch (instruction.operand) {
+                        inline 0...(compiled_plan.functions.len - 1) => |helper_index| try executeFunction(
+                            runtime,
+                            compiled_plan,
+                            NestedSourceModule,
+                            handlers_ptr,
+                            helper_index,
+                            helper_args,
+                            .helper_allows_unit_completion,
+                        ),
+                        else => return error.ProgramContractViolation,
+                    };
                     switch (result) {
                         .value => |typed| {
                             const completion_codec = if (runtimeValueMatchesCodec(callee.value_codec, typed))
@@ -585,6 +603,7 @@ fn continueFunction(
                                 handlers_ptr,
                                 function.value_codec,
                                 function_result_codec,
+                                unit_completion_mode,
                                 after_stack,
                                 .{ .terminal = terminal },
                             );
@@ -629,6 +648,7 @@ fn continueFunction(
                             handlers_ptr,
                             function.value_codec,
                             function_result_codec,
+                            unit_completion_mode,
                             after_stack,
                             .{ .terminal = terminal },
                         ),
@@ -688,6 +708,7 @@ fn continueFunction(
                 handlers_ptr,
                 function.value_codec,
                 function_result_codec,
+                unit_completion_mode,
                 after_stack,
                 .{ .value = .none },
             ),
@@ -697,6 +718,7 @@ fn continueFunction(
                 handlers_ptr,
                 function.value_codec,
                 function_result_codec,
+                unit_completion_mode,
                 after_stack,
                 .{ .value = getLocal(locals, return_local orelse return error.ProgramContractViolation) },
             ),
@@ -711,6 +733,7 @@ fn executeFunction(
     handlers_ptr: anytype,
     comptime function_index: usize,
     args: []const lowered_machine.ProgramValue,
+    comptime unit_completion_mode: UnitCompletionMode,
 ) anyerror!FunctionResult {
     const function = compiled_plan.functions[function_index];
     var locals_storage: [function.local_count]lowered_machine.ProgramValue = [_]lowered_machine.ProgramValue{.none} ** function.local_count;
@@ -738,6 +761,7 @@ fn executeFunction(
         entry_block_index,
         compiled_plan.blocks[entry_block_index].first_instruction,
         null,
+        unit_completion_mode,
     );
 }
 
@@ -752,7 +776,15 @@ pub fn executeDispatchInSource(
 ) anyerror!FunctionResult {
     if (compiled_plan.functions.len == 0) return error.ProgramContractViolation;
     return switch (function_index) {
-        inline 0...(compiled_plan.functions.len - 1) => |active_index| executeFunction(runtime, compiled_plan, NestedSourceModule, handlers_ptr, active_index, args),
+        inline 0...(compiled_plan.functions.len - 1) => |active_index| executeFunction(
+            runtime,
+            compiled_plan,
+            NestedSourceModule,
+            handlers_ptr,
+            active_index,
+            args,
+            .strict_result_codec,
+        ),
         else => error.ProgramContractViolation,
     };
 }

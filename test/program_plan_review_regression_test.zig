@@ -1465,6 +1465,98 @@ test "planFromProgram rejects source-lowered helpers with mixed plain and after 
     try std.testing.expectError(error.InvalidProgramBodyShape, result);
 }
 
+test "planFromProgram propagates terminal result codecs for value-returning helpers" {
+    comptime {
+        @setEvalBranchQuota(20_000);
+    }
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/value_terminal_helper.zig",
+        .symbol_name = "root",
+    };
+    const helper_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/value_terminal_helper.zig",
+        .symbol_name = "helper",
+    };
+    const program = comptime effect_ir.Program{
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol = root_symbol,
+                .row = effect_ir.Row{ .requirements = &.{.{
+                    .label = "entry",
+                    .ops = &.{.{
+                        .requirement_label = "entry",
+                        .op_name = "stop",
+                        .mode = .abort,
+                        .PayloadType = void,
+                        .ResumeType = noreturn,
+                    }},
+                }} },
+                .ValueType = []const u8,
+            },
+            .{
+                .symbol = helper_symbol,
+                .row = effect_ir.Row{ .requirements = &.{.{
+                    .label = "helper",
+                    .ops = &.{.{
+                        .requirement_label = "helper",
+                        .op_name = "stop",
+                        .mode = .abort,
+                        .PayloadType = void,
+                        .ResumeType = noreturn,
+                    }},
+                }} },
+                .ValueType = i32,
+            },
+        },
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = helper_symbol,
+        }},
+        .function_bodies = &.{
+            .{
+                .local_codecs = &.{.i32},
+                .blocks = &.{.{
+                    .instructions = &.{
+                        .{ .kind = .call_helper, .dst = 0, .operand = 1, .aux = std.math.maxInt(u16) },
+                        .{ .kind = .call_op, .operand = 0, .aux = std.math.maxInt(u16) },
+                    },
+                    .terminator = .{ .kind = .return_unit },
+                }},
+            },
+            .{
+                .local_codecs = &.{ .i32, .bool },
+                .blocks = &.{
+                    .{
+                        .instructions = &.{
+                            .{ .kind = .const_i32, .dst = 0, .operand = 0 },
+                            .{ .kind = .compare_eq_zero, .dst = 1, .operand = 0 },
+                        },
+                        .terminator = .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                    },
+                    .{
+                        .instructions = &.{.{ .kind = .call_op, .operand = 1, .aux = std.math.maxInt(u16) }},
+                        .terminator = .{ .kind = .return_unit },
+                    },
+                    .{
+                        .instructions = &.{
+                            .{ .kind = .const_i32, .dst = 0, .operand = 7 },
+                            .{ .kind = .return_value, .operand = 0 },
+                        },
+                        .terminator = .{ .kind = .return_value },
+                    },
+                },
+            },
+        },
+    };
+
+    const plan = comptime internal_program_plan.planFromProgram("example.value_terminal_helper", program) catch |err|
+        @compileError(@errorName(err));
+    try std.testing.expectEqual(internal_program_plan.ValueCodec.i32, plan.functions[1].value_codec);
+    try std.testing.expectEqual(internal_program_plan.ValueCodec.string, plan.functions[1].result_codec.?);
+    try plan.validate();
+}
+
 test "compiled ProgramPlan dispatch preserves outer handler structs with handler data fields" {
     const compiled_plan = internal_program_plan.ProgramPlan{
         .label = "regression.outer_handler_field_name_collision",

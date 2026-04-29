@@ -1325,9 +1325,7 @@ fn loweredFunctionResultCodecReachability(comptime program: program_frontend.Low
             return error.InvalidProgramBodyShape;
         }
         result_codec_reachability[function_index] =
-            (terminal_reachability[function_index] and
-                (!completion_reachability[function_index] or value_codec == .unit)) or
-            completion_codecs.result_codec;
+            terminal_reachability[function_index] or completion_codecs.result_codec;
     }
     return result_codec_reachability;
 }
