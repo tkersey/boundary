@@ -86,6 +86,7 @@ pub const Step = union(enum) {
     if_local_eq_zero_return_unit: []const u8,
     if_local_eq_zero_branch: struct {
         local_name: []const u8,
+        condition_kind: BranchConditionKind,
         then_action: BranchAction,
         else_action: BranchAction,
     },
@@ -102,6 +103,11 @@ pub const Step = union(enum) {
     call_direct: DirectCall,
     call_helper: HelperCall,
     return_value: ReturnValue,
+};
+
+pub const BranchConditionKind = enum {
+    eq_zero,
+    bang,
 };
 
 pub const Body = struct {
@@ -667,6 +673,7 @@ fn parseIfLocalEqZeroReturnUnit(statement: []const Token) ?[]const u8 {
 
 fn parseIfLocalEqZeroBranch(effect_param: ?[]const u8, aliases: []const Alias, imports: anytype, statement: []const Token) ?struct {
     local_name: []const u8,
+    condition_kind: BranchConditionKind,
     then_action: BranchAction,
     else_action: BranchAction,
 } {
@@ -674,6 +681,7 @@ fn parseIfLocalEqZeroBranch(effect_param: ?[]const u8, aliases: []const Alias, i
     if (statement[0].tag != .keyword_if or statement[1].tag != .l_paren) return null;
     const Condition = struct {
         local_name: []const u8,
+        condition_kind: BranchConditionKind,
         body_start: usize,
     };
     const condition: Condition = if (statement[2].tag == .identifier and
@@ -681,11 +689,11 @@ fn parseIfLocalEqZeroBranch(effect_param: ?[]const u8, aliases: []const Alias, i
         statement[4].tag == .number_literal and
         std.mem.eql(u8, statement[4].lexeme, "0") and
         statement[5].tag == .r_paren)
-        .{ .local_name = statement[2].lexeme, .body_start = 6 }
+        .{ .local_name = statement[2].lexeme, .condition_kind = .eq_zero, .body_start = 6 }
     else if (statement[2].tag == .bang and
         statement[3].tag == .identifier and
         statement[4].tag == .r_paren)
-        .{ .local_name = statement[3].lexeme, .body_start = 5 }
+        .{ .local_name = statement[3].lexeme, .condition_kind = .bang, .body_start = 5 }
     else
         return null;
 
@@ -695,6 +703,7 @@ fn parseIfLocalEqZeroBranch(effect_param: ?[]const u8, aliases: []const Alias, i
     if (else_index == condition.body_start or else_index + 1 >= statement.len) return null;
     return .{
         .local_name = condition.local_name,
+        .condition_kind = condition.condition_kind,
         .then_action = parseBranchAction(effect_param, aliases, imports, statement[condition.body_start..else_index]) orelse return null,
         .else_action = parseBranchAction(effect_param, aliases, imports, statement[(else_index + 1)..]) orelse return null,
     };
@@ -1087,6 +1096,7 @@ pub fn parseFunctionBody(
         if (parseIfLocalEqZeroBranch(effect_param, aliases[0..alias_count], imports, statement)) |branch| {
             body.steps[body.step_count] = .{ .if_local_eq_zero_branch = .{
                 .local_name = branch.local_name,
+                .condition_kind = branch.condition_kind,
                 .then_action = branch.then_action,
                 .else_action = branch.else_action,
             } };

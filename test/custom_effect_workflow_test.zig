@@ -68,6 +68,34 @@ fn workflowSource() ability_compile.lowering_api.SourceRef {
 
 const LoweredWorkflow = ability_compile.lower(workflowSource(), workflowLoweringSpec());
 
+fn booleanBangBranchSpec() ability_compile.lowering_api.LowerSpec {
+    return .{
+        .label = "test.boolean_bang_branch",
+        .entry_symbol = "runBody",
+        .row = ability_compile.effect_ir.rowFromSpec(.{
+            .flag = .{
+                .check = ability_compile.effect_ir.Transform(void, bool),
+                .mark = ability_compile.effect_ir.Transform(void, void),
+            },
+        }),
+        .ValueType = void,
+    };
+}
+
+fn numericBangBranchSpec() ability_compile.lowering_api.LowerSpec {
+    return .{
+        .label = "test.numeric_bang_branch",
+        .entry_symbol = "runBody",
+        .row = ability_compile.effect_ir.rowFromSpec(.{
+            .counter = .{
+                .remaining = ability_compile.effect_ir.Transform(void, i32),
+                .done = ability_compile.effect_ir.Transform(void, void),
+            },
+        }),
+        .ValueType = void,
+    };
+}
+
 test "custom approval workflow approves through public custom-effect transcript" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -133,4 +161,42 @@ test "custom approval workflow source lowers to executable ProgramPlan" {
     }
 
     try LoweredWorkflow.runtime_plan.validate();
+}
+
+test "custom workflow source lowering admits bang branches only for bool locals" {
+    const BoolBang = comptime ability_compile.lowering_api.maybeLowerWithRootSourceAt(
+        "test/boolean_bang_branch.zig",
+        \\pub fn runBody(eff: anytype) anyerror!void {
+        \\    const flag = try eff.flag.check();
+        \\    if (!flag) try eff.flag.mark() else return;
+        \\}
+    ,
+        &.{},
+        booleanBangBranchSpec(),
+    ) orelse @compileError("bool bang branch should stay in the source-lowered subset");
+    _ = BoolBang;
+
+    const NumericBang = comptime ability_compile.lowering_api.maybeLowerWithRootSourceAt(
+        "test/numeric_bang_branch.zig",
+        \\pub fn runBody(eff: anytype) anyerror!void {
+        \\    const count = try eff.counter.remaining();
+        \\    if (!count) try eff.counter.done() else return;
+        \\}
+    ,
+        &.{},
+        numericBangBranchSpec(),
+    );
+    try std.testing.expect(NumericBang == null);
+
+    const BoolEqZero = comptime ability_compile.lowering_api.maybeLowerWithRootSourceAt(
+        "test/boolean_eq_zero_branch.zig",
+        \\pub fn runBody(eff: anytype) anyerror!void {
+        \\    const flag = try eff.flag.check();
+        \\    if (flag == 0) try eff.flag.mark() else return;
+        \\}
+    ,
+        &.{},
+        booleanBangBranchSpec(),
+    );
+    try std.testing.expect(BoolEqZero == null);
 }
