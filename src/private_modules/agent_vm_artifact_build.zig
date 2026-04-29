@@ -314,7 +314,7 @@ pub fn buildFingerprintForCapabilitiesForArtifactVersion(
     base_fingerprint: [32]u8,
     capabilities: []const CapabilityV1,
 ) ![32]u8 {
-    try validateManifest(base_fingerprint, capabilities);
+    try validateManifest(allocator, base_fingerprint, capabilities);
 
     var strings = StringTable.init(allocator);
     defer strings.deinit();
@@ -451,7 +451,7 @@ fn encodeProgramPlanVersioned(
     try validateExecutableCodecSupport(plan);
     try validateExecutableInstructionSupport(plan);
     if (plan.functions[plan.entry_index].parameter_count != 0) return error.UnsupportedEntryParameters;
-    try validateManifest(manifest.build_fingerprint_blake3_256, manifest.capabilities);
+    try validateManifest(allocator, manifest.build_fingerprint_blake3_256, manifest.capabilities);
     try validateRequirementCapabilityOpNameDisambiguation(plan, manifest.capabilities);
 
     var strings = StringTable.init(allocator);
@@ -731,7 +731,7 @@ fn validateWithProgramPlan(
     allocator: std.mem.Allocator,
     plan: program_plan.ProgramPlan,
 ) DecodeResultError!void {
-    try validateManifest(self.manifest_build_fingerprint, self.capabilities);
+    try validateManifest(allocator, self.manifest_build_fingerprint, self.capabilities);
     const recomputed_build_fingerprint = try buildFingerprintForCapabilitiesForArtifactVersion(
         allocator,
         self.artifact_version,
@@ -971,7 +971,11 @@ fn appendFmt(list: *std.ArrayList(u8), allocator: std.mem.Allocator, comptime fo
     try list.appendSlice(allocator, rendered);
 }
 
-fn validateManifest(build_fingerprint: [32]u8, capabilities: []const CapabilityV1) !void {
+fn validateManifest(
+    allocator: std.mem.Allocator,
+    build_fingerprint: [32]u8,
+    capabilities: []const CapabilityV1,
+) DecodeResultError!void {
     var has_non_zero = false;
     for (build_fingerprint) |byte| if (byte != 0) {
         has_non_zero = true;
@@ -979,33 +983,111 @@ fn validateManifest(build_fingerprint: [32]u8, capabilities: []const CapabilityV
     };
     if (!has_non_zero) return error.InvalidBuildFingerprint;
 
-    for (capabilities, 0..) |capability, index| {
-        for (capabilities[(index + 1)..]) |other| {
-            if (capability.capability_id == other.capability_id) return error.DuplicateCapabilityId;
-        }
+    var capability_ids = std.AutoHashMap(u16, void).init(allocator);
+    defer capability_ids.deinit();
+    var op_ids = std.AutoHashMap(u16, void).init(allocator);
+    defer op_ids.deinit();
+    var ordinal_host_pairs = std.AutoHashMap(u32, void).init(allocator);
+    defer ordinal_host_pairs.deinit();
+
+    for (capabilities) |capability| {
+        try putUniqueU16(&capability_ids, capability.capability_id, error.DuplicateCapabilityId);
         if (capability.kind != .tool) return error.UnsupportedVersion;
         if (!capability.required) return error.InvalidRequiredSection;
         try validateToolIdV1(capability.label);
-        for (capability.ops, 0..) |op, op_index| {
+
+        op_ids.clearRetainingCapacity();
+        ordinal_host_pairs.clearRetainingCapacity();
+        for (capability.ops) |op| {
             if (op.capability_id != capability.capability_id) return error.DuplicateCapabilityOpId;
             if (op.plan_op_ordinal >= capability.ops.len) return error.InvalidRequiredSection;
-            for (capability.ops[(op_index + 1)..]) |other_op| {
-                if (op.op_id == other_op.op_id) return error.DuplicateCapabilityOpId;
-                if (op.plan_op_ordinal == other_op.plan_op_ordinal and
-                    op.host_op_kind == other_op.host_op_kind)
-                {
-                    return error.InvalidRequiredSection;
-                }
-            }
+            try putUniqueU16(&op_ids, op.op_id, error.DuplicateCapabilityOpId);
+            try putUniqueU32(&ordinal_host_pairs, ordinalHostPairKey(op), error.InvalidRequiredSection);
         }
     }
+}
+
+fn putUniqueU16(set: *std.AutoHashMap(u16, void), value: u16, comptime duplicate_error: DecodeError) DecodeResultError!void {
+    const entry = try set.getOrPut(value);
+    if (entry.found_existing) return duplicate_error;
+    entry.value_ptr.* = {};
+}
+
+fn putUniqueU32(set: *std.AutoHashMap(u32, void), value: u32, comptime duplicate_error: DecodeError) DecodeResultError!void {
+    const entry = try set.getOrPut(value);
+    if (entry.found_existing) return duplicate_error;
+    entry.value_ptr.* = {};
+}
+
+fn ordinalHostPairKey(op: CapabilityOpV1) u32 {
+    const host_bit: u32 = switch (op.host_op_kind) {
+        .call => 0,
+        .after_call => 1,
+    };
+    return (@as(u32, op.plan_op_ordinal) << 1) | host_bit;
 }
 
 test "ArtifactV1 manifest rejects all-zero build fingerprints with a specific error" {
     try std.testing.expectError(
         error.InvalidBuildFingerprint,
-        validateManifest(std.mem.zeroes([32]u8), &.{}),
+        validateManifest(std.testing.allocator, std.mem.zeroes([32]u8), &.{}),
     );
+}
+
+test "ArtifactV1 manifest validation accepts sparse ids and rejects duplicate ordinal host pairs" {
+    const build_fingerprint = buildFingerprintFromSeed("manifest-linear-validation");
+    const valid_ops = [_]CapabilityOpV1{
+        .{
+            .capability_id = 42,
+            .op_id = 101,
+            .host_op_kind = .call,
+            .payload_codec = .unit,
+            .result_codec = .unit,
+            .plan_op_ordinal = 0,
+        },
+        .{
+            .capability_id = 42,
+            .op_id = 60_000,
+            .host_op_kind = .after_call,
+            .payload_codec = .unit,
+            .result_codec = .unit,
+            .plan_op_ordinal = 0,
+        },
+        .{
+            .capability_id = 42,
+            .op_id = 65_535,
+            .host_op_kind = .call,
+            .payload_codec = .unit,
+            .result_codec = .unit,
+            .plan_op_ordinal = 1,
+        },
+    };
+    const valid_capabilities = [_]CapabilityV1{.{
+        .capability_id = 42,
+        .kind = .tool,
+        .label = "generated/sparse@v1",
+        .ops = &valid_ops,
+    }};
+    try validateManifest(std.testing.allocator, build_fingerprint, &valid_capabilities);
+
+    const duplicate_pair_ops = [_]CapabilityOpV1{
+        valid_ops[0],
+        .{
+            .capability_id = 42,
+            .op_id = 202,
+            .host_op_kind = .call,
+            .payload_codec = .unit,
+            .result_codec = .unit,
+            .plan_op_ordinal = 0,
+        },
+    };
+    const duplicate_pair_capabilities = [_]CapabilityV1{.{
+        .capability_id = 42,
+        .kind = .tool,
+        .label = "generated/sparse@v1",
+        .ops = &duplicate_pair_ops,
+    }};
+    try std.testing.expectError(error.InvalidRequiredSection, validateManifest(std.testing.allocator, build_fingerprint, &duplicate_pair_capabilities));
 }
 
 test "ArtifactV1 validation maps runtime plan errors into the decode domain" {
@@ -1097,7 +1179,7 @@ fn executableCodecSupported(codec: program_plan.ValueCodec) bool {
     };
 }
 
-fn validateToolIdV1(tool_id: []const u8) !void {
+fn validateToolIdV1(tool_id: []const u8) DecodeError!void {
     const slash_index = std.mem.findScalar(u8, tool_id, '/') orelse return error.InvalidToolId;
     if (slash_index == 0) return error.InvalidToolId;
     if (std.mem.findScalarPos(u8, tool_id, slash_index + 1, '/') != null) return error.InvalidToolId;
@@ -1120,7 +1202,7 @@ fn validateToolIdV1(tool_id: []const u8) !void {
     if (!has_digit or !has_non_zero) return error.InvalidToolId;
 }
 
-fn validateToolIdSegment(segment: []const u8) !void {
+fn validateToolIdSegment(segment: []const u8) DecodeError!void {
     if (segment.len == 0) return error.InvalidToolId;
     for (segment) |byte| {
         const is_lower = byte >= 'a' and byte <= 'z';
@@ -1220,7 +1302,7 @@ fn decodeCapabilityManifest(
         capability_cursor += 16;
     }
 
-    try validateManifest(fingerprint, capabilities);
+    try validateManifest(allocator, fingerprint, capabilities);
     return .{
         .build_fingerprint_blake3_256 = fingerprint,
         .capabilities = capabilities,
@@ -2146,26 +2228,33 @@ fn sectionBytesUnchecked(bytes: []const u8, offset: u64, size: u64) ?[]const u8 
 const StringTable = struct {
     allocator: std.mem.Allocator,
     bytes: std.ArrayList(u8),
+    index: std.StringHashMap(StringRef),
     items: std.ArrayList(StringRef),
 
     fn init(allocator: std.mem.Allocator) StringTable {
         return .{
             .allocator = allocator,
             .bytes = .empty,
+            .index = std.StringHashMap(StringRef).init(allocator),
             .items = .empty,
         };
     }
 
     fn deinit(self: *StringTable) void {
+        var key_iter = self.index.keyIterator();
+        while (key_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.index.deinit();
         self.bytes.deinit(self.allocator);
         self.items.deinit(self.allocator);
     }
 
     fn add(self: *StringTable, value: []const u8) !StringRef {
-        for (self.items.items) |existing| {
-            const existing_bytes = self.bytes.items[existing.offset..][0..existing.len];
-            if (std.mem.eql(u8, existing_bytes, value)) return existing;
-        }
+        if (self.index.get(value)) |existing| return existing;
+
+        const key = try self.allocator.dupe(u8, value);
+        errdefer self.allocator.free(key);
         const offset = self.bytes.items.len;
         try self.bytes.appendSlice(self.allocator, value);
         const string_ref = StringRef{
@@ -2173,6 +2262,7 @@ const StringTable = struct {
             .len = @intCast(value.len),
         };
         try self.items.append(self.allocator, string_ref);
+        try self.index.put(key, string_ref);
         return string_ref;
     }
 
@@ -2180,6 +2270,23 @@ const StringTable = struct {
         return allocator.dupe(u8, self.bytes.items);
     }
 };
+
+test "ArtifactV1 StringTable uses indexed lookup while preserving stable refs" {
+    var strings = StringTable.init(std.testing.allocator);
+    defer strings.deinit();
+
+    const first = try strings.add("repeat");
+    const second = try strings.add("other");
+    const third = try strings.add("repeat");
+
+    try std.testing.expectEqual(first.offset, third.offset);
+    try std.testing.expectEqual(first.len, third.len);
+    try std.testing.expect(second.offset > first.offset);
+
+    const bytes = try strings.toOwnedBytes(std.testing.allocator);
+    defer std.testing.allocator.free(bytes);
+    try std.testing.expectEqualStrings("repeatother", bytes);
+}
 
 fn deepCloneFunctionPlans(allocator: std.mem.Allocator, source: []const program_plan.FunctionPlan) ![]program_plan.FunctionPlan {
     const clone = try allocator.alloc(program_plan.FunctionPlan, source.len);

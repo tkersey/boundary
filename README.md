@@ -29,9 +29,9 @@ want compiled lexical execution for ordinary local body structs must make the
 source witness part of the body type itself:
 
 For a copy-runnable starting point inside this checkout, use
-`examples/state_basic.zig` or run it with `zig build run-state-basic`. Downstream
-packages should use the named body shape below; the anonymous inline body in the
-checkout example relies on repo-owned source lookup.
+`examples/state_basic.zig` or run it with `zig build run-state-basic`. The block
+below is the downstream named-body shape, not a complete `main.zig`; the
+anonymous inline body in the checkout example relies on repo-owned source lookup.
 
 ```zig
 const Body = struct {
