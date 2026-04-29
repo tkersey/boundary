@@ -177,6 +177,7 @@ source-lowering-completion
 source-lowering-tool
 open-row-lowering
 source-ownership-probe
+comptime-contract
 source-lowering-witness
 lexical-witness
 lexical-with

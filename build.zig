@@ -5333,6 +5333,16 @@ pub fn build(b: *std.Build) void {
     const source_ownership_probe_tests = addFilteredTest(b, source_ownership_probe_mod, test_runner_args.filters.items);
     const run_src_ownership_probe_tests = addRunArtifactWithArgs(b, source_ownership_probe_tests, test_runner_args.passthrough.items);
 
+    const comptime_contract_mod = b.createModule(.{
+        .root_source_file = b.path("test/comptime_contract_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    comptime_contract_mod.addImport("ability", ability_mod);
+    comptime_contract_mod.addImport("ability_compile", ability_compile_mod);
+    const comptime_contract_tests = addFilteredTest(b, comptime_contract_mod, test_runner_args.filters.items);
+    const run_comptime_contract_tests = addRunArtifactWithArgs(b, comptime_contract_tests, test_runner_args.passthrough.items);
+
     const src_lower_witness_mod = b.createModule(.{
         .root_source_file = b.path("test/source_lowering_witness_completion_test.zig"),
         .target = target,
@@ -5567,6 +5577,7 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "source-lowering-tool", .description = "Source lowering CLI tool suite", .run_step = &run_source_lowering_tool_tests.step },
         .{ .suite_id = "open-row-lowering", .description = "Open-row lowering suite", .run_step = &run_open_row_lowering_tests.step },
         .{ .suite_id = "source-ownership-probe", .description = "Source ownership probe suite", .run_step = &run_src_ownership_probe_tests.step },
+        .{ .suite_id = "comptime-contract", .description = "Public comptime contract suite", .run_step = &run_comptime_contract_tests.step },
         .{ .suite_id = "source-lowering-witness", .description = "Source lowering witness completion suite", .run_step = &run_src_lower_witness_tests.step },
         .{ .suite_id = "lexical-witness", .description = "Lexical witness suite", .run_step = run_lexical_witness_tests },
         .{ .suite_id = "lexical-with", .description = "Lexical with suite", .run_step = run_lexical_with_tests },
