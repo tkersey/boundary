@@ -1050,6 +1050,126 @@ test "ProgramPlan.validate accepts helper value destinations typed by helper res
     try plan.validate();
 }
 
+test "ProgramPlan.validate accepts non-unit helper destinations typed by after result codecs" {
+    const plan = internal_program_plan.ProgramPlan{
+        .label = "valid.helper_non_unit_after_result_codec_match",
+        .ir_hash = 4,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "root",
+                .value_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 2,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .i32,
+                .result_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 1,
+                .local_count = 1,
+                .first_block = 1,
+                .block_count = 1,
+                .first_instruction = 2,
+                .instruction_count = 2,
+            },
+        },
+        .requirements = &.{.{
+            .label = "tooling",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "dispatch",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .i32,
+            .has_after = true,
+        }},
+        .outputs = &.{},
+        .locals = &.{
+            .{ .codec = .string },
+            .{ .codec = .i32 },
+        },
+        .call_args = &.{},
+        .blocks = &.{
+            .{
+                .first_instruction = 0,
+                .instruction_count = 2,
+                .terminator_index = 0,
+            },
+            .{
+                .first_instruction = 2,
+                .instruction_count = 2,
+                .terminator_index = 1,
+            },
+        },
+        .terminators = &.{
+            .{ .kind = .return_value },
+            .{ .kind = .return_value },
+        },
+        .instructions = &.{
+            .{
+                .kind = .call_helper,
+                .dst = 0,
+                .operand = 1,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+            .{
+                .kind = .call_op,
+                .dst = 0,
+                .operand = 0,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+
+    try plan.validate();
+
+    const Handlers = struct {
+        tooling: struct {
+            /// Supplies the helper's raw value before the after hook rewrites the result codec.
+            pub fn dispatch(_: *@This()) i32 {
+                return 42;
+            }
+
+            /// Converts the helper's normal completion value into the externally visible result.
+            pub fn afterDispatch(_: *@This(), answer: i32) []const u8 {
+                if (answer != 42) return "unexpected";
+                return "wrapped=42";
+            }
+        } = .{},
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers = Handlers{};
+    const result = try lowering_api.runExecutablePlan(&runtime, plan, &handlers);
+
+    try std.testing.expectEqualStrings("wrapped=42", result.value);
+}
+
 test "compiled ProgramPlan dispatch preserves outer handler structs with handler data fields" {
     const compiled_plan = internal_program_plan.ProgramPlan{
         .label = "regression.outer_handler_field_name_collision",

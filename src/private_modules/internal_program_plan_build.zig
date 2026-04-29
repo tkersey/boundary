@@ -588,10 +588,9 @@ fn functionCompletionValueCodec(
     function: FunctionPlan,
     completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
 ) ValidationError!ValueCodec {
-    if (function.value_codec != .unit) return function.value_codec;
-    const result_codec = function.result_codec orelse return .unit;
-    if (result_codec == .unit) return .unit;
-    if (!try functionCanApplyAfterOnCompletion(self, function, completion_reachability)) return .unit;
+    const result_codec = function.result_codec orelse return function.value_codec;
+    if (result_codec == function.value_codec) return function.value_codec;
+    if (!try functionCanApplyAfterOnCompletion(self, function, completion_reachability)) return function.value_codec;
     return result_codec;
 }
 
