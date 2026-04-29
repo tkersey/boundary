@@ -43,3 +43,32 @@ test "agent-vm-artifact-report classifies compatible, unsupported, invalid, and 
     try std.testing.expectEqual(report.VerdictStatus.incompatible, incompatible.status);
     try std.testing.expectEqualStrings("resource_exhausted", incompatible.code);
 }
+
+test "agent-vm-artifact-report classifies files over artifact-size profile cap" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const oversized_bytes = try allocator.alloc(u8, report.max_artifact_bytes + 1);
+    defer allocator.free(oversized_bytes);
+    @memset(oversized_bytes, 0);
+
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "oversized.artifact",
+        .data = oversized_bytes,
+    });
+    const artifact_path = try tmp.dir.realPathFileAlloc(std.testing.io, "oversized.artifact", allocator);
+    defer allocator.free(artifact_path);
+
+    const read_result = try report.readArtifactForReport(std.testing.io, allocator, artifact_path);
+    switch (read_result) {
+        .bytes => |bytes| {
+            allocator.free(bytes);
+            return error.TestExpectedOversizedArtifactVerdict;
+        },
+        .verdict => |verdict| {
+            try std.testing.expectEqual(report.VerdictStatus.incompatible, verdict.status);
+            try std.testing.expectEqualStrings("resource_exhausted", verdict.code);
+        },
+    }
+}

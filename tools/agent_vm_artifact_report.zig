@@ -40,6 +40,12 @@ pub const Verdict = struct {
     }
 };
 
+/// Result of reading an artifact path for the report classifier.
+pub const ArtifactReadResult = union(enum) {
+    bytes: []u8,
+    verdict: Verdict,
+};
+
 /// Parsed command-line form for the report tool.
 pub const ParseArgsResult = union(enum) {
     artifact_path: []const u8,
@@ -69,6 +75,35 @@ fn noHostAdapter() ability_agent_vm.host.Adapter {
             }
         }.dispatch,
     };
+}
+
+fn artifactSizeExceededVerdict() Verdict {
+    return .{
+        .status = .incompatible,
+        .code = "resource_exhausted",
+        .detail = "artifact exceeded the fixed conformance profile",
+    };
+}
+
+/// Read one ArtifactV1 payload unless its file size already exceeds the fixed profile.
+pub fn readArtifactForReport(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    path: []const u8,
+) anyerror!ArtifactReadResult {
+    const stat = try std.Io.Dir.cwd().statFile(io, path, .{});
+    if (stat.size > max_artifact_bytes) return .{ .verdict = artifactSizeExceededVerdict() };
+
+    const bytes = std.Io.Dir.cwd().readFileAlloc(
+        io,
+        path,
+        allocator,
+        .limited(max_artifact_bytes + 1),
+    ) catch |err| switch (err) {
+        error.StreamTooLong => return .{ .verdict = artifactSizeExceededVerdict() },
+        else => return err,
+    };
+    return .{ .bytes = bytes };
 }
 
 /// Classify one ArtifactV1 byte stream under the fixed no-host profile.
@@ -171,18 +206,18 @@ pub fn main(init: std.process.Init) anyerror!void {
             std.process.exit(2);
         },
         .artifact_path => |path| {
-            const bytes = std.Io.Dir.cwd().readFileAlloc(
-                init.io,
-                path,
-                allocator,
-                .limited(max_artifact_bytes + 1),
-            ) catch |err| {
+            const read_result = readArtifactForReport(init.io, allocator, path) catch |err| {
                 std.debug.print("agent-vm-artifact-report: unable to read artifact: {s}\n", .{@errorName(err)});
                 std.process.exit(2);
             };
-            defer allocator.free(bytes);
 
-            const verdict = try fixedProfileVerdict(allocator, bytes);
+            const verdict = switch (read_result) {
+                .bytes => |bytes| blk: {
+                    defer allocator.free(bytes);
+                    break :blk try fixedProfileVerdict(allocator, bytes);
+                },
+                .verdict => |verdict| verdict,
+            };
             var stdout_buffer: [512]u8 = undefined;
             var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
             try writeVerdict(&stdout_writer.interface, verdict);
