@@ -372,7 +372,7 @@ fn writeJsonContributors(writer: anytype, contributors: anytype) !void {
 fn writeRejectedProgramDiagnostics(writer: anytype, program: source_lowering.GeneratedProgram) !void {
     if (program.diagnostics.len == 0) {
         try writer.print(
-            "ability-source-lower: rejected {s}: no source diagnostic was emitted; check that --id, --surface, --source, and --entry describe the same supported case, or run --list-cases --surface <kind>\n",
+            "ability-source-lower: rejected {s}: no source diagnostic was emitted; check that --id, --surface, --source, and --entry describe the same supported case, or run --list-cases\n",
             .{program.case_id},
         );
         return;
@@ -1288,5 +1288,5 @@ test "rejected source-lower programs without diagnostics include recovery guidan
     defer std.testing.allocator.free(bytes);
 
     try std.testing.expect(std.mem.find(u8, bytes, "check that --id, --surface, --source, and --entry") != null);
-    try std.testing.expect(std.mem.find(u8, bytes, "--list-cases --surface <kind>") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "run --list-cases") != null);
 }

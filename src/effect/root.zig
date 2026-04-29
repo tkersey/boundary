@@ -5,17 +5,17 @@ pub const choice = @import("choice.zig");
 pub const Define = @import("define.zig").Define;
 /// Public op-descriptor namespace for `ability.effect.Define(...)`.
 pub const ops = @import("define.zig").ops;
-/// Exception effect family built on top of the core shift/reset runtime.
+/// Exception effect family for returning a thrown payload through `ability.with(...)`.
 pub const exception = @import("exception.zig");
-/// Optional-resumption effect family built on top of the core shift/reset runtime.
+/// Optional effect family for choosing between early return and resumed execution.
 pub const optional = @import("optional.zig");
-/// Additive reader-effect family built on top of the core shift/reset runtime.
+/// Reader effect family for accessing shared environment values.
 pub const reader = @import("reader.zig");
-/// Bracketed resource effect family built on top of the core shift/reset runtime.
+/// Resource effect family for bracketed acquire/use/release workflows.
 pub const resource = @import("resource.zig");
-/// Additive state-effect family built on top of the core shift/reset runtime.
+/// State effect family for reading and updating scoped state.
 pub const state = @import("state.zig");
-/// Append-only writer effect family built on top of the core shift/reset runtime.
+/// Writer effect family for collecting append-only output.
 pub const writer = @import("writer.zig");
 
 test {

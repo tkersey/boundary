@@ -409,6 +409,24 @@ fn buildInvocationRequestsStep(step_name: []const u8) ?bool {
     return buildInvocationRequestsStepFromArgsResult(step_name, buildInvocationArgsAlloc());
 }
 
+fn buildInvocationRequestsOnlyStep(step_name: []const u8) ?bool {
+    var args = buildInvocationArgsAlloc() catch return null;
+    defer args.deinit();
+
+    return buildInvocationRequestsOnlyStepInArgs(args.items, step_name);
+}
+
+fn rejectUnsupportedSharedTailForOnlyStep(b: *std.Build, requested_only: ?bool, step_name: []const u8) void {
+    const args = b.args orelse return;
+    if (args.len == 0) return;
+    if (requested_only orelse false) {
+        std.process.fatal("`zig build {s}` does not accept post-`--` arguments; remove the shared tail or use a step with documented tail options", .{step_name});
+    }
+    if (requested_only == null) {
+        std.process.fatal("unable to attribute post-`--` arguments for `zig build {s}` on this host; remove the shared tail or use a supported host", .{step_name});
+    }
+}
+
 fn hostBuildInvocationArgsSupported() bool {
     return switch (builtin.os.tag) {
         .macos, .ios, .tvos, .watchos, .visionos, .linux, .windows => true,
@@ -505,8 +523,8 @@ fn testSuiteIdListAlloc(allocator: std.mem.Allocator, specs: []const TestSuiteSp
     var out = std.ArrayList(u8).empty;
     errdefer out.deinit(allocator);
 
-    for (specs, 0..) |spec, index| {
-        if (index != 0) try out.appendSlice(allocator, ", ");
+    for (specs) |spec| {
+        try out.appendSlice(allocator, "\n  - ");
         try out.appendSlice(allocator, spec.suite_id);
     }
 
@@ -549,7 +567,7 @@ fn resolveTestSuiteSelection(
             const supported = testSuiteIdListAlloc(b.allocator, specs) catch |err|
                 std.process.fatal("unable to list supported test suite ids: {s}", .{@errorName(err)});
             std.log.err(
-                "Expected -Dtest-suites to be a comma-separated list of exact suite ids without empty entries. Supported ids: {s}",
+                "Expected -Dtest-suites to be a comma-separated list of exact suite ids without empty entries. Supported ids:{s}",
                 .{supported},
             );
         },
@@ -557,7 +575,7 @@ fn resolveTestSuiteSelection(
             const supported = testSuiteIdListAlloc(b.allocator, specs) catch |err|
                 std.process.fatal("unable to list supported test suite ids: {s}", .{@errorName(err)});
             std.log.err(
-                "Duplicate test suite id in -Dtest-suites: '{s}'. Supported ids: {s}",
+                "Duplicate test suite id in -Dtest-suites: '{s}'. Supported ids:{s}",
                 .{ id, supported },
             );
         },
@@ -565,7 +583,7 @@ fn resolveTestSuiteSelection(
             const supported = testSuiteIdListAlloc(b.allocator, specs) catch |err|
                 std.process.fatal("unable to list supported test suite ids: {s}", .{@errorName(err)});
             std.log.err(
-                "Unknown test suite id in -Dtest-suites: '{s}'. Supported ids: {s}",
+                "Unknown test suite id in -Dtest-suites: '{s}'. Supported ids:{s}",
                 .{ id, supported },
             );
         },
@@ -4330,6 +4348,20 @@ pub fn build(b: *std.Build) void {
     ) orelse false;
     const test_requested_from_argv = buildInvocationRequestsRunnableStep("test");
     const lint_requested_from_argv = buildInvocationRequestsStep("lint");
+    const source_lower_requested_only = buildInvocationRequestsOnlyStep("source-lower");
+    const fixture_check_requested_only = buildInvocationRequestsOnlyStep("check-ability-agent-vm-fixture");
+    const bench_requested_only = buildInvocationRequestsOnlyStep("bench");
+    const bench_first_only = buildInvocationRequestsOnlyStep("bench-first-suspend");
+    const bench_state_only = buildInvocationRequestsOnlyStep("bench-state-effect");
+    const bench_matrix_only = buildInvocationRequestsOnlyStep("bench-family-matrix");
+    const bench_backends_only = buildInvocationRequestsOnlyStep("bench-runtime-backends");
+    rejectUnsupportedSharedTailForOnlyStep(b, source_lower_requested_only, "source-lower");
+    rejectUnsupportedSharedTailForOnlyStep(b, fixture_check_requested_only, "check-ability-agent-vm-fixture");
+    rejectUnsupportedSharedTailForOnlyStep(b, bench_requested_only, "bench");
+    rejectUnsupportedSharedTailForOnlyStep(b, bench_first_only, "bench-first-suspend");
+    rejectUnsupportedSharedTailForOnlyStep(b, bench_state_only, "bench-state-effect");
+    rejectUnsupportedSharedTailForOnlyStep(b, bench_matrix_only, "bench-family-matrix");
+    rejectUnsupportedSharedTailForOnlyStep(b, bench_backends_only, "bench-runtime-backends");
     const inferred_shared_tail = inferBuildInvocationFromSharedTail(b.args);
     const test_requested_opt = test_requested_from_argv orelse inferred_shared_tail.test_requested;
     const lint_requested_opt = lint_requested_from_argv orelse inferred_shared_tail.lint_requested;

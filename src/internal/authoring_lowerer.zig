@@ -650,7 +650,7 @@ fn parseFailureDiagnostic(
         .allocator = allocator,
         .display_path = display_path,
         .code = "parse_error",
-        .message = "source did not parse as Zig; fix the syntax near this parser diagnostic and rerun",
+        .message = @tagName(parse_error.tag),
         .line = loc.line + 1,
         .column = loc.column + 1,
     });
@@ -851,7 +851,7 @@ pub fn lowerFileBackedSourceText(input: LowerFileBackedSourceTextInput) anyerror
             .allocator = allocator,
             .display_path = display_path,
             .code = "non_canonical_source_path",
-            .message = "source path is not the expected path for this case; pass the canonical repo file or an alias that resolves to it",
+            .message = "source path is not the expected path for this case; run --list-cases to copy the registered --source value",
             .line = 1,
             .column = 1,
         }));
@@ -966,7 +966,7 @@ pub fn lowerSourceText(
             .allocator = allocator,
             .display_path = input.display_path,
             .code = "non_canonical_source_path",
-            .message = "source path is not the expected path for this case; pass the canonical repo file or an alias that resolves to it",
+            .message = "source path is not the expected path for this case; run --list-cases to copy the registered --source value",
             .line = 1,
             .column = 1,
         }));
@@ -993,7 +993,7 @@ fn lowerAnalyzedSourceText(
             .allocator = allocator,
             .display_path = input.display_path,
             .code = "non_canonical_source_path",
-            .message = "source path is not the expected path for this case; pass the canonical repo file or an alias that resolves to it",
+            .message = "source path is not the expected path for this case; run --list-cases to copy the registered --source value",
             .line = 1,
             .column = 1,
         }));
@@ -1088,7 +1088,7 @@ pub fn lowerSourceFile(
             .allocator = allocator,
             .display_path = display_path,
             .code = "non_canonical_source_path",
-            .message = "source path is not the expected path for this case; pass the canonical repo file or an alias that resolves to it",
+            .message = "source path is not the expected path for this case; run --list-cases to copy the registered --source value",
             .line = 1,
             .column = 1,
         }));

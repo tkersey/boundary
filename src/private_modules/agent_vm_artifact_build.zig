@@ -607,9 +607,6 @@ pub fn decodeWithProgramPlan(allocator: std.mem.Allocator, bytes: []const u8) De
         if (readU32(bytes, cursor + 28) != 0) return error.NonZeroReserved;
         const section_end = checkedSectionEnd(offset, size) orelse return error.InvalidDirectoryBounds;
         if (section_end > bytes_len_u64 or offset < directory_end) return error.InvalidDirectoryBounds;
-        for (section_ranges.items) |existing| {
-            if (offset < existing.end and existing.offset < section_end) return error.InvalidDirectoryBounds;
-        }
         try section_ranges.append(allocator, .{ .offset = offset, .end = section_end });
         const section_id = std.enums.fromInt(SectionId, raw_section_id) orelse {
             if (optional_section and isReservedOptionalSectionId(raw_section_id)) continue;
@@ -631,6 +628,16 @@ pub fn decodeWithProgramPlan(allocator: std.mem.Allocator, bytes: []const u8) De
             .size = size,
             .entry_count = entry_count,
         });
+    }
+    std.mem.sort(SectionRange, section_ranges.items, {}, struct {
+        fn lessThan(_: void, lhs: SectionRange, rhs: SectionRange) bool {
+            return lhs.offset < rhs.offset;
+        }
+    }.lessThan);
+    if (section_ranges.items.len > 1) {
+        for (section_ranges.items[1..], section_ranges.items[0 .. section_ranges.items.len - 1]) |current, previous| {
+            if (current.offset < previous.end) return error.InvalidDirectoryBounds;
+        }
     }
 
     inline for (std.meta.fields(SectionId)) |field| {
@@ -746,7 +753,7 @@ fn validateWithProgramPlan(
     plan.validate() catch return error.InvalidProgramPlan;
     try validateExecutableCodecSupport(plan);
     try validateExecutableInstructionSupport(plan);
-    try validateRequirementCapabilityMappings(plan, self.requirement_capability_ids, self.capabilities);
+    try validateRequirementCapabilityMappings(allocator, plan, self.requirement_capability_ids, self.capabilities);
 }
 
 fn artifactHashWithZeroedDigest(bytes: []const u8, out: *[32]u8) void {
@@ -1423,9 +1430,18 @@ fn encodeRequirementTable(
 ) ![]u8 {
     var out = std.ArrayList(u8).empty;
     errdefer out.deinit(allocator);
+    const resolved_capability_ids = try allocator.alloc(?u16, plan.requirements.len);
+    defer allocator.free(resolved_capability_ids);
+    @memset(resolved_capability_ids, null);
     for (plan.requirements, 0..) |requirement, requirement_index| {
         const label_ref = try strings.add(requirement.label);
-        const capability_id = try resolveRequirementCapabilityId(plan, requirement_index, capabilities);
+        const capability_id = try resolveRequirementCapabilityId(
+            plan,
+            requirement_index,
+            capabilities,
+            resolved_capability_ids[0..requirement_index],
+        );
+        resolved_capability_ids[requirement_index] = capability_id;
         try encodeStringRef(&out, allocator, label_ref);
         try appendU16(&out, allocator, requirement.first_op);
         try appendU16(&out, allocator, requirement.op_count);
@@ -1638,7 +1654,12 @@ fn decodeRequirementTable(allocator: std.mem.Allocator, string_bytes: []const u8
     };
 }
 
-fn resolveRequirementCapabilityId(plan: program_plan.ProgramPlan, requirement_index: usize, capabilities: []const CapabilityV1) !u16 {
+fn resolveRequirementCapabilityId(
+    plan: program_plan.ProgramPlan,
+    requirement_index: usize,
+    capabilities: []const CapabilityV1,
+    resolved_capability_ids: []const ?u16,
+) !u16 {
     const requirement = plan.requirements[requirement_index];
     var wanted_ordinal: usize = 0;
     for (plan.requirements[0..requirement_index], 0..) |previous, previous_requirement_index| {
@@ -1646,7 +1667,7 @@ fn resolveRequirementCapabilityId(plan: program_plan.ProgramPlan, requirement_in
         if (!std.mem.eql(u8, previous.label, requirement.label)) continue;
         if (!requirementsShareCompatibleCapability(plan, previous_requirement_index, requirement_index, capabilities)) continue;
         if (requirementOpNamesMatch(plan, previous_requirement_index, requirement_index)) {
-            return try resolveRequirementCapabilityId(plan, previous_requirement_index, capabilities);
+            return resolved_capability_ids[previous_requirement_index] orelse error.InvalidRequiredSection;
         }
         wanted_ordinal += 1;
     }
@@ -1790,13 +1811,23 @@ fn findCapabilityOpByPlanOrdinalAndGlobalName(
 }
 
 fn validateRequirementCapabilityMappings(
+    allocator: std.mem.Allocator,
     plan: program_plan.ProgramPlan,
     capability_ids: []const u16,
     capabilities: []const CapabilityV1,
 ) !void {
     if (plan.requirements.len != capability_ids.len) return error.InvalidRequiredSection;
+    const resolved_capability_ids = try allocator.alloc(?u16, capability_ids.len);
+    defer allocator.free(resolved_capability_ids);
+    @memset(resolved_capability_ids, null);
     for (capability_ids, 0..) |capability_id, requirement_index| {
-        const expected_capability_id = try resolveRequirementCapabilityId(plan, requirement_index, capabilities);
+        const expected_capability_id = try resolveRequirementCapabilityId(
+            plan,
+            requirement_index,
+            capabilities,
+            resolved_capability_ids[0..requirement_index],
+        );
+        resolved_capability_ids[requirement_index] = expected_capability_id;
         if (capability_id != expected_capability_id) return error.InvalidRequiredSection;
         const capability = findCapabilityById(capabilities, capability_id) orelse return error.InvalidRequiredSection;
         if (!toolCapabilityMatchesRequirement(plan, requirement_index, capability)) return error.InvalidRequiredSection;
