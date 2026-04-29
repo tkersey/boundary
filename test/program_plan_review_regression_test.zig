@@ -1250,6 +1250,221 @@ test "ProgramPlan.validate accepts non-unit helper destinations typed by after r
     try std.testing.expectEqualStrings("wrapped=42", result.value);
 }
 
+test "ProgramPlan.validate rejects helpers with mixed plain and after completion codecs" {
+    const plan = internal_program_plan.ProgramPlan{
+        .label = "invalid.helper_mixed_plain_after_result_codec",
+        .ir_hash = 6,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "root",
+                .value_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 2,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .i32,
+                .result_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 1,
+                .local_count = 3,
+                .first_block = 1,
+                .block_count = 3,
+                .first_instruction = 2,
+                .instruction_count = 6,
+            },
+        },
+        .requirements = &.{.{
+            .label = "tooling",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "dispatch",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .i32,
+            .has_after = true,
+        }},
+        .outputs = &.{},
+        .locals = &.{
+            .{ .codec = .string },
+            .{ .codec = .i32 },
+            .{ .codec = .bool },
+            .{ .codec = .i32 },
+        },
+        .call_args = &.{},
+        .blocks = &.{
+            .{
+                .first_instruction = 0,
+                .instruction_count = 2,
+                .terminator_index = 0,
+            },
+            .{
+                .first_instruction = 2,
+                .instruction_count = 2,
+                .terminator_index = 1,
+            },
+            .{
+                .first_instruction = 4,
+                .instruction_count = 2,
+                .terminator_index = 2,
+            },
+            .{
+                .first_instruction = 6,
+                .instruction_count = 2,
+                .terminator_index = 3,
+            },
+        },
+        .terminators = &.{
+            .{ .kind = .return_value },
+            .{ .kind = .branch_if, .primary = 2, .secondary = 3 },
+            .{ .kind = .return_value },
+            .{ .kind = .return_value },
+        },
+        .instructions = &.{
+            .{
+                .kind = .call_helper,
+                .dst = 0,
+                .operand = 1,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+            .{
+                .kind = .const_i32,
+                .dst = 0,
+                .operand = 0,
+            },
+            .{
+                .kind = .compare_eq_zero,
+                .dst = 1,
+                .operand = 0,
+            },
+            .{
+                .kind = .call_op,
+                .dst = 2,
+                .operand = 0,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 2,
+            },
+            .{
+                .kind = .const_i32,
+                .dst = 2,
+                .operand = 7,
+            },
+            .{
+                .kind = .return_value,
+                .operand = 2,
+            },
+        },
+    };
+
+    try std.testing.expectError(error.InvalidFunctionResultCodec, plan.validate());
+}
+
+test "planFromProgram rejects source-lowered helpers with mixed plain and after completion codecs" {
+    comptime {
+        @setEvalBranchQuota(20_000);
+    }
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/mixed_after_helper.zig",
+        .symbol_name = "root",
+    };
+    const helper_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/mixed_after_helper.zig",
+        .symbol_name = "helper",
+    };
+    const program = comptime effect_ir.Program{
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol = root_symbol,
+                .row = effect_ir.rowFromSpec(.{}),
+                .ValueType = []const u8,
+            },
+            .{
+                .symbol = helper_symbol,
+                .row = effect_ir.Row{ .requirements = &.{.{
+                    .label = "tooling",
+                    .ops = &.{.{
+                        .requirement_label = "tooling",
+                        .op_name = "dispatch",
+                        .mode = .transform,
+                        .PayloadType = void,
+                        .ResumeType = i32,
+                        .has_after = true,
+                    }},
+                }} },
+                .ValueType = i32,
+            },
+        },
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = helper_symbol,
+        }},
+        .function_bodies = &.{
+            .{
+                .local_codecs = &.{.string},
+                .blocks = &.{.{
+                    .instructions = &.{
+                        .{ .kind = .call_helper, .dst = 0, .operand = 1, .aux = std.math.maxInt(u16) },
+                        .{ .kind = .return_value, .operand = 0 },
+                    },
+                    .terminator = .{ .kind = .return_value },
+                }},
+            },
+            .{
+                .local_codecs = &.{ .i32, .bool, .i32 },
+                .blocks = &.{
+                    .{
+                        .instructions = &.{
+                            .{ .kind = .const_i32, .dst = 0, .operand = 0 },
+                            .{ .kind = .compare_eq_zero, .dst = 1, .operand = 0 },
+                        },
+                        .terminator = .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                    },
+                    .{
+                        .instructions = &.{
+                            .{ .kind = .call_op, .dst = 2, .operand = 0, .aux = std.math.maxInt(u16) },
+                            .{ .kind = .return_value, .operand = 2 },
+                        },
+                        .terminator = .{ .kind = .return_value },
+                    },
+                    .{
+                        .instructions = &.{
+                            .{ .kind = .const_i32, .dst = 2, .operand = 7 },
+                            .{ .kind = .return_value, .operand = 2 },
+                        },
+                        .terminator = .{ .kind = .return_value },
+                    },
+                },
+            },
+        },
+    };
+
+    const result = comptime internal_program_plan.planFromProgram("example.mixed_after_helper", program);
+    try std.testing.expectError(error.InvalidProgramBodyShape, result);
+}
+
 test "compiled ProgramPlan dispatch preserves outer handler structs with handler data fields" {
     const compiled_plan = internal_program_plan.ProgramPlan{
         .label = "regression.outer_handler_field_name_collision",
