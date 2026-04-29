@@ -742,11 +742,8 @@ fn ChoiceRunState(
     return struct {
         /// Original caller source location threaded through this lexical choice packet.
         pub const caller_source = caller_source_value;
-        runtime: *lowered_machine.Runtime,
-        handlers_ptr: *HandlersType,
-        eff_value: EffType,
-        outputs_ptr: *OutputBundleType(HandlersType),
         resume_value: ResumeType,
+        lexical_state: LexicalState(HandlersType, EffType, caller_source_value),
     };
 }
 
@@ -781,7 +778,50 @@ fn activeChoiceState(
     comptime EffType: type,
     comptime ResumeType: type,
 ) *ChoiceRunState(HandlersType, EffType, exactContextCallerSource(@TypeOf(ctx)), ResumeType) {
-    return @ptrCast(@alignCast(ctx._cap.lexical_state.?));
+    // Choice descriptor contexts expose the embedded lexical packet; recover the
+    // enclosing choice packet by field ownership instead of by prefix layout.
+    const lexical_state = activeLexicalState(ctx, HandlersType, EffType);
+    return @fieldParentPtr("lexical_state", lexical_state);
+}
+
+test "choice continuation state recovers from explicit lexical state field" {
+    const Descriptor = struct {
+        /// No output is needed for this local state-recovery fixture.
+        pub const Output = void;
+        marker: void = {},
+    };
+    const Handlers = struct {
+        descriptor: Descriptor,
+    };
+    const Eff = struct {
+        value: i32,
+    };
+    const Cap = struct {
+        /// Match the no-provenance lexical state used by this fixture.
+        pub const caller_source = null;
+        lexical_state: ?*anyopaque = null,
+    };
+    const Context = family.Context(Cap, i32, i32, error{});
+    const ChoiceState = ChoiceRunState(Handlers, Eff, null, i32);
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers: Handlers = .{ .descriptor = .{} };
+    var outputs: OutputBundleType(Handlers) = .{};
+    var choice_state: ChoiceState = .{
+        .resume_value = 41,
+        .lexical_state = .{
+            .runtime = &runtime,
+            .handlers_ptr = &handlers,
+            .eff_value = .{ .value = 7 },
+            .outputs_ptr = &outputs,
+        },
+    };
+    var cap: Cap = .{ .lexical_state = &choice_state.lexical_state };
+    var ctx: Context = .{ ._cap = &cap };
+
+    try std.testing.expect(activeLexicalState(&ctx, Handlers, Eff) == &choice_state.lexical_state);
+    try std.testing.expect(activeChoiceState(&ctx, Handlers, Eff, i32) == &choice_state);
 }
 
 fn ChoiceChainSpec(
@@ -812,18 +852,18 @@ fn runChoiceChain(
     const fields = @typeInfo(Spec.handlers_type).@"struct".fields;
 
     if (Spec.index == fields.len) {
-        return try callChoiceContinuation(Spec.continuation, state.resume_value, state.eff_value, Spec.ErrorSet);
+        return try callChoiceContinuation(Spec.continuation, state.resume_value, state.lexical_state.eff_value, Spec.ErrorSet);
     }
 
     const field = fields[Spec.index];
     const DescriptorType = field.type;
-    const desc_value: DescriptorType = @field(state.handlers_ptr.*, field.name);
+    const desc_value: DescriptorType = @field(state.lexical_state.handlers_ptr.*, field.name);
 
     const step_ctx = struct {
         /// Extend the lexical bundle during choice continuation re-entry and continue inward.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(Spec.ErrorSet)!Spec.AnswerType {
-            const lexical_state = activeChoiceState(ctx, Spec.handlers_type, Spec.eff_type, Spec.resume_type);
-            const current_desc: DescriptorType = @field(lexical_state.handlers_ptr.*, field.name);
+            const choice_state = activeChoiceState(ctx, Spec.handlers_type, Spec.eff_type, Spec.resume_type);
+            const current_desc: DescriptorType = @field(choice_state.lexical_state.handlers_ptr.*, field.name);
             const handle = blk: {
                 const BindFn = @TypeOf(DescriptorType.bindLexical);
                 const params = @typeInfo(BindFn).@"fn".params;
@@ -833,14 +873,16 @@ fn runChoiceChain(
                     else => @compileError("ability.with descriptor bindLexical must accept either (self, Cap, ctx) or (self, Cap, ctx, HandlersType, PreviousEffType, index)"),
                 }
             };
-            const next_eff = extendBundle(Spec.eff_type, lexical_state.eff_value, field.name, handle);
+            const next_eff = extendBundle(Spec.eff_type, choice_state.lexical_state.eff_value, field.name, handle);
             const next_spec = ChoiceChainSpec(Spec.handlers_type, Spec.index + 1, @TypeOf(next_eff), Spec.caller, Spec.resume_type, Spec.continuation);
             return try runChoiceChain(next_spec, .{
-                .runtime = lexical_state.runtime,
-                .handlers_ptr = lexical_state.handlers_ptr,
-                .eff_value = next_eff,
-                .outputs_ptr = lexical_state.outputs_ptr,
-                .resume_value = lexical_state.resume_value,
+                .resume_value = choice_state.resume_value,
+                .lexical_state = .{
+                    .runtime = choice_state.lexical_state.runtime,
+                    .handlers_ptr = choice_state.lexical_state.handlers_ptr,
+                    .eff_value = next_eff,
+                    .outputs_ptr = choice_state.lexical_state.outputs_ptr,
+                },
             });
         }
     };
@@ -849,13 +891,13 @@ fn runChoiceChain(
         const RunFn = @TypeOf(DescriptorType.run);
         const params = @typeInfo(RunFn).@"fn".params;
         switch (params.len) {
-            5 => break :blk desc_value.run(Spec.AnswerType, Spec.ErrorSet, descriptorRunContext(Spec.caller, state.runtime, &state), step_ctx),
-            6 => break :blk desc_value.run(Spec.AnswerType, Spec.ErrorSet, state.runtime, &state, step_ctx),
+            5 => break :blk desc_value.run(Spec.AnswerType, Spec.ErrorSet, descriptorRunContext(Spec.caller, state.lexical_state.runtime, &state.lexical_state), step_ctx),
+            6 => break :blk desc_value.run(Spec.AnswerType, Spec.ErrorSet, state.lexical_state.runtime, &state.lexical_state, step_ctx),
             else => @compileError("ability.with descriptor run must accept either (self, AnswerType, RunErrorSetType, run_ctx, Body) or the legacy runtime/lexical_state form"),
         }
     } catch |err| return @errorCast(err);
     if (DescriptorType.Output != void) {
-        @field(state.outputs_ptr.*, field.name) = result.output;
+        @field(state.lexical_state.outputs_ptr.*, field.name) = result.output;
     }
     return result.value;
 }
@@ -873,11 +915,13 @@ pub fn continueChoice(
     const current_eff = extendBundle(@TypeOf(frame.previous_eff), frame.previous_eff, field.name, frame.current_handle);
     const choice_spec = ChoiceChainSpec(HandlersType, index + 1, @TypeOf(current_eff), caller, @TypeOf(resume_value), Continuation);
     return try runChoiceChain(choice_spec, .{
-        .runtime = frame.runtime,
-        .handlers_ptr = frame.handlers_ptr,
-        .eff_value = current_eff,
-        .outputs_ptr = frame.outputs_ptr,
         .resume_value = resume_value,
+        .lexical_state = .{
+            .runtime = frame.runtime,
+            .handlers_ptr = frame.handlers_ptr,
+            .eff_value = current_eff,
+            .outputs_ptr = frame.outputs_ptr,
+        },
     });
 }
 
