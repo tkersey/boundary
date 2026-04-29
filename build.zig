@@ -5376,6 +5376,45 @@ pub fn build(b: *std.Build) void {
     const source_ownership_probe_tests = addFilteredTest(b, source_ownership_probe_mod, test_runner_args.filters.items);
     const run_src_ownership_probe_tests = addRunArtifactWithArgs(b, source_ownership_probe_tests, test_runner_args.passthrough.items);
 
+    const custom_effect_workflow_mod = b.createModule(.{
+        .root_source_file = b.path("test/custom_effect_workflow_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    custom_effect_workflow_mod.addImport("ability", ability_mod);
+    custom_effect_workflow_mod.addImport("ability_compile", ability_compile_mod);
+    custom_effect_workflow_mod.addImport("example_custom_approval_workflow", createShiftConsumerModule(b, "examples/custom_approval_workflow.zig", target, optimize, .{
+        .ability_mod = ability_mod,
+        .ability_compile_mod = null,
+        .lowered_runtime_mod = null,
+    }));
+    const custom_effect_workflow_tests = addFilteredTest(b, custom_effect_workflow_mod, test_runner_args.filters.items);
+    const run_custom_effect_tests = addRunArtifactWithArgs(b, custom_effect_workflow_tests, test_runner_args.passthrough.items);
+
+    const custom_effect_bad_choice_mod = b.createModule(.{
+        .root_source_file = b.path("test/custom_effect_bad_choice_handler_negative.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    custom_effect_bad_choice_mod.addImport("ability", ability_mod);
+    const custom_effect_bad_choice_tests = b.addTest(.{
+        .root_module = custom_effect_bad_choice_mod,
+    });
+    custom_effect_bad_choice_tests.expect_errors = .{ .contains = "switch on type '[]const u8'" };
+    run_custom_effect_tests.step.dependOn(&custom_effect_bad_choice_tests.step);
+
+    const custom_effect_bad_after_mod = b.createModule(.{
+        .root_source_file = b.path("test/custom_effect_bad_after_negative.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    custom_effect_bad_after_mod.addImport("ability", ability_mod);
+    const custom_effect_bad_after_tests = b.addTest(.{
+        .root_module = custom_effect_bad_after_mod,
+    });
+    custom_effect_bad_after_tests.expect_errors = .{ .contains = "expected type '[]const u8', found 'bool'" };
+    run_custom_effect_tests.step.dependOn(&custom_effect_bad_after_tests.step);
+
     const comptime_contract_mod = b.createModule(.{
         .root_source_file = b.path("test/comptime_contract_test.zig"),
         .target = target,
@@ -5654,6 +5693,7 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "agent-vm-artifact-report", .description = "Agent VM artifact report CLI suite", .run_step = &run_agent_vm_report_tests.step },
         .{ .suite_id = "open-row-lowering", .description = "Open-row lowering suite", .run_step = &run_open_row_lowering_tests.step },
         .{ .suite_id = "source-ownership-probe", .description = "Source ownership probe suite", .run_step = &run_src_ownership_probe_tests.step },
+        .{ .suite_id = "custom-effect-workflow", .description = "Root-public custom effect workflow proof", .run_step = &run_custom_effect_tests.step },
         .{ .suite_id = "comptime-contract", .description = "Public comptime contract suite", .run_step = &run_comptime_contract_tests.step },
         .{ .suite_id = "source-lowering-witness", .description = "Source lowering witness completion suite", .run_step = &run_src_lower_witness_tests.step },
         .{ .suite_id = "lexical-witness", .description = "Lexical witness suite", .run_step = run_lexical_witness_tests },
