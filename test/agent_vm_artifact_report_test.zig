@@ -15,7 +15,15 @@ test "agent-vm-artifact-report parses artifact flag" {
     const parsed = report.parseArgs(&.{ "agent-vm-artifact-report", "--artifact", "artifact.bin" });
     try std.testing.expectEqualStrings("artifact.bin", parsed.artifact_path);
     try std.testing.expect(report.parseArgs(&.{ "agent-vm-artifact-report", "--help" }) == .help);
-    try std.testing.expect(report.parseArgs(&.{"agent-vm-artifact-report"}) == .invalid);
+    try std.testing.expect(report.parseArgs(&.{ "agent-vm-artifact-report", "--version" }) == .version);
+    try std.testing.expectEqualStrings(
+        "missing required --artifact <path>",
+        report.parseArgs(&.{"agent-vm-artifact-report"}).invalid,
+    );
+    try std.testing.expectEqualStrings(
+        "unexpected argument after --artifact <path>",
+        report.parseArgs(&.{ "agent-vm-artifact-report", "--artifact", "artifact.bin", "extra" }).invalid,
+    );
 }
 
 test "agent-vm-artifact-report classifies compatible, unsupported, invalid, and incompatible artifacts" {

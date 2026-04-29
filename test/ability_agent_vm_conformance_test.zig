@@ -35,7 +35,7 @@ fn noDispatchAdapter() ability_agent_vm.host.Adapter {
             fn dispatch(
                 _: ?*anyopaque,
                 _: std.mem.Allocator,
-                _: ability_agent_vm.host.Request,
+                _: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
                 return error.TestUnexpectedDispatch;
             }
@@ -50,7 +50,7 @@ fn outputAdapter(ctx: *OutputValueContext) ability_agent_vm.host.Adapter {
             fn dispatch(
                 ctx_ptr: ?*anyopaque,
                 _: std.mem.Allocator,
-                _: ability_agent_vm.host.Request,
+                _: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
                 const output_ctx: *OutputValueContext = @ptrCast(@alignCast(ctx_ptr.?));
                 output_ctx.dispatch_calls += 1;
@@ -125,7 +125,7 @@ test "ability_agent_vm conformance rejects host calls before dispatch" {
             fn dispatch(
                 ctx_ptr: ?*anyopaque,
                 _: std.mem.Allocator,
-                _: ability_agent_vm.host.Request,
+                _: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
                 const counter: *usize = @ptrCast(@alignCast(ctx_ptr.?));
                 counter.* += 1;

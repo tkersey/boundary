@@ -50,10 +50,10 @@ test "ability_agent_vm public smoke executes artifact bytes through the supporte
             fn dispatch(
                 ctx_ptr: ?*anyopaque,
                 allocator_inner: std.mem.Allocator,
-                request: ability_agent_vm.host.Request,
+                request: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
                 const seen_ptr: *SeenRequest = @ptrCast(@alignCast(ctx_ptr.?));
-                switch (request) {
+                switch (request.*) {
                     .call => |tool_call| {
                         seen_ptr.calls += 1;
                         seen_ptr.saw_tell = std.mem.eql(u8, tool_call.op_name, "tell");
@@ -120,10 +120,10 @@ test "ability_agent_vm public smoke rejects mismatched success request ids" {
             fn dispatch(
                 ctx_ptr: ?*anyopaque,
                 allocator_inner: std.mem.Allocator,
-                request: ability_agent_vm.host.Request,
+                request: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
                 const seen_calls_ptr: *usize = @ptrCast(@alignCast(ctx_ptr.?));
-                switch (request) {
+                switch (request.*) {
                     .call => |tool_call| {
                         seen_calls_ptr.* += 1;
                         return .{ .resumed = .{
@@ -164,7 +164,7 @@ test "ability_agent_vm public runtime rejects malformed artifact bytes" {
             fn dispatch(
                 _: ?*anyopaque,
                 _: std.mem.Allocator,
-                _: ability_agent_vm.host.Request,
+                _: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
                 return error.TestUnexpectedDispatch;
             }
@@ -195,7 +195,7 @@ test "ability_agent_vm public options expose host-call budget failures" {
             fn dispatch(
                 _: ?*anyopaque,
                 _: std.mem.Allocator,
-                _: ability_agent_vm.host.Request,
+                _: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
                 return error.TestUnexpectedDispatch;
             }
@@ -231,7 +231,7 @@ test "ability_agent_vm public failure envelopes survive tight payload bounds" {
             fn dispatch(
                 _: ?*anyopaque,
                 _: std.mem.Allocator,
-                _: ability_agent_vm.host.Request,
+                _: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
                 return error.TestUnexpectedDispatch;
             }
@@ -274,9 +274,9 @@ test "ability_agent_vm public options bound response payload conversion" {
             fn dispatch(
                 _: ?*anyopaque,
                 _: std.mem.Allocator,
-                request: ability_agent_vm.host.Request,
+                request: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
-                return switch (request) {
+                return switch (request.*) {
                     .call => |tool_call| .{ .resumed = .{
                         .request_id = tool_call.request_id,
                         .tool_id = tool_call.tool_id,
@@ -331,11 +331,11 @@ test "ability_agent_vm public result conversion honors expanded data value bound
             fn dispatch(
                 ctx_ptr: ?*anyopaque,
                 _: std.mem.Allocator,
-                request: ability_agent_vm.host.Request,
+                request: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
                 const context_ptr: *FailureContext = @ptrCast(@alignCast(ctx_ptr.?));
                 context_ptr.calls += 1;
-                switch (request) {
+                switch (request.*) {
                     .call => return .{ .failed = .{
                         .code = "provider_failure",
                         .message = context_ptr.message,
@@ -385,7 +385,7 @@ test "ability_agent_vm public output snapshots carry explicit borrowed ownership
             fn dispatch(
                 _: ?*anyopaque,
                 _: std.mem.Allocator,
-                _: ability_agent_vm.host.Request,
+                _: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
                 return error.TestUnexpectedDispatch;
             }
@@ -432,7 +432,7 @@ test "ability_agent_vm public output snapshot fallback echoes declared labels" {
             fn dispatch(
                 _: ?*anyopaque,
                 _: std.mem.Allocator,
-                _: ability_agent_vm.host.Request,
+                _: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
                 return error.TestUnexpectedDispatch;
             }
@@ -488,7 +488,7 @@ test "ability_agent_vm public output snapshot fallback rejects count mismatch be
             fn dispatch(
                 _: ?*anyopaque,
                 _: std.mem.Allocator,
-                _: ability_agent_vm.host.Request,
+                _: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
                 return error.TestUnexpectedDispatch;
             }
@@ -543,7 +543,7 @@ test "ability_agent_vm public output snapshots reject ambiguous multi-output lab
             fn dispatch(
                 _: ?*anyopaque,
                 _: std.mem.Allocator,
-                _: ability_agent_vm.host.Request,
+                _: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
                 return error.TestUnexpectedDispatch;
             }
@@ -593,7 +593,7 @@ test "ability_agent_vm public output snapshots reject mismatched labels" {
             fn dispatch(
                 _: ?*anyopaque,
                 _: std.mem.Allocator,
-                _: ability_agent_vm.host.Request,
+                _: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
                 return error.TestUnexpectedDispatch;
             }

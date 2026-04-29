@@ -1,10 +1,17 @@
 const ability_agent_vm = @import("ability_agent_vm");
 const std = @import("std");
+const tool_build_options = @import("tool_build_options");
 
 const usage_text =
     "usage: agent-vm-artifact-report --artifact <path>\n" ++
+    "       agent-vm-artifact-report --version\n" ++
     "\n" ++
-    "Runs one ArtifactV1 payload under the fixed no-host conformance profile.\n";
+    "Runs one ArtifactV1 payload under the fixed no-host conformance profile.\n" ++
+    "\n" ++
+    "flags:\n" ++
+    "  --artifact <path>  classify one ArtifactV1 payload\n" ++
+    "  --version          print the tool version\n" ++
+    "  --help, -h         print this help\n";
 
 /// Maximum ArtifactV1 payload size accepted by the fixed conformance profile.
 pub const max_artifact_bytes = 16 * 1024 * 1024;
@@ -51,14 +58,18 @@ pub const ParseArgsResult = union(enum) {
     artifact_path: []const u8,
     help,
     invalid: []const u8,
+    version,
 };
 
 /// Parse the report tool's fixed `--artifact <path>` CLI contract.
 pub fn parseArgs(args: []const []const u8) ParseArgsResult {
+    if (args.len == 0) return .{ .invalid = "missing required --artifact <path>" };
     if (args.len == 2 and (std.mem.eql(u8, args[1], "--help") or std.mem.eql(u8, args[1], "-h"))) return .help;
-    if (args.len != 3) return .{ .invalid = "missing required --artifact <path>" };
+    if (args.len == 2 and std.mem.eql(u8, args[1], "--version")) return .version;
+    if (args.len == 1) return .{ .invalid = "missing required --artifact <path>" };
     if (!std.mem.eql(u8, args[1], "--artifact")) return .{ .invalid = "expected --artifact <path>" };
-    if (std.mem.startsWith(u8, args[2], "--")) return .{ .invalid = "missing required --artifact <path>" };
+    if (args.len < 3 or std.mem.startsWith(u8, args[2], "--")) return .{ .invalid = "missing required --artifact <path>" };
+    if (args.len > 3) return .{ .invalid = "unexpected argument after --artifact <path>" };
     return .{ .artifact_path = args[2] };
 }
 
@@ -69,7 +80,7 @@ fn noHostAdapter() ability_agent_vm.host.Adapter {
             fn dispatch(
                 _: ?*anyopaque,
                 _: std.mem.Allocator,
-                _: ability_agent_vm.host.Request,
+                _: *const ability_agent_vm.host.Request,
             ) anyerror!ability_agent_vm.host.Response {
                 return error.UnsupportedHostCall;
             }
@@ -201,13 +212,20 @@ pub fn main(init: std.process.Init) anyerror!void {
             try stdout_writer.interface.flush();
             return;
         },
+        .version => {
+            var stdout_buffer: [64]u8 = undefined;
+            var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+            try stdout_writer.interface.print("agent-vm-artifact-report {s}\n", .{tool_build_options.version});
+            try stdout_writer.interface.flush();
+            return;
+        },
         .invalid => |message| {
             std.debug.print("agent-vm-artifact-report: {s}\n{s}", .{ message, usage_text });
             std.process.exit(2);
         },
         .artifact_path => |path| {
             const read_result = readArtifactForReport(init.io, allocator, path) catch |err| {
-                std.debug.print("agent-vm-artifact-report: unable to read artifact: {s}\n", .{@errorName(err)});
+                std.debug.print("agent-vm-artifact-report: unable to read artifact '{s}': {s}\n", .{ path, @errorName(err) });
                 std.process.exit(2);
             };
 
