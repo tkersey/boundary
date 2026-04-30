@@ -137,16 +137,20 @@ const StatementWindow = struct {
         .offset = 0,
     }} ** 128,
     count: usize = 0,
+    overflowed: bool = false,
 
     fn push(self: *@This(), item: TokenItem) void {
         if (self.count < self.items.len) {
             self.items[self.count] = item;
             self.count += 1;
+        } else {
+            self.overflowed = true;
         }
     }
 
     fn reset(self: *@This()) void {
         self.count = 0;
+        self.overflowed = false;
     }
 
     fn slice(self: *const @This()) []const TokenItem {
@@ -1167,6 +1171,67 @@ fn supportedContinuationDirectOp(
     return direct_call.match;
 }
 
+fn statementMayBeContinuationDirectOp(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    statement: []const TokenItem,
+) bool {
+    const tokens = statementTrimSemicolon(statement);
+    if (tokens.len == 0 or tokens[0].tag != .keyword_return) return false;
+
+    var index: usize = 1;
+    if (index < tokens.len and tokens[index].tag == .keyword_try) index += 1;
+    if (index >= tokens.len or tokens[index].tag != .identifier) return false;
+    const base_kind = aliasKind(effect_param, aliases, tokens[index].lexeme) orelse return false;
+
+    switch (base_kind) {
+        .effect_root => {
+            if (index + 8 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .period and
+                tokens[index + 4].tag == .identifier and
+                tokens[index + 5].tag == .period and
+                tokens[index + 6].tag == .identifier and
+                tokens[index + 7].tag == .l_paren and
+                std.mem.eql(u8, tokens[index + 6].lexeme, "perform"))
+            {
+                return continuationStructStart(tokens[index + 8 ..]) != null;
+            }
+            if (index + 6 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .period and
+                tokens[index + 4].tag == .identifier and
+                tokens[index + 5].tag == .l_paren)
+            {
+                return continuationStructStart(tokens[index + 6 ..]) != null;
+            }
+            return false;
+        },
+        .requirement => {
+            if (index + 6 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .period and
+                tokens[index + 4].tag == .identifier and
+                tokens[index + 5].tag == .l_paren and
+                std.mem.eql(u8, tokens[index + 4].lexeme, "perform"))
+            {
+                return continuationStructStart(tokens[index + 6 ..]) != null;
+            }
+            if (index + 4 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .l_paren)
+            {
+                return continuationStructStart(tokens[index + 4 ..]) != null;
+            }
+            return false;
+        },
+    }
+}
+
 fn statementMatchesSupportedContinuationDirectOp(
     effect_param: ?[]const u8,
     aliases: []const Alias,
@@ -1587,6 +1652,7 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
     var pending_identifier: ?PendingIdentifier = null;
     var token_window = TokenWindow{};
     var statement_window = StatementWindow{};
+    var statement_overflowed = false;
 
     while (body_depth != 0) {
         const token = context.tokenizer.next();
@@ -1600,7 +1666,7 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
             if (body_depth == 0) {
                 return .{
                     .body_end_offset = token.loc.start,
-                    .body_lowering_supported = admitted_body_v1.parseFunctionBody(
+                    .body_lowering_supported = !statement_overflowed and admitted_body_v1.parseFunctionBody(
                         context.source,
                         "",
                         context.body_start_offset,
@@ -1666,6 +1732,19 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
             });
         }
         if (current.tag == .semicolon and body_depth == 1 and paren_depth == 0 and bracket_depth == 0) {
+            if (statement_window.overflowed) {
+                const overflowed_continuation = statementMayBeContinuationDirectOp(
+                    context.effect_param,
+                    aliases[0..alias_count],
+                    statement_window.slice(),
+                );
+                statement_window.reset();
+                if (overflowed_continuation) {
+                    statement_overflowed = true;
+                    if (context.options.reject_malformed_statements) return error.ParseError;
+                }
+                continue;
+            }
             if (context.options.reject_malformed_statements and
                 statement_window.count < statement_window.items.len and
                 statementLooksMalformed(&statement_window))
@@ -1706,7 +1785,7 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
 
     return .{
         .body_end_offset = context.source.len,
-        .body_lowering_supported = admitted_body_v1.parseFunctionBody(
+        .body_lowering_supported = !statement_overflowed and admitted_body_v1.parseFunctionBody(
             context.source,
             "",
             context.body_start_offset,
@@ -1971,6 +2050,51 @@ pub fn analyzeComptime(
     };
     return collector.intoModuleGraph(entry_index);
 }
+
+const overflow_continuation_source =
+    \\pub fn runBody(eff: anytype) anyerror![]const u8 {
+    \\    return try eff.picker.pick.perform(41, struct {
+    \\        pub fn apply(_: i32, _: anytype) anyerror![]const u8 {
+    \\            _ = 0;
+    \\            _ = 1;
+    \\            _ = 2;
+    \\            _ = 3;
+    \\            _ = 4;
+    \\            _ = 5;
+    \\            _ = 6;
+    \\            _ = 7;
+    \\            _ = 8;
+    \\            _ = 9;
+    \\            _ = 10;
+    \\            _ = 11;
+    \\            _ = 12;
+    \\            _ = 13;
+    \\            _ = 14;
+    \\            _ = 15;
+    \\            _ = 16;
+    \\            _ = 17;
+    \\            _ = 18;
+    \\            _ = 19;
+    \\            _ = 20;
+    \\            _ = 21;
+    \\            _ = 22;
+    \\            _ = 23;
+    \\            _ = 24;
+    \\            _ = 25;
+    \\            _ = 26;
+    \\            _ = 27;
+    \\            _ = 28;
+    \\            _ = 29;
+    \\            _ = 30;
+    \\            _ = 31;
+    \\            _ = 32;
+    \\            _ = 33;
+    \\            _ = 34;
+    \\            return "answer=42";
+    \\        }
+    \\    });
+    \\}
+;
 
 test "shared engine finds helper edges and direct op uses" {
     const graph = try analyzeComptime(
@@ -2277,6 +2401,32 @@ test "shared engine keeps explicit continuation perform bodies in the lowering s
     try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
     try std.testing.expectEqualStrings("picker", graph.direct_op_uses[0].requirement_label);
     try std.testing.expectEqualStrings("pick", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine rejects overflowing continuation statements in strict lowering mode" {
+    try std.testing.expectError(error.ParseError, analyzeComptime(
+        overflow_continuation_source,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+            .reject_malformed_statements = true,
+        },
+    ));
+}
+
+test "shared engine flags overflowing continuation statements as unsupported in permissive mode" {
+    const graph = try analyzeComptime(
+        overflow_continuation_source,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), graph.direct_op_uses.len);
+    try std.testing.expect(!graph.functions[graph.entry_index.?].body_lowering_supported);
 }
 
 test "shared engine records explicit perform and abort calls through requirement aliases" {
