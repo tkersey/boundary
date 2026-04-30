@@ -68,6 +68,11 @@ pub const ArtifactRequest = struct {
     format: OutputFormat = .text,
 };
 
+const OutputFormatFlag = enum {
+    format,
+    json,
+};
+
 /// Parsed command-line form for the report tool.
 pub const ParseArgsResult = union(enum) {
     artifact: ArtifactRequest,
@@ -101,7 +106,7 @@ pub fn parseArgs(args: []const []const u8) ParseArgsResult {
 
     var request: ArtifactRequest = .{ .path = "" };
     var saw_artifact = false;
-    var saw_output_format = false;
+    var output_format_flag: ?OutputFormatFlag = null;
     var index: usize = 1;
     while (index < args.len) {
         const arg = args[index];
@@ -116,14 +121,24 @@ pub fn parseArgs(args: []const []const u8) ParseArgsResult {
             continue;
         }
         if (std.mem.eql(u8, arg, "--json")) {
-            if (saw_output_format) return .{ .invalid = "choose either --json or --format <text|json>, not both" };
-            saw_output_format = true;
+            if (output_format_flag) |flag| {
+                return .{ .invalid = switch (flag) {
+                    .json => "duplicate --json flag",
+                    .format => "choose either --json or --format <text|json>, not both",
+                } };
+            }
+            output_format_flag = .json;
             request.format = .json;
             index += 1;
             continue;
         }
         if (std.mem.eql(u8, arg, "--format")) {
-            if (saw_output_format) return .{ .invalid = "choose either --json or --format <text|json>, not both" };
+            if (output_format_flag) |flag| {
+                return .{ .invalid = switch (flag) {
+                    .format => "duplicate --format flag",
+                    .json => "choose either --json or --format <text|json>, not both",
+                } };
+            }
             if (index + 1 >= args.len or std.mem.startsWith(u8, args[index + 1], "--")) {
                 return .{ .invalid = "missing required --format <text|json>" };
             }
@@ -134,7 +149,7 @@ pub fn parseArgs(args: []const []const u8) ParseArgsResult {
                 .json
             else
                 return .{ .invalid = "unsupported --format value; expected text or json" };
-            saw_output_format = true;
+            output_format_flag = .format;
             index += 2;
             continue;
         }

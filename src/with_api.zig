@@ -1189,10 +1189,12 @@ fn sourceBackedTypeNameContainsIdentity(
 }
 
 const SourceBackedBodyWitnessVerdict = enum {
+    declaration_mismatch,
     hash_mismatch,
-    identity_location_mismatch,
+    identity_mismatch,
     location_mismatch,
     matches,
+    source_file_location_mismatch,
 };
 
 const SourceBackedNamedAdmission = struct {
@@ -1223,8 +1225,8 @@ fn sourceBackedNamedBodyWitnessVerdict(
     comptime source_location: std.builtin.SourceLocation,
 ) SourceBackedBodyWitnessVerdict {
     if (!comptime sourceBackedBodySourceHashMatches(source, source_hash)) return .hash_mismatch;
-    if (!comptime sourceBackedTypeNameContainsIdentity(@typeName(Body), source_identity)) return .identity_location_mismatch;
-    if (!comptime sourceFileMatchesLocation(source_file, source_location)) return .identity_location_mismatch;
+    if (!comptime sourceBackedTypeNameContainsIdentity(@typeName(Body), source_identity)) return .identity_mismatch;
+    if (!comptime sourceFileMatchesLocation(source_file, source_location)) return .source_file_location_mismatch;
     if (!comptime anonymous_body_synthesis.namedStructSourceWitnessMatches(
         source,
         body_symbol,
@@ -1232,7 +1234,7 @@ fn sourceBackedNamedBodyWitnessVerdict(
         source_file,
         source_location.line,
         source_location.column,
-    )) return .identity_location_mismatch;
+    )) return .declaration_mismatch;
     return .matches;
 }
 
@@ -1259,9 +1261,11 @@ fn failSourceBackedNamedBodyWitness(comptime verdict: SourceBackedBodyWitnessVer
     switch (verdict) {
         .matches => unreachable,
         .hash_mismatch => @compileError("ability.with source-backed body source/source_hash did not match the owning source bytes"),
-        .identity_location_mismatch,
+        .identity_mismatch => @compileError("ability.with source-backed named body source_identity did not match the selected top-level declaration"),
+        .source_file_location_mismatch => @compileError("ability.with source-backed named body source_file did not match source_location.file"),
+        .declaration_mismatch,
         .location_mismatch,
-        => @compileError("ability.with source-backed named body source_identity/source_file/source_location did not match the selected top-level declaration"),
+        => @compileError("ability.with source-backed named body source/source_identity/source_file/source_location did not identify the same top-level declaration"),
     }
 }
 
@@ -1269,8 +1273,10 @@ fn failSourceBackedAnonymousBodyWitness(comptime verdict: SourceBackedBodyWitnes
     switch (verdict) {
         .matches => unreachable,
         .hash_mismatch => @compileError("ability.with source-backed body source/source_hash did not match the owning source bytes"),
-        .identity_location_mismatch,
+        .declaration_mismatch,
+        .identity_mismatch,
         .location_mismatch,
+        .source_file_location_mismatch,
         => @compileError("ability.with source-backed body source_file/source_location did not match the selected source declaration"),
     }
 }
@@ -1294,8 +1300,10 @@ fn sourceBackedNamedBodyAdmission(comptime Body: type) SourceBackedNamedAdmissio
     )) {
         .matches => {},
         .hash_mismatch,
-        .identity_location_mismatch,
+        .declaration_mismatch,
+        .identity_mismatch,
         .location_mismatch,
+        .source_file_location_mismatch,
         => |verdict| failSourceBackedNamedBodyWitness(verdict),
     }
     return .{
@@ -1321,8 +1329,10 @@ fn sourceBackedAnonymousBodyAdmission(
         switch (comptime sourceBackedAnonymousBodyWitnessVerdict(source, source_hash, source_file, source_location, selection.body_bounds)) {
             .matches => {},
             .hash_mismatch,
-            .identity_location_mismatch,
+            .declaration_mismatch,
+            .identity_mismatch,
             .location_mismatch,
+            .source_file_location_mismatch,
             => |verdict| failSourceBackedAnonymousBodyWitness(verdict),
         }
         return .{
@@ -1967,6 +1977,42 @@ test "source-backed named body verifier rejects every mismatched witness dimensi
         },
     ));
     try std.testing.expect(!comptime sourceBackedNamedBodyWitnessMatches(
+        source_backed_witness_body,
+        source,
+        "missing_body",
+        correct_hash,
+        "with_api.source_backed_witness_body",
+        "src/with_api.zig",
+        location,
+    ));
+    try std.testing.expectEqual(.hash_mismatch, comptime sourceBackedNamedBodyWitnessVerdict(
+        source_backed_witness_body,
+        source,
+        "source_backed_witness_body",
+        correct_hash + 1,
+        "with_api.source_backed_witness_body",
+        "src/with_api.zig",
+        location,
+    ));
+    try std.testing.expectEqual(.identity_mismatch, comptime sourceBackedNamedBodyWitnessVerdict(
+        source_backed_witness_body,
+        source,
+        "source_backed_witness_body",
+        correct_hash,
+        "with_api.other_body",
+        "src/with_api.zig",
+        location,
+    ));
+    try std.testing.expectEqual(.source_file_location_mismatch, comptime sourceBackedNamedBodyWitnessVerdict(
+        source_backed_witness_body,
+        source,
+        "source_backed_witness_body",
+        correct_hash,
+        "with_api.source_backed_witness_body",
+        "test/with_api.zig",
+        location,
+    ));
+    try std.testing.expectEqual(.declaration_mismatch, comptime sourceBackedNamedBodyWitnessVerdict(
         source_backed_witness_body,
         source,
         "missing_body",

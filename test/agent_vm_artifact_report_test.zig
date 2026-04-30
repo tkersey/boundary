@@ -32,11 +32,11 @@ test "agent-vm-artifact-report parses artifact flag" {
         report.parseArgs(&.{ "agent-vm-artifact-report", "--format", "text", "--json", "--artifact", "artifact.bin" }).invalid,
     );
     try std.testing.expectEqualStrings(
-        "choose either --json or --format <text|json>, not both",
+        "duplicate --format flag",
         report.parseArgs(&.{ "agent-vm-artifact-report", "--format", "json", "--format", "text", "--artifact", "artifact.bin" }).invalid,
     );
     try std.testing.expectEqualStrings(
-        "choose either --json or --format <text|json>, not both",
+        "duplicate --json flag",
         report.parseArgs(&.{ "agent-vm-artifact-report", "--json", "--json", "--artifact", "artifact.bin" }).invalid,
     );
     try std.testing.expect(report.parseArgs(&.{ "agent-vm-artifact-report", "--help" }) == .help);
