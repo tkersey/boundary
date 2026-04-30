@@ -48,12 +48,14 @@ test "agent-vm-artifact-report classifies compatible, unsupported, invalid, and 
     const invalid = try report.fixedProfileVerdict(allocator, &invalid_bytes);
     try std.testing.expectEqual(report.VerdictStatus.invalid, invalid.status);
     try std.testing.expectEqualStrings("invalid_artifact", invalid.code);
+    try std.testing.expectEqualStrings("BadMagic", invalid.detail);
 
     const oversized_bytes = try loadFixtureBytes(allocator, fixture_options.oversized_return_artifact_path);
     defer allocator.free(oversized_bytes);
     const incompatible = try report.fixedProfileVerdict(allocator, oversized_bytes);
     try std.testing.expectEqual(report.VerdictStatus.incompatible, incompatible.status);
     try std.testing.expectEqualStrings("resource_exhausted", incompatible.code);
+    try std.testing.expectEqualStrings("artifact completed value payload budget exceeded", incompatible.detail);
 }
 
 test "agent-vm-artifact-report classifies files over artifact-size profile cap" {
@@ -81,6 +83,10 @@ test "agent-vm-artifact-report classifies files over artifact-size profile cap" 
         .verdict => |verdict| {
             try std.testing.expectEqual(report.VerdictStatus.incompatible, verdict.status);
             try std.testing.expectEqualStrings("resource_exhausted", verdict.code);
+            try std.testing.expectEqualStrings(
+                "artifact size exceeds fixed conformance profile limit max_artifact_bytes=16777216",
+                verdict.detail,
+            );
         },
     }
 }
