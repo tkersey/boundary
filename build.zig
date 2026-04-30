@@ -4498,6 +4498,7 @@ pub fn build(b: *std.Build) void {
     const test_requested_from_argv = buildInvocationRequestsRunnableStep("test");
     const lint_requested_from_argv = buildInvocationRequestsRunnableStep("lint");
     const source_lower_requested = buildInvocationRequestsRunnableStep("source-lower");
+    const agent_vm_report_run_requested = buildInvocationRequestsRunnableStep("run-agent-vm-artifact-report");
     const fixture_check_requested = buildInvocationRequestsRunnableStep("check-ability-agent-vm-fixture");
     const fixture_generator_requested = buildInvocationRequestsRunnableStep("generate-ability-agent-vm-fixture");
     const bench_requested = buildInvocationRequestsRunnableStep("bench");
@@ -4511,6 +4512,7 @@ pub fn build(b: *std.Build) void {
     const lint_requested_opt = lint_requested_from_argv orelse inferred_shared_tail.lint_requested;
     const shared_tail_owner_requested = buildInvocationSharedTailOwnerRequested(&.{ test_requested_opt, lint_requested_opt, fixture_generator_requested });
     rejectUnsupportedSharedTailForNoTailStep(b, source_lower_requested, shared_tail_owner_requested, "source-lower");
+    rejectUnsupportedSharedTailForNoTailStep(b, agent_vm_report_run_requested, shared_tail_owner_requested, "run-agent-vm-artifact-report");
     rejectUnsupportedSharedTailForNoTailStep(b, fixture_check_requested, shared_tail_owner_requested, "check-ability-agent-vm-fixture");
     rejectUnsupportedSharedTailForNoTailStep(b, bench_requested, shared_tail_owner_requested, "bench");
     rejectUnsupportedSharedTailForNoTailStep(b, bench_first_requested, shared_tail_owner_requested, "bench-first-suspend");
@@ -4518,6 +4520,14 @@ pub fn build(b: *std.Build) void {
     rejectUnsupportedSharedTailForNoTailStep(b, bench_matrix_requested, shared_tail_owner_requested, "bench-family-matrix");
     rejectUnsupportedSharedTailForNoTailStep(b, bench_backends_requested, shared_tail_owner_requested, "bench-runtime-backends");
     rejectUnsupportedSharedTailForNoTailStep(b, zprof_hotspots_requested, shared_tail_owner_requested, "zprof-hotspots");
+    if (agent_vm_report_run_requested == true and agent_vm_artifact_report_path == null) {
+        std.log.err(
+            "`zig build run-agent-vm-artifact-report` requires -Dagent-vm-artifact=<path>.",
+            .{},
+        );
+        b.invalid_user_input = true;
+        return;
+    }
     const invocation_args_unknown = skip_execution != true and
         (test_requested_opt == null or lint_requested_opt == null);
     if (invocation_args_unknown and (b.args != null or hostBuildInvocationArgsSupported())) {
@@ -5754,6 +5764,12 @@ pub fn build(b: *std.Build) void {
             .src = "examples/writer_basic.zig",
             .step_name = "run-writer-basic",
             .step_desc = "Run the writer-effect example.",
+        },
+        .{
+            .name = "custom_approval_workflow",
+            .src = "examples/custom_approval_workflow.zig",
+            .step_name = "run-custom-approval-workflow",
+            .step_desc = "Run the custom approval workflow example.",
         },
     };
 

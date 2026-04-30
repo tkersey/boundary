@@ -650,7 +650,7 @@ fn parseFailureDiagnostic(
         .allocator = allocator,
         .display_path = display_path,
         .code = "parse_error",
-        .message = @tagName(parse_error.tag),
+        .message = "source did not parse as Zig near this location; fix the syntax error and rerun ability-source-lower",
         .line = loc.line + 1,
         .column = loc.column + 1,
     });
