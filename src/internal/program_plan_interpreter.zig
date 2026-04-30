@@ -1,4 +1,5 @@
 // zlinter-disable field_ordering - result union order stays value-first to match the interpreter control flow.
+// zlinter-disable declaration_naming - nested lexical metadata fixtures intentionally mirror source-visible declarations.
 // zlinter-disable function_naming - internal codec helpers intentionally mirror the ProgramPlan vocabulary even when they return comptime types.
 // zlinter-disable max_positional_args - the interpreter core keeps the live execution state explicit instead of packing it into a transient context struct.
 // zlinter-disable no_undefined - fixed-size local helper buffers are completely overwritten before observation in the interpreter hot path.
@@ -7,6 +8,65 @@ const lowered_machine = @import("lowered_machine");
 const nested_named_carrier_runtime = @import("nested_named_carrier_runtime.zig");
 const program_plan = @import("internal_program_plan");
 const std = @import("std");
+
+/// Resource envelope for native ProgramPlan execution.
+pub const RunOptions = struct {
+    max_block_steps: usize = 100_000,
+    max_instruction_steps: usize = 1_000_000,
+    max_call_depth: usize = 256,
+    max_after_frames: usize = 100_000,
+};
+
+const ExecutionBudget = struct {
+    block_steps: usize = 0,
+    instruction_steps: usize = 0,
+    active_call_depth: usize = 0,
+    pending_after_frames: usize = 0,
+};
+
+const ExecutionContext = struct {
+    options: RunOptions = .{},
+    budget: ExecutionBudget = .{},
+
+    fn chargeBlockStep(self: *@This()) !void {
+        self.budget.block_steps = std.math.add(usize, self.budget.block_steps, 1) catch
+            return error.ExecutionBudgetExceeded;
+        if (self.budget.block_steps > self.options.max_block_steps) return error.ExecutionBudgetExceeded;
+    }
+
+    fn chargeInstructionStep(self: *@This()) !void {
+        self.budget.instruction_steps = std.math.add(usize, self.budget.instruction_steps, 1) catch
+            return error.ExecutionBudgetExceeded;
+        if (self.budget.instruction_steps > self.options.max_instruction_steps) return error.ExecutionBudgetExceeded;
+    }
+
+    fn enterFunctionCall(self: *@This()) !void {
+        self.budget.active_call_depth = std.math.add(usize, self.budget.active_call_depth, 1) catch
+            return error.ExecutionBudgetExceeded;
+        if (self.budget.active_call_depth > self.options.max_call_depth) {
+            self.budget.active_call_depth -= 1;
+            return error.ExecutionBudgetExceeded;
+        }
+    }
+
+    fn leaveFunctionCall(self: *@This()) void {
+        self.budget.active_call_depth -= 1;
+    }
+
+    fn reserveAfterFrame(self: *@This()) !void {
+        self.budget.pending_after_frames = std.math.add(usize, self.budget.pending_after_frames, 1) catch
+            return error.ExecutionBudgetExceeded;
+        if (self.budget.pending_after_frames > self.options.max_after_frames) {
+            self.budget.pending_after_frames -= 1;
+            return error.ExecutionBudgetExceeded;
+        }
+    }
+
+    fn releaseAfterFrame(self: *@This()) void {
+        std.debug.assert(self.budget.pending_after_frames != 0);
+        self.budget.pending_after_frames -= 1;
+    }
+};
 
 fn sentinelBytes(comptime bytes: []const u8) [:0]const u8 {
     const raw = std.fmt.comptimePrint("{s}\x00", .{bytes});
@@ -190,6 +250,7 @@ fn executeNestedWithInstruction(
     comptime metadata_source: []const u8,
     comptime result_codec: program_plan.ValueCodec,
     runtime: *lowered_machine.Runtime,
+    ctx: *ExecutionContext,
 ) anyerror!lowered_machine.ProgramValue {
     _ = runtime;
     const metadata = comptime parseNestedWithMetadata(metadata_source);
@@ -210,7 +271,7 @@ fn executeNestedWithInstruction(
     const HandlersType = singleFieldStructType(metadata.requirement_label, nested_carrier.descriptor_type);
     var handlers: HandlersType = undefined;
     @field(handlers, metadata.requirement_label) = nested_carrier.descriptor();
-    const result = try runEntryInSource(nested_runtime, nested_carrier.compiled_plan_value, SourceModule, &handlers);
+    const result = try runEntryInSourceWithContext(nested_runtime, nested_carrier.compiled_plan_value, SourceModule, &handlers, &.{}, ctx);
     const encoded = encodeTypedProgramValue(result.value);
     if (!runtimeValueMatchesCodec(result_codec, encoded)) return error.ProgramContractViolation;
     return encoded;
@@ -236,6 +297,7 @@ fn executeNestedWithAtInstruction(
     comptime SourceModule: type,
     instruction_index: u16,
     runtime: *lowered_machine.Runtime,
+    ctx: *ExecutionContext,
 ) anyerror!lowered_machine.ProgramValue {
     return switch (instruction_index) {
         inline 0...(compiled_plan.instructions.len - 1) => |active_index| blk: {
@@ -243,7 +305,7 @@ fn executeNestedWithAtInstruction(
             if (instruction.kind != .call_nested_with) break :blk error.ProgramContractViolation;
             const result_codec: ?program_plan.ValueCodec = comptime program_plan.valueCodecFromInstructionAux(instruction.aux) catch null;
             if (comptime result_codec == null) break :blk error.ProgramContractViolation;
-            break :blk try executeNestedWithInstruction(SourceModule, instruction.string_literal, result_codec.?, runtime);
+            break :blk try executeNestedWithInstruction(SourceModule, instruction.string_literal, result_codec.?, runtime, ctx);
         },
         else => error.ProgramContractViolation,
     };
@@ -362,6 +424,25 @@ const OpResult = union(enum) {
     resumed: OpResume,
     terminal: lowered_machine.ProgramValue,
 };
+
+fn opRequiresAfterFrame(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    handlers_ptr: anytype,
+    op_index: u16,
+) anyerror!bool {
+    if (compiled_plan.ops.len == 0) return error.ProgramContractViolation;
+    return switch (op_index) {
+        inline 0...(compiled_plan.ops.len - 1) => |active_index| blk: {
+            const op = compiled_plan.ops[active_index];
+            if (!op.has_after or op.mode == .abort) break :blk false;
+            const requirement = compiled_plan.requirements[op.requirement_index];
+            const handler_ptr = effectiveHandlerPtr(&@field(handlers_ptr.*, requirement.label));
+            const HandlerType = @TypeOf(handler_ptr.*);
+            break :blk comptime resolvedAfterMethodName(HandlerType, op.op_name) != null;
+        },
+        else => error.ProgramContractViolation,
+    };
+}
 
 /// One direct native function result while interpreting a ProgramPlan.
 pub const FunctionResult = union(enum) {
@@ -486,6 +567,7 @@ fn applyAfter(
 }
 
 fn unwindAfterStack(
+    ctx: *ExecutionContext,
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime function: program_plan.FunctionPlan,
     handlers_ptr: anytype,
@@ -506,6 +588,7 @@ fn unwindAfterStack(
     var final_result = result;
     while (after_stack.items.len != 0) {
         const op_index = after_stack.pop().?;
+        ctx.releaseAfterFrame();
         final_result = switch (final_result) {
             .value => |typed| .{ .value = try applyAfter(compiled_plan, function, handlers_ptr, function_value_codec, function_result_codec, op_index, typed) },
             .terminal => |typed| .{ .terminal = typed },
@@ -515,6 +598,7 @@ fn unwindAfterStack(
 }
 
 fn continueFunction(
+    ctx: *ExecutionContext,
     runtime: *lowered_machine.Runtime,
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime NestedSourceModule: type,
@@ -534,9 +618,11 @@ fn continueFunction(
     var return_local = initial_return_local;
 
     while (true) {
+        try ctx.chargeBlockStep();
         const block = compiled_plan.blocks[current_block_index];
         const instruction_end = block.first_instruction + block.instruction_count;
         while (instruction_index < instruction_end) : (instruction_index += 1) {
+            try ctx.chargeInstructionStep();
             const instruction = compiled_plan.instructions[instruction_index];
             switch (instruction.kind) {
                 .add_i32 => setLocal(locals, instruction.dst, .{
@@ -568,6 +654,7 @@ fn continueFunction(
                     };
                     const result = switch (instruction.operand) {
                         inline 0...(compiled_plan.functions.len - 1) => |helper_index| try executeFunction(
+                            ctx,
                             runtime,
                             compiled_plan,
                             NestedSourceModule,
@@ -598,6 +685,7 @@ fn continueFunction(
                         .terminal => |terminal| {
                             if (!runtimeValueMatchesCodec(function_result_codec, terminal)) return error.ProgramContractViolation;
                             return unwindAfterStack(
+                                ctx,
                                 compiled_plan,
                                 function,
                                 handlers_ptr,
@@ -616,6 +704,7 @@ fn continueFunction(
                         NestedSourceModule,
                         instruction_index,
                         runtime,
+                        ctx,
                     );
                     const nested_codec = program_plan.valueCodecFromInstructionAux(instruction.aux) catch
                         return error.ProgramContractViolation;
@@ -632,6 +721,10 @@ fn continueFunction(
                         getLocal(locals, instruction.aux)
                     else
                         return error.ProgramContractViolation;
+                    const reserve_after_frame = try opRequiresAfterFrame(compiled_plan, handlers_ptr, instruction.operand);
+                    if (reserve_after_frame) try ctx.reserveAfterFrame();
+                    var reserved_after_frame = reserve_after_frame;
+                    errdefer if (reserved_after_frame) ctx.releaseAfterFrame();
                     const result = try callOp(compiled_plan, handlers_ptr, function_result_codec, instruction.operand, payload);
                     switch (result) {
                         .resumed => |resumed_value| {
@@ -639,19 +732,31 @@ fn continueFunction(
                                 setLocal(locals, instruction.dst, resumed_value.value);
                             }
                             if (resumed_value.apply_after) {
+                                if (!reserved_after_frame) return error.ProgramContractViolation;
                                 try after_stack.append(std.heap.page_allocator, instruction.operand);
+                                reserved_after_frame = false;
+                            } else if (reserved_after_frame) {
+                                ctx.releaseAfterFrame();
+                                reserved_after_frame = false;
                             }
                         },
-                        .terminal => |terminal| return unwindAfterStack(
-                            compiled_plan,
-                            function,
-                            handlers_ptr,
-                            function.value_codec,
-                            function_result_codec,
-                            unit_completion_mode,
-                            after_stack,
-                            .{ .terminal = terminal },
-                        ),
+                        .terminal => |terminal| {
+                            if (reserved_after_frame) {
+                                ctx.releaseAfterFrame();
+                                reserved_after_frame = false;
+                            }
+                            return unwindAfterStack(
+                                ctx,
+                                compiled_plan,
+                                function,
+                                handlers_ptr,
+                                function.value_codec,
+                                function_result_codec,
+                                unit_completion_mode,
+                                after_stack,
+                                .{ .terminal = terminal },
+                            );
+                        },
                     }
                 },
                 .compare_eq_zero => setLocal(locals, instruction.dst, .{
@@ -703,6 +808,7 @@ fn continueFunction(
                 return_local = null;
             },
             .return_unit => return unwindAfterStack(
+                ctx,
                 compiled_plan,
                 function,
                 handlers_ptr,
@@ -713,6 +819,7 @@ fn continueFunction(
                 .{ .value = .none },
             ),
             .return_value => return unwindAfterStack(
+                ctx,
                 compiled_plan,
                 function,
                 handlers_ptr,
@@ -727,6 +834,7 @@ fn continueFunction(
 }
 
 fn executeFunction(
+    ctx: *ExecutionContext,
     runtime: *lowered_machine.Runtime,
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime NestedSourceModule: type,
@@ -735,6 +843,9 @@ fn executeFunction(
     args: []const lowered_machine.ProgramValue,
     comptime unit_completion_mode: UnitCompletionMode,
 ) anyerror!FunctionResult {
+    try ctx.enterFunctionCall();
+    defer ctx.leaveFunctionCall();
+
     const function = compiled_plan.functions[function_index];
     var locals_storage: [function.local_count]lowered_machine.ProgramValue = [_]lowered_machine.ProgramValue{.none} ** function.local_count;
     const locals = locals_storage[0..];
@@ -751,6 +862,7 @@ fn executeFunction(
 
     const entry_block_index = function.first_block + function.entry_block;
     return continueFunction(
+        ctx,
         runtime,
         compiled_plan,
         NestedSourceModule,
@@ -774,9 +886,23 @@ pub fn executeDispatchInSource(
     function_index: u16,
     args: []const lowered_machine.ProgramValue,
 ) anyerror!FunctionResult {
+    var ctx: ExecutionContext = .{};
+    return try executeDispatchInSourceWithOptions(runtime, compiled_plan, NestedSourceModule, handlers_ptr, function_index, args, &ctx);
+}
+
+fn executeDispatchInSourceWithOptions(
+    runtime: *lowered_machine.Runtime,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime NestedSourceModule: type,
+    handlers_ptr: anytype,
+    function_index: u16,
+    args: []const lowered_machine.ProgramValue,
+    ctx: *ExecutionContext,
+) anyerror!FunctionResult {
     if (compiled_plan.functions.len == 0) return error.ProgramContractViolation;
     return switch (function_index) {
         inline 0...(compiled_plan.functions.len - 1) => |active_index| executeFunction(
+            ctx,
             runtime,
             compiled_plan,
             NestedSourceModule,
@@ -893,16 +1019,17 @@ fn checkedSubUsize(left: usize, right: usize) anyerror!usize {
     return std.math.sub(usize, left, right) catch return error.ProgramContractViolation;
 }
 
-/// Execute the entry function of one ProgramPlan and finalize its outputs.
-pub fn runEntryInSource(
+fn runEntryInSourceWithContext(
     runtime: *lowered_machine.Runtime,
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime NestedSourceModule: type,
     handlers: anytype,
+    args: []const lowered_machine.ProgramValue,
+    ctx: *ExecutionContext,
 ) anyerror!RunResultTypeForPlan(compiled_plan) {
     try lowered_machine.beginExecution(runtime);
     defer lowered_machine.endExecution(runtime);
-    const outcome = try executeDispatchInSource(runtime, compiled_plan, NestedSourceModule, handlers, compiled_plan.entry_index, &.{});
+    const outcome = try executeDispatchInSourceWithOptions(runtime, compiled_plan, NestedSourceModule, handlers, compiled_plan.entry_index, args, ctx);
     const value = switch (outcome) {
         .value => |typed| typed,
         .terminal => |typed| typed,
@@ -911,6 +1038,27 @@ pub fn runEntryInSource(
         .outputs = try collectOutputsForPlan(compiled_plan, handlers),
         .value = decodeRuntimeValue(program_plan.functionResultCodec(compiled_plan.functions[compiled_plan.entry_index]), value),
     };
+}
+
+/// Execute the entry function of one ProgramPlan and finalize its outputs.
+pub fn runEntryInSource(
+    runtime: *lowered_machine.Runtime,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime NestedSourceModule: type,
+    handlers: anytype,
+) anyerror!RunResultTypeForPlan(compiled_plan) {
+    return try runEntryInSourceWithOptions(runtime, compiled_plan, NestedSourceModule, handlers, .{});
+}
+
+pub fn runEntryInSourceWithOptions(
+    runtime: *lowered_machine.Runtime,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime NestedSourceModule: type,
+    handlers: anytype,
+    options: RunOptions,
+) anyerror!RunResultTypeForPlan(compiled_plan) {
+    var ctx: ExecutionContext = .{ .options = options };
+    return try runEntryInSourceWithContext(runtime, compiled_plan, NestedSourceModule, handlers, &.{}, &ctx);
 }
 
 pub fn runEntry(
@@ -921,6 +1069,15 @@ pub fn runEntry(
     return try runEntryInSource(runtime, compiled_plan, @import("root"), handlers);
 }
 
+pub fn runEntryWithOptions(
+    runtime: *lowered_machine.Runtime,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    handlers: anytype,
+    options: RunOptions,
+) anyerror!RunResultTypeForPlan(compiled_plan) {
+    return try runEntryInSourceWithOptions(runtime, compiled_plan, @import("root"), handlers, options);
+}
+
 /// Execute the entry function of one ProgramPlan with explicit runtime entry arguments and finalize its outputs.
 pub fn runEntryWithArgsInSource(
     runtime: *lowered_machine.Runtime,
@@ -929,17 +1086,19 @@ pub fn runEntryWithArgsInSource(
     handlers: anytype,
     args: []const lowered_machine.ProgramValue,
 ) anyerror!RunResultTypeForPlan(compiled_plan) {
-    try lowered_machine.beginExecution(runtime);
-    defer lowered_machine.endExecution(runtime);
-    const outcome = try executeDispatchInSource(runtime, compiled_plan, NestedSourceModule, handlers, compiled_plan.entry_index, args);
-    const value = switch (outcome) {
-        .value => |typed| typed,
-        .terminal => |typed| typed,
-    };
-    return .{
-        .outputs = try collectOutputsForPlan(compiled_plan, handlers),
-        .value = decodeRuntimeValue(program_plan.functionResultCodec(compiled_plan.functions[compiled_plan.entry_index]), value),
-    };
+    return try runEntryWithArgsInSourceWithOptions(runtime, compiled_plan, NestedSourceModule, handlers, args, .{});
+}
+
+pub fn runEntryWithArgsInSourceWithOptions(
+    runtime: *lowered_machine.Runtime,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime NestedSourceModule: type,
+    handlers: anytype,
+    args: []const lowered_machine.ProgramValue,
+    options: RunOptions,
+) anyerror!RunResultTypeForPlan(compiled_plan) {
+    var ctx: ExecutionContext = .{ .options = options };
+    return try runEntryInSourceWithContext(runtime, compiled_plan, NestedSourceModule, handlers, args, &ctx);
 }
 
 pub fn runEntryWithArgs(
@@ -949,6 +1108,16 @@ pub fn runEntryWithArgs(
     args: []const lowered_machine.ProgramValue,
 ) anyerror!RunResultTypeForPlan(compiled_plan) {
     return try runEntryWithArgsInSource(runtime, compiled_plan, @import("root"), handlers, args);
+}
+
+pub fn runEntryWithArgsAndOptions(
+    runtime: *lowered_machine.Runtime,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    handlers: anytype,
+    args: []const lowered_machine.ProgramValue,
+    options: RunOptions,
+) anyerror!RunResultTypeForPlan(compiled_plan) {
+    return try runEntryWithArgsInSourceWithOptions(runtime, compiled_plan, @import("root"), handlers, args, options);
 }
 
 test "program plan interpreter rejects const_i32 instructions targeting usize locals" {
@@ -1051,6 +1220,103 @@ test "program plan interpreter rejects invalid call_nested_with aux codecs" {
     try std.testing.expectError(error.ProgramContractViolation, executeDispatch(&runtime, compiled_plan, &handlers, 0, &.{}));
 }
 
+const NestedBudgetTestSource = struct {
+    pub const RuntimeBox = struct {
+        pub threadlocal var ptr: ?*lowered_machine.Runtime = null;
+    };
+
+    const ResumeFamily = struct {
+        pub const ops = .{struct {
+            pub const name: [:0]const u8 = "step";
+            pub const control_mode = enum { abort, choice, transform }.transform;
+            pub const Payload = void;
+            pub const Resume = i32;
+            pub const after = enum { binding_optional, none }.none;
+        }};
+    };
+
+    pub const Handlers = struct {
+        pub const InnerHandler = struct {};
+    };
+
+    pub const ResumeFactory = struct {
+        pub fn use(_: anytype) ResumeDescriptor {
+            return .{};
+        }
+    };
+
+    pub const ResumeDescriptor = struct {
+        pub fn BindingSchema(comptime label: [:0]const u8) type {
+            return struct {
+                pub const requirement_label = label;
+                pub const Family = ResumeFamily;
+                pub const Handler = Handlers.InnerHandler;
+            };
+        }
+
+        pub fn step(_: *@This()) i32 {
+            return 1;
+        }
+    };
+};
+
+test "program plan interpreter applies caller budget to nested lexical with bodies" {
+    const compiled_plan: program_plan.ProgramPlan = .{
+        .label = "interpreter.budget.nested_lexical_with",
+        .ir_hash = 0x30e,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{
+            .kind = .call_nested_with,
+            .dst = 0,
+            .aux = @intFromEnum(program_plan.ValueCodec.i32),
+            .string_literal = "inner" ++
+                "\x1fRuntimeBox" ++
+                "\x1fptr" ++
+                "\x1fResumeFactory" ++
+                "\x1fHandlers" ++
+                "\x1fInnerHandler" ++
+                "\x1fnested_budget" ++
+                "\x1fsrc/witness_sources.zig" ++
+                "\x1fwitnessStaticRedelimInnerBody",
+        }},
+    };
+    try compiled_plan.validate();
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    NestedBudgetTestSource.RuntimeBox.ptr = &runtime;
+    defer NestedBudgetTestSource.RuntimeBox.ptr = null;
+
+    var handlers = struct {}{};
+    try std.testing.expectError(
+        error.ExecutionBudgetExceeded,
+        runEntryInSourceWithOptions(&runtime, compiled_plan, NestedBudgetTestSource, &handlers, .{ .max_block_steps = 1 }),
+    );
+}
+
 test "program plan interpreter gates after frames on plan metadata" {
     const compiled_plan: program_plan.ProgramPlan = .{
         .label = "interpreter.after_frame_plan_metadata_gate",
@@ -1105,6 +1371,174 @@ test "program plan interpreter gates after frames on plan metadata" {
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     try std.testing.expectError(error.ProgramContractViolation, executeDispatch(&runtime, compiled_plan, &handlers, 0, &.{}));
+}
+
+test "program plan interpreter fails closed on native block budget exhaustion" {
+    const compiled_plan: program_plan.ProgramPlan = .{
+        .label = "interpreter.budget.self_jump",
+        .ir_hash = 0x30c,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .jump, .primary = 0 }},
+        .instructions = &.{},
+    };
+    try compiled_plan.validate();
+
+    var handlers = struct {}{};
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try std.testing.expectError(
+        error.ExecutionBudgetExceeded,
+        runEntryWithOptions(&runtime, compiled_plan, &handlers, .{ .max_block_steps = 4 }),
+    );
+}
+
+test "program plan interpreter fails closed on native after-frame budget exhaustion" {
+    const compiled_plan: program_plan.ProgramPlan = .{
+        .label = "interpreter.budget.after_frames",
+        .ir_hash = 0x30d,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "dispatch",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .unit,
+            .has_after = true,
+        }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{
+            .{ .kind = .call_op, .operand = 0, .aux = std.math.maxInt(u16) },
+            .{ .kind = .call_op, .operand = 0, .aux = std.math.maxInt(u16) },
+        },
+    };
+    try compiled_plan.validate();
+
+    var dispatch_calls: usize = 0;
+    var handlers = struct {
+        tooling: struct {
+            calls: *usize,
+
+            pub fn dispatch(self: *@This()) void {
+                self.calls.* += 1;
+            }
+
+            pub fn afterDispatch(_: *@This(), _: void) void {
+                // The budget should fail before these after hooks unwind.
+            }
+        },
+    }{ .tooling = .{ .calls = &dispatch_calls } };
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try std.testing.expectError(
+        error.ExecutionBudgetExceeded,
+        runEntryWithOptions(&runtime, compiled_plan, &handlers, .{ .max_after_frames = 1 }),
+    );
+    try std.testing.expectEqual(@as(usize, 1), dispatch_calls);
+}
+
+test "program plan interpreter reserves native after-frame budget before dispatch" {
+    const compiled_plan: program_plan.ProgramPlan = .{
+        .label = "interpreter.budget.after_frame_pre_dispatch",
+        .ir_hash = 0x30e,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "dispatch",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .unit,
+            .has_after = true,
+        }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{ .kind = .call_op, .operand = 0, .aux = std.math.maxInt(u16) }},
+    };
+    try compiled_plan.validate();
+
+    var dispatch_calls: usize = 0;
+    var handlers = struct {
+        tooling: struct {
+            calls: *usize,
+
+            pub fn dispatch(self: *@This()) void {
+                self.calls.* += 1;
+            }
+
+            pub fn afterDispatch(_: *@This(), _: void) void {
+                // The budget gate should prevent this hook from becoming reachable.
+            }
+        },
+    }{ .tooling = .{ .calls = &dispatch_calls } };
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try std.testing.expectError(
+        error.ExecutionBudgetExceeded,
+        runEntryWithOptions(&runtime, compiled_plan, &handlers, .{ .max_after_frames = 0 }),
+    );
+    try std.testing.expectEqual(@as(usize, 0), dispatch_calls);
 }
 
 test "program plan interpreter rejects entry argument codec mismatches" {

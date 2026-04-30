@@ -235,8 +235,10 @@ iteration, but they are not additional test contracts:
   through `ability_agent_vm.runtime.runArtifactWithOptions`, rejects host-call
   artifacts as unsupported, and applies the fixed v1 budget profile
   (16 MiB artifact cap, zero host/log allowance, DataValue depth 64, nodes 4096,
-  bytes 1 MiB). Artifact-size and log-budget envelope expansion are deferred
-  follow-up surfaces, not part of this conformance report.
+  bytes 1 MiB). Direct tool invocations may add `--json` or
+  `--format json` for a stable `schema_version`, `status`, `code`, and
+  `detail` verdict object. Artifact-size and log-budget envelope expansion are
+  deferred follow-up surfaces, not part of this conformance report.
 - `zig build check-ability-agent-vm-fixture` to verify the committed
   compatibility artifact fixture is current
 - `zig build generate-ability-agent-vm-fixture` to regenerate the committed
