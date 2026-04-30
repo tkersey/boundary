@@ -1097,6 +1097,14 @@ fn buildFunctionsAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
     return buildFunctionsForGraph(analyzeProgramGraphAt(source_path, spec.entry_symbol), spec);
 }
 
+fn maybeBuildFunctionsForGraph(
+    comptime graph: source_graph_embed.ProgramGraph,
+    comptime spec: LowerSpec,
+) ?[]const effect_ir.Function {
+    if (mixedAfterConflict(graph, flatOpsForRow(spec.row)) != null) return null;
+    return buildFunctionsForGraph(graph, spec);
+}
+
 fn buildCallEdgesForGraph(comptime graph: source_graph_embed.ProgramGraph) []const effect_ir.CallEdge {
     const reachable = reachableFunctions(graph);
     const edge_count = comptime count: {
@@ -2595,7 +2603,7 @@ pub fn maybeLowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
     }
 
     const graph = analyzeProgramGraphAt(source_path, spec.entry_symbol);
-    const functions = buildFunctionsForGraph(graph, spec);
+    const functions = maybeBuildFunctionsForGraph(graph, spec) orelse return null;
     const function_bodies = helper_body_lowering.maybeBuildFunctionBodiesForGraph(
         graph,
         functions,
@@ -2662,7 +2670,7 @@ pub fn maybeLower(comptime source_ref: SourceRef, comptime spec: LowerSpec) ?sou
         }
 
         const graph = analyzeProgramGraphWithRootSource(source_path, caller_source, source_ref.imported_sources, spec.entry_symbol);
-        const functions = buildFunctionsForGraph(graph, spec);
+        const functions = maybeBuildFunctionsForGraph(graph, spec) orelse return null;
         const function_bodies = helper_body_lowering.maybeBuildFunctionBodiesForGraph(
             graph,
             functions,
@@ -2733,7 +2741,7 @@ pub fn maybeLowerWithRootSourceAt(
     }
 
     const graph = source_graph_embed.analyzeProgramWithRootSource(source_path, root_source, imported_sources, spec.entry_symbol) catch return null;
-    const functions = buildFunctionsForGraph(graph, spec);
+    const functions = maybeBuildFunctionsForGraph(graph, spec) orelse return null;
     const function_bodies = helper_body_lowering.maybeBuildFunctionBodiesForGraph(
         graph,
         functions,
@@ -3164,6 +3172,50 @@ test "caller-owned lowering detects same-function mixed direct and continuation 
     try std.testing.expectEqualStrings("picker", conflict.requirement_label);
     try std.testing.expectEqualStrings("pick", conflict.op_name);
     try std.testing.expectEqualStrings("body", conflict.function_name);
+}
+
+test "maybe lowering returns null for same-function mixed direct and continuation after metadata" {
+    const current_src = @src();
+    const caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "/tmp/ability-owned-open-row/maybe_mixed_same_function_after.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "maybeMixedSameFunctionAfterCaller",
+    };
+    const mixed_source: [:0]const u8 =
+        \\pub fn body(eff: anytype) anyerror!i32 {
+        \\    _ = try eff.picker.pick.perform(1);
+        \\    return try eff.picker.pick.perform(2, struct {
+        \\        pub fn apply(value: i32, _: anytype) anyerror!i32 {
+        \\            return value;
+        \\        }
+        \\    });
+        \\}
+    ;
+    const spec: LowerSpec = .{
+        .label = "lowering_api.maybe_mixed_same_function_after",
+        .entry_symbol = "body",
+        .row = effect_ir.rowFromSpec(.{
+            .picker = .{
+                .pick = effect_ir.Transform(i32, i32),
+            },
+        }),
+        .ValueType = i32,
+    };
+
+    try std.testing.expect(comptime maybeLower(sourceWithContent(
+        "/tmp/ability-owned-open-row/maybe_mixed_same_function_after.zig",
+        caller,
+        mixed_source,
+    ), spec) == null);
+
+    try std.testing.expect(comptime maybeLowerWithRootSourceAt(
+        "/tmp/ability-owned-open-row/maybe_mixed_same_function_after.zig",
+        mixed_source,
+        &.{},
+        spec,
+    ) == null);
 }
 
 test "caller-owned lowering ignores unreachable mixed direct and continuation after metadata" {
