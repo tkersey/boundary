@@ -51,6 +51,20 @@ fn writeUsage(writer: anytype) !void {
     );
 }
 
+fn writeEscapedDiagnosticValue(writer: anytype, value: []const u8) !void {
+    try writer.writeByte('\'');
+    for (value) |byte| switch (byte) {
+        '\'' => try writer.writeAll("\\'"),
+        '\\' => try writer.writeAll("\\\\"),
+        '\n' => try writer.writeAll("\\n"),
+        '\r' => try writer.writeAll("\\r"),
+        '\t' => try writer.writeAll("\\t"),
+        0...8, 11, 12, 14...31, 127 => try writer.print("\\x{x:0>2}", .{byte}),
+        else => try writer.writeByte(byte),
+    };
+    try writer.writeByte('\'');
+}
+
 fn compatIo() std.Io {
     return std.Io.Threaded.global_single_threaded.io();
 }
@@ -115,7 +129,9 @@ pub fn main(init: std.process.Init) anyerror!void {
         var stderr_writer = std.Io.File.stderr().writerStreaming(init.io, &stderr_buffer);
         const stderr = &stderr_writer.interface;
         if (invalidArg(args)) |arg| {
-            try stderr.print("generate-ability-agent-vm-fixture: invalid argument '{s}'\n", .{arg});
+            try stderr.writeAll("generate-ability-agent-vm-fixture: invalid argument ");
+            try writeEscapedDiagnosticValue(stderr, arg);
+            try stderr.writeByte('\n');
         } else {
             try stderr.writeAll("generate-ability-agent-vm-fixture: invalid arguments\n");
         }
@@ -171,6 +187,17 @@ test "ability_agent_vm fixture generator args expose help and reject unknowns" {
     try std.testing.expectEqualStrings("extra", invalidArg(&.{ "generate-ability-agent-vm-fixture", "--check", "extra" }).?);
     try std.testing.expectEqualStrings("extra", invalidArg(&.{ "generate-ability-agent-vm-fixture", "--version", "extra" }).?);
     try std.testing.expectEqualStrings("extra", invalidArg(&.{ "generate-ability-agent-vm-fixture", "--help", "extra" }).?);
+}
+
+test "ability_agent_vm fixture generator escapes invalid diagnostic args" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+
+    try writeEscapedDiagnosticValue(&output.writer, "bad\n\x1b[31m");
+    const bytes = try output.toOwnedSlice();
+    defer std.testing.allocator.free(bytes);
+
+    try std.testing.expectEqualStrings("'bad\\n\\x1b[31m'", bytes);
 }
 
 test "ability_agent_vm fixture freshness check matches committed artifact" {
