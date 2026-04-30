@@ -11,7 +11,7 @@ const EmitMode = enum {
 };
 
 const usage_text =
-    "usage: ability-source-lower --id <source.case> --source <path> --entry <symbol> --surface <source_case|example|effect|user_defined_effect|witness> --emit <json|zig> --out <path>\n" ++
+    "usage: ability-source-lower --id <case> --source <path> --entry <symbol> --surface <source_case|example|effect|user_defined_effect|witness> --emit <json|zig> --out <path>\n" ++
     "       ability-source-lower --list-cases [--surface <source_case|example|effect|user_defined_effect|witness>]\n" ++
     "\n" ++
     "flags:\n" ++
@@ -750,7 +750,7 @@ const OutputWriteSpec = struct {
     program: *const source_lowering.GeneratedProgram,
 };
 
-fn writeAcceptedProgramOutput(spec: OutputWriteSpec) !void {
+fn writeProgramOutput(spec: OutputWriteSpec) !void {
     const dir = spec.dir;
     const io = spec.io;
     const allocator = spec.allocator;
@@ -759,7 +759,7 @@ fn writeAcceptedProgramOutput(spec: OutputWriteSpec) !void {
 
     if (containsPathSeparator(out_path)) return error.BadPathName;
 
-    if (!program.isAccepted()) {
+    if (!program.isAccepted() and spec.emit_mode != .json) {
         _ = try deleteRejectedProgramOutput(dir, io, out_path);
         return error.RejectedGeneratedProgram;
     }
@@ -875,7 +875,20 @@ pub fn main(init: std.process.Init) anyerror!void {
     defer program.deinit(allocator);
 
     if (!program.isAccepted()) {
-        const removed_stale_output = try deleteRejectedProgramOutput(bound_output_path.dir, init.io, bound_output_path.basename);
+        const removed_stale_output = if (cli_options.emit_mode == .json) removed: {
+            writeProgramOutput(.{
+                .dir = bound_output_path.dir,
+                .io = init.io,
+                .allocator = allocator,
+                .emit_mode = cli_options.emit_mode,
+                .out_path = bound_output_path.basename,
+                .program = &program,
+            }) catch |err| switch (err) {
+                error.RejectedGeneratedProgram => break :removed false,
+                else => return err,
+            };
+            break :removed false;
+        } else try deleteRejectedProgramOutput(bound_output_path.dir, init.io, bound_output_path.basename);
         var stderr_buffer: [1024]u8 = undefined;
         var stderr_writer = std.Io.File.stderr().writerStreaming(init.io, &stderr_buffer);
         const stderr = &stderr_writer.interface;
@@ -885,7 +898,7 @@ pub fn main(init: std.process.Init) anyerror!void {
         std.process.exit(rejection_exit_code);
     }
 
-    try writeAcceptedProgramOutput(.{
+    try writeProgramOutput(.{
         .dir = bound_output_path.dir,
         .io = init.io,
         .allocator = allocator,
@@ -1351,7 +1364,7 @@ test "accepted source-lower output replaces final symlink instead of following i
         .diagnostics = &.{},
         .error_witness = error_witness.ErrorWitnessV1.empty(.ordinary),
     };
-    try writeAcceptedProgramOutput(.{
+    try writeProgramOutput(.{
         .dir = bound_output_path.dir,
         .io = std.testing.io,
         .allocator = std.testing.allocator,
@@ -1390,11 +1403,11 @@ test "rejected source-lower programs remove stale output artifacts" {
 
     try std.testing.expectError(
         error.RejectedGeneratedProgram,
-        writeAcceptedProgramOutput(.{
+        writeProgramOutput(.{
             .dir = tmp.dir,
             .io = std.testing.io,
             .allocator = std.testing.allocator,
-            .emit_mode = .json,
+            .emit_mode = .zig,
             .out_path = "out.json",
             .program = &program,
         }),
@@ -1404,6 +1417,35 @@ test "rejected source-lower programs remove stale output artifacts" {
         error.FileNotFound,
         tmp.dir.readFileAlloc(std.testing.io, "out.json", std.testing.allocator, .limited(16)),
     );
+}
+
+test "rejected source-lower programs write json diagnostics" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var program = try source_lowering.inspectSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        .entry_symbol = "wrong",
+        .surface_kind = .source_case,
+    });
+    defer program.deinit(std.testing.allocator);
+    try std.testing.expect(!program.isAccepted());
+
+    try writeProgramOutput(.{
+        .dir = tmp.dir,
+        .io = std.testing.io,
+        .allocator = std.testing.allocator,
+        .emit_mode = .json,
+        .out_path = "out.json",
+        .program = &program,
+    });
+
+    const bytes = try tmp.dir.readFileAlloc(std.testing.io, "out.json", std.testing.allocator, .limited(4096));
+    defer std.testing.allocator.free(bytes);
+    try std.testing.expect(std.mem.find(u8, bytes, "\"schema_version\":1") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "\"status\":\"rejected\"") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "\"entry_symbol_mismatch\"") != null);
 }
 
 test "rejected source-lower programs print structured diagnostics" {

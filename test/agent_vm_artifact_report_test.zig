@@ -15,6 +15,8 @@ test "agent-vm-artifact-report parses artifact flag" {
     const parsed = report.parseArgs(&.{ "agent-vm-artifact-report", "--artifact", "artifact.bin" });
     try std.testing.expectEqualStrings("artifact.bin", parsed.artifact.path);
     try std.testing.expectEqual(report.OutputFormat.text, parsed.artifact.format);
+    const dashed_path = report.parseArgs(&.{ "agent-vm-artifact-report", "--artifact", "--fixture.artifact" });
+    try std.testing.expectEqualStrings("--fixture.artifact", dashed_path.artifact.path);
     const json_parsed = report.parseArgs(&.{ "agent-vm-artifact-report", "--json", "--artifact", "artifact.bin" });
     try std.testing.expectEqualStrings("artifact.bin", json_parsed.artifact.path);
     try std.testing.expectEqual(report.OutputFormat.json, json_parsed.artifact.format);
