@@ -5425,6 +5425,19 @@ pub fn build(b: *std.Build) void {
     custom_effect_bad_after_tests.expect_errors = .{ .contains = "expected type '[]const u8', found 'bool'" };
     run_custom_effect_tests.step.dependOn(&custom_effect_bad_after_tests.step);
 
+    const bad_mixed_after_mod = b.createModule(.{
+        .root_source_file = b.path("test/custom_effect_bad_mixed_same_function_after_negative.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    bad_mixed_after_mod.addImport("ability", ability_mod);
+    bad_mixed_after_mod.addImport("ability_compile", ability_compile_mod);
+    const bad_mixed_after_tests = b.addTest(.{
+        .root_module = bad_mixed_after_mod,
+    });
+    bad_mixed_after_tests.expect_errors = .{ .contains = "public lowering rejected mixed direct and explicit-continuation uses of picker.pick in source function body: ProgramPlan after metadata is function/op scoped" };
+    run_custom_effect_tests.step.dependOn(&bad_mixed_after_tests.step);
+
     const comptime_contract_mod = b.createModule(.{
         .root_source_file = b.path("test/comptime_contract_test.zig"),
         .target = target,

@@ -877,6 +877,54 @@ fn inferAfterOps(
     return after;
 }
 
+const MixedAfterConflict = struct {
+    requirement_label: []const u8,
+    op_name: []const u8,
+    function_name: []const u8,
+};
+
+fn mixedAfterConflict(
+    comptime graph: source_graph_embed.ProgramGraph,
+    comptime flat_ops: []const FlatOp,
+) ?MixedAfterConflict {
+    for (graph.direct_op_uses) |after_use| {
+        if (!after_use.has_after) continue;
+
+        for (flat_ops) |op| {
+            if (op.has_after) continue;
+            if (!std.mem.eql(u8, op.requirement_label, after_use.requirement_label)) continue;
+            if (!std.mem.eql(u8, op.op_name, after_use.op_name)) continue;
+
+            for (graph.direct_op_uses) |plain_use| {
+                if (plain_use.has_after) continue;
+                if (plain_use.function_index != after_use.function_index) continue;
+                if (!std.mem.eql(u8, plain_use.requirement_label, after_use.requirement_label)) continue;
+                if (!std.mem.eql(u8, plain_use.op_name, after_use.op_name)) continue;
+
+                const function = graph.functions[after_use.function_index];
+                return .{
+                    .requirement_label = after_use.requirement_label,
+                    .op_name = after_use.op_name,
+                    .function_name = function.name,
+                };
+            }
+        }
+    }
+    return null;
+}
+
+fn rejectUnrepresentableMixedAfterOps(
+    comptime graph: source_graph_embed.ProgramGraph,
+    comptime flat_ops: []const FlatOp,
+) void {
+    if (mixedAfterConflict(graph, flat_ops)) |conflict| {
+        @compileError(std.fmt.comptimePrint(
+            "public lowering rejected mixed direct and explicit-continuation uses of {s}.{s} in source function {s}: ProgramPlan after metadata is function/op scoped",
+            .{ conflict.requirement_label, conflict.op_name, conflict.function_name },
+        ));
+    }
+}
+
 fn entryRowFromUsage(
     comptime row: effect_ir.Row,
     comptime flat_ops: []const FlatOp,
@@ -969,6 +1017,7 @@ fn buildFunctionsForGraph(comptime graph: source_graph_embed.ProgramGraph, compt
     const reachable = reachableFunctions(graph);
     const flat_ops = flatOpsForRow(spec.row);
     const used_ops = inferUsedOps(graph, flat_ops);
+    rejectUnrepresentableMixedAfterOps(graph, flat_ops);
     const after_ops = inferAfterOps(graph, flat_ops);
     const entry_function = graph.functions[graph.entry_index];
 
@@ -3083,6 +3132,36 @@ test "caller-owned lowering keeps helper after metadata off unrelated caller dir
     try std.testing.expectEqual(@as(i32, 113), result.value);
     try std.testing.expectEqual(@as(usize, 2), handlers.picker.pick_calls);
     try std.testing.expectEqual(@as(usize, 1), handlers.picker.after_calls);
+}
+
+test "caller-owned lowering detects same-function mixed direct and continuation after metadata" {
+    const mixed_source: [:0]const u8 =
+        \\pub fn body(eff: anytype) anyerror!i32 {
+        \\    _ = try eff.picker.pick.perform(1);
+        \\    return try eff.picker.pick.perform(2, struct {
+        \\        pub fn apply(value: i32, _: anytype) anyerror!i32 {
+        \\            return value;
+        \\        }
+        \\    });
+        \\}
+    ;
+    const graph = comptime analyzeProgramGraphWithRootSource(
+        "/tmp/ability-owned-open-row/mixed_same_function_after.zig",
+        mixed_source,
+        &.{},
+        "body",
+    );
+    const row = comptime effect_ir.rowFromSpec(.{
+        .picker = .{
+            .pick = effect_ir.Transform(i32, i32),
+        },
+    });
+    const conflict = comptime mixedAfterConflict(graph, flatOpsForRow(row)) orelse
+        @compileError("mixed same-function after conflict fixture did not exercise the guard");
+
+    try std.testing.expectEqualStrings("picker", conflict.requirement_label);
+    try std.testing.expectEqualStrings("pick", conflict.op_name);
+    try std.testing.expectEqualStrings("body", conflict.function_name);
 }
 
 test "owned repo alias callers preserve absolute helper witness paths during lowering" {
