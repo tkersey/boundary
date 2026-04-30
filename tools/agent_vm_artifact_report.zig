@@ -58,6 +58,7 @@ pub const ParseArgsResult = union(enum) {
     artifact_path: []const u8,
     help,
     invalid: []const u8,
+    unknown_arg: []const u8,
     version,
 };
 
@@ -81,7 +82,7 @@ pub fn parseArgs(args: []const []const u8) ParseArgsResult {
     if (args.len == 2 and (std.mem.eql(u8, args[1], "--help") or std.mem.eql(u8, args[1], "-h"))) return .help;
     if (args.len == 2 and std.mem.eql(u8, args[1], "--version")) return .version;
     if (args.len == 1) return .{ .invalid = "missing required --artifact <path>" };
-    if (!std.mem.eql(u8, args[1], "--artifact")) return .{ .invalid = "expected --artifact <path>" };
+    if (!std.mem.eql(u8, args[1], "--artifact")) return .{ .unknown_arg = args[1] };
     if (args.len < 3 or std.mem.startsWith(u8, args[2], "--")) return .{ .invalid = "missing required --artifact <path>" };
     if (args.len > 3) return .{ .invalid = "unexpected argument after --artifact <path>" };
     return .{ .artifact_path = args[2] };
@@ -235,6 +236,17 @@ pub fn main(init: std.process.Init) anyerror!void {
         },
         .invalid => |message| {
             std.debug.print("agent-vm-artifact-report: {s}\n{s}", .{ message, usage_text });
+            std.process.exit(2);
+        },
+        .unknown_arg => |arg| {
+            var stderr_buffer: [512]u8 = undefined;
+            var stderr_writer = std.Io.File.stderr().writerStreaming(init.io, &stderr_buffer);
+            const stderr = &stderr_writer.interface;
+            try stderr.writeAll("agent-vm-artifact-report: unknown argument ");
+            try writeEscapedDiagnosticValue(stderr, arg);
+            try stderr.writeAll("; expected --artifact <path>\n");
+            try stderr.writeAll(usage_text);
+            try stderr.flush();
             std.process.exit(2);
         },
         .artifact_path => |path| {

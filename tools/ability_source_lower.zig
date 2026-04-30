@@ -126,7 +126,7 @@ fn writeSupportedCases(writer: anytype, surface_kind: source_lowering.SurfaceKin
     for (source_lowering.supportedCaseIds(surface_kind)) |case_id| {
         const case = source_lowering.supportedCaseInfo(surface_kind, case_id) orelse continue;
         try writer.print(
-            "  {s} --source {s} --entry {s} --surface {s}\n",
+            "  --id {s} --source {s} --entry {s} --surface {s}\n",
             .{ case.case_id, case.source_path, case.entry_symbol, @tagName(case.surface_kind) },
         );
     }
@@ -409,15 +409,11 @@ fn writeRejectedProgramDiagnostics(writer: anytype, program: source_lowering.Gen
         return;
     }
     for (program.diagnostics) |diagnostic| {
+        try writer.writeAll("ability-source-lower: ");
+        try writeEscapedDiagnosticValue(writer, diagnostic.path);
         try writer.print(
-            "ability-source-lower: {s}:{d}:{d}: {s}: {s}\n",
-            .{
-                diagnostic.path,
-                diagnostic.line,
-                diagnostic.column,
-                diagnostic.code,
-                diagnostic.message,
-            },
+            ":{d}:{d}: {s}: {s}\n",
+            .{ diagnostic.line, diagnostic.column, diagnostic.code, diagnostic.message },
         );
     }
 }
@@ -880,7 +876,7 @@ test "usage text documents required flags and recovery examples" {
     try std.testing.expect(std.mem.find(u8, usage_text, "--list-cases") != null);
     try std.testing.expect(std.mem.find(u8, usage_text, "./zig-out/bin/ability-source-lower") != null);
     try std.testing.expect(std.mem.find(u8, usage_text, "source.branch_resume") != null);
-    try std.testing.expect(std.mem.find(u8, usage_text, "example.state_basic --source examples/state_basic.zig --entry run") != null);
+    try std.testing.expect(std.mem.find(u8, usage_text, "--id example.state_basic --source examples/state_basic.zig --entry run") != null);
 }
 
 test "case listing prints supported ids for a selected surface" {
@@ -892,7 +888,7 @@ test "case listing prints supported ids for a selected surface" {
     defer std.testing.allocator.free(bytes);
 
     try std.testing.expect(std.mem.find(u8, bytes, "example:\n") != null);
-    try std.testing.expect(std.mem.find(u8, bytes, "example.state_basic --source examples/state_basic.zig --entry run --surface example") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "--id example.state_basic --source examples/state_basic.zig --entry run --surface example") != null);
     try std.testing.expect(std.mem.find(u8, bytes, "example.open_row_transform_basic") != null);
 }
 
@@ -1292,6 +1288,38 @@ test "rejected source-lower programs print structured diagnostics" {
     try std.testing.expect(std.mem.find(u8, bytes, "ability-source-lower:") != null);
     try std.testing.expect(std.mem.find(u8, bytes, "entry_symbol_mismatch") != null);
     try std.testing.expect(std.mem.find(u8, bytes, "expected entry symbol 'run'") != null);
+}
+
+test "rejected source-lower diagnostics escape source paths" {
+    const diagnostics = [_]source_lowering.Diagnostic{.{
+        .path = "bad\n\x1b[31m.zig",
+        .line = 1,
+        .column = 1,
+        .code = "non_canonical_source_path",
+        .message = "source path is not the expected path",
+    }};
+    const program = source_lowering.GeneratedProgram{
+        .case_id = "source.test",
+        .label = "source.test",
+        .source_path = diagnostics[0].path,
+        .surface_kind = .source_case,
+        .status = .rejected,
+        .canonical_scenario_id = null,
+        .expected_transcript = "",
+        .steps = &.{},
+        .feature_flags = &.{},
+        .diagnostics = &diagnostics,
+        .error_witness = error_witness.ErrorWitnessV1.empty(.ordinary),
+    };
+
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try writeRejectedProgramDiagnostics(&output.writer, program);
+    const bytes = try output.toOwnedSlice();
+    defer std.testing.allocator.free(bytes);
+
+    try std.testing.expect(std.mem.find(u8, bytes, "'bad\\n\\x1b[31m.zig':1:1") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "bad\n") == null);
 }
 
 test "rejected source-lower programs without diagnostics include recovery guidance" {

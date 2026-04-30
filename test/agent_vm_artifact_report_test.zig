@@ -24,6 +24,10 @@ test "agent-vm-artifact-report parses artifact flag" {
         "unexpected argument after --artifact <path>",
         report.parseArgs(&.{ "agent-vm-artifact-report", "--artifact", "artifact.bin", "extra" }).invalid,
     );
+    try std.testing.expectEqualStrings(
+        "--bad",
+        report.parseArgs(&.{ "agent-vm-artifact-report", "--bad" }).unknown_arg,
+    );
 }
 
 test "agent-vm-artifact-report classifies compatible, unsupported, invalid, and incompatible artifacts" {

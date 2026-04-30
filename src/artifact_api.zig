@@ -12,10 +12,18 @@ pub const HostOpKind = inner.HostOpKind;
 pub const DecodeError = inner.DecodeError;
 /// Re-exported public decode result error set.
 pub const DecodeResultError = inner.DecodeResultError;
+/// Re-exported public decode resource envelope.
+pub const DecodeOptions = inner.DecodeOptions;
+/// Re-exported default decode byte budget.
+pub const default_max_artifact_bytes = inner.default_max_artifact_bytes;
 /// Re-exported ArtifactV1 decoder.
 pub const decode = inner.decode;
+/// Re-exported ArtifactV1 decoder with explicit resource bounds.
+pub const decodeWithOptions = inner.decodeWithOptions;
 /// Re-exported ArtifactV1 decoder that also returns the validated runtime plan.
 pub const decodeWithProgramPlan = inner.decodeWithProgramPlan;
+/// Re-exported ArtifactV1 decoder plus plan with explicit resource bounds.
+pub const decodeWithProgramPlanOptions = inner.decodeWithProgramPlanOptions;
 /// Re-exported decoded ArtifactV1 plus validated runtime plan bundle.
 pub const DecodedProgramPlanV1 = inner.DecodedProgramPlanV1;
 /// Re-exported terminal result codec resolver.

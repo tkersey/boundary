@@ -102,7 +102,9 @@ pub fn runArtifactWithOptions(
     options: RunOptionsV1,
 ) anyerror!RunArtifactResultV1 {
     if (bytes.len > options.max_artifact_bytes) return try invalidArtifactResult(allocator, error.ArtifactTooLarge);
-    var decoded_with_plan = artifact.decodeWithProgramPlan(allocator, bytes) catch |err| switch (err) {
+    var decoded_with_plan = artifact.decodeWithProgramPlanOptions(allocator, bytes, .{
+        .max_artifact_bytes = options.max_artifact_bytes,
+    }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return try invalidArtifactResult(allocator, err),
     };
@@ -268,14 +270,16 @@ const DispatchTable = struct {
     after_ops: []?ResolvedCapabilityOp,
 
     fn init(allocator: std.mem.Allocator, decoded: artifact.ArtifactV1, plan: program_plan.ProgramPlan) !@This() {
+        var lookup = try RuntimeCapabilityLookup.init(allocator, decoded.capabilities);
+        defer lookup.deinit();
         const call_ops = try allocator.alloc(?ResolvedCapabilityOp, plan.ops.len);
         errdefer allocator.free(call_ops);
         const after_ops = try allocator.alloc(?ResolvedCapabilityOp, plan.ops.len);
         errdefer allocator.free(after_ops);
         for (plan.ops, 0..) |_, index| {
             const op_index: u16 = @intCast(index);
-            call_ops[index] = resolveCapabilityOp(decoded.capabilities, decoded.requirement_capability_ids, plan, op_index);
-            after_ops[index] = resolveAfterCapabilityOp(decoded.capabilities, decoded.requirement_capability_ids, plan, op_index);
+            call_ops[index] = resolveCapabilityOp(lookup, decoded.requirement_capability_ids, plan, op_index);
+            after_ops[index] = resolveAfterCapabilityOp(lookup, decoded.requirement_capability_ids, plan, op_index);
         }
         return .{
             .call_ops = call_ops,
@@ -1000,7 +1004,7 @@ const ResolvedCapabilityOp = struct {
 };
 
 fn resolveCapabilityOp(
-    capabilities: []const artifact.CapabilityV1,
+    lookup: RuntimeCapabilityLookup,
     requirement_capability_ids: []const u16,
     plan: program_plan.ProgramPlan,
     op_index: u16,
@@ -1010,9 +1014,10 @@ fn resolveCapabilityOp(
     if (plan_op.requirement_index >= requirement_capability_ids.len or plan_op.requirement_index >= plan.requirements.len) return null;
     const requirement = plan.requirements[plan_op.requirement_index];
     if (op_index < requirement.first_op) return null;
-    const capability = findCapabilityById(capabilities, requirement_capability_ids[plan_op.requirement_index]) orelse return null;
-    const capability_op = findCapabilityOpByPlanOrdinalAndGlobalName(
-        capability.ops,
+    const capability_index = lookup.capabilityIndexById(requirement_capability_ids[plan_op.requirement_index]) orelse return null;
+    const capability = lookup.capabilities[capability_index];
+    const capability_op = lookup.capabilityOp(
+        capability_index,
         op_index - requirement.first_op,
         .call,
     ) orelse return null;
@@ -1023,6 +1028,125 @@ fn resolveCapabilityOp(
 }
 
 fn resolveAfterCapabilityOp(
+    lookup: RuntimeCapabilityLookup,
+    requirement_capability_ids: []const u16,
+    plan: program_plan.ProgramPlan,
+    op_index: u16,
+) ?ResolvedCapabilityOp {
+    if (op_index >= plan.ops.len) return null;
+    const plan_op = plan.ops[op_index];
+    if (plan_op.mode == .abort) return null;
+    if (plan_op.requirement_index >= requirement_capability_ids.len or plan_op.requirement_index >= plan.requirements.len) return null;
+    const requirement = plan.requirements[plan_op.requirement_index];
+    if (op_index < requirement.first_op) return null;
+    const capability_index = lookup.capabilityIndexById(requirement_capability_ids[plan_op.requirement_index]) orelse return null;
+    const capability = lookup.capabilities[capability_index];
+    const capability_op = lookup.capabilityOp(
+        capability_index,
+        op_index - requirement.first_op,
+        .after_call,
+    ) orelse return null;
+    return .{
+        .capability = capability,
+        .capability_op = capability_op,
+    };
+}
+
+const RuntimeCapabilityLookup = struct {
+    capabilities: []const artifact.CapabilityV1,
+    by_id: std.AutoHashMap(u16, usize),
+    op_by_key: std.AutoHashMap(u64, usize),
+
+    fn init(allocator: std.mem.Allocator, capabilities: []const artifact.CapabilityV1) !@This() {
+        var by_id = std.AutoHashMap(u16, usize).init(allocator);
+        errdefer by_id.deinit();
+        var op_by_key = std.AutoHashMap(u64, usize).init(allocator);
+        errdefer op_by_key.deinit();
+
+        for (capabilities, 0..) |capability, capability_index| {
+            const id_entry = try by_id.getOrPut(capability.capability_id);
+            if (id_entry.found_existing) return error.InvalidArtifactCapabilityIndex;
+            id_entry.value_ptr.* = capability_index;
+            for (capability.ops, 0..) |op, op_index| {
+                const op_entry = try op_by_key.getOrPut(runtimeCapabilityOpKey(capability_index, op.plan_op_ordinal, op.host_op_kind));
+                if (op_entry.found_existing) return error.InvalidArtifactCapabilityIndex;
+                op_entry.value_ptr.* = op_index;
+            }
+        }
+
+        return .{
+            .capabilities = capabilities,
+            .by_id = by_id,
+            .op_by_key = op_by_key,
+        };
+    }
+
+    fn deinit(self: *@This()) void {
+        self.by_id.deinit();
+        self.op_by_key.deinit();
+    }
+
+    fn capabilityIndexById(self: @This(), capability_id: u16) ?usize {
+        return self.by_id.get(capability_id);
+    }
+
+    fn capabilityOp(
+        self: @This(),
+        capability_index: usize,
+        plan_op_ordinal: u16,
+        host_op_kind: artifact.HostOpKind,
+    ) ?artifact.CapabilityOpV1 {
+        const op_index = self.op_by_key.get(runtimeCapabilityOpKey(capability_index, plan_op_ordinal, host_op_kind)) orelse return null;
+        return self.capabilities[capability_index].ops[op_index];
+    }
+};
+
+fn runtimeCapabilityOpKey(capability_index: usize, plan_op_ordinal: u16, host_op_kind: artifact.HostOpKind) u64 {
+    const host_bit: u64 = switch (host_op_kind) {
+        .call => 0,
+        .after_call => 1,
+    };
+    return (@as(u64, @intCast(capability_index)) << 17) |
+        (@as(u64, plan_op_ordinal) << 1) |
+        host_bit;
+}
+
+fn resolvedCapabilityOp(ctx: *ExecutionContext, op_index: u16) ?ResolvedCapabilityOp {
+    if (ctx.dispatch_table) |table| {
+        if (op_index >= table.call_ops.len) return null;
+        return table.call_ops[op_index];
+    }
+    return resolveCapabilityOpLinear(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, op_index);
+}
+
+fn resolvedAfterCapabilityOp(ctx: *ExecutionContext, op_index: u16) ?ResolvedCapabilityOp {
+    if (ctx.dispatch_table) |table| {
+        if (op_index >= table.after_ops.len) return null;
+        return table.after_ops[op_index];
+    }
+    return resolveAfterCapabilityOpLinear(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, op_index);
+}
+
+fn resolveCapabilityOpLinear(
+    capabilities: []const artifact.CapabilityV1,
+    requirement_capability_ids: []const u16,
+    plan: program_plan.ProgramPlan,
+    op_index: u16,
+) ?ResolvedCapabilityOp {
+    if (op_index >= plan.ops.len) return null;
+    const plan_op = plan.ops[op_index];
+    if (plan_op.requirement_index >= requirement_capability_ids.len or plan_op.requirement_index >= plan.requirements.len) return null;
+    const requirement = plan.requirements[plan_op.requirement_index];
+    if (op_index < requirement.first_op) return null;
+    const capability = findCapabilityByIdLinear(capabilities, requirement_capability_ids[plan_op.requirement_index]) orelse return null;
+    const capability_op = findCapabilityOpLinear(capability.ops, op_index - requirement.first_op, .call) orelse return null;
+    return .{
+        .capability = capability,
+        .capability_op = capability_op,
+    };
+}
+
+fn resolveAfterCapabilityOpLinear(
     capabilities: []const artifact.CapabilityV1,
     requirement_capability_ids: []const u16,
     plan: program_plan.ProgramPlan,
@@ -1034,26 +1158,22 @@ fn resolveAfterCapabilityOp(
     if (plan_op.requirement_index >= requirement_capability_ids.len or plan_op.requirement_index >= plan.requirements.len) return null;
     const requirement = plan.requirements[plan_op.requirement_index];
     if (op_index < requirement.first_op) return null;
-    const capability = findCapabilityById(capabilities, requirement_capability_ids[plan_op.requirement_index]) orelse return null;
-    const capability_op = findCapabilityOpByPlanOrdinalAndGlobalName(
-        capability.ops,
-        op_index - requirement.first_op,
-        .after_call,
-    ) orelse return null;
+    const capability = findCapabilityByIdLinear(capabilities, requirement_capability_ids[plan_op.requirement_index]) orelse return null;
+    const capability_op = findCapabilityOpLinear(capability.ops, op_index - requirement.first_op, .after_call) orelse return null;
     return .{
         .capability = capability,
         .capability_op = capability_op,
     };
 }
 
-fn findCapabilityById(capabilities: []const artifact.CapabilityV1, capability_id: u16) ?artifact.CapabilityV1 {
+fn findCapabilityByIdLinear(capabilities: []const artifact.CapabilityV1, capability_id: u16) ?artifact.CapabilityV1 {
     for (capabilities) |capability| {
         if (capability.capability_id == capability_id) return capability;
     }
     return null;
 }
 
-fn findCapabilityOpByPlanOrdinalAndGlobalName(
+fn findCapabilityOpLinear(
     ops: []const artifact.CapabilityOpV1,
     plan_op_ordinal: u16,
     host_op_kind: artifact.HostOpKind,
@@ -1062,22 +1182,6 @@ fn findCapabilityOpByPlanOrdinalAndGlobalName(
         if (op.plan_op_ordinal == plan_op_ordinal and op.host_op_kind == host_op_kind) return op;
     }
     return null;
-}
-
-fn resolvedCapabilityOp(ctx: *ExecutionContext, op_index: u16) ?ResolvedCapabilityOp {
-    if (ctx.dispatch_table) |table| {
-        if (op_index >= table.call_ops.len) return null;
-        return table.call_ops[op_index];
-    }
-    return resolveCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, op_index);
-}
-
-fn resolvedAfterCapabilityOp(ctx: *ExecutionContext, op_index: u16) ?ResolvedCapabilityOp {
-    if (ctx.dispatch_table) |table| {
-        if (op_index >= table.after_ops.len) return null;
-        return table.after_ops[op_index];
-    }
-    return resolveAfterCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, op_index);
 }
 
 fn hasAfterCapabilityOp(ctx: *ExecutionContext, op_index: u16) bool {
@@ -1511,6 +1615,39 @@ test "artifact runtime rejects artifacts above configured decode byte budget bef
         .rejected => |rejected| {
             try std.testing.expectEqualStrings("invalid_artifact", rejected.failure.code);
             try std.testing.expectEqualStrings("ArtifactTooLarge", rejected.failure.message);
+            try std.testing.expectEqual(@as(usize, 0), rejected.logs.len);
+        },
+        else => return error.TestUnexpectedRuntimeResult,
+    }
+}
+
+test "artifact runtime forwards raised artifact byte budget into decode" {
+    const allocator = std.testing.allocator;
+    const bytes = try allocator.alloc(u8, artifact.default_max_artifact_bytes + 1);
+    defer allocator.free(bytes);
+    @memset(bytes, 0);
+    const adapter = host.HostAdapterV1{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                _: host.HostEffectRequestV1,
+            ) anyerror!host.HostEffectResultV1 {
+                return error.TestUnexpectedDispatch;
+            }
+        }.dispatch,
+    };
+
+    var result = try runArtifactWithOptions(allocator, bytes, adapter, .{
+        .max_artifact_bytes = bytes.len,
+    });
+    defer result.deinit(allocator);
+
+    switch (result) {
+        .rejected => |rejected| {
+            try std.testing.expectEqualStrings("invalid_artifact", rejected.failure.code);
+            try std.testing.expectEqualStrings("BadMagic", rejected.failure.message);
             try std.testing.expectEqual(@as(usize, 0), rejected.logs.len);
         },
         else => return error.TestUnexpectedRuntimeResult,
@@ -3137,7 +3274,10 @@ test "helper frames clone string parameters before returning them" {
     };
 
     var logs = std.ArrayList(host.HostLogEntryV1).empty;
-    defer logs.deinit(std.testing.allocator);
+    defer {
+        for (logs.items) |*entry| entry.deinit(std.testing.allocator);
+        logs.deinit(std.testing.allocator);
+    }
     var next_request_id: u64 = 1;
     const decoded = artifact.ArtifactV1{
         .semantic_ir_hash64 = plan.ir_hash,
@@ -3260,7 +3400,10 @@ test "artifact runtime decodes after-hook replies with the function result codec
     }};
 
     var logs = std.ArrayList(host.HostLogEntryV1).empty;
-    defer logs.deinit(std.testing.allocator);
+    defer {
+        for (logs.items) |*entry| entry.deinit(std.testing.allocator);
+        logs.deinit(std.testing.allocator);
+    }
     var next_request_id: u64 = 1;
     const decoded = artifact.ArtifactV1{
         .semantic_ir_hash64 = plan.ir_hash,
@@ -3864,7 +4007,10 @@ test "artifact runtime resolves reordered repeated-requirement after hooks by ca
     };
 
     var logs = std.ArrayList(host.HostLogEntryV1).empty;
-    defer logs.deinit(std.testing.allocator);
+    defer {
+        for (logs.items) |*entry| entry.deinit(std.testing.allocator);
+        logs.deinit(std.testing.allocator);
+    }
     var next_request_id: u64 = 1;
     const decoded = artifact.ArtifactV1{
         .semantic_ir_hash64 = plan.ir_hash,
@@ -3902,7 +4048,7 @@ test "artifact runtime resolves reordered repeated-requirement after hooks by ca
                             .request_id = request.request_id,
                             .body = .{ .success = .{
                                 .tool_id = try allocator.dupe(u8, tool_call.tool_id),
-                                .call_id = 7,
+                                .call_id = tool_call.call_id,
                                 .control = .@"resume",
                                 .value = .null,
                                 .owns_tool_id = true,
@@ -3921,6 +4067,7 @@ test "artifact runtime resolves reordered repeated-requirement after hooks by ca
                                 .control = .@"resume",
                                 .value = .{ .string = try allocator.dupe(u8, "second-after") },
                                 .owns_tool_id = true,
+                                .value_ownership = .deep,
                             } },
                         };
                     }

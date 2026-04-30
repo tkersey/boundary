@@ -96,6 +96,8 @@ const artifact_format_version_v1: u16 = 1;
 const artifact_format_version_v2: u16 = 2;
 const artifact_format_version_v3: u16 = 3;
 const artifact_version_current: u16 = artifact_format_version_v3;
+/// Default byte budget for public ArtifactV1 decode entry points.
+pub const default_max_artifact_bytes: usize = 16 * 1024 * 1024;
 
 const section_optional_flag: u16 = 0x1;
 const capability_required_flag: u8 = 0x1;
@@ -198,6 +200,7 @@ pub const DecodedProgramPlanV1 = struct {
 
 /// Decode-time failures for ArtifactV1 binary payloads.
 pub const DecodeError = error{
+    ArtifactTooLarge,
     BadMagic,
     BuildFingerprintMismatch,
     DuplicateCapabilityId,
@@ -222,6 +225,11 @@ pub const DecodeError = error{
 
 /// Public decode failures plus allocation failure for owned decoded artifacts.
 pub const DecodeResultError = std.mem.Allocator.Error || DecodeError;
+
+/// Resource envelope for public ArtifactV1 decode and disassembly helpers.
+pub const DecodeOptions = struct {
+    max_artifact_bytes: usize = default_max_artifact_bytes,
+};
 
 fn isReservedOptionalSectionId(raw_section_id: u16) bool {
     return switch (raw_section_id) {
@@ -452,7 +460,7 @@ fn encodeProgramPlanVersioned(
     try validateExecutableInstructionSupport(plan);
     if (plan.functions[plan.entry_index].parameter_count != 0) return error.UnsupportedEntryParameters;
     try validateManifest(allocator, manifest.build_fingerprint_blake3_256, manifest.capabilities);
-    try validateRequirementCapabilityOpNameDisambiguation(plan, manifest.capabilities);
+    try validateRequirementCapabilityOpNameDisambiguation(allocator, plan, manifest.capabilities);
 
     var strings = StringTable.init(allocator);
     defer strings.deinit();
@@ -547,13 +555,24 @@ fn encodeProgramPlanVersioned(
 
 /// Decode canonical ArtifactV1 bytes into the in-memory artifact surface.
 pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) DecodeResultError!ArtifactV1 {
-    const decoded = try decodeWithProgramPlan(allocator, bytes);
+    return try decodeWithOptions(allocator, bytes, .{});
+}
+
+/// Decode canonical ArtifactV1 bytes with explicit decode resource bounds.
+pub fn decodeWithOptions(allocator: std.mem.Allocator, bytes: []const u8, options: DecodeOptions) DecodeResultError!ArtifactV1 {
+    const decoded = try decodeWithProgramPlanOptions(allocator, bytes, options);
     defer deepFreeProgramPlan(allocator, decoded.plan);
     return decoded.artifact;
 }
 
 /// Decode canonical ArtifactV1 bytes and return the validated executable plan.
 pub fn decodeWithProgramPlan(allocator: std.mem.Allocator, bytes: []const u8) DecodeResultError!DecodedProgramPlanV1 {
+    return try decodeWithProgramPlanOptions(allocator, bytes, .{});
+}
+
+/// Decode canonical ArtifactV1 bytes and return the validated plan with explicit decode resource bounds.
+pub fn decodeWithProgramPlanOptions(allocator: std.mem.Allocator, bytes: []const u8, options: DecodeOptions) DecodeResultError!DecodedProgramPlanV1 {
+    if (bytes.len > options.max_artifact_bytes) return error.ArtifactTooLarge;
     if (bytes.len < artifact_header_len) return error.InvalidDirectoryBounds;
     if (!std.mem.eql(u8, bytes[0..8], artifact_magic)) return error.BadMagic;
     if (readU16(bytes, 8) != artifact_header_len) return error.UnsupportedVersion;
@@ -1041,6 +1060,20 @@ test "ArtifactV1 manifest rejects all-zero build fingerprints with a specific er
     );
 }
 
+test "ArtifactV1 public decode rejects oversized payloads before parsing" {
+    const allocator = std.testing.allocator;
+    const oversized = try allocator.alloc(u8, default_max_artifact_bytes + 1);
+    defer allocator.free(oversized);
+    @memset(oversized, 0);
+
+    try std.testing.expectError(error.ArtifactTooLarge, decode(allocator, oversized));
+    try std.testing.expectError(error.ArtifactTooLarge, decodeWithProgramPlan(allocator, oversized));
+    try std.testing.expectError(
+        error.ArtifactTooLarge,
+        decodeWithProgramPlanOptions(allocator, "bad", .{ .max_artifact_bytes = 1 }),
+    );
+}
+
 test "ArtifactV1 manifest validation accepts sparse ids and rejects duplicate ordinal host pairs" {
     const build_fingerprint = buildFingerprintFromSeed("manifest-linear-validation");
     const valid_ops = [_]CapabilityOpV1{
@@ -1430,6 +1463,8 @@ fn encodeRequirementTable(
 ) ![]u8 {
     var out = std.ArrayList(u8).empty;
     errdefer out.deinit(allocator);
+    var lookup = try CapabilityLookup.init(allocator, capabilities);
+    defer lookup.deinit();
     const resolved_capability_ids = try allocator.alloc(?u16, plan.requirements.len);
     defer allocator.free(resolved_capability_ids);
     @memset(resolved_capability_ids, null);
@@ -1438,7 +1473,7 @@ fn encodeRequirementTable(
         const capability_id = try resolveRequirementCapabilityId(
             plan,
             requirement_index,
-            capabilities,
+            lookup,
             resolved_capability_ids[0..requirement_index],
         );
         resolved_capability_ids[requirement_index] = capability_id;
@@ -1657,7 +1692,7 @@ fn decodeRequirementTable(allocator: std.mem.Allocator, string_bytes: []const u8
 fn resolveRequirementCapabilityId(
     plan: program_plan.ProgramPlan,
     requirement_index: usize,
-    capabilities: []const CapabilityV1,
+    lookup: CapabilityLookup,
     resolved_capability_ids: []const ?u16,
 ) !u16 {
     const requirement = plan.requirements[requirement_index];
@@ -1665,7 +1700,7 @@ fn resolveRequirementCapabilityId(
     for (plan.requirements[0..requirement_index], 0..) |previous, previous_requirement_index| {
         if (previous.op_count != requirement.op_count) continue;
         if (!std.mem.eql(u8, previous.label, requirement.label)) continue;
-        if (!requirementsShareCompatibleCapability(plan, previous_requirement_index, requirement_index, capabilities)) continue;
+        if (!requirementsShareCompatibleCapability(plan, previous_requirement_index, requirement_index, lookup)) continue;
         if (requirementOpNamesMatch(plan, previous_requirement_index, requirement_index)) {
             return resolved_capability_ids[previous_requirement_index] orelse error.InvalidRequiredSection;
         }
@@ -1673,22 +1708,77 @@ fn resolveRequirementCapabilityId(
     }
 
     var current_ordinal: usize = 0;
-    for (capabilities) |capability| {
-        if (!toolCapabilityMatchesRequirement(plan, requirement_index, capability)) continue;
+    for (lookup.capabilities, 0..) |capability, capability_index| {
+        if (!toolCapabilityMatchesRequirement(plan, requirement_index, lookup, capability_index)) continue;
         if (current_ordinal == wanted_ordinal) return capability.capability_id;
         current_ordinal += 1;
     }
     return error.InvalidRequiredSection;
 }
 
-fn findCapabilityById(capabilities: []const CapabilityV1, capability_id: u16) ?CapabilityV1 {
-    for (capabilities) |capability| {
-        if (capability.capability_id == capability_id) return capability;
+const CapabilityLookup = struct {
+    capabilities: []const CapabilityV1,
+    by_id: std.AutoHashMap(u16, usize),
+    op_by_key: std.AutoHashMap(u64, usize),
+
+    fn init(allocator: std.mem.Allocator, capabilities: []const CapabilityV1) !@This() {
+        var by_id = std.AutoHashMap(u16, usize).init(allocator);
+        errdefer by_id.deinit();
+        var op_by_key = std.AutoHashMap(u64, usize).init(allocator);
+        errdefer op_by_key.deinit();
+
+        for (capabilities, 0..) |capability, capability_index| {
+            const id_entry = try by_id.getOrPut(capability.capability_id);
+            if (id_entry.found_existing) return error.InvalidRequiredSection;
+            id_entry.value_ptr.* = capability_index;
+
+            for (capability.ops, 0..) |op, op_index| {
+                const key = capabilityOpLookupKey(capability_index, op.plan_op_ordinal, op.host_op_kind);
+                const op_entry = try op_by_key.getOrPut(key);
+                if (op_entry.found_existing) return error.InvalidRequiredSection;
+                op_entry.value_ptr.* = op_index;
+            }
+        }
+
+        return .{
+            .capabilities = capabilities,
+            .by_id = by_id,
+            .op_by_key = op_by_key,
+        };
     }
-    return null;
+
+    fn deinit(self: *@This()) void {
+        self.by_id.deinit();
+        self.op_by_key.deinit();
+    }
+
+    fn capabilityIndexById(self: @This(), capability_id: u16) ?usize {
+        return self.by_id.get(capability_id);
+    }
+
+    fn capabilityOp(self: @This(), capability_index: usize, plan_op_ordinal: u16, host_op_kind: HostOpKind) ?CapabilityOpV1 {
+        const op_index = self.op_by_key.get(capabilityOpLookupKey(capability_index, plan_op_ordinal, host_op_kind)) orelse return null;
+        return self.capabilities[capability_index].ops[op_index];
+    }
+};
+
+fn capabilityOpLookupKey(capability_index: usize, plan_op_ordinal: u16, host_op_kind: HostOpKind) u64 {
+    const host_bit: u64 = switch (host_op_kind) {
+        .call => 0,
+        .after_call => 1,
+    };
+    return (@as(u64, @intCast(capability_index)) << 17) |
+        (@as(u64, plan_op_ordinal) << 1) |
+        host_bit;
 }
 
-fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_index: usize, capability: CapabilityV1) bool {
+fn toolCapabilityMatchesRequirement(
+    plan: program_plan.ProgramPlan,
+    requirement_index: usize,
+    lookup: CapabilityLookup,
+    capability_index: usize,
+) bool {
+    const capability = lookup.capabilities[capability_index];
     const requirement = plan.requirements[requirement_index];
     const label_matches = std.mem.eql(u8, capability.label, requirement.label);
     if (capability.kind != .tool) return false;
@@ -1700,15 +1790,11 @@ fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_
     const op_end = op_start + requirement.op_count;
     if (op_end > plan.ops.len) return false;
     for (plan.ops[op_start..op_end], 0..) |plan_op, op_offset| {
-        const capability_op = findCapabilityOpByPlanOrdinalAndGlobalName(
-            capability.ops,
-            @intCast(op_offset),
-            .call,
-        ) orelse return false;
+        const capability_op = lookup.capabilityOp(capability_index, @intCast(op_offset), .call) orelse return false;
         if (capability_op.payload_codec != mapPlanCodecToCapabilityCodec(plan_op.payload_codec)) return false;
         const expected_result_codec = capabilityResultCodecForOp(plan, op_start + op_offset) catch return false;
         if (capability_op.result_codec != mapPlanCodecToCapabilityCodec(expected_result_codec)) return false;
-        const matched_after_op = findCapabilityOpByPlanOrdinalAndGlobalName(capability.ops, @intCast(op_offset), .after_call);
+        const matched_after_op = lookup.capabilityOp(capability_index, @intCast(op_offset), .after_call);
         if (plan_op.has_after) {
             const after_op = matched_after_op orelse return false;
             const after_payload_codec = afterCapabilityPayloadCodecForOp(plan, @intCast(op_start + op_offset)) orelse return false;
@@ -1726,11 +1812,11 @@ fn requirementsShareCompatibleCapability(
     plan: program_plan.ProgramPlan,
     requirement_index: usize,
     other_requirement_index: usize,
-    capabilities: []const CapabilityV1,
+    lookup: CapabilityLookup,
 ) bool {
-    for (capabilities) |capability| {
-        if (toolCapabilityMatchesRequirement(plan, requirement_index, capability) and
-            toolCapabilityMatchesRequirement(plan, other_requirement_index, capability))
+    for (lookup.capabilities, 0..) |_, capability_index| {
+        if (toolCapabilityMatchesRequirement(plan, requirement_index, lookup, capability_index) and
+            toolCapabilityMatchesRequirement(plan, other_requirement_index, lookup, capability_index))
         {
             return true;
         }
@@ -1739,15 +1825,18 @@ fn requirementsShareCompatibleCapability(
 }
 
 fn validateRequirementCapabilityOpNameDisambiguation(
+    allocator: std.mem.Allocator,
     plan: program_plan.ProgramPlan,
     capabilities: []const CapabilityV1,
 ) !void {
+    var lookup = try CapabilityLookup.init(allocator, capabilities);
+    defer lookup.deinit();
     for (plan.requirements, 0..) |_, requirement_index| {
         other_requirement_loop: for (plan.requirements[requirement_index + 1 ..], requirement_index + 1..) |_, other_requirement_index| {
             if (requirementOpNamesMatch(plan, requirement_index, other_requirement_index)) continue :other_requirement_loop;
-            for (capabilities) |capability| {
-                if (toolCapabilityMatchesRequirement(plan, requirement_index, capability) and
-                    toolCapabilityMatchesRequirement(plan, other_requirement_index, capability))
+            for (lookup.capabilities, 0..) |_, capability_index| {
+                if (toolCapabilityMatchesRequirement(plan, requirement_index, lookup, capability_index) and
+                    toolCapabilityMatchesRequirement(plan, other_requirement_index, lookup, capability_index))
                 {
                     return error.InvalidRequiredSection;
                 }
@@ -1799,17 +1888,6 @@ fn generatedToolIdMatchesRequirementLabel(tool_id: []const u8, requirement_label
     return cursor == inner.len;
 }
 
-fn findCapabilityOpByPlanOrdinalAndGlobalName(
-    ops: []const CapabilityOpV1,
-    plan_op_ordinal: u16,
-    host_op_kind: HostOpKind,
-) ?CapabilityOpV1 {
-    for (ops) |op| {
-        if (op.plan_op_ordinal == plan_op_ordinal and op.host_op_kind == host_op_kind) return op;
-    }
-    return null;
-}
-
 fn validateRequirementCapabilityMappings(
     allocator: std.mem.Allocator,
     plan: program_plan.ProgramPlan,
@@ -1817,6 +1895,10 @@ fn validateRequirementCapabilityMappings(
     capabilities: []const CapabilityV1,
 ) !void {
     if (plan.requirements.len != capability_ids.len) return error.InvalidRequiredSection;
+    var lookup = try CapabilityLookup.init(allocator, capabilities);
+    defer lookup.deinit();
+    var first_req_by_cap = std.AutoHashMap(u16, usize).init(allocator);
+    defer first_req_by_cap.deinit();
     const resolved_capability_ids = try allocator.alloc(?u16, capability_ids.len);
     defer allocator.free(resolved_capability_ids);
     @memset(resolved_capability_ids, null);
@@ -1824,18 +1906,18 @@ fn validateRequirementCapabilityMappings(
         const expected_capability_id = try resolveRequirementCapabilityId(
             plan,
             requirement_index,
-            capabilities,
+            lookup,
             resolved_capability_ids[0..requirement_index],
         );
         resolved_capability_ids[requirement_index] = expected_capability_id;
         if (capability_id != expected_capability_id) return error.InvalidRequiredSection;
-        const capability = findCapabilityById(capabilities, capability_id) orelse return error.InvalidRequiredSection;
-        if (!toolCapabilityMatchesRequirement(plan, requirement_index, capability)) return error.InvalidRequiredSection;
-        other_capability_loop: for (capability_ids[requirement_index + 1 ..], requirement_index + 1..) |other_capability_id, other_requirement_index| {
-            if (capability_id != other_capability_id) continue :other_capability_loop;
-            if (requirementOpNamesMatch(plan, requirement_index, other_requirement_index)) continue :other_capability_loop;
+        const capability_index = lookup.capabilityIndexById(capability_id) orelse return error.InvalidRequiredSection;
+        if (!toolCapabilityMatchesRequirement(plan, requirement_index, lookup, capability_index)) return error.InvalidRequiredSection;
+        const first_entry = try first_req_by_cap.getOrPut(capability_id);
+        if (first_entry.found_existing and !requirementOpNamesMatch(plan, first_entry.value_ptr.*, requirement_index)) {
             return error.InvalidRequiredSection;
         }
+        if (!first_entry.found_existing) first_entry.value_ptr.* = requirement_index;
     }
 }
 
