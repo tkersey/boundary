@@ -101,6 +101,7 @@ pub fn parseArgs(args: []const []const u8) ParseArgsResult {
 
     var request: ArtifactRequest = .{ .path = "" };
     var saw_artifact = false;
+    var saw_output_format = false;
     var index: usize = 1;
     while (index < args.len) {
         const arg = args[index];
@@ -115,11 +116,14 @@ pub fn parseArgs(args: []const []const u8) ParseArgsResult {
             continue;
         }
         if (std.mem.eql(u8, arg, "--json")) {
+            if (saw_output_format) return .{ .invalid = "choose either --json or --format <text|json>, not both" };
+            saw_output_format = true;
             request.format = .json;
             index += 1;
             continue;
         }
         if (std.mem.eql(u8, arg, "--format")) {
+            if (saw_output_format) return .{ .invalid = "choose either --json or --format <text|json>, not both" };
             if (index + 1 >= args.len or std.mem.startsWith(u8, args[index + 1], "--")) {
                 return .{ .invalid = "missing required --format <text|json>" };
             }
@@ -130,6 +134,7 @@ pub fn parseArgs(args: []const []const u8) ParseArgsResult {
                 .json
             else
                 return .{ .invalid = "unsupported --format value; expected text or json" };
+            saw_output_format = true;
             index += 2;
             continue;
         }

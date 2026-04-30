@@ -963,7 +963,7 @@ fn rejectUnrepresentableMixedAfterOps(
 ) void {
     if (mixedAfterConflict(graph, flat_ops)) |conflict| {
         @compileError(std.fmt.comptimePrint(
-            "public lowering rejected mixed direct and explicit-continuation uses of {s}.{s} in source function {s}: ProgramPlan after metadata is function/op scoped",
+            "public lowering rejected mixed direct and explicit-continuation uses of {s}.{s} in source function {s}; use one call style for this operation in that function, or move one form into a separate helper",
             .{ conflict.requirement_label, conflict.op_name, conflict.function_name },
         ));
     }
