@@ -1782,13 +1782,17 @@ fn toolCapabilityMatchesRequirement(
     const requirement = plan.requirements[requirement_index];
     const label_matches = std.mem.eql(u8, capability.label, requirement.label);
     if (capability.kind != .tool) return false;
-    if (capability.ops.len < requirement.op_count) return false;
     if (!label_matches) {
         if (!generatedToolIdMatchesRequirementLabel(capability.label, requirement.label)) return false;
     }
     const op_start = requirement.first_op;
     const op_end = op_start + requirement.op_count;
     if (op_end > plan.ops.len) return false;
+    var expected_capability_ops: usize = requirement.op_count;
+    for (plan.ops[op_start..op_end]) |plan_op| {
+        if (plan_op.has_after) expected_capability_ops += 1;
+    }
+    if (capability.ops.len != expected_capability_ops) return false;
     for (plan.ops[op_start..op_end], 0..) |plan_op, op_offset| {
         const capability_op = lookup.capabilityOp(capability_index, @intCast(op_offset), .call) orelse return false;
         if (capability_op.payload_codec != mapPlanCodecToCapabilityCodec(plan_op.payload_codec)) return false;
@@ -4934,6 +4938,73 @@ test "ArtifactV1 encode and decode accept sparse explicit capability op ids" {
         decoded.capabilities[0].ops[0].op_id,
         decoded.capabilities[0].ops[1].op_id,
     });
+}
+
+test "ArtifactV1 encode rejects required capabilities with unused extra ops" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-extra-capability-op");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.extra_capability_op",
+        .ir_hash = 0xaf2,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "only",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .unit,
+        }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const capabilities = [_]CapabilityV1{.{
+        .capability_id = 5,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{
+            .{
+                .capability_id = 5,
+                .op_id = 4,
+                .host_op_kind = .call,
+                .payload_codec = .unit,
+                .result_codec = .unit,
+                .plan_op_ordinal = 0,
+            },
+            .{
+                .capability_id = 5,
+                .op_id = 6,
+                .host_op_kind = .call,
+                .payload_codec = .unit,
+                .result_codec = .unit,
+                .plan_op_ordinal = 1,
+            },
+        },
+    }};
+
+    try std.testing.expectError(error.InvalidRequiredSection, encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    }));
 }
 
 test "ArtifactV1 decode rejects custom capability manifests with all-zero multi-op ordinals" {

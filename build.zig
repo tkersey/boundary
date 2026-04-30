@@ -4568,14 +4568,16 @@ pub fn build(b: *std.Build) void {
         b.invalid_user_input = true;
         return;
     }
-    if (artifact_report_format) |format| {
-        if (!std.mem.eql(u8, format, "text") and !std.mem.eql(u8, format, "json")) {
-            std.log.err(
-                "`-Dagent-vm-artifact-format` must be `text` or `json`; got `{s}`.",
-                .{format},
-            );
-            b.invalid_user_input = true;
-            return;
+    if (agent_vm_report_run_requested == true) {
+        if (artifact_report_format) |format| {
+            if (!std.mem.eql(u8, format, "text") and !std.mem.eql(u8, format, "json")) {
+                std.log.err(
+                    "`-Dagent-vm-artifact-format` must be `text` or `json`; got `{s}`.",
+                    .{format},
+                );
+                b.invalid_user_input = true;
+                return;
+            }
         }
     }
     const invocation_args_unknown = skip_execution != true and

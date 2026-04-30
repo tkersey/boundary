@@ -23,6 +23,18 @@ test "build script exports the ability_agent_vm module from the retained source 
     ) != null);
 }
 
+test "ability_agent_vm public host namespace exposes data value bounds" {
+    const bounds: ability_agent_vm.host.DataValueBounds = .{
+        .max_depth = 1,
+        .max_nodes = 2,
+        .max_bytes = 3,
+    };
+
+    try std.testing.expectEqual(@as(usize, 1), bounds.max_depth);
+    try std.testing.expectEqual(@as(usize, 2), bounds.max_nodes);
+    try std.testing.expectEqual(@as(usize, 3), bounds.max_bytes);
+}
+
 const SeenRequest = struct {
     calls: usize = 0,
     saw_tell: bool = false,
@@ -424,7 +436,7 @@ test "ability_agent_vm public output snapshots carry explicit borrowed ownership
     }
 }
 
-test "ability_agent_vm public output snapshot fallback echoes declared labels" {
+test "ability_agent_vm public output snapshot fallback echoes one declared label" {
     const allocator = std.testing.allocator;
     const adapter: ability_agent_vm.host.Adapter = .{
         .ctx = null,
@@ -443,8 +455,8 @@ test "ability_agent_vm public output snapshot fallback echoes declared labels" {
                 allocator_inner: std.mem.Allocator,
                 declared_outputs: []const ability_agent_vm.host.OutputDescriptor,
             ) anyerror![]ability_agent_vm.host.DataValue {
-                try std.testing.expectEqual(@as(usize, 2), declared_outputs.len);
-                const values = try allocator_inner.alloc(ability_agent_vm.host.DataValue, 2);
+                try std.testing.expectEqual(@as(usize, 1), declared_outputs.len);
+                const values = try allocator_inner.alloc(ability_agent_vm.host.DataValue, 1);
                 var initialized: usize = 0;
                 errdefer {
                     for (values[0..initialized]) |*value| value.deinit(allocator_inner);
@@ -452,9 +464,45 @@ test "ability_agent_vm public output snapshot fallback echoes declared labels" {
                 }
                 values[0] = .{ .string = try allocator_inner.dupe(u8, "a") };
                 initialized += 1;
-                values[1] = .{ .string = try allocator_inner.dupe(u8, "b") };
-                initialized += 1;
                 return values;
+            }
+        }.collect,
+    };
+    const descriptors = [_]ability_agent_vm.host.OutputDescriptor{.{
+        .label = "only",
+        .codec = .string,
+    }};
+
+    const snapshots = try adapter.collectOutputSnapshots(allocator, &descriptors);
+    defer {
+        for (snapshots) |*snapshot| snapshot.deinit(allocator);
+        allocator.free(snapshots);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), snapshots.len);
+    try std.testing.expectEqualStrings("only", snapshots[0].label.?);
+}
+
+test "ability_agent_vm public output snapshot fallback rejects multi-output positional collection" {
+    const allocator = std.testing.allocator;
+    const adapter: ability_agent_vm.host.Adapter = .{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                _: *const ability_agent_vm.host.Request,
+            ) anyerror!ability_agent_vm.host.Response {
+                return error.TestUnexpectedDispatch;
+            }
+        }.dispatch,
+        .collectOutputsFn = struct {
+            fn collect(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                _: []const ability_agent_vm.host.OutputDescriptor,
+            ) anyerror![]ability_agent_vm.host.DataValue {
+                return error.TestUnexpectedLegacyCollection;
             }
         }.collect,
     };
@@ -469,15 +517,10 @@ test "ability_agent_vm public output snapshot fallback echoes declared labels" {
         },
     };
 
-    const snapshots = try adapter.collectOutputSnapshots(allocator, &descriptors);
-    defer {
-        for (snapshots) |*snapshot| snapshot.deinit(allocator);
-        allocator.free(snapshots);
-    }
-
-    try std.testing.expectEqual(@as(usize, 2), snapshots.len);
-    try std.testing.expectEqualStrings("first", snapshots[0].label.?);
-    try std.testing.expectEqualStrings("second", snapshots[1].label.?);
+    try std.testing.expectError(
+        error.MissingOutputSnapshot,
+        adapter.collectOutputSnapshots(allocator, &descriptors),
+    );
 }
 
 test "ability_agent_vm public output snapshot fallback rejects count mismatch before labeling" {

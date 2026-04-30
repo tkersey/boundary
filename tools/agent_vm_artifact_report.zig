@@ -112,7 +112,7 @@ pub fn parseArgs(args: []const []const u8) ParseArgsResult {
         const arg = args[index];
         if (std.mem.eql(u8, arg, "--artifact")) {
             if (saw_artifact) return .{ .invalid = "duplicate --artifact flag" };
-            if (index + 1 >= args.len) {
+            if (index + 1 >= args.len or isKnownFlag(args[index + 1])) {
                 return .{ .invalid = "missing required --artifact <path>" };
             }
             saw_artifact = true;
@@ -161,6 +161,15 @@ pub fn parseArgs(args: []const []const u8) ParseArgsResult {
     return .{ .artifact = request };
 }
 
+fn isKnownFlag(arg: []const u8) bool {
+    return std.mem.eql(u8, arg, "--artifact") or
+        std.mem.eql(u8, arg, "--format") or
+        std.mem.eql(u8, arg, "--json") or
+        std.mem.eql(u8, arg, "--help") or
+        std.mem.eql(u8, arg, "-h") or
+        std.mem.eql(u8, arg, "--version");
+}
+
 fn noHostAdapter() ability_agent_vm.host.Adapter {
     return .{
         .ctx = null,
@@ -181,6 +190,20 @@ fn artifactSizeExceededVerdict() Verdict {
         .status = .incompatible,
         .code = "resource_exhausted",
         .detail = "artifact size exceeds fixed conformance profile limit max_artifact_bytes=16777216",
+    };
+}
+
+/// Convert one artifact file-read failure into the stable JSON verdict shape.
+pub fn artifactReadFailureVerdict(err: anyerror) Verdict {
+    return .{
+        .status = .invalid,
+        .code = "artifact_read_failed",
+        .detail = switch (err) {
+            error.FileNotFound => "artifact file could not be read (FileNotFound): pass an existing ArtifactV1 file with --artifact <path>",
+            error.AccessDenied => "artifact file could not be read (AccessDenied): pass a readable ArtifactV1 file with --artifact <path>",
+            error.IsDir => "artifact file could not be read (IsDir): pass a file path, not a directory, with --artifact <path>",
+            else => "artifact file could not be read: pass an existing readable ArtifactV1 file with --artifact <path>",
+        },
     };
 }
 
@@ -427,6 +450,13 @@ pub fn main(init: std.process.Init) anyerror!void {
         },
         .artifact => |request| {
             const read_result = readArtifactForReport(init.io, allocator, request.path) catch |err| {
+                if (request.format == .json) {
+                    var stdout_buffer: [512]u8 = undefined;
+                    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+                    try writeJsonVerdict(&stdout_writer.interface, artifactReadFailureVerdict(err));
+                    try stdout_writer.interface.flush();
+                    std.process.exit(2);
+                }
                 var stderr_buffer: [512]u8 = undefined;
                 var stderr_writer = std.Io.File.stderr().writerStreaming(init.io, &stderr_buffer);
                 const stderr = &stderr_writer.interface;

@@ -39,6 +39,14 @@ test "agent-vm-artifact-report parses artifact flag" {
         "duplicate --json flag",
         report.parseArgs(&.{ "agent-vm-artifact-report", "--json", "--json", "--artifact", "artifact.bin" }).invalid,
     );
+    try std.testing.expectEqualStrings(
+        "missing required --artifact <path>",
+        report.parseArgs(&.{ "agent-vm-artifact-report", "--artifact", "--json" }).invalid,
+    );
+    try std.testing.expectEqualStrings(
+        "--fixture.artifact",
+        report.parseArgs(&.{ "agent-vm-artifact-report", "--artifact", "--fixture.artifact" }).artifact.path,
+    );
     try std.testing.expect(report.parseArgs(&.{ "agent-vm-artifact-report", "--help" }) == .help);
     try std.testing.expect(report.parseArgs(&.{ "agent-vm-artifact-report", "--version" }) == .version);
     try std.testing.expectEqualStrings(
@@ -117,4 +125,14 @@ test "agent-vm-artifact-report classifies files over artifact-size profile cap" 
             );
         },
     }
+}
+
+test "agent-vm-artifact-report maps read failures to stable JSON verdict fields" {
+    const verdict = report.artifactReadFailureVerdict(error.FileNotFound);
+    try std.testing.expectEqual(report.VerdictStatus.invalid, verdict.status);
+    try std.testing.expectEqualStrings("artifact_read_failed", verdict.code);
+    try std.testing.expectEqualStrings(
+        "artifact file could not be read (FileNotFound): pass an existing ArtifactV1 file with --artifact <path>",
+        verdict.detail,
+    );
 }
