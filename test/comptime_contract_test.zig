@@ -93,3 +93,36 @@ test "ability_compile CompileSource exposes the lowered runtime plan at comptime
     try std.testing.expect(found_writer_capability);
     try decoded.validate(std.testing.allocator);
 }
+
+test "ability_compile rejects required capabilities with unused extra ops" {
+    const artifact = ability_compile.artifact;
+    const plan = CompiledFixture.runtime_plan;
+    const capabilities = [_]artifact.CapabilityV1{.{
+        .capability_id = 5,
+        .kind = .tool,
+        .label = "generated/writer@v1",
+        .ops = &.{
+            .{
+                .capability_id = 5,
+                .op_id = 4,
+                .host_op_kind = .call,
+                .payload_codec = .string,
+                .result_codec = .unit,
+                .plan_op_ordinal = 0,
+            },
+            .{
+                .capability_id = 5,
+                .op_id = 6,
+                .host_op_kind = .call,
+                .payload_codec = .string,
+                .result_codec = .unit,
+                .plan_op_ordinal = 1,
+            },
+        },
+    }};
+
+    try std.testing.expectError(error.InvalidRequiredSection, artifact.encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = artifact.buildFingerprintFromSeed("ability-comptime-contract-extra-capability-op"),
+        .capabilities = &capabilities,
+    }));
+}

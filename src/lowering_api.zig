@@ -542,7 +542,7 @@ fn assertSourceOwnership(comptime source_ref: SourceRef) void {
     if (source_ref.repo_path.len == 0) @compileError("public lowering source ownership requires a non-empty repo_path");
     if (source_ref.caller_file.len == 0) @compileError("public lowering source ownership requires a non-empty caller_file");
     if (!sourceOwnershipMatches(source_ref)) {
-        @compileError("public lowering source ownership requires caller_file to end with repo_path");
+        @compileError("public lowering source ownership failed: pass the repo-relative path for the file that calls source(...), for example source(\"src/main.zig\", @src())");
     }
 }
 
@@ -867,7 +867,7 @@ fn analyzeProgramGraphWithRootSource(
         error.TooManyHelperUses => @compileError("public lowering source graph exceeded the supported helper-use limit"),
         error.TooManyHelperEdges => @compileError("public lowering source graph exceeded the supported helper-edge limit"),
         error.TooManyOpUses => @compileError("public lowering source graph exceeded the supported op-use limit"),
-        error.UnsupportedEffectAccess => @compileError("public lowering helper inference supports only the retained direct and alias-based effect access patterns"),
+        error.UnsupportedEffectAccess => @compileError("public lowering supports direct calls like eff.requirement.op(...) or a simple requirement alias followed by alias.op(...); rewrite indirect effect access to one of those forms"),
         error.UnsupportedImportPath => @compileError("public lowering supports only non-escaping .zig imports for cross-file helpers"),
     };
 }

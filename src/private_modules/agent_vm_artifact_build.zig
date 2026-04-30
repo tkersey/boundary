@@ -1782,13 +1782,17 @@ fn toolCapabilityMatchesRequirement(
     const requirement = plan.requirements[requirement_index];
     const label_matches = std.mem.eql(u8, capability.label, requirement.label);
     if (capability.kind != .tool) return false;
-    if (capability.ops.len < requirement.op_count) return false;
     if (!label_matches) {
         if (!generatedToolIdMatchesRequirementLabel(capability.label, requirement.label)) return false;
     }
     const op_start = requirement.first_op;
     const op_end = op_start + requirement.op_count;
     if (op_end > plan.ops.len) return false;
+    var expected_capability_ops: usize = requirement.op_count;
+    for (plan.ops[op_start..op_end]) |plan_op| {
+        if (plan_op.has_after) expected_capability_ops += 1;
+    }
+    if (capability.ops.len != expected_capability_ops) return false;
     for (plan.ops[op_start..op_end], 0..) |plan_op, op_offset| {
         const capability_op = lookup.capabilityOp(capability_index, @intCast(op_offset), .call) orelse return false;
         if (capability_op.payload_codec != mapPlanCodecToCapabilityCodec(plan_op.payload_codec)) return false;

@@ -6,6 +6,8 @@ const std = @import("std");
 pub const host = struct {
     /// Typed recursive payload tree accepted by the supported host boundary.
     pub const DataValue = host_api.DataValueV1;
+    /// Defensive bounds for cloning recursive host payload trees.
+    pub const DataValueBounds = host_api.DataValueBoundsV1;
     /// Ownership mode for public host payload values.
     pub const DataValueOwnership = host_api.DataValueOwnershipV1;
     /// Typed failure payload surfaced by the supported host boundary.
@@ -168,8 +170,8 @@ pub const host = struct {
         /// adapter must not deinit it or retain its slices after returning.
         dispatchFn: *const fn (ctx: ?*anyopaque, allocator: std.mem.Allocator, request: *const Request) anyerror!Response,
         collectOutputSnapshotsFn: ?*const fn (ctx: ?*anyopaque, allocator: std.mem.Allocator, declared_outputs: []const OutputDescriptor) anyerror![]OutputSnapshot = null,
-        /// Legacy completion hook for declared ArtifactV1 entry outputs.
-        /// Returned values must be allocator-owned and match the declared outputs exactly.
+        /// Legacy completion hook for a single declared ArtifactV1 entry output.
+        /// Multi-output adapters must use collectOutputSnapshotsFn so labels are explicit.
         collectOutputsFn: ?*const fn (ctx: ?*anyopaque, allocator: std.mem.Allocator, declared_outputs: []const OutputDescriptor) anyerror![]DataValue = null,
 
         /// Dispatch one structural host request.
@@ -205,6 +207,7 @@ pub const host = struct {
             }
 
             const collect = self.collectOutputsFn orelse return error.MissingOutputSnapshot;
+            if (declared_outputs.len > 1) return error.MissingOutputSnapshot;
             var values = try collect(self.ctx, allocator, declared_outputs);
             defer allocator.free(values);
             errdefer for (values) |*value| value.deinit(allocator);

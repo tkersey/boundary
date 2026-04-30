@@ -369,7 +369,7 @@ fn assertTransformHandlerBundle(comptime HandlerType: type, comptime StateType: 
     } else if (@FieldType(HandlerType, "state") != StateType) {
         @compileError("generated transform handler state field must match state_type");
     }
-    if (!@hasDecl(HandlerType, opName(Op))) @compileError("generated transform handler is missing op method");
+    if (!@hasDecl(HandlerType, opName(Op))) @compileError(std.fmt.comptimePrint("generated transform handler is missing method '{s}'", .{opName(Op)}));
 
     const ResumeFn = @TypeOf(@field(HandlerType, opName(Op)));
     if (comptime OpPayloadType(Op) == void) {
@@ -391,7 +391,7 @@ fn assertTransformHandlerBundle(comptime HandlerType: type, comptime StateType: 
 
 fn assertChoiceHandlerBundle(comptime HandlerType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime Op: type) void {
     _ = ErrorSetType;
-    if (!@hasDecl(HandlerType, opName(Op))) @compileError("generated choice handler is missing op method");
+    if (!@hasDecl(HandlerType, opName(Op))) @compileError(std.fmt.comptimePrint("generated choice handler is missing method '{s}'", .{opName(Op)}));
     const DecisionType = choice.Decision(OpResumeType(Op), AnswerType);
     const ResumeFn = @TypeOf(@field(HandlerType, opName(Op)));
     if (comptime OpPayloadType(Op) == void) {
@@ -413,7 +413,7 @@ fn assertChoiceHandlerBundle(comptime HandlerType: type, comptime AnswerType: ty
 
 fn assertAbortHandlerBundle(comptime HandlerType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime Op: type) void {
     _ = ErrorSetType;
-    if (!@hasDecl(HandlerType, opName(Op))) @compileError("generated abort handler is missing op method");
+    if (!@hasDecl(HandlerType, opName(Op))) @compileError(std.fmt.comptimePrint("generated abort handler is missing method '{s}'", .{opName(Op)}));
     const DirectFn = @TypeOf(@field(HandlerType, opName(Op)));
     if (comptime OpPayloadType(Op) == void) {
         if (!fnParamsMatch(DirectFn, &.{*HandlerType}) or !returnTypeMatches(HandlerReturnType(HandlerType, Op), AnswerType)) {
