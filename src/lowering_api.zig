@@ -887,8 +887,10 @@ fn mixedAfterConflict(
     comptime graph: source_graph_embed.ProgramGraph,
     comptime flat_ops: []const FlatOp,
 ) ?MixedAfterConflict {
+    const reachable = reachableFunctions(graph);
     for (graph.direct_op_uses) |after_use| {
         if (!after_use.has_after) continue;
+        if (!reachable[after_use.function_index]) continue;
 
         for (flat_ops) |op| {
             if (op.has_after) continue;
@@ -3162,6 +3164,89 @@ test "caller-owned lowering detects same-function mixed direct and continuation 
     try std.testing.expectEqualStrings("picker", conflict.requirement_label);
     try std.testing.expectEqualStrings("pick", conflict.op_name);
     try std.testing.expectEqualStrings("body", conflict.function_name);
+}
+
+test "caller-owned lowering ignores unreachable mixed direct and continuation after metadata" {
+    const current_src = @src();
+    const caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "/tmp/ability-owned-open-row/unreachable_mixed_after.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "unreachableMixedAfterCaller",
+    };
+    const source_text: [:0]const u8 =
+        \\pub fn body(eff: anytype) anyerror!i32 {
+        \\    return try eff.picker.pick.perform(7);
+        \\}
+        \\
+        \\pub fn unused(eff: anytype) anyerror!i32 {
+        \\    _ = try eff.picker.pick.perform(1);
+        \\    return try eff.picker.pick.perform(2, struct {
+        \\        pub fn apply(value: i32, _: anytype) anyerror!i32 {
+        \\            return value;
+        \\        }
+        \\    });
+        \\}
+    ;
+    const row = comptime effect_ir.rowFromSpec(.{
+        .picker = .{
+            .pick = effect_ir.Transform(i32, i32),
+        },
+    });
+    const graph = comptime analyzeProgramGraphWithRootSource(
+        "/tmp/ability-owned-open-row/unreachable_mixed_after.zig",
+        source_text,
+        &.{},
+        "body",
+    );
+    if (comptime mixedAfterConflict(graph, flatOpsForRow(row)) != null) {
+        @compileError("unreachable mixed same-function after fixture should not trip the guard");
+    }
+
+    const ProgramType = lower(sourceWithContent(
+        "/tmp/ability-owned-open-row/unreachable_mixed_after.zig",
+        caller,
+        source_text,
+    ), .{
+        .label = "lowering_api.unreachable_mixed_after",
+        .entry_symbol = "body",
+        .row = row,
+        .ValueType = i32,
+    });
+
+    const Handlers = struct {
+        picker: struct {
+            pick_calls: usize = 0,
+            after_calls: usize = 0,
+
+            pub fn pick(self: *@This(), payload: i32) anyerror!i32 {
+                self.pick_calls += 1;
+                return payload;
+            }
+
+            pub fn afterPick(self: *@This(), answer: i32) anyerror!i32 {
+                self.after_calls += 1;
+                return answer + 100;
+            }
+        } = .{},
+    };
+
+    const plan = ProgramType.runtime_plan;
+    const entry_function = plan.functions[plan.entry_index];
+    const entry_requirement = plan.requirements[entry_function.first_requirement];
+    const entry_op = plan.ops[entry_requirement.first_op];
+    try std.testing.expect(!entry_op.has_after);
+
+    try ProgramType.validate(std.testing.allocator);
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers: Handlers = .{};
+    const result = try ProgramType.run(&runtime, &handlers);
+    try std.testing.expectEqual(@as(i32, 7), result.value);
+    try std.testing.expectEqual(@as(usize, 1), handlers.picker.pick_calls);
+    try std.testing.expectEqual(@as(usize, 0), handlers.picker.after_calls);
 }
 
 test "owned repo alias callers preserve absolute helper witness paths during lowering" {
