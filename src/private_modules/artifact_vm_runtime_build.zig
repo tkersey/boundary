@@ -102,7 +102,9 @@ pub fn runArtifactWithOptions(
     options: RunOptionsV1,
 ) anyerror!RunArtifactResultV1 {
     if (bytes.len > options.max_artifact_bytes) return try invalidArtifactResult(allocator, error.ArtifactTooLarge);
-    var decoded_with_plan = artifact.decodeWithProgramPlan(allocator, bytes) catch |err| switch (err) {
+    var decoded_with_plan = artifact.decodeWithProgramPlanOptions(allocator, bytes, .{
+        .max_artifact_bytes = options.max_artifact_bytes,
+    }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return try invalidArtifactResult(allocator, err),
     };
@@ -1613,6 +1615,39 @@ test "artifact runtime rejects artifacts above configured decode byte budget bef
         .rejected => |rejected| {
             try std.testing.expectEqualStrings("invalid_artifact", rejected.failure.code);
             try std.testing.expectEqualStrings("ArtifactTooLarge", rejected.failure.message);
+            try std.testing.expectEqual(@as(usize, 0), rejected.logs.len);
+        },
+        else => return error.TestUnexpectedRuntimeResult,
+    }
+}
+
+test "artifact runtime forwards raised artifact byte budget into decode" {
+    const allocator = std.testing.allocator;
+    const bytes = try allocator.alloc(u8, artifact.default_max_artifact_bytes + 1);
+    defer allocator.free(bytes);
+    @memset(bytes, 0);
+    const adapter = host.HostAdapterV1{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                _: host.HostEffectRequestV1,
+            ) anyerror!host.HostEffectResultV1 {
+                return error.TestUnexpectedDispatch;
+            }
+        }.dispatch,
+    };
+
+    var result = try runArtifactWithOptions(allocator, bytes, adapter, .{
+        .max_artifact_bytes = bytes.len,
+    });
+    defer result.deinit(allocator);
+
+    switch (result) {
+        .rejected => |rejected| {
+            try std.testing.expectEqualStrings("invalid_artifact", rejected.failure.code);
+            try std.testing.expectEqualStrings("BadMagic", rejected.failure.message);
             try std.testing.expectEqual(@as(usize, 0), rejected.logs.len);
         },
         else => return error.TestUnexpectedRuntimeResult,

@@ -5171,6 +5171,7 @@ pub fn build(b: *std.Build) void {
         test_runner_args.passthrough.items,
     );
     const vm_build_filters = [_][]const u8{
+        "raised artifact byte budget",
         "host-log response budget",
         "bounds completed value",
         "completed value budget failure cleans",
