@@ -15,6 +15,7 @@ pub const SupportStatus = enum {
 /// Public runtime error tag enum.
 pub const RuntimeErrorTag = enum {
     CrossThread,
+    ExecutionBudgetExceeded,
     FrontendSuspend,
     MissingPrompt,
     NonDiagonalComplete,
@@ -23,6 +24,7 @@ pub const RuntimeErrorTag = enum {
     RuntimeDestroyed,
 
     pub const cross_thread = RuntimeErrorTag.CrossThread;
+    pub const execution_budget_exceeded = RuntimeErrorTag.ExecutionBudgetExceeded;
     pub const frontend_suspend = RuntimeErrorTag.FrontendSuspend;
     pub const missing_prompt = RuntimeErrorTag.MissingPrompt;
     pub const non_diagonal_complete = RuntimeErrorTag.NonDiagonalComplete;
@@ -98,6 +100,7 @@ pub fn runtimeErrorTags() []const RuntimeErrorTag {
     return &.{
         .missing_prompt,
         .cross_thread,
+        .execution_budget_exceeded,
         .runtime_busy,
         .runtime_destroyed,
         .non_diagonal_complete,
@@ -111,6 +114,7 @@ pub fn runtimeErrorTagName(tag: RuntimeErrorTag) []const u8 {
     return switch (tag) {
         .MissingPrompt => "MissingPrompt",
         .CrossThread => "CrossThread",
+        .ExecutionBudgetExceeded => "ExecutionBudgetExceeded",
         .RuntimeBusy => "RuntimeBusy",
         .RuntimeDestroyed => "RuntimeDestroyed",
         .NonDiagonalComplete => "NonDiagonalComplete",
@@ -127,6 +131,7 @@ pub fn setupErrorNames(has_oom: bool) []const []const u8 {
 test "runtime error tag aliases stay source-compatible" {
     try @import("std").testing.expectEqual(RuntimeErrorTag.MissingPrompt, RuntimeErrorTag.missing_prompt);
     try @import("std").testing.expectEqual(RuntimeErrorTag.CrossThread, RuntimeErrorTag.cross_thread);
+    try @import("std").testing.expectEqual(RuntimeErrorTag.ExecutionBudgetExceeded, RuntimeErrorTag.execution_budget_exceeded);
     try @import("std").testing.expectEqual(RuntimeErrorTag.RuntimeBusy, RuntimeErrorTag.runtime_busy);
     try @import("std").testing.expectEqual(RuntimeErrorTag.RuntimeDestroyed, RuntimeErrorTag.runtime_destroyed);
     try @import("std").testing.expectEqual(RuntimeErrorTag.NonDiagonalComplete, RuntimeErrorTag.non_diagonal_complete);

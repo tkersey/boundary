@@ -6,6 +6,7 @@ const std = @import("std");
 pub const RuntimeError = error{
     MissingPrompt,
     CrossThread,
+    ExecutionBudgetExceeded,
     RuntimeBusy,
     RuntimeDestroyed,
     NonDiagonalComplete,
