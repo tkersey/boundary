@@ -561,21 +561,31 @@ fn parseRequestedTestSuiteSelectionAlloc(
     return parseTestSuiteSelectionAlloc(allocator, raw, specs);
 }
 
+fn testSuiteSelectionRawForValidation(
+    raw: ?[]const u8,
+    test_requested: bool,
+    skip_execution: bool,
+) ?[]const u8 {
+    if (!test_requested and skip_execution) return null;
+    return raw;
+}
+
 fn resolveTestSuiteSelection(
     b: *std.Build,
     raw: ?[]const u8,
     specs: []const TestSuiteSpec,
     test_requested: bool,
+    skip_execution: bool,
 ) ?TestSuiteSelection {
     const selection_result = parseRequestedTestSuiteSelectionAlloc(
         b.allocator,
-        raw,
+        testSuiteSelectionRawForValidation(raw, test_requested, skip_execution),
         specs,
         test_requested,
     ) catch |err|
         std.process.fatal("unable to parse -Dtest-suites: {s}", .{@errorName(err)});
 
-    if (!test_requested and raw != null) {
+    if (!test_requested and raw != null and !skip_execution) {
         switch (selection_result) {
             .selection => |selection| selection.deinit(),
             else => {},
@@ -3632,6 +3642,21 @@ test "test suite selection still validates raw option when test step not request
     }
 }
 
+test "test suite selection ignores raw option during discovery without test execution" {
+    try std.testing.expectEqual(
+        @as(?[]const u8, null),
+        testSuiteSelectionRawForValidation("does-not-exist", false, true),
+    );
+    try std.testing.expectEqualStrings(
+        "alpha",
+        testSuiteSelectionRawForValidation("alpha", false, false).?,
+    );
+    try std.testing.expectEqualStrings(
+        "alpha",
+        testSuiteSelectionRawForValidation("alpha", true, true).?,
+    );
+}
+
 test "test runner args accept split and equals filter forms" {
     const result = try parseTestRunnerArgsAlloc(
         std.testing.allocator,
@@ -5761,7 +5786,13 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "lexical-witness", .description = "Lexical witness suite", .run_step = run_lexical_witness_tests },
         .{ .suite_id = "lexical-with", .description = "Lexical with suite", .run_step = run_lexical_with_tests },
     };
-    const test_suite_selection = resolveTestSuiteSelection(b, test_suites_raw, &test_suites, test_requested) orelse return;
+    const test_suite_selection = resolveTestSuiteSelection(
+        b,
+        test_suites_raw,
+        &test_suites,
+        test_requested,
+        skip_execution orelse false,
+    ) orelse return;
     defer test_suite_selection.deinit();
     addSelectedTestSuites(test_step, &test_suites, test_suite_selection);
 
