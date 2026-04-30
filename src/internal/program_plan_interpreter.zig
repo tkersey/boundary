@@ -425,6 +425,25 @@ const OpResult = union(enum) {
     terminal: lowered_machine.ProgramValue,
 };
 
+fn opRequiresAfterFrame(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    handlers_ptr: anytype,
+    op_index: u16,
+) anyerror!bool {
+    if (compiled_plan.ops.len == 0) return error.ProgramContractViolation;
+    return switch (op_index) {
+        inline 0...(compiled_plan.ops.len - 1) => |active_index| blk: {
+            const op = compiled_plan.ops[active_index];
+            if (!op.has_after or op.mode == .abort) break :blk false;
+            const requirement = compiled_plan.requirements[op.requirement_index];
+            const handler_ptr = effectiveHandlerPtr(&@field(handlers_ptr.*, requirement.label));
+            const HandlerType = @TypeOf(handler_ptr.*);
+            break :blk comptime resolvedAfterMethodName(HandlerType, op.op_name) != null;
+        },
+        else => error.ProgramContractViolation,
+    };
+}
+
 /// One direct native function result while interpreting a ProgramPlan.
 pub const FunctionResult = union(enum) {
     value: lowered_machine.ProgramValue,
@@ -702,6 +721,10 @@ fn continueFunction(
                         getLocal(locals, instruction.aux)
                     else
                         return error.ProgramContractViolation;
+                    const reserve_after_frame = try opRequiresAfterFrame(compiled_plan, handlers_ptr, instruction.operand);
+                    if (reserve_after_frame) try ctx.reserveAfterFrame();
+                    var reserved_after_frame = reserve_after_frame;
+                    errdefer if (reserved_after_frame) ctx.releaseAfterFrame();
                     const result = try callOp(compiled_plan, handlers_ptr, function_result_codec, instruction.operand, payload);
                     switch (result) {
                         .resumed => |resumed_value| {
@@ -709,22 +732,31 @@ fn continueFunction(
                                 setLocal(locals, instruction.dst, resumed_value.value);
                             }
                             if (resumed_value.apply_after) {
-                                try ctx.reserveAfterFrame();
-                                errdefer ctx.releaseAfterFrame();
+                                if (!reserved_after_frame) return error.ProgramContractViolation;
                                 try after_stack.append(std.heap.page_allocator, instruction.operand);
+                                reserved_after_frame = false;
+                            } else if (reserved_after_frame) {
+                                ctx.releaseAfterFrame();
+                                reserved_after_frame = false;
                             }
                         },
-                        .terminal => |terminal| return unwindAfterStack(
-                            ctx,
-                            compiled_plan,
-                            function,
-                            handlers_ptr,
-                            function.value_codec,
-                            function_result_codec,
-                            unit_completion_mode,
-                            after_stack,
-                            .{ .terminal = terminal },
-                        ),
+                        .terminal => |terminal| {
+                            if (reserved_after_frame) {
+                                ctx.releaseAfterFrame();
+                                reserved_after_frame = false;
+                            }
+                            return unwindAfterStack(
+                                ctx,
+                                compiled_plan,
+                                function,
+                                handlers_ptr,
+                                function.value_codec,
+                                function_result_codec,
+                                unit_completion_mode,
+                                after_stack,
+                                .{ .terminal = terminal },
+                            );
+                        },
                     }
                 },
                 .compare_eq_zero => setLocal(locals, instruction.dst, .{
@@ -1424,23 +1456,89 @@ test "program plan interpreter fails closed on native after-frame budget exhaust
     };
     try compiled_plan.validate();
 
+    var dispatch_calls: usize = 0;
     var handlers = struct {
         tooling: struct {
-            pub fn dispatch(_: *@This()) void {
-                // The test only needs to enqueue after frames.
+            calls: *usize,
+
+            pub fn dispatch(self: *@This()) void {
+                self.calls.* += 1;
             }
 
             pub fn afterDispatch(_: *@This(), _: void) void {
                 // The budget should fail before these after hooks unwind.
             }
-        } = .{},
-    }{};
+        },
+    }{ .tooling = .{ .calls = &dispatch_calls } };
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     try std.testing.expectError(
         error.ExecutionBudgetExceeded,
         runEntryWithOptions(&runtime, compiled_plan, &handlers, .{ .max_after_frames = 1 }),
     );
+    try std.testing.expectEqual(@as(usize, 1), dispatch_calls);
+}
+
+test "program plan interpreter reserves native after-frame budget before dispatch" {
+    const compiled_plan: program_plan.ProgramPlan = .{
+        .label = "interpreter.budget.after_frame_pre_dispatch",
+        .ir_hash = 0x30e,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "dispatch",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .unit,
+            .has_after = true,
+        }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{ .kind = .call_op, .operand = 0, .aux = std.math.maxInt(u16) }},
+    };
+    try compiled_plan.validate();
+
+    var dispatch_calls: usize = 0;
+    var handlers = struct {
+        tooling: struct {
+            calls: *usize,
+
+            pub fn dispatch(self: *@This()) void {
+                self.calls.* += 1;
+            }
+
+            pub fn afterDispatch(_: *@This(), _: void) void {
+                // The budget gate should prevent this hook from becoming reachable.
+            }
+        },
+    }{ .tooling = .{ .calls = &dispatch_calls } };
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try std.testing.expectError(
+        error.ExecutionBudgetExceeded,
+        runEntryWithOptions(&runtime, compiled_plan, &handlers, .{ .max_after_frames = 0 }),
+    );
+    try std.testing.expectEqual(@as(usize, 0), dispatch_calls);
 }
 
 test "program plan interpreter rejects entry argument codec mismatches" {
