@@ -859,10 +859,114 @@ fn inferUsedOps(
     return used;
 }
 
+fn inferAfterOps(
+    comptime graph: source_graph_embed.ProgramGraph,
+    comptime flat_ops: []const FlatOp,
+) [graph.functions.len][flat_ops.len]bool {
+    var after = [_][flat_ops.len]bool{[_]bool{false} ** flat_ops.len} ** graph.functions.len;
+
+    for (graph.direct_op_uses) |direct_use| {
+        if (!direct_use.has_after) continue;
+        for (flat_ops, 0..) |op, op_index| {
+            if (!std.mem.eql(u8, op.requirement_label, direct_use.requirement_label)) continue;
+            if (!std.mem.eql(u8, op.op_name, direct_use.op_name)) continue;
+            after[direct_use.function_index][op_index] = true;
+        }
+    }
+
+    return after;
+}
+
+const MixedAfterConflict = struct {
+    requirement_label: []const u8,
+    op_name: []const u8,
+    function_name: []const u8,
+};
+
+fn mixedAfterConflict(
+    comptime graph: source_graph_embed.ProgramGraph,
+    comptime flat_ops: []const FlatOp,
+) ?MixedAfterConflict {
+    const reachable = reachableFunctions(graph);
+    for (graph.direct_op_uses) |after_use| {
+        if (!after_use.has_after) continue;
+        if (!reachable[after_use.function_index]) continue;
+
+        for (flat_ops) |op| {
+            if (op.has_after) continue;
+            if (!std.mem.eql(u8, op.requirement_label, after_use.requirement_label)) continue;
+            if (!std.mem.eql(u8, op.op_name, after_use.op_name)) continue;
+
+            for (graph.direct_op_uses) |plain_use| {
+                if (plain_use.has_after) continue;
+                if (plain_use.function_index != after_use.function_index) continue;
+                if (!std.mem.eql(u8, plain_use.requirement_label, after_use.requirement_label)) continue;
+                if (!std.mem.eql(u8, plain_use.op_name, after_use.op_name)) continue;
+
+                const function = graph.functions[after_use.function_index];
+                return .{
+                    .requirement_label = after_use.requirement_label,
+                    .op_name = after_use.op_name,
+                    .function_name = function.name,
+                };
+            }
+        }
+    }
+    return null;
+}
+
+fn rejectUnrepresentableMixedAfterOps(
+    comptime graph: source_graph_embed.ProgramGraph,
+    comptime flat_ops: []const FlatOp,
+) void {
+    if (mixedAfterConflict(graph, flat_ops)) |conflict| {
+        @compileError(std.fmt.comptimePrint(
+            "public lowering rejected mixed direct and explicit-continuation uses of {s}.{s} in source function {s}: ProgramPlan after metadata is function/op scoped",
+            .{ conflict.requirement_label, conflict.op_name, conflict.function_name },
+        ));
+    }
+}
+
+fn entryRowFromUsage(
+    comptime row: effect_ir.Row,
+    comptime flat_ops: []const FlatOp,
+    comptime after_ops: []const bool,
+) effect_ir.Row {
+    return comptime blk: {
+        var requirement_buffer: [row.requirements.len]effect_ir.Requirement = undefined;
+        var flat_index: usize = 0;
+
+        for (row.requirements, 0..) |requirement, requirement_index| {
+            var op_buffer: [requirement.ops.len]effect_ir.OpSpec = undefined;
+            for (requirement.ops, 0..) |_, op_index| {
+                const flat_op = flat_ops[flat_index];
+                op_buffer[op_index] = .{
+                    .requirement_label = flat_op.requirement_label,
+                    .op_name = flat_op.op_name,
+                    .mode = flat_op.mode,
+                    .PayloadType = flat_op.PayloadType,
+                    .ResumeType = flat_op.ResumeType,
+                    .has_after = flat_op.has_after or after_ops[flat_index],
+                };
+                flat_index += 1;
+            }
+            const exact_ops = op_buffer;
+            requirement_buffer[requirement_index] = .{
+                .label = cloneBytes(requirement.label),
+                .ops = exact_ops[0..],
+            };
+        }
+
+        const exact_requirements = requirement_buffer;
+        break :blk .{ .requirements = exact_requirements[0..] };
+    };
+}
+
 fn helperRowFromUsage(
     comptime row: effect_ir.Row,
     comptime flat_ops: []const FlatOp,
     comptime used_ops: []const bool,
+    comptime after_ops: []const bool,
 ) effect_ir.Row {
     return comptime blk: {
         var requirement_buffer: [row.requirements.len]effect_ir.Requirement = undefined;
@@ -881,7 +985,7 @@ fn helperRowFromUsage(
                         .mode = flat_op.mode,
                         .PayloadType = flat_op.PayloadType,
                         .ResumeType = flat_op.ResumeType,
-                        .has_after = flat_op.has_after,
+                        .has_after = flat_op.has_after or after_ops[flat_index],
                     };
                     op_count += 1;
                 }
@@ -915,6 +1019,8 @@ fn buildFunctionsForGraph(comptime graph: source_graph_embed.ProgramGraph, compt
     const reachable = reachableFunctions(graph);
     const flat_ops = flatOpsForRow(spec.row);
     const used_ops = inferUsedOps(graph, flat_ops);
+    rejectUnrepresentableMixedAfterOps(graph, flat_ops);
+    const after_ops = inferAfterOps(graph, flat_ops);
     const entry_function = graph.functions[graph.entry_index];
 
     if (entry_function.value_param_count != 0) {
@@ -938,7 +1044,7 @@ fn buildFunctionsForGraph(comptime graph: source_graph_embed.ProgramGraph, compt
                 .module_path = cloneBytes(entry_function.module_path),
                 .symbol_name = cloneBytes(entry_function.name),
             },
-            .row = cloneRow(spec.row),
+            .row = entryRowFromUsage(spec.row, flat_ops, &after_ops[graph.entry_index]),
             .ValueType = spec.ValueType,
             .outputs = cloneOutputSpecs(spec.outputs),
         };
@@ -974,7 +1080,7 @@ fn buildFunctionsForGraph(comptime graph: source_graph_embed.ProgramGraph, compt
                     .module_path = cloneBytes(function.module_path),
                     .symbol_name = cloneBytes(function.name),
                 },
-                .row = helperRowFromUsage(spec.row, flat_ops, &used_ops[function_index]),
+                .row = helperRowFromUsage(spec.row, flat_ops, &used_ops[function_index], &after_ops[function_index]),
                 .parameter_codecs = parameter_codecs,
                 .ValueType = value_type,
                 .outputs = &.{},
@@ -989,6 +1095,14 @@ fn buildFunctionsForGraph(comptime graph: source_graph_embed.ProgramGraph, compt
 
 fn buildFunctionsAt(comptime source_path: []const u8, comptime spec: LowerSpec) []const effect_ir.Function {
     return buildFunctionsForGraph(analyzeProgramGraphAt(source_path, spec.entry_symbol), spec);
+}
+
+fn maybeBuildFunctionsForGraph(
+    comptime graph: source_graph_embed.ProgramGraph,
+    comptime spec: LowerSpec,
+) ?[]const effect_ir.Function {
+    if (mixedAfterConflict(graph, flatOpsForRow(spec.row)) != null) return null;
+    return buildFunctionsForGraph(graph, spec);
 }
 
 fn buildCallEdgesForGraph(comptime graph: source_graph_embed.ProgramGraph) []const effect_ir.CallEdge {
@@ -2489,7 +2603,7 @@ pub fn maybeLowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
     }
 
     const graph = analyzeProgramGraphAt(source_path, spec.entry_symbol);
-    const functions = buildFunctionsForGraph(graph, spec);
+    const functions = maybeBuildFunctionsForGraph(graph, spec) orelse return null;
     const function_bodies = helper_body_lowering.maybeBuildFunctionBodiesForGraph(
         graph,
         functions,
@@ -2556,7 +2670,7 @@ pub fn maybeLower(comptime source_ref: SourceRef, comptime spec: LowerSpec) ?sou
         }
 
         const graph = analyzeProgramGraphWithRootSource(source_path, caller_source, source_ref.imported_sources, spec.entry_symbol);
-        const functions = buildFunctionsForGraph(graph, spec);
+        const functions = maybeBuildFunctionsForGraph(graph, spec) orelse return null;
         const function_bodies = helper_body_lowering.maybeBuildFunctionBodiesForGraph(
             graph,
             functions,
@@ -2627,7 +2741,7 @@ pub fn maybeLowerWithRootSourceAt(
     }
 
     const graph = source_graph_embed.analyzeProgramWithRootSource(source_path, root_source, imported_sources, spec.entry_symbol) catch return null;
-    const functions = buildFunctionsForGraph(graph, spec);
+    const functions = maybeBuildFunctionsForGraph(graph, spec) orelse return null;
     const function_bodies = helper_body_lowering.maybeBuildFunctionBodiesForGraph(
         graph,
         functions,
@@ -2940,6 +3054,251 @@ test "caller-owned lowering binds explicit continuation params to resumed locals
     var handlers: Handlers = .{};
     const result = try ProgramType.run(&runtime, &handlers);
     try std.testing.expectEqual(@as(i32, 41), result.value);
+}
+
+test "caller-owned lowering keeps helper after metadata off unrelated caller direct ops" {
+    const current_src = @src();
+    const caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "/tmp/ability-owned-open-row/mixed_after_entry.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "mixedAfterHelperLoweringCaller",
+    };
+    const ProgramType = lower(sourceWithContentAndImports(
+        "/tmp/ability-owned-open-row/mixed_after_entry.zig",
+        caller,
+        \\const helper = @import("mixed_after_helper.zig");
+        \\
+        \\pub fn runBody(eff: anytype) !i32 {
+        \\    const direct = try eff.picker.pick.perform(1);
+        \\    const wrapped = try helper.wrap(eff);
+        \\    return direct + wrapped;
+        \\}
+    ,
+        &.{importedSource(
+            "/tmp/ability-owned-open-row/mixed_after_entry.zig",
+            "mixed_after_helper.zig",
+            \\pub fn wrap(eff: anytype) !i32 {
+            \\    return try eff.picker.pick.perform(2, struct {
+            \\        pub fn apply(value: i32, _: anytype) !i32 {
+            \\            return value + 10;
+            \\        }
+            \\    });
+            \\}
+            ,
+        )},
+    ), .{
+        .label = "lowering_api.mixed_after_helper_direct",
+        .entry_symbol = "runBody",
+        .row = effect_ir.rowFromSpec(.{
+            .picker = .{
+                .pick = effect_ir.Transform(i32, i32),
+            },
+        }),
+        .ValueType = i32,
+    });
+
+    const Handlers = struct {
+        picker: struct {
+            pick_calls: usize = 0,
+            after_calls: usize = 0,
+
+            pub fn pick(self: *@This(), payload: i32) anyerror!i32 {
+                self.pick_calls += 1;
+                return payload;
+            }
+
+            pub fn afterPick(self: *@This(), answer: i32) anyerror!i32 {
+                self.after_calls += 1;
+                return answer + 100;
+            }
+        } = .{},
+    };
+
+    const plan = ProgramType.runtime_plan;
+    const entry_function = plan.functions[plan.entry_index];
+    const entry_requirement = plan.requirements[entry_function.first_requirement];
+    const entry_op = plan.ops[entry_requirement.first_op];
+    try std.testing.expect(!entry_op.has_after);
+
+    var helper_after = false;
+    for (plan.functions, 0..) |function, function_index| {
+        if (function_index == plan.entry_index) continue;
+        for (plan.requirements[function.first_requirement..][0..function.requirement_count]) |requirement| {
+            for (plan.ops[requirement.first_op..][0..requirement.op_count]) |op| {
+                helper_after = helper_after or op.has_after;
+            }
+        }
+    }
+    try std.testing.expect(helper_after);
+
+    try ProgramType.validate(std.testing.allocator);
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers: Handlers = .{};
+    const result = try ProgramType.run(&runtime, &handlers);
+    try std.testing.expectEqual(@as(i32, 113), result.value);
+    try std.testing.expectEqual(@as(usize, 2), handlers.picker.pick_calls);
+    try std.testing.expectEqual(@as(usize, 1), handlers.picker.after_calls);
+}
+
+test "caller-owned lowering detects same-function mixed direct and continuation after metadata" {
+    const mixed_source: [:0]const u8 =
+        \\pub fn body(eff: anytype) anyerror!i32 {
+        \\    _ = try eff.picker.pick.perform(1);
+        \\    return try eff.picker.pick.perform(2, struct {
+        \\        pub fn apply(value: i32, _: anytype) anyerror!i32 {
+        \\            return value;
+        \\        }
+        \\    });
+        \\}
+    ;
+    const graph = comptime analyzeProgramGraphWithRootSource(
+        "/tmp/ability-owned-open-row/mixed_same_function_after.zig",
+        mixed_source,
+        &.{},
+        "body",
+    );
+    const row = comptime effect_ir.rowFromSpec(.{
+        .picker = .{
+            .pick = effect_ir.Transform(i32, i32),
+        },
+    });
+    const conflict = comptime mixedAfterConflict(graph, flatOpsForRow(row)) orelse
+        @compileError("mixed same-function after conflict fixture did not exercise the guard");
+
+    try std.testing.expectEqualStrings("picker", conflict.requirement_label);
+    try std.testing.expectEqualStrings("pick", conflict.op_name);
+    try std.testing.expectEqualStrings("body", conflict.function_name);
+}
+
+test "maybe lowering returns null for same-function mixed direct and continuation after metadata" {
+    const current_src = @src();
+    const caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "/tmp/ability-owned-open-row/maybe_mixed_same_function_after.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "maybeMixedSameFunctionAfterCaller",
+    };
+    const mixed_source: [:0]const u8 =
+        \\pub fn body(eff: anytype) anyerror!i32 {
+        \\    _ = try eff.picker.pick.perform(1);
+        \\    return try eff.picker.pick.perform(2, struct {
+        \\        pub fn apply(value: i32, _: anytype) anyerror!i32 {
+        \\            return value;
+        \\        }
+        \\    });
+        \\}
+    ;
+    const spec: LowerSpec = .{
+        .label = "lowering_api.maybe_mixed_same_function_after",
+        .entry_symbol = "body",
+        .row = effect_ir.rowFromSpec(.{
+            .picker = .{
+                .pick = effect_ir.Transform(i32, i32),
+            },
+        }),
+        .ValueType = i32,
+    };
+
+    try std.testing.expect(comptime maybeLower(sourceWithContent(
+        "/tmp/ability-owned-open-row/maybe_mixed_same_function_after.zig",
+        caller,
+        mixed_source,
+    ), spec) == null);
+
+    try std.testing.expect(comptime maybeLowerWithRootSourceAt(
+        "/tmp/ability-owned-open-row/maybe_mixed_same_function_after.zig",
+        mixed_source,
+        &.{},
+        spec,
+    ) == null);
+}
+
+test "caller-owned lowering ignores unreachable mixed direct and continuation after metadata" {
+    const current_src = @src();
+    const caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "/tmp/ability-owned-open-row/unreachable_mixed_after.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "unreachableMixedAfterCaller",
+    };
+    const source_text: [:0]const u8 =
+        \\pub fn body(eff: anytype) anyerror!i32 {
+        \\    return try eff.picker.pick.perform(7);
+        \\}
+        \\
+        \\pub fn unused(eff: anytype) anyerror!i32 {
+        \\    _ = try eff.picker.pick.perform(1);
+        \\    return try eff.picker.pick.perform(2, struct {
+        \\        pub fn apply(value: i32, _: anytype) anyerror!i32 {
+        \\            return value;
+        \\        }
+        \\    });
+        \\}
+    ;
+    const row = comptime effect_ir.rowFromSpec(.{
+        .picker = .{
+            .pick = effect_ir.Transform(i32, i32),
+        },
+    });
+    const graph = comptime analyzeProgramGraphWithRootSource(
+        "/tmp/ability-owned-open-row/unreachable_mixed_after.zig",
+        source_text,
+        &.{},
+        "body",
+    );
+    if (comptime mixedAfterConflict(graph, flatOpsForRow(row)) != null) {
+        @compileError("unreachable mixed same-function after fixture should not trip the guard");
+    }
+
+    const ProgramType = lower(sourceWithContent(
+        "/tmp/ability-owned-open-row/unreachable_mixed_after.zig",
+        caller,
+        source_text,
+    ), .{
+        .label = "lowering_api.unreachable_mixed_after",
+        .entry_symbol = "body",
+        .row = row,
+        .ValueType = i32,
+    });
+
+    const Handlers = struct {
+        picker: struct {
+            pick_calls: usize = 0,
+            after_calls: usize = 0,
+
+            pub fn pick(self: *@This(), payload: i32) anyerror!i32 {
+                self.pick_calls += 1;
+                return payload;
+            }
+
+            pub fn afterPick(self: *@This(), answer: i32) anyerror!i32 {
+                self.after_calls += 1;
+                return answer + 100;
+            }
+        } = .{},
+    };
+
+    const plan = ProgramType.runtime_plan;
+    const entry_function = plan.functions[plan.entry_index];
+    const entry_requirement = plan.requirements[entry_function.first_requirement];
+    const entry_op = plan.ops[entry_requirement.first_op];
+    try std.testing.expect(!entry_op.has_after);
+
+    try ProgramType.validate(std.testing.allocator);
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers: Handlers = .{};
+    const result = try ProgramType.run(&runtime, &handlers);
+    try std.testing.expectEqual(@as(i32, 7), result.value);
+    try std.testing.expectEqual(@as(usize, 1), handlers.picker.pick_calls);
+    try std.testing.expectEqual(@as(usize, 0), handlers.picker.after_calls);
 }
 
 test "owned repo alias callers preserve absolute helper witness paths during lowering" {
