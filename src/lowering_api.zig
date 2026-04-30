@@ -874,18 +874,6 @@ fn inferAfterOps(
         }
     }
 
-    var changed = true;
-    while (changed) {
-        changed = false;
-        for (graph.helper_edges) |edge| {
-            for (flat_ops, 0..) |_, op_index| {
-                if (after[edge.caller_index][op_index] or !after[edge.callee_index][op_index]) continue;
-                after[edge.caller_index][op_index] = true;
-                changed = true;
-            }
-        }
-    }
-
     return after;
 }
 
@@ -3007,6 +2995,94 @@ test "caller-owned lowering binds explicit continuation params to resumed locals
     var handlers: Handlers = .{};
     const result = try ProgramType.run(&runtime, &handlers);
     try std.testing.expectEqual(@as(i32, 41), result.value);
+}
+
+test "caller-owned lowering keeps helper after metadata off unrelated caller direct ops" {
+    const current_src = @src();
+    const caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "/tmp/ability-owned-open-row/mixed_after_entry.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "mixedAfterHelperLoweringCaller",
+    };
+    const ProgramType = lower(sourceWithContentAndImports(
+        "/tmp/ability-owned-open-row/mixed_after_entry.zig",
+        caller,
+        \\const helper = @import("mixed_after_helper.zig");
+        \\
+        \\pub fn runBody(eff: anytype) !i32 {
+        \\    const direct = try eff.picker.pick.perform(1);
+        \\    const wrapped = try helper.wrap(eff);
+        \\    return direct + wrapped;
+        \\}
+    ,
+        &.{importedSource(
+            "/tmp/ability-owned-open-row/mixed_after_entry.zig",
+            "mixed_after_helper.zig",
+            \\pub fn wrap(eff: anytype) !i32 {
+            \\    return try eff.picker.pick.perform(2, struct {
+            \\        pub fn apply(value: i32, _: anytype) !i32 {
+            \\            return value + 10;
+            \\        }
+            \\    });
+            \\}
+            ,
+        )},
+    ), .{
+        .label = "lowering_api.mixed_after_helper_direct",
+        .entry_symbol = "runBody",
+        .row = effect_ir.rowFromSpec(.{
+            .picker = .{
+                .pick = effect_ir.Transform(i32, i32),
+            },
+        }),
+        .ValueType = i32,
+    });
+
+    const Handlers = struct {
+        picker: struct {
+            pick_calls: usize = 0,
+            after_calls: usize = 0,
+
+            pub fn pick(self: *@This(), payload: i32) anyerror!i32 {
+                self.pick_calls += 1;
+                return payload;
+            }
+
+            pub fn afterPick(self: *@This(), answer: i32) anyerror!i32 {
+                self.after_calls += 1;
+                return answer + 100;
+            }
+        } = .{},
+    };
+
+    const plan = ProgramType.runtime_plan;
+    const entry_function = plan.functions[plan.entry_index];
+    const entry_requirement = plan.requirements[entry_function.first_requirement];
+    const entry_op = plan.ops[entry_requirement.first_op];
+    try std.testing.expect(!entry_op.has_after);
+
+    var helper_after = false;
+    for (plan.functions, 0..) |function, function_index| {
+        if (function_index == plan.entry_index) continue;
+        for (plan.requirements[function.first_requirement..][0..function.requirement_count]) |requirement| {
+            for (plan.ops[requirement.first_op..][0..requirement.op_count]) |op| {
+                helper_after = helper_after or op.has_after;
+            }
+        }
+    }
+    try std.testing.expect(helper_after);
+
+    try ProgramType.validate(std.testing.allocator);
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers: Handlers = .{};
+    const result = try ProgramType.run(&runtime, &handlers);
+    try std.testing.expectEqual(@as(i32, 113), result.value);
+    try std.testing.expectEqual(@as(usize, 2), handlers.picker.pick_calls);
+    try std.testing.expectEqual(@as(usize, 1), handlers.picker.after_calls);
 }
 
 test "owned repo alias callers preserve absolute helper witness paths during lowering" {
