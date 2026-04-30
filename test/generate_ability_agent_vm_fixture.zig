@@ -4,6 +4,7 @@ const fixture_generator_options = @import("fixture_generator_options");
 const std = @import("std");
 
 const max_fixture_bytes = 1 << 20;
+const usage_exit_code: u8 = 2;
 
 const Mode = enum {
     check,
@@ -137,7 +138,7 @@ pub fn main(init: std.process.Init) anyerror!void {
         }
         try writeUsage(stderr);
         try stderr.flush();
-        std.process.exit(1);
+        std.process.exit(usage_exit_code);
     };
 
     switch (mode) {
@@ -187,6 +188,7 @@ test "ability_agent_vm fixture generator args expose help and reject unknowns" {
     try std.testing.expectEqualStrings("extra", invalidArg(&.{ "generate-ability-agent-vm-fixture", "--check", "extra" }).?);
     try std.testing.expectEqualStrings("extra", invalidArg(&.{ "generate-ability-agent-vm-fixture", "--version", "extra" }).?);
     try std.testing.expectEqualStrings("extra", invalidArg(&.{ "generate-ability-agent-vm-fixture", "--help", "extra" }).?);
+    try std.testing.expectEqual(@as(u8, 2), usage_exit_code);
 }
 
 test "ability_agent_vm fixture generator escapes invalid diagnostic args" {

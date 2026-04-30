@@ -82,6 +82,27 @@ test "source helper stays callable from test modules" {
 }
 
 test "public root drops compile entrypoints while ability_compile keeps provenance-bearing lowering" {
+    const expected_root_decl_names = [_][]const u8{
+        "Runtime",
+        "RuntimeError",
+        "effect",
+        "sourceHash",
+        "with",
+    };
+    const root_decls = @typeInfo(ability).@"struct".decls;
+
+    try std.testing.expectEqual(expected_root_decl_names.len, root_decls.len);
+    inline for (expected_root_decl_names) |name| {
+        try std.testing.expect(@hasDecl(ability, name));
+    }
+    inline for (root_decls) |decl| {
+        var allowed = false;
+        inline for (expected_root_decl_names) |name| {
+            if (std.mem.eql(u8, decl.name, name)) allowed = true;
+        }
+        try std.testing.expect(allowed);
+    }
+
     try std.testing.expect(!@hasDecl(ability, "lowerAt"));
     try std.testing.expect(!@hasDecl(ability, "lower"));
     try std.testing.expect(!@hasDecl(ability, "lowering"));

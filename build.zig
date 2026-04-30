@@ -557,7 +557,8 @@ fn parseRequestedTestSuiteSelectionAlloc(
     specs: []const TestSuiteSpec,
     test_requested: bool,
 ) !TestSuiteSelectionResult {
-    return parseTestSuiteSelectionAlloc(allocator, if (test_requested) raw else null, specs);
+    _ = test_requested;
+    return parseTestSuiteSelectionAlloc(allocator, raw, specs);
 }
 
 fn resolveTestSuiteSelection(
@@ -573,6 +574,19 @@ fn resolveTestSuiteSelection(
         test_requested,
     ) catch |err|
         std.process.fatal("unable to parse -Dtest-suites: {s}", .{@errorName(err)});
+
+    if (!test_requested and raw != null) {
+        switch (selection_result) {
+            .selection => |selection| selection.deinit(),
+            else => {},
+        }
+        std.log.err(
+            "`-Dtest-suites` only applies to `zig build test`; use `zig build test -Dtest-suites=<ids>`.",
+            .{},
+        );
+        b.invalid_user_input = true;
+        return null;
+    }
 
     if (!test_requested) {
         return switch (selection_result) {
@@ -3601,7 +3615,7 @@ test "test suite selection rejects unknown suite ids" {
     }
 }
 
-test "test suite selection ignores raw option when test step not requested" {
+test "test suite selection still validates raw option when test step not requested" {
     const specs = [_]TestSuiteSpec{
         .{ .suite_id = "alpha", .description = "alpha suite" },
         .{ .suite_id = "beta", .description = "beta suite" },
@@ -3613,11 +3627,7 @@ test "test suite selection ignores raw option when test step not requested" {
         false,
     );
     switch (result) {
-        .selection => |selection| {
-            defer selection.deinit();
-            try std.testing.expect(selection.isEnabled(0));
-            try std.testing.expect(selection.isEnabled(1));
-        },
+        .unknown => |id| try std.testing.expectEqualStrings("does-not-exist", id),
         else => return error.UnexpectedSelectionParseResult,
     }
 }
