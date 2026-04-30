@@ -21,6 +21,22 @@ test "agent-vm-artifact-report parses artifact flag" {
     const format_json_parsed = report.parseArgs(&.{ "agent-vm-artifact-report", "--format", "json", "--artifact", "artifact.bin" });
     try std.testing.expectEqualStrings("artifact.bin", format_json_parsed.artifact.path);
     try std.testing.expectEqual(report.OutputFormat.json, format_json_parsed.artifact.format);
+    try std.testing.expectEqualStrings(
+        "choose either --json or --format <text|json>, not both",
+        report.parseArgs(&.{ "agent-vm-artifact-report", "--json", "--format", "text", "--artifact", "artifact.bin" }).invalid,
+    );
+    try std.testing.expectEqualStrings(
+        "choose either --json or --format <text|json>, not both",
+        report.parseArgs(&.{ "agent-vm-artifact-report", "--format", "text", "--json", "--artifact", "artifact.bin" }).invalid,
+    );
+    try std.testing.expectEqualStrings(
+        "choose either --json or --format <text|json>, not both",
+        report.parseArgs(&.{ "agent-vm-artifact-report", "--format", "json", "--format", "text", "--artifact", "artifact.bin" }).invalid,
+    );
+    try std.testing.expectEqualStrings(
+        "choose either --json or --format <text|json>, not both",
+        report.parseArgs(&.{ "agent-vm-artifact-report", "--json", "--json", "--artifact", "artifact.bin" }).invalid,
+    );
     try std.testing.expect(report.parseArgs(&.{ "agent-vm-artifact-report", "--help" }) == .help);
     try std.testing.expect(report.parseArgs(&.{ "agent-vm-artifact-report", "--version" }) == .version);
     try std.testing.expectEqualStrings(

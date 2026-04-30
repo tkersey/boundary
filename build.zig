@@ -5436,7 +5436,7 @@ pub fn build(b: *std.Build) void {
     const bad_mixed_after_tests = b.addTest(.{
         .root_module = bad_mixed_after_mod,
     });
-    bad_mixed_after_tests.expect_errors = .{ .contains = "public lowering rejected mixed direct and explicit-continuation uses of picker.pick in source function body: ProgramPlan after metadata is function/op scoped" };
+    bad_mixed_after_tests.expect_errors = .{ .contains = "public lowering rejected mixed direct and explicit-continuation uses of picker.pick in source function body; use one call style for this operation in that function, or move one form into a separate helper" };
     run_custom_effect_tests.step.dependOn(&bad_mixed_after_tests.step);
 
     const comptime_contract_mod = b.createModule(.{

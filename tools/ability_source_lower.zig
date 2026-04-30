@@ -41,6 +41,7 @@ const usage_exit_code: u8 = 2;
 const rejection_exit_code: u8 = 1;
 
 const CliShapeIssue = union(enum) {
+    duplicate_flag: []const u8,
     missing_value: []const u8,
     unexpected_arg_count: usize,
     unknown_flag: []const u8,
@@ -185,13 +186,40 @@ fn isKnownFlag(flag: []const u8) bool {
         std.mem.eql(u8, flag, "--out");
 }
 
+fn parsedCliOptionSlot(options: *ParsedCliOptions, flag: []const u8) ?*?[]const u8 {
+    if (std.mem.eql(u8, flag, "--id")) return &options.program_id;
+    if (std.mem.eql(u8, flag, "--source")) return &options.source_path;
+    if (std.mem.eql(u8, flag, "--entry")) return &options.entry_symbol;
+    if (std.mem.eql(u8, flag, "--out")) return &options.output_path;
+    return null;
+}
+
+fn parsedCliOptionSeen(options: ParsedCliOptions, flag: []const u8) bool {
+    if (std.mem.eql(u8, flag, "--id")) return options.program_id != null;
+    if (std.mem.eql(u8, flag, "--source")) return options.source_path != null;
+    if (std.mem.eql(u8, flag, "--entry")) return options.entry_symbol != null;
+    if (std.mem.eql(u8, flag, "--surface")) return options.surface_kind != null;
+    if (std.mem.eql(u8, flag, "--emit")) return options.emit_mode != null;
+    if (std.mem.eql(u8, flag, "--out")) return options.output_path != null;
+    return false;
+}
+
 fn cliShapeIssue(args: []const []const u8) ?CliShapeIssue {
+    var seen: ParsedCliOptions = .{};
     var idx: usize = 1;
     while (idx < args.len) : (idx += 2) {
         const flag = args[idx];
         if (!isKnownFlag(flag)) return .{ .unknown_flag = flag };
+        if (parsedCliOptionSeen(seen, flag)) return .{ .duplicate_flag = flag };
         if (idx + 1 >= args.len) return .{ .missing_value = flag };
         if (std.mem.startsWith(u8, args[idx + 1], "--")) return .{ .missing_value = flag };
+        if (parsedCliOptionSlot(&seen, flag)) |slot| {
+            slot.* = args[idx + 1];
+        } else if (std.mem.eql(u8, flag, "--surface")) {
+            seen.surface_kind = .source_case;
+        } else if (std.mem.eql(u8, flag, "--emit")) {
+            seen.emit_mode = .json;
+        }
     }
     if (args.len > expected_arg_count) return .{ .unexpected_arg_count = args.len - 1 };
     return null;
@@ -784,6 +812,7 @@ pub fn main(init: std.process.Init) anyerror!void {
     }
     if (cliShapeIssue(args)) |issue| {
         switch (issue) {
+            .duplicate_flag => |flag| usageErrorWithValue("duplicate flag ", flag),
             .missing_value => |flag| usageErrorWithValue("missing value for flag ", flag),
             .unexpected_arg_count => |count| usageError("expected six flag/value pairs after the program name; got {d} argument token(s)", .{count}),
             .unknown_flag => |flag| usageErrorWithValue("unknown flag ", flag),
@@ -895,6 +924,84 @@ test "cli shape reports unknown flags before arity" {
     const args = [_][]const u8{ "ability-source-lower", "--bad-flag" };
     const issue = cliShapeIssue(&args).?;
     try std.testing.expectEqualStrings("--bad-flag", issue.unknown_flag);
+}
+
+test "cli shape rejects duplicate required flags before side effects" {
+    const duplicate_id = [_][]const u8{
+        "ability-source-lower",
+        "--id",
+        "source.branch_resume",
+        "--id",
+        "source.loop_resume",
+        "--source",
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        "--entry",
+        "run",
+        "--surface",
+        "source_case",
+        "--emit",
+        "json",
+        "--out",
+        "zig-out/source-lower/out.json",
+    };
+    try std.testing.expectEqualStrings("--id", cliShapeIssue(&duplicate_id).?.duplicate_flag);
+
+    const duplicate_out = [_][]const u8{
+        "ability-source-lower",
+        "--id",
+        "source.branch_resume",
+        "--source",
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        "--entry",
+        "run",
+        "--surface",
+        "source_case",
+        "--emit",
+        "json",
+        "--out",
+        "zig-out/source-lower/out.json",
+        "--out",
+        "zig-out/source-lower/other.json",
+    };
+    try std.testing.expectEqualStrings("--out", cliShapeIssue(&duplicate_out).?.duplicate_flag);
+
+    const duplicate_surface = [_][]const u8{
+        "ability-source-lower",
+        "--id",
+        "source.branch_resume",
+        "--source",
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        "--entry",
+        "run",
+        "--surface",
+        "source_case",
+        "--surface",
+        "example",
+        "--emit",
+        "json",
+        "--out",
+        "zig-out/source-lower/out.json",
+    };
+    try std.testing.expectEqualStrings("--surface", cliShapeIssue(&duplicate_surface).?.duplicate_flag);
+
+    const duplicate_emit = [_][]const u8{
+        "ability-source-lower",
+        "--id",
+        "source.branch_resume",
+        "--source",
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        "--entry",
+        "run",
+        "--surface",
+        "source_case",
+        "--emit",
+        "json",
+        "--emit",
+        "zig",
+        "--out",
+        "zig-out/source-lower/out.json",
+    };
+    try std.testing.expectEqualStrings("--emit", cliShapeIssue(&duplicate_emit).?.duplicate_flag);
 }
 
 test "usage text documents required flags and recovery examples" {
