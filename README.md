@@ -120,6 +120,14 @@ const ability_mod = ability_dep.module("ability");
 exe.root_module.addImport("ability", ability_mod);
 ```
 
+Consumers that need the retained ArtifactV1 compatibility module import it as a
+separate package module:
+
+```zig
+const ability_agent_vm_mod = ability_dep.module("ability_agent_vm");
+exe.root_module.addImport("ability_agent_vm", ability_agent_vm_mod);
+```
+
 For local dependency development, prefer Zig's package override flag:
 
 ```bash

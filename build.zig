@@ -4489,6 +4489,11 @@ pub fn build(b: *std.Build) void {
         "agent-vm-artifact",
         "ArtifactV1 payload to classify with `zig build run-agent-vm-artifact-report`.",
     );
+    const artifact_report_format = b.option(
+        []const u8,
+        "agent-vm-artifact-format",
+        "Output format for `zig build run-agent-vm-artifact-report`: text or json.",
+    );
     const lint_verbose = b.option(
         bool,
         "lint-verbose",
@@ -4527,6 +4532,16 @@ pub fn build(b: *std.Build) void {
         );
         b.invalid_user_input = true;
         return;
+    }
+    if (artifact_report_format) |format| {
+        if (!std.mem.eql(u8, format, "text") and !std.mem.eql(u8, format, "json")) {
+            std.log.err(
+                "`-Dagent-vm-artifact-format` must be `text` or `json`; got `{s}`.",
+                .{format},
+            );
+            b.invalid_user_input = true;
+            return;
+        }
     }
     const invocation_args_unknown = skip_execution != true and
         (test_requested_opt == null or lint_requested_opt == null);
@@ -5502,6 +5517,9 @@ pub fn build(b: *std.Build) void {
     const agent_vm_report_install = b.addInstallArtifact(agent_vm_report_exe, .{});
     const run_agent_vm_report = b.addRunArtifact(agent_vm_report_exe);
     if (agent_vm_artifact_report_path) |artifact_path| {
+        if (artifact_report_format) |format| {
+            run_agent_vm_report.addArgs(&.{ "--format", format });
+        }
         run_agent_vm_report.addArgs(&.{ "--artifact", artifact_path });
     }
     const agent_vm_report_step = b.step(

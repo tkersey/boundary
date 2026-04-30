@@ -107,7 +107,7 @@ pub fn parseArgs(args: []const []const u8) ParseArgsResult {
         const arg = args[index];
         if (std.mem.eql(u8, arg, "--artifact")) {
             if (saw_artifact) return .{ .invalid = "duplicate --artifact flag" };
-            if (index + 1 >= args.len or std.mem.startsWith(u8, args[index + 1], "--")) {
+            if (index + 1 >= args.len) {
                 return .{ .invalid = "missing required --artifact <path>" };
             }
             saw_artifact = true;
@@ -394,7 +394,7 @@ pub fn main(init: std.process.Init) anyerror!void {
             const stderr = &stderr_writer.interface;
             try stderr.writeAll("agent-vm-artifact-report: unexpected argument ");
             try writeEscapedDiagnosticValue(stderr, arg);
-            try stderr.writeAll("; expected --artifact <path>\n");
+            try stderr.writeAll("; run --help for supported flags\n");
             try stderr.writeAll(usage_text);
             try stderr.flush();
             std.process.exit(2);
@@ -405,7 +405,7 @@ pub fn main(init: std.process.Init) anyerror!void {
             const stderr = &stderr_writer.interface;
             try stderr.writeAll("agent-vm-artifact-report: unknown argument ");
             try writeEscapedDiagnosticValue(stderr, arg);
-            try stderr.writeAll("; expected --artifact <path>\n");
+            try stderr.writeAll("; run --help for supported flags\n");
             try stderr.writeAll(usage_text);
             try stderr.flush();
             std.process.exit(2);
