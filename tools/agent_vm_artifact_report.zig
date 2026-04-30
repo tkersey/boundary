@@ -220,7 +220,7 @@ fn stableArtifactDecoderDetail(message: []const u8) []const u8 {
     if (std.mem.eql(u8, message, "InvalidEntryFunctionIndex")) return "InvalidEntryFunctionIndex";
     if (std.mem.eql(u8, message, "InvalidProgramPlan")) return "InvalidProgramPlan";
     if (std.mem.eql(u8, message, "InvalidHashKind")) return "InvalidHashKind";
-    if (std.mem.eql(u8, message, "MissingRequiredSection")) return "MissingRequiredSection";
+    if (std.mem.eql(u8, message, "InvalidRequiredSection")) return "InvalidRequiredSection";
     if (std.mem.eql(u8, message, "NonZeroReserved")) return "NonZeroReserved";
     if (std.mem.eql(u8, message, "StringRefOutOfBounds")) return "StringRefOutOfBounds";
     if (std.mem.eql(u8, message, "UnsortedDirectorySection")) return "UnsortedDirectorySection";
@@ -344,4 +344,11 @@ test "diagnostic values escape control characters" {
     defer std.testing.allocator.free(bytes);
 
     try std.testing.expectEqualStrings("'bad\\npath\\x1b[31m'", bytes);
+}
+
+test "ArtifactV1 decoder detail preserves invalid required section failures" {
+    try std.testing.expectEqualStrings(
+        "InvalidRequiredSection",
+        stableArtifactDecoderDetail("InvalidRequiredSection"),
+    );
 }
