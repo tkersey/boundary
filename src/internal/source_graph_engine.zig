@@ -80,6 +80,7 @@ pub const DirectOpUse = struct {
     function_index: usize,
     requirement_label: []const u8,
     op_name: []const u8,
+    has_after: bool = false,
     line: usize,
     column: usize,
 };
@@ -156,6 +157,7 @@ const StatementWindow = struct {
 const DirectOpUseMatch = struct {
     requirement_label: []const u8,
     op_name: []const u8,
+    has_after: bool = false,
 };
 
 const AliasKind = union(enum) {
@@ -294,6 +296,20 @@ const RuntimeCollector = struct {
 
     fn pushDirectOpUse(self: *@This(), direct_op_use: DirectOpUse) AnalysisError!void {
         try self.direct_op_uses.append(self.allocator, direct_op_use);
+    }
+
+    fn markDirectOpUseHasAfter(self: *@This(), function_index: usize, requirement_label: []const u8, op_name: []const u8) bool {
+        var index = self.direct_op_uses.items.len;
+        while (index != 0) {
+            index -= 1;
+            const direct_op_use = &self.direct_op_uses.items[index];
+            if (direct_op_use.function_index != function_index) continue;
+            if (!std.mem.eql(u8, direct_op_use.requirement_label, requirement_label)) continue;
+            if (!std.mem.eql(u8, direct_op_use.op_name, op_name)) continue;
+            direct_op_use.has_after = true;
+            return true;
+        }
+        return false;
     }
 
     fn directOpUsesSlice(self: *const @This()) []const DirectOpUse {
@@ -435,6 +451,20 @@ const FixedCollector = struct {
         if (self.direct_op_use_count >= self.direct_op_uses.len) return error.TooManyOpUses;
         self.direct_op_uses[self.direct_op_use_count] = direct_op_use;
         self.direct_op_use_count += 1;
+    }
+
+    fn markDirectOpUseHasAfter(self: *@This(), function_index: usize, requirement_label: []const u8, op_name: []const u8) bool {
+        var index = self.direct_op_use_count;
+        while (index != 0) {
+            index -= 1;
+            const direct_op_use = &self.direct_op_uses[index];
+            if (direct_op_use.function_index != function_index) continue;
+            if (!std.mem.eql(u8, direct_op_use.requirement_label, requirement_label)) continue;
+            if (!std.mem.eql(u8, direct_op_use.op_name, op_name)) continue;
+            direct_op_use.has_after = true;
+            return true;
+        }
+        return false;
     }
 
     fn directOpUsesSlice(self: *const @This()) []const DirectOpUse {
@@ -1030,24 +1060,28 @@ fn continuationApplyBodySupported(struct_tokens: []const TokenItem) bool {
     return false;
 }
 
-fn statementMatchesSupportedContinuationDirectOp(
+fn supportedContinuationDirectOp(
     effect_param: ?[]const u8,
     aliases: []const Alias,
     statement: []const TokenItem,
-) bool {
+) ?DirectOpUseMatch {
     const tokens = statementTrimSemicolon(statement);
-    if (tokens.len == 0 or tokens[0].tag != .keyword_return) return false;
+    if (tokens.len == 0 or tokens[0].tag != .keyword_return) return null;
 
     var index: usize = 1;
     if (index < tokens.len and tokens[index].tag == .keyword_try) index += 1;
-    if (index >= tokens.len or tokens[index].tag != .identifier) return false;
-    const base_kind = aliasKind(effect_param, aliases, tokens[index].lexeme) orelse return false;
+    if (index >= tokens.len or tokens[index].tag != .identifier) return null;
+    const base_kind = aliasKind(effect_param, aliases, tokens[index].lexeme) orelse return null;
 
     const ArgsBounds = struct {
         start: usize,
         end: usize,
     };
-    const args_bounds = switch (base_kind) {
+    const DirectCall = struct {
+        args_bounds: ArgsBounds,
+        match: DirectOpUseMatch,
+    };
+    const direct_call = switch (base_kind) {
         .effect_root => blk: {
             if (index + 8 <= tokens.len and
                 tokens[index + 1].tag == .period and
@@ -1060,7 +1094,14 @@ fn statementMatchesSupportedContinuationDirectOp(
                 std.mem.eql(u8, tokens[index + 6].lexeme, "perform") and
                 tokens[tokens.len - 1].tag == .r_paren)
             {
-                break :blk ArgsBounds{ .start = index + 8, .end = tokens.len - 1 };
+                break :blk DirectCall{
+                    .args_bounds = .{ .start = index + 8, .end = tokens.len - 1 },
+                    .match = .{
+                        .requirement_label = tokens[index + 2].lexeme,
+                        .op_name = tokens[index + 4].lexeme,
+                        .has_after = true,
+                    },
+                };
             }
             if (index + 6 <= tokens.len and
                 tokens[index + 1].tag == .period and
@@ -1070,11 +1111,18 @@ fn statementMatchesSupportedContinuationDirectOp(
                 tokens[index + 5].tag == .l_paren and
                 tokens[tokens.len - 1].tag == .r_paren)
             {
-                break :blk ArgsBounds{ .start = index + 6, .end = tokens.len - 1 };
+                break :blk DirectCall{
+                    .args_bounds = .{ .start = index + 6, .end = tokens.len - 1 },
+                    .match = .{
+                        .requirement_label = tokens[index + 2].lexeme,
+                        .op_name = tokens[index + 4].lexeme,
+                        .has_after = true,
+                    },
+                };
             }
-            return false;
+            return null;
         },
-        .requirement => blk: {
+        .requirement => |requirement_label| blk: {
             if (index + 6 <= tokens.len and
                 tokens[index + 1].tag == .period and
                 tokens[index + 2].tag == .identifier and
@@ -1084,7 +1132,14 @@ fn statementMatchesSupportedContinuationDirectOp(
                 std.mem.eql(u8, tokens[index + 4].lexeme, "perform") and
                 tokens[tokens.len - 1].tag == .r_paren)
             {
-                break :blk ArgsBounds{ .start = index + 6, .end = tokens.len - 1 };
+                break :blk DirectCall{
+                    .args_bounds = .{ .start = index + 6, .end = tokens.len - 1 },
+                    .match = .{
+                        .requirement_label = requirement_label,
+                        .op_name = tokens[index + 2].lexeme,
+                        .has_after = true,
+                    },
+                };
             }
             if (index + 4 <= tokens.len and
                 tokens[index + 1].tag == .period and
@@ -1092,16 +1147,32 @@ fn statementMatchesSupportedContinuationDirectOp(
                 tokens[index + 3].tag == .l_paren and
                 tokens[tokens.len - 1].tag == .r_paren)
             {
-                break :blk ArgsBounds{ .start = index + 4, .end = tokens.len - 1 };
+                break :blk DirectCall{
+                    .args_bounds = .{ .start = index + 4, .end = tokens.len - 1 },
+                    .match = .{
+                        .requirement_label = requirement_label,
+                        .op_name = tokens[index + 2].lexeme,
+                        .has_after = true,
+                    },
+                };
             }
-            return false;
+            return null;
         },
     };
 
-    const args = tokens[args_bounds.start..args_bounds.end];
-    const struct_arg = continuationStructStart(args) orelse return false;
-    if (!statementArgsSupported(args[0..struct_arg.payload_end])) return false;
-    return continuationApplyBodySupported(args[struct_arg.struct_start..]);
+    const args = tokens[direct_call.args_bounds.start..direct_call.args_bounds.end];
+    const struct_arg = continuationStructStart(args) orelse return null;
+    if (!statementArgsSupported(args[0..struct_arg.payload_end])) return null;
+    if (!continuationApplyBodySupported(args[struct_arg.struct_start..])) return null;
+    return direct_call.match;
+}
+
+fn statementMatchesSupportedContinuationDirectOp(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    statement: []const TokenItem,
+) bool {
+    return supportedContinuationDirectOp(effect_param, aliases, statement) != null;
 }
 
 fn statementMatchesSupportedLocalFromDirectOp(
@@ -1603,6 +1674,19 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
             }
             if (maybeAliasFromDeclaration(context.effect_param, aliases[0..alias_count], &token_window)) |alias| {
                 try upsertAlias(aliases[0..], &alias_count, alias.name, alias.kind);
+            }
+            if (supportedContinuationDirectOp(context.effect_param, aliases[0..alias_count], statement_window.slice())) |match| {
+                if (!collector.markDirectOpUseHasAfter(context.caller_index, match.requirement_label, match.op_name)) {
+                    const loc = locationForOffset(context.source, current.offset);
+                    try collector.pushDirectOpUse(.{
+                        .function_index = context.caller_index,
+                        .requirement_label = match.requirement_label,
+                        .op_name = match.op_name,
+                        .has_after = match.has_after,
+                        .line = loc.line,
+                        .column = loc.column,
+                    });
+                }
             }
             statement_window.reset();
         } else if (context.options.reject_indirect_effect_access and

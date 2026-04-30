@@ -859,10 +859,76 @@ fn inferUsedOps(
     return used;
 }
 
+fn inferAfterOps(
+    comptime graph: source_graph_embed.ProgramGraph,
+    comptime flat_ops: []const FlatOp,
+) [graph.functions.len][flat_ops.len]bool {
+    var after = [_][flat_ops.len]bool{[_]bool{false} ** flat_ops.len} ** graph.functions.len;
+
+    for (graph.direct_op_uses) |direct_use| {
+        if (!direct_use.has_after) continue;
+        for (flat_ops, 0..) |op, op_index| {
+            if (!std.mem.eql(u8, op.requirement_label, direct_use.requirement_label)) continue;
+            if (!std.mem.eql(u8, op.op_name, direct_use.op_name)) continue;
+            after[direct_use.function_index][op_index] = true;
+        }
+    }
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (graph.helper_edges) |edge| {
+            for (flat_ops, 0..) |_, op_index| {
+                if (after[edge.caller_index][op_index] or !after[edge.callee_index][op_index]) continue;
+                after[edge.caller_index][op_index] = true;
+                changed = true;
+            }
+        }
+    }
+
+    return after;
+}
+
+fn entryRowFromUsage(
+    comptime row: effect_ir.Row,
+    comptime flat_ops: []const FlatOp,
+    comptime after_ops: []const bool,
+) effect_ir.Row {
+    return comptime blk: {
+        var requirement_buffer: [row.requirements.len]effect_ir.Requirement = undefined;
+        var flat_index: usize = 0;
+
+        for (row.requirements, 0..) |requirement, requirement_index| {
+            var op_buffer: [requirement.ops.len]effect_ir.OpSpec = undefined;
+            for (requirement.ops, 0..) |_, op_index| {
+                const flat_op = flat_ops[flat_index];
+                op_buffer[op_index] = .{
+                    .requirement_label = flat_op.requirement_label,
+                    .op_name = flat_op.op_name,
+                    .mode = flat_op.mode,
+                    .PayloadType = flat_op.PayloadType,
+                    .ResumeType = flat_op.ResumeType,
+                    .has_after = flat_op.has_after or after_ops[flat_index],
+                };
+                flat_index += 1;
+            }
+            const exact_ops = op_buffer;
+            requirement_buffer[requirement_index] = .{
+                .label = cloneBytes(requirement.label),
+                .ops = exact_ops[0..],
+            };
+        }
+
+        const exact_requirements = requirement_buffer;
+        break :blk .{ .requirements = exact_requirements[0..] };
+    };
+}
+
 fn helperRowFromUsage(
     comptime row: effect_ir.Row,
     comptime flat_ops: []const FlatOp,
     comptime used_ops: []const bool,
+    comptime after_ops: []const bool,
 ) effect_ir.Row {
     return comptime blk: {
         var requirement_buffer: [row.requirements.len]effect_ir.Requirement = undefined;
@@ -881,7 +947,7 @@ fn helperRowFromUsage(
                         .mode = flat_op.mode,
                         .PayloadType = flat_op.PayloadType,
                         .ResumeType = flat_op.ResumeType,
-                        .has_after = flat_op.has_after,
+                        .has_after = flat_op.has_after or after_ops[flat_index],
                     };
                     op_count += 1;
                 }
@@ -915,6 +981,7 @@ fn buildFunctionsForGraph(comptime graph: source_graph_embed.ProgramGraph, compt
     const reachable = reachableFunctions(graph);
     const flat_ops = flatOpsForRow(spec.row);
     const used_ops = inferUsedOps(graph, flat_ops);
+    const after_ops = inferAfterOps(graph, flat_ops);
     const entry_function = graph.functions[graph.entry_index];
 
     if (entry_function.value_param_count != 0) {
@@ -938,7 +1005,7 @@ fn buildFunctionsForGraph(comptime graph: source_graph_embed.ProgramGraph, compt
                 .module_path = cloneBytes(entry_function.module_path),
                 .symbol_name = cloneBytes(entry_function.name),
             },
-            .row = cloneRow(spec.row),
+            .row = entryRowFromUsage(spec.row, flat_ops, &after_ops[graph.entry_index]),
             .ValueType = spec.ValueType,
             .outputs = cloneOutputSpecs(spec.outputs),
         };
@@ -974,7 +1041,7 @@ fn buildFunctionsForGraph(comptime graph: source_graph_embed.ProgramGraph, compt
                     .module_path = cloneBytes(function.module_path),
                     .symbol_name = cloneBytes(function.name),
                 },
-                .row = helperRowFromUsage(spec.row, flat_ops, &used_ops[function_index]),
+                .row = helperRowFromUsage(spec.row, flat_ops, &used_ops[function_index], &after_ops[function_index]),
                 .parameter_codecs = parameter_codecs,
                 .ValueType = value_type,
                 .outputs = &.{},

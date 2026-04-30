@@ -34,6 +34,7 @@ pub const ProgramDirectOpUse = struct {
     function_index: usize,
     requirement_label: []const u8,
     op_name: []const u8,
+    has_after: bool = false,
     line: usize,
     column: usize,
 };
@@ -89,6 +90,7 @@ const Buffers = struct {
         .function_index = 0,
         .requirement_label = "",
         .op_name = "",
+        .has_after = false,
         .line = 0,
         .column = 0,
     }} ** 2048,
@@ -698,6 +700,7 @@ fn collectModule(
             .function_index = first_function_index + direct_op_use.function_index,
             .requirement_label = direct_op_use.requirement_label,
             .op_name = direct_op_use.op_name,
+            .has_after = direct_op_use.has_after,
             .line = direct_op_use.line,
             .column = direct_op_use.column,
         };
