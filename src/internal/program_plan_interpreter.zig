@@ -1,4 +1,5 @@
 // zlinter-disable field_ordering - result union order stays value-first to match the interpreter control flow.
+// zlinter-disable declaration_naming - nested lexical metadata fixtures intentionally mirror source-visible declarations.
 // zlinter-disable function_naming - internal codec helpers intentionally mirror the ProgramPlan vocabulary even when they return comptime types.
 // zlinter-disable max_positional_args - the interpreter core keeps the live execution state explicit instead of packing it into a transient context struct.
 // zlinter-disable no_undefined - fixed-size local helper buffers are completely overwritten before observation in the interpreter hot path.
@@ -249,6 +250,7 @@ fn executeNestedWithInstruction(
     comptime metadata_source: []const u8,
     comptime result_codec: program_plan.ValueCodec,
     runtime: *lowered_machine.Runtime,
+    ctx: *ExecutionContext,
 ) anyerror!lowered_machine.ProgramValue {
     _ = runtime;
     const metadata = comptime parseNestedWithMetadata(metadata_source);
@@ -269,7 +271,7 @@ fn executeNestedWithInstruction(
     const HandlersType = singleFieldStructType(metadata.requirement_label, nested_carrier.descriptor_type);
     var handlers: HandlersType = undefined;
     @field(handlers, metadata.requirement_label) = nested_carrier.descriptor();
-    const result = try runEntryInSource(nested_runtime, nested_carrier.compiled_plan_value, SourceModule, &handlers);
+    const result = try runEntryInSourceWithContext(nested_runtime, nested_carrier.compiled_plan_value, SourceModule, &handlers, &.{}, ctx);
     const encoded = encodeTypedProgramValue(result.value);
     if (!runtimeValueMatchesCodec(result_codec, encoded)) return error.ProgramContractViolation;
     return encoded;
@@ -295,6 +297,7 @@ fn executeNestedWithAtInstruction(
     comptime SourceModule: type,
     instruction_index: u16,
     runtime: *lowered_machine.Runtime,
+    ctx: *ExecutionContext,
 ) anyerror!lowered_machine.ProgramValue {
     return switch (instruction_index) {
         inline 0...(compiled_plan.instructions.len - 1) => |active_index| blk: {
@@ -302,7 +305,7 @@ fn executeNestedWithAtInstruction(
             if (instruction.kind != .call_nested_with) break :blk error.ProgramContractViolation;
             const result_codec: ?program_plan.ValueCodec = comptime program_plan.valueCodecFromInstructionAux(instruction.aux) catch null;
             if (comptime result_codec == null) break :blk error.ProgramContractViolation;
-            break :blk try executeNestedWithInstruction(SourceModule, instruction.string_literal, result_codec.?, runtime);
+            break :blk try executeNestedWithInstruction(SourceModule, instruction.string_literal, result_codec.?, runtime, ctx);
         },
         else => error.ProgramContractViolation,
     };
@@ -682,6 +685,7 @@ fn continueFunction(
                         NestedSourceModule,
                         instruction_index,
                         runtime,
+                        ctx,
                     );
                     const nested_codec = program_plan.valueCodecFromInstructionAux(instruction.aux) catch
                         return error.ProgramContractViolation;
@@ -983,6 +987,27 @@ fn checkedSubUsize(left: usize, right: usize) anyerror!usize {
     return std.math.sub(usize, left, right) catch return error.ProgramContractViolation;
 }
 
+fn runEntryInSourceWithContext(
+    runtime: *lowered_machine.Runtime,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime NestedSourceModule: type,
+    handlers: anytype,
+    args: []const lowered_machine.ProgramValue,
+    ctx: *ExecutionContext,
+) anyerror!RunResultTypeForPlan(compiled_plan) {
+    try lowered_machine.beginExecution(runtime);
+    defer lowered_machine.endExecution(runtime);
+    const outcome = try executeDispatchInSourceWithOptions(runtime, compiled_plan, NestedSourceModule, handlers, compiled_plan.entry_index, args, ctx);
+    const value = switch (outcome) {
+        .value => |typed| typed,
+        .terminal => |typed| typed,
+    };
+    return .{
+        .outputs = try collectOutputsForPlan(compiled_plan, handlers),
+        .value = decodeRuntimeValue(program_plan.functionResultCodec(compiled_plan.functions[compiled_plan.entry_index]), value),
+    };
+}
+
 /// Execute the entry function of one ProgramPlan and finalize its outputs.
 pub fn runEntryInSource(
     runtime: *lowered_machine.Runtime,
@@ -1000,18 +1025,8 @@ pub fn runEntryInSourceWithOptions(
     handlers: anytype,
     options: RunOptions,
 ) anyerror!RunResultTypeForPlan(compiled_plan) {
-    try lowered_machine.beginExecution(runtime);
-    defer lowered_machine.endExecution(runtime);
     var ctx: ExecutionContext = .{ .options = options };
-    const outcome = try executeDispatchInSourceWithOptions(runtime, compiled_plan, NestedSourceModule, handlers, compiled_plan.entry_index, &.{}, &ctx);
-    const value = switch (outcome) {
-        .value => |typed| typed,
-        .terminal => |typed| typed,
-    };
-    return .{
-        .outputs = try collectOutputsForPlan(compiled_plan, handlers),
-        .value = decodeRuntimeValue(program_plan.functionResultCodec(compiled_plan.functions[compiled_plan.entry_index]), value),
-    };
+    return try runEntryInSourceWithContext(runtime, compiled_plan, NestedSourceModule, handlers, &.{}, &ctx);
 }
 
 pub fn runEntry(
@@ -1050,18 +1065,8 @@ pub fn runEntryWithArgsInSourceWithOptions(
     args: []const lowered_machine.ProgramValue,
     options: RunOptions,
 ) anyerror!RunResultTypeForPlan(compiled_plan) {
-    try lowered_machine.beginExecution(runtime);
-    defer lowered_machine.endExecution(runtime);
     var ctx: ExecutionContext = .{ .options = options };
-    const outcome = try executeDispatchInSourceWithOptions(runtime, compiled_plan, NestedSourceModule, handlers, compiled_plan.entry_index, args, &ctx);
-    const value = switch (outcome) {
-        .value => |typed| typed,
-        .terminal => |typed| typed,
-    };
-    return .{
-        .outputs = try collectOutputsForPlan(compiled_plan, handlers),
-        .value = decodeRuntimeValue(program_plan.functionResultCodec(compiled_plan.functions[compiled_plan.entry_index]), value),
-    };
+    return try runEntryInSourceWithContext(runtime, compiled_plan, NestedSourceModule, handlers, args, &ctx);
 }
 
 pub fn runEntryWithArgs(
@@ -1181,6 +1186,103 @@ test "program plan interpreter rejects invalid call_nested_with aux codecs" {
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     try std.testing.expectError(error.ProgramContractViolation, executeDispatch(&runtime, compiled_plan, &handlers, 0, &.{}));
+}
+
+const NestedBudgetTestSource = struct {
+    pub const RuntimeBox = struct {
+        pub threadlocal var ptr: ?*lowered_machine.Runtime = null;
+    };
+
+    const ResumeFamily = struct {
+        pub const ops = .{struct {
+            pub const name: [:0]const u8 = "step";
+            pub const control_mode = enum { abort, choice, transform }.transform;
+            pub const Payload = void;
+            pub const Resume = i32;
+            pub const after = enum { binding_optional, none }.none;
+        }};
+    };
+
+    pub const Handlers = struct {
+        pub const InnerHandler = struct {};
+    };
+
+    pub const ResumeFactory = struct {
+        pub fn use(_: anytype) ResumeDescriptor {
+            return .{};
+        }
+    };
+
+    pub const ResumeDescriptor = struct {
+        pub fn BindingSchema(comptime label: [:0]const u8) type {
+            return struct {
+                pub const requirement_label = label;
+                pub const Family = ResumeFamily;
+                pub const Handler = Handlers.InnerHandler;
+            };
+        }
+
+        pub fn step(_: *@This()) i32 {
+            return 1;
+        }
+    };
+};
+
+test "program plan interpreter applies caller budget to nested lexical with bodies" {
+    const compiled_plan: program_plan.ProgramPlan = .{
+        .label = "interpreter.budget.nested_lexical_with",
+        .ir_hash = 0x30e,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{
+            .kind = .call_nested_with,
+            .dst = 0,
+            .aux = @intFromEnum(program_plan.ValueCodec.i32),
+            .string_literal = "inner" ++
+                "\x1fRuntimeBox" ++
+                "\x1fptr" ++
+                "\x1fResumeFactory" ++
+                "\x1fHandlers" ++
+                "\x1fInnerHandler" ++
+                "\x1fnested_budget" ++
+                "\x1fsrc/witness_sources.zig" ++
+                "\x1fwitnessStaticRedelimInnerBody",
+        }},
+    };
+    try compiled_plan.validate();
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    NestedBudgetTestSource.RuntimeBox.ptr = &runtime;
+    defer NestedBudgetTestSource.RuntimeBox.ptr = null;
+
+    var handlers = struct {}{};
+    try std.testing.expectError(
+        error.ExecutionBudgetExceeded,
+        runEntryInSourceWithOptions(&runtime, compiled_plan, NestedBudgetTestSource, &handlers, .{ .max_block_steps = 1 }),
+    );
 }
 
 test "program plan interpreter gates after frames on plan metadata" {
