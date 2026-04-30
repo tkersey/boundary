@@ -37,6 +37,8 @@ const generated_output_roots = [_][]const u8{
     ".zig-cache",
     "zig-cache",
 };
+const usage_exit_code: u8 = 2;
+const rejection_exit_code: u8 = 1;
 
 const CliShapeIssue = union(enum) {
     missing_value: []const u8,
@@ -78,7 +80,7 @@ const RequiredCliOptionsResult = union(enum) {
 
 fn usage() noreturn {
     std.debug.print(usage_text, .{});
-    std.process.exit(1);
+    std.process.exit(usage_exit_code);
 }
 
 fn usageError(comptime fmt: []const u8, args: anytype) noreturn {
@@ -114,11 +116,31 @@ fn writeUsageErrorWithValue(comptime prefix: []const u8, value: []const u8) !voi
 fn usageErrorWithValue(comptime prefix: []const u8, value: []const u8) noreturn {
     writeUsageErrorWithValue(prefix, value) catch |err|
         std.process.fatal("unable to write usage error: {s}", .{@errorName(err)});
-    std.process.exit(1);
+    std.process.exit(usage_exit_code);
 }
 
 fn writeUsage(writer: anytype) !void {
     try writer.writeAll(usage_text);
+}
+
+fn writeUnsupportedSourceCaseUsageError(writer: anytype, surface_kind: source_lowering.SurfaceKind, program_id: []const u8) !void {
+    try writer.print(
+        "ability-source-lower: unsupported --id for --surface {s}; run `--list-cases --surface {s}` to see valid ids: ",
+        .{ @tagName(surface_kind), @tagName(surface_kind) },
+    );
+    try writeEscapedDiagnosticValue(writer, program_id);
+    try writer.writeByte('\n');
+    try writeUsage(writer);
+}
+
+fn usageErrorUnsupportedSourceCase(io: std.Io, surface_kind: source_lowering.SurfaceKind, program_id: []const u8) noreturn {
+    var stderr_buffer: [1024]u8 = undefined;
+    var stderr_writer = std.Io.File.stderr().writerStreaming(io, &stderr_buffer);
+    writeUnsupportedSourceCaseUsageError(&stderr_writer.interface, surface_kind, program_id) catch |err|
+        std.process.fatal("unable to write usage error: {s}", .{@errorName(err)});
+    stderr_writer.interface.flush() catch |err|
+        std.process.fatal("unable to flush usage error: {s}", .{@errorName(err)});
+    std.process.exit(usage_exit_code);
 }
 
 fn writeSupportedCases(writer: anytype, surface_kind: source_lowering.SurfaceKind) !void {
@@ -418,11 +440,18 @@ fn writeRejectedProgramDiagnostics(writer: anytype, program: source_lowering.Gen
     }
 }
 
-fn deleteRejectedProgramOutput(dir: std.Io.Dir, io: std.Io, out_path: []const u8) !void {
+fn deleteRejectedProgramOutput(dir: std.Io.Dir, io: std.Io, out_path: []const u8) !bool {
     dir.deleteFile(io, out_path) catch |err| switch (err) {
-        error.FileNotFound => {},
+        error.FileNotFound => return false,
         else => return err,
     };
+    return true;
+}
+
+fn writeRejectedOutputRemovalDiagnostic(writer: anytype, out_path: []const u8) !void {
+    try writer.writeAll("ability-source-lower: removed stale rejected output ");
+    try writeEscapedDiagnosticValue(writer, out_path);
+    try writer.writeByte('\n');
 }
 
 fn writeJsonKernelProgramArtifact(
@@ -703,7 +732,7 @@ fn writeAcceptedProgramOutput(spec: OutputWriteSpec) !void {
     if (containsPathSeparator(out_path)) return error.BadPathName;
 
     if (!program.isAccepted()) {
-        try deleteRejectedProgramOutput(dir, io, out_path);
+        _ = try deleteRejectedProgramOutput(dir, io, out_path);
         return error.RejectedGeneratedProgram;
     }
 
@@ -811,19 +840,20 @@ pub fn main(init: std.process.Init) anyerror!void {
         .entry_symbol = cli_options.entry_symbol,
         .surface_kind = cli_options.surface_kind,
     }) catch |err| switch (err) {
-        error.UnsupportedSourceCase => usageErrorWithValue("unsupported --id for selected --surface; run the same executable with `--list-cases --surface <kind>` to see valid ids: ", cli_options.program_id),
+        error.UnsupportedSourceCase => usageErrorUnsupportedSourceCase(init.io, cli_options.surface_kind, cli_options.program_id),
         else => return err,
     };
     defer program.deinit(allocator);
 
     if (!program.isAccepted()) {
-        try deleteRejectedProgramOutput(bound_output_path.dir, init.io, bound_output_path.basename);
+        const removed_stale_output = try deleteRejectedProgramOutput(bound_output_path.dir, init.io, bound_output_path.basename);
         var stderr_buffer: [1024]u8 = undefined;
         var stderr_writer = std.Io.File.stderr().writerStreaming(init.io, &stderr_buffer);
         const stderr = &stderr_writer.interface;
+        if (removed_stale_output) try writeRejectedOutputRemovalDiagnostic(stderr, output_path);
         try writeRejectedProgramDiagnostics(stderr, program);
         try stderr.flush();
-        std.process.exit(1);
+        std.process.exit(rejection_exit_code);
     }
 
     try writeAcceptedProgramOutput(.{
@@ -1356,4 +1386,34 @@ test "diagnostic values escape control characters" {
     defer std.testing.allocator.free(bytes);
 
     try std.testing.expectEqualStrings("'--bad\\n\\x1b[31m'", bytes);
+}
+
+test "usage and rejection exit codes stay distinct" {
+    try std.testing.expectEqual(@as(u8, 2), usage_exit_code);
+    try std.testing.expectEqual(@as(u8, 1), rejection_exit_code);
+}
+
+test "unsupported source case diagnostic includes concrete surface" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+
+    try writeUnsupportedSourceCaseUsageError(&output.writer, .example, "example.missing");
+    const bytes = try output.toOwnedSlice();
+    defer std.testing.allocator.free(bytes);
+
+    try std.testing.expect(std.mem.find(u8, bytes, "--surface example") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "--list-cases --surface example") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "'example.missing'") != null);
+}
+
+test "stale output removal diagnostic names generated output" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+
+    try writeRejectedOutputRemovalDiagnostic(&output.writer, "zig-out/source-lower/out.json");
+    const bytes = try output.toOwnedSlice();
+    defer std.testing.allocator.free(bytes);
+
+    try std.testing.expect(std.mem.find(u8, bytes, "removed stale rejected output") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "'zig-out/source-lower/out.json'") != null);
 }

@@ -107,7 +107,7 @@ fn artifactSizeExceededVerdict() Verdict {
     return .{
         .status = .incompatible,
         .code = "resource_exhausted",
-        .detail = "artifact exceeded the fixed conformance profile",
+        .detail = "artifact size exceeds fixed conformance profile limit max_artifact_bytes=16777216",
     };
 }
 
@@ -143,7 +143,7 @@ pub fn fixedProfileVerdict(allocator: std.mem.Allocator, bytes: []const u8) anye
         error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => return .{
             .status = .incompatible,
             .code = "data_value_bounds",
-            .detail = @errorName(err),
+            .detail = dataValueBoundsDetail(err),
         },
         else => return err,
     };
@@ -181,13 +181,13 @@ fn classifyFailure(failure: ability_agent_vm.host.Failure) Verdict {
         return .{
             .status = .incompatible,
             .code = "resource_exhausted",
-            .detail = "artifact exceeded the fixed conformance profile",
+            .detail = stableFailureDetail(failure.message),
         };
     }
     return .{
         .status = .incompatible,
         .code = "runtime_failure",
-        .detail = "artifact failed under the fixed conformance profile",
+        .detail = stableFailureDetail(failure.message),
     };
 }
 
@@ -196,13 +196,71 @@ fn classifyRejected(failure: ability_agent_vm.host.Failure) Verdict {
         return .{
             .status = .invalid,
             .code = "invalid_artifact",
-            .detail = "artifact rejected by ArtifactV1 decoder",
+            .detail = stableArtifactDecoderDetail(failure.message),
         };
     }
     return .{
         .status = .incompatible,
         .code = "runtime_rejected",
-        .detail = "artifact was rejected under the fixed conformance profile",
+        .detail = stableFailureDetail(failure.message),
+    };
+}
+
+fn stableArtifactDecoderDetail(message: []const u8) []const u8 {
+    if (std.mem.eql(u8, message, "EndOfStream")) return "EndOfStream";
+    if (std.mem.eql(u8, message, "ArtifactTooLarge")) return "ArtifactTooLarge";
+    if (std.mem.eql(u8, message, "BadMagic")) return "BadMagic";
+    if (std.mem.eql(u8, message, "BuildFingerprintMismatch")) return "BuildFingerprintMismatch";
+    if (std.mem.eql(u8, message, "DuplicateCapabilityId")) return "DuplicateCapabilityId";
+    if (std.mem.eql(u8, message, "DuplicateCapabilityOpId")) return "DuplicateCapabilityOpId";
+    if (std.mem.eql(u8, message, "DuplicateDirectorySection")) return "DuplicateDirectorySection";
+    if (std.mem.eql(u8, message, "InvalidToolId")) return "InvalidToolId";
+    if (std.mem.eql(u8, message, "InvalidBuildFingerprint")) return "InvalidBuildFingerprint";
+    if (std.mem.eql(u8, message, "InvalidDirectoryBounds")) return "InvalidDirectoryBounds";
+    if (std.mem.eql(u8, message, "InvalidEntryFunctionIndex")) return "InvalidEntryFunctionIndex";
+    if (std.mem.eql(u8, message, "InvalidProgramPlan")) return "InvalidProgramPlan";
+    if (std.mem.eql(u8, message, "InvalidHashKind")) return "InvalidHashKind";
+    if (std.mem.eql(u8, message, "InvalidRequiredSection")) return "InvalidRequiredSection";
+    if (std.mem.eql(u8, message, "NonZeroReserved")) return "NonZeroReserved";
+    if (std.mem.eql(u8, message, "StringRefOutOfBounds")) return "StringRefOutOfBounds";
+    if (std.mem.eql(u8, message, "UnsortedDirectorySection")) return "UnsortedDirectorySection";
+    if (std.mem.eql(u8, message, "UnsupportedEntryParameters")) return "UnsupportedEntryParameters";
+    if (std.mem.eql(u8, message, "UnsupportedVersion")) return "UnsupportedVersion";
+    if (std.mem.eql(u8, message, "ArtifactHashMismatch")) return "ArtifactHashMismatch";
+    if (std.mem.eql(u8, message, "UnsupportedExecutableCodec")) return "UnsupportedExecutableCodec";
+    if (std.mem.eql(u8, message, "UnsupportedExecInstruction")) return "UnsupportedExecInstruction";
+    return "ArtifactV1 decoder rejected artifact with an unclassified error";
+}
+
+fn stableFailureDetail(message: []const u8) []const u8 {
+    if (std.mem.eql(u8, message, "artifact completed value payload budget exceeded")) return "artifact completed value payload budget exceeded";
+    if (std.mem.eql(u8, message, "artifact block budget exceeded")) return "artifact block budget exceeded";
+    if (std.mem.eql(u8, message, "artifact instruction budget exceeded")) return "artifact instruction budget exceeded";
+    if (std.mem.eql(u8, message, "artifact call-depth budget exceeded")) return "artifact call-depth budget exceeded";
+    if (std.mem.eql(u8, message, "artifact after-frame budget exceeded")) return "artifact after-frame budget exceeded";
+    if (std.mem.eql(u8, message, "artifact host-log budget exceeded")) return "artifact host-log budget exceeded";
+    if (std.mem.eql(u8, message, "artifact host-log byte budget exceeded")) return "artifact host-log byte budget exceeded";
+    if (std.mem.eql(u8, message, "artifact host-log payload budget exceeded")) return "artifact host-log payload budget exceeded";
+    if (std.mem.eql(u8, message, "artifact host-request payload budget exceeded")) return "artifact host-request payload budget exceeded";
+    if (std.mem.eql(u8, message, "artifact output snapshot payload budget exceeded")) return "artifact output snapshot payload budget exceeded";
+    if (std.mem.eql(u8, message, "host reply schema_version must be 1")) return "host reply schema_version must be 1";
+    if (std.mem.eql(u8, message, "host reply request_id must echo the request")) return "host reply request_id must echo the request";
+    if (std.mem.eql(u8, message, "host reply tool_id must echo the request")) return "host reply tool_id must echo the request";
+    if (std.mem.eql(u8, message, "host reply call_id must echo the request")) return "host reply call_id must echo the request";
+    if (std.mem.eql(u8, message, "host reply control is incompatible with the op mode")) return "host reply control is incompatible with the op mode";
+    if (std.mem.eql(u8, message, "host reply value does not match the declared codec")) return "host reply value does not match the declared codec";
+    if (std.mem.eql(u8, message, "host output snapshot count must match the declared outputs")) return "host output snapshot count must match the declared outputs";
+    if (std.mem.eql(u8, message, "host output snapshot labels must match the declared outputs")) return "host output snapshot labels must match the declared outputs";
+    if (std.mem.eql(u8, message, "host output snapshot value does not match the declared codec")) return "host output snapshot value does not match the declared codec";
+    return "runtime failed under the fixed conformance profile with an unclassified error";
+}
+
+fn dataValueBoundsDetail(err: anyerror) []const u8 {
+    return switch (err) {
+        error.DataValueTooDeep => "DataValue exceeds fixed conformance profile max_depth=64",
+        error.DataValueTooManyNodes => "DataValue exceeds fixed conformance profile max_nodes=4096",
+        error.DataValueTooManyBytes => "DataValue exceeds fixed conformance profile max_bytes=1048576",
+        else => @errorName(err),
     };
 }
 
@@ -286,4 +344,11 @@ test "diagnostic values escape control characters" {
     defer std.testing.allocator.free(bytes);
 
     try std.testing.expectEqualStrings("'bad\\npath\\x1b[31m'", bytes);
+}
+
+test "ArtifactV1 decoder detail preserves invalid required section failures" {
+    try std.testing.expectEqualStrings(
+        "InvalidRequiredSection",
+        stableArtifactDecoderDetail("InvalidRequiredSection"),
+    );
 }
