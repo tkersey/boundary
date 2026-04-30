@@ -29,11 +29,14 @@ want compiled lexical execution for ordinary local body structs must make the
 source witness part of the body type itself:
 
 For a copy-runnable starting point inside this checkout, use
-`examples/state_basic.zig` or run it with `zig build run-state-basic`. The block
-below is the downstream named-body shape, not a complete `main.zig`; the
-anonymous inline body in the checkout example relies on repo-owned source lookup.
+`examples/state_basic.zig` or run it with `zig build run-state-basic`. In a
+downstream package, use a named body that carries its own source witness. This is
+a complete `src/main.zig` shape after the build imports `ability` as shown below:
 
 ```zig
+const std = @import("std");
+const ability = @import("ability");
+
 const Body = struct {
     fn sourceBytes() []const u8 {
         return @embedFile(std.Io.Dir.path.basename(@src().file));
@@ -45,7 +48,7 @@ const Body = struct {
 
     pub const source = sourceBytes();
     pub const source_hash = ability.sourceHash(sourceBytes());
-    pub const source_file = "src/main.zig";
+    pub const source_file = "main.zig";
     pub const source_location = sourceLocation();
     pub const source_identity = "main.Body";
 
@@ -54,9 +57,19 @@ const Body = struct {
     }
 };
 
-const result = try ability.with(&runtime, .{
-    .state = ability.effect.state.use(@as(i32, 9)),
-}, Body);
+pub fn main(init: std.process.Init) !void {
+    var runtime = ability.Runtime.init(init.gpa);
+    defer runtime.deinit();
+
+    const result = try ability.with(&runtime, .{
+        .state = ability.effect.state.use(@as(i32, 9)),
+    }, Body);
+
+    var stdout_buffer: [64]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    try stdout_writer.interface.print("{d}\n", .{result.value});
+    try stdout_writer.interface.flush();
+}
 ```
 
 The source witness is raw file bytes plus the hash/file/location identity that
@@ -64,12 +77,11 @@ owns those bytes. For source-backed external bodies, keep `pub const source` and
 `pub const source_hash` generated from the same file rather than hand-writing
 them or importing bytes from a different same-named body. `@src()` must be
 evaluated from a function scope, so examples use tiny comptime helpers to keep
-the public witness fields as `pub const` declarations. Source-backed body
-structs declare `pub const source_file` as a public string literal matching the
-owning `@src().file` value and `pub const source_location` from a function inside
-the body declaration. The example above assumes the body lives in `src/main.zig`;
-replace that literal with the exact `@src().file` value for the file that owns
-the body. Named body structs also declare `pub const source_identity` matching
+the generated source and location fields as `pub const` declarations.
+Source-backed body structs declare `pub const source_file` as the exact
+`@src().file` string for the source owner; for the build shape above Zig reports
+`main.zig`, even though the file is stored at `src/main.zig`. Named body structs
+also declare `pub const source_identity` matching
 the top-level declaration selected from those bytes.
 Bodies without a complete source witness, bodies whose source does not contain
 the matching body declaration/file/location, and unsupported helper/import shapes
@@ -124,6 +136,7 @@ The ordinary user-facing examples live under `examples/`.
 - `zig build run-exception-basic`
 - `zig build run-resource-basic`
 - `zig build run-writer-basic`
+- `zig build run-custom-approval-workflow`
 
 `examples/custom_approval_workflow.zig` is the package-like custom-effect proof
 example. It defines separate generated families for directory lookup,

@@ -61,6 +61,20 @@ pub const ParseArgsResult = union(enum) {
     version,
 };
 
+fn writeEscapedDiagnosticValue(writer: anytype, value: []const u8) !void {
+    try writer.writeByte('\'');
+    for (value) |byte| switch (byte) {
+        '\'' => try writer.writeAll("\\'"),
+        '\\' => try writer.writeAll("\\\\"),
+        '\n' => try writer.writeAll("\\n"),
+        '\r' => try writer.writeAll("\\r"),
+        '\t' => try writer.writeAll("\\t"),
+        0...8, 11, 12, 14...31, 127 => try writer.print("\\x{x:0>2}", .{byte}),
+        else => try writer.writeByte(byte),
+    };
+    try writer.writeByte('\'');
+}
+
 /// Parse the report tool's fixed `--artifact <path>` CLI contract.
 pub fn parseArgs(args: []const []const u8) ParseArgsResult {
     if (args.len == 0) return .{ .invalid = "missing required --artifact <path>" };
@@ -225,7 +239,13 @@ pub fn main(init: std.process.Init) anyerror!void {
         },
         .artifact_path => |path| {
             const read_result = readArtifactForReport(init.io, allocator, path) catch |err| {
-                std.debug.print("agent-vm-artifact-report: unable to read artifact '{s}': {s}\n", .{ path, @errorName(err) });
+                var stderr_buffer: [512]u8 = undefined;
+                var stderr_writer = std.Io.File.stderr().writerStreaming(init.io, &stderr_buffer);
+                const stderr = &stderr_writer.interface;
+                try stderr.writeAll("agent-vm-artifact-report: artifact file could not be read: ");
+                try writeEscapedDiagnosticValue(stderr, path);
+                try stderr.print(" ({s}). Pass an existing ArtifactV1 file with --artifact <path>, or use `zig build run-agent-vm-artifact-report -Dagent-vm-artifact=<path>`.\n", .{@errorName(err)});
+                try stderr.flush();
                 std.process.exit(2);
             };
 
@@ -243,4 +263,15 @@ pub fn main(init: std.process.Init) anyerror!void {
             if (!verdict.success()) std.process.exit(1);
         },
     }
+}
+
+test "diagnostic values escape control characters" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+
+    try writeEscapedDiagnosticValue(&output.writer, "bad\npath\x1b[31m");
+    const bytes = try output.toOwnedSlice();
+    defer std.testing.allocator.free(bytes);
+
+    try std.testing.expectEqualStrings("'bad\\npath\\x1b[31m'", bytes);
 }

@@ -86,6 +86,37 @@ fn usageError(comptime fmt: []const u8, args: anytype) noreturn {
     usage();
 }
 
+fn writeEscapedDiagnosticValue(writer: anytype, value: []const u8) !void {
+    try writer.writeByte('\'');
+    for (value) |byte| switch (byte) {
+        '\'' => try writer.writeAll("\\'"),
+        '\\' => try writer.writeAll("\\\\"),
+        '\n' => try writer.writeAll("\\n"),
+        '\r' => try writer.writeAll("\\r"),
+        '\t' => try writer.writeAll("\\t"),
+        0...8, 11, 12, 14...31, 127 => try writer.print("\\x{x:0>2}", .{byte}),
+        else => try writer.writeByte(byte),
+    };
+    try writer.writeByte('\'');
+}
+
+fn writeUsageErrorWithValue(comptime prefix: []const u8, value: []const u8) !void {
+    var stderr_buffer: [1024]u8 = undefined;
+    var stderr_writer = std.Io.File.stderr().writerStreaming(std.Io.Threaded.global_single_threaded.io(), &stderr_buffer);
+    const stderr = &stderr_writer.interface;
+    try stderr.writeAll("ability-source-lower: " ++ prefix);
+    try writeEscapedDiagnosticValue(stderr, value);
+    try stderr.writeByte('\n');
+    try writeUsage(stderr);
+    try stderr.flush();
+}
+
+fn usageErrorWithValue(comptime prefix: []const u8, value: []const u8) noreturn {
+    writeUsageErrorWithValue(prefix, value) catch |err|
+        std.process.fatal("unable to write usage error: {s}", .{@errorName(err)});
+    std.process.exit(1);
+}
+
 fn writeUsage(writer: anytype) !void {
     try writer.writeAll(usage_text);
 }
@@ -115,7 +146,7 @@ fn listCases(allocator: std.mem.Allocator, io: std.Io, args: []const []const u8)
         return;
     }
     if (args.len == 4 and std.mem.eql(u8, args[2], "--surface")) {
-        const surface_kind = parseSurface(args[3]) orelse usageError("unsupported --surface value '{s}'", .{args[3]});
+        const surface_kind = parseSurface(args[3]) orelse usageErrorWithValue("unsupported --surface value ", args[3]);
         try writeSupportedCases(stdout, surface_kind);
         try stdout.flush();
         return;
@@ -728,9 +759,9 @@ pub fn main(init: std.process.Init) anyerror!void {
     }
     if (cliShapeIssue(args)) |issue| {
         switch (issue) {
-            .missing_value => |flag| usageError("missing value for flag '{s}'", .{flag}),
+            .missing_value => |flag| usageErrorWithValue("missing value for flag ", flag),
             .unexpected_arg_count => |count| usageError("expected six flag/value pairs after the program name; got {d} argument token(s)", .{count}),
-            .unknown_flag => |flag| usageError("unknown flag '{s}'", .{flag}),
+            .unknown_flag => |flag| usageErrorWithValue("unknown flag ", flag),
         }
     }
 
@@ -747,13 +778,13 @@ pub fn main(init: std.process.Init) anyerror!void {
         } else if (std.mem.eql(u8, flag, "--entry")) {
             parsed.entry_symbol = value;
         } else if (std.mem.eql(u8, flag, "--surface")) {
-            parsed.surface_kind = parseSurface(value) orelse usageError("unsupported --surface value '{s}'", .{value});
+            parsed.surface_kind = parseSurface(value) orelse usageErrorWithValue("unsupported --surface value ", value);
         } else if (std.mem.eql(u8, flag, "--emit")) {
-            parsed.emit_mode = parseEmit(value) orelse usageError("unsupported --emit value '{s}'", .{value});
+            parsed.emit_mode = parseEmit(value) orelse usageErrorWithValue("unsupported --emit value ", value);
         } else if (std.mem.eql(u8, flag, "--out")) {
             parsed.output_path = value;
         } else {
-            usageError("unknown flag '{s}'", .{flag});
+            usageErrorWithValue("unknown flag ", flag);
         }
     }
 
@@ -764,16 +795,16 @@ pub fn main(init: std.process.Init) anyerror!void {
 
     const output_path = cli_options.output_path;
     if (!generatedOutputPathAllowed(output_path)) {
-        usageError("--out must be a generated relative path under zig-out/, .zig-cache/, or zig-cache/: '{s}'", .{output_path});
+        usageErrorWithValue("--out must be a generated relative path under zig-out/, .zig-cache/, or zig-cache/: ", output_path);
     }
     if (!(try generatedOutputRootBound(allocator, init.io, tool_build_options.package_root, output_path))) {
-        usageError("--out generated root must be a real directory owned by the current checkout: '{s}'", .{output_path});
+        usageErrorWithValue("--out generated root must be a real directory owned by the current checkout: ", output_path);
     }
     var bound_output_path = bindGeneratedOutputPath(init.io, tool_build_options.package_root, output_path) catch |err| {
         switch (err) {
-            error.FileNotFound => usageError("--out parent directory does not exist under generated root: '{s}'", .{output_path}),
-            error.BadPathName => usageError("--out parent path must stay inside real generated directories: '{s}'", .{output_path}),
-            else => usageError("--out parent path could not be opened ({s}): '{s}'", .{ @errorName(err), output_path }),
+            error.FileNotFound => usageErrorWithValue("--out parent directory does not exist under generated root: ", output_path),
+            error.BadPathName => usageErrorWithValue("--out parent path must stay inside real generated directories: ", output_path),
+            else => usageErrorWithValue("--out parent path could not be opened; path: ", output_path),
         }
     };
     defer bound_output_path.close();
@@ -784,10 +815,7 @@ pub fn main(init: std.process.Init) anyerror!void {
         .entry_symbol = cli_options.entry_symbol,
         .surface_kind = cli_options.surface_kind,
     }) catch |err| switch (err) {
-        error.UnsupportedSourceCase => usageError(
-            "unsupported --id '{s}' for --surface '{s}'; run the same executable with `--list-cases --surface {s}` to see valid ids",
-            .{ cli_options.program_id, @tagName(cli_options.surface_kind), @tagName(cli_options.surface_kind) },
-        ),
+        error.UnsupportedSourceCase => usageErrorWithValue("unsupported --id for selected --surface; run the same executable with `--list-cases --surface <kind>` to see valid ids: ", cli_options.program_id),
         else => return err,
     };
     defer program.deinit(allocator);
@@ -1289,4 +1317,15 @@ test "rejected source-lower programs without diagnostics include recovery guidan
 
     try std.testing.expect(std.mem.find(u8, bytes, "check that --id, --surface, --source, and --entry") != null);
     try std.testing.expect(std.mem.find(u8, bytes, "run --list-cases") != null);
+}
+
+test "diagnostic values escape control characters" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+
+    try writeEscapedDiagnosticValue(&output.writer, "--bad\n\x1b[31m");
+    const bytes = try output.toOwnedSlice();
+    defer std.testing.allocator.free(bytes);
+
+    try std.testing.expectEqualStrings("'--bad\\n\\x1b[31m'", bytes);
 }
