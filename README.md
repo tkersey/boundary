@@ -210,7 +210,9 @@ source-lowering-corpus
 source-lowering-boundary
 source-lowering-promoted
 source-lowering-completion
+source-lowering-tool
 agent-vm-artifact-report
+open-row-lowering
 source-ownership-probe
 custom-effect-workflow
 comptime-contract

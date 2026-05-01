@@ -5429,7 +5429,6 @@ pub fn build(b: *std.Build) void {
     open_row_lowering_mod.addImport("example_open_row_recursive_cross_writer", createShiftConsumerModule(b, "examples/open_row_recursive_cross_writer.zig", target, optimize, .{ .ability_mod = ability_mod, .ability_compile_mod = ability_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     const open_row_lowering_tests = addFilteredTest(b, open_row_lowering_mod, test_runner_args.filters.items);
     const run_open_row_lowering_tests = addRunArtifactWithArgs(b, open_row_lowering_tests, test_runner_args.passthrough.items);
-    _ = run_open_row_lowering_tests;
 
     const source_ownership_probe_mod = b.createModule(.{
         .root_source_file = b.path("test/source_ownership_probe_test.zig"),
@@ -5541,6 +5540,19 @@ pub fn build(b: *std.Build) void {
     comptime_parameterized_tests.expect_errors = .{ .contains = "ProgramPlan compile entry cannot require runtime parameters: test.ability_agent_vm_public_smoke" };
     run_comptime_contract_tests.step.dependOn(&comptime_parameterized_tests.step);
 
+    const comptime_string_list_mod = b.createModule(.{
+        .root_source_file = b.path("test/comptime_compile_string_list_negative.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    comptime_string_list_mod.addImport("ability", ability_mod);
+    comptime_string_list_mod.addImport("ability_compile", ability_compile_mod);
+    const comptime_string_list_tests = b.addTest(.{
+        .root_module = comptime_string_list_mod,
+    });
+    comptime_string_list_tests.expect_errors = .{ .contains = "public lowering runtime plan rejected string_list values across executable boundaries" };
+    run_comptime_contract_tests.step.dependOn(&comptime_string_list_tests.step);
+
     const src_lower_witness_mod = b.createModule(.{
         .root_source_file = b.path("test/source_lowering_witness_completion_test.zig"),
         .target = target,
@@ -5578,7 +5590,6 @@ pub fn build(b: *std.Build) void {
         source_lowering_tool_tests,
         test_runner_args.passthrough.items,
     );
-    _ = run_source_lowering_tool_tests;
     const agent_vm_report_mod = b.createModule(.{
         .root_source_file = b.path("tools/agent_vm_artifact_report.zig"),
         .target = target,
@@ -5819,7 +5830,9 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "source-lowering-boundary", .description = "Source lowering boundary suite", .run_step = &run_src_lower_boundary_tests.step },
         .{ .suite_id = "source-lowering-promoted", .description = "Promoted source lowering cohort", .run_step = &run_src_lower_promoted_tests.step },
         .{ .suite_id = "source-lowering-completion", .description = "Source lowering completion suite", .run_step = &run_src_lower_completion_tests.step },
+        .{ .suite_id = "source-lowering-tool", .description = "Source lowering inspection CLI suite", .run_step = &run_source_lowering_tool_tests.step },
         .{ .suite_id = "agent-vm-artifact-report", .description = "Agent VM artifact report CLI suite", .run_step = &run_agent_vm_report_tests.step },
+        .{ .suite_id = "open-row-lowering", .description = "Open-row lowering suite", .run_step = &run_open_row_lowering_tests.step },
         .{ .suite_id = "source-ownership-probe", .description = "Source ownership probe suite", .run_step = &run_src_ownership_probe_tests.step },
         .{ .suite_id = "custom-effect-workflow", .description = "Root-public custom effect workflow proof", .run_step = &run_custom_effect_tests.step },
         .{ .suite_id = "comptime-contract", .description = "Public comptime contract suite", .run_step = &run_comptime_contract_tests.step },

@@ -35,6 +35,7 @@ fn CompilePlanType(
         @compileError(std.fmt.comptimePrint("ProgramPlan compile entry cannot require runtime parameters: {s}", .{plan.label}));
     }
     comptime plan.validate() catch |err| @compileError(std.fmt.comptimePrint("ProgramPlan compile failed: {s}", .{@errorName(err)}));
+    lowering.assertExecutablePlanCodecSupport(plan);
     return struct {
         /// Semantic plan hash carried through to ArtifactV1.
         pub const ir_hash = plan.ir_hash;
