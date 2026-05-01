@@ -3268,6 +3268,107 @@ test "caller-owned lowering records helper continuation apply effects in helper 
     try std.testing.expectEqual(@as(usize, 1), handlers.directory.paths);
 }
 
+fn maxApplyBindingPressureSource() []const u8 {
+    @setEvalBranchQuota(20_000);
+    comptime var source_bytes: []const u8 =
+        "pub fn runBody(eff: anytype) anyerror![]const u8 {\n";
+    inline for (0..127) |index| {
+        source_bytes = source_bytes ++ std.fmt.comptimePrint("    const v{d} = try eff.counter.get();\n", .{index});
+    }
+    source_bytes = source_bytes ++
+        "    return try eff.approval.request.perform(\"request-7\", struct {\n" ++
+        "        pub fn apply(answer: []const u8, resumed_eff: anytype) anyerror![]const u8 {\n" ++
+        "            const found = try resumed_eff.directory.path(answer);\n" ++
+        "            return found;\n" ++
+        "        }\n" ++
+        "    });\n" ++
+        "}\n";
+    return source_bytes;
+}
+
+test "caller-owned lowering reserves binding capacity for max-sized continuation apply bodies" {
+    const current_src = @src();
+    const caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "/tmp/ability-owned-open-row/max_apply_binding_pressure.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "maxApplyBindingPressureCaller",
+    };
+    const ProgramType = lower(sourceWithContent(
+        "/tmp/ability-owned-open-row/max_apply_binding_pressure.zig",
+        caller,
+        maxApplyBindingPressureSource(),
+    ), .{
+        .label = "lowering_api.max_apply_binding_pressure",
+        .entry_symbol = "runBody",
+        .row = effect_ir.rowFromSpec(.{
+            .counter = .{
+                .get = effect_ir.Transform(void, i32),
+            },
+            .approval = .{
+                .request = effect_ir.Choice([]const u8, []const u8),
+            },
+            .directory = .{
+                .path = effect_ir.Transform([]const u8, []const u8),
+            },
+        }),
+        .ValueType = []const u8,
+    });
+
+    const Handlers = struct {
+        counter: struct {
+            calls: usize = 0,
+
+            pub fn get(self: *@This()) i32 {
+                self.calls += 1;
+                return @intCast(self.calls);
+            }
+        } = .{},
+        approval: struct {
+            const Decision = union(enum) {
+                resume_with: []const u8,
+                return_now: []const u8,
+            };
+
+            requests: usize = 0,
+            after_calls: usize = 0,
+
+            pub fn request(self: *@This(), payload: []const u8) Decision {
+                self.requests += 1;
+                std.testing.expectEqualStrings("request-7", payload) catch unreachable;
+                return .{ .resume_with = "approved" };
+            }
+
+            pub fn afterRequest(self: *@This(), answer: []const u8) []const u8 {
+                self.after_calls += 1;
+                return answer;
+            }
+        } = .{},
+        directory: struct {
+            paths: usize = 0,
+
+            pub fn path(self: *@This(), payload: []const u8) []const u8 {
+                self.paths += 1;
+                std.testing.expectEqualStrings("approved", payload) catch unreachable;
+                return "path:approved";
+            }
+        } = .{},
+    };
+
+    try ProgramType.validate(std.testing.allocator);
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers: Handlers = .{};
+    const result = try ProgramType.run(&runtime, &handlers);
+    try std.testing.expectEqualStrings("path:approved", result.value);
+    try std.testing.expectEqual(@as(usize, 127), handlers.counter.calls);
+    try std.testing.expectEqual(@as(usize, 1), handlers.approval.requests);
+    try std.testing.expectEqual(@as(usize, 1), handlers.approval.after_calls);
+    try std.testing.expectEqual(@as(usize, 1), handlers.directory.paths);
+}
+
 test "caller-owned lowering preserves terminal aborts in continuation apply bodies" {
     const current_src = @src();
     const caller: std.builtin.SourceLocation = .{
@@ -3320,6 +3421,151 @@ test "caller-owned lowering preserves terminal aborts in continuation apply bodi
                 self.requests += 1;
                 try std.testing.expectEqualStrings("request-7", payload);
                 return Decision.resumeWith("approved");
+            }
+
+            pub fn afterRequest(_: *@This(), answer: []const u8) anyerror![]const u8 {
+                return answer;
+            }
+        } = .{},
+        guard: struct {
+            invalids: usize = 0,
+
+            pub fn invalid(self: *@This(), payload: []const u8) anyerror![]const u8 {
+                self.invalids += 1;
+                try std.testing.expectEqualStrings("missing", payload);
+                return "invalid:missing";
+            }
+        } = .{},
+    };
+
+    try ProgramType.validate(std.testing.allocator);
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers: Handlers = .{};
+    const result = try ProgramType.run(&runtime, &handlers);
+    try std.testing.expectEqualStrings("invalid:missing", result.value);
+    try std.testing.expectEqual(@as(usize, 1), handlers.approval.requests);
+    try std.testing.expectEqual(@as(usize, 1), handlers.guard.invalids);
+}
+
+test "caller-owned lowering handles unit direct-call returns in continuation apply bodies" {
+    const current_src = @src();
+    const caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "/tmp/ability-owned-open-row/helper_apply_unit_return.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "helperApplyUnitReturnLoweringCaller",
+    };
+    const ProgramType = lower(sourceWithContent("/tmp/ability-owned-open-row/helper_apply_unit_return.zig", caller,
+        \\pub fn runBody(eff: anytype) !void {
+        \\    return try eff.approval.request.perform("request-7", struct {
+        \\        pub fn apply(_: void, resumed_eff: anytype) !void {
+        \\            return try resumed_eff.log.write("after-resume");
+        \\        }
+        \\    });
+        \\}
+    ), .{
+        .label = "lowering_api.helper_apply_unit_return",
+        .entry_symbol = "runBody",
+        .row = effect_ir.rowFromSpec(.{
+            .approval = .{
+                .request = effect_ir.Choice([]const u8, void),
+            },
+            .log = .{
+                .write = effect_ir.Transform([]const u8, void),
+            },
+        }),
+        .ValueType = void,
+    });
+
+    const Handlers = struct {
+        approval: struct {
+            const Decision = union(enum) {
+                resume_with: void,
+                return_now: void,
+            };
+
+            requests: usize = 0,
+            after_calls: usize = 0,
+
+            pub fn request(self: *@This(), payload: []const u8) anyerror!Decision {
+                self.requests += 1;
+                try std.testing.expectEqualStrings("request-7", payload);
+                return .{ .resume_with = {} };
+            }
+
+            pub fn afterRequest(self: *@This(), _: void) anyerror!void {
+                self.after_calls += 1;
+            }
+        } = .{},
+        log: struct {
+            writes: usize = 0,
+
+            pub fn write(self: *@This(), payload: []const u8) anyerror!void {
+                self.writes += 1;
+                try std.testing.expectEqualStrings("after-resume", payload);
+            }
+        } = .{},
+    };
+
+    try ProgramType.validate(std.testing.allocator);
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers: Handlers = .{};
+    const result = try ProgramType.run(&runtime, &handlers);
+    _ = result.value;
+    try std.testing.expectEqual(@as(usize, 1), handlers.approval.requests);
+    try std.testing.expectEqual(@as(usize, 1), handlers.approval.after_calls);
+    try std.testing.expectEqual(@as(usize, 1), handlers.log.writes);
+}
+
+test "caller-owned lowering handles abort direct-call returns in continuation apply bodies" {
+    const current_src = @src();
+    const caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "/tmp/ability-owned-open-row/helper_apply_abort_return.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "helperApplyAbortReturnLoweringCaller",
+    };
+    const ProgramType = lower(sourceWithContent("/tmp/ability-owned-open-row/helper_apply_abort_return.zig", caller,
+        \\pub fn runBody(eff: anytype) ![]const u8 {
+        \\    return try eff.approval.request.perform("request-7", struct {
+        \\        pub fn apply(_: []const u8, resumed_eff: anytype) ![]const u8 {
+        \\            return try resumed_eff.guard.invalid.abort("missing");
+        \\        }
+        \\    });
+        \\}
+    ), .{
+        .label = "lowering_api.helper_apply_abort_return",
+        .entry_symbol = "runBody",
+        .row = effect_ir.rowFromSpec(.{
+            .approval = .{
+                .request = effect_ir.Choice([]const u8, []const u8),
+            },
+            .guard = .{
+                .invalid = effect_ir.Abort([]const u8),
+            },
+        }),
+        .ValueType = []const u8,
+    });
+
+    const Handlers = struct {
+        approval: struct {
+            const Decision = union(enum) {
+                resume_with: []const u8,
+                return_now: []const u8,
+            };
+
+            requests: usize = 0,
+
+            pub fn request(self: *@This(), payload: []const u8) anyerror!Decision {
+                self.requests += 1;
+                try std.testing.expectEqualStrings("request-7", payload);
+                return .{ .resume_with = "approved" };
             }
 
             pub fn afterRequest(_: *@This(), answer: []const u8) anyerror![]const u8 {

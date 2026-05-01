@@ -384,6 +384,7 @@ const max_branch_statement_call_args = source_graph_engine.max_function_params *
 const max_statement_scratch_instructions = max_branch_statement_scratch_instructions;
 const max_statement_scratch_locals = max_branch_statement_scratch_locals;
 const max_statement_bound_locals = 1;
+const max_continuation_apply_bound_locals = 1 + admitted_body_v1.max_apply_steps;
 const max_statement_call_args = max_branch_statement_call_args;
 
 fn bodyTokensForFunction(
@@ -1186,9 +1187,43 @@ fn lowerContinuationApplyReturnValue(
             return;
         },
         .direct_call => |direct_call| {
-            if (expected_codec == .unit) return null;
-            if (opModeForFunctionUse(functions, function_index, direct_call.requirement_label, direct_call.op_name) == .abort) return null;
+            const op_mode = opModeForFunctionUse(functions, function_index, direct_call.requirement_label, direct_call.op_name);
             const resume_codec = resumeCodecForFunctionUse(functions, function_index, direct_call.requirement_label, direct_call.op_name);
+            if (expected_codec == .unit) {
+                if (op_mode != .abort and resume_codec != .unit) return null;
+                const payload_local = emitPayloadValueForAdmittedDirectCall(
+                    direct_call,
+                    payloadCodecForFunctionUse(functions, function_index, direct_call.requirement_label, direct_call.op_name),
+                    local_storage.bindings[0..local_storage.binding_count.*],
+                    body_state,
+                ) orelse return null;
+                appendInstruction(body_state.instructions, body_state.instruction_count, .{
+                    .kind = .call_op,
+                    .dst = noLocalId(),
+                    .operand = opIndexForFunctionUse(functions, function_index, direct_call.requirement_label, direct_call.op_name),
+                    .aux = payload_local,
+                });
+                terminator.* = .{ .kind = .return_unit };
+                terminated.* = true;
+                return;
+            }
+            if (op_mode == .abort) {
+                const payload_local = emitPayloadValueForAdmittedDirectCall(
+                    direct_call,
+                    payloadCodecForFunctionUse(functions, function_index, direct_call.requirement_label, direct_call.op_name),
+                    local_storage.bindings[0..local_storage.binding_count.*],
+                    body_state,
+                ) orelse return null;
+                appendInstruction(body_state.instructions, body_state.instruction_count, .{
+                    .kind = .call_op,
+                    .dst = noLocalId(),
+                    .operand = opIndexForFunctionUse(functions, function_index, direct_call.requirement_label, direct_call.op_name),
+                    .aux = payload_local,
+                });
+                terminator.* = .{ .kind = .return_unit };
+                terminated.* = true;
+                return;
+            }
             if (resume_codec != expected_codec) return null;
             const payload_local = emitPayloadValueForAdmittedDirectCall(
                 direct_call,
@@ -2301,11 +2336,11 @@ fn buildLinearBodyForFunction(
     const admitted_body = admittedBodyForFunction(context) orelse return null;
 
     return comptime blk: {
-        var local_bindings: [admitted_body_v1.max_steps * max_statement_bound_locals + source_graph_engine.max_function_params]BoundLocal = [_]BoundLocal{.{
+        var local_bindings: [admitted_body_v1.max_steps * max_statement_bound_locals + max_continuation_apply_bound_locals + source_graph_engine.max_function_params]BoundLocal = [_]BoundLocal{.{
             .name = "",
             .codec = .unit,
             .local_id = 0,
-        }} ** (admitted_body_v1.max_steps * max_statement_bound_locals + source_graph_engine.max_function_params);
+        }} ** (admitted_body_v1.max_steps * max_statement_bound_locals + max_continuation_apply_bound_locals + source_graph_engine.max_function_params);
         var binding_count: usize = 0;
         var local_codecs: [admitted_body_v1.max_steps * max_statement_scratch_locals + source_graph_engine.max_function_params]effect_ir.LocalCodec = [_]effect_ir.LocalCodec{.unit} ** (admitted_body_v1.max_steps * max_statement_scratch_locals + source_graph_engine.max_function_params);
         var local_count: usize = 0;
