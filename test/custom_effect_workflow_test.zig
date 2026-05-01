@@ -15,7 +15,7 @@ const ExpectedTranscript = struct {
 };
 
 fn expectTranscript(
-    actual: example.Transcript,
+    actual: anytype,
     expected: ExpectedTranscript,
 ) !void {
     try std.testing.expectEqual(expected.lookups, actual.lookups);
@@ -27,12 +27,7 @@ fn expectTranscript(
     try std.testing.expectEqualStrings(expected.last_abort, actual.last_abort);
 }
 
-fn expectWorkflowTrace(
-    value: []const u8,
-    transcript: anytype,
-    branch: semantic_trace.Branch,
-) !void {
-    const actual = try semantic_trace.traceFromCustomApprovalSummary(value, transcript);
+fn expectBranchTrace(actual: semantic_trace.Snapshot, branch: semantic_trace.Branch) !void {
     try semantic_trace.expectEqualSnapshot(actual, try semantic_trace.expectedCustomApprovalTrace(branch));
 }
 
@@ -86,6 +81,7 @@ const DirectBranch = enum { approve, deny };
 
 const DirectDirectoryHandler = struct {
     exists_value: bool,
+    trace: *semantic_trace.Snapshot,
     lookups: usize = 0,
     last_lookup: []const u8 = "",
 
@@ -93,6 +89,7 @@ const DirectDirectoryHandler = struct {
     pub fn exists(self: *@This(), payload: []const u8) bool {
         self.lookups += 1;
         self.last_lookup = payload;
+        semantic_trace.recordDirectoryExists(self.trace, payload, self.exists_value);
         return self.exists_value;
     }
 
@@ -104,6 +101,7 @@ const DirectDirectoryHandler = struct {
 
 const DirectApprovalHandler = struct {
     branch: DirectBranch,
+    trace: *semantic_trace.Snapshot,
     choices: usize = 0,
     continuations: usize = 0,
     last_choice: []const u8 = "",
@@ -126,19 +124,27 @@ const DirectApprovalHandler = struct {
         self.choices += 1;
         self.last_choice = payload;
         return switch (self.branch) {
-            .approve => Decision.resumeWith("approved"),
-            .deny => Decision.returnNow("denied"),
+            .approve => approve: {
+                semantic_trace.recordApprovalRequest(self.trace, payload, .resumed, "approved", .nonterminal);
+                break :approve Decision.resumeWith("approved");
+            },
+            .deny => deny: {
+                semantic_trace.recordApprovalRequest(self.trace, payload, .return_now, "denied", .terminal);
+                break :deny Decision.returnNow("denied");
+            },
         };
     }
 
     /// Records approval continuation replay after a resumed choice.
     pub fn afterRequest(self: *@This(), answer: []const u8) []const u8 {
         self.continuations += 1;
+        semantic_trace.recordAfterRequest(self.trace, answer);
         return answer;
     }
 };
 
 const DirectGuardHandler = struct {
+    trace: *semantic_trace.Snapshot,
     aborts: usize = 0,
     last_abort: []const u8 = "",
 
@@ -146,6 +152,7 @@ const DirectGuardHandler = struct {
     pub fn invalid(self: *@This(), payload: []const u8) []const u8 {
         self.aborts += 1;
         self.last_abort = payload;
+        semantic_trace.recordGuardInvalid(self.trace, payload, "invalid:missing");
         return "invalid:missing";
     }
 };
@@ -163,13 +170,16 @@ fn runLoweredWorkflowCase(
 ) anyerror!struct {
     value: []const u8,
     transcript: ExpectedTranscript,
+    trace: semantic_trace.Snapshot,
 } {
+    var trace: semantic_trace.Snapshot = .{};
     var handlers = DirectHandlers{
-        .directory = .{ .exists_value = exists_value },
-        .guard = .{},
-        .approval = .{ .branch = branch },
+        .directory = .{ .exists_value = exists_value, .trace = &trace },
+        .guard = .{ .trace = &trace },
+        .approval = .{ .branch = branch, .trace = &trace },
     };
     const result = try LoweredWorkflow.run(runtime, &handlers);
+    try semantic_trace.recordOutput(&trace, result.value);
     return .{
         .value = result.value,
         .transcript = .{
@@ -181,6 +191,110 @@ fn runLoweredWorkflowCase(
             .last_choice = handlers.approval.last_choice,
             .last_abort = handlers.guard.last_abort,
         },
+        .trace = trace,
+    };
+}
+
+const PublicContext = struct {
+    exists_value: bool,
+    branch: DirectBranch,
+    transcript: ExpectedTranscript = .{
+        .lookups = 0,
+        .choices = 0,
+        .continuations = 0,
+        .aborts = 0,
+        .last_lookup = "",
+        .last_choice = "",
+        .last_abort = "",
+    },
+    trace: semantic_trace.Snapshot = .{},
+};
+
+const PublicDirectoryHandler = struct {
+    ctx: *PublicContext,
+
+    /// Records the public runtime directory lookup and returns the configured existence value.
+    pub fn exists(self: *@This(), payload: []const u8) bool {
+        self.ctx.transcript.lookups += 1;
+        self.ctx.transcript.last_lookup = payload;
+        semantic_trace.recordDirectoryExists(&self.ctx.trace, payload, self.ctx.exists_value);
+        return self.ctx.exists_value;
+    }
+};
+
+const PublicApprovalHandler = struct {
+    ctx: *PublicContext,
+
+    /// Records the public runtime approval choice and selects the configured branch.
+    pub fn request(self: *@This(), payload: []const u8) ability.effect.choice.Decision([]const u8, []const u8) {
+        self.ctx.transcript.choices += 1;
+        self.ctx.transcript.last_choice = payload;
+        return switch (self.ctx.branch) {
+            .approve => approve: {
+                semantic_trace.recordApprovalRequest(&self.ctx.trace, payload, .resumed, "approved", .nonterminal);
+                break :approve ability.effect.choice.Decision([]const u8, []const u8).resumeWith("approved");
+            },
+            .deny => deny: {
+                semantic_trace.recordApprovalRequest(&self.ctx.trace, payload, .return_now, "denied", .terminal);
+                break :deny ability.effect.choice.Decision([]const u8, []const u8).returnNow("denied");
+            },
+        };
+    }
+
+    /// Records the public runtime after hook replay after a resumed approval.
+    pub fn afterRequest(self: *@This(), answer: []const u8) []const u8 {
+        self.ctx.transcript.continuations += 1;
+        semantic_trace.recordAfterRequest(&self.ctx.trace, answer);
+        return answer;
+    }
+};
+
+const PublicGuardHandler = struct {
+    ctx: *PublicContext,
+
+    /// Records the public runtime guard abort and returns its terminal answer.
+    pub fn invalid(self: *@This(), payload: []const u8) []const u8 {
+        self.ctx.transcript.aborts += 1;
+        self.ctx.transcript.last_abort = payload;
+        semantic_trace.recordGuardInvalid(&self.ctx.trace, payload, "invalid:missing");
+        return "invalid:missing";
+    }
+};
+
+const PublicHandlers = struct {
+    directory: PublicDirectoryHandler,
+    guard: PublicGuardHandler,
+    approval: PublicApprovalHandler,
+};
+
+fn runPublicWorkflowCase(
+    runtime: *ability.Runtime,
+    exists_value: bool,
+    branch: DirectBranch,
+) anyerror!struct {
+    value: []const u8,
+    transcript: ExpectedTranscript,
+    trace: semantic_trace.Snapshot,
+} {
+    var ctx = PublicContext{
+        .exists_value = exists_value,
+        .branch = branch,
+    };
+    const handlers = PublicHandlers{
+        .directory = .{ .ctx = &ctx },
+        .guard = .{ .ctx = &ctx },
+        .approval = .{ .ctx = &ctx },
+    };
+    const result = try ability.with(runtime, .{
+        .directory = example.directory.use(.{ .handler = handlers.directory }),
+        .guard = example.guard.use(.{ .handler = handlers.guard }),
+        .approval = example.approval.use(.{ .handler = handlers.approval }),
+    }, example.approval_runtime_body);
+    try semantic_trace.recordOutput(&ctx.trace, result.value);
+    return .{
+        .value = result.value,
+        .transcript = ctx.transcript,
+        .trace = ctx.trace,
     };
 }
 
@@ -227,7 +341,6 @@ test "custom approval workflow approves through public custom-effect transcript"
         .last_choice = "request-7",
         .last_abort = "",
     });
-    try expectWorkflowTrace(result.value, result.transcript, .approve);
 }
 
 test "custom approval workflow denies without recording a continuation" {
@@ -245,7 +358,6 @@ test "custom approval workflow denies without recording a continuation" {
         .last_choice = "request-7",
         .last_abort = "",
     });
-    try expectWorkflowTrace(result.value, result.transcript, .deny);
 }
 
 test "custom approval workflow source plan performs the resumed directory check only on approve" {
@@ -300,7 +412,6 @@ test "custom approval workflow aborts invalid requests before choice" {
         .last_choice = "",
         .last_abort = "missing",
     });
-    try expectWorkflowTrace(result.value, result.transcript, .invalid);
 }
 
 test "custom approval workflow source lowers to executable ProgramPlan" {
@@ -350,14 +461,13 @@ test "custom approval workflow agrees across public and direct ProgramPlan appro
     var lowered_runtime = ability.Runtime.init(std.testing.allocator);
     defer lowered_runtime.deinit();
 
-    const public_result = try example.runApprove(&public_runtime);
+    const public_result = try runPublicWorkflowCase(&public_runtime, true, .approve);
     const lowered_result = try runLoweredWorkflowCase(&lowered_runtime, true, .approve);
 
     try std.testing.expectEqualStrings(public_result.value, lowered_result.value);
     try expectTranscript(public_result.transcript, lowered_result.transcript);
-    const public_trace = try semantic_trace.traceFromCustomApprovalSummary(public_result.value, public_result.transcript);
-    const lowered_trace = try semantic_trace.traceFromCustomApprovalSummary(lowered_result.value, lowered_result.transcript);
-    try semantic_trace.expectEqualSnapshot(public_trace, lowered_trace);
+    try expectBranchTrace(public_result.trace, .approve);
+    try semantic_trace.expectEqualSnapshot(public_result.trace, lowered_result.trace);
 }
 
 test "custom approval workflow agrees across public and direct ProgramPlan terminal branches" {
@@ -366,21 +476,19 @@ test "custom approval workflow agrees across public and direct ProgramPlan termi
     var lowered_runtime = ability.Runtime.init(std.testing.allocator);
     defer lowered_runtime.deinit();
 
-    const public_denied = try example.runDeny(&public_runtime);
+    const public_denied = try runPublicWorkflowCase(&public_runtime, true, .deny);
     const lowered_denied = try runLoweredWorkflowCase(&lowered_runtime, true, .deny);
     try std.testing.expectEqualStrings(public_denied.value, lowered_denied.value);
     try expectTranscript(public_denied.transcript, lowered_denied.transcript);
-    const public_deny_trace = try semantic_trace.traceFromCustomApprovalSummary(public_denied.value, public_denied.transcript);
-    const lowered_deny_trace = try semantic_trace.traceFromCustomApprovalSummary(lowered_denied.value, lowered_denied.transcript);
-    try semantic_trace.expectEqualSnapshot(public_deny_trace, lowered_deny_trace);
+    try expectBranchTrace(public_denied.trace, .deny);
+    try semantic_trace.expectEqualSnapshot(public_denied.trace, lowered_denied.trace);
 
-    const public_invalid = try example.runInvalid(&public_runtime);
+    const public_invalid = try runPublicWorkflowCase(&public_runtime, false, .approve);
     const lowered_invalid = try runLoweredWorkflowCase(&lowered_runtime, false, .approve);
     try std.testing.expectEqualStrings(public_invalid.value, lowered_invalid.value);
     try expectTranscript(public_invalid.transcript, lowered_invalid.transcript);
-    const public_invalid_trace = try semantic_trace.traceFromCustomApprovalSummary(public_invalid.value, public_invalid.transcript);
-    const lowered_invalid_trace = try semantic_trace.traceFromCustomApprovalSummary(lowered_invalid.value, lowered_invalid.transcript);
-    try semantic_trace.expectEqualSnapshot(public_invalid_trace, lowered_invalid_trace);
+    try expectBranchTrace(public_invalid.trace, .invalid);
+    try semantic_trace.expectEqualSnapshot(public_invalid.trace, lowered_invalid.trace);
 }
 
 test "custom approval workflow ArtifactV1 encode decode preserves custom capabilities" {

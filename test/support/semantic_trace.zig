@@ -32,6 +32,12 @@ pub const Decision = enum {
     return_now,
 };
 
+/// Whether a trace event terminates the workflow immediately.
+pub const Terminal = enum {
+    nonterminal,
+    terminal,
+};
+
 /// One canonical semantic event in the custom approval workflow trace.
 pub const Event = struct {
     kind: EventKind = .operation,
@@ -65,7 +71,7 @@ pub const Snapshot = struct {
 /// Errors raised by the semantic trace oracle itself.
 pub const SemanticTraceError = error{
     SemanticTraceOverflow,
-    UnrecognizedTrace,
+    UnexpectedWorkflowValue,
 };
 
 /// Expects two snapshots to contain the same canonical trace.
@@ -176,48 +182,89 @@ pub fn expectedCustomApprovalTrace(branch: Branch) SemanticTraceError!Snapshot {
     return snapshot;
 }
 
-/// Reconstructs a canonical trace from the public/direct workflow summary.
-pub fn traceFromCustomApprovalSummary(value: []const u8, transcript: anytype) SemanticTraceError!Snapshot {
-    if (transcript.lookups == 2 and
-        transcript.choices == 1 and
-        transcript.continuations == 1 and
-        transcript.aborts == 0 and
-        std.mem.eql(u8, transcript.last_lookup, "publish-7") and
-        std.mem.eql(u8, transcript.last_choice, "request-7") and
-        std.mem.eql(u8, transcript.last_abort, "") and
-        std.mem.eql(u8, value, "published:approved"))
-    {
-        return try expectedCustomApprovalTrace(.approve);
-    }
-
-    if (transcript.lookups == 1 and
-        transcript.choices == 1 and
-        transcript.continuations == 0 and
-        transcript.aborts == 0 and
-        std.mem.eql(u8, transcript.last_lookup, "request-7") and
-        std.mem.eql(u8, transcript.last_choice, "request-7") and
-        std.mem.eql(u8, transcript.last_abort, "") and
-        std.mem.eql(u8, value, "denied"))
-    {
-        return try expectedCustomApprovalTrace(.deny);
-    }
-
-    if (transcript.lookups == 1 and
-        transcript.choices == 0 and
-        transcript.continuations == 0 and
-        transcript.aborts == 1 and
-        std.mem.eql(u8, transcript.last_lookup, "request-7") and
-        std.mem.eql(u8, transcript.last_choice, "") and
-        std.mem.eql(u8, transcript.last_abort, "missing") and
-        std.mem.eql(u8, value, "invalid:missing"))
-    {
-        return try expectedCustomApprovalTrace(.invalid);
-    }
-
-    return error.UnrecognizedTrace;
-}
-
 /// Converts a boolean host answer into the trace's stable string form.
 pub fn boolAnswer(value: bool) []const u8 {
     return if (value) "true" else "false";
+}
+
+/// Converts a workflow terminal value into its stable trace answer.
+pub fn stableWorkflowValue(value: []const u8) SemanticTraceError![]const u8 {
+    if (std.mem.eql(u8, value, "published:approved")) return "published:approved";
+    if (std.mem.eql(u8, value, "denied")) return "denied";
+    if (std.mem.eql(u8, value, "invalid:missing")) return "invalid:missing";
+    return error.UnexpectedWorkflowValue;
+}
+
+/// Appends a test-only trace event and panics if the fixed oracle shape overflows.
+pub fn appendAssumeCapacity(snapshot: *Snapshot, event: Event) void {
+    snapshot.append(event) catch |err| std.debug.panic("semantic trace append failed: {s}", .{@errorName(err)});
+}
+
+/// Records an observed directory.exists transform event.
+pub fn recordDirectoryExists(snapshot: *Snapshot, payload: []const u8, answer: bool) void {
+    appendAssumeCapacity(snapshot, .{
+        .kind = .operation,
+        .requirement = "directory",
+        .op_name = "exists",
+        .mode = .transform,
+        .payload = payload,
+        .decision = .resumed,
+        .answer = boolAnswer(answer),
+    });
+}
+
+/// Records an observed approval.request choice event.
+pub fn recordApprovalRequest(
+    snapshot: *Snapshot,
+    payload: []const u8,
+    decision: Decision,
+    answer: []const u8,
+    terminal: Terminal,
+) void {
+    appendAssumeCapacity(snapshot, .{
+        .kind = .operation,
+        .requirement = "approval",
+        .op_name = "request",
+        .mode = .choice,
+        .payload = payload,
+        .decision = decision,
+        .answer = answer,
+        .terminal = terminal == .terminal,
+    });
+}
+
+/// Records an observed guard.invalid abort event.
+pub fn recordGuardInvalid(snapshot: *Snapshot, payload: []const u8, answer: []const u8) void {
+    appendAssumeCapacity(snapshot, .{
+        .kind = .operation,
+        .requirement = "guard",
+        .op_name = "invalid",
+        .mode = .abort,
+        .payload = payload,
+        .decision = .aborted,
+        .answer = answer,
+        .terminal = true,
+    });
+}
+
+/// Records an observed approval after hook event.
+pub fn recordAfterRequest(snapshot: *Snapshot, answer: []const u8) void {
+    appendAssumeCapacity(snapshot, .{
+        .kind = .after_hook,
+        .requirement = "approval",
+        .op_name = "afterRequest",
+        .mode = .choice,
+        .decision = .resumed,
+        .answer = answer,
+    });
+}
+
+/// Records the terminal workflow output event.
+pub fn recordOutput(snapshot: *Snapshot, value: []const u8) SemanticTraceError!void {
+    appendAssumeCapacity(snapshot, .{
+        .kind = .output,
+        .decision = .completed,
+        .answer = try stableWorkflowValue(value),
+        .terminal = true,
+    });
 }
