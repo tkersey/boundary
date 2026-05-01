@@ -3,6 +3,9 @@ const semantic_trace = @import("support/semantic_trace.zig");
 const std = @import("std");
 
 const custom_approval_artifact_path = "test/fixtures/custom_approval_workflow.artifact";
+const directory_tool_id = "generated/directory@v1";
+const approval_tool_id = "generated/approval@v1";
+const guard_tool_id = "generated/guard@v1";
 
 const ExpectedTranscript = struct {
     lookups: usize,
@@ -62,6 +65,10 @@ fn toolId(request: *const ability_agent_vm.host.Request) []const u8 {
     };
 }
 
+fn expectToolId(request: *const ability_agent_vm.host.Request, expected: []const u8) !void {
+    try std.testing.expectEqualStrings(expected, toolId(request));
+}
+
 fn resumedResponse(
     request: *const ability_agent_vm.host.Request,
     value: ability_agent_vm.host.DataValue,
@@ -115,6 +122,7 @@ fn approvalArtifactAdapter(ctx: *ArtifactContext) ability_agent_vm.host.Adapter 
                                 "request-7"
                             else
                                 return error.TestUnexpectedPayload;
+                            try expectToolId(request, directory_tool_id);
                             try artifact_ctx.trace.append(.{
                                 .kind = .operation,
                                 .requirement = "directory",
@@ -134,6 +142,7 @@ fn approvalArtifactAdapter(ctx: *ArtifactContext) ability_agent_vm.host.Adapter 
                             };
                             if (!std.mem.eql(u8, payload, "request-7")) return error.TestUnexpectedPayload;
                             artifact_ctx.transcript.last_choice = "request-7";
+                            try expectToolId(request, approval_tool_id);
                             return switch (artifact_ctx.branch) {
                                 .approve => approve: {
                                     try artifact_ctx.trace.append(.{
@@ -170,6 +179,7 @@ fn approvalArtifactAdapter(ctx: *ArtifactContext) ability_agent_vm.host.Adapter 
                             };
                             if (!std.mem.eql(u8, payload, "missing")) return error.TestUnexpectedPayload;
                             artifact_ctx.transcript.last_abort = "missing";
+                            try expectToolId(request, guard_tool_id);
                             try artifact_ctx.trace.append(.{
                                 .kind = .operation,
                                 .requirement = "guard",
@@ -192,6 +202,7 @@ fn approvalArtifactAdapter(ctx: *ArtifactContext) ability_agent_vm.host.Adapter 
                             else => return error.TestUnexpectedPayload,
                         };
                         if (!std.mem.eql(u8, answer, "published:approved")) return error.TestUnexpectedPayload;
+                        try expectToolId(request, approval_tool_id);
                         try artifact_ctx.trace.append(.{
                             .kind = .after_hook,
                             .requirement = "approval",
