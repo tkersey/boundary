@@ -1084,13 +1084,10 @@ fn continuationApplyBodyMiniBodySupported(effect_param: ?[]const u8, body_tokens
     }} ** 128;
     var alias_count: usize = 0;
     var statement_start: usize = 0;
-    var statement_count: usize = 0;
     var executable_step_count: usize = 0;
 
     for (body_tokens, 0..) |token, index| {
         if (token.tag != .semicolon) continue;
-        if (statement_count >= admitted_body_v1.max_apply_steps) return false;
-        statement_count += 1;
 
         const statement = body_tokens[statement_start .. index + 1];
         statement_start = index + 1;
@@ -1103,6 +1100,7 @@ fn continuationApplyBodyMiniBodySupported(effect_param: ?[]const u8, body_tokens
         }
         if (statementMatchesSupportedRequirementAliasTouch(effect_param, aliases[0..alias_count], statement)) continue;
 
+        if (executable_step_count >= admitted_body_v1.max_apply_steps) return false;
         if (statementIsSimpleReturn(statement) or
             statementIsLiteralReturn(statement) or
             statementIsLocalReturn(statement) or
@@ -2523,6 +2521,39 @@ test "shared engine keeps explicit continuation perform bodies in the lowering s
     try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
     try std.testing.expectEqualStrings("picker", graph.direct_op_uses[0].requirement_label);
     try std.testing.expectEqualStrings("pick", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine counts continuation apply executable steps separately from aliases" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror![]const u8 {
+        \\    return try eff.approval.request("request-7", struct {
+        \\        pub fn apply(_: []const u8, resumed_eff: anytype) anyerror![]const u8 {
+        \\            const directory = resumed_eff.directory;
+        \\            _ = resumed_eff.directory;
+        \\            const writer = resumed_eff.writer;
+        \\            _ = resumed_eff.writer;
+        \\            const state = resumed_eff.state;
+        \\            _ = resumed_eff.state;
+        \\            const log = resumed_eff.log;
+        \\            _ = resumed_eff.log;
+        \\            _ = try directory.exists("publish-7");
+        \\            return "published:approved";
+        \\        }
+        \\    });
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), graph.direct_op_uses.len);
+    try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
+    try std.testing.expectEqualStrings("approval", graph.direct_op_uses[0].requirement_label);
+    try std.testing.expectEqualStrings("request", graph.direct_op_uses[0].op_name);
+    try std.testing.expect(graph.direct_op_uses[0].has_after);
 }
 
 test "shared engine rejects overflowing continuation statements in strict lowering mode" {
