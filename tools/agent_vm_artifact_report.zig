@@ -90,8 +90,11 @@ pub fn parseErrorOutputFormat(args: []const []const u8) OutputFormat {
         const arg = args[index];
         if (std.mem.eql(u8, arg, "--json")) return .json;
         if (std.mem.eql(u8, arg, "--format")) {
-            if (index + 1 < args.len and std.mem.eql(u8, args[index + 1], "json")) return .json;
-            index += 1;
+            if (index + 1 < args.len) {
+                const value = args[index + 1];
+                if (std.mem.eql(u8, value, "json")) return .json;
+                if (!std.mem.startsWith(u8, value, "--")) index += 1;
+            }
         }
     }
     return .text;
@@ -584,6 +587,7 @@ test "JSON verdict escapes strings and includes stable fields" {
 test "json parse-error mode is detected before artifact request success" {
     try std.testing.expectEqual(OutputFormat.json, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--json", "--bad" }));
     try std.testing.expectEqual(OutputFormat.json, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "json", "--bad" }));
+    try std.testing.expectEqual(OutputFormat.json, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "--json", "--bad" }));
     try std.testing.expectEqual(OutputFormat.text, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "text", "--bad" }));
     try std.testing.expectEqual(OutputFormat.text, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "bad", "--bad" }));
 }

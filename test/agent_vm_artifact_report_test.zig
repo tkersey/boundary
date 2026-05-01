@@ -63,6 +63,7 @@ test "agent-vm-artifact-report parses artifact flag" {
     );
     try std.testing.expectEqual(report.OutputFormat.json, report.parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--json", "--bad" }));
     try std.testing.expectEqual(report.OutputFormat.json, report.parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "json", "--bad" }));
+    try std.testing.expectEqual(report.OutputFormat.json, report.parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "--json", "--bad" }));
     try std.testing.expectEqual(report.OutputFormat.text, report.parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "text", "--bad" }));
 }
 
