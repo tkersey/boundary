@@ -1298,6 +1298,10 @@ fn lowerContinuationApplyBody(
                     .operand = opIndexForFunctionUse(functions, function_index, direct_call.requirement_label, direct_call.op_name),
                     .aux = payload_local,
                 });
+                if (step_index + 1 == apply_body.step_count and function.ValueType != void and op_mode == .abort) {
+                    terminator.* = .{ .kind = .return_unit };
+                    terminated.* = true;
+                }
             },
             .return_value => |return_value| {
                 if (step_index + 1 != apply_body.step_count) return null;
