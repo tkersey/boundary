@@ -1,4 +1,5 @@
 const ability_agent_vm = @import("ability_agent_vm");
+const semantic_trace = @import("support/semantic_trace.zig");
 const std = @import("std");
 
 const custom_approval_artifact_path = "test/fixtures/custom_approval_workflow.artifact";
@@ -37,6 +38,7 @@ const ArtifactContext = struct {
         .last_choice = "",
         .last_abort = "",
     },
+    trace: semantic_trace.Snapshot = .{},
 };
 
 fn responseCallId(request: *const ability_agent_vm.host.Request) u64 {
@@ -113,6 +115,15 @@ fn approvalArtifactAdapter(ctx: *ArtifactContext) ability_agent_vm.host.Adapter 
                                 "request-7"
                             else
                                 return error.TestUnexpectedPayload;
+                            try artifact_ctx.trace.append(.{
+                                .kind = .operation,
+                                .requirement = "directory",
+                                .op_name = "exists",
+                                .mode = .transform,
+                                .payload = artifact_ctx.transcript.last_lookup,
+                                .decision = .resumed,
+                                .answer = semantic_trace.boolAnswer(artifact_ctx.exists_value),
+                            });
                             return resumedResponse(request, .{ .bool = artifact_ctx.exists_value });
                         }
                         if (std.mem.eql(u8, call.op_name, "request")) {
@@ -124,8 +135,31 @@ fn approvalArtifactAdapter(ctx: *ArtifactContext) ability_agent_vm.host.Adapter 
                             if (!std.mem.eql(u8, payload, "request-7")) return error.TestUnexpectedPayload;
                             artifact_ctx.transcript.last_choice = "request-7";
                             return switch (artifact_ctx.branch) {
-                                .approve => resumedResponse(request, .{ .string = "approved" }),
-                                .deny => terminalResponse(request, .return_now, .{ .string = "denied" }),
+                                .approve => approve: {
+                                    try artifact_ctx.trace.append(.{
+                                        .kind = .operation,
+                                        .requirement = "approval",
+                                        .op_name = "request",
+                                        .mode = .choice,
+                                        .payload = "request-7",
+                                        .decision = .resumed,
+                                        .answer = "approved",
+                                    });
+                                    break :approve resumedResponse(request, .{ .string = "approved" });
+                                },
+                                .deny => deny: {
+                                    try artifact_ctx.trace.append(.{
+                                        .kind = .operation,
+                                        .requirement = "approval",
+                                        .op_name = "request",
+                                        .mode = .choice,
+                                        .payload = "request-7",
+                                        .decision = .return_now,
+                                        .answer = "denied",
+                                        .terminal = true,
+                                    });
+                                    break :deny terminalResponse(request, .return_now, .{ .string = "denied" });
+                                },
                             };
                         }
                         if (std.mem.eql(u8, call.op_name, "invalid")) {
@@ -136,6 +170,16 @@ fn approvalArtifactAdapter(ctx: *ArtifactContext) ability_agent_vm.host.Adapter 
                             };
                             if (!std.mem.eql(u8, payload, "missing")) return error.TestUnexpectedPayload;
                             artifact_ctx.transcript.last_abort = "missing";
+                            try artifact_ctx.trace.append(.{
+                                .kind = .operation,
+                                .requirement = "guard",
+                                .op_name = "invalid",
+                                .mode = .abort,
+                                .payload = "missing",
+                                .decision = .aborted,
+                                .answer = "invalid:missing",
+                                .terminal = true,
+                            });
                             return terminalResponse(request, .aborted, .{ .string = "invalid:missing" });
                         }
                         return error.TestUnexpectedDispatch;
@@ -143,12 +187,32 @@ fn approvalArtifactAdapter(ctx: *ArtifactContext) ability_agent_vm.host.Adapter 
                     .after_call => |after_call| {
                         if (!std.mem.eql(u8, after_call.op_name, "afterRequest")) return error.TestUnexpectedDispatch;
                         artifact_ctx.transcript.continuations += 1;
+                        const answer = switch (after_call.answer) {
+                            .string => |value| value,
+                            else => return error.TestUnexpectedPayload,
+                        };
+                        if (!std.mem.eql(u8, answer, "published:approved")) return error.TestUnexpectedPayload;
+                        try artifact_ctx.trace.append(.{
+                            .kind = .after_hook,
+                            .requirement = "approval",
+                            .op_name = "afterRequest",
+                            .mode = .choice,
+                            .decision = .resumed,
+                            .answer = "published:approved",
+                        });
                         return resumedResponse(request, after_call.answer);
                     },
                 }
             }
         }.dispatch,
     };
+}
+
+fn stableWorkflowValue(value: []const u8) ![]const u8 {
+    if (std.mem.eql(u8, value, "published:approved")) return "published:approved";
+    if (std.mem.eql(u8, value, "denied")) return "denied";
+    if (std.mem.eql(u8, value, "invalid:missing")) return "invalid:missing";
+    return error.TestUnexpectedResult;
 }
 
 fn runArtifactWorkflowCase(
@@ -159,6 +223,7 @@ fn runArtifactWorkflowCase(
 ) anyerror!struct {
     value: []const u8,
     transcript: ExpectedTranscript,
+    trace: semantic_trace.Snapshot,
     logs_len: usize,
 } {
     var ctx = ArtifactContext{
@@ -177,9 +242,17 @@ fn runArtifactWorkflowCase(
                 .string => |value| value,
                 else => return error.TestUnexpectedResult,
             };
+            const stable_value = try stableWorkflowValue(value);
+            try ctx.trace.append(.{
+                .kind = .output,
+                .decision = .completed,
+                .answer = stable_value,
+                .terminal = true,
+            });
             break :completed_result .{
-                .value = try allocator.dupe(u8, value),
+                .value = try allocator.dupe(u8, stable_value),
                 .transcript = ctx.transcript,
+                .trace = ctx.trace,
                 .logs_len = completed.logs.len,
             };
         },
@@ -213,6 +286,7 @@ test "custom approval workflow ArtifactV1 round-trips and executes approve deny 
         .last_choice = "request-7",
         .last_abort = "",
     });
+    try semantic_trace.expectEqualSnapshot(approved.trace, try semantic_trace.expectedCustomApprovalTrace(.approve));
     try std.testing.expectEqual(@as(usize, 4), approved.logs_len);
 
     const denied = try runArtifactWorkflowCase(allocator, bytes, true, .deny);
@@ -227,6 +301,7 @@ test "custom approval workflow ArtifactV1 round-trips and executes approve deny 
         .last_choice = "request-7",
         .last_abort = "",
     });
+    try semantic_trace.expectEqualSnapshot(denied.trace, try semantic_trace.expectedCustomApprovalTrace(.deny));
     try std.testing.expectEqual(@as(usize, 2), denied.logs_len);
 
     const invalid = try runArtifactWorkflowCase(allocator, bytes, false, .approve);
@@ -241,5 +316,6 @@ test "custom approval workflow ArtifactV1 round-trips and executes approve deny 
         .last_choice = "",
         .last_abort = "missing",
     });
+    try semantic_trace.expectEqualSnapshot(invalid.trace, try semantic_trace.expectedCustomApprovalTrace(.invalid));
     try std.testing.expectEqual(@as(usize, 2), invalid.logs_len);
 }

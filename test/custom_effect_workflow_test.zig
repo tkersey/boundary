@@ -1,6 +1,7 @@
 const ability = @import("ability");
 const ability_compile = @import("ability_compile");
 const example = @import("example_custom_approval_workflow");
+const semantic_trace = @import("support/semantic_trace.zig");
 const std = @import("std");
 
 const ExpectedTranscript = struct {
@@ -24,6 +25,15 @@ fn expectTranscript(
     try std.testing.expectEqualStrings(expected.last_lookup, actual.last_lookup);
     try std.testing.expectEqualStrings(expected.last_choice, actual.last_choice);
     try std.testing.expectEqualStrings(expected.last_abort, actual.last_abort);
+}
+
+fn expectWorkflowTrace(
+    value: []const u8,
+    transcript: anytype,
+    branch: semantic_trace.Branch,
+) !void {
+    const actual = try semantic_trace.traceFromCustomApprovalSummary(value, transcript);
+    try semantic_trace.expectEqualSnapshot(actual, try semantic_trace.expectedCustomApprovalTrace(branch));
 }
 
 fn workflowLoweringSpec() ability_compile.lowering_api.LowerSpec {
@@ -217,6 +227,7 @@ test "custom approval workflow approves through public custom-effect transcript"
         .last_choice = "request-7",
         .last_abort = "",
     });
+    try expectWorkflowTrace(result.value, result.transcript, .approve);
 }
 
 test "custom approval workflow denies without recording a continuation" {
@@ -234,6 +245,7 @@ test "custom approval workflow denies without recording a continuation" {
         .last_choice = "request-7",
         .last_abort = "",
     });
+    try expectWorkflowTrace(result.value, result.transcript, .deny);
 }
 
 test "custom approval workflow source plan performs the resumed directory check only on approve" {
@@ -288,6 +300,7 @@ test "custom approval workflow aborts invalid requests before choice" {
         .last_choice = "",
         .last_abort = "missing",
     });
+    try expectWorkflowTrace(result.value, result.transcript, .invalid);
 }
 
 test "custom approval workflow source lowers to executable ProgramPlan" {
@@ -342,6 +355,9 @@ test "custom approval workflow agrees across public and direct ProgramPlan appro
 
     try std.testing.expectEqualStrings(public_result.value, lowered_result.value);
     try expectTranscript(public_result.transcript, lowered_result.transcript);
+    const public_trace = try semantic_trace.traceFromCustomApprovalSummary(public_result.value, public_result.transcript);
+    const lowered_trace = try semantic_trace.traceFromCustomApprovalSummary(lowered_result.value, lowered_result.transcript);
+    try semantic_trace.expectEqualSnapshot(public_trace, lowered_trace);
 }
 
 test "custom approval workflow agrees across public and direct ProgramPlan terminal branches" {
@@ -354,11 +370,17 @@ test "custom approval workflow agrees across public and direct ProgramPlan termi
     const lowered_denied = try runLoweredWorkflowCase(&lowered_runtime, true, .deny);
     try std.testing.expectEqualStrings(public_denied.value, lowered_denied.value);
     try expectTranscript(public_denied.transcript, lowered_denied.transcript);
+    const public_deny_trace = try semantic_trace.traceFromCustomApprovalSummary(public_denied.value, public_denied.transcript);
+    const lowered_deny_trace = try semantic_trace.traceFromCustomApprovalSummary(lowered_denied.value, lowered_denied.transcript);
+    try semantic_trace.expectEqualSnapshot(public_deny_trace, lowered_deny_trace);
 
     const public_invalid = try example.runInvalid(&public_runtime);
     const lowered_invalid = try runLoweredWorkflowCase(&lowered_runtime, false, .approve);
     try std.testing.expectEqualStrings(public_invalid.value, lowered_invalid.value);
     try expectTranscript(public_invalid.transcript, lowered_invalid.transcript);
+    const public_invalid_trace = try semantic_trace.traceFromCustomApprovalSummary(public_invalid.value, public_invalid.transcript);
+    const lowered_invalid_trace = try semantic_trace.traceFromCustomApprovalSummary(lowered_invalid.value, lowered_invalid.transcript);
+    try semantic_trace.expectEqualSnapshot(public_invalid_trace, lowered_invalid_trace);
 }
 
 test "custom approval workflow ArtifactV1 encode decode preserves custom capabilities" {
