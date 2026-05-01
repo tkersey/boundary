@@ -205,6 +205,8 @@ const Alias = struct {
     kind: AliasKind,
 };
 
+const no_apply_effect_param = "\x00ability_no_apply_effect_param";
+
 const TopLevelImportMatch = struct {
     name: []const u8,
     import_path: []const u8,
@@ -1149,6 +1151,7 @@ fn continuationApplyParamNames(params: []const TokenItem) ?struct {
 }
 
 fn analyzeContinuationApplyBody(effect_param: ?[]const u8, body_tokens: []const TokenItem) ?ContinuationApplyBodyAnalysis {
+    const apply_effect_param: ?[]const u8 = effect_param orelse no_apply_effect_param;
     var aliases = [_]Alias{.{
         .name = "",
         .kind = .effect_root,
@@ -1165,15 +1168,15 @@ fn analyzeContinuationApplyBody(effect_param: ?[]const u8, body_tokens: []const 
         statement_start = index + 1;
         if (statement.len == 0) return null;
 
-        if (statementAliasFromDeclaration(effect_param, aliases[0..alias_count], statement)) |alias| {
+        if (statementAliasFromDeclaration(apply_effect_param, aliases[0..alias_count], statement)) |alias| {
             if (alias_count >= aliases.len) return null;
             upsertAlias(aliases[0..], &alias_count, alias.name, alias.kind) catch return null;
             continue;
         }
-        if (statementMatchesSupportedRequirementAliasTouch(effect_param, aliases[0..alias_count], statement)) continue;
+        if (statementMatchesSupportedRequirementAliasTouch(apply_effect_param, aliases[0..alias_count], statement)) continue;
 
         if (executable_step_count >= admitted_body_v1.max_apply_steps) return null;
-        if (statementSupportedReturnDirectOp(effect_param, aliases[0..alias_count], statement)) |direct_use| {
+        if (statementSupportedReturnDirectOp(apply_effect_param, aliases[0..alias_count], statement)) |direct_use| {
             if (index + 1 != body_tokens.len) return null;
             if (!analysis.pushDirectUse(direct_use, statement[0].offset)) return null;
             executable_step_count += 1;
@@ -1188,12 +1191,12 @@ fn analyzeContinuationApplyBody(effect_param: ?[]const u8, body_tokens: []const 
             continue;
         }
 
-        if (statementSupportedBoundDirectOp(effect_param, aliases[0..alias_count], statement)) |direct_use| {
+        if (statementSupportedBoundDirectOp(apply_effect_param, aliases[0..alias_count], statement)) |direct_use| {
             if (!analysis.pushDirectUse(direct_use, statement[0].offset)) return null;
             executable_step_count += 1;
             continue;
         }
-        if (statementSupportedDirectOp(effect_param, aliases[0..alias_count], statement)) |direct_use| {
+        if (statementSupportedDirectOp(apply_effect_param, aliases[0..alias_count], statement)) |direct_use| {
             if (!analysis.pushDirectUse(direct_use, statement[0].offset)) return null;
             executable_step_count += 1;
             continue;
@@ -2653,6 +2656,29 @@ test "shared engine counts continuation apply executable steps separately from a
     try std.testing.expect(graph.direct_op_uses[0].has_after);
     try std.testing.expectEqualStrings("directory", graph.direct_op_uses[1].requirement_label);
     try std.testing.expectEqualStrings("exists", graph.direct_op_uses[1].op_name);
+}
+
+test "shared engine rejects apply direct effects without an explicit effect parameter" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror![]const u8 {
+        \\    return try eff.approval.request("request-7", struct {
+        \\        pub fn apply(eff: []const u8) anyerror![]const u8 {
+        \\            _ = try eff.directory.exists("publish-7");
+        \\            return "published:approved";
+        \\        }
+        \\    });
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), graph.direct_op_uses.len);
+    try std.testing.expect(!graph.direct_op_uses[0].has_after);
+    try std.testing.expect(!graph.functions[graph.entry_index.?].body_lowering_supported);
 }
 
 test "shared engine rejects overflowing continuation statements in strict lowering mode" {

@@ -153,6 +153,8 @@ const Alias = struct {
     kind: AliasKind,
 };
 
+const no_apply_effect_param = "\x00ability_no_apply_effect_param";
+
 fn tokenIsBoolLiteral(token: Token) bool {
     return token.tag == .identifier and
         (std.mem.eql(u8, token.lexeme, "true") or std.mem.eql(u8, token.lexeme, "false"));
@@ -895,6 +897,7 @@ fn parseApplyBody(effect_param: ?[]const u8, body_tokens: []const Token) ?ApplyB
     const statement_ranges = ranges_buffer[0..statement_count];
     if (statement_ranges.len == 0) return null;
 
+    const apply_effect_param: ?[]const u8 = effect_param orelse no_apply_effect_param;
     var apply_body: ApplyBody = .{ .step_count = 0, .steps = undefined };
     var aliases: [max_aliases]Alias = undefined;
     var alias_count: usize = 0;
@@ -905,14 +908,14 @@ fn parseApplyBody(effect_param: ?[]const u8, body_tokens: []const Token) ?ApplyB
         for (statement) |token| {
             if (token.tag == .keyword_if or token.tag == .keyword_else) return null;
         }
-        if (parseAliasDeclaration(effect_param, aliases[0..alias_count], statement)) |alias| {
+        if (parseAliasDeclaration(apply_effect_param, aliases[0..alias_count], statement)) |alias| {
             if (!upsertAlias(&aliases, &alias_count, alias.name, alias.kind)) return null;
             continue;
         }
-        if (parseRequirementAliasTouch(effect_param, aliases[0..alias_count], statement)) continue;
+        if (parseRequirementAliasTouch(apply_effect_param, aliases[0..alias_count], statement)) continue;
         if (apply_body.step_count >= apply_body.steps.len) return null;
 
-        if (parseBoundLocalFromDirectCall(effect_param, aliases[0..alias_count], statement)) |bound_direct| {
+        if (parseBoundLocalFromDirectCall(apply_effect_param, aliases[0..alias_count], statement)) |bound_direct| {
             apply_body.steps[apply_body.step_count] = .{ .bind_local_from_direct = .{
                 .local_name = bound_direct.local_name,
                 .direct_call = bound_direct.direct_call,
@@ -920,12 +923,12 @@ fn parseApplyBody(effect_param: ?[]const u8, body_tokens: []const Token) ?ApplyB
             apply_body.step_count += 1;
             continue;
         }
-        if (parseDirectCall(effect_param, aliases[0..alias_count], statement)) |direct_call| {
+        if (parseDirectCall(apply_effect_param, aliases[0..alias_count], statement)) |direct_call| {
             apply_body.steps[apply_body.step_count] = .{ .call_direct = direct_call };
             apply_body.step_count += 1;
             continue;
         }
-        if (parseApplyReturnValue(effect_param, aliases[0..alias_count], statement)) |return_value| {
+        if (parseApplyReturnValue(apply_effect_param, aliases[0..alias_count], statement)) |return_value| {
             if (index + 1 != statement_ranges.len) return null;
             apply_body.steps[apply_body.step_count] = .{ .return_value = return_value };
             apply_body.step_count += 1;
@@ -1355,6 +1358,22 @@ test "parseFunctionBody normalizes direct effects inside continuation apply" {
     try std.testing.expectEqual(@as(usize, 2), apply_body.step_count);
     try std.testing.expect(apply_body.steps[0] == .bind_local_from_direct);
     try std.testing.expect(apply_body.steps[1] == .return_value);
+}
+
+test "parseFunctionBody rejects apply direct effects without an explicit effect parameter" {
+    const source =
+        \\pub fn run(eff: anytype) bool {
+        \\    return try eff.approval.request("request-7", struct {
+        \\        fn apply(eff: []const u8) bool {
+        \\            _ = try eff.directory.exists("request-7-after");
+        \\            return true;
+        \\        }
+        \\    });
+        \\}
+    ;
+    const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
+    const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
+    try std.testing.expect(parseFunctionBody(source, "test/continuation_missing_apply_effect.zig", body_start, body_end, "eff", &.{}) == null);
 }
 
 test "parseFunctionBody rejects branches inside continuation apply" {
