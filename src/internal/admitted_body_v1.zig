@@ -865,9 +865,10 @@ fn parseApplyParamNames(params: []const Token) ?struct {
 } {
     var names: [2]?[]const u8 = .{ null, null };
     var name_count: usize = 0;
-    var expect_param_name = true;
     var depth: usize = 0;
-    for (params) |token| {
+    var param_start: usize = 0;
+
+    for (params, 0..) |token, index| {
         switch (token.tag) {
             .l_paren, .l_bracket => depth += 1,
             .r_paren, .r_bracket => {
@@ -875,24 +876,55 @@ fn parseApplyParamNames(params: []const Token) ?struct {
             },
             .comma => if (depth == 0) {
                 if (name_count >= names.len) return null;
+                applyParamName(params[param_start..index], name_count, &names);
                 name_count += 1;
-                expect_param_name = true;
-            },
-            .colon => if (depth == 0) {
-                expect_param_name = false;
-            },
-            .identifier => if (depth == 0 and expect_param_name) {
-                if (name_count >= names.len) return null;
-                if (!std.mem.eql(u8, token.lexeme, "_")) names[name_count] = token.lexeme;
-                expect_param_name = false;
+                param_start = index + 1;
             },
             else => {},
         }
     }
+
+    if (param_start < params.len) {
+        if (name_count >= names.len) return null;
+        applyParamName(params[param_start..], name_count, &names);
+        name_count += 1;
+    }
+
     return .{
         .resume_param_name = names[0],
         .effect_param_name = names[1],
     };
+}
+
+fn applyParamName(param_tokens: []const Token, param_index: usize, names: *[2]?[]const u8) void {
+    var name: ?[]const u8 = null;
+    var type_start: ?usize = null;
+    var depth: usize = 0;
+    for (param_tokens, 0..) |token, index| {
+        switch (token.tag) {
+            .l_paren, .l_bracket => depth += 1,
+            .r_paren, .r_bracket => {
+                if (depth != 0) depth -= 1;
+            },
+            .colon => if (depth == 0 and type_start == null) {
+                type_start = index + 1;
+            },
+            .identifier => if (depth == 0 and type_start == null and name == null) {
+                if (!std.mem.eql(u8, token.lexeme, "_")) name = token.lexeme;
+            },
+            else => {},
+        }
+    }
+    if (param_index == 0) {
+        names[0] = name;
+    } else if (param_index == 1 and applyParamTypeIsAnytype(param_tokens, type_start)) {
+        names[1] = name;
+    }
+}
+
+fn applyParamTypeIsAnytype(param_tokens: []const Token, type_start: ?usize) bool {
+    const start = type_start orelse return false;
+    return param_tokens[start..].len == 1 and param_tokens[start].tag == .keyword_anytype;
 }
 
 fn parseApplyBody(effect_param: ?[]const u8, body_tokens: []const Token) ?ApplyBody {
@@ -1391,6 +1423,22 @@ test "parseFunctionBody rejects apply direct effects without an explicit effect 
     const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
     const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
     try std.testing.expect(parseFunctionBody(source, "test/continuation_missing_apply_effect.zig", body_start, body_end, "eff", &.{}) == null);
+}
+
+test "parseFunctionBody rejects apply direct effects through non-anytype second parameter" {
+    const source =
+        \\pub fn run(eff: anytype) bool {
+        \\    return try eff.approval.request("request-7", struct {
+        \\        fn apply(_: []const u8, label: []const u8) bool {
+        \\            _ = try label.directory.exists("request-7-after");
+        \\            return true;
+        \\        }
+        \\    });
+        \\}
+    ;
+    const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
+    const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
+    try std.testing.expect(parseFunctionBody(source, "test/continuation_non_anytype_apply_effect.zig", body_start, body_end, "eff", &.{}) == null);
 }
 
 test "parseFunctionBody rejects branches inside continuation apply" {

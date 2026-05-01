@@ -1125,29 +1125,59 @@ fn continuationApplyParamNames(params: []const TokenItem) ?struct {
 } {
     var names: [2]?[]const u8 = .{ null, null };
     var name_count: usize = 0;
-    var expect_param_name = true;
     var depth: usize = 0;
-    for (params) |token| {
+    var param_start: usize = 0;
+
+    for (params, 0..) |token, index| {
         if (token.tag == .l_paren or token.tag == .l_bracket) {
             depth += 1;
         } else if (token.tag == .r_paren or token.tag == .r_bracket) {
             if (depth != 0) depth -= 1;
         } else if (token.tag == .comma and depth == 0) {
             if (name_count >= names.len) return null;
+            continuationApplyParamName(params[param_start..index], name_count, &names);
             name_count += 1;
-            expect_param_name = true;
-        } else if (token.tag == .colon and depth == 0) {
-            expect_param_name = false;
-        } else if (token.tag == .identifier and depth == 0 and expect_param_name) {
-            if (name_count >= names.len) return null;
-            if (!std.mem.eql(u8, token.lexeme, "_")) names[name_count] = token.lexeme;
-            expect_param_name = false;
+            param_start = index + 1;
         }
     }
+
+    if (param_start < params.len) {
+        if (name_count >= names.len) return null;
+        continuationApplyParamName(params[param_start..], name_count, &names);
+        name_count += 1;
+    }
+
     return .{
         .resume_param_name = names[0],
         .effect_param_name = names[1],
     };
+}
+
+fn continuationApplyParamName(param_tokens: []const TokenItem, param_index: usize, names: *[2]?[]const u8) void {
+    var name: ?[]const u8 = null;
+    var type_start: ?usize = null;
+    var depth: usize = 0;
+    for (param_tokens, 0..) |token, index| {
+        if (token.tag == .l_paren or token.tag == .l_bracket) {
+            depth += 1;
+        } else if (token.tag == .r_paren or token.tag == .r_bracket) {
+            if (depth != 0) depth -= 1;
+        } else if (token.tag == .colon and depth == 0 and type_start == null) {
+            type_start = index + 1;
+        } else if (token.tag == .identifier and depth == 0 and type_start == null and name == null) {
+            if (!std.mem.eql(u8, token.lexeme, "_")) name = token.lexeme;
+        }
+    }
+    if (param_index == 0) {
+        names[0] = name;
+    } else if (param_index == 1 and continuationApplyParamTypeIsAnytype(param_tokens, type_start)) {
+        names[1] = name;
+    }
+}
+
+fn continuationApplyParamTypeIsAnytype(param_tokens: []const TokenItem, type_start: ?usize) bool {
+    const start = type_start orelse return false;
+    return param_tokens[start..].len == 1 and param_tokens[start].tag == .keyword_anytype;
 }
 
 fn analyzeContinuationApplyBody(effect_param: ?[]const u8, body_tokens: []const TokenItem) ?ContinuationApplyBodyAnalysis {
@@ -2664,6 +2694,29 @@ test "shared engine rejects apply direct effects without an explicit effect para
         \\    return try eff.approval.request("request-7", struct {
         \\        pub fn apply(eff: []const u8) anyerror![]const u8 {
         \\            _ = try eff.directory.exists("publish-7");
+        \\            return "published:approved";
+        \\        }
+        \\    });
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), graph.direct_op_uses.len);
+    try std.testing.expect(!graph.direct_op_uses[0].has_after);
+    try std.testing.expect(!graph.functions[graph.entry_index.?].body_lowering_supported);
+}
+
+test "shared engine rejects apply direct effects through non-anytype second parameter" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror![]const u8 {
+        \\    return try eff.approval.request("request-7", struct {
+        \\        pub fn apply(_: []const u8, label: []const u8) anyerror![]const u8 {
+        \\            _ = try label.directory.exists("publish-7");
         \\            return "published:approved";
         \\        }
         \\    });
