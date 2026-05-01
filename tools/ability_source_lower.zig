@@ -126,7 +126,7 @@ fn writeUsage(writer: anytype) !void {
 
 fn writeUnsupportedSourceCaseUsageError(writer: anytype, surface_kind: source_lowering.SurfaceKind, program_id: []const u8) !void {
     try writer.print(
-        "ability-source-lower: unsupported --id for --surface {s}; run `--list-cases --surface {s}` to see valid ids: ",
+        "ability-source-lower: unsupported --id for --surface {s}; run `ability-source-lower --list-cases --surface {s}` to see valid ids: ",
         .{ @tagName(surface_kind), @tagName(surface_kind) },
     );
     try writeEscapedDiagnosticValue(writer, program_id);
@@ -174,7 +174,7 @@ fn listCases(allocator: std.mem.Allocator, io: std.Io, args: []const []const u8)
         try stdout.flush();
         return;
     }
-    usageError("expected --list-cases or --list-cases --surface <kind>", .{});
+    usageError("expected ability-source-lower --list-cases or ability-source-lower --list-cases --surface <kind>", .{});
 }
 
 fn isKnownFlag(flag: []const u8) bool {
@@ -453,7 +453,7 @@ fn writeJsonContributors(writer: anytype, contributors: anytype) !void {
 fn writeRejectedProgramDiagnostics(writer: anytype, program: source_lowering.GeneratedProgram) !void {
     if (program.diagnostics.len == 0) {
         try writer.print(
-            "ability-source-lower: rejected {s}: no source diagnostic was emitted; check that --id, --surface, --source, and --entry describe the same supported case, or run --list-cases\n",
+            "ability-source-lower: rejected {s}: no source diagnostic was emitted; check that --id, --surface, --source, and --entry describe the same supported case, or run ability-source-lower --list-cases\n",
             .{program.case_id},
         );
         return;
@@ -1523,7 +1523,7 @@ test "rejected source-lower programs without diagnostics include recovery guidan
     defer std.testing.allocator.free(bytes);
 
     try std.testing.expect(std.mem.find(u8, bytes, "check that --id, --surface, --source, and --entry") != null);
-    try std.testing.expect(std.mem.find(u8, bytes, "run --list-cases") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "run ability-source-lower --list-cases") != null);
 }
 
 test "diagnostic values escape control characters" {
@@ -1551,7 +1551,7 @@ test "unsupported source case diagnostic includes concrete surface" {
     defer std.testing.allocator.free(bytes);
 
     try std.testing.expect(std.mem.find(u8, bytes, "--surface example") != null);
-    try std.testing.expect(std.mem.find(u8, bytes, "--list-cases --surface example") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "ability-source-lower --list-cases --surface example") != null);
     try std.testing.expect(std.mem.find(u8, bytes, "'example.missing'") != null);
 }
 

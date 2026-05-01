@@ -61,6 +61,10 @@ test "agent-vm-artifact-report parses artifact flag" {
         "--bad",
         report.parseArgs(&.{ "agent-vm-artifact-report", "--bad" }).unknown_arg,
     );
+    try std.testing.expectEqual(report.OutputFormat.json, report.parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--json", "--bad" }));
+    try std.testing.expectEqual(report.OutputFormat.json, report.parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "json", "--bad" }));
+    try std.testing.expectEqual(report.OutputFormat.json, report.parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "--json", "--bad" }));
+    try std.testing.expectEqual(report.OutputFormat.text, report.parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "text", "--bad" }));
 }
 
 test "agent-vm-artifact-report classifies compatible, unsupported, invalid, and incompatible artifacts" {
