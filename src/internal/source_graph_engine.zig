@@ -951,6 +951,45 @@ fn statementMatchesSupportedRequirementAliasTouch(
     return tokens[3].tag == .period and tokens[4].tag == .identifier;
 }
 
+fn statementAliasFromDeclaration(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    statement: []const TokenItem,
+) ?Alias {
+    if (statement.len == 7 and
+        (statement[0].tag == .keyword_const or statement[0].tag == .keyword_var) and
+        statement[1].tag == .identifier and
+        statement[2].tag == .equal and
+        statement[3].tag == .identifier and
+        statement[4].tag == .period and
+        statement[5].tag == .identifier and
+        statement[6].tag == .semicolon)
+    {
+        const source_kind = aliasKind(effect_param, aliases, statement[3].lexeme) orelse return null;
+        return switch (source_kind) {
+            .effect_root => .{
+                .name = statement[1].lexeme,
+                .kind = .{ .requirement = statement[5].lexeme },
+            },
+            .requirement => null,
+        };
+    }
+
+    return null;
+}
+
+fn statementMatchesSupportedBoundDirectOp(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    statement: []const TokenItem,
+) bool {
+    if (statement.len < 6) return false;
+    if (statement[0].tag != .keyword_const) return false;
+    if (statement[1].tag != .identifier) return false;
+    if (statement[2].tag != .equal) return false;
+    return statementMatchesSupportedDirectOp(effect_param, aliases, statement[3..]);
+}
+
 fn statementMatchesSupportedReturnDirectOp(
     effect_param: ?[]const u8,
     aliases: []const Alias,
@@ -958,6 +997,9 @@ fn statementMatchesSupportedReturnDirectOp(
 ) bool {
     const tokens = statementTrimSemicolon(statement);
     if (tokens.len == 0 or tokens[0].tag != .keyword_return) return false;
+    for (tokens[1..]) |token| {
+        if (token.tag == .keyword_struct) return false;
+    }
     return statementMatchesSupportedDirectOp(effect_param, aliases, tokens[1..]);
 }
 
@@ -1004,6 +1046,86 @@ fn continuationStructStart(args: []const TokenItem) ?struct {
     return null;
 }
 
+fn continuationApplyParamNames(params: []const TokenItem) ?struct {
+    resume_param_name: ?[]const u8,
+    effect_param_name: ?[]const u8,
+} {
+    var names: [2]?[]const u8 = .{ null, null };
+    var name_count: usize = 0;
+    var expect_param_name = true;
+    var depth: usize = 0;
+    for (params) |token| {
+        if (token.tag == .l_paren or token.tag == .l_bracket) {
+            depth += 1;
+        } else if (token.tag == .r_paren or token.tag == .r_bracket) {
+            if (depth != 0) depth -= 1;
+        } else if (token.tag == .comma and depth == 0) {
+            if (name_count >= names.len) return null;
+            name_count += 1;
+            expect_param_name = true;
+        } else if (token.tag == .colon and depth == 0) {
+            expect_param_name = false;
+        } else if (token.tag == .identifier and depth == 0 and expect_param_name) {
+            if (name_count >= names.len) return null;
+            if (!std.mem.eql(u8, token.lexeme, "_")) names[name_count] = token.lexeme;
+            expect_param_name = false;
+        }
+    }
+    return .{
+        .resume_param_name = names[0],
+        .effect_param_name = names[1],
+    };
+}
+
+fn continuationApplyBodyMiniBodySupported(effect_param: ?[]const u8, body_tokens: []const TokenItem) bool {
+    var aliases = [_]Alias{.{
+        .name = "",
+        .kind = .effect_root,
+    }} ** 128;
+    var alias_count: usize = 0;
+    var statement_start: usize = 0;
+    var statement_count: usize = 0;
+    var executable_step_count: usize = 0;
+
+    for (body_tokens, 0..) |token, index| {
+        if (token.tag != .semicolon) continue;
+        if (statement_count >= admitted_body_v1.max_apply_steps) return false;
+        statement_count += 1;
+
+        const statement = body_tokens[statement_start .. index + 1];
+        statement_start = index + 1;
+        if (statement.len == 0) return false;
+
+        if (statementAliasFromDeclaration(effect_param, aliases[0..alias_count], statement)) |alias| {
+            if (alias_count >= aliases.len) return false;
+            upsertAlias(aliases[0..], &alias_count, alias.name, alias.kind) catch return false;
+            continue;
+        }
+        if (statementMatchesSupportedRequirementAliasTouch(effect_param, aliases[0..alias_count], statement)) continue;
+
+        if (statementIsSimpleReturn(statement) or
+            statementIsLiteralReturn(statement) or
+            statementIsLocalReturn(statement) or
+            statementMatchesSupportedReturnDirectOp(effect_param, aliases[0..alias_count], statement))
+        {
+            if (index + 1 != body_tokens.len) return false;
+            executable_step_count += 1;
+            continue;
+        }
+
+        if (statementMatchesSupportedBoundDirectOp(effect_param, aliases[0..alias_count], statement) or
+            statementMatchesSupportedDirectOp(effect_param, aliases[0..alias_count], statement))
+        {
+            executable_step_count += 1;
+            continue;
+        }
+
+        return false;
+    }
+
+    return statement_start == body_tokens.len and executable_step_count != 0;
+}
+
 fn continuationApplyBodySupported(struct_tokens: []const TokenItem) bool {
     if (struct_tokens.len < 4) return false;
     if (struct_tokens[0].tag != .keyword_struct or struct_tokens[1].tag != .l_brace) return false;
@@ -1028,6 +1150,7 @@ fn continuationApplyBodySupported(struct_tokens: []const TokenItem) bool {
         if (fn_index + 2 >= struct_tokens.len or struct_tokens[fn_index + 2].tag != .l_paren) return false;
 
         var param_depth: usize = 1;
+        const params_start = fn_index + 3;
         var cursor = fn_index + 3;
         while (cursor < struct_tokens.len and param_depth != 0) : (cursor += 1) {
             if (struct_tokens[cursor].tag == .l_paren) {
@@ -1038,6 +1161,7 @@ fn continuationApplyBodySupported(struct_tokens: []const TokenItem) bool {
             }
         }
         if (param_depth != 0 or cursor >= struct_tokens.len) return false;
+        const params = continuationApplyParamNames(struct_tokens[params_start .. cursor - 1]) orelse return false;
 
         while (cursor < struct_tokens.len and struct_tokens[cursor].tag != .l_brace) : (cursor += 1) {}
         if (cursor >= struct_tokens.len) return false;
@@ -1056,9 +1180,7 @@ fn continuationApplyBodySupported(struct_tokens: []const TokenItem) bool {
         if (body_depth != 0 or cursor == 0) return false;
 
         const body_tokens = struct_tokens[body_start .. cursor - 1];
-        return statementIsSimpleReturn(body_tokens) or
-            statementIsLiteralReturn(body_tokens) or
-            statementIsLocalReturn(body_tokens);
+        return continuationApplyBodyMiniBodySupported(params.effect_param_name, body_tokens);
     }
 
     return false;

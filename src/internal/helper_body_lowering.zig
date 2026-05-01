@@ -1094,27 +1094,14 @@ fn parseBoundLocalFromDirectCall(
 }
 
 // zlinter-disable max_positional_args - this helper threads the inlined continuation lowering state without introducing an extra transient struct into the comptime-only path.
-fn lowerContinuationApplyBody(
+fn lowerContinuationApplyReturnValue(
     comptime function: effect_ir.Function,
     comptime apply_return: admitted_body_v1.ReturnValue,
-    comptime apply_param_name: ?[]const u8,
-    comptime resume_local_id: u16,
-    comptime resume_codec: effect_ir.LocalCodec,
     local_storage: *LocalStorage,
     body_state: *BodyBuildState,
     terminated: *bool,
     terminator: *program_frontend.BodyTerminator,
 ) ?void {
-    if (apply_param_name) |param_name| {
-        if (resume_codec == .unit or resume_local_id == noLocalId()) return null;
-        local_storage.bindings[local_storage.binding_count.*] = .{
-            .name = param_name,
-            .codec = resume_codec,
-            .local_id = resume_local_id,
-        };
-        local_storage.binding_count.* += 1;
-    }
-
     const expected_codec: effect_ir.LocalCodec = switch (function.ValueType) {
         void => .unit,
         bool => .bool,
@@ -1198,6 +1185,106 @@ fn lowerContinuationApplyBody(
         },
         else => return null,
     }
+}
+
+// zlinter-disable max_positional_args - this helper threads the inlined continuation lowering state without introducing an extra transient struct into the comptime-only path.
+fn lowerContinuationApplyBody(
+    comptime functions: []const effect_ir.Function,
+    comptime function_index: usize,
+    comptime function: effect_ir.Function,
+    comptime apply_body: admitted_body_v1.ApplyBody,
+    comptime apply_param_name: ?[]const u8,
+    comptime resume_local_id: u16,
+    comptime resume_codec: effect_ir.LocalCodec,
+    local_storage: *LocalStorage,
+    body_state: *BodyBuildState,
+    terminated: *bool,
+    terminator: *program_frontend.BodyTerminator,
+) ?void {
+    if (apply_param_name) |param_name| {
+        if (resume_codec == .unit or resume_local_id == noLocalId()) return null;
+        local_storage.bindings[local_storage.binding_count.*] = .{
+            .name = param_name,
+            .codec = resume_codec,
+            .local_id = resume_local_id,
+        };
+        local_storage.binding_count.* += 1;
+    }
+
+    for (apply_body.slice(), 0..) |step, step_index| {
+        switch (step) {
+            .bind_local_from_direct => |bound_local| {
+                const codec = resumeCodecForFunctionUse(
+                    functions,
+                    function_index,
+                    bound_local.direct_call.requirement_label,
+                    bound_local.direct_call.op_name,
+                );
+                if (codec == .unit) return null;
+                const dst = appendBoundLocal(local_storage, bound_local.local_name, codec);
+                const payload_local = emitPayloadValueForAdmittedDirectCall(
+                    bound_local.direct_call,
+                    payloadCodecForFunctionUse(
+                        functions,
+                        function_index,
+                        bound_local.direct_call.requirement_label,
+                        bound_local.direct_call.op_name,
+                    ),
+                    local_storage.bindings[0..local_storage.binding_count.*],
+                    body_state,
+                ) orelse return null;
+                appendInstruction(body_state.instructions, body_state.instruction_count, .{
+                    .kind = .call_op,
+                    .dst = dst,
+                    .operand = opIndexForFunctionUse(
+                        functions,
+                        function_index,
+                        bound_local.direct_call.requirement_label,
+                        bound_local.direct_call.op_name,
+                    ),
+                    .aux = payload_local,
+                });
+            },
+            .call_direct => |direct_call| {
+                const payload_local = emitPayloadValueForAdmittedDirectCall(
+                    direct_call,
+                    payloadCodecForFunctionUse(
+                        functions,
+                        function_index,
+                        direct_call.requirement_label,
+                        direct_call.op_name,
+                    ),
+                    local_storage.bindings[0..local_storage.binding_count.*],
+                    body_state,
+                ) orelse return null;
+                const op_mode = opModeForFunctionUse(functions, function_index, direct_call.requirement_label, direct_call.op_name);
+                const dst = if (op_mode == .abort)
+                    noLocalId()
+                else ignored_resume_dst: {
+                    const codec = resumeCodecForFunctionUse(functions, function_index, direct_call.requirement_label, direct_call.op_name);
+                    break :ignored_resume_dst if (codec == .unit) noLocalId() else appendAnonymousLocal(local_storage, codec);
+                };
+                appendInstruction(body_state.instructions, body_state.instruction_count, .{
+                    .kind = .call_op,
+                    .dst = dst,
+                    .operand = opIndexForFunctionUse(functions, function_index, direct_call.requirement_label, direct_call.op_name),
+                    .aux = payload_local,
+                });
+            },
+            .return_value => |return_value| {
+                if (step_index + 1 != apply_body.step_count) return null;
+                lowerContinuationApplyReturnValue(
+                    function,
+                    return_value,
+                    local_storage,
+                    body_state,
+                    terminated,
+                    terminator,
+                ) orelse return null;
+            },
+        }
+    }
+    if (!terminated.* and function.ValueType != void) return null;
 }
 
 const HelperCall = struct {
@@ -2433,8 +2520,10 @@ fn buildLinearBodyForFunction(
                         .aux = payload_local,
                     });
                     lowerContinuationApplyBody(
+                        context.functions,
+                        context.lowered_function_index,
                         context.functions[context.lowered_function_index],
-                        continuation_call.apply_return,
+                        continuation_call.apply_body,
                         continuation_call.apply_param_name,
                         resume_local,
                         resume_codec,

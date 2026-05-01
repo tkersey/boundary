@@ -5445,6 +5445,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     custom_effect_workflow_mod.addImport("ability", ability_mod);
+    custom_effect_workflow_mod.addImport("ability_agent_vm", ability_agent_vm_mod);
     custom_effect_workflow_mod.addImport("ability_compile", ability_compile_mod);
     custom_effect_workflow_mod.addImport("example_custom_approval_workflow", createShiftConsumerModule(b, "examples/custom_approval_workflow.zig", target, optimize, .{
         .ability_mod = ability_mod,
@@ -5453,6 +5454,17 @@ pub fn build(b: *std.Build) void {
     }));
     const custom_effect_workflow_tests = addFilteredTest(b, custom_effect_workflow_mod, test_runner_args.filters.items);
     const run_custom_effect_tests = addRunArtifactWithArgs(b, custom_effect_workflow_tests, test_runner_args.passthrough.items);
+    const custom_effect_artifact_vm_mod = b.createModule(.{
+        .root_source_file = b.path("test/custom_effect_artifact_vm_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    custom_effect_artifact_vm_mod.addImport("ability_agent_vm", ability_agent_vm_mod);
+    custom_effect_artifact_vm_mod.addImport("ability_compile", ability_compile_mod);
+    const custom_effect_artifact_tests = addFilteredTest(b, custom_effect_artifact_vm_mod, test_runner_args.filters.items);
+    const run_custom_artifact_tests = addRunArtifactWithArgs(b, custom_effect_artifact_tests, test_runner_args.passthrough.items);
+    run_custom_artifact_tests.step.dependOn(&run_fixture_check.step);
+    run_custom_effect_tests.step.dependOn(&run_custom_artifact_tests.step);
 
     const custom_effect_bad_choice_mod = b.createModule(.{
         .root_source_file = b.path("test/custom_effect_bad_choice_handler_negative.zig"),
