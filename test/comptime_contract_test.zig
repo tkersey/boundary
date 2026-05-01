@@ -27,9 +27,10 @@ const comptime_contract_body = struct {
     }
 };
 
-const CompiledFixture = ability_compile.CompileSource(
-    fixture.source_path,
-    fixture.FixtureSpec,
+const LoweredFixture = ability_compile.lowering_api.lowerAt(fixture.source_path, fixture.FixtureSpec);
+const CompiledFixture = ability.compile(
+    fixture.FixtureSpec.label,
+    LoweredFixture.runtime_plan,
     .{ .stable_build_fingerprint_seed = "ability-comptime-contract-fixture-v1" },
 );
 
@@ -65,7 +66,7 @@ test "public ability.with source witness exposes a comptime execution contract" 
     try std.testing.expectEqual(@as(i32, 9), result.outputs.state);
 }
 
-test "ability_compile CompileSource exposes the lowered runtime plan at comptime" {
+test "ability root compile exposes a ProgramPlan artifact at comptime" {
     comptime {
         const plan = CompiledFixture.runtime_plan;
         if (!std.mem.eql(u8, plan.label, fixture.FixtureSpec.label)) @compileError("compiled fixture plan label drifted");

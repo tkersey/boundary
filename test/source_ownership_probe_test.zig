@@ -81,10 +81,13 @@ test "source helper stays callable from test modules" {
     try std.testing.expectEqualStrings(std.Io.Dir.path.basename(@src().file), std.Io.Dir.path.basename(src.caller_file));
 }
 
-test "public root drops compile entrypoints while ability_compile keeps provenance-bearing lowering" {
+test "public root keeps ProgramPlan compile entrypoints but drops source lowering" {
     const expected_root_decl_names = [_][]const u8{
+        "CompileOptionsV1",
+        "CompilePlan",
         "Runtime",
         "RuntimeError",
+        "compile",
         "effect",
         "sourceHash",
         "with",

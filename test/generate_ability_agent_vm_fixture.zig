@@ -71,21 +71,25 @@ fn compatIo() std.Io {
 }
 
 fn generateFixtureBytes(allocator: std.mem.Allocator) ![]u8 {
-    return try ability_compile.compileAndEncode(
-        allocator,
+    const Lowered = ability_compile.lowering_api.lowerAt(
         fixture.source_path,
         fixture.FixtureSpec,
-        .{ .stable_build_fingerprint_seed = "ability-agent-vm-smoke-fixture-v1" },
     );
+    const Compiled = ability_compile.compile(fixture.FixtureSpec.label, Lowered.runtime_plan, .{
+        .stable_build_fingerprint_seed = "ability-agent-vm-smoke-fixture-v1",
+    });
+    return try Compiled.encodeArtifactV1(allocator);
 }
 
 fn generateCustomApprovalFixtureBytes(allocator: std.mem.Allocator) ![]u8 {
-    return try ability_compile.compileAndEncode(
-        allocator,
+    const Lowered = ability_compile.lowering_api.lowerAt(
         "examples/custom_approval_workflow.zig",
         fixture.CustomApprovalSpec,
-        .{ .stable_build_fingerprint_seed = "custom-approval-workflow-test" },
     );
+    const Compiled = ability_compile.compile(fixture.CustomApprovalSpec.label, Lowered.runtime_plan, .{
+        .stable_build_fingerprint_seed = "custom-approval-workflow-test",
+    });
+    return try Compiled.encodeArtifactV1(allocator);
 }
 
 fn readCommittedFixtureBytes(io: std.Io, allocator: std.mem.Allocator) ![]u8 {

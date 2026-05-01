@@ -15,22 +15,13 @@ const std = @import("std");
 pub const runtime_support = @import("open_row_runtime_support.zig");
 pub const ProgramPlan = program_plan.ProgramPlan;
 pub const FunctionPlan = program_plan.FunctionPlan;
+pub const ValueCodec = program_plan.ValueCodec;
+pub const Runtime = lowered_machine.Runtime;
 /// Resource envelope for native ProgramPlan execution through the public lowering API.
 pub const ProgramPlanRunOptions = program_plan_interpreter.RunOptions;
 
 pub fn executableResultCodecForType(comptime T: type) program_plan.CodecError!program_plan.ValueCodec {
     return try program_plan.codecForType(T);
-}
-
-fn authoredBoundLocalCodecForType(comptime T: type) ?effect_ir.LocalCodec {
-    return switch (T) {
-        void => .unit,
-        bool => .bool,
-        i32 => .i32,
-        usize => .usize,
-        []const u8 => .string,
-        else => null,
-    };
 }
 
 /// Public additive spec for one same-module lowering request.
@@ -83,6 +74,10 @@ fn ResultOutputsTypeForPlan(comptime compiled_plan: program_plan.ProgramPlan) ty
 }
 
 fn LoweredRunResultTypeForPlan(comptime compiled_plan: program_plan.ProgramPlan) type {
+    return program_plan_interpreter.RunResultTypeForPlan(compiled_plan);
+}
+
+pub fn ProgramPlanRunResult(comptime compiled_plan: program_plan.ProgramPlan) type {
     return program_plan_interpreter.RunResultTypeForPlan(compiled_plan);
 }
 
@@ -1356,129 +1351,7 @@ pub fn authoredBoundProgramPlan(
     comptime result_type: type,
     comptime control_mode: program_plan.ControlMode,
 ) ?program_plan.ProgramPlan {
-    const payload_codec = authoredBoundLocalCodecForType(payload_type) orelse return null;
-    const resume_codec = switch (control_mode) {
-        .abort => effect_ir.LocalCodec.unit,
-        .transform, .choice => authoredBoundLocalCodecForType(resume_type) orelse return null,
-    };
-    const result_codec = executableResultCodecForType(result_type) catch return null;
-    const local_codecs = comptime switch (control_mode) {
-        .abort => if (payload_codec == .unit)
-            [0]effect_ir.LocalCodec{}
-        else
-            [1]effect_ir.LocalCodec{payload_codec},
-        .transform, .choice => switch (payload_codec == .unit) {
-            true => if (resume_codec == .unit)
-                [0]effect_ir.LocalCodec{}
-            else
-                [1]effect_ir.LocalCodec{resume_codec},
-            false => if (resume_codec == .unit)
-                [1]effect_ir.LocalCodec{payload_codec}
-            else
-                [2]effect_ir.LocalCodec{ payload_codec, resume_codec },
-        },
-    };
-    const instructions = comptime switch (control_mode) {
-        .abort => [1]effect_ir.Instruction{.{
-            .kind = .call_op,
-            .dst = std.math.maxInt(u16),
-            .operand = 0,
-            .aux = if (payload_codec == .unit) std.math.maxInt(u16) else 0,
-        }},
-        .transform, .choice => if (resume_codec == .unit)
-            [1]effect_ir.Instruction{.{
-                .kind = .call_op,
-                .dst = std.math.maxInt(u16),
-                .operand = 0,
-                .aux = if (payload_codec == .unit) std.math.maxInt(u16) else 0,
-            }}
-        else
-            [2]effect_ir.Instruction{
-                .{
-                    .kind = .call_op,
-                    .dst = if (payload_codec == .unit) 0 else 1,
-                    .operand = 0,
-                    .aux = if (payload_codec == .unit) std.math.maxInt(u16) else 0,
-                },
-                .{
-                    .kind = .return_value,
-                    .dst = 0,
-                    .operand = if (payload_codec == .unit) 0 else 1,
-                    .aux = 0,
-                },
-            },
-    };
-    const lowered = program_frontend.LoweredOpenRowProgram{
-        .entry_index = 0,
-        .functions = &.{.{
-            .symbol = .{
-                .module_path = "<authored>",
-                .symbol_name = "runAuthored",
-            },
-            .row = .{
-                .requirements = &.{.{
-                    .label = "authored",
-                    .ops = &.{.{
-                        .requirement_label = "authored",
-                        .op_name = "dispatch",
-                        .mode = switch (control_mode) {
-                            .abort => .abort,
-                            .choice => .choice,
-                            .transform => .transform,
-                        },
-                        .PayloadType = payload_type,
-                        .ResumeType = resume_type,
-                        .has_after = control_mode != .abort,
-                    }},
-                }},
-            },
-            .parameter_codecs = if (payload_codec == .unit) &.{} else &.{payload_codec},
-            .ValueType = switch (control_mode) {
-                .abort => void,
-                .transform, .choice => resume_type,
-            },
-        }},
-        .call_edges = &.{},
-        .function_bodies = &.{.{
-            .local_codecs = &local_codecs,
-            .call_arg_locals = &.{},
-            .entry_block = 0,
-            .blocks = &.{.{
-                .instructions = &instructions,
-                .terminator = switch (control_mode) {
-                    .abort => .{ .kind = .return_unit },
-                    .transform, .choice => if (resume_codec == .unit)
-                        .{ .kind = .return_unit }
-                    else
-                        .{ .kind = .return_value },
-                },
-            }},
-        }},
-    };
-    const base_plan = planFromLoweredOpenRowProgram(label, lowered);
-    const functions = comptime blk: {
-        var buffer: [base_plan.functions.len]FunctionPlan = undefined;
-        for (base_plan.functions, 0..) |function, index| {
-            buffer[index] = function;
-        }
-        buffer[base_plan.entry_index].result_codec = result_codec;
-        break :blk buffer;
-    };
-    return .{
-        .schema_version = base_plan.schema_version,
-        .label = base_plan.label,
-        .ir_hash = base_plan.ir_hash,
-        .entry_index = base_plan.entry_index,
-        .functions = &functions,
-        .requirements = base_plan.requirements,
-        .ops = base_plan.ops,
-        .outputs = base_plan.outputs,
-        .locals = base_plan.locals,
-        .call_args = base_plan.call_args,
-        .blocks = base_plan.blocks,
-        .terminators = base_plan.terminators,
-        .instructions = base_plan.instructions,
-    };
+    return program_plan.authoredBoundPlan(label, payload_type, resume_type, result_type, control_mode);
 }
 
 /// Attach binding-derived lifecycle/output metadata to one lowered open-row ProgramPlan.

@@ -8,6 +8,12 @@ pub const Runtime = shared.Runtime;
 pub const RuntimeError = shared.RuntimeError;
 /// Stable source-content hash helper for source-backed `ability.with` bodies.
 pub const sourceHash = shared.sourceHash;
+/// Compile-time options for ProgramPlan-first ArtifactV1 emission.
+pub const CompileOptionsV1 = shared.CompileOptionsV1;
+/// Compile one runtime-owned ProgramPlan into a typed execution and ArtifactV1 surface.
+pub const CompilePlan = shared.CompilePlan;
+/// ProgramPlan-first compile entrypoint.
+pub const compile = shared.compile;
 /// Run the public lexical handler entrypoint.
 pub fn with(
     runtime: *Runtime,
@@ -20,6 +26,9 @@ pub fn with(
 test {
     _ = Runtime;
     _ = RuntimeError;
+    _ = CompileOptionsV1;
+    _ = CompilePlan;
+    _ = compile;
     _ = effect;
     _ = sourceHash;
     _ = with;

@@ -72,9 +72,9 @@ fn workflowSource() ability_compile.lowering_api.SourceRef {
 }
 
 const LoweredWorkflow = ability_compile.lower(workflowSource(), workflowLoweringSpec());
-const CompiledWorkflowArtifact = ability_compile.CompileSource(
-    "examples/custom_approval_workflow.zig",
-    workflowLoweringSpec(),
+const CompiledWorkflowArtifact = ability.compile(
+    "example.custom_approval_workflow",
+    LoweredWorkflow.runtime_plan,
     .{ .stable_build_fingerprint_seed = "custom-approval-workflow-effectful-continuation" },
 );
 const DirectBranch = enum { approve, deny };

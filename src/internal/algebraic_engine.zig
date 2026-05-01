@@ -1,4 +1,3 @@
-const effect_ir = @import("effect_ir");
 const frontend = @import("frontend_support");
 const lowered_machine = @import("lowered_machine");
 const lowering_api = @import("lowering_api");
@@ -526,26 +525,14 @@ fn Binding(
             };
         }
 
-        fn supportedAuthoredPayloadCodec() ?effect_ir.LocalCodec {
-            return switch (Op.Payload) {
-                void => .unit,
-                bool => .bool,
-                i32 => .i32,
-                usize => .usize,
-                []const u8 => .string,
-                else => null,
-            };
+        fn supportedAuthoredPayloadCodec() ?lowering_api.ValueCodec {
+            const codec = lowering_api.executableResultCodecForType(Op.Payload) catch return null;
+            return if (codec == .string_list) null else codec;
         }
 
-        fn supportedAuthoredResumeCodec() ?effect_ir.LocalCodec {
-            return switch (Op.Resume) {
-                void => .unit,
-                bool => .bool,
-                i32 => .i32,
-                usize => .usize,
-                []const u8 => .string,
-                else => null,
-            };
+        fn supportedAuthoredResumeCodec() ?lowering_api.ValueCodec {
+            const codec = lowering_api.executableResultCodecForType(Op.Resume) catch return null;
+            return if (codec == .string_list) null else codec;
         }
 
         fn supportedAuthoredResultType() ?type {
@@ -555,7 +542,7 @@ fn Binding(
             };
         }
 
-        fn encodeAuthoredPayload(comptime codec: effect_ir.LocalCodec, payload: Op.Payload) lowered_machine.ProgramValue {
+        fn encodeAuthoredPayload(comptime codec: lowering_api.ValueCodec, payload: Op.Payload) lowered_machine.ProgramValue {
             return switch (codec) {
                 .unit => .none,
                 .bool => .{ .bool = payload },

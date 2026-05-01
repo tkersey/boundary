@@ -586,6 +586,153 @@ pub fn codecForType(comptime T: type) CodecError!ValueCodec {
     return error.UnsupportedCodecType;
 }
 
+fn hashAuthoredBoundPlan(
+    comptime label: []const u8,
+    comptime payload_codec: ValueCodec,
+    comptime resume_codec: ValueCodec,
+    comptime result_codec: ValueCodec,
+    comptime control_mode: ControlMode,
+) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    hashBytes(&hasher, "authored.bound_program");
+    hashBytes(&hasher, label);
+    hashBytes(&hasher, @tagName(payload_codec));
+    hashBytes(&hasher, @tagName(resume_codec));
+    hashBytes(&hasher, @tagName(result_codec));
+    hashBytes(&hasher, @tagName(control_mode));
+    return hasher.final();
+}
+
+/// Build the minimal direct ProgramPlan for one explicit authored operation.
+pub fn authoredBoundPlan(
+    comptime label: []const u8,
+    comptime PayloadType: type,
+    comptime ResumeType: type,
+    comptime ResultType: type,
+    comptime control_mode: ControlMode,
+) ?ProgramPlan {
+    const payload_codec = comptime codecForType(PayloadType) catch return null;
+    const resume_codec = comptime switch (control_mode) {
+        .abort => ValueCodec.unit,
+        .transform, .choice => codecForType(ResumeType) catch return null,
+    };
+    const result_codec = comptime codecForType(ResultType) catch return null;
+    if (payload_codec == .string_list or resume_codec == .string_list) return null;
+
+    const locals = comptime switch (control_mode) {
+        .abort => if (payload_codec == .unit)
+            [0]LocalPlan{}
+        else
+            [1]LocalPlan{.{ .codec = payload_codec }},
+        .transform, .choice => switch (payload_codec == .unit) {
+            true => if (resume_codec == .unit)
+                [0]LocalPlan{}
+            else
+                [1]LocalPlan{.{ .codec = resume_codec }},
+            false => if (resume_codec == .unit)
+                [1]LocalPlan{.{ .codec = payload_codec }}
+            else blk: {
+                break :blk [2]LocalPlan{
+                    .{ .codec = payload_codec },
+                    .{ .codec = resume_codec },
+                };
+            },
+        },
+    };
+    const resume_local: u16 = if (payload_codec == .unit) 0 else 1;
+    const payload_local: u16 = if (payload_codec == .unit) std.math.maxInt(u16) else 0;
+    const instructions = comptime switch (control_mode) {
+        .abort => [1]Instruction{.{
+            .kind = .call_op,
+            .dst = std.math.maxInt(u16),
+            .operand = 0,
+            .aux = payload_local,
+        }},
+        .transform, .choice => if (resume_codec == .unit) blk: {
+            break :blk [1]Instruction{.{
+                .kind = .call_op,
+                .dst = std.math.maxInt(u16),
+                .operand = 0,
+                .aux = payload_local,
+            }};
+        } else blk: {
+            break :blk [2]Instruction{
+                .{
+                    .kind = .call_op,
+                    .dst = resume_local,
+                    .operand = 0,
+                    .aux = payload_local,
+                },
+                .{
+                    .kind = .return_value,
+                    .operand = resume_local,
+                },
+            };
+        },
+    };
+    const terminator_kind: TerminatorKind = switch (control_mode) {
+        .abort => .return_unit,
+        .transform, .choice => if (resume_codec == .unit) .return_unit else .return_value,
+    };
+    const functions = [_]FunctionPlan{.{
+        .symbol_name = "runAuthored",
+        .value_codec = switch (control_mode) {
+            .abort => .unit,
+            .transform, .choice => resume_codec,
+        },
+        .result_codec = result_codec,
+        .parameter_count = if (payload_codec == .unit) 0 else 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = @intCast(locals.len),
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]RequirementPlan{.{
+        .label = "authored",
+        .first_op = 0,
+        .op_count = 1,
+        .lifecycle_tag = .generated_family,
+        .output_tag = .none,
+    }};
+    const ops = [_]OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "dispatch",
+        .mode = control_mode,
+        .payload_codec = payload_codec,
+        .resume_codec = resume_codec,
+        .has_after = control_mode != .abort,
+    }};
+    const blocks = [_]BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]Terminator{.{ .kind = terminator_kind }};
+    const plan: ProgramPlan = .{
+        .label = label,
+        .ir_hash = hashAuthoredBoundPlan(label, payload_codec, resume_codec, result_codec, control_mode),
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &locals,
+        .call_args = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    };
+    plan.validate() catch return null;
+    return plan;
+}
+
 /// Return the externally observable result codec for one function plan.
 pub fn functionResultCodec(function: FunctionPlan) ValueCodec {
     return function.result_codec orelse function.value_codec;
