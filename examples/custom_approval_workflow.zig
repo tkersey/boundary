@@ -139,8 +139,9 @@ fn approvalRuntimeBody(eff: anytype) anyerror![]const u8 {
     const present = try eff.directory.exists.perform("request-7");
     try abortIfMissing(present, eff);
     return try eff.approval.request.perform("request-7", struct {
-        /// Publish only after the approval handler resumes.
-        pub fn apply(_: []const u8, _: anytype) anyerror![]const u8 {
+        /// Publish only after the approval handler resumes and confirms the directory again.
+        pub fn apply(_: []const u8, eff_after_resume: anytype) anyerror![]const u8 {
+            _ = try eff_after_resume.directory.exists.perform("publish-7");
             return "published:approved";
         }
     });

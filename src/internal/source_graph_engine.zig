@@ -164,6 +164,37 @@ const DirectOpUseMatch = struct {
     has_after: bool = false,
 };
 
+const ApplyDirectOpUse = struct {
+    match: DirectOpUseMatch,
+    offset: usize,
+};
+
+const ContinuationApplyBodyAnalysis = struct {
+    direct_uses: [admitted_body_v1.max_apply_steps]ApplyDirectOpUse = [_]ApplyDirectOpUse{.{
+        .match = .{
+            .requirement_label = "",
+            .op_name = "",
+        },
+        .offset = 0,
+    }} ** admitted_body_v1.max_apply_steps,
+    direct_use_count: usize = 0,
+
+    fn pushDirectUse(self: *@This(), direct_use: DirectOpUseMatch, offset: usize) bool {
+        if (self.direct_use_count >= self.direct_uses.len) return false;
+        self.direct_uses[self.direct_use_count] = .{
+            .match = direct_use,
+            .offset = offset,
+        };
+        self.direct_use_count += 1;
+        return true;
+    }
+};
+
+const ContinuationDirectOpUseMatch = struct {
+    direct_call: DirectOpUseMatch,
+    apply_body: ContinuationApplyBodyAnalysis,
+};
+
 const AliasKind = union(enum) {
     effect_root,
     requirement: []const u8,
@@ -173,6 +204,8 @@ const Alias = struct {
     name: []const u8,
     kind: AliasKind,
 };
+
+const no_apply_effect_param = "\x00ability_no_apply_effect_param";
 
 const TopLevelImportMatch = struct {
     name: []const u8,
@@ -869,13 +902,13 @@ fn helperCallArgsSupported(effect_param: ?[]const u8, args: []const TokenItem) b
     return statementArgsSupported(args[0 .. args.len - 2]);
 }
 
-fn statementMatchesSupportedDirectOp(
+fn statementSupportedDirectOp(
     effect_param: ?[]const u8,
     aliases: []const Alias,
     statement: []const TokenItem,
-) bool {
+) ?DirectOpUseMatch {
     const tokens = statementTrimSemicolon(statement);
-    if (tokens.len == 0) return false;
+    if (tokens.len == 0) return null;
 
     var index: usize = 0;
     if (tokens.len >= 2 and
@@ -887,8 +920,8 @@ fn statementMatchesSupportedDirectOp(
     }
     if (index < tokens.len and tokens[index].tag == .keyword_try) index += 1;
 
-    if (index >= tokens.len or tokens[index].tag != .identifier) return false;
-    const base_kind = aliasKind(effect_param, aliases, tokens[index].lexeme) orelse return false;
+    if (index >= tokens.len or tokens[index].tag != .identifier) return null;
+    const base_kind = aliasKind(effect_param, aliases, tokens[index].lexeme) orelse return null;
 
     switch (base_kind) {
         .effect_root => {
@@ -903,16 +936,24 @@ fn statementMatchesSupportedDirectOp(
                 tokens[tokens.len - 1].tag == .r_paren and
                 (std.mem.eql(u8, tokens[index + 6].lexeme, "perform") or std.mem.eql(u8, tokens[index + 6].lexeme, "abort")))
             {
-                return statementArgsSupported(tokens[index + 8 .. tokens.len - 1]);
+                if (!statementArgsSupported(tokens[index + 8 .. tokens.len - 1])) return null;
+                return .{
+                    .requirement_label = tokens[index + 2].lexeme,
+                    .op_name = tokens[index + 4].lexeme,
+                };
             }
-            if (index + 6 > tokens.len) return false;
-            if (tokens[index + 1].tag != .period) return false;
-            if (tokens[index + 2].tag != .identifier) return false;
-            if (tokens[index + 3].tag != .period) return false;
-            if (tokens[index + 4].tag != .identifier) return false;
-            if (tokens[index + 5].tag != .l_paren) return false;
-            if (tokens[tokens.len - 1].tag != .r_paren) return false;
-            return statementArgsSupported(tokens[index + 6 .. tokens.len - 1]);
+            if (index + 6 > tokens.len) return null;
+            if (tokens[index + 1].tag != .period) return null;
+            if (tokens[index + 2].tag != .identifier) return null;
+            if (tokens[index + 3].tag != .period) return null;
+            if (tokens[index + 4].tag != .identifier) return null;
+            if (tokens[index + 5].tag != .l_paren) return null;
+            if (tokens[tokens.len - 1].tag != .r_paren) return null;
+            if (!statementArgsSupported(tokens[index + 6 .. tokens.len - 1])) return null;
+            return .{
+                .requirement_label = tokens[index + 2].lexeme,
+                .op_name = tokens[index + 4].lexeme,
+            };
         },
         .requirement => {
             if (index + 6 <= tokens.len and
@@ -924,16 +965,32 @@ fn statementMatchesSupportedDirectOp(
                 tokens[tokens.len - 1].tag == .r_paren and
                 (std.mem.eql(u8, tokens[index + 4].lexeme, "perform") or std.mem.eql(u8, tokens[index + 4].lexeme, "abort")))
             {
-                return statementArgsSupported(tokens[index + 6 .. tokens.len - 1]);
+                if (!statementArgsSupported(tokens[index + 6 .. tokens.len - 1])) return null;
+                return .{
+                    .requirement_label = base_kind.requirement,
+                    .op_name = tokens[index + 2].lexeme,
+                };
             }
-            if (index + 4 > tokens.len) return false;
-            if (tokens[index + 1].tag != .period) return false;
-            if (tokens[index + 2].tag != .identifier) return false;
-            if (tokens[index + 3].tag != .l_paren) return false;
-            if (tokens[tokens.len - 1].tag != .r_paren) return false;
-            return statementArgsSupported(tokens[index + 4 .. tokens.len - 1]);
+            if (index + 4 > tokens.len) return null;
+            if (tokens[index + 1].tag != .period) return null;
+            if (tokens[index + 2].tag != .identifier) return null;
+            if (tokens[index + 3].tag != .l_paren) return null;
+            if (tokens[tokens.len - 1].tag != .r_paren) return null;
+            if (!statementArgsSupported(tokens[index + 4 .. tokens.len - 1])) return null;
+            return .{
+                .requirement_label = base_kind.requirement,
+                .op_name = tokens[index + 2].lexeme,
+            };
         },
     }
+}
+
+fn statementMatchesSupportedDirectOp(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    statement: []const TokenItem,
+) bool {
+    return statementSupportedDirectOp(effect_param, aliases, statement) != null;
 }
 
 fn statementMatchesSupportedRequirementAliasTouch(
@@ -951,14 +1008,72 @@ fn statementMatchesSupportedRequirementAliasTouch(
     return tokens[3].tag == .period and tokens[4].tag == .identifier;
 }
 
+fn statementAliasFromDeclaration(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    statement: []const TokenItem,
+) ?Alias {
+    if (statement.len == 7 and
+        (statement[0].tag == .keyword_const or statement[0].tag == .keyword_var) and
+        statement[1].tag == .identifier and
+        statement[2].tag == .equal and
+        statement[3].tag == .identifier and
+        statement[4].tag == .period and
+        statement[5].tag == .identifier and
+        statement[6].tag == .semicolon)
+    {
+        const source_kind = aliasKind(effect_param, aliases, statement[3].lexeme) orelse return null;
+        return switch (source_kind) {
+            .effect_root => .{
+                .name = statement[1].lexeme,
+                .kind = .{ .requirement = statement[5].lexeme },
+            },
+            .requirement => null,
+        };
+    }
+
+    return null;
+}
+
+fn statementSupportedBoundDirectOp(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    statement: []const TokenItem,
+) ?DirectOpUseMatch {
+    if (statement.len < 6) return null;
+    if (statement[0].tag != .keyword_const) return null;
+    if (statement[1].tag != .identifier) return null;
+    if (statement[2].tag != .equal) return null;
+    return statementSupportedDirectOp(effect_param, aliases, statement[3..]);
+}
+
+fn statementMatchesSupportedBoundDirectOp(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    statement: []const TokenItem,
+) bool {
+    return statementSupportedBoundDirectOp(effect_param, aliases, statement) != null;
+}
+
+fn statementSupportedReturnDirectOp(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    statement: []const TokenItem,
+) ?DirectOpUseMatch {
+    const tokens = statementTrimSemicolon(statement);
+    if (tokens.len == 0 or tokens[0].tag != .keyword_return) return null;
+    for (tokens[1..]) |token| {
+        if (token.tag == .keyword_struct) return null;
+    }
+    return statementSupportedDirectOp(effect_param, aliases, tokens[1..]);
+}
+
 fn statementMatchesSupportedReturnDirectOp(
     effect_param: ?[]const u8,
     aliases: []const Alias,
     statement: []const TokenItem,
 ) bool {
-    const tokens = statementTrimSemicolon(statement);
-    if (tokens.len == 0 or tokens[0].tag != .keyword_return) return false;
-    return statementMatchesSupportedDirectOp(effect_param, aliases, tokens[1..]);
+    return statementSupportedReturnDirectOp(effect_param, aliases, statement) != null;
 }
 
 fn continuationStructStart(args: []const TokenItem) ?struct {
@@ -1004,9 +1119,129 @@ fn continuationStructStart(args: []const TokenItem) ?struct {
     return null;
 }
 
-fn continuationApplyBodySupported(struct_tokens: []const TokenItem) bool {
-    if (struct_tokens.len < 4) return false;
-    if (struct_tokens[0].tag != .keyword_struct or struct_tokens[1].tag != .l_brace) return false;
+fn continuationApplyParamNames(params: []const TokenItem) ?struct {
+    resume_param_name: ?[]const u8,
+    effect_param_name: ?[]const u8,
+} {
+    var names: [2]?[]const u8 = .{ null, null };
+    var name_count: usize = 0;
+    var depth: usize = 0;
+    var param_start: usize = 0;
+
+    for (params, 0..) |token, index| {
+        if (token.tag == .l_paren or token.tag == .l_bracket) {
+            depth += 1;
+        } else if (token.tag == .r_paren or token.tag == .r_bracket) {
+            if (depth != 0) depth -= 1;
+        } else if (token.tag == .comma and depth == 0) {
+            if (name_count >= names.len) return null;
+            continuationApplyParamName(params[param_start..index], name_count, &names);
+            name_count += 1;
+            param_start = index + 1;
+        }
+    }
+
+    if (param_start < params.len) {
+        if (name_count >= names.len) return null;
+        continuationApplyParamName(params[param_start..], name_count, &names);
+        name_count += 1;
+    }
+
+    return .{
+        .resume_param_name = names[0],
+        .effect_param_name = names[1],
+    };
+}
+
+fn continuationApplyParamName(param_tokens: []const TokenItem, param_index: usize, names: *[2]?[]const u8) void {
+    var name: ?[]const u8 = null;
+    var type_start: ?usize = null;
+    var depth: usize = 0;
+    for (param_tokens, 0..) |token, index| {
+        if (token.tag == .l_paren or token.tag == .l_bracket) {
+            depth += 1;
+        } else if (token.tag == .r_paren or token.tag == .r_bracket) {
+            if (depth != 0) depth -= 1;
+        } else if (token.tag == .colon and depth == 0 and type_start == null) {
+            type_start = index + 1;
+        } else if (token.tag == .identifier and depth == 0 and type_start == null and name == null) {
+            if (!std.mem.eql(u8, token.lexeme, "_")) name = token.lexeme;
+        }
+    }
+    if (param_index == 0) {
+        names[0] = name;
+    } else if (param_index == 1 and continuationApplyParamTypeIsAnytype(param_tokens, type_start)) {
+        names[1] = name;
+    }
+}
+
+fn continuationApplyParamTypeIsAnytype(param_tokens: []const TokenItem, type_start: ?usize) bool {
+    const start = type_start orelse return false;
+    return param_tokens[start..].len == 1 and param_tokens[start].tag == .keyword_anytype;
+}
+
+fn analyzeContinuationApplyBody(effect_param: ?[]const u8, body_tokens: []const TokenItem) ?ContinuationApplyBodyAnalysis {
+    const apply_effect_param: ?[]const u8 = effect_param orelse no_apply_effect_param;
+    var aliases = [_]Alias{.{
+        .name = "",
+        .kind = .effect_root,
+    }} ** 128;
+    var alias_count: usize = 0;
+    var statement_start: usize = 0;
+    var executable_step_count: usize = 0;
+    var analysis = ContinuationApplyBodyAnalysis{};
+
+    for (body_tokens, 0..) |token, index| {
+        if (token.tag != .semicolon) continue;
+
+        const statement = body_tokens[statement_start .. index + 1];
+        statement_start = index + 1;
+        if (statement.len == 0) return null;
+
+        if (statementAliasFromDeclaration(apply_effect_param, aliases[0..alias_count], statement)) |alias| {
+            if (alias_count >= aliases.len) return null;
+            upsertAlias(aliases[0..], &alias_count, alias.name, alias.kind) catch return null;
+            continue;
+        }
+        if (statementMatchesSupportedRequirementAliasTouch(apply_effect_param, aliases[0..alias_count], statement)) continue;
+
+        if (executable_step_count >= admitted_body_v1.max_apply_steps) return null;
+        if (statementSupportedReturnDirectOp(apply_effect_param, aliases[0..alias_count], statement)) |direct_use| {
+            if (index + 1 != body_tokens.len) return null;
+            if (!analysis.pushDirectUse(direct_use, statement[0].offset)) return null;
+            executable_step_count += 1;
+            continue;
+        }
+        if (statementIsSimpleReturn(statement) or
+            statementIsLiteralReturn(statement) or
+            statementIsLocalReturn(statement))
+        {
+            if (index + 1 != body_tokens.len) return null;
+            executable_step_count += 1;
+            continue;
+        }
+
+        if (statementSupportedBoundDirectOp(apply_effect_param, aliases[0..alias_count], statement)) |direct_use| {
+            if (!analysis.pushDirectUse(direct_use, statement[0].offset)) return null;
+            executable_step_count += 1;
+            continue;
+        }
+        if (statementSupportedDirectOp(apply_effect_param, aliases[0..alias_count], statement)) |direct_use| {
+            if (!analysis.pushDirectUse(direct_use, statement[0].offset)) return null;
+            executable_step_count += 1;
+            continue;
+        }
+
+        return null;
+    }
+
+    if (statement_start != body_tokens.len or executable_step_count == 0) return null;
+    return analysis;
+}
+
+fn continuationApplyBodySupported(struct_tokens: []const TokenItem) ?ContinuationApplyBodyAnalysis {
+    if (struct_tokens.len < 4) return null;
+    if (struct_tokens[0].tag != .keyword_struct or struct_tokens[1].tag != .l_brace) return null;
 
     var index: usize = 2;
     while (index + 1 < struct_tokens.len) : (index += 1) {
@@ -1025,22 +1260,24 @@ fn continuationApplyBodySupported(struct_tokens: []const TokenItem) bool {
         {
             continue;
         }
-        if (fn_index + 2 >= struct_tokens.len or struct_tokens[fn_index + 2].tag != .l_paren) return false;
+        if (fn_index + 2 >= struct_tokens.len or struct_tokens[fn_index + 2].tag != .l_paren) return null;
 
         var param_depth: usize = 1;
+        const params_start = fn_index + 3;
         var cursor = fn_index + 3;
         while (cursor < struct_tokens.len and param_depth != 0) : (cursor += 1) {
             if (struct_tokens[cursor].tag == .l_paren) {
                 param_depth += 1;
             } else if (struct_tokens[cursor].tag == .r_paren) {
-                if (param_depth == 0) return false;
+                if (param_depth == 0) return null;
                 param_depth -= 1;
             }
         }
-        if (param_depth != 0 or cursor >= struct_tokens.len) return false;
+        if (param_depth != 0 or cursor >= struct_tokens.len) return null;
+        const params = continuationApplyParamNames(struct_tokens[params_start .. cursor - 1]) orelse return null;
 
         while (cursor < struct_tokens.len and struct_tokens[cursor].tag != .l_brace) : (cursor += 1) {}
-        if (cursor >= struct_tokens.len) return false;
+        if (cursor >= struct_tokens.len) return null;
 
         const body_start = cursor + 1;
         var body_depth: usize = 1;
@@ -1049,26 +1286,24 @@ fn continuationApplyBodySupported(struct_tokens: []const TokenItem) bool {
             if (struct_tokens[cursor].tag == .l_brace) {
                 body_depth += 1;
             } else if (struct_tokens[cursor].tag == .r_brace) {
-                if (body_depth == 0) return false;
+                if (body_depth == 0) return null;
                 body_depth -= 1;
             }
         }
-        if (body_depth != 0 or cursor == 0) return false;
+        if (body_depth != 0 or cursor == 0) return null;
 
         const body_tokens = struct_tokens[body_start .. cursor - 1];
-        return statementIsSimpleReturn(body_tokens) or
-            statementIsLiteralReturn(body_tokens) or
-            statementIsLocalReturn(body_tokens);
+        return analyzeContinuationApplyBody(params.effect_param_name, body_tokens);
     }
 
-    return false;
+    return null;
 }
 
 fn supportedContinuationDirectOp(
     effect_param: ?[]const u8,
     aliases: []const Alias,
     statement: []const TokenItem,
-) ?DirectOpUseMatch {
+) ?ContinuationDirectOpUseMatch {
     const tokens = statementTrimSemicolon(statement);
     if (tokens.len == 0 or tokens[0].tag != .keyword_return) return null;
 
@@ -1167,8 +1402,11 @@ fn supportedContinuationDirectOp(
     const args = tokens[direct_call.args_bounds.start..direct_call.args_bounds.end];
     const struct_arg = continuationStructStart(args) orelse return null;
     if (!statementArgsSupported(args[0..struct_arg.payload_end])) return null;
-    if (!continuationApplyBodySupported(args[struct_arg.struct_start..])) return null;
-    return direct_call.match;
+    const apply_body = continuationApplyBodySupported(args[struct_arg.struct_start..]) orelse return null;
+    return .{
+        .direct_call = direct_call.match,
+        .apply_body = apply_body,
+    };
 }
 
 fn statementMayBeContinuationDirectOp(
@@ -1754,7 +1992,8 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
             if (maybeAliasFromDeclaration(context.effect_param, aliases[0..alias_count], &token_window)) |alias| {
                 try upsertAlias(aliases[0..], &alias_count, alias.name, alias.kind);
             }
-            if (supportedContinuationDirectOp(context.effect_param, aliases[0..alias_count], statement_window.slice())) |match| {
+            if (supportedContinuationDirectOp(context.effect_param, aliases[0..alias_count], statement_window.slice())) |continuation_match| {
+                const match = continuation_match.direct_call;
                 if (!collector.markDirectOpUseHasAfter(context.caller_index, match.requirement_label, match.op_name)) {
                     const loc = locationForOffset(context.source, current.offset);
                     try collector.pushDirectOpUse(.{
@@ -1762,6 +2001,17 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
                         .requirement_label = match.requirement_label,
                         .op_name = match.op_name,
                         .has_after = match.has_after,
+                        .line = loc.line,
+                        .column = loc.column,
+                    });
+                }
+                for (continuation_match.apply_body.direct_uses[0..continuation_match.apply_body.direct_use_count]) |apply_use| {
+                    const loc = locationForOffset(context.source, apply_use.offset);
+                    try collector.pushDirectOpUse(.{
+                        .function_index = context.caller_index,
+                        .requirement_label = apply_use.match.requirement_label,
+                        .op_name = apply_use.match.op_name,
+                        .has_after = apply_use.match.has_after,
                         .line = loc.line,
                         .column = loc.column,
                     });
@@ -2401,6 +2651,87 @@ test "shared engine keeps explicit continuation perform bodies in the lowering s
     try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
     try std.testing.expectEqualStrings("picker", graph.direct_op_uses[0].requirement_label);
     try std.testing.expectEqualStrings("pick", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine counts continuation apply executable steps separately from aliases" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror![]const u8 {
+        \\    return try eff.approval.request("request-7", struct {
+        \\        pub fn apply(_: []const u8, resumed_eff: anytype) anyerror![]const u8 {
+        \\            const directory = resumed_eff.directory;
+        \\            _ = resumed_eff.directory;
+        \\            const writer = resumed_eff.writer;
+        \\            _ = resumed_eff.writer;
+        \\            const state = resumed_eff.state;
+        \\            _ = resumed_eff.state;
+        \\            const log = resumed_eff.log;
+        \\            _ = resumed_eff.log;
+        \\            _ = try directory.exists("publish-7");
+        \\            return "published:approved";
+        \\        }
+        \\    });
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 2), graph.direct_op_uses.len);
+    try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
+    try std.testing.expectEqualStrings("approval", graph.direct_op_uses[0].requirement_label);
+    try std.testing.expectEqualStrings("request", graph.direct_op_uses[0].op_name);
+    try std.testing.expect(graph.direct_op_uses[0].has_after);
+    try std.testing.expectEqualStrings("directory", graph.direct_op_uses[1].requirement_label);
+    try std.testing.expectEqualStrings("exists", graph.direct_op_uses[1].op_name);
+}
+
+test "shared engine rejects apply direct effects without an explicit effect parameter" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror![]const u8 {
+        \\    return try eff.approval.request("request-7", struct {
+        \\        pub fn apply(eff: []const u8) anyerror![]const u8 {
+        \\            _ = try eff.directory.exists("publish-7");
+        \\            return "published:approved";
+        \\        }
+        \\    });
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), graph.direct_op_uses.len);
+    try std.testing.expect(!graph.direct_op_uses[0].has_after);
+    try std.testing.expect(!graph.functions[graph.entry_index.?].body_lowering_supported);
+}
+
+test "shared engine rejects apply direct effects through non-anytype second parameter" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror![]const u8 {
+        \\    return try eff.approval.request("request-7", struct {
+        \\        pub fn apply(_: []const u8, label: []const u8) anyerror![]const u8 {
+        \\            _ = try label.directory.exists("publish-7");
+        \\            return "published:approved";
+        \\        }
+        \\    });
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), graph.direct_op_uses.len);
+    try std.testing.expect(!graph.direct_op_uses[0].has_after);
+    try std.testing.expect(!graph.functions[graph.entry_index.?].body_lowering_supported);
 }
 
 test "shared engine rejects overflowing continuation statements in strict lowering mode" {

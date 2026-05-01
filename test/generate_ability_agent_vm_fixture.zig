@@ -79,6 +79,15 @@ fn generateFixtureBytes(allocator: std.mem.Allocator) ![]u8 {
     );
 }
 
+fn generateCustomApprovalFixtureBytes(allocator: std.mem.Allocator) ![]u8 {
+    return try ability_compile.compileAndEncode(
+        allocator,
+        "examples/custom_approval_workflow.zig",
+        fixture.CustomApprovalSpec,
+        .{ .stable_build_fingerprint_seed = "custom-approval-workflow-test" },
+    );
+}
+
 fn readCommittedFixtureBytes(io: std.Io, allocator: std.mem.Allocator) ![]u8 {
     return try std.Io.Dir.cwd().readFileAlloc(
         io,
@@ -103,6 +112,25 @@ fn checkCommittedFixtureFreshness(
         std.log.err(
             "stale {s}; regenerate with `zig build generate-ability-agent-vm-fixture`",
             .{fixture.artifact_path},
+        );
+        return error.StaleAbilityAgentVmFixture;
+    }
+
+    const custom_bytes = try generateCustomApprovalFixtureBytes(generated_allocator);
+    defer generated_allocator.free(custom_bytes);
+
+    const custom_fixture_bytes = try std.Io.Dir.cwd().readFileAlloc(
+        io,
+        fixture.custom_approval_artifact_path,
+        committed_allocator,
+        .limited(max_fixture_bytes),
+    );
+    defer committed_allocator.free(custom_fixture_bytes);
+
+    if (!std.mem.eql(u8, custom_bytes, custom_fixture_bytes)) {
+        std.log.err(
+            "stale {s}; regenerate with `zig build generate-ability-agent-vm-fixture`",
+            .{fixture.custom_approval_artifact_path},
         );
         return error.StaleAbilityAgentVmFixture;
     }
@@ -159,12 +187,14 @@ pub fn main(init: std.process.Init) anyerror!void {
         .write => {
             const bytes = try generateFixtureBytes(allocator);
             try writeFixtureBytesAtomic(std.Io.Dir.cwd(), init.io, fixture.artifact_path, bytes);
+            const custom_bytes = try generateCustomApprovalFixtureBytes(allocator);
+            try writeFixtureBytesAtomic(std.Io.Dir.cwd(), init.io, fixture.custom_approval_artifact_path, custom_bytes);
             var stdout_buffer: [160]u8 = undefined;
             var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
             const stdout = &stdout_writer.interface;
             try stdout.print(
-                "wrote {s} ({d} bytes); verify with `zig build check-ability-agent-vm-fixture`\n",
-                .{ fixture.artifact_path, bytes.len },
+                "wrote {s} ({d} bytes) and {s} ({d} bytes); verify with `zig build check-ability-agent-vm-fixture`\n",
+                .{ fixture.artifact_path, bytes.len, fixture.custom_approval_artifact_path, custom_bytes.len },
             );
             try stdout.flush();
         },

@@ -67,7 +67,11 @@ fn workflowSource() ability_compile.lowering_api.SourceRef {
 }
 
 const LoweredWorkflow = ability_compile.lower(workflowSource(), workflowLoweringSpec());
-
+const CompiledWorkflowArtifact = ability_compile.CompileSource(
+    "examples/custom_approval_workflow.zig",
+    workflowLoweringSpec(),
+    .{ .stable_build_fingerprint_seed = "custom-approval-workflow-effectful-continuation" },
+);
 const DirectBranch = enum { approve, deny };
 
 const DirectDirectoryHandler = struct {
@@ -205,11 +209,11 @@ test "custom approval workflow approves through public custom-effect transcript"
     const result = try example.runApprove(&runtime);
     try std.testing.expectEqualStrings("published:approved", result.value);
     try expectTranscript(result.transcript, .{
-        .lookups = 1,
+        .lookups = 2,
         .choices = 1,
         .continuations = 1,
         .aborts = 0,
-        .last_lookup = "request-7",
+        .last_lookup = "publish-7",
         .last_choice = "request-7",
         .last_abort = "",
     });
@@ -230,6 +234,43 @@ test "custom approval workflow denies without recording a continuation" {
         .last_choice = "request-7",
         .last_abort = "",
     });
+}
+
+test "custom approval workflow source plan performs the resumed directory check only on approve" {
+    comptime {
+        const plan = LoweredWorkflow.runtime_plan;
+        var directory_exists_op: ?u16 = null;
+        for (plan.ops, 0..) |op, op_index| {
+            const requirement = plan.requirements[op.requirement_index];
+            if (std.mem.eql(u8, requirement.label, "directory") and std.mem.eql(u8, op.op_name, "exists")) {
+                directory_exists_op = @intCast(op_index);
+            }
+        }
+        const op_index = directory_exists_op orelse @compileError("custom workflow plan must keep directory.exists");
+        var directory_call_count: usize = 0;
+        for (plan.instructions) |instruction| {
+            if (instruction.kind == .call_op and instruction.operand == op_index) directory_call_count += 1;
+        }
+        if (directory_call_count != 2) @compileError("approve continuation must preserve the second directory.exists call");
+    }
+
+    var approve_runtime = ability.Runtime.init(std.testing.allocator);
+    defer approve_runtime.deinit();
+    const approved = try runLoweredWorkflowCase(&approve_runtime, true, .approve);
+    try std.testing.expectEqual(@as(usize, 2), approved.transcript.lookups);
+    try std.testing.expectEqualStrings("publish-7", approved.transcript.last_lookup);
+
+    var deny_runtime = ability.Runtime.init(std.testing.allocator);
+    defer deny_runtime.deinit();
+    const denied = try runLoweredWorkflowCase(&deny_runtime, true, .deny);
+    try std.testing.expectEqual(@as(usize, 1), denied.transcript.lookups);
+    try std.testing.expectEqualStrings("request-7", denied.transcript.last_lookup);
+
+    var invalid_runtime = ability.Runtime.init(std.testing.allocator);
+    defer invalid_runtime.deinit();
+    const invalid = try runLoweredWorkflowCase(&invalid_runtime, false, .approve);
+    try std.testing.expectEqual(@as(usize, 1), invalid.transcript.lookups);
+    try std.testing.expectEqualStrings("request-7", invalid.transcript.last_lookup);
 }
 
 test "custom approval workflow aborts invalid requests before choice" {
@@ -318,6 +359,21 @@ test "custom approval workflow agrees across public and direct ProgramPlan termi
     const lowered_invalid = try runLoweredWorkflowCase(&lowered_runtime, false, .approve);
     try std.testing.expectEqualStrings(public_invalid.value, lowered_invalid.value);
     try expectTranscript(public_invalid.transcript, lowered_invalid.transcript);
+}
+
+test "custom approval workflow ArtifactV1 encode decode preserves custom capabilities" {
+    const allocator = std.testing.allocator;
+    const bytes = try CompiledWorkflowArtifact.encode(allocator);
+    defer allocator.free(bytes);
+
+    var decoded = try CompiledWorkflowArtifact.decode(allocator, bytes);
+    defer decoded.deinit(allocator);
+    try std.testing.expectEqual(CompiledWorkflowArtifact.ir_hash, decoded.semantic_ir_hash64);
+    try std.testing.expectEqual(@as(usize, 4), decoded.capabilities.len);
+
+    var decoded_with_plan = try ability_compile.artifact.decodeWithProgramPlan(allocator, bytes);
+    defer decoded_with_plan.deinit(allocator);
+    try decoded_with_plan.plan.validate();
 }
 
 test "custom workflow source lowering admits bang branches only for bool locals" {

@@ -5,6 +5,7 @@ const std = @import("std");
 // zlinter-disable require_exhaustive_enum_switch - tokenizer tag switches are intentionally partial and fail closed through explicit fallback returns.
 
 pub const max_steps: usize = 128;
+pub const max_apply_steps: usize = 8;
 pub const max_helper_args: usize = 8;
 const max_aliases: usize = 128;
 const max_body_tokens: usize = 256;
@@ -98,7 +99,7 @@ pub const Step = union(enum) {
     return_continuation_direct: struct {
         direct_call: DirectCall,
         apply_param_name: ?[]const u8,
-        apply_return: ReturnValue,
+        apply_body: ApplyBody,
     },
     call_direct: DirectCall,
     call_helper: HelperCall,
@@ -108,6 +109,24 @@ pub const Step = union(enum) {
 pub const BranchConditionKind = enum {
     eq_zero,
     bang,
+};
+
+pub const ApplyStep = union(enum) {
+    bind_local_from_direct: struct {
+        local_name: []const u8,
+        direct_call: DirectCall,
+    },
+    call_direct: DirectCall,
+    return_value: ReturnValue,
+};
+
+pub const ApplyBody = struct {
+    step_count: usize,
+    steps: [max_apply_steps]ApplyStep,
+
+    pub fn slice(self: *const ApplyBody) []const ApplyStep {
+        return self.steps[0..self.step_count];
+    }
 };
 
 pub const Body = struct {
@@ -134,6 +153,8 @@ const Alias = struct {
     kind: AliasKind,
 };
 
+const no_apply_effect_param = "\x00ability_no_apply_effect_param";
+
 fn tokenIsBoolLiteral(token: Token) bool {
     return token.tag == .identifier and
         (std.mem.eql(u8, token.lexeme, "true") or std.mem.eql(u8, token.lexeme, "false"));
@@ -149,6 +170,13 @@ fn statementTrimSemicolon(statement: []const Token) []const Token {
     if (statement.len == 0) return statement;
     if (statement[statement.len - 1].tag != .semicolon) return statement;
     return statement[0 .. statement.len - 1];
+}
+
+fn statementHasToken(statement: []const Token, tag: std.zig.Token.Tag) bool {
+    for (statement) |token| {
+        if (token.tag == tag) return true;
+    }
+    return false;
 }
 
 fn importPathEndsWithZig(import_path: []const u8) bool {
@@ -279,9 +307,9 @@ fn helperValueTokens(effect_param: ?[]const u8, args: []const Token) ?[]const To
     return args;
 }
 
-fn parseDirectPayload(args: []const Token) ?ValueExpr {
-    if (args.len == 0) return null;
-    return parseSingleValueExpr(args);
+fn parseDirectPayload(args: []const Token) ?struct { payload: ?ValueExpr } {
+    if (args.len == 0) return .{ .payload = null };
+    return .{ .payload = parseSingleValueExpr(args) orelse return null };
 }
 
 fn parseDirectCall(effect_param: ?[]const u8, aliases: []const Alias, statement: []const Token) ?DirectCall {
@@ -315,10 +343,11 @@ fn parseDirectCall(effect_param: ?[]const u8, aliases: []const Alias, statement:
                 tokens[tokens.len - 1].tag == .r_paren and
                 (std.mem.eql(u8, tokens[index + 6].lexeme, "perform") or std.mem.eql(u8, tokens[index + 6].lexeme, "abort")))
             {
+                const payload = parseDirectPayload(tokens[index + 8 .. tokens.len - 1]) orelse return null;
                 return .{
                     .requirement_label = tokens[index + 2].lexeme,
                     .op_name = tokens[index + 4].lexeme,
-                    .payload = parseDirectPayload(tokens[index + 8 .. tokens.len - 1]),
+                    .payload = payload.payload,
                     .ignored_result = ignored_result,
                 };
             }
@@ -332,10 +361,11 @@ fn parseDirectCall(effect_param: ?[]const u8, aliases: []const Alias, statement:
             {
                 return null;
             }
+            const payload = parseDirectPayload(tokens[index + 6 .. tokens.len - 1]) orelse return null;
             return .{
                 .requirement_label = tokens[index + 2].lexeme,
                 .op_name = tokens[index + 4].lexeme,
-                .payload = parseDirectPayload(tokens[index + 6 .. tokens.len - 1]),
+                .payload = payload.payload,
                 .ignored_result = ignored_result,
             };
         },
@@ -349,10 +379,11 @@ fn parseDirectCall(effect_param: ?[]const u8, aliases: []const Alias, statement:
                 tokens[tokens.len - 1].tag == .r_paren and
                 (std.mem.eql(u8, tokens[index + 4].lexeme, "perform") or std.mem.eql(u8, tokens[index + 4].lexeme, "abort")))
             {
+                const payload = parseDirectPayload(tokens[index + 6 .. tokens.len - 1]) orelse return null;
                 return .{
                     .requirement_label = requirement_label,
                     .op_name = tokens[index + 2].lexeme,
-                    .payload = parseDirectPayload(tokens[index + 6 .. tokens.len - 1]),
+                    .payload = payload.payload,
                     .ignored_result = ignored_result,
                 };
             }
@@ -364,10 +395,11 @@ fn parseDirectCall(effect_param: ?[]const u8, aliases: []const Alias, statement:
             {
                 return null;
             }
+            const payload = parseDirectPayload(tokens[index + 4 .. tokens.len - 1]) orelse return null;
             return .{
                 .requirement_label = requirement_label,
                 .op_name = tokens[index + 2].lexeme,
-                .payload = parseDirectPayload(tokens[index + 4 .. tokens.len - 1]),
+                .payload = payload.payload,
                 .ignored_result = ignored_result,
             };
         },
@@ -481,6 +513,9 @@ fn parseReturnValue(effect_param: ?[]const u8, aliases: []const Alias, imports: 
 
     const tokens = statementTrimSemicolon(statement);
     if (tokens.len < 2 or tokens[0].tag != .keyword_return) return null;
+    for (tokens[1..]) |token| {
+        if (token.tag == .keyword_struct) return null;
+    }
     if (parseDirectCall(effect_param, aliases, tokens[1..])) |direct_call| {
         if (direct_call.payload != null and direct_call.ignored_result) return null;
         return .{ .direct_call = direct_call };
@@ -816,9 +851,135 @@ fn continuationStructTokens(args: []const Token, struct_start: usize) ?[]const T
     return null;
 }
 
-fn parseContinuationApplyReturn(struct_tokens: []const Token) ?struct {
+fn parseApplyReturnValue(effect_param: ?[]const u8, aliases: []const Alias, statement: []const Token) ?ReturnValue {
+    const return_value = parseReturnValue(effect_param, aliases, &.{}, statement) orelse return null;
+    return switch (return_value) {
+        .unit, .literal, .local, .direct_call => return_value,
+        else => null,
+    };
+}
+
+fn parseApplyParamNames(params: []const Token) ?struct {
+    resume_param_name: ?[]const u8,
+    effect_param_name: ?[]const u8,
+} {
+    var names: [2]?[]const u8 = .{ null, null };
+    var name_count: usize = 0;
+    var depth: usize = 0;
+    var param_start: usize = 0;
+
+    for (params, 0..) |token, index| {
+        switch (token.tag) {
+            .l_paren, .l_bracket => depth += 1,
+            .r_paren, .r_bracket => {
+                if (depth != 0) depth -= 1;
+            },
+            .comma => if (depth == 0) {
+                if (name_count >= names.len) return null;
+                applyParamName(params[param_start..index], name_count, &names);
+                name_count += 1;
+                param_start = index + 1;
+            },
+            else => {},
+        }
+    }
+
+    if (param_start < params.len) {
+        if (name_count >= names.len) return null;
+        applyParamName(params[param_start..], name_count, &names);
+        name_count += 1;
+    }
+
+    return .{
+        .resume_param_name = names[0],
+        .effect_param_name = names[1],
+    };
+}
+
+fn applyParamName(param_tokens: []const Token, param_index: usize, names: *[2]?[]const u8) void {
+    var name: ?[]const u8 = null;
+    var type_start: ?usize = null;
+    var depth: usize = 0;
+    for (param_tokens, 0..) |token, index| {
+        switch (token.tag) {
+            .l_paren, .l_bracket => depth += 1,
+            .r_paren, .r_bracket => {
+                if (depth != 0) depth -= 1;
+            },
+            .colon => if (depth == 0 and type_start == null) {
+                type_start = index + 1;
+            },
+            .identifier => if (depth == 0 and type_start == null and name == null) {
+                if (!std.mem.eql(u8, token.lexeme, "_")) name = token.lexeme;
+            },
+            else => {},
+        }
+    }
+    if (param_index == 0) {
+        names[0] = name;
+    } else if (param_index == 1 and applyParamTypeIsAnytype(param_tokens, type_start)) {
+        names[1] = name;
+    }
+}
+
+fn applyParamTypeIsAnytype(param_tokens: []const Token, type_start: ?usize) bool {
+    const start = type_start orelse return false;
+    return param_tokens[start..].len == 1 and param_tokens[start].tag == .keyword_anytype;
+}
+
+fn parseApplyBody(effect_param: ?[]const u8, body_tokens: []const Token) ?ApplyBody {
+    var ranges_buffer: [max_steps]StatementRange = undefined;
+    const statement_count = statementRanges(body_tokens, &ranges_buffer) orelse return null;
+    const statement_ranges = ranges_buffer[0..statement_count];
+    if (statement_ranges.len == 0) return null;
+
+    const apply_effect_param: ?[]const u8 = effect_param orelse no_apply_effect_param;
+    var apply_body: ApplyBody = .{ .step_count = 0, .steps = undefined };
+    var aliases: [max_aliases]Alias = undefined;
+    var alias_count: usize = 0;
+
+    for (statement_ranges, 0..) |range, index| {
+        const statement = body_tokens[range.start..range.end];
+        if (statement.len == 0) continue;
+        for (statement) |token| {
+            if (token.tag == .keyword_if or token.tag == .keyword_else) return null;
+        }
+        if (parseAliasDeclaration(apply_effect_param, aliases[0..alias_count], statement)) |alias| {
+            if (!upsertAlias(&aliases, &alias_count, alias.name, alias.kind)) return null;
+            continue;
+        }
+        if (parseRequirementAliasTouch(apply_effect_param, aliases[0..alias_count], statement)) continue;
+        if (apply_body.step_count >= apply_body.steps.len) return null;
+
+        if (parseBoundLocalFromDirectCall(apply_effect_param, aliases[0..alias_count], statement)) |bound_direct| {
+            apply_body.steps[apply_body.step_count] = .{ .bind_local_from_direct = .{
+                .local_name = bound_direct.local_name,
+                .direct_call = bound_direct.direct_call,
+            } };
+            apply_body.step_count += 1;
+            continue;
+        }
+        if (parseDirectCall(apply_effect_param, aliases[0..alias_count], statement)) |direct_call| {
+            apply_body.steps[apply_body.step_count] = .{ .call_direct = direct_call };
+            apply_body.step_count += 1;
+            continue;
+        }
+        if (parseApplyReturnValue(apply_effect_param, aliases[0..alias_count], statement)) |return_value| {
+            if (index + 1 != statement_ranges.len) return null;
+            apply_body.steps[apply_body.step_count] = .{ .return_value = return_value };
+            apply_body.step_count += 1;
+            continue;
+        }
+        return null;
+    }
+
+    if (apply_body.step_count == 0) return null;
+    return apply_body;
+}
+
+fn parseContinuationApplyBody(struct_tokens: []const Token) ?struct {
     param_name: ?[]const u8,
-    return_value: ReturnValue,
+    apply_body: ApplyBody,
 } {
     if (struct_tokens.len < 4) return null;
     if (struct_tokens[0].tag != .keyword_struct or struct_tokens[1].tag != .l_brace) return null;
@@ -840,25 +1001,18 @@ fn parseContinuationApplyReturn(struct_tokens: []const Token) ?struct {
         }
         if (fn_index + 2 >= struct_tokens.len or struct_tokens[fn_index + 2].tag != .l_paren) return null;
 
-        var param_name: ?[]const u8 = null;
-        var expect_param_name = true;
         var param_depth: usize = 1;
+        const params_start = fn_index + 3;
         var cursor = fn_index + 3;
         while (cursor < struct_tokens.len and param_depth != 0) : (cursor += 1) {
             if (struct_tokens[cursor].tag == .l_paren) {
                 param_depth += 1;
             } else if (struct_tokens[cursor].tag == .r_paren) {
                 param_depth -= 1;
-            } else if (struct_tokens[cursor].tag == .comma and param_depth == 1) {
-                expect_param_name = true;
-            } else if (struct_tokens[cursor].tag == .colon and param_depth == 1) {
-                expect_param_name = false;
-            } else if (struct_tokens[cursor].tag == .identifier and param_depth == 1 and expect_param_name and param_name == null) {
-                if (!std.mem.eql(u8, struct_tokens[cursor].lexeme, "_")) param_name = struct_tokens[cursor].lexeme;
-                expect_param_name = false;
             }
         }
         if (param_depth != 0 or cursor >= struct_tokens.len) return null;
+        const params = parseApplyParamNames(struct_tokens[params_start .. cursor - 1]) orelse return null;
 
         while (cursor < struct_tokens.len and struct_tokens[cursor].tag != .l_brace) : (cursor += 1) {}
         if (cursor >= struct_tokens.len) return null;
@@ -873,9 +1027,10 @@ fn parseContinuationApplyReturn(struct_tokens: []const Token) ?struct {
             }
         }
         if (body_depth != 0 or cursor == 0) return null;
+        const apply_body = parseApplyBody(params.effect_param_name, struct_tokens[body_start .. cursor - 1]) orelse return null;
         return .{
-            .param_name = param_name,
-            .return_value = parseReturnValue(null, &.{}, &.{}, struct_tokens[body_start .. cursor - 1]) orelse return null,
+            .param_name = params.resume_param_name,
+            .apply_body = apply_body,
         };
     }
     return null;
@@ -884,7 +1039,7 @@ fn parseContinuationApplyReturn(struct_tokens: []const Token) ?struct {
 fn parseReturnContinuationDirect(effect_param: ?[]const u8, aliases: []const Alias, statement: []const Token) ?struct {
     direct_call: DirectCall,
     apply_param_name: ?[]const u8,
-    apply_return: ReturnValue,
+    apply_body: ApplyBody,
 } {
     const tokens = statementTrimSemicolon(statement);
     if (tokens.len == 0 or tokens[0].tag != .keyword_return) return null;
@@ -969,16 +1124,17 @@ fn parseReturnContinuationDirect(effect_param: ?[]const u8, aliases: []const Ali
     const args = tokens[args_bounds.start .. tokens.len - 1];
     const struct_arg = continuationStructStart(args) orelse return null;
     const struct_tokens = continuationStructTokens(args, struct_arg.struct_start) orelse return null;
-    const apply = parseContinuationApplyReturn(struct_tokens) orelse return null;
+    const apply = parseContinuationApplyBody(struct_tokens) orelse return null;
+    const payload = parseDirectPayload(args[0..struct_arg.payload_end]) orelse return null;
     return .{
         .direct_call = .{
             .requirement_label = args_bounds.requirement_label,
             .op_name = args_bounds.op_name,
-            .payload = parseDirectPayload(args[0..struct_arg.payload_end]),
+            .payload = payload.payload,
             .ignored_result = false,
         },
         .apply_param_name = apply.param_name,
-        .apply_return = apply.return_value,
+        .apply_body = apply.apply_body,
     };
 }
 
@@ -1112,11 +1268,12 @@ pub fn parseFunctionBody(
             body.steps[body.step_count] = .{ .return_continuation_direct = .{
                 .direct_call = continuation_call.direct_call,
                 .apply_param_name = continuation_call.apply_param_name,
-                .apply_return = continuation_call.apply_return,
+                .apply_body = continuation_call.apply_body,
             } };
             body.step_count += 1;
             continue;
         }
+        if (statementHasToken(statement, .keyword_struct)) return null;
         if (parseLocalDecrementOp(effect_param, aliases[0..alias_count], statement)) |decrement_op| {
             body.steps[body.step_count] = .{ .decrement_local_direct = .{
                 .local_name = decrement_op.local_name,
@@ -1177,6 +1334,126 @@ test "parseFunctionBody normalizes continuation apply return" {
     const body = parseFunctionBody(source, "test/continuation.zig", body_start, body_end, "eff", &.{}) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(usize, 1), body.step_count);
     try std.testing.expect(body.steps[0] == .return_continuation_direct);
+}
+
+test "parseFunctionBody normalizes effectful continuation apply mini-body" {
+    const source =
+        \\pub fn run(eff: anytype) []const u8 {
+        \\    return try eff.approval.request("request-7", struct {
+        \\        fn apply(value: []const u8, resumed_eff: anytype) anyerror![]const u8 {
+        \\            _ = try resumed_eff.directory.exists("publish-7");
+        \\            return "published:approved";
+        \\        }
+        \\    });
+        \\}
+    ;
+    const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
+    const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
+    const body = parseFunctionBody(source, "test/effectful_continuation.zig", body_start, body_end, "eff", &.{}) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(usize, 1), body.step_count);
+    try std.testing.expect(body.steps[0] == .return_continuation_direct);
+    const continuation = body.steps[0].return_continuation_direct;
+    try std.testing.expectEqualStrings("value", continuation.apply_param_name.?);
+    try std.testing.expectEqual(@as(usize, 2), continuation.apply_body.step_count);
+    try std.testing.expect(continuation.apply_body.steps[0] == .call_direct);
+    try std.testing.expect(continuation.apply_body.steps[1] == .return_value);
+}
+
+test "parseFunctionBody rejects branch-in-apply continuation bodies" {
+    const source =
+        \\pub fn run(eff: anytype) []const u8 {
+        \\    return try eff.approval.request("request-7", struct {
+        \\        fn apply(value: []const u8, resumed_eff: anytype) anyerror![]const u8 {
+        \\            if (value == 0) return "denied";
+        \\            return "published:approved";
+        \\        }
+        \\    });
+        \\}
+    ;
+    const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
+    const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
+    try std.testing.expect(parseFunctionBody(source, "test/branch_in_apply.zig", body_start, body_end, "eff", &.{}) == null);
+}
+
+test "parseFunctionBody normalizes direct effects inside continuation apply" {
+    const source =
+        \\pub fn run(eff: anytype) bool {
+        \\    return try eff.approval.request("request-7", struct {
+        \\        fn apply(_: []const u8, eff_after_resume: anytype) bool {
+        \\            const found = try eff_after_resume.directory.exists("request-7-after");
+        \\            return found;
+        \\        }
+        \\    });
+        \\}
+    ;
+    const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
+    const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
+    const body = parseFunctionBody(source, "test/continuation_effectful.zig", body_start, body_end, "eff", &.{}) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(usize, 1), body.step_count);
+    try std.testing.expect(body.steps[0] == .return_continuation_direct);
+    const apply_body = body.steps[0].return_continuation_direct.apply_body;
+    try std.testing.expectEqual(@as(usize, 2), apply_body.step_count);
+    try std.testing.expect(apply_body.steps[0] == .bind_local_from_direct);
+    try std.testing.expect(apply_body.steps[1] == .return_value);
+}
+
+test "parseFunctionBody rejects unsupported negative payload literals" {
+    const source =
+        \\pub fn run(eff: anytype) anyerror!i32 {
+        \\    try eff.state.set(-1);
+        \\    return try eff.state.get();
+        \\}
+    ;
+    const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
+    const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
+    try std.testing.expect(parseFunctionBody(source, "test/negative_payload_literal.zig", body_start, body_end, "eff", &.{}) == null);
+}
+
+test "parseFunctionBody rejects apply direct effects without an explicit effect parameter" {
+    const source =
+        \\pub fn run(eff: anytype) bool {
+        \\    return try eff.approval.request("request-7", struct {
+        \\        fn apply(eff: []const u8) bool {
+        \\            _ = try eff.directory.exists("request-7-after");
+        \\            return true;
+        \\        }
+        \\    });
+        \\}
+    ;
+    const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
+    const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
+    try std.testing.expect(parseFunctionBody(source, "test/continuation_missing_apply_effect.zig", body_start, body_end, "eff", &.{}) == null);
+}
+
+test "parseFunctionBody rejects apply direct effects through non-anytype second parameter" {
+    const source =
+        \\pub fn run(eff: anytype) bool {
+        \\    return try eff.approval.request("request-7", struct {
+        \\        fn apply(_: []const u8, label: []const u8) bool {
+        \\            _ = try label.directory.exists("request-7-after");
+        \\            return true;
+        \\        }
+        \\    });
+        \\}
+    ;
+    const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
+    const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
+    try std.testing.expect(parseFunctionBody(source, "test/continuation_non_anytype_apply_effect.zig", body_start, body_end, "eff", &.{}) == null);
+}
+
+test "parseFunctionBody rejects branches inside continuation apply" {
+    const source =
+        \\pub fn run(eff: anytype) []const u8 {
+        \\    return try eff.approval.request("request-7", struct {
+        \\        fn apply(value: []const u8, _: anytype) []const u8 {
+        \\            if (value == 0) return "no";
+        \\        }
+        \\    });
+        \\}
+    ;
+    const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
+    const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
+    try std.testing.expect(parseFunctionBody(source, "test/continuation_branch.zig", body_start, body_end, "eff", &.{}) == null);
 }
 
 test "parseFunctionBody admits nested with only for named carrier and empty handler initializer" {
