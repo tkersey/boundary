@@ -2556,7 +2556,7 @@ test "shared engine admits forwarded synthetic ability import alias for nested w
     try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
 }
 
-test "shared engine keeps negative payload literals in the lowering subset" {
+test "shared engine rejects negative payload literals from the lowering subset" {
     const graph = try analyzeComptime(
         \\pub fn runBody(eff: anytype) anyerror!i32 {
         \\    try eff.state.set(-1);
@@ -2571,7 +2571,7 @@ test "shared engine keeps negative payload literals in the lowering subset" {
     );
 
     try std.testing.expectEqual(@as(usize, 2), graph.direct_op_uses.len);
-    try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
+    try std.testing.expect(!graph.functions[graph.entry_index.?].body_lowering_supported);
     try std.testing.expectEqualStrings("state", graph.direct_op_uses[0].requirement_label);
     try std.testing.expectEqualStrings("set", graph.direct_op_uses[0].op_name);
 }

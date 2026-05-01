@@ -307,9 +307,9 @@ fn helperValueTokens(effect_param: ?[]const u8, args: []const Token) ?[]const To
     return args;
 }
 
-fn parseDirectPayload(args: []const Token) ?ValueExpr {
-    if (args.len == 0) return null;
-    return parseSingleValueExpr(args);
+fn parseDirectPayload(args: []const Token) ?struct { payload: ?ValueExpr } {
+    if (args.len == 0) return .{ .payload = null };
+    return .{ .payload = parseSingleValueExpr(args) orelse return null };
 }
 
 fn parseDirectCall(effect_param: ?[]const u8, aliases: []const Alias, statement: []const Token) ?DirectCall {
@@ -343,10 +343,11 @@ fn parseDirectCall(effect_param: ?[]const u8, aliases: []const Alias, statement:
                 tokens[tokens.len - 1].tag == .r_paren and
                 (std.mem.eql(u8, tokens[index + 6].lexeme, "perform") or std.mem.eql(u8, tokens[index + 6].lexeme, "abort")))
             {
+                const payload = parseDirectPayload(tokens[index + 8 .. tokens.len - 1]) orelse return null;
                 return .{
                     .requirement_label = tokens[index + 2].lexeme,
                     .op_name = tokens[index + 4].lexeme,
-                    .payload = parseDirectPayload(tokens[index + 8 .. tokens.len - 1]),
+                    .payload = payload.payload,
                     .ignored_result = ignored_result,
                 };
             }
@@ -360,10 +361,11 @@ fn parseDirectCall(effect_param: ?[]const u8, aliases: []const Alias, statement:
             {
                 return null;
             }
+            const payload = parseDirectPayload(tokens[index + 6 .. tokens.len - 1]) orelse return null;
             return .{
                 .requirement_label = tokens[index + 2].lexeme,
                 .op_name = tokens[index + 4].lexeme,
-                .payload = parseDirectPayload(tokens[index + 6 .. tokens.len - 1]),
+                .payload = payload.payload,
                 .ignored_result = ignored_result,
             };
         },
@@ -377,10 +379,11 @@ fn parseDirectCall(effect_param: ?[]const u8, aliases: []const Alias, statement:
                 tokens[tokens.len - 1].tag == .r_paren and
                 (std.mem.eql(u8, tokens[index + 4].lexeme, "perform") or std.mem.eql(u8, tokens[index + 4].lexeme, "abort")))
             {
+                const payload = parseDirectPayload(tokens[index + 6 .. tokens.len - 1]) orelse return null;
                 return .{
                     .requirement_label = requirement_label,
                     .op_name = tokens[index + 2].lexeme,
-                    .payload = parseDirectPayload(tokens[index + 6 .. tokens.len - 1]),
+                    .payload = payload.payload,
                     .ignored_result = ignored_result,
                 };
             }
@@ -392,10 +395,11 @@ fn parseDirectCall(effect_param: ?[]const u8, aliases: []const Alias, statement:
             {
                 return null;
             }
+            const payload = parseDirectPayload(tokens[index + 4 .. tokens.len - 1]) orelse return null;
             return .{
                 .requirement_label = requirement_label,
                 .op_name = tokens[index + 2].lexeme,
-                .payload = parseDirectPayload(tokens[index + 4 .. tokens.len - 1]),
+                .payload = payload.payload,
                 .ignored_result = ignored_result,
             };
         },
@@ -1089,11 +1093,12 @@ fn parseReturnContinuationDirect(effect_param: ?[]const u8, aliases: []const Ali
     const struct_arg = continuationStructStart(args) orelse return null;
     const struct_tokens = continuationStructTokens(args, struct_arg.struct_start) orelse return null;
     const apply = parseContinuationApplyBody(struct_tokens) orelse return null;
+    const payload = parseDirectPayload(args[0..struct_arg.payload_end]) orelse return null;
     return .{
         .direct_call = .{
             .requirement_label = args_bounds.requirement_label,
             .op_name = args_bounds.op_name,
-            .payload = parseDirectPayload(args[0..struct_arg.payload_end]),
+            .payload = payload.payload,
             .ignored_result = false,
         },
         .apply_param_name = apply.param_name,
@@ -1358,6 +1363,18 @@ test "parseFunctionBody normalizes direct effects inside continuation apply" {
     try std.testing.expectEqual(@as(usize, 2), apply_body.step_count);
     try std.testing.expect(apply_body.steps[0] == .bind_local_from_direct);
     try std.testing.expect(apply_body.steps[1] == .return_value);
+}
+
+test "parseFunctionBody rejects unsupported negative payload literals" {
+    const source =
+        \\pub fn run(eff: anytype) anyerror!i32 {
+        \\    try eff.state.set(-1);
+        \\    return try eff.state.get();
+        \\}
+    ;
+    const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
+    const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
+    try std.testing.expect(parseFunctionBody(source, "test/negative_payload_literal.zig", body_start, body_end, "eff", &.{}) == null);
 }
 
 test "parseFunctionBody rejects apply direct effects without an explicit effect parameter" {
