@@ -18,6 +18,8 @@ pub const OpPlan = inner.OpPlan;
 pub const OutputPlan = inner.OutputPlan;
 /// Re-exported program plan.
 pub const ProgramPlan = inner.ProgramPlan;
+/// Re-exported internal program-plan construction kernel.
+pub const program_plan_builder = inner.program_plan_builder;
 /// Re-exported requirement descriptor.
 pub const RequirementPlan = inner.RequirementPlan;
 /// Re-exported terminator descriptor.

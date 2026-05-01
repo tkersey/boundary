@@ -534,6 +534,165 @@ pub const ProgramPlan = struct {
     }
 };
 
+/// Internal construction kernel for compiler-produced runtime plans.
+///
+/// The serialized ProgramPlan stays intentionally plain. Generated lowering code
+/// uses these refs while assembling instructions so local/op ownership mistakes
+/// fail before the final wire-shaped plan escapes.
+pub const program_plan_builder = struct {
+    /// Opaque function handle used while assembling generated plans.
+    pub const FunctionRef = struct {
+        index: u16,
+    };
+
+    /// Function-owned local handle.
+    pub const LocalRef = struct {
+        function: FunctionRef,
+        index: u16,
+    };
+
+    /// Function-owned op target handle.
+    pub const OpRef = struct {
+        function: FunctionRef,
+        index: u16,
+    };
+
+    /// Final materialization payload for a wire-shaped ProgramPlan.
+    pub const FinishSpec = struct {
+        schema_version: u32 = ProgramPlan.current_schema_version,
+        label: []const u8,
+        ir_hash: u64,
+        entry: FunctionRef,
+        functions: []const FunctionPlan,
+        requirements: []const RequirementPlan,
+        ops: []const OpPlan,
+        outputs: []const OutputPlan,
+        locals: []const LocalPlan = &.{},
+        call_args: []const u16 = &.{},
+        blocks: []const BlockPlan = &.{},
+        terminators: []const Terminator = &.{},
+        instructions: []const Instruction,
+    };
+
+    /// Create a function handle from the generated function table ordinal.
+    pub fn function(index: u16) FunctionRef {
+        return .{ .index = index };
+    }
+
+    /// Create a local handle scoped to one function.
+    pub fn local(function_ref: FunctionRef, index: u16) LocalRef {
+        return .{ .function = function_ref, .index = index };
+    }
+
+    /// Create an op handle scoped to one function.
+    pub fn op(function_ref: FunctionRef, index: u16) OpRef {
+        return .{ .function = function_ref, .index = index };
+    }
+
+    /// Build a helper call whose destination is owned by the caller.
+    pub fn callHelper(
+        caller: FunctionRef,
+        dst: ?LocalRef,
+        callee: FunctionRef,
+        call_arg_base: ?u16,
+    ) ValidationError!Instruction {
+        if (dst) |local_ref| try expectLocalOwnedBy(caller, local_ref);
+        return .{
+            .kind = .call_helper,
+            .dst = if (dst) |local_ref| local_ref.index else std.math.maxInt(u16),
+            .operand = callee.index,
+            .aux = call_arg_base orelse std.math.maxInt(u16),
+        };
+    }
+
+    /// Build a helper call whose destination is semantically ignored.
+    pub fn callHelperDiscardingResult(
+        caller: FunctionRef,
+        dst_index: u16,
+        callee: FunctionRef,
+        call_arg_base: ?u16,
+    ) Instruction {
+        _ = caller;
+        return .{
+            .kind = .call_helper,
+            .dst = dst_index,
+            .operand = callee.index,
+            .aux = call_arg_base orelse std.math.maxInt(u16),
+        };
+    }
+
+    /// Build an effect op call whose op and local refs are owned by the caller.
+    pub fn callOp(
+        caller: FunctionRef,
+        dst: ?LocalRef,
+        op_ref: OpRef,
+        payload: ?LocalRef,
+    ) ValidationError!Instruction {
+        if (caller.index != op_ref.function.index) return error.InvalidCallOpTarget;
+        if (dst) |local_ref| try expectLocalOwnedBy(caller, local_ref);
+        if (payload) |local_ref| try expectLocalOwnedBy(caller, local_ref);
+        return .{
+            .kind = .call_op,
+            .dst = if (dst) |local_ref| local_ref.index else std.math.maxInt(u16),
+            .operand = op_ref.index,
+            .aux = if (payload) |local_ref| local_ref.index else std.math.maxInt(u16),
+        };
+    }
+
+    /// Build a return-value instruction from a caller-owned local.
+    pub fn returnValue(caller: FunctionRef, local_ref: LocalRef) ValidationError!Instruction {
+        try expectLocalOwnedBy(caller, local_ref);
+        return .{
+            .kind = .return_value,
+            .operand = local_ref.index,
+        };
+    }
+
+    /// Materialize and validate the final ProgramPlan.
+    pub fn finish(spec: FinishSpec) ValidationError!ProgramPlan {
+        const plan: ProgramPlan = .{
+            .schema_version = spec.schema_version,
+            .label = spec.label,
+            .ir_hash = spec.ir_hash,
+            .entry_index = spec.entry.index,
+            .functions = spec.functions,
+            .requirements = spec.requirements,
+            .ops = spec.ops,
+            .outputs = spec.outputs,
+            .locals = spec.locals,
+            .call_args = spec.call_args,
+            .blocks = spec.blocks,
+            .terminators = spec.terminators,
+            .instructions = spec.instructions,
+        };
+        try plan.validate();
+        return plan;
+    }
+
+    /// Route an existing hand-written positive fixture through builder validation.
+    pub fn fromValidatedPlan(plan: ProgramPlan) ValidationError!ProgramPlan {
+        return finish(.{
+            .schema_version = plan.schema_version,
+            .label = plan.label,
+            .ir_hash = plan.ir_hash,
+            .entry = function(plan.entry_index),
+            .functions = plan.functions,
+            .requirements = plan.requirements,
+            .ops = plan.ops,
+            .outputs = plan.outputs,
+            .locals = plan.locals,
+            .call_args = plan.call_args,
+            .blocks = plan.blocks,
+            .terminators = plan.terminators,
+            .instructions = plan.instructions,
+        });
+    }
+
+    fn expectLocalOwnedBy(function_ref: FunctionRef, local_ref: LocalRef) ValidationError!void {
+        if (function_ref.index != local_ref.function.index) return error.InvalidInstructionLocalIndex;
+    }
+};
+
 /// Error set for runtime-plan codec lowering.
 pub const CodecError = error{UnsupportedCodecType};
 /// Error set for runtime-plan structural validation.
@@ -639,34 +798,36 @@ pub fn authoredBoundPlan(
             },
         },
     };
-    const resume_local: u16 = if (payload_codec == .unit) 0 else 1;
-    const payload_local: u16 = if (payload_codec == .unit) std.math.maxInt(u16) else 0;
+    const entry_function = program_plan_builder.function(0);
+    const payload_local: ?program_plan_builder.LocalRef = if (payload_codec == .unit) null else program_plan_builder.local(entry_function, 0);
+    const resume_local: ?program_plan_builder.LocalRef = if (resume_codec == .unit) null else program_plan_builder.local(entry_function, if (payload_codec == .unit) 0 else 1);
     const instructions = comptime switch (control_mode) {
-        .abort => [1]Instruction{.{
-            .kind = .call_op,
-            .dst = std.math.maxInt(u16),
-            .operand = 0,
-            .aux = payload_local,
-        }},
+        .abort => [1]Instruction{
+            program_plan_builder.callOp(
+                entry_function,
+                null,
+                program_plan_builder.op(entry_function, 0),
+                payload_local,
+            ) catch |err| invalidGeneratedPlan(err),
+        },
         .transform, .choice => if (resume_codec == .unit) blk: {
-            break :blk [1]Instruction{.{
-                .kind = .call_op,
-                .dst = std.math.maxInt(u16),
-                .operand = 0,
-                .aux = payload_local,
-            }};
+            break :blk [1]Instruction{
+                program_plan_builder.callOp(
+                    entry_function,
+                    null,
+                    program_plan_builder.op(entry_function, 0),
+                    payload_local,
+                ) catch |err| invalidGeneratedPlan(err),
+            };
         } else blk: {
             break :blk [2]Instruction{
-                .{
-                    .kind = .call_op,
-                    .dst = resume_local,
-                    .operand = 0,
-                    .aux = payload_local,
-                },
-                .{
-                    .kind = .return_value,
-                    .operand = resume_local,
-                },
+                program_plan_builder.callOp(
+                    entry_function,
+                    resume_local,
+                    program_plan_builder.op(entry_function, 0),
+                    payload_local,
+                ) catch |err| invalidGeneratedPlan(err),
+                program_plan_builder.returnValue(entry_function, resume_local.?) catch |err| invalidGeneratedPlan(err),
             };
         },
     };
@@ -715,10 +876,10 @@ pub fn authoredBoundPlan(
         .terminator_index = 0,
     }};
     const terminators = [_]Terminator{.{ .kind = terminator_kind }};
-    const plan: ProgramPlan = .{
+    const plan = program_plan_builder.finish(.{
         .label = label,
         .ir_hash = hashAuthoredBoundPlan(label, payload_codec, resume_codec, result_codec, control_mode),
-        .entry_index = 0,
+        .entry = entry_function,
         .functions = &functions,
         .requirements = &requirements,
         .ops = &ops,
@@ -728,8 +889,7 @@ pub fn authoredBoundPlan(
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,
-    };
-    plan.validate() catch return null;
+    }) catch return null;
     return plan;
 }
 
@@ -1888,42 +2048,45 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         var instruction_index: usize = 0;
         var call_arg_base: u16 = 0;
         for (program.functions, 0..) |function, function_index| {
+            const caller_ref = program_plan_builder.function(@intCast(function_index));
             const synthesis = try rowOnlyFunctionSynthesis(program, function_index);
             instruction_edge_scan: for (program.call_edges) |edge| {
                 if (!edge.caller.eql(function.symbol)) continue :instruction_edge_scan;
                 const callee_index = symbolIndex(program, edge.callee) orelse return error.UnknownSymbol;
                 const callee = program.functions[callee_index];
-                buf[instruction_index] = .{
-                    .kind = .call_helper,
-                    .dst = if (callee.ValueType == void)
-                        0
-                    else
-                        synthesis.value_result_local orelse return error.InvalidProgramBodyShape,
-                    .operand = callee_index,
-                    .aux = call_arg_base,
-                    .string_literal = "",
-                };
+                if (callee.ValueType == void) {
+                    buf[instruction_index] = program_plan_builder.callHelperDiscardingResult(
+                        caller_ref,
+                        0,
+                        program_plan_builder.function(@intCast(callee_index)),
+                        call_arg_base,
+                    );
+                } else {
+                    buf[instruction_index] = program_plan_builder.callHelper(
+                        caller_ref,
+                        program_plan_builder.local(caller_ref, synthesis.value_result_local orelse return error.InvalidProgramBodyShape),
+                        program_plan_builder.function(@intCast(callee_index)),
+                        call_arg_base,
+                    ) catch |err| invalidGeneratedPlan(err);
+                }
                 instruction_index += 1;
                 call_arg_base += @intCast(callee.parameter_codecs.len);
             }
             if (synthesis.return_local) |return_local| {
-                buf[instruction_index] = .{
-                    .kind = .return_value,
-                    .dst = 0,
-                    .operand = return_local,
-                    .aux = 0,
-                    .string_literal = "",
-                };
+                buf[instruction_index] = program_plan_builder.returnValue(
+                    caller_ref,
+                    program_plan_builder.local(caller_ref, return_local),
+                ) catch |err| invalidGeneratedPlan(err);
                 instruction_index += 1;
             }
         }
         break :blk buf;
     };
 
-    const plan: ProgramPlan = .{
+    const plan = program_plan_builder.finish(.{
         .label = label,
         .ir_hash = ir_hash,
-        .entry_index = program.entry_index,
+        .entry = program_plan_builder.function(@intCast(program.entry_index)),
         .functions = &functions,
         .requirements = &requirements,
         .ops = &ops,
@@ -1933,10 +2096,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,
-    };
-    if (plan.validate()) {
-        // The generated payload is internally consistent.
-    } else |err| invalidGeneratedPlan(err);
+    }) catch |err| invalidGeneratedPlan(err);
     return plan;
 }
 
@@ -2301,7 +2461,8 @@ pub fn planFromOpenRowProgram(
         var buf: [instruction_total]Instruction = undefined;
         var instruction_index: usize = 0;
         var call_arg_base: u16 = 0;
-        for (program.function_bodies) |body| {
+        for (program.function_bodies, 0..) |body, function_index| {
+            const caller_ref = program_plan_builder.function(@intCast(function_index));
             for (body.blocks) |block| {
                 for (block.instructions) |instruction| {
                     if (instruction.kind == .call_helper and instruction.operand >= program.functions.len) {
@@ -2313,20 +2474,40 @@ pub fn planFromOpenRowProgram(
                         0;
                     const target_returns_value = instruction.kind == .call_helper and
                         program.functions[instruction.operand].ValueType != void;
-                    buf[instruction_index] = .{
-                        .kind = instructionKindFromEffectIrBody(instruction.kind),
-                        .dst = if (instruction.kind == .call_helper and !target_returns_value)
-                            std.math.maxInt(u16)
-                        else
-                            instruction.dst,
-                        .operand = instruction.operand,
-                        .aux = if (instruction.kind != .call_helper)
-                            instruction.aux
-                        else if (target_parameter_count == 0)
-                            std.math.maxInt(u16)
-                        else
-                            call_arg_base + instruction.aux,
-                        .string_literal = instruction.string_literal,
+                    buf[instruction_index] = switch (instruction.kind) {
+                        .call_helper => helper_call: {
+                            if (target_returns_value) {
+                                break :helper_call program_plan_builder.callHelper(
+                                    caller_ref,
+                                    program_plan_builder.local(caller_ref, instruction.dst),
+                                    program_plan_builder.function(instruction.operand),
+                                    if (target_parameter_count == 0) null else call_arg_base + instruction.aux,
+                                ) catch |err| invalidGeneratedPlan(err);
+                            }
+                            break :helper_call program_plan_builder.callHelperDiscardingResult(
+                                caller_ref,
+                                std.math.maxInt(u16),
+                                program_plan_builder.function(instruction.operand),
+                                if (target_parameter_count == 0) null else call_arg_base + instruction.aux,
+                            );
+                        },
+                        .call_op => program_plan_builder.callOp(
+                            caller_ref,
+                            program_plan_builder.local(caller_ref, instruction.dst),
+                            program_plan_builder.op(caller_ref, instruction.operand),
+                            if (instruction.aux == std.math.maxInt(u16)) null else program_plan_builder.local(caller_ref, instruction.aux),
+                        ) catch |err| invalidGeneratedPlan(err),
+                        .return_value => program_plan_builder.returnValue(
+                            caller_ref,
+                            program_plan_builder.local(caller_ref, instruction.operand),
+                        ) catch |err| invalidGeneratedPlan(err),
+                        .add_const_i32, .add_i32, .call_nested_with, .compare_eq_zero, .const_i32, .const_string, .const_usize, .return_error, .sub_one => .{
+                            .kind = instructionKindFromEffectIrBody(instruction.kind),
+                            .dst = instruction.dst,
+                            .operand = instruction.operand,
+                            .aux = instruction.aux,
+                            .string_literal = instruction.string_literal,
+                        },
                     };
                     instruction_index += 1;
                 }
@@ -2336,10 +2517,10 @@ pub fn planFromOpenRowProgram(
         break :blk buf;
     };
 
-    const plan: ProgramPlan = .{
+    const plan = program_plan_builder.finish(.{
         .label = label,
         .ir_hash = ir_hash,
-        .entry_index = @intCast(program.entry_index),
+        .entry = program_plan_builder.function(@intCast(program.entry_index)),
         .functions = &functions,
         .requirements = &requirements,
         .ops = &ops,
@@ -2349,10 +2530,7 @@ pub fn planFromOpenRowProgram(
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,
-    };
-    if (plan.validate()) {
-        // The generated payload is internally consistent.
-    } else |err| invalidGeneratedPlan(err);
+    }) catch |err| invalidGeneratedPlan(err);
     return plan;
 }
 
@@ -2365,6 +2543,24 @@ test "codecForType covers the retained public scalar and string shapes" {
     try std.testing.expectEqual(ValueCodec.string_list, try codecForType([][]const u8));
     try std.testing.expect(!hasPayload(.unit));
     try std.testing.expect(hasPayload(.string));
+}
+
+test "program_plan_builder rejects cross-function refs before materializing a plan" {
+    const root = program_plan_builder.function(0);
+    const helper = program_plan_builder.function(1);
+
+    try std.testing.expectError(
+        error.InvalidInstructionLocalIndex,
+        program_plan_builder.returnValue(root, program_plan_builder.local(helper, 0)),
+    );
+    try std.testing.expectError(
+        error.InvalidInstructionLocalIndex,
+        program_plan_builder.callHelper(root, program_plan_builder.local(helper, 0), helper, null),
+    );
+    try std.testing.expectError(
+        error.InvalidCallOpTarget,
+        program_plan_builder.callOp(root, null, program_plan_builder.op(helper, 0), null),
+    );
 }
 
 test "planFromProgram lowers one simple state-writer IR shell into a runtime-owned plan" {
@@ -2793,6 +2989,40 @@ test "upgradeLegacyProgramPlan preserves schema-1 function metadata when present
     try std.testing.expectEqual(@as(usize, 2), plan.blocks.len);
     try std.testing.expectEqual(TerminatorKind.return_value, plan.terminators[1].kind);
     try plan.validate();
+}
+
+test "program_plan_builder.fromValidatedPlan preserves schema validation boundary" {
+    const plan = ProgramPlan{
+        .schema_version = 1,
+        .label = "legacy.builder.validation",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    try std.testing.expectError(error.UnsupportedSchemaVersion, program_plan_builder.fromValidatedPlan(plan));
 }
 
 test "ProgramPlan.validate rejects call_op payload locals outside the owning function locals" {
@@ -3361,7 +3591,7 @@ test "ProgramPlan.validate rejects functions whose instruction span is not attac
 }
 
 test "ProgramPlan.validate accepts hexadecimal const_usize literals" {
-    const plan = ProgramPlan{
+    const plan = try program_plan_builder.fromValidatedPlan(.{
         .label = "valid.const_usize_hex",
         .ir_hash = 1,
         .entry_index = 0,
@@ -3402,7 +3632,7 @@ test "ProgramPlan.validate accepts hexadecimal const_usize literals" {
                 .operand = 0,
             },
         },
-    };
+    });
 
     try plan.validate();
 }

@@ -426,7 +426,7 @@ test "ProgramPlan.validate rejects call_nested_with metadata without named carri
     };
     try std.testing.expectError(error.InvalidNestedWithMetadata, stale_metadata_plan.validate());
 
-    const named_metadata_plan = internal_program_plan.ProgramPlan{
+    const named_metadata_plan = try internal_program_plan.program_plan_builder.fromValidatedPlan(.{
         .label = "valid.call_nested_with_named_carrier_metadata",
         .ir_hash = 1,
         .entry_index = 0,
@@ -443,7 +443,7 @@ test "ProgramPlan.validate rejects call_nested_with metadata without named carri
             .aux = @intFromEnum(internal_program_plan.ValueCodec.unit),
             .string_literal = "nested\x1fruntime\x1fptr\x1ffactory\x1fcontainer\x1fhandler\x1fcarrier\x1fsrc.zig\x1fbody",
         }},
-    };
+    });
     try named_metadata_plan.validate();
 }
 
@@ -847,7 +847,7 @@ test "ProgramPlan.validate rejects helper calls whose mismatched callee codec ca
 }
 
 test "ProgramPlan.validate accepts helper terminal escapes when result codecs match" {
-    const plan = internal_program_plan.ProgramPlan{
+    const plan = try internal_program_plan.program_plan_builder.fromValidatedPlan(.{
         .label = "valid.helper_terminal_result_codec_match",
         .ir_hash = 1,
         .entry_index = 0,
@@ -925,13 +925,13 @@ test "ProgramPlan.validate accepts helper terminal escapes when result codecs ma
                 .aux = std.math.maxInt(u16),
             },
         },
-    };
+    });
 
     try plan.validate();
 }
 
 test "ProgramPlan.validate accepts value-returning helpers that abort through a helper call" {
-    const plan = internal_program_plan.ProgramPlan{
+    const plan = try internal_program_plan.program_plan_builder.fromValidatedPlan(.{
         .label = "valid.helper_terminal_abort_only_helper",
         .ir_hash = 5,
         .entry_index = 0,
@@ -1035,13 +1035,13 @@ test "ProgramPlan.validate accepts value-returning helpers that abort through a 
                 .aux = std.math.maxInt(u16),
             },
         },
-    };
+    });
 
     try plan.validate();
 }
 
 test "ProgramPlan.validate accepts helper value destinations typed by helper result codecs" {
-    const plan = internal_program_plan.ProgramPlan{
+    const plan = try internal_program_plan.program_plan_builder.fromValidatedPlan(.{
         .label = "valid.helper_value_result_codec_match",
         .ir_hash = 2,
         .entry_index = 0,
@@ -1125,13 +1125,13 @@ test "ProgramPlan.validate accepts helper value destinations typed by helper res
                 .aux = std.math.maxInt(u16),
             },
         },
-    };
+    });
 
     try plan.validate();
 }
 
 test "ProgramPlan.validate accepts non-unit helper destinations typed by after result codecs" {
-    const plan = internal_program_plan.ProgramPlan{
+    const plan = comptime internal_program_plan.program_plan_builder.fromValidatedPlan(.{
         .label = "valid.helper_non_unit_after_result_codec_match",
         .ir_hash = 4,
         .entry_index = 0,
@@ -1223,7 +1223,7 @@ test "ProgramPlan.validate accepts non-unit helper destinations typed by after r
                 .operand = 0,
             },
         },
-    };
+    }) catch |err| @compileError(@errorName(err));
 
     try plan.validate();
 
@@ -1558,7 +1558,7 @@ test "planFromProgram propagates terminal result codecs for value-returning help
 }
 
 test "compiled ProgramPlan dispatch preserves outer handler structs with handler data fields" {
-    const compiled_plan = internal_program_plan.ProgramPlan{
+    const compiled_plan = comptime internal_program_plan.program_plan_builder.fromValidatedPlan(.{
         .label = "regression.outer_handler_field_name_collision",
         .ir_hash = 3,
         .entry_index = 0,
@@ -1608,7 +1608,7 @@ test "compiled ProgramPlan dispatch preserves outer handler structs with handler
                 .operand = 0,
             },
         },
-    };
+    }) catch |err| @compileError(@errorName(err));
 
     try compiled_plan.validate();
 
@@ -1632,7 +1632,7 @@ test "compiled ProgramPlan dispatch preserves outer handler structs with handler
 }
 
 test "ProgramPlan.validate ignores unreachable helper terminal-only paths when checking helper codec escape" {
-    const plan = internal_program_plan.ProgramPlan{
+    const plan = try internal_program_plan.program_plan_builder.fromValidatedPlan(.{
         .label = "valid.helper_unreachable_terminal_codec_escape",
         .ir_hash = 1,
         .entry_index = 0,
@@ -1727,13 +1727,13 @@ test "ProgramPlan.validate ignores unreachable helper terminal-only paths when c
                 .operand = 0,
             },
         },
-    };
+    });
 
     try plan.validate();
 }
 
 test "ProgramPlan.validate ignores structurally reachable dead return blocks after abort-only helpers" {
-    const plan = internal_program_plan.ProgramPlan{
+    const plan = try internal_program_plan.program_plan_builder.fromValidatedPlan(.{
         .label = "valid.helper_abort_only_dead_return_block",
         .ir_hash = 4,
         .entry_index = 0,
@@ -1822,7 +1822,7 @@ test "ProgramPlan.validate ignores structurally reachable dead return blocks aft
                 .operand = 0,
             },
         },
-    };
+    });
 
     try plan.validate();
 }
