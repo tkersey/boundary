@@ -559,6 +559,7 @@ pub const program_plan_builder = struct {
 
     /// Final materialization payload for a wire-shaped ProgramPlan.
     pub const FinishSpec = struct {
+        schema_version: u32 = ProgramPlan.current_schema_version,
         label: []const u8,
         ir_hash: u64,
         entry: FunctionRef,
@@ -650,6 +651,7 @@ pub const program_plan_builder = struct {
     /// Materialize and validate the final ProgramPlan.
     pub fn finish(spec: FinishSpec) ValidationError!ProgramPlan {
         const plan: ProgramPlan = .{
+            .schema_version = spec.schema_version,
             .label = spec.label,
             .ir_hash = spec.ir_hash,
             .entry_index = spec.entry.index,
@@ -670,6 +672,7 @@ pub const program_plan_builder = struct {
     /// Route an existing hand-written positive fixture through builder validation.
     pub fn fromValidatedPlan(plan: ProgramPlan) ValidationError!ProgramPlan {
         return finish(.{
+            .schema_version = plan.schema_version,
             .label = plan.label,
             .ir_hash = plan.ir_hash,
             .entry = function(plan.entry_index),
@@ -2954,6 +2957,40 @@ test "upgradeLegacyProgramPlan preserves schema-1 function metadata when present
     try std.testing.expectEqual(@as(usize, 2), plan.blocks.len);
     try std.testing.expectEqual(TerminatorKind.return_value, plan.terminators[1].kind);
     try plan.validate();
+}
+
+test "program_plan_builder.fromValidatedPlan preserves schema validation boundary" {
+    const plan = ProgramPlan{
+        .schema_version = 1,
+        .label = "legacy.builder.validation",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    try std.testing.expectError(error.UnsupportedSchemaVersion, program_plan_builder.fromValidatedPlan(plan));
 }
 
 test "ProgramPlan.validate rejects call_op payload locals outside the owning function locals" {
