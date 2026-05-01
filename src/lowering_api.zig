@@ -3186,6 +3186,88 @@ test "caller-owned lowering keeps helper after metadata off unrelated caller dir
     try std.testing.expectEqual(@as(usize, 1), handlers.picker.after_calls);
 }
 
+test "caller-owned lowering records helper continuation apply effects in helper rows" {
+    const current_src = @src();
+    const caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "/tmp/ability-owned-open-row/helper_apply_effect.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "helperApplyEffectLoweringCaller",
+    };
+    const ProgramType = lower(sourceWithContent("/tmp/ability-owned-open-row/helper_apply_effect.zig", caller,
+        \\fn wrap(eff: anytype) ![]const u8 {
+        \\    return try eff.approval.request.perform("request-7", struct {
+        \\        pub fn apply(_: []const u8, resumed_eff: anytype) ![]const u8 {
+        \\            return try resumed_eff.directory.path("publish-7");
+        \\        }
+        \\    });
+        \\}
+        \\
+        \\pub fn runBody(eff: anytype) ![]const u8 {
+        \\    return try wrap(eff);
+        \\}
+    ), .{
+        .label = "lowering_api.helper_apply_effect",
+        .entry_symbol = "runBody",
+        .row = effect_ir.rowFromSpec(.{
+            .approval = .{
+                .request = effect_ir.Choice([]const u8, []const u8),
+            },
+            .directory = .{
+                .path = effect_ir.Transform([]const u8, []const u8),
+            },
+        }),
+        .ValueType = []const u8,
+    });
+
+    const Handlers = struct {
+        approval: struct {
+            const Decision = union(enum) {
+                resume_with: []const u8,
+                return_now: []const u8,
+
+                fn resumeWith(value: []const u8) @This() {
+                    return .{ .resume_with = value };
+                }
+            };
+
+            requests: usize = 0,
+            after_calls: usize = 0,
+
+            pub fn request(self: *@This(), payload: []const u8) anyerror!Decision {
+                self.requests += 1;
+                try std.testing.expectEqualStrings("request-7", payload);
+                return Decision.resumeWith("approved");
+            }
+
+            pub fn afterRequest(self: *@This(), answer: []const u8) anyerror![]const u8 {
+                self.after_calls += 1;
+                return answer;
+            }
+        } = .{},
+        directory: struct {
+            paths: usize = 0,
+
+            pub fn path(self: *@This(), payload: []const u8) anyerror![]const u8 {
+                self.paths += 1;
+                return payload;
+            }
+        } = .{},
+    };
+
+    try ProgramType.validate(std.testing.allocator);
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers: Handlers = .{};
+    const result = try ProgramType.run(&runtime, &handlers);
+    try std.testing.expectEqualStrings("publish-7", result.value);
+    try std.testing.expectEqual(@as(usize, 1), handlers.approval.requests);
+    try std.testing.expectEqual(@as(usize, 1), handlers.approval.after_calls);
+    try std.testing.expectEqual(@as(usize, 1), handlers.directory.paths);
+}
+
 test "caller-owned lowering detects same-function mixed direct and continuation after metadata" {
     const mixed_source: [:0]const u8 =
         \\pub fn body(eff: anytype) anyerror!i32 {

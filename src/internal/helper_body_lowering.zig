@@ -1095,6 +1095,8 @@ fn parseBoundLocalFromDirectCall(
 
 // zlinter-disable max_positional_args - this helper threads the inlined continuation lowering state without introducing an extra transient struct into the comptime-only path.
 fn lowerContinuationApplyReturnValue(
+    comptime functions: []const effect_ir.Function,
+    comptime function_index: usize,
     comptime function: effect_ir.Function,
     comptime apply_return: admitted_body_v1.ReturnValue,
     local_storage: *LocalStorage,
@@ -1178,6 +1180,32 @@ fn lowerContinuationApplyReturnValue(
             appendInstruction(body_state.instructions, body_state.instruction_count, .{
                 .kind = .return_value,
                 .operand = local.local_id,
+            });
+            terminator.* = .{ .kind = .return_value };
+            terminated.* = true;
+            return;
+        },
+        .direct_call => |direct_call| {
+            if (expected_codec == .unit) return null;
+            if (opModeForFunctionUse(functions, function_index, direct_call.requirement_label, direct_call.op_name) == .abort) return null;
+            const resume_codec = resumeCodecForFunctionUse(functions, function_index, direct_call.requirement_label, direct_call.op_name);
+            if (resume_codec != expected_codec) return null;
+            const payload_local = emitPayloadValueForAdmittedDirectCall(
+                direct_call,
+                payloadCodecForFunctionUse(functions, function_index, direct_call.requirement_label, direct_call.op_name),
+                local_storage.bindings[0..local_storage.binding_count.*],
+                body_state,
+            ) orelse return null;
+            const dst = appendAnonymousLocal(local_storage, expected_codec);
+            appendInstruction(body_state.instructions, body_state.instruction_count, .{
+                .kind = .call_op,
+                .dst = dst,
+                .operand = opIndexForFunctionUse(functions, function_index, direct_call.requirement_label, direct_call.op_name),
+                .aux = payload_local,
+            });
+            appendInstruction(body_state.instructions, body_state.instruction_count, .{
+                .kind = .return_value,
+                .operand = dst,
             });
             terminator.* = .{ .kind = .return_value };
             terminated.* = true;
@@ -1274,6 +1302,8 @@ fn lowerContinuationApplyBody(
             .return_value => |return_value| {
                 if (step_index + 1 != apply_body.step_count) return null;
                 lowerContinuationApplyReturnValue(
+                    functions,
+                    function_index,
                     function,
                     return_value,
                     local_storage,
