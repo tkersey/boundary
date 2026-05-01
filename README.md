@@ -1,9 +1,10 @@
 # ability
 
 `ability` is a Zig library for writing typed effect handlers through the
-`ability.with` lexical entrypoint. The supported package surface is intentionally
-small: effect bindings, runtime execution, source-backed lexical bodies, and a
-retained compatibility module for ArtifactV1 execution.
+`ability.with` lexical entrypoint and emitting ArtifactV1 from runtime-owned
+`ProgramPlan` values. The supported package surface is intentionally small:
+effect bindings, runtime execution, ProgramPlan-first artifact compilation, and
+a retained compatibility module for ArtifactV1 execution.
 
 ## Shipped Surface
 
@@ -14,6 +15,9 @@ The public root export set is intentionally narrow:
 - `ability.RuntimeError`
 - `ability.sourceHash`
 - `ability.with`
+- `ability.CompileOptionsV1`
+- `ability.CompilePlan`
+- `ability.compile`
 
 Everything else in the repo is outside the `@import("ability")` root contract.
 Maintainer-facing lowering and interpreter scaffolding are not a second public
@@ -24,9 +28,11 @@ artifact execution. It is source-path stable and covered by smoke/freshness
 tests, but it is a separate package module rather than part of the
 `@import("ability")` root API.
 
-`ability.with` is the only public lexical entrypoint. Downstream packages that
-want compiled lexical execution for ordinary local body structs must make the
-source witness part of the body type itself:
+`ability.with` is the only public lexical entrypoint. `ability.compile` is the
+public ProgramPlan-first ArtifactV1 entrypoint; source-backed lowering remains a
+maintainer compatibility mechanism, not the artifact compiler contract.
+Downstream packages that want compiled lexical execution for ordinary local body
+structs must make the source witness part of the body type itself:
 
 For a copy-runnable starting point inside this checkout, use
 `examples/state_basic.zig` or run it with `zig build run-state-basic`. In a
@@ -149,8 +155,9 @@ The ordinary user-facing examples live under `examples/`.
 `examples/custom_approval_workflow.zig` is the package-like custom-effect proof
 example. It defines separate generated families for directory lookup,
 approval choice, and invalid-request abort, then pairs the public root surface
-with a same-source maintainer lowering check in the `custom-effect-workflow`
-test suite.
+with ProgramPlan-first ArtifactV1 emission in the `custom-effect-workflow`
+test suite. Same-source lowering remains in that suite only as a maintainer
+oracle for producing and comparing the runtime-owned ProgramPlan.
 
 Retained lowering, hosted-runtime, and proof fixtures also live under `examples/`
 for maintainer workflows. Those files are executable and tested, but they are not
@@ -176,8 +183,6 @@ test aliases. It keeps coverage on:
 - fast source-ownership and source-backed body witnesses
 - retained `ability_agent_vm` source-path consumer, fixture-freshness, smoke,
   and no-host budget conformance checks
-- source-lowering validation and execution
-- source-lowering CLI safety checks
 - interpreter behavior where it still underpins the lexical stack
 
 For focused local iteration, `zig build test -Dtest-suites=<ids>` accepts a
@@ -199,17 +204,10 @@ runtime-contract
 prompt-token
 portability-contract
 program-frontend-boundary
-source-lowering-corpus
-source-lowering-boundary
-source-lowering-promoted
-source-lowering-completion
-source-lowering-tool
 agent-vm-artifact-report
-open-row-lowering
 source-ownership-probe
 custom-effect-workflow
 comptime-contract
-source-lowering-witness
 lexical-witness
 lexical-with
 ```
@@ -233,8 +231,6 @@ Manual run, tool, generator, and benchmark surfaces still exist for local
 iteration, but they are not additional test contracts:
 
 - `zig build run-*` for retained examples
-- `zig build source-lower` to build `./zig-out/bin/ability-source-lower`
-  (`./zig-out/bin/ability-source-lower --help` prints the tool contract)
 - `zig build agent-vm-artifact-report` to build
   `./zig-out/bin/agent-vm-artifact-report`
 - `zig build run-agent-vm-artifact-report -Dagent-vm-artifact=<path>` to classify

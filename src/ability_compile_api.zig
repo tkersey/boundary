@@ -12,66 +12,81 @@ pub const CompileOptionsV1 = struct {
     capabilities: []const artifact.CapabilityV1 = &.{},
 };
 
-fn CompileSourceType(
-    comptime source_path: []const u8,
-    comptime spec: lowering.LowerSpec,
+fn artifactFingerprint(comptime options: CompileOptionsV1) [32]u8 {
+    const default_fingerprint = artifact.defaultBuildFingerprint();
+    if (options.stable_build_fingerprint_seed.len != 0) {
+        return artifact.buildFingerprintFromSeed(options.stable_build_fingerprint_seed);
+    }
+    if (options.build_fingerprint_seed.len != 0) {
+        return artifact.buildFingerprintWithSeed(default_fingerprint, options.build_fingerprint_seed);
+    }
+    return default_fingerprint;
+}
+
+fn CompilePlanType(
+    comptime label: []const u8,
+    comptime plan: lowering.ProgramPlan,
     comptime options: CompileOptionsV1,
 ) type {
-    const Lowered = lowering.lowerAt(source_path, spec);
+    if (!std.mem.eql(u8, label, plan.label)) {
+        @compileError(std.fmt.comptimePrint("ProgramPlan compile label mismatch: expected {s}, got {s}", .{ label, plan.label }));
+    }
+    if (plan.entry_index < plan.functions.len and plan.functions[plan.entry_index].parameter_count != 0) {
+        @compileError(std.fmt.comptimePrint("ProgramPlan compile entry cannot require runtime parameters: {s}", .{plan.label}));
+    }
+    comptime plan.validate() catch |err| @compileError(std.fmt.comptimePrint("ProgramPlan compile failed: {s}", .{@errorName(err)}));
+    lowering.assertExecutablePlanCodecSupport(plan);
     return struct {
-        /// Semantic IR hash carried through to ArtifactV1.
-        pub const ir_hash = Lowered.ir_hash;
-        /// Runtime-owned plan produced by the compile path.
-        pub const runtime_plan = Lowered.runtime_plan;
+        /// Semantic plan hash carried through to ArtifactV1.
+        pub const ir_hash = plan.ir_hash;
+        /// Runtime-owned ProgramPlan compiled by this surface.
+        pub const runtime_plan = plan;
+
+        /// Execute the compiled ProgramPlan through native handlers.
+        pub fn run(runtime: *lowering.Runtime, handlers: anytype) !lowering.ProgramPlanRunResult(runtime_plan) {
+            return try lowering.runExecutablePlan(runtime, runtime_plan, handlers);
+        }
 
         /// Encode the compiled runtime plan into canonical ArtifactV1 bytes.
-        pub fn encode(allocator: std.mem.Allocator) ![]u8 {
+        pub fn encodeArtifactV1(allocator: std.mem.Allocator) ![]u8 {
             var owned_capabilities: ?[]artifact.CapabilityV1 = null;
             defer if (owned_capabilities) |caps| {
-                const mutable_caps = caps;
-                artifact.deepFreeCapabilities(allocator, mutable_caps);
+                artifact.deepFreeCapabilities(allocator, caps);
             };
             const capabilities = if (options.capabilities.len == 0) blk: {
                 owned_capabilities = try artifact.deriveToolCapabilitiesFromPlan(allocator, runtime_plan);
                 break :blk owned_capabilities.?;
             } else options.capabilities;
-
-            const default_fingerprint = artifact.defaultBuildFingerprint();
-            const base_fingerprint = if (options.stable_build_fingerprint_seed.len != 0)
-                artifact.buildFingerprintFromSeed(options.stable_build_fingerprint_seed)
-            else if (options.build_fingerprint_seed.len != 0)
-                artifact.buildFingerprintWithSeed(default_fingerprint, options.build_fingerprint_seed)
-            else
-                default_fingerprint;
             return artifact.encodeProgramPlan(allocator, runtime_plan, .{
-                .build_fingerprint_blake3_256 = base_fingerprint,
+                .build_fingerprint_blake3_256 = artifactFingerprint(options),
                 .capabilities = capabilities,
             });
         }
 
-        /// Decode ArtifactV1 bytes back into the public VM artifact surface.
-        pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !artifact.ArtifactV1 {
+        /// Decode ArtifactV1 bytes back into the public artifact surface.
+        pub fn decodeArtifactV1(allocator: std.mem.Allocator, bytes: []const u8) !artifact.ArtifactV1 {
             return artifact.decode(allocator, bytes);
         }
 
         /// Render a readable disassembly for the compiled ArtifactV1 payload.
-        pub fn disasmAlloc(allocator: std.mem.Allocator) ![]u8 {
-            const bytes = try encode(allocator);
+        pub fn disasmArtifactV1(allocator: std.mem.Allocator) ![]u8 {
+            const bytes = try encodeArtifactV1(allocator);
             defer allocator.free(bytes);
             return artifact.disasmAlloc(allocator, bytes);
         }
+
+        /// Backward-compatible ArtifactV1 encoder alias.
+        pub const encode = encodeArtifactV1;
+        /// Backward-compatible ArtifactV1 decoder alias.
+        pub const decode = decodeArtifactV1;
+        /// Backward-compatible disassembly alias.
+        pub const disasmAlloc = disasmArtifactV1;
     };
 }
 
-/// Compile one repo-owned source path into a typed ArtifactV1 emission surface.
-pub const CompileSource = CompileSourceType;
+/// Compile one runtime-owned ProgramPlan into a typed execution and ArtifactV1 surface.
+pub const CompilePlan = CompilePlanType;
 
-/// Compile one repo-owned source path and emit ArtifactV1 bytes immediately.
-pub fn compileAndEncode(
-    allocator: std.mem.Allocator,
-    comptime source_path: []const u8,
-    comptime spec: lowering.LowerSpec,
-    comptime options: CompileOptionsV1,
-) ![]u8 {
-    return CompileSource(source_path, spec, options).encode(allocator);
-}
+/// Public ProgramPlan-first compile entrypoint.
+// zlinter-disable-next-line declaration_naming - public API intentionally mirrors lower-case compile verbs.
+pub const compile = CompilePlanType;

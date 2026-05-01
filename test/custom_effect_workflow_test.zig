@@ -72,9 +72,9 @@ fn workflowSource() ability_compile.lowering_api.SourceRef {
 }
 
 const LoweredWorkflow = ability_compile.lower(workflowSource(), workflowLoweringSpec());
-const CompiledWorkflowArtifact = ability_compile.CompileSource(
-    "examples/custom_approval_workflow.zig",
-    workflowLoweringSpec(),
+const CompiledWorkflowArtifact = ability.compile(
+    "example.custom_approval_workflow",
+    LoweredWorkflow.runtime_plan,
     .{ .stable_build_fingerprint_seed = "custom-approval-workflow-effectful-continuation" },
 );
 const DirectBranch = enum { approve, deny };
@@ -442,9 +442,9 @@ test "custom approval workflow source lowers to executable ProgramPlan" {
         if (!saw_directory_exists) @compileError("custom workflow plan must keep the directory.exists transform op");
         if (!saw_approval_request) @compileError("custom workflow plan must keep the approval.request choice op");
         if (!saw_guard_invalid) @compileError("custom workflow plan must keep the guard.invalid abort op");
-        if (directory_exists_has_after) @compileError("source-lowered value-binding transform ops must not imply after hooks without a continuation witness");
-        if (!approval_request_has_after) @compileError("source-lowered choice ops with explicit continuations must preserve after-hook capability");
-        if (guard_invalid_has_after) @compileError("source-lowered abort ops must not enqueue after hooks");
+        if (directory_exists_has_after) @compileError("source-backed value-binding transform ops must not imply after hooks without a continuation witness");
+        if (!approval_request_has_after) @compileError("source-backed choice ops with explicit continuations must preserve after-hook capability");
+        if (guard_invalid_has_after) @compileError("source-backed abort ops must not enqueue after hooks");
         if (plan.functions.len == 0) @compileError("custom workflow plan must include lowered function rows");
         if (plan.blocks.len == 0) @compileError("custom workflow plan must include executable blocks");
         if (plan.terminators.len == 0) @compileError("custom workflow plan must include executable terminators");
@@ -516,7 +516,7 @@ test "custom workflow source lowering admits bang branches only for bool locals"
     ,
         &.{},
         booleanBangBranchSpec(),
-    ) orelse @compileError("bool bang branch should stay in the source-lowered subset");
+    ) orelse @compileError("bool bang branch should stay in the source-backed subset");
     _ = BoolBang;
 
     const NumericBang = comptime ability_compile.lowering_api.maybeLowerWithRootSourceAt(

@@ -1,6 +1,6 @@
-/// Stable source-lowering case id.
+/// Stable source-backed case id.
 pub const source_case_id = "source.typed_error_try";
-/// Embedded source text consumed by the source-validated source-lowering checker.
+/// Embedded source text consumed by the source-validated source-backed checker.
 pub const source = @embedFile("typed_error_try.zig");
 
 const DemoError = error{Boom};
@@ -13,7 +13,7 @@ fn fail() DemoError!i32 {
     return error.Boom;
 }
 
-/// Run the typed-error case with source-lowering control flow.
+/// Run the typed-error case with source-backed control flow.
 pub fn run(writer: anytype) anyerror!void {
     try writer.writeAll("branch=ok\n");
     const value = try succeed();

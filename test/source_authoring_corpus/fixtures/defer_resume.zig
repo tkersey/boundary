@@ -1,8 +1,8 @@
 const std = @import("std");
 
-/// Stable source-lowering case id.
+/// Stable source-backed case id.
 pub const source_case_id = "source.defer_resume";
-/// Embedded source text consumed by the source-validated source-lowering checker.
+/// Embedded source text consumed by the source-validated source-backed checker.
 pub const source = @embedFile("defer_resume.zig");
 
 fn writeCleanup(writer: anytype, line: []const u8) void {
@@ -17,7 +17,7 @@ fn body(writer: anytype) anyerror!i32 {
     return resumed + 1;
 }
 
-/// Run the defer case with source-lowering control flow.
+/// Run the defer case with source-backed control flow.
 pub fn run(writer: anytype) anyerror!void {
     const answer = try body(writer);
     try writer.print("final={d}\n", .{answer});

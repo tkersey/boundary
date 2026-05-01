@@ -8,29 +8,20 @@ const program_plan = @import("internal_program_plan");
 const source_graph_embed = @import("source_graph_embed");
 const source_graph_comptime = @import("source_graph_comptime");
 const source_graph_engine = @import("source_graph_engine");
-const source_lowering = @import("source_lowering");
+const authoring_lowerer = @import("authoring_lowerer");
 const std = @import("std");
 
 /// Public support handlers for lowered open-row example runners.
 pub const runtime_support = @import("open_row_runtime_support.zig");
 pub const ProgramPlan = program_plan.ProgramPlan;
 pub const FunctionPlan = program_plan.FunctionPlan;
+pub const ValueCodec = program_plan.ValueCodec;
+pub const Runtime = lowered_machine.Runtime;
 /// Resource envelope for native ProgramPlan execution through the public lowering API.
 pub const ProgramPlanRunOptions = program_plan_interpreter.RunOptions;
 
 pub fn executableResultCodecForType(comptime T: type) program_plan.CodecError!program_plan.ValueCodec {
     return try program_plan.codecForType(T);
-}
-
-fn authoredBoundLocalCodecForType(comptime T: type) ?effect_ir.LocalCodec {
-    return switch (T) {
-        void => .unit,
-        bool => .bool,
-        i32 => .i32,
-        usize => .usize,
-        []const u8 => .string,
-        else => null,
-    };
 }
 
 /// Public additive spec for one same-module lowering request.
@@ -83,6 +74,10 @@ fn ResultOutputsTypeForPlan(comptime compiled_plan: program_plan.ProgramPlan) ty
 }
 
 fn LoweredRunResultTypeForPlan(comptime compiled_plan: program_plan.ProgramPlan) type {
+    return program_plan_interpreter.RunResultTypeForPlan(compiled_plan);
+}
+
+pub fn ProgramPlanRunResult(comptime compiled_plan: program_plan.ProgramPlan) type {
     return program_plan_interpreter.RunResultTypeForPlan(compiled_plan);
 }
 
@@ -1310,16 +1305,16 @@ fn openRowWithRootSource(
 }
 
 /// Lower one explicit-path open-row payload into the retained effect-ir shell.
-pub fn lowerOpenRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) LowerError!source_lowering.OpenRowGeneratedProgram {
-    return try source_lowering.lowerOpenRowProgram(openRowAt(source_path, spec));
+pub fn lowerOpenRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) LowerError!authoring_lowerer.OpenRowLoweredAuthoring {
+    return try authoring_lowerer.lowerOpenRowProgram(openRowAt(source_path, spec));
 }
 
 /// Lower one caller-owned or file-backed open-row payload into the retained effect-ir shell.
-pub fn lowerOpenRow(comptime source_ref: SourceRef, comptime spec: LowerSpec) LowerError!source_lowering.OpenRowGeneratedProgram {
+pub fn lowerOpenRow(comptime source_ref: SourceRef, comptime spec: LowerSpec) LowerError!authoring_lowerer.OpenRowLoweredAuthoring {
     assertSourceOwnership(source_ref);
     if (source_ref.caller_source) |caller_source| {
         const source_path = sourcePathForLowering(source_ref);
-        return try source_lowering.lowerOpenRowProgram(openRowWithRootSource(
+        return try authoring_lowerer.lowerOpenRowProgram(openRowWithRootSource(
             source_path,
             caller_source,
             source_ref.imported_sources,
@@ -1336,7 +1331,7 @@ fn invalidOpenRowPlan(err: anytype) noreturn {
 /// Build one runtime-owned ProgramPlan from a lowered open-row payload.
 pub fn planFromOpenRowGenerated(
     comptime label: []const u8,
-    comptime lowered_program: source_lowering.OpenRowGeneratedProgram,
+    comptime lowered_program: authoring_lowerer.OpenRowLoweredAuthoring,
 ) program_plan.ProgramPlan {
     return program_plan.planFromOpenRowProgram(label, lowered_program.program) catch |err| invalidOpenRowPlan(err);
 }
@@ -1356,135 +1351,13 @@ pub fn authoredBoundProgramPlan(
     comptime result_type: type,
     comptime control_mode: program_plan.ControlMode,
 ) ?program_plan.ProgramPlan {
-    const payload_codec = authoredBoundLocalCodecForType(payload_type) orelse return null;
-    const resume_codec = switch (control_mode) {
-        .abort => effect_ir.LocalCodec.unit,
-        .transform, .choice => authoredBoundLocalCodecForType(resume_type) orelse return null,
-    };
-    const result_codec = executableResultCodecForType(result_type) catch return null;
-    const local_codecs = comptime switch (control_mode) {
-        .abort => if (payload_codec == .unit)
-            [0]effect_ir.LocalCodec{}
-        else
-            [1]effect_ir.LocalCodec{payload_codec},
-        .transform, .choice => switch (payload_codec == .unit) {
-            true => if (resume_codec == .unit)
-                [0]effect_ir.LocalCodec{}
-            else
-                [1]effect_ir.LocalCodec{resume_codec},
-            false => if (resume_codec == .unit)
-                [1]effect_ir.LocalCodec{payload_codec}
-            else
-                [2]effect_ir.LocalCodec{ payload_codec, resume_codec },
-        },
-    };
-    const instructions = comptime switch (control_mode) {
-        .abort => [1]effect_ir.Instruction{.{
-            .kind = .call_op,
-            .dst = std.math.maxInt(u16),
-            .operand = 0,
-            .aux = if (payload_codec == .unit) std.math.maxInt(u16) else 0,
-        }},
-        .transform, .choice => if (resume_codec == .unit)
-            [1]effect_ir.Instruction{.{
-                .kind = .call_op,
-                .dst = std.math.maxInt(u16),
-                .operand = 0,
-                .aux = if (payload_codec == .unit) std.math.maxInt(u16) else 0,
-            }}
-        else
-            [2]effect_ir.Instruction{
-                .{
-                    .kind = .call_op,
-                    .dst = if (payload_codec == .unit) 0 else 1,
-                    .operand = 0,
-                    .aux = if (payload_codec == .unit) std.math.maxInt(u16) else 0,
-                },
-                .{
-                    .kind = .return_value,
-                    .dst = 0,
-                    .operand = if (payload_codec == .unit) 0 else 1,
-                    .aux = 0,
-                },
-            },
-    };
-    const lowered = program_frontend.LoweredOpenRowProgram{
-        .entry_index = 0,
-        .functions = &.{.{
-            .symbol = .{
-                .module_path = "<authored>",
-                .symbol_name = "runAuthored",
-            },
-            .row = .{
-                .requirements = &.{.{
-                    .label = "authored",
-                    .ops = &.{.{
-                        .requirement_label = "authored",
-                        .op_name = "dispatch",
-                        .mode = switch (control_mode) {
-                            .abort => .abort,
-                            .choice => .choice,
-                            .transform => .transform,
-                        },
-                        .PayloadType = payload_type,
-                        .ResumeType = resume_type,
-                        .has_after = control_mode != .abort,
-                    }},
-                }},
-            },
-            .parameter_codecs = if (payload_codec == .unit) &.{} else &.{payload_codec},
-            .ValueType = switch (control_mode) {
-                .abort => void,
-                .transform, .choice => resume_type,
-            },
-        }},
-        .call_edges = &.{},
-        .function_bodies = &.{.{
-            .local_codecs = &local_codecs,
-            .call_arg_locals = &.{},
-            .entry_block = 0,
-            .blocks = &.{.{
-                .instructions = &instructions,
-                .terminator = switch (control_mode) {
-                    .abort => .{ .kind = .return_unit },
-                    .transform, .choice => if (resume_codec == .unit)
-                        .{ .kind = .return_unit }
-                    else
-                        .{ .kind = .return_value },
-                },
-            }},
-        }},
-    };
-    const base_plan = planFromLoweredOpenRowProgram(label, lowered);
-    const functions = comptime blk: {
-        var buffer: [base_plan.functions.len]FunctionPlan = undefined;
-        for (base_plan.functions, 0..) |function, index| {
-            buffer[index] = function;
-        }
-        buffer[base_plan.entry_index].result_codec = result_codec;
-        break :blk buffer;
-    };
-    return .{
-        .schema_version = base_plan.schema_version,
-        .label = base_plan.label,
-        .ir_hash = base_plan.ir_hash,
-        .entry_index = base_plan.entry_index,
-        .functions = &functions,
-        .requirements = base_plan.requirements,
-        .ops = base_plan.ops,
-        .outputs = base_plan.outputs,
-        .locals = base_plan.locals,
-        .call_args = base_plan.call_args,
-        .blocks = base_plan.blocks,
-        .terminators = base_plan.terminators,
-        .instructions = base_plan.instructions,
-    };
+    return program_plan.authoredBoundPlan(label, payload_type, resume_type, result_type, control_mode);
 }
 
 /// Attach binding-derived lifecycle/output metadata to one lowered open-row ProgramPlan.
 pub fn enrichOpenRowPlan(
     comptime label: []const u8,
-    comptime lowered_program: source_lowering.OpenRowGeneratedProgram,
+    comptime lowered_program: authoring_lowerer.OpenRowLoweredAuthoring,
     comptime binding_schemas: anytype,
 ) program_plan.ProgramPlan {
     return program_plan.enrichPlanWithBindingSchemas(planFromOpenRowGenerated(label, lowered_program), binding_schemas);
@@ -2177,7 +2050,7 @@ fn analyzeValidationModuleGraph(
         return error.UnsupportedHelperGraph;
     }
 
-    var analysis = source_lowering.analyzeFileBackedSource(allocator, source_path) catch |err| switch (err) {
+    var analysis = authoring_lowerer.analyzeFileBackedSource(allocator, source_path) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseError => return error.ParseError,
         error.SourceUnreadable => return error.SourceUnreadable,
@@ -2526,7 +2399,7 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
         @setEvalBranchQuota(1_000_000);
     }
     const graph = analyzeProgramGraphAt(source_path, spec.entry_symbol);
-    const lowered_program = source_lowering.lowerOpenRowProgram(openRowAt(source_path, spec)) catch |err| switch (err) {
+    const lowered_program = authoring_lowerer.lowerOpenRowProgram(openRowAt(source_path, spec)) catch |err| switch (err) {
         error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
         error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
         error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
@@ -2582,7 +2455,7 @@ fn Lower(comptime source_ref: SourceRef, comptime spec: LowerSpec) type {
         comptime {
             @setEvalBranchQuota(20_000);
         }
-        const lowered_program = source_lowering.lowerOpenRowProgram(openRowWithRootSource(source_path, caller_source, source_ref.imported_sources, spec)) catch |err| switch (err) {
+        const lowered_program = authoring_lowerer.lowerOpenRowProgram(openRowWithRootSource(source_path, caller_source, source_ref.imported_sources, spec)) catch |err| switch (err) {
             error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
             error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
             error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
@@ -2591,7 +2464,7 @@ fn Lower(comptime source_ref: SourceRef, comptime spec: LowerSpec) type {
             error.InvalidProgramBodyShape => @compileError("public lowering supports direct effect calls, locals, branches, and supported helper calls; one helper body uses an unsupported source shape"),
             error.InvalidRequirementShape => @compileError("public lowering rejected a requirement shape produced by source lowering"),
             error.InvalidRowShape => @compileError("public lowering rejected a row shape produced by source lowering"),
-            error.OutputWithoutRequirement => @compileError("public lowering rejected source-lowered outputs without matching requirements"),
+            error.OutputWithoutRequirement => @compileError("public lowering rejected source-backed outputs without matching requirements"),
             error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
             error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
             error.UnsupportedHelperCallEdge => @compileError("public lowering supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
@@ -2639,7 +2512,7 @@ pub const lower = Lower;
 pub const lowerAt = LowerAt;
 
 /// Try to lower one file-backed request, returning null when the retained compiled subset cannot represent the body.
-pub fn maybeLowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) ?source_lowering.OpenRowGeneratedProgram {
+pub fn maybeLowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) ?authoring_lowerer.OpenRowLoweredAuthoring {
     comptime {
         @setEvalBranchQuota(1_000_000);
     }
@@ -2666,7 +2539,7 @@ pub fn maybeLowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
         .call_edges = buildCallEdgesForGraph(graph),
         .function_bodies = function_bodies,
     };
-    const lowered_program = source_lowering.lowerOpenRowProgram(payload) catch |err| switch (err) {
+    const lowered_program = authoring_lowerer.lowerOpenRowProgram(payload) catch |err| switch (err) {
         error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
         error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
         error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
@@ -2703,7 +2576,7 @@ pub fn maybeLowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
 }
 
 /// Try to lower one caller-owned or file-backed request, returning null when the retained compiled subset cannot represent the body.
-pub fn maybeLower(comptime source_ref: SourceRef, comptime spec: LowerSpec) ?source_lowering.OpenRowGeneratedProgram {
+pub fn maybeLower(comptime source_ref: SourceRef, comptime spec: LowerSpec) ?authoring_lowerer.OpenRowLoweredAuthoring {
     assertSourceOwnership(source_ref);
     if (source_ref.caller_source) |caller_source| {
         const source_path = sourcePathForLowering(source_ref);
@@ -2733,7 +2606,7 @@ pub fn maybeLower(comptime source_ref: SourceRef, comptime spec: LowerSpec) ?sou
             .call_edges = buildCallEdgesForGraph(graph),
             .function_bodies = function_bodies,
         };
-        const lowered_program = source_lowering.lowerOpenRowProgram(payload) catch |err| switch (err) {
+        const lowered_program = authoring_lowerer.lowerOpenRowProgram(payload) catch |err| switch (err) {
             error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
             error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
             error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
@@ -2742,7 +2615,7 @@ pub fn maybeLower(comptime source_ref: SourceRef, comptime spec: LowerSpec) ?sou
             error.InvalidProgramBodyShape => @compileError("public lowering supports direct effect calls, locals, branches, and supported helper calls; one helper body uses an unsupported source shape"),
             error.InvalidRequirementShape => @compileError("public lowering rejected a requirement shape produced by source lowering"),
             error.InvalidRowShape => @compileError("public lowering rejected a row shape produced by source lowering"),
-            error.OutputWithoutRequirement => @compileError("public lowering rejected source-lowered outputs without matching requirements"),
+            error.OutputWithoutRequirement => @compileError("public lowering rejected source-backed outputs without matching requirements"),
             error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
             error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
             error.UnsupportedHelperCallEdge => @compileError("public lowering supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
@@ -2804,7 +2677,7 @@ pub fn maybeLowerWithRootSourceAt(
         .call_edges = buildCallEdgesForGraph(graph),
         .function_bodies = function_bodies,
     };
-    const lowered_program = source_lowering.lowerOpenRowProgram(payload) catch return null;
+    const lowered_program = authoring_lowerer.lowerOpenRowProgram(payload) catch return null;
     const compiled_plan = program_plan.planFromOpenRowProgram(spec.label, lowered_program.program) catch return null;
     if (!executableCodecSupported(compiled_plan)) return null;
 

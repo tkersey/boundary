@@ -1,5 +1,6 @@
 const artifact_api = @import("artifact_api");
 const builtin = @import("builtin");
+const compile_api = @import("ability_compile_api");
 const effect_root = @import("effect/root.zig");
 const error_witness = @import("error_witness");
 const interpreter_api = @import("interpreter");
@@ -10,6 +11,12 @@ const with_api = @import("with_api.zig");
 
 /// Shared ArtifactV1 codec and helpers used by the retained public roots.
 pub const artifact = artifact_api;
+/// Compile-time options for ProgramPlan-first ArtifactV1 emission.
+pub const CompileOptionsV1 = compile_api.CompileOptionsV1;
+/// Compile one runtime-owned ProgramPlan into a typed execution and ArtifactV1 surface.
+pub const CompilePlan = compile_api.CompilePlan;
+/// ProgramPlan-first compile entrypoint.
+pub const compile = compile_api.compile;
 /// Public effect family and handler constructors retained at the root surface.
 pub const effect = effect_root;
 /// Canonical lowered runtime retained at the root surface.

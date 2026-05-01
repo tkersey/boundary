@@ -34,7 +34,7 @@ pub const ValueShape = enum {
     usize,
 };
 
-/// Maximum admitted ordinary helper parameters in the restricted source-lowering ABI.
+/// Maximum admitted ordinary helper parameters in the restricted source-backed authoring ABI.
 pub const max_function_params: usize = 8;
 
 /// One top-level function discovered in a Zig source module.

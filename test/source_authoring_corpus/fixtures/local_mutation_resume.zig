@@ -1,9 +1,9 @@
-/// Stable source-lowering case id.
+/// Stable source-backed case id.
 pub const source_case_id = "source.local_mutation_resume";
-/// Embedded source text consumed by the source-validated source-lowering checker.
+/// Embedded source text consumed by the source-validated source-backed checker.
 pub const source = @embedFile("local_mutation_resume.zig");
 
-/// Run the local-mutation case with source-lowering control flow.
+/// Run the local-mutation case with source-backed control flow.
 pub fn run(writer: anytype) anyerror!void {
     var local: i32 = 1;
     try writer.print("local={d}\n", .{local});

@@ -1,9 +1,9 @@
-/// Stable source-lowering case id.
+/// Stable source-backed case id.
 pub const source_case_id = "source.loop_resume";
-/// Embedded source text consumed by the source-validated source-lowering checker.
+/// Embedded source text consumed by the source-validated source-backed checker.
 pub const source = @embedFile("loop_resume.zig");
 
-/// Run the loop case with source-lowering control flow.
+/// Run the loop case with source-backed control flow.
 pub fn run(writer: anytype) anyerror!void {
     var i: usize = 0;
     while (i < 2) : (i += 1) {

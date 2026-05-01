@@ -28,3 +28,11 @@ pub const decodeWithProgramPlanOptions = inner.decodeWithProgramPlanOptions;
 pub const DecodedProgramPlanV1 = inner.DecodedProgramPlanV1;
 /// Re-exported terminal result codec resolver.
 pub const terminalResultCodecForOp = inner.terminalResultCodecForOp;
+/// Re-exported ProgramPlan capability derivation helper.
+pub const deriveToolCapabilitiesFromPlan = inner.deriveToolCapabilitiesFromPlan;
+/// Re-exported allocator cleanup for derived capability manifests.
+pub const deepFreeCapabilities = inner.deepFreeCapabilities;
+/// Re-exported ProgramPlan ArtifactV1 encoder.
+pub const encodeProgramPlan = inner.encodeProgramPlan;
+/// Re-exported ArtifactV1 disassembly renderer.
+pub const disasmAlloc = inner.disasmAlloc;

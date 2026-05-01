@@ -1381,7 +1381,7 @@ test "ProgramPlan.validate rejects helpers with mixed plain and after completion
     try std.testing.expectError(error.InvalidFunctionResultCodec, plan.validate());
 }
 
-test "planFromProgram rejects source-lowered helpers with mixed plain and after completion codecs" {
+test "planFromProgram rejects source-backed helpers with mixed plain and after completion codecs" {
     comptime {
         @setEvalBranchQuota(20_000);
     }

@@ -73,7 +73,7 @@ pub const CanonicalCase = struct {
     feature_flags: []const []const u8,
 };
 
-/// One lowered authoring result shared by source-lowering and bridge tooling.
+/// One lowered authoring result shared by source-backed and bridge tooling.
 pub const LoweredAuthoring = struct {
     case_id: []const u8,
     label: []const u8,
@@ -173,7 +173,7 @@ fn testCanonicalSourceCase() CanonicalCase {
     return .{
         .case_id = "source.branch_resume",
         .label = "source.branch_resume",
-        .source_path = "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        .source_path = "test/source_authoring_corpus/fixtures/branch_resume.zig",
         .entry_symbol = "run",
         .surface_kind = .source_case,
         .status = .canonical,
@@ -247,7 +247,7 @@ test "lowerSourceText entry-missing diagnostic names the expected symbol" {
 
 test "lowerSourceFile unreadable-source diagnostic gives path recovery guidance" {
     var case = testCanonicalSourceCase();
-    case.source_path = "test/source_lowering_corpus/fixtures/missing_for_unreadable_diagnostic.zig";
+    case.source_path = "test/source_authoring_corpus/fixtures/missing_for_unreadable_diagnostic.zig";
     const actual_path = try resolveRepoSourcePathAlloc(std.testing.allocator, case.source_path);
     defer std.testing.allocator.free(actual_path);
 
@@ -449,14 +449,14 @@ fn readCanonicalSource(allocator: std.mem.Allocator, source_path: []const u8) ![
 }
 
 fn canonicalSourceHash(expected_path: []const u8) ?[32]u8 {
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/local_mutation_resume.zig")) return build_options.hash_local_mutation_resume;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/branch_resume.zig")) return build_options.hash_branch_resume;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/loop_resume.zig")) return build_options.hash_loop_resume;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/helper_call_resume.zig")) return build_options.hash_helper_call_resume;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/nested_prompt_static_redelim.zig")) return build_options.hash_nested_prompt_static_redelim;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/typed_error_try.zig")) return build_options.hash_typed_error_try;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/defer_resume.zig")) return build_options.hash_defer_resume;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/errdefer_error.zig")) return build_options.hash_errdefer_error;
+    if (std.mem.eql(u8, expected_path, "test/source_authoring_corpus/fixtures/local_mutation_resume.zig")) return build_options.hash_local_mutation_resume;
+    if (std.mem.eql(u8, expected_path, "test/source_authoring_corpus/fixtures/branch_resume.zig")) return build_options.hash_branch_resume;
+    if (std.mem.eql(u8, expected_path, "test/source_authoring_corpus/fixtures/loop_resume.zig")) return build_options.hash_loop_resume;
+    if (std.mem.eql(u8, expected_path, "test/source_authoring_corpus/fixtures/helper_call_resume.zig")) return build_options.hash_helper_call_resume;
+    if (std.mem.eql(u8, expected_path, "test/source_authoring_corpus/fixtures/nested_prompt_static_redelim.zig")) return build_options.hash_nested_prompt_static_redelim;
+    if (std.mem.eql(u8, expected_path, "test/source_authoring_corpus/fixtures/typed_error_try.zig")) return build_options.hash_typed_error_try;
+    if (std.mem.eql(u8, expected_path, "test/source_authoring_corpus/fixtures/defer_resume.zig")) return build_options.hash_defer_resume;
+    if (std.mem.eql(u8, expected_path, "test/source_authoring_corpus/fixtures/errdefer_error.zig")) return build_options.hash_errdefer_error;
     if (std.mem.eql(u8, expected_path, "examples/open_row_transform_basic.zig")) return build_options.hash_define_basic;
     if (std.mem.eql(u8, expected_path, "examples/open_row_choice_basic.zig")) return build_options.hash_define_choice_basic;
     if (std.mem.eql(u8, expected_path, "examples/open_row_abort_basic.zig")) return build_options.hash_define_abort_basic;
@@ -650,7 +650,7 @@ fn parseFailureDiagnostic(
         .allocator = allocator,
         .display_path = display_path,
         .code = "parse_error",
-        .message = "source did not parse as Zig near this location; fix the syntax error and rerun ability-source-lower",
+        .message = "source did not parse as Zig near this location; fix the syntax error and rerun the authoring check",
         .line = loc.line + 1,
         .column = loc.column + 1,
     });
