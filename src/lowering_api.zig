@@ -8,7 +8,7 @@ const program_plan = @import("internal_program_plan");
 const source_graph_embed = @import("source_graph_embed");
 const source_graph_comptime = @import("source_graph_comptime");
 const source_graph_engine = @import("source_graph_engine");
-const source_lowering = @import("source_lowering");
+const authoring_lowerer = @import("authoring_lowerer");
 const std = @import("std");
 
 /// Public support handlers for lowered open-row example runners.
@@ -1305,16 +1305,16 @@ fn openRowWithRootSource(
 }
 
 /// Lower one explicit-path open-row payload into the retained effect-ir shell.
-pub fn lowerOpenRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) LowerError!source_lowering.OpenRowGeneratedProgram {
-    return try source_lowering.lowerOpenRowProgram(openRowAt(source_path, spec));
+pub fn lowerOpenRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) LowerError!authoring_lowerer.OpenRowLoweredAuthoring {
+    return try authoring_lowerer.lowerOpenRowProgram(openRowAt(source_path, spec));
 }
 
 /// Lower one caller-owned or file-backed open-row payload into the retained effect-ir shell.
-pub fn lowerOpenRow(comptime source_ref: SourceRef, comptime spec: LowerSpec) LowerError!source_lowering.OpenRowGeneratedProgram {
+pub fn lowerOpenRow(comptime source_ref: SourceRef, comptime spec: LowerSpec) LowerError!authoring_lowerer.OpenRowLoweredAuthoring {
     assertSourceOwnership(source_ref);
     if (source_ref.caller_source) |caller_source| {
         const source_path = sourcePathForLowering(source_ref);
-        return try source_lowering.lowerOpenRowProgram(openRowWithRootSource(
+        return try authoring_lowerer.lowerOpenRowProgram(openRowWithRootSource(
             source_path,
             caller_source,
             source_ref.imported_sources,
@@ -1331,7 +1331,7 @@ fn invalidOpenRowPlan(err: anytype) noreturn {
 /// Build one runtime-owned ProgramPlan from a lowered open-row payload.
 pub fn planFromOpenRowGenerated(
     comptime label: []const u8,
-    comptime lowered_program: source_lowering.OpenRowGeneratedProgram,
+    comptime lowered_program: authoring_lowerer.OpenRowLoweredAuthoring,
 ) program_plan.ProgramPlan {
     return program_plan.planFromOpenRowProgram(label, lowered_program.program) catch |err| invalidOpenRowPlan(err);
 }
@@ -1357,7 +1357,7 @@ pub fn authoredBoundProgramPlan(
 /// Attach binding-derived lifecycle/output metadata to one lowered open-row ProgramPlan.
 pub fn enrichOpenRowPlan(
     comptime label: []const u8,
-    comptime lowered_program: source_lowering.OpenRowGeneratedProgram,
+    comptime lowered_program: authoring_lowerer.OpenRowLoweredAuthoring,
     comptime binding_schemas: anytype,
 ) program_plan.ProgramPlan {
     return program_plan.enrichPlanWithBindingSchemas(planFromOpenRowGenerated(label, lowered_program), binding_schemas);
@@ -2050,7 +2050,7 @@ fn analyzeValidationModuleGraph(
         return error.UnsupportedHelperGraph;
     }
 
-    var analysis = source_lowering.analyzeFileBackedSource(allocator, source_path) catch |err| switch (err) {
+    var analysis = authoring_lowerer.analyzeFileBackedSource(allocator, source_path) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseError => return error.ParseError,
         error.SourceUnreadable => return error.SourceUnreadable,
@@ -2399,7 +2399,7 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
         @setEvalBranchQuota(1_000_000);
     }
     const graph = analyzeProgramGraphAt(source_path, spec.entry_symbol);
-    const lowered_program = source_lowering.lowerOpenRowProgram(openRowAt(source_path, spec)) catch |err| switch (err) {
+    const lowered_program = authoring_lowerer.lowerOpenRowProgram(openRowAt(source_path, spec)) catch |err| switch (err) {
         error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
         error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
         error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
@@ -2455,7 +2455,7 @@ fn Lower(comptime source_ref: SourceRef, comptime spec: LowerSpec) type {
         comptime {
             @setEvalBranchQuota(20_000);
         }
-        const lowered_program = source_lowering.lowerOpenRowProgram(openRowWithRootSource(source_path, caller_source, source_ref.imported_sources, spec)) catch |err| switch (err) {
+        const lowered_program = authoring_lowerer.lowerOpenRowProgram(openRowWithRootSource(source_path, caller_source, source_ref.imported_sources, spec)) catch |err| switch (err) {
             error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
             error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
             error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
@@ -2464,7 +2464,7 @@ fn Lower(comptime source_ref: SourceRef, comptime spec: LowerSpec) type {
             error.InvalidProgramBodyShape => @compileError("public lowering supports direct effect calls, locals, branches, and supported helper calls; one helper body uses an unsupported source shape"),
             error.InvalidRequirementShape => @compileError("public lowering rejected a requirement shape produced by source lowering"),
             error.InvalidRowShape => @compileError("public lowering rejected a row shape produced by source lowering"),
-            error.OutputWithoutRequirement => @compileError("public lowering rejected source-lowered outputs without matching requirements"),
+            error.OutputWithoutRequirement => @compileError("public lowering rejected source-backed outputs without matching requirements"),
             error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
             error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
             error.UnsupportedHelperCallEdge => @compileError("public lowering supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
@@ -2512,7 +2512,7 @@ pub const lower = Lower;
 pub const lowerAt = LowerAt;
 
 /// Try to lower one file-backed request, returning null when the retained compiled subset cannot represent the body.
-pub fn maybeLowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) ?source_lowering.OpenRowGeneratedProgram {
+pub fn maybeLowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) ?authoring_lowerer.OpenRowLoweredAuthoring {
     comptime {
         @setEvalBranchQuota(1_000_000);
     }
@@ -2539,7 +2539,7 @@ pub fn maybeLowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
         .call_edges = buildCallEdgesForGraph(graph),
         .function_bodies = function_bodies,
     };
-    const lowered_program = source_lowering.lowerOpenRowProgram(payload) catch |err| switch (err) {
+    const lowered_program = authoring_lowerer.lowerOpenRowProgram(payload) catch |err| switch (err) {
         error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
         error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
         error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
@@ -2576,7 +2576,7 @@ pub fn maybeLowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
 }
 
 /// Try to lower one caller-owned or file-backed request, returning null when the retained compiled subset cannot represent the body.
-pub fn maybeLower(comptime source_ref: SourceRef, comptime spec: LowerSpec) ?source_lowering.OpenRowGeneratedProgram {
+pub fn maybeLower(comptime source_ref: SourceRef, comptime spec: LowerSpec) ?authoring_lowerer.OpenRowLoweredAuthoring {
     assertSourceOwnership(source_ref);
     if (source_ref.caller_source) |caller_source| {
         const source_path = sourcePathForLowering(source_ref);
@@ -2606,7 +2606,7 @@ pub fn maybeLower(comptime source_ref: SourceRef, comptime spec: LowerSpec) ?sou
             .call_edges = buildCallEdgesForGraph(graph),
             .function_bodies = function_bodies,
         };
-        const lowered_program = source_lowering.lowerOpenRowProgram(payload) catch |err| switch (err) {
+        const lowered_program = authoring_lowerer.lowerOpenRowProgram(payload) catch |err| switch (err) {
             error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
             error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
             error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
@@ -2615,7 +2615,7 @@ pub fn maybeLower(comptime source_ref: SourceRef, comptime spec: LowerSpec) ?sou
             error.InvalidProgramBodyShape => @compileError("public lowering supports direct effect calls, locals, branches, and supported helper calls; one helper body uses an unsupported source shape"),
             error.InvalidRequirementShape => @compileError("public lowering rejected a requirement shape produced by source lowering"),
             error.InvalidRowShape => @compileError("public lowering rejected a row shape produced by source lowering"),
-            error.OutputWithoutRequirement => @compileError("public lowering rejected source-lowered outputs without matching requirements"),
+            error.OutputWithoutRequirement => @compileError("public lowering rejected source-backed outputs without matching requirements"),
             error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
             error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
             error.UnsupportedHelperCallEdge => @compileError("public lowering supports helper calls only when the target can be validated from supported source-backed helpers; inline the helper or keep the call within the validated source graph"),
@@ -2677,7 +2677,7 @@ pub fn maybeLowerWithRootSourceAt(
         .call_edges = buildCallEdgesForGraph(graph),
         .function_bodies = function_bodies,
     };
-    const lowered_program = source_lowering.lowerOpenRowProgram(payload) catch return null;
+    const lowered_program = authoring_lowerer.lowerOpenRowProgram(payload) catch return null;
     const compiled_plan = program_plan.planFromOpenRowProgram(spec.label, lowered_program.program) catch return null;
     if (!executableCodecSupported(compiled_plan)) return null;
 

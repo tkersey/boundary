@@ -1,6 +1,6 @@
-/// Stable source-lowering case id.
+/// Stable source-backed case id.
 pub const source_case_id = "source.helper_call_resume";
-/// Embedded source text consumed by the source-validated source-lowering checker.
+/// Embedded source text consumed by the source-validated source-backed checker.
 pub const source = @embedFile("helper_call_resume.zig");
 
 fn helper(writer: anytype) anyerror!i32 {
@@ -11,7 +11,7 @@ fn helper(writer: anytype) anyerror!i32 {
     return resumed + 1;
 }
 
-/// Run the helper-call case with source-lowering control flow.
+/// Run the helper-call case with source-backed control flow.
 pub fn run(writer: anytype) anyerror!void {
     const answer = try helper(writer);
     try writer.print("final={d}\n", .{answer});

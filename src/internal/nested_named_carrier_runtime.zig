@@ -1,13 +1,13 @@
 // zlinter-disable function_naming - internal type builders intentionally return comptime packet types.
 // zlinter-disable require_doc_comment - this is internal nested lexical runtime glue, not a user-facing API.
 // zlinter-disable max_positional_args - the carrier packet shape stays explicit to avoid hiding module-boundary constraints.
+const authoring_lowerer = @import("authoring_lowerer");
 const effect_ir = @import("effect_ir");
 const helper_body_lowering = @import("helper_body_lowering.zig");
 const program_frontend = @import("program_frontend");
 const program_plan = @import("internal_program_plan");
 const source_graph_embed = @import("source_graph_embed");
 const source_graph_engine = @import("source_graph_engine");
-const source_lowering = @import("source_lowering");
 const std = @import("std");
 
 fn sentinelBytes(comptime bytes: []const u8) [:0]const u8 {
@@ -399,7 +399,7 @@ pub fn NamedNestedCarrier(
         .call_edges = buildCallEdgesForGraph(program_graph),
         .function_bodies = function_bodies,
     };
-    const lowered = source_lowering.lowerOpenRowProgram(payload) catch |err| switch (err) {
+    const lowered = authoring_lowerer.lowerOpenRowProgram(payload) catch |err| switch (err) {
         error.DuplicateRequirementLabel => @compileError("nested lexical named carrier lowering rejected duplicate requirement labels"),
         error.DuplicateOpName => @compileError("nested lexical named carrier lowering rejected duplicate op names"),
         error.DuplicateOutputLabel => @compileError("nested lexical named carrier lowering rejected duplicate output labels"),

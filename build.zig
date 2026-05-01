@@ -1084,19 +1084,6 @@ fn createShiftConsumerModule(
     return mod;
 }
 
-fn createPlainModule(
-    b: *std.Build,
-    path: []const u8,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-) *std.Build.Module {
-    return b.createModule(.{
-        .root_source_file = lazyPathForSourceFile(b, path),
-        .target = target,
-        .optimize = optimize,
-    });
-}
-
 fn lazyPathForSourceFile(b: *std.Build, path: []const u8) std.Build.LazyPath {
     if (std.Io.Dir.path.isAbsolute(path)) return .{ .cwd_relative = path };
     return b.path(path);
@@ -1106,12 +1093,12 @@ fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
     const bytes = std.Io.Dir.cwd().readFileAlloc(b.graph.io, b.pathFromRoot(path), b.allocator, .limited(1 << 20)) catch |err| switch (err) {
         // Archive/registry package paths intentionally exclude proof-only corpora.
         error.FileNotFound => return std.mem.zeroes([32]u8),
-        else => std.process.fatal("unable to read canonical source-lowering source", .{}),
+        else => std.process.fatal("unable to read canonical authoring source", .{}),
     };
     defer b.allocator.free(bytes);
 
     const normalized = normalizeSourceForHashAlloc(b.allocator, bytes) catch
-        std.process.fatal("unable to normalize canonical source-lowering source", .{});
+        std.process.fatal("unable to normalize canonical authoring source", .{});
     defer b.allocator.free(normalized);
 
     var digest = std.mem.zeroes([32]u8);
@@ -3964,12 +3951,12 @@ test "build invocation step detection ignores option values" {
         "global-cache",
         "-p",
         "test",
-        "source-lower",
+        "agent-vm-artifact-report",
         "--",
         "--bogus",
     };
     try std.testing.expect(!buildInvocationRequestsStepInArgs(&prefix_args, "test"));
-    try std.testing.expect(buildInvocationRequestsStepInArgs(&prefix_args, "source-lower"));
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&prefix_args, "agent-vm-artifact-report"));
 
     const maxrss_args = [_][]const u8{
         "build-helper",
@@ -3980,10 +3967,10 @@ test "build invocation step detection ignores option values" {
         "global-cache",
         "--maxrss",
         "test",
-        "source-lower",
+        "agent-vm-artifact-report",
     };
     try std.testing.expect(!buildInvocationRequestsStepInArgs(&maxrss_args, "test"));
-    try std.testing.expect(buildInvocationRequestsStepInArgs(&maxrss_args, "source-lower"));
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&maxrss_args, "agent-vm-artifact-report"));
 }
 
 test "build invocation step detection ignores long prefix values before non-test steps" {
@@ -4154,12 +4141,12 @@ test "build invocation step detection still finds test in mixed-step invocations
         "local-cache",
         "global-cache",
         "test",
-        "source-lower",
+        "agent-vm-artifact-report",
         "--",
         "--seed=123",
     };
     try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
-    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "source-lower"));
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "agent-vm-artifact-report"));
 }
 
 test "build invocation runnable step detection still finds mixed-step test invocations" {
@@ -4171,7 +4158,7 @@ test "build invocation runnable step detection still finds mixed-step test invoc
         "local-cache",
         "global-cache",
         "test",
-        "source-lower",
+        "agent-vm-artifact-report",
         "--",
         "--seed=123",
     };
@@ -4342,20 +4329,20 @@ test "shared-tail no-tail guard rejects mixed no-tail steps without a tail owner
         "build-root",
         "local-cache",
         "global-cache",
-        "source-lower",
+        "agent-vm-artifact-report",
         "check-ability-agent-vm-fixture",
         "--",
         "--bad",
     };
-    const source_lower_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "source-lower");
+    const report_build_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "agent-vm-artifact-report");
     const fixture_check_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "check-ability-agent-vm-fixture");
     const tail_owner_requested = buildInvocationSharedTailOwnerRequested(&.{ false, false });
 
-    try std.testing.expect(!buildInvocationRequestsOnlyStepInArgs(&args, "source-lower"));
+    try std.testing.expect(!buildInvocationRequestsOnlyStepInArgs(&args, "agent-vm-artifact-report"));
     try std.testing.expect(!buildInvocationRequestsOnlyStepInArgs(&args, "check-ability-agent-vm-fixture"));
     try std.testing.expect(unsupportedSharedTailForNoTailStep(
         &.{"--bad"},
-        source_lower_requested,
+        report_build_requested,
         tail_owner_requested,
     ));
     try std.testing.expect(unsupportedSharedTailForNoTailStep(
@@ -4374,19 +4361,19 @@ test "shared-tail no-tail guard ignores discovery-mode no-tail steps" {
         "local-cache",
         "global-cache",
         "--help",
-        "source-lower",
+        "agent-vm-artifact-report",
         "--",
         "--bad",
     };
-    const source_lower_requested: ?bool = buildInvocationRequestsRunnableStepInArgs(&args, "source-lower");
+    const report_build_requested: ?bool = buildInvocationRequestsRunnableStepInArgs(&args, "agent-vm-artifact-report");
     const tail_owner_requested = buildInvocationSharedTailOwnerRequested(&.{ false, false });
 
     try std.testing.expect(buildInvocationSkipsStepExecutionInArgs(&args));
-    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "source-lower"));
-    try std.testing.expectEqual(@as(?bool, false), source_lower_requested);
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "agent-vm-artifact-report"));
+    try std.testing.expectEqual(@as(?bool, false), report_build_requested);
     try std.testing.expect(!unsupportedSharedTailForNoTailStep(
         &.{"--bad"},
-        source_lower_requested,
+        report_build_requested,
         tail_owner_requested,
     ));
 }
@@ -4399,20 +4386,20 @@ test "shared-tail no-tail guard allows selected no-tail steps when a documented 
         "build-root",
         "local-cache",
         "global-cache",
-        "source-lower",
+        "agent-vm-artifact-report",
         "test",
         "--",
         "--seed",
         "123",
     };
-    const source_lower_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "source-lower");
+    const report_build_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "agent-vm-artifact-report");
     const test_requested: ?bool = buildInvocationRequestsRunnableStepInArgs(&args, "test");
     const tail_owner_requested = buildInvocationSharedTailOwnerRequested(&.{ test_requested, false });
 
-    try std.testing.expectEqual(@as(?bool, true), source_lower_requested);
+    try std.testing.expectEqual(@as(?bool, true), report_build_requested);
     try std.testing.expect(!unsupportedSharedTailForNoTailStep(
         &.{ "--seed", "123" },
-        source_lower_requested,
+        report_build_requested,
         tail_owner_requested,
     ));
 }
@@ -4426,19 +4413,19 @@ test "shared-tail no-tail guard allows selected no-tail steps when the fixture g
         "local-cache",
         "global-cache",
         "generate-ability-agent-vm-fixture",
-        "source-lower",
+        "agent-vm-artifact-report",
         "--",
         "--help",
     };
     const fixture_generator_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "generate-ability-agent-vm-fixture");
-    const source_lower_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "source-lower");
+    const report_build_requested: ?bool = buildInvocationRequestsStepInArgs(&args, "agent-vm-artifact-report");
     const tail_owner_requested = buildInvocationSharedTailOwnerRequested(&.{ false, false, fixture_generator_requested });
 
     try std.testing.expectEqual(@as(?bool, true), fixture_generator_requested);
-    try std.testing.expectEqual(@as(?bool, true), source_lower_requested);
+    try std.testing.expectEqual(@as(?bool, true), report_build_requested);
     try std.testing.expect(!unsupportedSharedTailForNoTailStep(
         &.{"--help"},
-        source_lower_requested,
+        report_build_requested,
         tail_owner_requested,
     ));
 }
@@ -4537,7 +4524,7 @@ pub fn build(b: *std.Build) void {
     const skip_execution = buildInvocationSkipsStepExecution();
     const test_requested_from_argv = buildInvocationRequestsRunnableStep("test");
     const lint_requested_from_argv = buildInvocationRequestsRunnableStep("lint");
-    const source_lower_requested = buildInvocationRequestsRunnableStep("source-lower");
+    const report_build_requested = buildInvocationRequestsRunnableStep("agent-vm-artifact-report");
     const agent_vm_report_run_requested = buildInvocationRequestsRunnableStep("run-agent-vm-artifact-report");
     const fixture_check_requested = buildInvocationRequestsRunnableStep("check-ability-agent-vm-fixture");
     const fixture_generator_requested = buildInvocationRequestsRunnableStep("generate-ability-agent-vm-fixture");
@@ -4551,7 +4538,7 @@ pub fn build(b: *std.Build) void {
     const test_requested_opt = test_requested_from_argv orelse inferred_shared_tail.test_requested;
     const lint_requested_opt = lint_requested_from_argv orelse inferred_shared_tail.lint_requested;
     const shared_tail_owner_requested = buildInvocationSharedTailOwnerRequested(&.{ test_requested_opt, lint_requested_opt, fixture_generator_requested });
-    rejectUnsupportedSharedTailForNoTailStep(b, source_lower_requested, shared_tail_owner_requested, "source-lower");
+    rejectUnsupportedSharedTailForNoTailStep(b, report_build_requested, shared_tail_owner_requested, "agent-vm-artifact-report");
     rejectUnsupportedSharedTailForNoTailStep(b, agent_vm_report_run_requested, shared_tail_owner_requested, "run-agent-vm-artifact-report");
     rejectUnsupportedSharedTailForNoTailStep(b, fixture_check_requested, shared_tail_owner_requested, "check-ability-agent-vm-fixture");
     rejectUnsupportedSharedTailForNoTailStep(b, bench_requested, shared_tail_owner_requested, "bench");
@@ -4818,14 +4805,14 @@ pub fn build(b: *std.Build) void {
     authoring_lowerer_options.addOption(bool, "package_root_alias_available", package_root_alias.available);
     authoring_lowerer_options.addOption([]const u8, "repo_zig_paths", repoZigPathRegistry(b));
     authoring_lowerer_options.addOption(bool, "authoring_lowerer_options_marker", lowerer_opts_marker);
-    authoring_lowerer_options.addOption([32]u8, "hash_local_mutation_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/local_mutation_resume.zig"));
-    authoring_lowerer_options.addOption([32]u8, "hash_branch_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/branch_resume.zig"));
-    authoring_lowerer_options.addOption([32]u8, "hash_loop_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/loop_resume.zig"));
-    authoring_lowerer_options.addOption([32]u8, "hash_helper_call_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/helper_call_resume.zig"));
-    authoring_lowerer_options.addOption([32]u8, "hash_nested_prompt_static_redelim", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/nested_prompt_static_redelim.zig"));
-    authoring_lowerer_options.addOption([32]u8, "hash_typed_error_try", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/typed_error_try.zig"));
-    authoring_lowerer_options.addOption([32]u8, "hash_defer_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/defer_resume.zig"));
-    authoring_lowerer_options.addOption([32]u8, "hash_errdefer_error", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/errdefer_error.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_local_mutation_resume", canonicalSourceHash(b, "test/source_authoring_corpus/fixtures/local_mutation_resume.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_branch_resume", canonicalSourceHash(b, "test/source_authoring_corpus/fixtures/branch_resume.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_loop_resume", canonicalSourceHash(b, "test/source_authoring_corpus/fixtures/loop_resume.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_helper_call_resume", canonicalSourceHash(b, "test/source_authoring_corpus/fixtures/helper_call_resume.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_nested_prompt_static_redelim", canonicalSourceHash(b, "test/source_authoring_corpus/fixtures/nested_prompt_static_redelim.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_typed_error_try", canonicalSourceHash(b, "test/source_authoring_corpus/fixtures/typed_error_try.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_defer_resume", canonicalSourceHash(b, "test/source_authoring_corpus/fixtures/defer_resume.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_errdefer_error", canonicalSourceHash(b, "test/source_authoring_corpus/fixtures/errdefer_error.zig"));
     inline for (shipped_open_row_corpus.custom_examples) |row| {
         switch (row.kind) {
             .transform_basic => authoring_lowerer_options.addOption([32]u8, "hash_define_basic", canonicalSourceHash(b, row.source_path)),
@@ -4967,36 +4954,10 @@ pub fn build(b: *std.Build) void {
     private_lowered_runtime_mod.addImport("lowered_machine", lowered_machine_mod);
     private_lowered_runtime_mod.addImport("parity_scenarios", parity_scenarios_mod);
     private_lowered_runtime_mod.addImport("program_bridge", program_bridge_mod);
-    const source_lowering_registry_mod = b.createModule(.{
-        .root_source_file = b.path("src/source_lowering_registry.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    source_lowering_registry_mod.addImport("parity_scenarios", parity_scenarios_mod);
-    const shipped_open_row_corpus_mod = b.createModule(.{
-        .root_source_file = b.path("src/shipped_open_row_corpus_registry.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const source_lowering_mod = b.createModule(.{
-        .root_source_file = b.path("src/source_lowering.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const source_lowering_options = b.addOptions();
-    source_lowering_options.addOption([]const u8, "package_root", b.pathFromRoot("."));
-    source_lowering_mod.addOptions("build_options", source_lowering_options);
-    source_lowering_mod.addImport("effect_ir", effect_ir_mod);
-    source_lowering_mod.addImport("program_frontend", program_frontend_mod);
-    source_lowering_mod.addImport("source_lowering_registry", source_lowering_registry_mod);
-    source_lowering_mod.addImport("parity_scenarios", parity_scenarios_mod);
-    source_lowering_mod.addImport("lowered_machine", lowered_machine_mod);
-    source_lowering_mod.addImport("error_witness", error_witness_mod);
-    source_lowering_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
-    source_lowering_mod.addImport("shipped_open_row_corpus_registry", shipped_open_row_corpus_mod);
     synthetic_lowering_host_mod.addImport("lowering_api", lowering_api_mod);
-    synthetic_lowering_host_mod.addImport("source_lowering", source_lowering_mod);
+    synthetic_lowering_host_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
     lowering_api_mod.addImport("authoring_build_options", authoring_build_options_mod);
+    lowering_api_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
     lowering_api_mod.addImport("effect_ir", effect_ir_mod);
     lowering_api_mod.addImport("lowered_machine", lowered_machine_mod);
     lowering_api_mod.addImport("program_frontend", program_frontend_mod);
@@ -5005,11 +4966,9 @@ pub fn build(b: *std.Build) void {
     lowering_api_mod.addImport("source_graph_comptime", source_graph_comptime_mod);
     lowering_api_mod.addImport("source_graph_engine", source_graph_engine_mod);
     lowering_api_mod.addImport("admitted_body_v1", admitted_body_v1_mod);
-    lowering_api_mod.addImport("source_lowering", source_lowering_mod);
     ir_api_mod.addImport("effect_ir", effect_ir_mod);
     ir_api_mod.addImport("lowering_api", lowering_api_mod);
     ability_compile_api_mod.addImport("lowering_api", lowering_api_mod);
-    ability_mod.addImport("source_lowering", source_lowering_mod);
     ability_shared_mod.addImport("artifact_api", artifact_api_mod);
     ability_shared_mod.addImport("synthetic_ability", synthetic_ability_mod);
     ability_shared_mod.addImport("synthetic_lowering_host", synthetic_lowering_host_mod);
@@ -5029,7 +4988,6 @@ pub fn build(b: *std.Build) void {
     ability_shared_mod.addImport("authoring_build_options", authoring_build_options_mod);
     ability_shared_mod.addImport("source_graph_embed", source_graph_embed_mod);
     ability_shared_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
-    ability_shared_mod.addImport("source_lowering", source_lowering_mod);
     ability_shared_mod.addImport("ir_api", ir_api_mod);
     ability_shared_mod.addImport("lowering_api", lowering_api_mod);
     ability_shared_mod.addImport("ability_compile_api", ability_compile_api_mod);
@@ -5081,7 +5039,6 @@ pub fn build(b: *std.Build) void {
     lib_check.root_module.addImport("source_graph_engine", source_graph_engine_mod);
     lib_check.root_module.addImport("source_graph_comptime", source_graph_comptime_mod);
     lib_check.root_module.addImport("source_graph_embed", source_graph_embed_mod);
-    lib_check.root_module.addImport("source_lowering", source_lowering_mod);
     lib_check.root_module.addImport("error_witness", error_witness_mod);
     check_step.dependOn(&lib_check.step);
 
@@ -5108,7 +5065,6 @@ pub fn build(b: *std.Build) void {
     root_tests.root_module.addImport("source_graph_engine", source_graph_engine_mod);
     root_tests.root_module.addImport("source_graph_comptime", source_graph_comptime_mod);
     root_tests.root_module.addImport("source_graph_embed", source_graph_embed_mod);
-    root_tests.root_module.addImport("source_lowering", source_lowering_mod);
     root_tests.root_module.addImport("error_witness", error_witness_mod);
     root_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
     root_tests.root_module.addImport("frontend_support", frontend_support_mod);
@@ -5353,83 +5309,6 @@ pub fn build(b: *std.Build) void {
     const boundary_tests = addFilteredTest(b, boundary_mod, test_runner_args.filters.items);
     const run_boundary_tests = addRunArtifactWithArgs(b, boundary_tests, test_runner_args.passthrough.items);
 
-    const source_lowering_corpus_mod = b.createModule(.{
-        .root_source_file = b.path("test/source_lowering_corpus_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    source_lowering_corpus_mod.addImport("source_lowering_registry", source_lowering_registry_mod);
-    source_lowering_corpus_mod.addImport("source_lowering", source_lowering_mod);
-    source_lowering_corpus_mod.addImport("lowered_machine", lowered_machine_mod);
-    source_lowering_corpus_mod.addImport("parity_scenarios", parity_scenarios_mod);
-    source_lowering_corpus_mod.addImport("source_fixture_branch_resume", createPlainModule(b, "test/source_lowering_corpus/fixtures/branch_resume.zig", target, optimize));
-    source_lowering_corpus_mod.addImport("source_fixture_defer_resume", createPlainModule(b, "test/source_lowering_corpus/fixtures/defer_resume.zig", target, optimize));
-    source_lowering_corpus_mod.addImport("source_fixture_errdefer_error", createPlainModule(b, "test/source_lowering_corpus/fixtures/errdefer_error.zig", target, optimize));
-    source_lowering_corpus_mod.addImport("source_fixture_helper_call_resume", createPlainModule(b, "test/source_lowering_corpus/fixtures/helper_call_resume.zig", target, optimize));
-    source_lowering_corpus_mod.addImport("source_fixture_local_mutation_resume", createPlainModule(b, "test/source_lowering_corpus/fixtures/local_mutation_resume.zig", target, optimize));
-    source_lowering_corpus_mod.addImport("source_fixture_loop_resume", createPlainModule(b, "test/source_lowering_corpus/fixtures/loop_resume.zig", target, optimize));
-    source_lowering_corpus_mod.addImport("source_fixture_nested_prompt_static_redelim", createPlainModule(b, "test/source_lowering_corpus/fixtures/nested_prompt_static_redelim.zig", target, optimize));
-    source_lowering_corpus_mod.addImport("source_fixture_typed_error_try", createPlainModule(b, "test/source_lowering_corpus/fixtures/typed_error_try.zig", target, optimize));
-    const src_lower_corpus_tests = addFilteredTest(b, source_lowering_corpus_mod, test_runner_args.filters.items);
-    const run_src_lower_corpus_tests = addRunArtifactWithArgs(b, src_lower_corpus_tests, test_runner_args.passthrough.items);
-
-    const source_lowering_boundary_mod = b.createModule(.{
-        .root_source_file = b.path("test/source_lowering_boundary_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    source_lowering_boundary_mod.addImport("source_lowering_registry", source_lowering_registry_mod);
-    source_lowering_boundary_mod.addImport("source_lowering", source_lowering_mod);
-    source_lowering_boundary_mod.addImport("ability", ability_mod);
-    const src_lower_boundary_tests = addFilteredTest(b, source_lowering_boundary_mod, test_runner_args.filters.items);
-    const run_src_lower_boundary_tests = addRunArtifactWithArgs(b, src_lower_boundary_tests, test_runner_args.passthrough.items);
-
-    const src_lower_promoted_mod = b.createModule(.{
-        .root_source_file = b.path("test/source_lowering_promoted_examples_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    src_lower_promoted_mod.addImport("source_lowering", source_lowering_mod);
-    src_lower_promoted_mod.addImport("parity_scenarios", parity_scenarios_mod);
-    const src_lower_promoted_tests = addFilteredTest(b, src_lower_promoted_mod, test_runner_args.filters.items);
-    const run_src_lower_promoted_tests = addRunArtifactWithArgs(b, src_lower_promoted_tests, test_runner_args.passthrough.items);
-
-    const source_lowering_completion_mod = b.createModule(.{
-        .root_source_file = b.path("test/source_lowering_completion_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    source_lowering_completion_mod.addImport("source_lowering", source_lowering_mod);
-    source_lowering_completion_mod.addImport("parity_scenarios", parity_scenarios_mod);
-    source_lowering_completion_mod.addImport("example_resource_basic", createShiftConsumerModule(b, "examples/resource_basic.zig", target, optimize, .{ .ability_mod = ability_mod, .ability_compile_mod = ability_compile_mod, .lowered_runtime_mod = null }));
-    source_lowering_completion_mod.addImport("example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, .{ .ability_mod = ability_mod, .ability_compile_mod = ability_compile_mod, .lowered_runtime_mod = null }));
-    const src_lower_completion_tests = addFilteredTest(b, source_lowering_completion_mod, test_runner_args.filters.items);
-    const run_src_lower_completion_tests = addRunArtifactWithArgs(b, src_lower_completion_tests, test_runner_args.passthrough.items);
-
-    const open_row_lowering_mod = b.createModule(.{
-        .root_source_file = b.path("test/open_row_lowering_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    open_row_lowering_mod.addImport("authoring_build_options", authoring_build_options_mod);
-    open_row_lowering_mod.addImport("effect_ir", effect_ir_mod);
-    open_row_lowering_mod.addImport("source_lowering", source_lowering_mod);
-    open_row_lowering_mod.addImport("program_frontend", program_frontend_mod);
-    open_row_lowering_mod.addImport("ability", ability_mod);
-    open_row_lowering_mod.addImport("ability_compile", ability_compile_mod);
-    open_row_lowering_mod.addImport("example_open_row_escaped_string_helper_body", createShiftConsumerModule(b, "examples/open_row_escaped_string_helper_body.zig", target, optimize, .{ .ability_mod = ability_mod, .ability_compile_mod = ability_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_linear_helper_body", createShiftConsumerModule(b, "examples/open_row_linear_helper_body.zig", target, optimize, .{ .ability_mod = ability_mod, .ability_compile_mod = ability_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_branching_helper_body", createShiftConsumerModule(b, "examples/open_row_branching_helper_body.zig", target, optimize, .{ .ability_mod = ability_mod, .ability_compile_mod = ability_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_cross_file_writer", createShiftConsumerModule(b, "examples/open_row_cross_file_writer.zig", target, optimize, .{ .ability_mod = ability_mod, .ability_compile_mod = ability_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_helper_bool_flow", createShiftConsumerModule(b, "examples/open_row_helper_bool_flow.zig", target, optimize, .{ .ability_mod = ability_mod, .ability_compile_mod = ability_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_helper_value_flow", createShiftConsumerModule(b, "examples/open_row_helper_value_flow.zig", target, optimize, .{ .ability_mod = ability_mod, .ability_compile_mod = ability_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_helper_value_flow_cross", createShiftConsumerModule(b, "examples/open_row_helper_value_flow_cross.zig", target, optimize, .{ .ability_mod = ability_mod, .ability_compile_mod = ability_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(b, "examples/open_row_state_writer.zig", target, optimize, .{ .ability_mod = ability_mod, .ability_compile_mod = ability_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_recursive_writer", createShiftConsumerModule(b, "examples/open_row_recursive_writer.zig", target, optimize, .{ .ability_mod = ability_mod, .ability_compile_mod = ability_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_recursive_cross_writer", createShiftConsumerModule(b, "examples/open_row_recursive_cross_writer.zig", target, optimize, .{ .ability_mod = ability_mod, .ability_compile_mod = ability_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    const open_row_lowering_tests = addFilteredTest(b, open_row_lowering_mod, test_runner_args.filters.items);
-    const run_open_row_lowering_tests = addRunArtifactWithArgs(b, open_row_lowering_tests, test_runner_args.passthrough.items);
-
     const source_ownership_probe_mod = b.createModule(.{
         .root_source_file = b.path("test/source_ownership_probe_test.zig"),
         .target = target,
@@ -5553,43 +5432,6 @@ pub fn build(b: *std.Build) void {
     comptime_string_list_tests.expect_errors = .{ .contains = "public lowering runtime plan rejected string_list values across executable boundaries" };
     run_comptime_contract_tests.step.dependOn(&comptime_string_list_tests.step);
 
-    const src_lower_witness_mod = b.createModule(.{
-        .root_source_file = b.path("test/source_lowering_witness_completion_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    src_lower_witness_mod.addImport("source_lowering", source_lowering_mod);
-    src_lower_witness_mod.addImport("parity_scenarios", parity_scenarios_mod);
-    src_lower_witness_mod.addImport("witness_sources", witness_sources_mod);
-    const src_lower_witness_tests = addFilteredTest(b, src_lower_witness_mod, test_runner_args.filters.items);
-    const run_src_lower_witness_tests = addRunArtifactWithArgs(b, src_lower_witness_tests, test_runner_args.passthrough.items);
-
-    const source_lowering_tool_mod = b.createModule(.{
-        .root_source_file = b.path("tools/ability_source_lower.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const source_lowering_tool_options = b.addOptions();
-    source_lowering_tool_options.addOption([]const u8, "package_root", b.pathFromRoot("."));
-    source_lowering_tool_options.addOption([]const u8, "version", packageVersionAlloc(b));
-    source_lowering_tool_mod.addOptions("tool_build_options", source_lowering_tool_options);
-    source_lowering_tool_mod.addImport("source_lowering", source_lowering_mod);
-    source_lowering_tool_mod.addImport("lowered_machine", lowered_machine_mod);
-    source_lowering_tool_mod.addImport("error_witness", error_witness_mod);
-    const source_lowering_tool_exe = b.addExecutable(.{
-        .name = "ability-source-lower",
-        .root_module = source_lowering_tool_mod,
-    });
-    const source_lowering_tool_install = b.addInstallArtifact(source_lowering_tool_exe, .{});
-    const source_lowering_tool_step = b.step("source-lower", "Build the source-lowering inspection tool.");
-    source_lowering_tool_step.dependOn(&source_lowering_tool_exe.step);
-    source_lowering_tool_step.dependOn(&source_lowering_tool_install.step);
-    const source_lowering_tool_tests = addFilteredTest(b, source_lowering_tool_mod, test_runner_args.filters.items);
-    const run_source_lowering_tool_tests = addRunArtifactWithArgs(
-        b,
-        source_lowering_tool_tests,
-        test_runner_args.passthrough.items,
-    );
     const agent_vm_report_mod = b.createModule(.{
         .root_source_file = b.path("tools/agent_vm_artifact_report.zig"),
         .target = target,
@@ -5826,17 +5668,10 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "prompt-token", .description = "Prompt token contract suite", .run_step = &run_prompt_token_tests.step },
         .{ .suite_id = "portability-contract", .description = "Portability contract suite", .run_step = &run_portability_contract_tests.step },
         .{ .suite_id = "program-frontend-boundary", .description = "Program frontend boundary suite", .run_step = &run_boundary_tests.step },
-        .{ .suite_id = "source-lowering-corpus", .description = "Source lowering corpus suite", .run_step = &run_src_lower_corpus_tests.step },
-        .{ .suite_id = "source-lowering-boundary", .description = "Source lowering boundary suite", .run_step = &run_src_lower_boundary_tests.step },
-        .{ .suite_id = "source-lowering-promoted", .description = "Promoted source lowering cohort", .run_step = &run_src_lower_promoted_tests.step },
-        .{ .suite_id = "source-lowering-completion", .description = "Source lowering completion suite", .run_step = &run_src_lower_completion_tests.step },
-        .{ .suite_id = "source-lowering-tool", .description = "Source lowering inspection CLI suite", .run_step = &run_source_lowering_tool_tests.step },
         .{ .suite_id = "agent-vm-artifact-report", .description = "Agent VM artifact report CLI suite", .run_step = &run_agent_vm_report_tests.step },
-        .{ .suite_id = "open-row-lowering", .description = "Open-row lowering suite", .run_step = &run_open_row_lowering_tests.step },
         .{ .suite_id = "source-ownership-probe", .description = "Source ownership probe suite", .run_step = &run_src_ownership_probe_tests.step },
         .{ .suite_id = "custom-effect-workflow", .description = "Root-public custom effect workflow proof", .run_step = &run_custom_effect_tests.step },
         .{ .suite_id = "comptime-contract", .description = "Public comptime contract suite", .run_step = &run_comptime_contract_tests.step },
-        .{ .suite_id = "source-lowering-witness", .description = "Source lowering witness completion suite", .run_step = &run_src_lower_witness_tests.step },
         .{ .suite_id = "lexical-witness", .description = "Lexical witness suite", .run_step = run_lexical_witness_tests },
         .{ .suite_id = "lexical-with", .description = "Lexical with suite", .run_step = run_lexical_with_tests },
     };
@@ -5963,7 +5798,6 @@ pub fn build(b: *std.Build) void {
     ability_bench_mod.addImport("authoring_build_options", authoring_build_options_mod);
     ability_bench_mod.addImport("source_graph_embed", source_graph_embed_mod);
     ability_bench_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
-    ability_bench_mod.addImport("source_lowering", source_lowering_mod);
     ability_bench_mod.addImport("lowering_api", lowering_api_mod);
     const bench_specs = [_]struct {
         name: []const u8,

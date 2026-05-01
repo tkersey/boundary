@@ -338,7 +338,7 @@ pub fn runStaticRedelim(writer: anytype) anyerror!void {
     const result = try lexical_runtime.with(&runtime, .{
         .outer = ResumeWitness.use(.{ .handler = transcript_static_redelim.OuterHandler{} }),
     }, struct {
-        /// Keep the nested-prompt semantic witness on the canonical witness source-lowering path.
+        /// Keep the nested-prompt semantic witness on the canonical witness source-backed path.
         pub fn body(outer_eff: anytype) anyerror!i32 {
             return witnessStaticRedelimOuterBody(outer_eff);
         }
@@ -384,7 +384,7 @@ pub fn runMultiPrompt(writer: anytype) anyerror!void {
         .outer = ResumeWitness.use(.{ .handler = OuterHandler{} }),
         .inner = ResumeWitness.use(.{ .handler = InnerHandler{} }),
     }, struct {
-        /// Keep the multi-prompt separation witness on the canonical witness source-lowering path.
+        /// Keep the multi-prompt separation witness on the canonical witness source-backed path.
         pub fn body(eff: anytype) anyerror!i32 {
             return witnessMultiPromptBody(eff);
         }

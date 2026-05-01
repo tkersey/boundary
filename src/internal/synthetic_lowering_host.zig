@@ -1,7 +1,7 @@
 // zlinter-disable max_positional_args - synthetic lowering host mirrors the generated packet shape exactly.
+const authoring_lowerer = @import("authoring_lowerer");
 const effect_ir = @import("effect_ir");
 const lowering_api = @import("lowering_api");
-const source_lowering = @import("source_lowering");
 const std = @import("std");
 
 /// Lower one synthetic anonymous-body packet through the dedicated synthetic host module.
@@ -12,7 +12,7 @@ pub fn maybeLowerSyntheticLexicalBody(
     comptime synthetic_path: []const u8,
     comptime synthetic_source: [:0]const u8,
     comptime entry_symbol: []const u8,
-) ?source_lowering.OpenRowGeneratedProgram {
+) ?authoring_lowerer.OpenRowLoweredAuthoring {
     const path_z = std.fmt.comptimePrint("{s}\x00", .{synthetic_path});
     const entry_z = std.fmt.comptimePrint("{s}\x00", .{entry_symbol});
     return lowering_api.maybeLower(

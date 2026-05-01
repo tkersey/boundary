@@ -1,6 +1,6 @@
-/// Stable source-lowering case id.
+/// Stable source-backed case id.
 pub const source_case_id = "source.nested_prompt_static_redelim";
-/// Embedded source text consumed by the source-validated source-lowering checker.
+/// Embedded source text consumed by the source-validated source-backed checker.
 pub const source = @embedFile("nested_prompt_static_redelim.zig");
 
 fn inner(writer: anytype) anyerror!i32 {
@@ -16,7 +16,7 @@ fn outer(writer: anytype) anyerror!i32 {
     return inner_value + 5;
 }
 
-/// Run the nested static re-delimitation case with source-lowering control flow.
+/// Run the nested static re-delimitation case with source-backed control flow.
 pub fn run(writer: anytype) anyerror!void {
     const answer = try outer(writer);
     try writer.print("final={d}\n", .{answer});

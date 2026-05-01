@@ -1,9 +1,9 @@
-/// Stable source-lowering case id.
+/// Stable source-backed case id.
 pub const source_case_id = "source.branch_resume";
-/// Embedded source text consumed by the source-validated source-lowering checker.
+/// Embedded source text consumed by the source-validated source-backed checker.
 pub const source = @embedFile("branch_resume.zig");
 
-/// Run the branch case with source-lowering control flow.
+/// Run the branch case with source-backed control flow.
 pub fn run(writer: anytype) anyerror!void {
     try writer.writeAll("branch=before\n");
     var answer: i32 = 0;

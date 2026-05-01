@@ -183,8 +183,6 @@ test aliases. It keeps coverage on:
 - fast source-ownership and source-backed body witnesses
 - retained `ability_agent_vm` source-path consumer, fixture-freshness, smoke,
   and no-host budget conformance checks
-- source-lowering validation and execution where it still serves retained
-  maintainer compatibility and witness parity
 - interpreter behavior where it still underpins the lexical stack
 
 For focused local iteration, `zig build test -Dtest-suites=<ids>` accepts a
@@ -206,17 +204,10 @@ runtime-contract
 prompt-token
 portability-contract
 program-frontend-boundary
-source-lowering-corpus
-source-lowering-boundary
-source-lowering-promoted
-source-lowering-completion
-source-lowering-tool
 agent-vm-artifact-report
-open-row-lowering
 source-ownership-probe
 custom-effect-workflow
 comptime-contract
-source-lowering-witness
 lexical-witness
 lexical-with
 ```

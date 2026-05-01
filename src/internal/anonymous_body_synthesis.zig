@@ -10,7 +10,7 @@
 const build_options = @import("authoring_build_options");
 const lexical_manifest = @import("lexical_manifest.zig");
 const lowering_api = @import("lowering_api");
-const source_lowering = @import("source_lowering");
+const authoring_lowerer = @import("authoring_lowerer");
 const source_graph_embed = @import("source_graph_embed");
 const source_graph_engine = @import("source_graph_engine");
 const std = @import("std");
@@ -1598,7 +1598,7 @@ pub fn maybeLowerSyntheticLexicalBody(
     comptime synthetic_path: []const u8,
     comptime synthetic_source: [:0]const u8,
     comptime entry_symbol: []const u8,
-) ?source_lowering.OpenRowGeneratedProgram {
+) ?authoring_lowerer.OpenRowLoweredAuthoring {
     return @import("synthetic_lowering_host").maybeLowerSyntheticLexicalBody(
         ValueType,
         lexical_manifest.Manifest(HandlersType).row(),
@@ -1615,7 +1615,7 @@ fn genericMaybeLowerSynthetic(
     comptime synthetic_path: []const u8,
     comptime synthetic_source: [:0]const u8,
     comptime entry_symbol: []const u8,
-) ?source_lowering.OpenRowGeneratedProgram {
+) ?authoring_lowerer.OpenRowLoweredAuthoring {
     const row = comptime lexical_manifest.Manifest(HandlersType).row();
     const outputs = comptime lexical_manifest.Manifest(HandlersType).outputs();
     return lowering_api.maybeLower(

@@ -1,8 +1,8 @@
 const std = @import("std");
 
-/// Stable source-lowering case id.
+/// Stable source-backed case id.
 pub const source_case_id = "source.errdefer_error";
-/// Embedded source text consumed by the source-validated source-lowering checker.
+/// Embedded source text consumed by the source-validated source-backed checker.
 pub const source = @embedFile("errdefer_error.zig");
 
 fn writeCleanup(writer: anytype, line: []const u8) void {
@@ -15,7 +15,7 @@ fn body(writer: anytype) anyerror!void {
     return error.Boom;
 }
 
-/// Run the errdefer case with source-lowering control flow.
+/// Run the errdefer case with source-backed control flow.
 pub fn run(writer: anytype) anyerror!void {
     body(writer) catch |err| switch (err) {
         error.Boom => {
