@@ -147,7 +147,8 @@ fn approvalRuntimeBody(eff: anytype) anyerror![]const u8 {
     });
 }
 
-const approval_runtime_body = struct {
+/// Source-backed runtime carrier for the executable custom approval workflow.
+pub const approval_runtime_body = struct {
     /// Source path for the named runtime carrier used by compiled workflow proof.
     pub const source_path = "examples/custom_approval_workflow.zig";
     /// Entry symbol for the named runtime carrier used by compiled workflow proof.
