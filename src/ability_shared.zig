@@ -25,6 +25,8 @@ pub const Runtime = lowered_machine.Runtime;
 pub const RuntimeError = lowered_machine.RuntimeError;
 /// Public `With` helper retained at the root surface.
 pub const With = with_api.With;
+/// Compile one lexical effect body into a reusable ProgramPlan execution and ArtifactV1 namespace.
+pub const program = with_api.program;
 /// Lower-level `WithFnReturnType` helper retained for root wrappers.
 pub const WithFnReturnType = with_api.WithFnReturnType;
 /// Lower-level `with(...)` helper retained for sibling wrappers.

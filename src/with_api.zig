@@ -1,5 +1,7 @@
 const anonymous_body_synthesis = @import("internal/anonymous_body_synthesis.zig");
+const artifact_api = @import("artifact_api");
 const builtin = @import("builtin");
+const compile_api = @import("ability_compile_api");
 const family = @import("effect/family.zig");
 const lexical_manifest = @import("internal/lexical_manifest.zig");
 const lowered_machine = @import("lowered_machine");
@@ -993,6 +995,7 @@ fn CompiledLexicalProgram(
     comptime source_ref: anytype,
     comptime label: []const u8,
     comptime entry_symbol: []const u8,
+    comptime options: compile_api.CompileOptionsV1,
 ) type {
     comptime {
         @setEvalBranchQuota(10_000_000);
@@ -1011,8 +1014,20 @@ fn CompiledLexicalProgram(
     comptime {
         lowering_api.assertExecutablePlanCodecSupport(compiled_plan);
     }
+    const ArtifactProgram = compile_api.CompilePlan(label, compiled_plan, options);
     const program_type = struct {
-        fn run(
+        /// Semantic plan hash carried through native execution and ArtifactV1.
+        pub const ir_hash = compiled_plan.ir_hash;
+        /// Runtime-owned ProgramPlan compiled from the lexical body and handler schema.
+        pub const runtime_plan = compiled_plan;
+        /// Public run result declaration for this compiled lexical program.
+        pub const Result = WithResult(HandlersType, BodyAnswerType(Body, PreviewBodyEffType(HandlersType)));
+        /// Public semantic error-set declaration for this compiled lexical program.
+        pub const SemanticErrorSet = WithSemanticErrorSet(HandlersType, Body);
+        /// Public execution error-set declaration for this compiled lexical program.
+        pub const ExecutionError = lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)));
+
+        fn runInto(
             runtime: *lowered_machine.Runtime,
             handlers_ptr: *HandlersType,
             outputs_ptr: *OutputBundleType(HandlersType),
@@ -1054,13 +1069,49 @@ fn CompiledLexicalProgram(
             }
             return result.?.value;
         }
+
+        /// Execute this compiled lexical program through native handlers.
+        pub fn run(
+            runtime: *lowered_machine.Runtime,
+            handlers: HandlersType,
+        ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!Result {
+            var handler_state = handlers;
+            var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
+            const value = try runInto(runtime, &handler_state, &outputs);
+            return .{
+                .outputs = outputs,
+                .value = value,
+            };
+        }
+
+        /// Encode the compiled runtime plan into canonical ArtifactV1 bytes.
+        pub fn encodeArtifactV1(allocator: std.mem.Allocator) ![]u8 {
+            return try ArtifactProgram.encodeArtifactV1(allocator);
+        }
+
+        /// Decode ArtifactV1 bytes back into the public artifact surface.
+        pub fn decodeArtifactV1(allocator: std.mem.Allocator, bytes: []const u8) !artifact_api.ArtifactV1 {
+            return try ArtifactProgram.decodeArtifactV1(allocator, bytes);
+        }
+
+        /// Render a readable disassembly for the compiled ArtifactV1 payload.
+        pub fn disasmArtifactV1(allocator: std.mem.Allocator) ![]u8 {
+            return try ArtifactProgram.disasmArtifactV1(allocator);
+        }
+
+        /// Backward-compatible ArtifactV1 encoder alias.
+        pub const encode = encodeArtifactV1;
+        /// Backward-compatible ArtifactV1 decoder alias.
+        pub const decode = decodeArtifactV1;
+        /// Backward-compatible disassembly alias.
+        pub const disasmAlloc = disasmArtifactV1;
     };
     comptime assertCompiledLexicalProgramHasNoStoredFields(program_type);
     return program_type;
 }
 
-fn assertCompiledLexicalProgramHasNoStoredFields(comptime Program: type) void {
-    const info = @typeInfo(Program);
+fn assertCompiledLexicalProgramHasNoStoredFields(comptime ProgramType: type) void {
+    const info = @typeInfo(ProgramType);
     if (info != .@"struct") {
         @compileError("compiled lexical program token must be a private struct namespace");
     }
@@ -1088,6 +1139,187 @@ fn failUnsupportedBody(comptime Body: type) noreturn {
         .{@typeName(Body)},
     ));
 }
+
+fn failUnsupportedProgramBody(comptime Body: type) noreturn {
+    @compileError(std.fmt.comptimePrint(
+        "ability.program could not compile this body shape; external body types must declare source/source_hash/source_file/source_location/source_identity from their owning source bytes: body={s}",
+        .{@typeName(Body)},
+    ));
+}
+
+fn RepoOwnedAnonymousProgramType(
+    comptime label: []const u8,
+    comptime HandlersType: type,
+    comptime Body: type,
+    comptime options: compile_api.CompileOptionsV1,
+) type {
+    const maybe_override = comptime anonymous_body_synthesis.uniqueRepoOwnedAnonymousSourceWithReturnSyntax(
+        Body,
+        .plain_with,
+        compiledBodyReturnSyntax(HandlersType, Body),
+    );
+    const maybe_fallback = comptime anonymous_body_synthesis.uniqueRepoOwnedAnonymousSource(Body, .plain_with);
+    const synthesized = if (maybe_override) |synthesized|
+        synthesized
+    else if (maybe_fallback) |fallback|
+        fallback
+    else
+        failRepoOwnedAnonymousSource(Body);
+    const synthetic_path = comptime syntheticLoweringSourcePath(synthesized.entry_symbol);
+    const source_ref = comptime lowering_api.sourceWithContent(
+        synthetic_path,
+        syntheticSourceLocation(synthetic_path, synthesized.entry_symbol),
+        synthesized.source,
+    );
+    if (comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
+        HandlersType,
+        BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+        synthetic_path,
+        synthesized.source,
+        synthesized.entry_symbol,
+    ) == null) {
+        @compileError(std.fmt.comptimePrint(
+            "ability.program could not compile this repo-owned anonymous body; use a supported lexical body shape or add an explicit source-backed named body: source={s} entry={s}",
+            .{ synthesized.source_path, synthesized.entry_symbol },
+        ));
+    }
+    return CompiledLexicalProgram(HandlersType, Body, source_ref, label, synthesized.entry_symbol, options);
+}
+
+fn SourceBackedAnonymousProgramType(
+    comptime label: []const u8,
+    comptime HandlersType: type,
+    comptime Body: type,
+    comptime options: compile_api.CompileOptionsV1,
+) type {
+    const return_syntax = compiledBodyReturnSyntax(HandlersType, Body);
+    const admission = comptime sourceBackedAnonymousBodyAdmission(Body, return_syntax);
+    const synthesized = comptime anonymous_body_synthesis.sourceBackedAnonymousSourceFromSelection(
+        Body,
+        admission.source,
+        admission.selection,
+        return_syntax,
+    ) orelse @compileError("ability.program source-backed anonymous body source did not contain a unique matching body");
+    const synthetic_path = comptime syntheticLoweringSourcePath(synthesized.entry_symbol);
+    const source_ref = comptime lowering_api.sourceWithContent(
+        synthetic_path,
+        syntheticSourceLocation(synthetic_path, synthesized.entry_symbol),
+        synthesized.source,
+    );
+    if (comptime anonymous_body_synthesis.entryBodyHasBareFunctionCall(synthesized.source, synthesized.entry_symbol)) {
+        @compileError("ability.program source-backed anonymous body uses a helper-call pattern this lowering path cannot compile; inline the effect operation or use a supported source-backed helper shape");
+    }
+    if (comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
+        HandlersType,
+        BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+        synthetic_path,
+        synthesized.source,
+        synthesized.entry_symbol,
+    ) == null) {
+        @compileError("ability.program source-backed anonymous body could not be compiled by the source-backed lowering path; simplify the body to supported effect operations, locals, branches, and helper shapes");
+    }
+    return CompiledLexicalProgram(HandlersType, Body, source_ref, label, synthesized.entry_symbol, options);
+}
+
+fn RepoOwnedNamedProgramType(
+    comptime label: []const u8,
+    comptime HandlersType: type,
+    comptime Body: type,
+    comptime options: compile_api.CompileOptionsV1,
+) type {
+    const source_path = comptime bodyDeclSourcePath(Body) orelse
+        @compileError("ability.program named-body lowering requires Body.source_path");
+    const body_symbol = comptime bodyDeclBodySymbol(Body) orelse
+        @compileError("ability.program named-body lowering requires Body.body_symbol");
+    const entry_symbol = comptime std.fmt.comptimePrint("__ability_with_named_{s}", .{body_symbol});
+    const caller_source = comptime @import("source_graph_embed").embeddedSource(source_path);
+    const synthetic_source = comptime namedBodySyntheticSource(
+        body_symbol,
+        caller_source,
+        entry_symbol,
+        compiledBodyReturnSyntax(HandlersType, Body),
+    );
+    const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
+    const source_ref = comptime lowering_api.sourceWithContent(
+        synthetic_path,
+        syntheticSourceLocation(synthetic_path, entry_symbol),
+        synthetic_source,
+    );
+    if (comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
+        HandlersType,
+        BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+        synthetic_path,
+        synthetic_source,
+        entry_symbol,
+    ) == null) {
+        @compileError(std.fmt.comptimePrint(
+            "ability.program could not lower source-backed named body entry={s} from source={s}; supported shapes are direct effect calls, locals, branches, and validated helper calls. Simplify the unsupported body/helper or verify source/source_hash/source_file/source_location/source_identity all point to this declaration.",
+            .{ entry_symbol, source_path },
+        ));
+    }
+    return CompiledLexicalProgram(HandlersType, Body, source_ref, label, entry_symbol, options);
+}
+
+fn SourceBackedNamedProgramType(
+    comptime label: []const u8,
+    comptime HandlersType: type,
+    comptime Body: type,
+    comptime options: compile_api.CompileOptionsV1,
+) type {
+    const admission = comptime sourceBackedNamedBodyAdmission(Body);
+    const entry_symbol = comptime std.fmt.comptimePrint("__ability_with_named_{s}", .{admission.body_symbol});
+    const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
+    const synthetic_source = comptime anonymous_body_synthesis.syntheticSourceForNamedTypeWithEntry(
+        Body,
+        sourceBackedSyntheticCaller(synthetic_path, entry_symbol),
+        admission.source,
+        admission.body_symbol,
+        entry_symbol,
+        compiledBodyReturnSyntax(HandlersType, Body),
+    ) orelse @compileError("ability.program source-backed named body source did not contain a matching top-level struct declaration");
+    const source_ref = comptime lowering_api.sourceWithContent(
+        synthetic_path,
+        syntheticSourceLocation(synthetic_path, entry_symbol),
+        synthetic_source,
+    );
+    if (comptime anonymous_body_synthesis.entryBodyHasBareFunctionCall(synthetic_source, entry_symbol)) {
+        @compileError("ability.program source-backed named body uses a helper-call pattern this lowering path cannot compile; inline the effect operation or use a supported source-backed helper shape");
+    }
+    if (comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
+        HandlersType,
+        BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+        synthetic_path,
+        synthetic_source,
+        entry_symbol,
+    ) == null) {
+        @compileError("ability.program source-backed named body could not be compiled by the source-backed lowering path; simplify the body to supported effect operations, locals, branches, and helper shapes");
+    }
+    return CompiledLexicalProgram(HandlersType, Body, source_ref, label, entry_symbol, options);
+}
+
+/// Compile one lexical effect body into a reusable ProgramPlan execution and ArtifactV1 namespace.
+pub fn Program(
+    comptime label: []const u8,
+    comptime HandlersType: type,
+    comptime Body: type,
+    comptime options: compile_api.CompileOptionsV1,
+) type {
+    comptime assertHandlerBundleShape(HandlersType);
+    return if (comptime supportsNamedBodyLowering(Body))
+        RepoOwnedNamedProgramType(label, HandlersType, Body, options)
+    else if (comptime supportsSourceBackedNamedBody(Body))
+        SourceBackedNamedProgramType(label, HandlersType, Body, options)
+    else if (comptime bodyDeclSource(Body) != null)
+        SourceBackedAnonymousProgramType(label, HandlersType, Body, options)
+    else if (comptime anonymous_body_synthesis.hasRepoOwnedCandidate(Body))
+        RepoOwnedAnonymousProgramType(label, HandlersType, Body, options)
+    else
+        failUnsupportedProgramBody(Body);
+}
+
+/// Lowercase public alias for `ability.program(...)` at the root API.
+// zlinter-disable-next-line declaration_naming - public API intentionally mirrors lower-case execution verbs.
+pub const program = Program;
 
 fn isAnonymousBodyType(comptime Body: type) bool {
     const name = @typeName(Body);
@@ -1459,8 +1691,9 @@ fn tryRepoOwnedAnonymousCompiledWith(
         source_ref,
         "ability.with repo-owned lexical body",
         synthesized.entry_symbol,
+        .{},
     );
-    return try program_type.run(
+    return try program_type.runInto(
         runtime,
         handlers_ptr,
         outputs_ptr,
@@ -1506,8 +1739,9 @@ fn trySourceBackedAnonymousCompiledWith(
         source_ref,
         "ability.with source-backed anonymous body",
         synthesized.entry_symbol,
+        .{},
     );
-    return try program_type.run(
+    return try program_type.runInto(
         runtime,
         handlers_ptr,
         outputs_ptr,
@@ -1557,8 +1791,9 @@ fn tryRepoOwnedNamedCompiledWith(
         source_ref,
         "ability.with source-backed named body",
         entry_symbol,
+        .{},
     );
-    return try program_type.run(
+    return try program_type.runInto(
         runtime,
         handlers_ptr,
         outputs_ptr,
@@ -1606,8 +1841,9 @@ fn trySourceBackedNamedCompiledWith(
         source_ref,
         "ability.with source-backed named body",
         entry_symbol,
+        .{},
     );
-    return try program_type.run(
+    return try program_type.runInto(
         runtime,
         handlers_ptr,
         outputs_ptr,

@@ -33,6 +33,14 @@ const CompiledFixture = ability.compile(
     LoweredFixture.runtime_plan,
     .{ .stable_build_fingerprint_seed = "ability-comptime-contract-fixture-v1" },
 );
+const CompiledSourceBackedProgram = ability.program(
+    "test.comptime_contract_body",
+    @TypeOf(.{
+        .state = ability.effect.state.use(@as(i32, 7)),
+    }),
+    comptime_contract_body,
+    .{ .stable_build_fingerprint_seed = "ability-comptime-contract-program-v1" },
+);
 
 test "public ability.with source witness exposes a comptime execution contract" {
     const Handlers = @TypeOf(.{
@@ -64,6 +72,49 @@ test "public ability.with source witness exposes a comptime execution contract" 
 
     try std.testing.expectEqual(@as(i32, 9), result.value);
     try std.testing.expectEqual(@as(i32, 9), result.outputs.state);
+}
+
+test "public ability.program exposes a source-backed ProgramPlan execution contract" {
+    comptime {
+        const plan = CompiledSourceBackedProgram.runtime_plan;
+        if (!@hasDecl(CompiledSourceBackedProgram, "ir_hash")) @compileError("compiled source-backed program must expose ir_hash");
+        if (!@hasDecl(CompiledSourceBackedProgram, "runtime_plan")) @compileError("compiled source-backed program must expose runtime_plan");
+        if (!@hasDecl(CompiledSourceBackedProgram, "Result")) @compileError("compiled source-backed program must expose Result");
+        if (!@hasDecl(CompiledSourceBackedProgram, "SemanticErrorSet")) @compileError("compiled source-backed program must expose SemanticErrorSet");
+        if (!@hasDecl(CompiledSourceBackedProgram, "ExecutionError")) @compileError("compiled source-backed program must expose ExecutionError");
+        if (!@hasDecl(CompiledSourceBackedProgram, "run")) @compileError("compiled source-backed program must expose run");
+        if (!@hasDecl(CompiledSourceBackedProgram, "encodeArtifactV1")) @compileError("compiled source-backed program must expose encodeArtifactV1");
+        if (!@hasDecl(CompiledSourceBackedProgram, "decodeArtifactV1")) @compileError("compiled source-backed program must expose decodeArtifactV1");
+        if (!@hasDecl(CompiledSourceBackedProgram, "disasmArtifactV1")) @compileError("compiled source-backed program must expose disasmArtifactV1");
+        if (!@hasDecl(CompiledSourceBackedProgram, "encode")) @compileError("compiled source-backed program must expose encode alias");
+        if (!@hasDecl(CompiledSourceBackedProgram, "decode")) @compileError("compiled source-backed program must expose decode alias");
+        if (!@hasDecl(CompiledSourceBackedProgram, "disasmAlloc")) @compileError("compiled source-backed program must expose disasmAlloc alias");
+        if (!std.mem.eql(u8, plan.label, "test.comptime_contract_body")) @compileError("compiled source-backed program label drifted");
+        if (plan.functions.len == 0) @compileError("compiled source-backed program must keep function rows");
+        if (plan.blocks.len == 0) @compileError("compiled source-backed program must keep block rows");
+        if (plan.terminators.len == 0) @compileError("compiled source-backed program must keep terminator rows");
+        if (plan.instructions.len == 0) @compileError("compiled source-backed program must keep instruction rows");
+        plan.validate() catch |err| @compileError(@errorName(err));
+    }
+
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try CompiledSourceBackedProgram.run(&runtime, .{
+        .state = ability.effect.state.use(@as(i32, 7)),
+    });
+    try std.testing.expectEqual(@as(i32, 9), result.value);
+    try std.testing.expectEqual(@as(i32, 9), result.outputs.state);
+
+    const bytes = try CompiledSourceBackedProgram.encode(std.testing.allocator);
+    defer std.testing.allocator.free(bytes);
+    var decoded = try CompiledSourceBackedProgram.decode(std.testing.allocator, bytes);
+    defer decoded.deinit(std.testing.allocator);
+    try std.testing.expectEqual(CompiledSourceBackedProgram.ir_hash, decoded.semantic_ir_hash64);
+
+    const disasm = try CompiledSourceBackedProgram.disasmAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(disasm);
+    try std.testing.expect(disasm.len > 0);
 }
 
 test "ability root compile exposes a ProgramPlan artifact at comptime" {

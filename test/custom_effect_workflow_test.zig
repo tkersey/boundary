@@ -267,6 +267,22 @@ const PublicHandlers = struct {
     approval: PublicApprovalHandler,
 };
 
+var public_descriptor_context = PublicContext{
+    .exists_value = false,
+    .branch = .deny,
+};
+const PublicDescriptorHandlers = @TypeOf(.{
+    .directory = example.directory.use(.{ .handler = PublicDirectoryHandler{ .ctx = &public_descriptor_context } }),
+    .guard = example.guard.use(.{ .handler = PublicGuardHandler{ .ctx = &public_descriptor_context } }),
+    .approval = example.approval.use(.{ .handler = PublicApprovalHandler{ .ctx = &public_descriptor_context } }),
+});
+const PublicWorkflowProgram = ability.program(
+    "example.custom_approval_workflow.public_program",
+    PublicDescriptorHandlers,
+    example.approval_runtime_body,
+    .{ .stable_build_fingerprint_seed = "custom-approval-workflow-public-program" },
+);
+
 fn runPublicWorkflowCase(
     runtime: *ability.Runtime,
     exists_value: bool,
@@ -290,6 +306,32 @@ fn runPublicWorkflowCase(
         .guard = example.guard.use(.{ .handler = handlers.guard }),
         .approval = example.approval.use(.{ .handler = handlers.approval }),
     }, example.approval_runtime_body);
+    try semantic_trace.recordOutput(&ctx.trace, result.value);
+    return .{
+        .value = result.value,
+        .transcript = ctx.transcript,
+        .trace = ctx.trace,
+    };
+}
+
+fn runProgramWorkflowCase(
+    runtime: *ability.Runtime,
+    exists_value: bool,
+    branch: DirectBranch,
+) anyerror!struct {
+    value: []const u8,
+    transcript: ExpectedTranscript,
+    trace: semantic_trace.Snapshot,
+} {
+    var ctx = PublicContext{
+        .exists_value = exists_value,
+        .branch = branch,
+    };
+    const result = try PublicWorkflowProgram.run(runtime, .{
+        .directory = example.directory.use(.{ .handler = PublicDirectoryHandler{ .ctx = &ctx } }),
+        .guard = example.guard.use(.{ .handler = PublicGuardHandler{ .ctx = &ctx } }),
+        .approval = example.approval.use(.{ .handler = PublicApprovalHandler{ .ctx = &ctx } }),
+    });
     try semantic_trace.recordOutput(&ctx.trace, result.value);
     return .{
         .value = result.value,
@@ -453,6 +495,36 @@ test "custom approval workflow source lowers to executable ProgramPlan" {
     }
 
     try LoweredWorkflow.runtime_plan.validate();
+}
+
+test "custom approval workflow public program exposes executable ProgramPlan and ArtifactV1" {
+    comptime {
+        const plan = PublicWorkflowProgram.runtime_plan;
+        if (!std.mem.eql(u8, plan.label, "example.custom_approval_workflow.public_program")) @compileError("public workflow program label drifted");
+        if (plan.functions.len == 0) @compileError("public workflow program must include lowered function rows");
+        if (plan.blocks.len == 0) @compileError("public workflow program must include executable blocks");
+        if (plan.terminators.len == 0) @compileError("public workflow program must include executable terminators");
+        if (plan.instructions.len == 0) @compileError("public workflow program must include executable instructions");
+        plan.validate() catch |err| @compileError(@errorName(err));
+    }
+
+    var public_runtime = ability.Runtime.init(std.testing.allocator);
+    defer public_runtime.deinit();
+    var program_runtime = ability.Runtime.init(std.testing.allocator);
+    defer program_runtime.deinit();
+
+    const public_result = try runPublicWorkflowCase(&public_runtime, true, .approve);
+    const program_result = try runProgramWorkflowCase(&program_runtime, true, .approve);
+    try std.testing.expectEqualStrings(public_result.value, program_result.value);
+    try expectTranscript(public_result.transcript, program_result.transcript);
+    try semantic_trace.expectEqualSnapshot(public_result.trace, program_result.trace);
+
+    const bytes = try PublicWorkflowProgram.encode(std.testing.allocator);
+    defer std.testing.allocator.free(bytes);
+    var decoded_with_plan = try ability_compile.artifact.decodeWithProgramPlan(std.testing.allocator, bytes);
+    defer decoded_with_plan.deinit(std.testing.allocator);
+    try std.testing.expectEqual(PublicWorkflowProgram.ir_hash, decoded_with_plan.artifact.semantic_ir_hash64);
+    try decoded_with_plan.plan.validate();
 }
 
 test "custom approval workflow agrees across public and direct ProgramPlan approval branches" {

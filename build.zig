@@ -4887,6 +4887,8 @@ pub fn build(b: *std.Build) void {
     with_api_mod.addImport("synthetic_ability", synthetic_ability_mod);
     with_api_mod.addImport("synthetic_lowering_host", synthetic_lowering_host_mod);
     with_api_mod.addImport("frontend_support", frontend_support_mod);
+    with_api_mod.addImport("artifact_api", artifact_api_mod);
+    with_api_mod.addImport("ability_compile_api", ability_compile_api_mod);
     with_api_mod.addImport("lowered_machine", lowered_machine_mod);
     with_api_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     with_api_mod.addImport("authoring_build_options", authoring_build_options_mod);
