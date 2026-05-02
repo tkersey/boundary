@@ -88,6 +88,10 @@ pub fn parseErrorOutputFormat(args: []const []const u8) OutputFormat {
     var index: usize = 1;
     while (index < args.len) : (index += 1) {
         const arg = args[index];
+        if (std.mem.eql(u8, arg, "--artifact")) {
+            if (index + 1 < args.len) index += 1;
+            continue;
+        }
         if (std.mem.eql(u8, arg, "--json")) return .json;
         if (std.mem.eql(u8, arg, "--format")) {
             if (index + 1 < args.len) {
@@ -129,7 +133,7 @@ pub fn parseArgs(args: []const []const u8) ParseArgsResult {
         const arg = args[index];
         if (std.mem.eql(u8, arg, "--artifact")) {
             if (saw_artifact) return .{ .invalid = "duplicate --artifact flag" };
-            if (index + 1 >= args.len or isKnownFlag(args[index + 1])) {
+            if (index + 1 >= args.len) {
                 return .{ .invalid = "missing required --artifact <path>" };
             }
             saw_artifact = true;
@@ -178,7 +182,7 @@ pub fn parseArgs(args: []const []const u8) ParseArgsResult {
     return .{ .artifact = request };
 }
 
-fn isKnownFlag(arg: []const u8) bool {
+fn isKnownFlagName(arg: []const u8) bool {
     return std.mem.eql(u8, arg, "--artifact") or
         std.mem.eql(u8, arg, "--format") or
         std.mem.eql(u8, arg, "--json") or
@@ -222,6 +226,18 @@ pub fn artifactReadFailureVerdict(err: anyerror) Verdict {
             else => "artifact file could not be read: pass an existing readable ArtifactV1 file with --artifact <path>",
         },
     };
+}
+
+/// Convert a file-read failure into a stable verdict with path-sensitive recovery.
+pub fn artifactReadFailureVerdictForPath(err: anyerror, path: []const u8) Verdict {
+    if (err == error.FileNotFound and isKnownFlagName(path)) {
+        return .{
+            .status = .invalid,
+            .code = "artifact_read_failed",
+            .detail = "artifact path looks like an option flag; provide a real path after --artifact, and put report options before or after that path",
+        };
+    }
+    return artifactReadFailureVerdict(err);
 }
 
 /// Read one ArtifactV1 payload unless its file size already exceeds the fixed profile.
@@ -384,8 +400,7 @@ fn writeVerdict(writer: anytype, verdict: Verdict) !void {
     );
 }
 
-fn writeJsonString(writer: anytype, value: []const u8) !void {
-    try writer.writeByte('"');
+fn writeJsonStringContents(writer: anytype, value: []const u8) !void {
     for (value) |byte| switch (byte) {
         '"' => try writer.writeAll("\\\""),
         '\\' => try writer.writeAll("\\\\"),
@@ -398,7 +413,31 @@ fn writeJsonString(writer: anytype, value: []const u8) !void {
         14...31 => try writer.print("\\u00{x:0>2}", .{byte}),
         else => try writer.writeByte(byte),
     };
+}
+
+fn writeJsonString(writer: anytype, value: []const u8) !void {
     try writer.writeByte('"');
+    try writeJsonStringContents(writer, value);
+    try writer.writeByte('"');
+}
+
+fn writeJsonParseArgVerdict(
+    writer: anytype,
+    status: VerdictStatus,
+    code: []const u8,
+    prefix: []const u8,
+    arg: []const u8,
+    suffix: []const u8,
+) !void {
+    try writer.writeAll("{\"schema_version\":1,\"status\":");
+    try writeJsonString(writer, @tagName(status));
+    try writer.writeAll(",\"code\":");
+    try writeJsonString(writer, code);
+    try writer.writeAll(",\"detail\":\"");
+    try writeJsonStringContents(writer, prefix);
+    try writeJsonStringContents(writer, arg);
+    try writeJsonStringContents(writer, suffix);
+    try writer.writeAll("\"}\n");
 }
 
 fn writeJsonVerdict(writer: anytype, verdict: Verdict) !void {
@@ -458,11 +497,7 @@ pub fn main(init: std.process.Init) anyerror!void {
             if (parseErrorOutputFormat(args) == .json) {
                 var stdout_buffer: [512]u8 = undefined;
                 var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
-                try writeJsonVerdict(&stdout_writer.interface, .{
-                    .status = .invalid,
-                    .code = "unexpected_arg",
-                    .detail = "unexpected argument; run --help for supported flags",
-                });
+                try writeJsonParseArgVerdict(&stdout_writer.interface, .invalid, "unexpected_arg", "unexpected argument: ", arg, "; run --help for supported flags");
                 try stdout_writer.interface.flush();
                 std.process.exit(2);
             }
@@ -480,11 +515,7 @@ pub fn main(init: std.process.Init) anyerror!void {
             if (parseErrorOutputFormat(args) == .json) {
                 var stdout_buffer: [512]u8 = undefined;
                 var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
-                try writeJsonVerdict(&stdout_writer.interface, .{
-                    .status = .invalid,
-                    .code = "unknown_arg",
-                    .detail = "unknown argument; run --help for supported flags",
-                });
+                try writeJsonParseArgVerdict(&stdout_writer.interface, .invalid, "unknown_arg", "unknown argument: ", arg, "; run --help for supported flags");
                 try stdout_writer.interface.flush();
                 std.process.exit(2);
             }
@@ -503,13 +534,20 @@ pub fn main(init: std.process.Init) anyerror!void {
                 if (request.format == .json) {
                     var stdout_buffer: [512]u8 = undefined;
                     var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
-                    try writeJsonVerdict(&stdout_writer.interface, artifactReadFailureVerdict(err));
+                    try writeJsonVerdict(&stdout_writer.interface, artifactReadFailureVerdictForPath(err, request.path));
                     try stdout_writer.interface.flush();
                     std.process.exit(2);
                 }
                 var stderr_buffer: [512]u8 = undefined;
                 var stderr_writer = std.Io.File.stderr().writerStreaming(init.io, &stderr_buffer);
                 const stderr = &stderr_writer.interface;
+                if (err == error.FileNotFound and isKnownFlagName(request.path)) {
+                    try stderr.writeAll("agent-vm-artifact-report: artifact path looks like an option flag: ");
+                    try writeEscapedDiagnosticValue(stderr, request.path);
+                    try stderr.writeAll(". Provide a real path after --artifact, and put report options before or after that path.\n");
+                    try stderr.flush();
+                    std.process.exit(2);
+                }
                 try stderr.writeAll("agent-vm-artifact-report: artifact file could not be read: ");
                 try writeEscapedDiagnosticValue(stderr, request.path);
                 try stderr.print(" ({s}). Pass an existing ArtifactV1 file with --artifact <path>, or use `zig build run-agent-vm-artifact-report -Dagent-vm-artifact=<path>`.\n", .{@errorName(err)});
@@ -566,6 +604,19 @@ test "ArtifactV1 decoder detail has actionable oversized and fallback recovery" 
     );
 }
 
+test "artifact read failures explain option-looking paths" {
+    const paths = [_][]const u8{ "--json", "--help", "--format" };
+    for (paths) |path| {
+        const verdict = artifactReadFailureVerdictForPath(error.FileNotFound, path);
+        try std.testing.expectEqual(VerdictStatus.invalid, verdict.status);
+        try std.testing.expectEqualStrings("artifact_read_failed", verdict.code);
+        try std.testing.expectEqualStrings(
+            "artifact path looks like an option flag; provide a real path after --artifact, and put report options before or after that path",
+            verdict.detail,
+        );
+    }
+}
+
 test "JSON verdict escapes strings and includes stable fields" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
@@ -584,10 +635,27 @@ test "JSON verdict escapes strings and includes stable fields" {
     );
 }
 
+test "JSON parse errors include the offending argument" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+
+    try writeJsonParseArgVerdict(&output.writer, .invalid, "unknown_arg", "unknown argument: ", "--bad\nflag", "; run --help for supported flags");
+    const bytes = try output.toOwnedSlice();
+    defer std.testing.allocator.free(bytes);
+
+    try std.testing.expectEqualStrings(
+        "{\"schema_version\":1,\"status\":\"invalid\",\"code\":\"unknown_arg\",\"detail\":\"unknown argument: --bad\\nflag; run --help for supported flags\"}\n",
+        bytes,
+    );
+}
+
 test "json parse-error mode is detected before artifact request success" {
     try std.testing.expectEqual(OutputFormat.json, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--json", "--bad" }));
     try std.testing.expectEqual(OutputFormat.json, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "json", "--bad" }));
     try std.testing.expectEqual(OutputFormat.json, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "--json", "--bad" }));
+    try std.testing.expectEqual(OutputFormat.json, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--json", "--artifact", "--help", "--bad" }));
+    try std.testing.expectEqual(OutputFormat.json, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--artifact", "--help", "--format", "json", "--bad" }));
+    try std.testing.expectEqual(OutputFormat.text, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--artifact", "--json", "--bad" }));
     try std.testing.expectEqual(OutputFormat.text, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "text", "--bad" }));
     try std.testing.expectEqual(OutputFormat.text, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "bad", "--bad" }));
 }

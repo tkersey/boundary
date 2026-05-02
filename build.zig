@@ -2780,14 +2780,14 @@ fn boundaryAliasRoot(b: *std.Build) []const u8 {
     return scratchRootPath(b, ".ability_aliases");
 }
 
-fn clearAliasPath(alias_path: []const u8, dir_error: []const u8, path_error: []const u8) void {
+fn clearAliasPath(alias_path: []const u8, path_error: []const u8) bool {
     const io = compatIo();
     std.Io.Dir.deleteFileAbsolute(io, alias_path) catch |err| switch (err) {
-        error.FileNotFound => {},
-        error.IsDir => std.Io.Dir.cwd().deleteTree(io, alias_path) catch
-            std.process.fatal("{s}", .{dir_error}),
+        error.FileNotFound => return true,
+        error.IsDir => return false,
         else => std.process.fatal("{s}", .{path_error}),
     };
+    return true;
 }
 
 fn packageRootAlias(b: *std.Build) PackageRootAlias {
@@ -2809,7 +2809,7 @@ fn packageRootAlias(b: *std.Build) PackageRootAlias {
     const existing_target_len = std.Io.Dir.readLinkAbsolute(b.graph.io, alias_path, &link_buffer) catch |err| switch (err) {
         error.FileNotFound => null,
         else => blk: {
-            clearAliasPath(alias_path, "unable to clear package-root alias directory", "unable to clear package-root alias path");
+            if (!clearAliasPath(alias_path, "unable to clear package-root alias path")) return .{ .path = repo_root, .available = false };
             break :blk null;
         },
     };
@@ -2821,7 +2821,7 @@ fn packageRootAlias(b: *std.Build) PackageRootAlias {
         };
     }
 
-    clearAliasPath(alias_path, "unable to clear package-root alias directory", "unable to clear package-root alias path");
+    if (!clearAliasPath(alias_path, "unable to clear package-root alias path")) return .{ .path = repo_root, .available = false };
     std.Io.Dir.symLinkAbsolute(b.graph.io, repo_root, alias_path, .{}) catch
         return .{ .path = repo_root, .available = false };
     return .{
@@ -4350,6 +4350,25 @@ test "shared-tail no-tail guard rejects mixed no-tail steps without a tail owner
         fixture_check_requested,
         tail_owner_requested,
     ));
+}
+
+test "clearAliasPath refuses to recursively delete a directory" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.createDir(std.testing.io, "alias", .default_dir);
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "alias/marker",
+        .data = "keep",
+    });
+
+    var tmp_path_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const tmp_path_len = try tmp.dir.realPath(std.testing.io, &tmp_path_buffer);
+    const alias_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ tmp_path_buffer[0..tmp_path_len], "alias" });
+    defer std.testing.allocator.free(alias_path);
+
+    try std.testing.expect(!clearAliasPath(alias_path, "unexpected path cleanup failure"));
+    try tmp.dir.access(std.testing.io, "alias/marker", .{});
 }
 
 test "shared-tail no-tail guard ignores discovery-mode no-tail steps" {
