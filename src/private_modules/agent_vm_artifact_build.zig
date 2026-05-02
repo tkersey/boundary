@@ -1273,7 +1273,7 @@ test "ArtifactV1 validation maps runtime plan errors into the decode domain" {
         .instructions = &.{},
     };
 
-    try std.testing.expectError(error.InvalidProgramPlan, validateWithProgramPlan(artifact, allocator, invalid_plan, null));
+    try std.testing.expectError(error.UnsupportedSchemaVersion, validateWithProgramPlan(artifact, allocator, invalid_plan, null));
 }
 
 fn validateExecutableCodecSupport(plan: program_plan.ProgramPlan) !void {
