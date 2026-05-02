@@ -2,6 +2,7 @@
 const lexical_bundle_schema = @import("lexical_bundle_schema.zig");
 const lexical_compile_input = @import("lexical_compile_input.zig");
 const lexical_executable_bundle = @import("lexical_executable_bundle.zig");
+const program_plan = @import("internal_program_plan");
 const std = @import("std");
 
 /// Canonical manifest for one lexical handler bundle on the compiled-path boundary.
@@ -25,6 +26,10 @@ pub fn Manifest(comptime HandlersType: type) type {
             };
         }
 
+        pub fn enrichPlan(comptime plan: program_plan.ProgramPlan) program_plan.ProgramPlan {
+            return program_plan.enrichPlanWithBindingSchemasExact(plan, BindingSchemas);
+        }
+
         pub fn fromLexicalState(lexical_state: anytype) ExecutableBundle {
             return lexical_executable_bundle.fromLexicalState(lexical_state);
         }
@@ -36,6 +41,7 @@ pub fn Manifest(comptime HandlersType: type) type {
 }
 
 test "lexical manifest unifies compile input and executable bundle for built-in handlers" {
+    const effect_ir = @import("effect_ir");
     const lowered_machine = @import("lowered_machine");
     const state = @import("../effect/state.zig");
     const writer = @import("../effect/writer.zig");
@@ -48,6 +54,25 @@ test "lexical manifest unifies compile input and executable bundle for built-in 
 
     try std.testing.expectEqual(@as(usize, 2), manifest_shape.row().requirements.len);
     try std.testing.expectEqual(@as(usize, 2), manifest_shape.outputs().len);
+
+    const base_plan = try program_plan.planFromProgram("lexical_manifest.enriched", effect_ir.Program{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = .{
+                .module_path = "test/lexical_manifest_enriched.zig",
+                .symbol_name = "runBody",
+            },
+            .row = manifest_shape.row(),
+            .ValueType = i32,
+            .outputs = manifest_shape.outputs(),
+        }},
+        .call_edges = &.{},
+    });
+    const enriched = manifest_shape.enrichPlan(base_plan);
+    try std.testing.expectEqual(program_plan.RequirementLifecycleTag.state_cell, enriched.requirements[0].lifecycle_tag);
+    try std.testing.expectEqual(program_plan.RequirementOutputTag.final_state, enriched.requirements[0].output_tag);
+    try std.testing.expectEqual(program_plan.RequirementLifecycleTag.writer_accumulator, enriched.requirements[1].lifecycle_tag);
+    try std.testing.expectEqual(program_plan.RequirementOutputTag.accumulator, enriched.requirements[1].output_tag);
 
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();

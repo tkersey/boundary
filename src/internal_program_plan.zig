@@ -40,5 +40,9 @@ pub const hasPayload = inner.hasPayload;
 pub const irHashForProgram = inner.irHashForProgram;
 /// Re-exported row-only plan lowering entrypoint.
 pub const planFromProgram = inner.planFromProgram;
+/// Re-exported permissive binding-schema metadata enrichment.
+pub const enrichPlanWithBindingSchemas = inner.enrichPlanWithBindingSchemas;
+/// Re-exported exact binding-schema metadata enrichment.
+pub const enrichPlanWithBindingSchemasExact = inner.enrichPlanWithBindingSchemasExact;
 /// Re-exported legacy plan upgrader.
 pub const upgradeLegacyProgramPlan = inner.upgradeLegacyProgramPlan;
