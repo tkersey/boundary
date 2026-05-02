@@ -2165,10 +2165,17 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
     return plan;
 }
 
+fn BindingSchemaFamily(comptime BindingSchema: type) type {
+    if (@hasDecl(BindingSchema, "family")) return BindingSchema.family;
+    if (@hasDecl(BindingSchema, "Family")) return BindingSchema.Family;
+    @compileError("binding schema must declare family or Family");
+}
+
 fn bindingFamilyForLabel(comptime binding_schemas: anytype, comptime label: []const u8) ?type {
-    inline for (binding_schemas) |binding_schema| {
-        const binding_schema_type = if (@TypeOf(binding_schema) == type) binding_schema else @TypeOf(binding_schema);
-        if (std.mem.eql(u8, binding_schema_type.requirement_label, label)) return binding_schema_type.family;
+    const BindingSchemasType = if (@TypeOf(binding_schemas) == type) binding_schemas else @TypeOf(binding_schemas);
+    inline for (@typeInfo(BindingSchemasType).@"struct".fields) |field| {
+        const BindingSchemaType = if (field.type == type) @field(binding_schemas, field.name) else field.type;
+        if (std.mem.eql(u8, BindingSchemaType.requirement_label, label)) return BindingSchemaFamily(BindingSchemaType);
     }
     return null;
 }
@@ -2183,15 +2190,26 @@ fn requirementOutputFromBindingSchema(comptime FamilySchema: type) RequirementOu
         @compileError("binding schema output tag must map to RequirementOutputTag");
 }
 
-/// Attach binding-derived lifecycle and output metadata to a runtime-owned plan.
-pub fn enrichPlanWithBindingSchemas(
+const BindingSchemaEnrichmentMode = enum {
+    exact,
+    permissive,
+};
+
+fn enrichPlanWithBindingSchemasMode(
     comptime base_plan: ProgramPlan,
     comptime binding_schemas: anytype,
+    comptime mode: BindingSchemaEnrichmentMode,
 ) ProgramPlan {
     const enriched_requirements = comptime blk: {
         var buffer: [base_plan.requirements.len]RequirementPlan = undefined;
         for (base_plan.requirements, 0..) |requirement, index| {
             const family_schema = bindingFamilyForLabel(binding_schemas, requirement.label);
+            if (family_schema == null and mode == .exact) {
+                @compileError(std.fmt.comptimePrint(
+                    "exact ProgramPlan binding enrichment missing schema for requirement '{s}'",
+                    .{requirement.label},
+                ));
+            }
             buffer[index] = .{
                 .label = requirement.label,
                 .first_op = requirement.first_op,
@@ -2218,6 +2236,22 @@ pub fn enrichPlanWithBindingSchemas(
         .terminators = base_plan.terminators,
         .instructions = base_plan.instructions,
     };
+}
+
+/// Attach binding-derived lifecycle and output metadata where matching schemas exist.
+pub fn enrichPlanWithBindingSchemas(
+    comptime base_plan: ProgramPlan,
+    comptime binding_schemas: anytype,
+) ProgramPlan {
+    return enrichPlanWithBindingSchemasMode(base_plan, binding_schemas, .permissive);
+}
+
+/// Attach binding-derived lifecycle and output metadata, rejecting any unmatched requirement.
+pub fn enrichPlanWithBindingSchemasExact(
+    comptime base_plan: ProgramPlan,
+    comptime binding_schemas: anytype,
+) ProgramPlan {
+    return enrichPlanWithBindingSchemasMode(base_plan, binding_schemas, .exact);
 }
 
 test "binding schema enrichment preserves plan shape while attaching lifecycle metadata" {
@@ -2303,6 +2337,19 @@ test "binding schema enrichment preserves plan shape while attaching lifecycle m
     try std.testing.expectEqual(RequirementOutputTag.final_state, enriched.requirements[0].output_tag);
     try std.testing.expectEqual(RequirementLifecycleTag.writer_accumulator, enriched.requirements[1].lifecycle_tag);
     try std.testing.expectEqual(RequirementOutputTag.accumulator, enriched.requirements[1].output_tag);
+
+    const exact = enrichPlanWithBindingSchemasExact(base_plan, .{
+        struct {
+            const requirement_label = "state";
+            const family = state_family;
+        },
+        struct {
+            const requirement_label = "writer";
+            const family = writer_family;
+        },
+    });
+    try std.testing.expectEqual(RequirementLifecycleTag.state_cell, exact.requirements[0].lifecycle_tag);
+    try std.testing.expectEqual(RequirementOutputTag.accumulator, exact.requirements[1].output_tag);
 }
 
 /// Lower one body-bearing open-row program into a runtime-owned executable plan shape.

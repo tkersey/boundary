@@ -257,6 +257,83 @@ fn isEmptyStructType(comptime T: type) bool {
     };
 }
 
+fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
+    return switch (@typeInfo(T)) {
+        .@"struct", .@"union", .@"enum", .@"opaque" => @hasDecl(T, name),
+        else => false,
+    };
+}
+
+fn assertOpSchema(comptime OpSchema: type) void {
+    if (!hasDeclSafe(OpSchema, "name") or OpSchema.name.len == 0) {
+        @compileError("effect op schema must declare a non-empty name");
+    }
+    if (!hasDeclSafe(OpSchema, "control_mode")) {
+        @compileError("effect op schema must declare control_mode");
+    }
+    if (!hasDeclSafe(OpSchema, "Payload")) {
+        @compileError("effect op schema must declare Payload");
+    }
+    if (!hasDeclSafe(OpSchema, "Resume")) {
+        @compileError("effect op schema must declare Resume");
+    }
+    if (!hasDeclSafe(OpSchema, "after")) {
+        @compileError("effect op schema must declare after strategy");
+    }
+    if (OpSchema.control_mode == .abort and OpSchema.after != .none) {
+        @compileError("abort op schemas cannot declare after hooks");
+    }
+}
+
+pub fn assertFamilySchema(comptime FamilySchema: type) void {
+    inline for (.{
+        "logical_family_name",
+        "lifecycle_tag",
+        "ErrorSet",
+        "State",
+        "Item",
+        "Output",
+        "output",
+        "ops",
+        "op_count",
+    }) |decl_name| {
+        if (!hasDeclSafe(FamilySchema, decl_name)) {
+            @compileError("effect family schema is missing " ++ decl_name);
+        }
+    }
+    if (FamilySchema.logical_family_name.len == 0) {
+        @compileError("effect family schema must declare a non-empty logical_family_name");
+    }
+    if (FamilySchema.op_count != FamilySchema.ops.len) {
+        @compileError("effect family schema op_count must match ops.len");
+    }
+    inline for (FamilySchema.ops) |OpSchema| {
+        assertOpSchema(OpSchema);
+    }
+}
+
+pub fn assertBindingSchema(comptime BindingSchema: type) void {
+    if (!hasDeclSafe(BindingSchema, "requirement_label") or BindingSchema.requirement_label.len == 0) {
+        @compileError("effect binding schema must declare a non-empty requirement_label");
+    }
+    if (!hasDeclSafe(BindingSchema, "Family") and !hasDeclSafe(BindingSchema, "family")) {
+        @compileError("effect binding schema must declare Family or family");
+    }
+    if (!hasDeclSafe(BindingSchema, "Handler")) {
+        @compileError("effect binding schema must declare Handler");
+    }
+    if (hasDeclSafe(BindingSchema, "Family") and hasDeclSafe(BindingSchema, "family") and BindingSchema.Family != BindingSchema.family) {
+        @compileError("effect binding schema Family and family aliases must match");
+    }
+    assertFamilySchema(BindingSchemaFamily(BindingSchema));
+}
+
+fn BindingSchemaFamily(comptime BindingSchema: type) type {
+    if (hasDeclSafe(BindingSchema, "Family")) return BindingSchema.Family;
+    if (hasDeclSafe(BindingSchema, "family")) return BindingSchema.family;
+    @compileError("effect binding schema must declare Family or family");
+}
+
 fn generatedSchemaOp(comptime GeneratedOp: type) type {
     return op(
         GeneratedOp.op_name,
@@ -366,7 +443,9 @@ pub fn Binding(
 }
 
 pub fn row(comptime BindingSchema: type) effect_ir.Row {
-    const ops = BindingSchema.Family.ops;
+    comptime assertBindingSchema(BindingSchema);
+    const FamilySchema = BindingSchemaFamily(BindingSchema);
+    const ops = FamilySchema.ops;
     const requirement_ops = comptime blk: {
         var buffer: [ops.len]effect_ir.OpSpec = undefined;
         for (ops, 0..) |OpSchema, index| {
@@ -393,17 +472,20 @@ pub fn row(comptime BindingSchema: type) effect_ir.Row {
 }
 
 pub fn outputs(comptime BindingSchema: type) []const effect_ir.OutputSpec {
-    return switch (BindingSchema.Family.output) {
+    comptime assertBindingSchema(BindingSchema);
+    const FamilySchema = BindingSchemaFamily(BindingSchema);
+    return switch (FamilySchema.output) {
         .none => &.{},
         .final_state, .accumulator, .custom_finalizer => &.{.{
             .label = BindingSchema.requirement_label,
-            .OutputType = BindingSchema.Family.Output,
+            .OutputType = FamilySchema.Output,
         }},
     };
 }
 
 test "state cell schema captures final-state output" {
     const Schema = state_cell(i32, error{});
+    comptime assertFamilySchema(Schema);
     try std.testing.expectEqual(LifecycleTag.state_cell, Schema.lifecycle_tag);
     try std.testing.expectEqual(OutputTag.final_state, Schema.output);
     try std.testing.expectEqualStrings("get", Schema.ops[0].name);
@@ -447,6 +529,20 @@ test "binding lowers schema to logical requirement and output labels" {
     const lowered_outputs = outputs(StateBinding);
     try std.testing.expectEqual(@as(usize, 1), lowered_outputs.len);
     try std.testing.expectEqualStrings("state", lowered_outputs[0].label);
+}
+
+test "lower-case family binding alias lowers row and outputs" {
+    const StateFamily = state_cell(i32, error{});
+    const StateBinding = struct {
+        pub const requirement_label: [:0]const u8 = "state";
+        pub const family = StateFamily;
+        pub const Handler = void;
+    };
+    const lowered_row = row(StateBinding);
+    try std.testing.expectEqualStrings("state", lowered_row.requirements[0].label);
+    const lowered_outputs = outputs(StateBinding);
+    try std.testing.expectEqual(@as(usize, 1), lowered_outputs.len);
+    try std.testing.expectEqual(i32, lowered_outputs[0].OutputType);
 }
 
 test "generated-family binding resolves optional after hooks from the handler type" {

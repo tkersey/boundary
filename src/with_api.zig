@@ -997,7 +997,7 @@ fn CompiledLexicalProgram(
     comptime {
         @setEvalBranchQuota(10_000_000);
     }
-    const compiled_plan = comptime lowering_api.lower(
+    const raw_compiled_plan = comptime lowering_api.lower(
         source_ref,
         .{
             .label = label,
@@ -1007,6 +1007,7 @@ fn CompiledLexicalProgram(
             .outputs = lexical_manifest.Manifest(HandlersType).outputs(),
         },
     ).runtime_plan;
+    const compiled_plan = comptime lexical_manifest.Manifest(HandlersType).enrichPlan(raw_compiled_plan);
     comptime {
         lowering_api.assertExecutablePlanCodecSupport(compiled_plan);
     }
