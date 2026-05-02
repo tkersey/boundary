@@ -265,9 +265,83 @@ const ExecutionContext = struct {
     budget: ExecutionBudget = .{},
 };
 
+fn maxHelperParameterCount(plan: program_plan.ProgramPlan, function: program_plan.FunctionPlan) usize {
+    var max_count: usize = 0;
+    const block_end = function.first_block + function.block_count;
+    for (plan.blocks[function.first_block..block_end]) |block| {
+        const instruction_end = block.first_instruction + block.instruction_count;
+        for (plan.instructions[block.first_instruction..instruction_end]) |instruction| {
+            if (instruction.kind == .call_helper) {
+                const callee = plan.functions[instruction.operand];
+                max_count = @max(max_count, callee.parameter_count);
+            }
+        }
+    }
+    return max_count;
+}
+
+test "maxHelperParameterCount scans helper callees in one function body" {
+    const functions = [_]program_plan.FunctionPlan{
+        .{
+            .symbol_name = "entry",
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "one_arg",
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_instruction = 2,
+            .instruction_count = 0,
+        },
+        .{
+            .symbol_name = "three_args",
+            .parameter_count = 3,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_instruction = 2,
+            .instruction_count = 0,
+        },
+    };
+    const blocks = [_]program_plan.BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = 2,
+        .terminator_index = 0,
+    }};
+    const instructions = [_]program_plan.Instruction{
+        .{ .kind = .call_helper, .operand = 1 },
+        .{ .kind = .call_helper, .operand = 2 },
+    };
+    const plan = program_plan.ProgramPlan{
+        .label = "helper_arg_scratch",
+        .ir_hash = 0,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .blocks = &blocks,
+        .instructions = &instructions,
+    };
+
+    try std.testing.expectEqual(@as(usize, 3), maxHelperParameterCount(plan, functions[0]));
+}
+
 const DispatchTable = struct {
     call_ops: []?ResolvedCapabilityOp,
     after_ops: []?ResolvedCapabilityOp,
+    helper_arg_counts: []usize,
 
     fn init(allocator: std.mem.Allocator, decoded: artifact.ArtifactV1, plan: program_plan.ProgramPlan) !@This() {
         var lookup = try RuntimeCapabilityLookup.init(allocator, decoded.capabilities);
@@ -276,23 +350,37 @@ const DispatchTable = struct {
         errdefer allocator.free(call_ops);
         const after_ops = try allocator.alloc(?ResolvedCapabilityOp, plan.ops.len);
         errdefer allocator.free(after_ops);
+        const helper_arg_counts = try allocator.alloc(usize, plan.functions.len);
+        errdefer allocator.free(helper_arg_counts);
         for (plan.ops, 0..) |_, index| {
             const op_index: u16 = @intCast(index);
             call_ops[index] = resolveCapabilityOp(lookup, decoded.requirement_capability_ids, plan, op_index);
             after_ops[index] = resolveAfterCapabilityOp(lookup, decoded.requirement_capability_ids, plan, op_index);
         }
+        for (plan.functions, helper_arg_counts) |function, *slot| {
+            slot.* = maxHelperParameterCount(plan, function);
+        }
         return .{
             .call_ops = call_ops,
             .after_ops = after_ops,
+            .helper_arg_counts = helper_arg_counts,
         };
     }
 
     fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         allocator.free(self.call_ops);
         allocator.free(self.after_ops);
+        allocator.free(self.helper_arg_counts);
         self.* = undefined;
     }
 };
+
+fn helperParameterScratchCount(ctx: *ExecutionContext, function_index: u16, function: program_plan.FunctionPlan) usize {
+    if (ctx.dispatch_table) |table| {
+        if (function_index < table.helper_arg_counts.len) return table.helper_arg_counts[function_index];
+    }
+    return maxHelperParameterCount(ctx.plan, function);
+}
 
 fn entryOutputs(plan: program_plan.ProgramPlan) []const program_plan.OutputPlan {
     const entry_function = plan.functions[plan.entry_index];
@@ -618,6 +706,13 @@ fn executeFunctionWithCompletionMode(
 
     const function = ctx.plan.functions[function_index];
     const function_result_codec = program_plan.functionResultCodec(function);
+    const max_helper_parameter_count = helperParameterScratchCount(ctx, function_index, function);
+    const helper_arg_buffer: []lowered_machine.ProgramValue = if (max_helper_parameter_count == 0)
+        &[_]lowered_machine.ProgramValue{}
+    else
+        try ctx.allocator.alloc(lowered_machine.ProgramValue, max_helper_parameter_count);
+    defer if (max_helper_parameter_count != 0) ctx.allocator.free(helper_arg_buffer);
+
     var locals = try ctx.allocator.alloc(lowered_machine.ProgramValue, function.local_count);
     defer ctx.allocator.free(locals);
     const local_owns_value = try ctx.allocator.alloc(bool, function.local_count);
@@ -683,8 +778,7 @@ fn executeFunctionWithCompletionMode(
                 .call_helper => {
                     const callee = ctx.plan.functions[instruction.operand];
                     const helper_result_codec = program_plan.functionResultCodec(callee);
-                    const helper_args = try ctx.allocator.alloc(lowered_machine.ProgramValue, callee.parameter_count);
-                    defer ctx.allocator.free(helper_args);
+                    const helper_args = helper_arg_buffer[0..callee.parameter_count];
                     for (helper_args, 0..) |*slot, arg_index| {
                         const local_id = ctx.plan.call_args[instruction.aux + arg_index];
                         slot.* = locals[local_id];

@@ -1,10 +1,17 @@
 # ability
 
-`ability` is a Zig library for writing typed effect handlers through the
-`ability.with` lexical entrypoint and emitting ArtifactV1 from runtime-owned
-`ProgramPlan` values. The supported package surface is intentionally small:
-effect bindings, runtime execution, ProgramPlan-first artifact compilation, and
-a retained compatibility module for ArtifactV1 execution.
+`ability` lets Zig programs write effectful bodies and provide typed handlers
+for state, reader, writer, exceptions, resources, choices, and custom effects.
+Use `ability.with` for ordinary runtime execution; use `ability.compile` when a
+runtime-owned `ProgramPlan` must be emitted as an ArtifactV1 payload. The
+supported package surface is intentionally small: effect bindings, runtime
+execution, ProgramPlan-first artifact compilation, and a retained compatibility
+module for ArtifactV1 execution.
+
+Start with `ability.with` when a Zig program needs to run an effectful body with
+typed handlers in the same process. Reach for `ability.compile` only when a
+caller already owns a `ProgramPlan` and needs to package it as ArtifactV1 for the
+retained agent-VM compatibility path.
 
 ## Shipped Surface
 
@@ -144,13 +151,15 @@ zig build --fork=/absolute/path/to/ability
 
 The ordinary user-facing examples live under `examples/`.
 
-- `zig build run-state-basic`
-- `zig build run-reader-basic`
-- `zig build run-optional-basic`
-- `zig build run-exception-basic`
-- `zig build run-resource-basic`
-- `zig build run-writer-basic`
-- `zig build run-custom-approval-workflow`
+| Command | Demonstrates | Expected output includes |
+| --- | --- | --- |
+| `zig build run-state-basic` | Additive state handling | `before=5`, `after=6`, `final_state=6`, `value=11` |
+| `zig build run-reader-basic` | Environment lookup through a reader effect | `env=21`, `value=42` |
+| `zig build run-optional-basic` | Optional early return and resume branches | `branch=return_now` and `branch=resume_with` transcripts |
+| `zig build run-exception-basic` | Caught and normal exception branches | `branch=pass` and `branch=throw` transcripts |
+| `zig build run-resource-basic` | LIFO resource acquisition and release | `acquire=a`, `use=a`, `acquire=b`, `use=b`, `release=b`, `release=a`, `final=done` |
+| `zig build run-writer-basic` | Writer output collection | `item=a`, `item=b`, `value=done` |
+| `zig build run-custom-approval-workflow` | Custom generated effects with approval choice and abort branches | `approve=...`, `deny=...`, and `invalid=...` summary lines |
 
 `examples/custom_approval_workflow.zig` is the package-like custom-effect proof
 example. It defines separate generated families for directory lookup,
@@ -233,18 +242,24 @@ iteration, but they are not additional test contracts:
 - `zig build run-*` for retained examples
 - `zig build agent-vm-artifact-report` to build
   `./zig-out/bin/agent-vm-artifact-report`
+  (`./zig-out/bin/agent-vm-artifact-report --help` prints report-tool help)
 - `zig build run-agent-vm-artifact-report -Dagent-vm-artifact=<path>` to classify
   one ArtifactV1 payload under the fixed no-host conformance profile. The
   report is runtime-only: it reads user-provided ArtifactV1 bytes, executes
   through `ability_agent_vm.runtime.runArtifactWithOptions`, rejects host-call
-  artifacts as unsupported, and applies the fixed v1 budget profile
+  artifacts and artifacts that declare output snapshots as unsupported, and
+  applies the fixed v1 budget profile
   (16 MiB artifact cap, zero host/log allowance, DataValue depth 64, nodes 4096,
-  bytes 1 MiB). Direct tool invocations may add `--json` or
-  `--format json` for a stable `schema_version`, `status`, `code`, and
-  `detail` verdict object; build-step runs may add
-  `-Dagent-vm-artifact-format=json` for the same JSON verdict. Artifact-size
-  and log-budget envelope expansion are deferred follow-up surfaces, not part
-  of this conformance report.
+  bytes 1 MiB). For a clean machine-readable stream, build the tool and run
+  `./zig-out/bin/agent-vm-artifact-report --json --artifact <path>` or
+  `./zig-out/bin/agent-vm-artifact-report --format json --artifact <path>`;
+  those direct invocations print a stable `schema_version`, `status`, `code`,
+  and `detail` verdict object with strict exit statuses. Build-step runs use
+  report-only mode, may add `-Dagent-vm-artifact-format=json`, and emit verdicts
+  without turning non-compatible classifications into build failures; input and
+  artifact-read errors still fail the build.
+  Artifact-size and log-budget envelope expansion are deferred follow-up
+  surfaces, not part of this conformance report.
 - `zig build check-ability-agent-vm-fixture` to verify the committed
   compatibility artifact fixture is current
 - `zig build generate-ability-agent-vm-fixture` to regenerate the committed
