@@ -2,16 +2,20 @@
 
 `ability` lets Zig programs write effectful bodies and provide typed handlers
 for state, reader, writer, exceptions, resources, choices, and custom effects.
-Use `ability.with` for ordinary runtime execution; use `ability.compile` when a
+Use `ability.with` for ordinary one-shot runtime execution; use
+`ability.program` when a lexical body should be compiled once into a reusable
+ProgramPlan execution and ArtifactV1 namespace; use `ability.compile` when a
 runtime-owned `ProgramPlan` must be emitted as an ArtifactV1 payload. The
 supported package surface is intentionally small: effect bindings, runtime
-execution, ProgramPlan-first artifact compilation, and a retained compatibility
-module for ArtifactV1 execution.
+execution, compile-once lexical programs, ProgramPlan-first artifact
+compilation, and a retained compatibility module for ArtifactV1 execution.
 
 Start with `ability.with` when a Zig program needs to run an effectful body with
-typed handlers in the same process. Reach for `ability.compile` only when a
-caller already owns a `ProgramPlan` and needs to package it as ArtifactV1 for the
-retained agent-VM compatibility path.
+typed handlers in the same process. Reach for `ability.program` when the caller
+wants a named compiled surface it can run repeatedly, inspect as
+`runtime_plan`, or package as ArtifactV1. Reach for `ability.compile` only when
+a caller already owns a `ProgramPlan` and needs to package it as ArtifactV1 for
+the retained agent-VM compatibility path.
 
 ## Shipped Surface
 
@@ -22,6 +26,7 @@ The public root export set is intentionally narrow:
 - `ability.RuntimeError`
 - `ability.sourceHash`
 - `ability.with`
+- `ability.program`
 - `ability.CompileOptionsV1`
 - `ability.CompilePlan`
 - `ability.compile`
@@ -35,11 +40,16 @@ artifact execution. It is source-path stable and covered by smoke/freshness
 tests, but it is a separate package module rather than part of the
 `@import("ability")` root API.
 
-`ability.with` is the only public lexical entrypoint. `ability.compile` is the
-public ProgramPlan-first ArtifactV1 entrypoint; source-backed lowering remains a
-maintainer compatibility mechanism, not the artifact compiler contract.
-Downstream packages that want compiled lexical execution for ordinary local body
-structs must make the source witness part of the body type itself:
+`ability.with` is the public one-shot lexical entrypoint. `ability.program` is
+the public compile-once lexical entrypoint: call
+`ability.program("label", @TypeOf(handlers), Body, .{})` to get a namespace that
+exposes `runtime_plan`, `ir_hash`, `run`, `encodeArtifactV1`,
+`decodeArtifactV1`, `disasmArtifactV1`, and the shorter `encode`/`decode`/
+`disasmAlloc` aliases. `ability.compile` remains the public ProgramPlan-first
+ArtifactV1 entrypoint for callers that already own a `ProgramPlan`.
+Downstream packages that want lexical execution or compiled lexical packaging
+for ordinary local body structs must make the source witness part of the body
+type itself:
 
 For a copy-runnable starting point inside this checkout, use
 `examples/state_basic.zig` or run it with `zig build run-state-basic`. In a

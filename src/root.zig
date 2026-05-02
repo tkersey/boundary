@@ -14,6 +14,8 @@ pub const CompileOptionsV1 = shared.CompileOptionsV1;
 pub const CompilePlan = shared.CompilePlan;
 /// ProgramPlan-first compile entrypoint.
 pub const compile = shared.compile;
+/// Compile a lexical effect body into a reusable ProgramPlan execution and ArtifactV1 namespace.
+pub const program = shared.program;
 /// Run the public lexical handler entrypoint.
 pub fn with(
     runtime: *Runtime,
@@ -29,6 +31,7 @@ test {
     _ = CompileOptionsV1;
     _ = CompilePlan;
     _ = compile;
+    _ = program;
     _ = effect;
     _ = sourceHash;
     _ = with;
