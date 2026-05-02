@@ -434,7 +434,7 @@ fn rejectUnsupportedSharedTailForNoTailStep(
     step_name: []const u8,
 ) void {
     if (!unsupportedSharedTailForNoTailStep(b.args, step_requested, tail_owner_requested)) return;
-    std.process.fatal("`zig build {s}` does not accept post-`--` arguments; remove the shared tail or use a step with documented tail options", .{step_name});
+    std.process.fatal("`zig build {s}` does not accept arguments after `--`; remove the trailing arguments. For tool help, build the tool first, then run the generated binary with `--help`; post-`--` arguments are accepted only by documented run/test steps", .{step_name});
 }
 
 fn buildInvocationSharedTailOwnerRequested(step_requests: []const ?bool) ?bool {
@@ -1048,21 +1048,6 @@ fn absolutizeGraphDirPath(b: *std.Build, maybe_path: ?[]const u8) ?[]const u8 {
 fn absolutizeZlinterRuntimePaths(b: *std.Build) void {
     b.graph.global_cache_root.path = absolutizeGraphDirPath(b, b.graph.global_cache_root.path);
     b.graph.zig_lib_directory.path = absolutizeGraphDirPath(b, b.graph.zig_lib_directory.path);
-}
-
-fn tempRootPath(b: *std.Build) []const u8 {
-    const env_names = switch (builtin.os.tag) {
-        .windows => &[_][]const u8{ "TMP", "TEMP" },
-        else => &[_][]const u8{ "TMPDIR", "TMP", "TEMP" },
-    };
-    for (env_names) |name| {
-        const value = b.graph.environ_map.get(name) orelse continue;
-        if (value.len != 0) return value;
-    }
-    return switch (builtin.os.tag) {
-        .windows => "C:\\Temp",
-        else => "/tmp",
-    };
 }
 
 fn createShiftConsumerModule(
@@ -2771,13 +2756,8 @@ const PackageRootAlias = struct {
     available: bool,
 };
 
-fn scratchRootPath(b: *std.Build, leaf: []const u8) []const u8 {
-    return std.Io.Dir.path.join(b.allocator, &.{ tempRootPath(b), leaf }) catch
-        std.process.fatal("unable to allocate scratch root path", .{});
-}
-
 fn boundaryAliasRoot(b: *std.Build) []const u8 {
-    return scratchRootPath(b, ".ability_aliases");
+    return b.pathFromRoot(".zig-cache/ability-aliases");
 }
 
 fn clearAliasPath(alias_path: []const u8, path_error: []const u8) bool {
@@ -4523,7 +4503,7 @@ pub fn build(b: *std.Build) void {
     const test_suites_raw = b.option(
         []const u8,
         "test-suites",
-        "Restrict `zig build test` to exact suite ids; README lists ids and invalid ids print them.",
+        "Restrict `zig build test` to comma-separated exact suite ids; see README for ids. Unknown ids print the supported list.",
     );
     const agent_vm_artifact_report_path = b.option(
         []const u8,
@@ -4547,6 +4527,7 @@ pub fn build(b: *std.Build) void {
     const agent_vm_report_run_requested = buildInvocationRequestsRunnableStep("run-agent-vm-artifact-report");
     const fixture_check_requested = buildInvocationRequestsRunnableStep("check-ability-agent-vm-fixture");
     const fixture_generator_requested = buildInvocationRequestsRunnableStep("generate-ability-agent-vm-fixture");
+    const conf_fixture_gen_requested = buildInvocationRequestsRunnableStep("generate-agent-vm-conformance-fixtures");
     const bench_requested = buildInvocationRequestsRunnableStep("bench");
     const bench_first_requested = buildInvocationRequestsRunnableStep("bench-first-suspend");
     const bench_state_requested = buildInvocationRequestsRunnableStep("bench-state-effect");
@@ -4560,6 +4541,7 @@ pub fn build(b: *std.Build) void {
     rejectUnsupportedSharedTailForNoTailStep(b, report_build_requested, shared_tail_owner_requested, "agent-vm-artifact-report");
     rejectUnsupportedSharedTailForNoTailStep(b, agent_vm_report_run_requested, shared_tail_owner_requested, "run-agent-vm-artifact-report");
     rejectUnsupportedSharedTailForNoTailStep(b, fixture_check_requested, shared_tail_owner_requested, "check-ability-agent-vm-fixture");
+    rejectUnsupportedSharedTailForNoTailStep(b, conf_fixture_gen_requested, shared_tail_owner_requested, "generate-agent-vm-conformance-fixtures");
     rejectUnsupportedSharedTailForNoTailStep(b, bench_requested, shared_tail_owner_requested, "bench");
     rejectUnsupportedSharedTailForNoTailStep(b, bench_first_requested, shared_tail_owner_requested, "bench-first-suspend");
     rejectUnsupportedSharedTailForNoTailStep(b, bench_state_requested, shared_tail_owner_requested, "bench-state-effect");
@@ -5165,12 +5147,22 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const avm_fixture_gen_options = b.addOptions();
+    avm_fixture_gen_options.addOption([]const u8, "version", packageVersionAlloc(b));
+    avm_fixture_mod.addOptions("conformance_fixture_generator_options", avm_fixture_gen_options);
     avm_fixture_mod.addImport("artifact_api", artifact_api_mod);
     avm_fixture_mod.addImport("internal_program_plan", internal_program_plan_mod);
     const avm_fixture_exe = b.addExecutable(.{
         .name = "generate-agent-vm-conformance-fixtures",
         .root_module = avm_fixture_mod,
     });
+    const avm_fixture_install = b.addInstallArtifact(avm_fixture_exe, .{});
+    const avm_fixture_gen_step = b.step(
+        "generate-agent-vm-conformance-fixtures",
+        "Build the Agent VM conformance fixture generator helper.",
+    );
+    avm_fixture_gen_step.dependOn(&avm_fixture_exe.step);
+    avm_fixture_gen_step.dependOn(&avm_fixture_install.step);
     const run_avm_fixture_gen = b.addRunArtifact(avm_fixture_exe);
     const no_host_artifact = run_avm_fixture_gen.addOutputFileArg("agent-vm-no-host.artifact");
     const host_call_artifact = run_avm_fixture_gen.addOutputFileArg("agent-vm-host-call.artifact");

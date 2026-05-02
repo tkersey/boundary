@@ -150,8 +150,9 @@ pub fn parseArgs(args: []const []const u8) ParseArgsResult {
     var index: usize = 1;
     while (index < args.len) {
         const arg = args[index];
-        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) return .help;
-        if (std.mem.eql(u8, arg, "--version")) return .version;
+        if (std.mem.eql(u8, arg, "--help")) return .{ .invalid = "option '--help' does not accept extra arguments" };
+        if (std.mem.eql(u8, arg, "-h")) return .{ .invalid = "option '-h' does not accept extra arguments" };
+        if (std.mem.eql(u8, arg, "--version")) return .{ .invalid = "option '--version' does not accept extra arguments" };
         if (std.mem.eql(u8, arg, "--artifact")) {
             if (saw_artifact) return .{ .invalid = "duplicate --artifact flag" };
             if (index + 1 >= args.len) {
@@ -391,11 +392,43 @@ fn stableArtifactDecoderDetail(message: []const u8) []const u8 {
     if (std.mem.eql(u8, message, "DuplicateCapabilityId")) return "invalid artifact (DuplicateCapabilityId): capability manifest repeats an id; regenerate the artifact with the current encoder";
     if (std.mem.eql(u8, message, "DuplicateCapabilityOpId")) return "invalid artifact (DuplicateCapabilityOpId): capability manifest repeats an op id; regenerate the artifact with the current encoder";
     if (std.mem.eql(u8, message, "DuplicateDirectorySection")) return "invalid artifact (DuplicateDirectorySection): section directory repeats a section; regenerate the artifact with the current encoder";
+    if (std.mem.eql(u8, message, "DuplicateOutputLabel")) return "invalid artifact (DuplicateOutputLabel): embedded ProgramPlan repeats an output label within one function; regenerate the artifact from a ProgramPlan whose output labels are unique per function";
+    if (std.mem.eql(u8, message, "EmptyFunctionSymbol")) return "invalid artifact (EmptyFunctionSymbol): embedded ProgramPlan contains a function without a symbol name; regenerate the artifact";
+    if (std.mem.eql(u8, message, "EmptyLabel")) return "invalid artifact (EmptyLabel): embedded ProgramPlan label is empty; regenerate the artifact";
+    if (std.mem.eql(u8, message, "EmptyOpName")) return "invalid artifact (EmptyOpName): embedded ProgramPlan contains an op without a name; regenerate the artifact";
+    if (std.mem.eql(u8, message, "EmptyOutputLabel")) return "invalid artifact (EmptyOutputLabel): embedded ProgramPlan contains an output without a label; regenerate the artifact";
+    if (std.mem.eql(u8, message, "EmptyProgram")) return "invalid artifact (EmptyProgram): embedded ProgramPlan contains no functions; regenerate the artifact";
+    if (std.mem.eql(u8, message, "EmptyRequirementLabel")) return "invalid artifact (EmptyRequirementLabel): embedded ProgramPlan contains a requirement without a label; regenerate the artifact";
+    if (std.mem.eql(u8, message, "TooManyFunctionOutputs")) return "invalid artifact (TooManyFunctionOutputs): embedded ProgramPlan declares more than 4096 outputs in one function; split the function output schema before regenerating the artifact";
+    if (std.mem.eql(u8, message, "ProgramPlanTableTooLarge")) return "invalid artifact (ProgramPlanTableTooLarge): embedded ProgramPlan exceeds the u16-indexed executable profile; split or reduce the plan before regenerating the artifact";
     if (std.mem.eql(u8, message, "InvalidToolId")) return "invalid artifact (InvalidToolId): capability manifest contains an unsupported tool id; regenerate the artifact with the current encoder";
     if (std.mem.eql(u8, message, "InvalidBuildFingerprint")) return "invalid artifact (InvalidBuildFingerprint): build fingerprint is malformed; regenerate the artifact with the current encoder";
+    if (std.mem.eql(u8, message, "InvalidAfterHookMode")) return "invalid artifact (InvalidAfterHookMode): embedded ProgramPlan declares an after hook for an unsupported op mode; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidBlockInstructionSpan")) return "invalid artifact (InvalidBlockInstructionSpan): embedded ProgramPlan block instruction span is outside the instruction table; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidBlockTerminatorIndex")) return "invalid artifact (InvalidBlockTerminatorIndex): embedded ProgramPlan block terminator is outside the terminator table; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidCallHelperArgSpan")) return "invalid artifact (InvalidCallHelperArgSpan): embedded ProgramPlan helper-call arguments are outside the call-arg table; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidCallHelperTarget")) return "invalid artifact (InvalidCallHelperTarget): embedded ProgramPlan helper-call target is outside the function table; regenerate the artifact";
     if (std.mem.eql(u8, message, "InvalidDirectoryBounds")) return "invalid artifact (InvalidDirectoryBounds): section directory points outside the payload or overlaps; regenerate the artifact";
     if (std.mem.eql(u8, message, "InvalidEntryFunctionIndex")) return "invalid artifact (InvalidEntryFunctionIndex): entry function is outside the decoded program plan; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidFunctionBlockSpan")) return "invalid artifact (InvalidFunctionBlockSpan): embedded ProgramPlan function block span is outside the block table; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidFunctionEntryBlock")) return "invalid artifact (InvalidFunctionEntryBlock): embedded ProgramPlan function entry block is outside its block span; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidFunctionInstructionSpan")) return "invalid artifact (InvalidFunctionInstructionSpan): embedded ProgramPlan function instruction span is outside the instruction table; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidFunctionLocalSpan")) return "invalid artifact (InvalidFunctionLocalSpan): embedded ProgramPlan function local span is outside the local table; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidFunctionOutputSpan")) return "invalid artifact (InvalidFunctionOutputSpan): embedded ProgramPlan function output span is outside the output table; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidFunctionRequirementSpan")) return "invalid artifact (InvalidFunctionRequirementSpan): embedded ProgramPlan function requirement span is outside the requirement table; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidFunctionResultCodec")) return "invalid artifact (InvalidFunctionResultCodec): embedded ProgramPlan function result codec is unsupported; regenerate the artifact";
     if (std.mem.eql(u8, message, "InvalidProgramPlan")) return "invalid artifact (InvalidProgramPlan): embedded ProgramPlan failed validation; regenerate the artifact from supported source";
+    if (std.mem.eql(u8, message, "InvalidOpRequirementIndex")) return "invalid artifact (InvalidOpRequirementIndex): embedded ProgramPlan op references a requirement outside the table; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidOpRequirementOwnership")) return "invalid artifact (InvalidOpRequirementOwnership): embedded ProgramPlan op is outside its owning requirement span; regenerate the artifact";
+    if (std.mem.eql(u8, message, "UnsupportedSchemaVersion")) return "invalid artifact (UnsupportedSchemaVersion): embedded ProgramPlan schema is outside the supported executable profile; regenerate with this ability version";
+    if (std.mem.eql(u8, message, "InvalidInstructionLocalIndex")) return "invalid artifact (InvalidInstructionLocalIndex): embedded ProgramPlan instruction references a local outside its function; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidInstructionCodec")) return "invalid artifact (InvalidInstructionCodec): embedded ProgramPlan instruction uses a codec incompatible with its target local; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidCallOpTarget")) return "invalid artifact (InvalidCallOpTarget): embedded ProgramPlan calls an op outside its owning requirement span; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidRequirementOpSpan")) return "invalid artifact (InvalidRequirementOpSpan): embedded ProgramPlan requirement op span is outside the op table; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidReturnValueIndex")) return "invalid artifact (InvalidReturnValueIndex): embedded ProgramPlan returns a local outside its function; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidTerminatorInstruction")) return "invalid artifact (InvalidTerminatorInstruction): embedded ProgramPlan block terminator points at an invalid instruction; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidTerminatorTarget")) return "invalid artifact (InvalidTerminatorTarget): embedded ProgramPlan terminator jumps outside its function blocks; regenerate the artifact";
+    if (std.mem.eql(u8, message, "InvalidNestedWithMetadata")) return "invalid artifact (InvalidNestedWithMetadata): embedded ProgramPlan contains nested-with metadata outside the executable profile; regenerate from supported source";
     if (std.mem.eql(u8, message, "InvalidHashKind")) return "invalid artifact (InvalidHashKind): artifact hash section uses an unsupported hash kind; regenerate the artifact";
     if (std.mem.eql(u8, message, "InvalidRequiredSection")) return "invalid artifact (InvalidRequiredSection): required sections or capability bindings are missing or inconsistent; regenerate the artifact";
     if (std.mem.eql(u8, message, "NonZeroReserved")) return "invalid artifact (NonZeroReserved): reserved header bytes are nonzero; regenerate the artifact";
@@ -690,6 +723,96 @@ test "ArtifactV1 decoder detail preserves invalid required section failures" {
         "invalid artifact (InvalidRequiredSection): required sections or capability bindings are missing or inconsistent; regenerate the artifact",
         stableArtifactDecoderDetail("InvalidRequiredSection"),
     );
+    try std.testing.expectEqualStrings(
+        "invalid artifact (DuplicateOutputLabel): embedded ProgramPlan repeats an output label within one function; regenerate the artifact from a ProgramPlan whose output labels are unique per function",
+        stableArtifactDecoderDetail("DuplicateOutputLabel"),
+    );
+    try std.testing.expectEqualStrings(
+        "invalid artifact (TooManyFunctionOutputs): embedded ProgramPlan declares more than 4096 outputs in one function; split the function output schema before regenerating the artifact",
+        stableArtifactDecoderDetail("TooManyFunctionOutputs"),
+    );
+    try std.testing.expectEqualStrings(
+        "invalid artifact (UnsupportedSchemaVersion): embedded ProgramPlan schema is outside the supported executable profile; regenerate with this ability version",
+        stableArtifactDecoderDetail("UnsupportedSchemaVersion"),
+    );
+    try std.testing.expectEqualStrings(
+        "invalid artifact (InvalidInstructionLocalIndex): embedded ProgramPlan instruction references a local outside its function; regenerate the artifact",
+        stableArtifactDecoderDetail("InvalidInstructionLocalIndex"),
+    );
+    try std.testing.expectEqualStrings(
+        "invalid artifact (InvalidCallOpTarget): embedded ProgramPlan calls an op outside its owning requirement span; regenerate the artifact",
+        stableArtifactDecoderDetail("InvalidCallOpTarget"),
+    );
+    try std.testing.expectEqualStrings(
+        "invalid artifact (InvalidTerminatorTarget): embedded ProgramPlan terminator jumps outside its function blocks; regenerate the artifact",
+        stableArtifactDecoderDetail("InvalidTerminatorTarget"),
+    );
+    try std.testing.expectEqualStrings(
+        "invalid artifact (InvalidNestedWithMetadata): embedded ProgramPlan contains nested-with metadata outside the executable profile; regenerate from supported source",
+        stableArtifactDecoderDetail("InvalidNestedWithMetadata"),
+    );
+}
+
+test "ArtifactV1 decoder detail covers all stable decode errors" {
+    const fallback = "ArtifactV1 decoder rejected artifact with an unclassified error; regenerate the artifact with this exact report binary or installed package and file an issue with this verdict if it persists";
+    const names = [_][]const u8{
+        "ArtifactTooLarge",
+        "BadMagic",
+        "BuildFingerprintMismatch",
+        "DuplicateCapabilityId",
+        "DuplicateCapabilityOpId",
+        "DuplicateDirectorySection",
+        "DuplicateOutputLabel",
+        "EmptyFunctionSymbol",
+        "EmptyLabel",
+        "EmptyOpName",
+        "EmptyOutputLabel",
+        "EmptyProgram",
+        "EmptyRequirementLabel",
+        "TooManyFunctionOutputs",
+        "InvalidToolId",
+        "InvalidBuildFingerprint",
+        "InvalidAfterHookMode",
+        "InvalidBlockInstructionSpan",
+        "InvalidBlockTerminatorIndex",
+        "InvalidCallHelperArgSpan",
+        "InvalidCallHelperTarget",
+        "InvalidCallOpTarget",
+        "InvalidDirectoryBounds",
+        "InvalidEntryFunctionIndex",
+        "InvalidFunctionBlockSpan",
+        "InvalidFunctionEntryBlock",
+        "InvalidFunctionInstructionSpan",
+        "InvalidFunctionLocalSpan",
+        "InvalidFunctionOutputSpan",
+        "InvalidFunctionRequirementSpan",
+        "InvalidFunctionResultCodec",
+        "InvalidInstructionCodec",
+        "InvalidInstructionLocalIndex",
+        "InvalidNestedWithMetadata",
+        "InvalidOpRequirementIndex",
+        "InvalidProgramPlan",
+        "InvalidOpRequirementOwnership",
+        "InvalidHashKind",
+        "InvalidRequiredSection",
+        "InvalidRequirementOpSpan",
+        "InvalidReturnValueIndex",
+        "InvalidTerminatorInstruction",
+        "InvalidTerminatorTarget",
+        "NonZeroReserved",
+        "ProgramPlanTableTooLarge",
+        "StringRefOutOfBounds",
+        "UnsortedDirectorySection",
+        "UnsupportedEntryParameters",
+        "UnsupportedSchemaVersion",
+        "UnsupportedVersion",
+        "ArtifactHashMismatch",
+        "UnsupportedExecutableCodec",
+        "UnsupportedExecInstruction",
+    };
+    for (names) |name| {
+        try std.testing.expect(!std.mem.eql(u8, fallback, stableArtifactDecoderDetail(name)));
+    }
 }
 
 test "ArtifactV1 decoder detail has actionable oversized and fallback recovery" {

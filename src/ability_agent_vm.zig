@@ -186,6 +186,7 @@ pub const host = struct {
             declared_outputs: []const OutputDescriptor,
         ) anyerror![]DataValue {
             if (declared_outputs.len == 0) return allocator.alloc(DataValue, 0);
+            if (declared_outputs.len > 1) return error.MissingOutputSnapshot;
             const collect = self.collectOutputsFn orelse return error.MissingOutputSnapshot;
             return collect(self.ctx, allocator, declared_outputs);
         }
@@ -285,6 +286,8 @@ pub const runtime = struct {
     /// One successful artifact execution result.
     pub const ExecutionResult = struct {
         value: host.DataValue,
+        /// Declared terminal codec for `value`, preserved from the artifact entry result.
+        value_codec: host.OutputCodec,
         outputs: []ExecutionOutput,
         logs: []host.LogEntry,
 
@@ -295,6 +298,7 @@ pub const runtime = struct {
             deinitHostLogs(allocator, self.logs);
             self.* = .{
                 .value = .null,
+                .value_codec = .unit,
                 .outputs = &.{},
                 .logs = &.{},
             };
@@ -330,6 +334,8 @@ pub const runtime = struct {
     };
 
     /// Execute artifact bytes through the supported agent-vm runtime surface.
+    /// The retained compatibility boundary keeps adapter/resource exceptions as
+    /// Zig errors; artifact and host verdicts are represented in RunArtifactResult.
     pub fn runArtifact(
         allocator: std.mem.Allocator,
         bytes: []const u8,
@@ -339,6 +345,8 @@ pub const runtime = struct {
     }
 
     /// Execute artifact bytes through the supported runtime surface with explicit resource bounds.
+    /// The retained compatibility boundary keeps adapter/resource exceptions as
+    /// Zig errors; artifact and host verdicts are represented in RunArtifactResult.
     pub fn runArtifactWithOptions(
         allocator: std.mem.Allocator,
         bytes: []const u8,
@@ -427,6 +435,7 @@ fn executionResultFromInternal(
     errdefer deinitHostLogs(allocator, logs);
     return .{
         .value = value,
+        .value_codec = result.value_codec,
         .outputs = outputs,
         .logs = logs,
     };

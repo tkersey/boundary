@@ -126,7 +126,7 @@ pub const ArtifactV1 = struct {
     pub fn validate(self: @This(), allocator: std.mem.Allocator) anyerror!void {
         const plan = try self.toProgramPlan(allocator);
         defer deepFreeProgramPlan(allocator, plan);
-        try validateWithProgramPlan(self, allocator, plan);
+        try validateWithProgramPlan(self, allocator, plan, null);
     }
 
     /// Rebuild one runtime-owned ProgramPlan from this artifact payload.
@@ -206,17 +206,49 @@ pub const DecodeError = error{
     DuplicateCapabilityId,
     DuplicateCapabilityOpId,
     DuplicateDirectorySection,
+    DuplicateOutputLabel,
+    EmptyFunctionSymbol,
+    EmptyLabel,
+    EmptyOpName,
+    EmptyOutputLabel,
+    EmptyProgram,
+    EmptyRequirementLabel,
+    TooManyFunctionOutputs,
     InvalidToolId,
     InvalidBuildFingerprint,
+    InvalidAfterHookMode,
+    InvalidBlockInstructionSpan,
+    InvalidBlockTerminatorIndex,
+    InvalidCallHelperArgSpan,
+    InvalidCallHelperTarget,
+    InvalidCallOpTarget,
     InvalidDirectoryBounds,
     InvalidEntryFunctionIndex,
+    InvalidFunctionBlockSpan,
+    InvalidFunctionEntryBlock,
+    InvalidFunctionInstructionSpan,
+    InvalidFunctionLocalSpan,
+    InvalidFunctionOutputSpan,
+    InvalidFunctionRequirementSpan,
+    InvalidFunctionResultCodec,
+    InvalidInstructionCodec,
+    InvalidInstructionLocalIndex,
+    InvalidNestedWithMetadata,
+    InvalidOpRequirementIndex,
     InvalidProgramPlan,
+    InvalidOpRequirementOwnership,
     InvalidHashKind,
     InvalidRequiredSection,
+    InvalidRequirementOpSpan,
+    InvalidReturnValueIndex,
+    InvalidTerminatorInstruction,
+    InvalidTerminatorTarget,
     NonZeroReserved,
+    ProgramPlanTableTooLarge,
     StringRefOutOfBounds,
     UnsortedDirectorySection,
     UnsupportedEntryParameters,
+    UnsupportedSchemaVersion,
     UnsupportedVersion,
     ArtifactHashMismatch,
     UnsupportedExecutableCodec,
@@ -323,7 +355,20 @@ pub fn buildFingerprintForCapabilitiesForArtifactVersion(
     capabilities: []const CapabilityV1,
 ) ![32]u8 {
     try validateManifest(allocator, base_fingerprint, capabilities);
+    return buildFingerprintForValidatedCapabilitiesForArtifactVersion(
+        allocator,
+        artifact_version,
+        base_fingerprint,
+        capabilities,
+    );
+}
 
+fn buildFingerprintForValidatedCapabilitiesForArtifactVersion(
+    allocator: std.mem.Allocator,
+    artifact_version: u16,
+    base_fingerprint: [32]u8,
+    capabilities: []const CapabilityV1,
+) ![32]u8 {
     var strings = StringTable.init(allocator);
     defer strings.deinit();
 
@@ -355,6 +400,9 @@ pub fn deriveToolCapabilitiesFromPlan(
     allocator: std.mem.Allocator,
     plan: program_plan.ProgramPlan,
 ) anyerror![]CapabilityV1 {
+    const op_codecs = try buildPlanOpCodecInfo(allocator, plan);
+    defer allocator.free(op_codecs);
+
     const capabilities = try allocator.alloc(CapabilityV1, plan.requirements.len);
     var initialized_capabilities: usize = 0;
     errdefer deepFreeCapabilitiesPrefix(allocator, capabilities, initialized_capabilities);
@@ -370,8 +418,8 @@ pub fn deriveToolCapabilitiesFromPlan(
         after_count_loop: for (plan.ops[op_start..op_end], 0..) |op, op_index| {
             if (!op.has_after) continue :after_count_loop;
             if (op.mode == .abort) return error.InvalidRequiredSection;
-            _ = afterCapabilityPayloadCodecForOp(plan, @intCast(op_start + op_index)) orelse return error.InvalidRequiredSection;
-            _ = afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_index)) orelse return error.InvalidRequiredSection;
+            _ = afterCapabilityPayloadCodecForOpIndexed(op_start + op_index, op_codecs) orelse return error.InvalidRequiredSection;
+            _ = afterCapabilityResultCodecForOpIndexed(op_start + op_index, op_codecs) orelse return error.InvalidRequiredSection;
             extra_after_ops += 1;
         }
         const ops = try allocator.alloc(CapabilityOpV1, requirement.op_count + extra_after_ops);
@@ -383,7 +431,7 @@ pub fn deriveToolCapabilitiesFromPlan(
                 .op_id = @intCast(op_index),
                 .host_op_kind = .call,
                 .payload_codec = mapPlanCodecToCapabilityCodec(op.payload_codec),
-                .result_codec = mapPlanCodecToCapabilityCodec(try capabilityResultCodecForOp(plan, op_start + op_index)),
+                .result_codec = mapPlanCodecToCapabilityCodec(try capabilityResultCodecForOpIndexed(plan, op_start + op_index, op_codecs)),
                 .plan_op_ordinal = @intCast(op_index),
             };
             initialized_ops = op_index + 1;
@@ -392,8 +440,8 @@ pub fn deriveToolCapabilitiesFromPlan(
         after_emit_loop: for (plan.ops[op_start..op_end], 0..) |op, op_index| {
             if (!op.has_after) continue :after_emit_loop;
             if (op.mode == .abort) return error.InvalidRequiredSection;
-            const after_payload_codec = afterCapabilityPayloadCodecForOp(plan, @intCast(op_start + op_index)) orelse return error.InvalidRequiredSection;
-            const after_result_codec = afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_index)) orelse return error.InvalidRequiredSection;
+            const after_payload_codec = afterCapabilityPayloadCodecForOpIndexed(op_start + op_index, op_codecs) orelse return error.InvalidRequiredSection;
+            const after_result_codec = afterCapabilityResultCodecForOpIndexed(op_start + op_index, op_codecs) orelse return error.InvalidRequiredSection;
             ops[initialized_ops] = .{
                 .capability_id = @intCast(index),
                 .op_id = @intCast(next_after_op_id),
@@ -460,14 +508,16 @@ fn encodeProgramPlanVersioned(
     try validateExecutableInstructionSupport(plan);
     if (plan.functions[plan.entry_index].parameter_count != 0) return error.UnsupportedEntryParameters;
     try validateManifest(allocator, manifest.build_fingerprint_blake3_256, manifest.capabilities);
-    try validateRequirementCapabilityOpNameDisambiguation(allocator, plan, manifest.capabilities);
+    var capability_index = try CapabilityValidationIndex.init(allocator, plan, manifest.capabilities);
+    defer capability_index.deinit();
+    try capability_index.validateRequirementCapabilityOpNameDisambiguation(plan);
 
     var strings = StringTable.init(allocator);
     defer strings.deinit();
 
     const capability_manifest = try encodeCapabilityManifestVersioned(allocator, artifact_version, &strings, manifest);
     defer allocator.free(capability_manifest);
-    const requirement_table = try encodeRequirementTable(allocator, &strings, plan, manifest.capabilities);
+    const requirement_table = try encodeRequirementTable(allocator, &strings, plan, &capability_index);
     defer allocator.free(requirement_table);
     const op_table = try encodeOpTable(allocator, &strings, plan.ops);
     defer allocator.free(op_table);
@@ -674,7 +724,7 @@ pub fn decodeWithProgramPlanOptions(allocator: std.mem.Allocator, bytes: []const
     const manifest_build_fingerprint = decoded_manifest.build_fingerprint_blake3_256;
     var capabilities = decoded_manifest.capabilities;
     errdefer if (capabilities.len != 0) deepFreeCapabilities(allocator, capabilities);
-    const build_fingerprint = try buildFingerprintForCapabilitiesForArtifactVersion(
+    const build_fingerprint = try buildFingerprintForValidatedCapabilitiesForArtifactVersion(
         allocator,
         artifact_version,
         manifest_build_fingerprint,
@@ -745,7 +795,7 @@ pub fn decodeWithProgramPlanOptions(allocator: std.mem.Allocator, bytes: []const
     if (artifact.entry_function_index >= artifact.functions.len) return error.InvalidEntryFunctionIndex;
     const plan = try artifact.toProgramPlan(allocator);
     errdefer deepFreeProgramPlan(allocator, plan);
-    try validateWithProgramPlan(artifact, allocator, plan);
+    try validateWithProgramPlan(artifact, allocator, plan, build_fingerprint);
     return .{
         .artifact = artifact,
         .plan = plan,
@@ -756,23 +806,64 @@ fn validateWithProgramPlan(
     self: ArtifactV1,
     allocator: std.mem.Allocator,
     plan: program_plan.ProgramPlan,
+    validated_build_fingerprint: ?[32]u8,
 ) DecodeResultError!void {
-    try validateManifest(allocator, self.manifest_build_fingerprint, self.capabilities);
-    const recomputed_build_fingerprint = try buildFingerprintForCapabilitiesForArtifactVersion(
-        allocator,
-        self.artifact_version,
-        self.manifest_build_fingerprint,
-        self.capabilities,
-    );
+    const recomputed_build_fingerprint = validated_build_fingerprint orelse blk: {
+        const fingerprint = try buildFingerprintForCapabilitiesForArtifactVersion(
+            allocator,
+            self.artifact_version,
+            self.manifest_build_fingerprint,
+            self.capabilities,
+        );
+        break :blk fingerprint;
+    };
     if (!std.mem.eql(u8, &recomputed_build_fingerprint, &self.build_fingerprint_blake3_256)) {
         return error.BuildFingerprintMismatch;
     }
     if (self.entry_function_index >= self.functions.len) return error.InvalidEntryFunctionIndex;
     if (self.functions[self.entry_function_index].parameter_count != 0) return error.UnsupportedEntryParameters;
-    plan.validate() catch return error.InvalidProgramPlan;
+    validateProgramPlanForArtifact(plan) catch |err| return err;
     try validateExecutableCodecSupport(plan);
     try validateExecutableInstructionSupport(plan);
     try validateRequirementCapabilityMappings(allocator, plan, self.requirement_capability_ids, self.capabilities);
+}
+
+fn validateProgramPlanForArtifact(plan: program_plan.ProgramPlan) DecodeError!void {
+    plan.validate() catch |err| switch (err) {
+        error.DuplicateOutputLabel => return error.DuplicateOutputLabel,
+        error.EmptyFunctionSymbol => return error.EmptyFunctionSymbol,
+        error.EmptyLabel => return error.EmptyLabel,
+        error.EmptyOpName => return error.EmptyOpName,
+        error.EmptyOutputLabel => return error.EmptyOutputLabel,
+        error.EmptyProgram => return error.EmptyProgram,
+        error.EmptyRequirementLabel => return error.EmptyRequirementLabel,
+        error.TooManyFunctionOutputs => return error.TooManyFunctionOutputs,
+        error.ProgramPlanTableTooLarge => return error.ProgramPlanTableTooLarge,
+        error.InvalidCallHelperTarget => return error.InvalidCallHelperTarget,
+        error.InvalidCallHelperArgSpan => return error.InvalidCallHelperArgSpan,
+        error.InvalidCallOpTarget => return error.InvalidCallOpTarget,
+        error.InvalidBlockInstructionSpan => return error.InvalidBlockInstructionSpan,
+        error.InvalidBlockTerminatorIndex => return error.InvalidBlockTerminatorIndex,
+        error.InvalidEntryIndex => return error.InvalidEntryFunctionIndex,
+        error.InvalidFunctionBlockSpan => return error.InvalidFunctionBlockSpan,
+        error.InvalidFunctionEntryBlock => return error.InvalidFunctionEntryBlock,
+        error.InvalidFunctionInstructionSpan => return error.InvalidFunctionInstructionSpan,
+        error.InvalidFunctionLocalSpan => return error.InvalidFunctionLocalSpan,
+        error.InvalidFunctionOutputSpan => return error.InvalidFunctionOutputSpan,
+        error.InvalidFunctionRequirementSpan => return error.InvalidFunctionRequirementSpan,
+        error.InvalidFunctionResultCodec => return error.InvalidFunctionResultCodec,
+        error.InvalidInstructionLocalIndex => return error.InvalidInstructionLocalIndex,
+        error.InvalidAfterHookMode => return error.InvalidAfterHookMode,
+        error.InvalidOpRequirementIndex => return error.InvalidOpRequirementIndex,
+        error.InvalidOpRequirementOwnership => return error.InvalidOpRequirementOwnership,
+        error.InvalidRequirementOpSpan => return error.InvalidRequirementOpSpan,
+        error.InvalidReturnValueIndex => return error.InvalidReturnValueIndex,
+        error.InvalidTerminatorInstruction => return error.InvalidTerminatorInstruction,
+        error.InvalidTerminatorTarget => return error.InvalidTerminatorTarget,
+        error.UnsupportedSchemaVersion => return error.UnsupportedSchemaVersion,
+        error.InvalidInstructionCodec => return error.InvalidInstructionCodec,
+        error.InvalidNestedWithMetadata => return error.InvalidNestedWithMetadata,
+    };
 }
 
 fn artifactHashWithZeroedDigest(bytes: []const u8, out: *[32]u8) void {
@@ -1182,7 +1273,7 @@ test "ArtifactV1 validation maps runtime plan errors into the decode domain" {
         .instructions = &.{},
     };
 
-    try std.testing.expectError(error.InvalidProgramPlan, validateWithProgramPlan(artifact, allocator, invalid_plan));
+    try std.testing.expectError(error.UnsupportedSchemaVersion, validateWithProgramPlan(artifact, allocator, invalid_plan, null));
 }
 
 fn validateExecutableCodecSupport(plan: program_plan.ProgramPlan) !void {
@@ -1459,23 +1550,28 @@ fn encodeRequirementTable(
     allocator: std.mem.Allocator,
     strings: *StringTable,
     plan: program_plan.ProgramPlan,
-    capabilities: []const CapabilityV1,
+    capability_index: *const CapabilityValidationIndex,
 ) ![]u8 {
     var out = std.ArrayList(u8).empty;
     errdefer out.deinit(allocator);
-    var lookup = try CapabilityLookup.init(allocator, capabilities);
-    defer lookup.deinit();
+    var first_req_by_shape_hash = std.AutoHashMap(u64, usize).init(allocator);
+    defer first_req_by_shape_hash.deinit();
     const resolved_capability_ids = try allocator.alloc(?u16, plan.requirements.len);
     defer allocator.free(resolved_capability_ids);
     @memset(resolved_capability_ids, null);
     for (plan.requirements, 0..) |requirement, requirement_index| {
         const label_ref = try strings.add(requirement.label);
-        const capability_id = try resolveRequirementCapabilityId(
-            plan,
-            requirement_index,
-            lookup,
-            resolved_capability_ids[0..requirement_index],
-        );
+        const shape_hash = capability_index.requirement_shape_hashes[requirement_index];
+        const capability_id = capability_id_for_shape: {
+            if (first_req_by_shape_hash.get(shape_hash)) |first_requirement_index| {
+                if (capability_index.requirementsHaveSameCapabilityShape(plan, first_requirement_index, requirement_index)) {
+                    break :capability_id_for_shape resolved_capability_ids[first_requirement_index] orelse return error.InvalidRequiredSection;
+                }
+            } else {
+                try first_req_by_shape_hash.put(shape_hash, requirement_index);
+            }
+            break :capability_id_for_shape (try resolveRequirementCapabilityId(plan, requirement_index, capability_index));
+        };
         resolved_capability_ids[requirement_index] = capability_id;
         try encodeStringRef(&out, allocator, label_ref);
         try appendU16(&out, allocator, requirement.first_op);
@@ -1692,28 +1788,215 @@ fn decodeRequirementTable(allocator: std.mem.Allocator, string_bytes: []const u8
 fn resolveRequirementCapabilityId(
     plan: program_plan.ProgramPlan,
     requirement_index: usize,
-    lookup: CapabilityLookup,
-    resolved_capability_ids: []const ?u16,
+    validation_index: *const CapabilityValidationIndex,
 ) !u16 {
-    const requirement = plan.requirements[requirement_index];
-    var wanted_ordinal: usize = 0;
-    for (plan.requirements[0..requirement_index], 0..) |previous, previous_requirement_index| {
-        if (previous.op_count != requirement.op_count) continue;
-        if (!std.mem.eql(u8, previous.label, requirement.label)) continue;
-        if (!requirementsShareCompatibleCapability(plan, previous_requirement_index, requirement_index, lookup)) continue;
-        if (requirementOpNamesMatch(plan, previous_requirement_index, requirement_index)) {
-            return resolved_capability_ids[previous_requirement_index] orelse error.InvalidRequiredSection;
-        }
-        wanted_ordinal += 1;
+    const capability_index = validation_index.nthMatchingCapability(plan, requirement_index, 0) orelse return error.InvalidRequiredSection;
+    return validation_index.lookup.capabilities[capability_index].capability_id;
+}
+
+const PlanOpCodecInfo = struct {
+    terminal_result: ?program_plan.ValueCodec = null,
+    terminal_result_conflict: bool = false,
+    after_payload: ?program_plan.ValueCodec = null,
+    after_payload_conflict: bool = false,
+    after_result: ?program_plan.ValueCodec = null,
+    after_result_conflict: bool = false,
+};
+
+const CapabilityValidationIndex = struct {
+    allocator: std.mem.Allocator,
+    lookup: CapabilityLookup,
+    op_codecs: []PlanOpCodecInfo,
+    requirement_shape_hashes: []u64,
+
+    fn init(
+        allocator: std.mem.Allocator,
+        plan: program_plan.ProgramPlan,
+        capabilities: []const CapabilityV1,
+    ) !@This() {
+        var lookup = try CapabilityLookup.init(allocator, capabilities);
+        errdefer lookup.deinit();
+
+        const op_codecs = try buildPlanOpCodecInfo(allocator, plan);
+        errdefer allocator.free(op_codecs);
+        const requirement_shape_hashes = try buildRequirementCapabilityShapeHashes(allocator, plan, op_codecs);
+        errdefer allocator.free(requirement_shape_hashes);
+
+        return .{
+            .allocator = allocator,
+            .lookup = lookup,
+            .op_codecs = op_codecs,
+            .requirement_shape_hashes = requirement_shape_hashes,
+        };
     }
 
-    var current_ordinal: usize = 0;
-    for (lookup.capabilities, 0..) |capability, capability_index| {
-        if (!toolCapabilityMatchesRequirement(plan, requirement_index, lookup, capability_index)) continue;
-        if (current_ordinal == wanted_ordinal) return capability.capability_id;
-        current_ordinal += 1;
+    fn deinit(self: *@This()) void {
+        self.allocator.free(self.requirement_shape_hashes);
+        self.allocator.free(self.op_codecs);
+        self.lookup.deinit();
     }
-    return error.InvalidRequiredSection;
+
+    fn nthMatchingCapability(
+        self: @This(),
+        plan: program_plan.ProgramPlan,
+        requirement_index: usize,
+        wanted_index: usize,
+    ) ?usize {
+        var current_index: usize = 0;
+        for (self.lookup.capabilities, 0..) |_, capability_index| {
+            if (self.capabilityMatchesRequirement(plan, requirement_index, capability_index)) {
+                if (current_index == wanted_index) return capability_index;
+                current_index += 1;
+            }
+        }
+        return null;
+    }
+
+    fn capabilityMatchesRequirement(
+        self: @This(),
+        plan: program_plan.ProgramPlan,
+        requirement_index: usize,
+        capability_index: usize,
+    ) bool {
+        return toolCapabilityMatchesRequirementIndexed(plan, requirement_index, self.lookup, capability_index, self.op_codecs);
+    }
+
+    fn requirementsHaveSameCapabilityShape(
+        self: @This(),
+        plan: program_plan.ProgramPlan,
+        requirement_index: usize,
+        other_requirement_index: usize,
+    ) bool {
+        if (self.requirement_shape_hashes[requirement_index] != self.requirement_shape_hashes[other_requirement_index]) return false;
+        return requirementCapabilityShapesMatch(plan, requirement_index, other_requirement_index, self.op_codecs);
+    }
+
+    fn validateRequirementCapabilityOpNameDisambiguation(
+        self: @This(),
+        plan: program_plan.ProgramPlan,
+    ) !void {
+        var seen_shape_hashes = std.AutoHashMap(u64, void).init(self.allocator);
+        defer seen_shape_hashes.deinit();
+        for (plan.requirements, 0..) |_, requirement_index| {
+            const shape_hash = self.requirement_shape_hashes[requirement_index];
+            const seen_entry = try seen_shape_hashes.getOrPut(shape_hash);
+            if (!seen_entry.found_existing) continue;
+
+            previous_requirement_loop: for (plan.requirements[0..requirement_index], 0..) |_, previous_requirement_index| {
+                if (self.requirement_shape_hashes[previous_requirement_index] != shape_hash) continue :previous_requirement_loop;
+                if (!self.requirementsHaveSameCapabilityShape(plan, previous_requirement_index, requirement_index)) continue :previous_requirement_loop;
+                if (!requirementOpNamesMatch(plan, previous_requirement_index, requirement_index)) return error.InvalidRequiredSection;
+                break;
+            }
+        }
+    }
+};
+
+fn buildRequirementCapabilityShapeHashes(
+    allocator: std.mem.Allocator,
+    plan: program_plan.ProgramPlan,
+    op_codecs: []const PlanOpCodecInfo,
+) ![]u64 {
+    const hashes = try allocator.alloc(u64, plan.requirements.len);
+    errdefer allocator.free(hashes);
+    for (plan.requirements, 0..) |_, requirement_index| {
+        hashes[requirement_index] = try requirementCapabilityShapeHash(plan, requirement_index, op_codecs);
+    }
+    return hashes;
+}
+
+fn requirementCapabilityShapeHash(
+    plan: program_plan.ProgramPlan,
+    requirement_index: usize,
+    op_codecs: []const PlanOpCodecInfo,
+) !u64 {
+    const requirement = plan.requirements[requirement_index];
+    var hasher = std.hash.Wyhash.init(0);
+    hashCapabilityShapeBytes(&hasher, requirement.label);
+    hasher.update(std.mem.asBytes(&requirement.op_count));
+    const op_start = requirement.first_op;
+    const op_end = op_start + requirement.op_count;
+    if (op_end > plan.ops.len) return error.InvalidRequiredSection;
+    for (plan.ops[op_start..op_end], op_start..) |plan_op, op_index| {
+        hashCapabilityShapeBytes(&hasher, @tagName(plan_op.payload_codec));
+        const terminal_codec = try capabilityResultCodecForOpIndexed(plan, op_index, op_codecs);
+        hashCapabilityShapeBytes(&hasher, @tagName(terminal_codec));
+        hasher.update(&[_]u8{@intFromBool(plan_op.has_after)});
+        if (plan_op.has_after) {
+            const after_payload_codec = afterCapabilityPayloadCodecForOpIndexed(op_index, op_codecs) orelse return error.InvalidRequiredSection;
+            const after_result_codec = afterCapabilityResultCodecForOpIndexed(op_index, op_codecs) orelse return error.InvalidRequiredSection;
+            hashCapabilityShapeBytes(&hasher, @tagName(after_payload_codec));
+            hashCapabilityShapeBytes(&hasher, @tagName(after_result_codec));
+        }
+    }
+    return hasher.final();
+}
+
+fn hashCapabilityShapeBytes(hasher: *std.hash.Wyhash, bytes: []const u8) void {
+    hasher.update(std.mem.asBytes(&bytes.len));
+    hasher.update(bytes);
+}
+
+fn requirementCapabilityShapesMatch(
+    plan: program_plan.ProgramPlan,
+    requirement_index: usize,
+    other_requirement_index: usize,
+    op_codecs: []const PlanOpCodecInfo,
+) bool {
+    const requirement = plan.requirements[requirement_index];
+    const other = plan.requirements[other_requirement_index];
+    if (!std.mem.eql(u8, requirement.label, other.label)) return false;
+    if (requirement.op_count != other.op_count) return false;
+    const requirement_ops = plan.ops[requirement.first_op .. requirement.first_op + requirement.op_count];
+    const other_ops = plan.ops[other.first_op .. other.first_op + other.op_count];
+    for (requirement_ops, other_ops, 0..) |requirement_op, other_op, op_offset| {
+        const op_index = requirement.first_op + op_offset;
+        const other_op_index = other.first_op + op_offset;
+        if (requirement_op.payload_codec != other_op.payload_codec) return false;
+        if (requirement_op.has_after != other_op.has_after) return false;
+        const requirement_result_codec = capabilityResultCodecForOpIndexed(plan, op_index, op_codecs) catch return false;
+        const other_result_codec = capabilityResultCodecForOpIndexed(plan, other_op_index, op_codecs) catch return false;
+        if (requirement_result_codec != other_result_codec) return false;
+        if (requirement_op.has_after) {
+            const requirement_after_payload = afterCapabilityPayloadCodecForOpIndexed(op_index, op_codecs) orelse return false;
+            const other_after_payload = afterCapabilityPayloadCodecForOpIndexed(other_op_index, op_codecs) orelse return false;
+            if (requirement_after_payload != other_after_payload) return false;
+            const requirement_after_result = afterCapabilityResultCodecForOpIndexed(op_index, op_codecs) orelse return false;
+            const other_after_result = afterCapabilityResultCodecForOpIndexed(other_op_index, op_codecs) orelse return false;
+            if (requirement_after_result != other_after_result) return false;
+        }
+    }
+    return true;
+}
+
+fn buildPlanOpCodecInfo(allocator: std.mem.Allocator, plan: program_plan.ProgramPlan) ![]PlanOpCodecInfo {
+    const op_codecs = try allocator.alloc(PlanOpCodecInfo, plan.ops.len);
+    @memset(op_codecs, .{});
+    for (plan.functions) |function| {
+        const function_result_codec = program_plan.functionResultCodec(function);
+        const req_start: usize = function.first_requirement;
+        const req_end = req_start + function.requirement_count;
+        for (plan.requirements[req_start..req_end]) |requirement| {
+            const op_start = requirement.first_op;
+            const op_end = op_start + requirement.op_count;
+            for (plan.ops[op_start..op_end], op_start..) |plan_op, op_index| {
+                mergePlanOpCodec(&op_codecs[op_index].terminal_result, &op_codecs[op_index].terminal_result_conflict, function_result_codec);
+                if (plan_op.has_after) {
+                    mergePlanOpCodec(&op_codecs[op_index].after_payload, &op_codecs[op_index].after_payload_conflict, function.value_codec);
+                    mergePlanOpCodec(&op_codecs[op_index].after_result, &op_codecs[op_index].after_result_conflict, function_result_codec);
+                }
+            }
+        }
+    }
+    return op_codecs;
+}
+
+fn mergePlanOpCodec(slot: *?program_plan.ValueCodec, conflict: *bool, codec: program_plan.ValueCodec) void {
+    if (slot.*) |existing| {
+        if (existing != codec) conflict.* = true;
+    } else {
+        slot.* = codec;
+    }
 }
 
 const CapabilityLookup = struct {
@@ -1772,11 +2055,12 @@ fn capabilityOpLookupKey(capability_index: usize, plan_op_ordinal: u16, host_op_
         host_bit;
 }
 
-fn toolCapabilityMatchesRequirement(
+fn toolCapabilityMatchesRequirementIndexed(
     plan: program_plan.ProgramPlan,
     requirement_index: usize,
     lookup: CapabilityLookup,
     capability_index: usize,
+    op_codecs: []const PlanOpCodecInfo,
 ) bool {
     const capability = lookup.capabilities[capability_index];
     const requirement = plan.requirements[requirement_index];
@@ -1796,13 +2080,13 @@ fn toolCapabilityMatchesRequirement(
     for (plan.ops[op_start..op_end], 0..) |plan_op, op_offset| {
         const capability_op = lookup.capabilityOp(capability_index, @intCast(op_offset), .call) orelse return false;
         if (capability_op.payload_codec != mapPlanCodecToCapabilityCodec(plan_op.payload_codec)) return false;
-        const expected_result_codec = capabilityResultCodecForOp(plan, op_start + op_offset) catch return false;
+        const expected_result_codec = capabilityResultCodecForOpIndexed(plan, op_start + op_offset, op_codecs) catch return false;
         if (capability_op.result_codec != mapPlanCodecToCapabilityCodec(expected_result_codec)) return false;
         const matched_after_op = lookup.capabilityOp(capability_index, @intCast(op_offset), .after_call);
         if (plan_op.has_after) {
             const after_op = matched_after_op orelse return false;
-            const after_payload_codec = afterCapabilityPayloadCodecForOp(plan, @intCast(op_start + op_offset)) orelse return false;
-            const after_result_codec = afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_offset)) orelse return false;
+            const after_payload_codec = afterCapabilityPayloadCodecForOpIndexed(op_start + op_offset, op_codecs) orelse return false;
+            const after_result_codec = afterCapabilityResultCodecForOpIndexed(op_start + op_offset, op_codecs) orelse return false;
             if (after_op.payload_codec != mapPlanCodecToCapabilityCodec(after_payload_codec)) return false;
             if (after_op.result_codec != mapPlanCodecToCapabilityCodec(after_result_codec)) return false;
         } else if (matched_after_op != null) {
@@ -1810,43 +2094,6 @@ fn toolCapabilityMatchesRequirement(
         }
     }
     return true;
-}
-
-fn requirementsShareCompatibleCapability(
-    plan: program_plan.ProgramPlan,
-    requirement_index: usize,
-    other_requirement_index: usize,
-    lookup: CapabilityLookup,
-) bool {
-    for (lookup.capabilities, 0..) |_, capability_index| {
-        if (toolCapabilityMatchesRequirement(plan, requirement_index, lookup, capability_index) and
-            toolCapabilityMatchesRequirement(plan, other_requirement_index, lookup, capability_index))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-fn validateRequirementCapabilityOpNameDisambiguation(
-    allocator: std.mem.Allocator,
-    plan: program_plan.ProgramPlan,
-    capabilities: []const CapabilityV1,
-) !void {
-    var lookup = try CapabilityLookup.init(allocator, capabilities);
-    defer lookup.deinit();
-    for (plan.requirements, 0..) |_, requirement_index| {
-        other_requirement_loop: for (plan.requirements[requirement_index + 1 ..], requirement_index + 1..) |_, other_requirement_index| {
-            if (requirementOpNamesMatch(plan, requirement_index, other_requirement_index)) continue :other_requirement_loop;
-            for (lookup.capabilities, 0..) |_, capability_index| {
-                if (toolCapabilityMatchesRequirement(plan, requirement_index, lookup, capability_index) and
-                    toolCapabilityMatchesRequirement(plan, other_requirement_index, lookup, capability_index))
-                {
-                    return error.InvalidRequiredSection;
-                }
-            }
-        }
-    }
 }
 
 fn requirementOpNamesMatch(plan: program_plan.ProgramPlan, requirement_index: usize, other_requirement_index: usize) bool {
@@ -1899,24 +2146,32 @@ fn validateRequirementCapabilityMappings(
     capabilities: []const CapabilityV1,
 ) !void {
     if (plan.requirements.len != capability_ids.len) return error.InvalidRequiredSection;
-    var lookup = try CapabilityLookup.init(allocator, capabilities);
-    defer lookup.deinit();
+    var capability_index = try CapabilityValidationIndex.init(allocator, plan, capabilities);
+    defer capability_index.deinit();
+    try capability_index.validateRequirementCapabilityOpNameDisambiguation(plan);
     var first_req_by_cap = std.AutoHashMap(u16, usize).init(allocator);
     defer first_req_by_cap.deinit();
+    var first_req_by_shape_hash = std.AutoHashMap(u64, usize).init(allocator);
+    defer first_req_by_shape_hash.deinit();
     const resolved_capability_ids = try allocator.alloc(?u16, capability_ids.len);
     defer allocator.free(resolved_capability_ids);
     @memset(resolved_capability_ids, null);
     for (capability_ids, 0..) |capability_id, requirement_index| {
-        const expected_capability_id = try resolveRequirementCapabilityId(
-            plan,
-            requirement_index,
-            lookup,
-            resolved_capability_ids[0..requirement_index],
-        );
+        const shape_hash = capability_index.requirement_shape_hashes[requirement_index];
+        const expected_capability_id = expected_id: {
+            if (first_req_by_shape_hash.get(shape_hash)) |first_requirement_index| {
+                if (capability_index.requirementsHaveSameCapabilityShape(plan, first_requirement_index, requirement_index)) {
+                    break :expected_id resolved_capability_ids[first_requirement_index] orelse return error.InvalidRequiredSection;
+                }
+            } else {
+                try first_req_by_shape_hash.put(shape_hash, requirement_index);
+            }
+            break :expected_id (try resolveRequirementCapabilityId(plan, requirement_index, &capability_index));
+        };
         resolved_capability_ids[requirement_index] = expected_capability_id;
         if (capability_id != expected_capability_id) return error.InvalidRequiredSection;
-        const capability_index = lookup.capabilityIndexById(capability_id) orelse return error.InvalidRequiredSection;
-        if (!toolCapabilityMatchesRequirement(plan, requirement_index, lookup, capability_index)) return error.InvalidRequiredSection;
+        const matched_capability_index = capability_index.lookup.capabilityIndexById(capability_id) orelse return error.InvalidRequiredSection;
+        if (!capability_index.capabilityMatchesRequirement(plan, requirement_index, matched_capability_index)) return error.InvalidRequiredSection;
         const first_entry = try first_req_by_cap.getOrPut(capability_id);
         if (first_entry.found_existing and !requirementOpNamesMatch(plan, first_entry.value_ptr.*, requirement_index)) {
             return error.InvalidRequiredSection;
@@ -1925,17 +2180,41 @@ fn validateRequirementCapabilityMappings(
     }
 }
 
-fn capabilityResultCodecForOp(plan: program_plan.ProgramPlan, op_index: usize) !program_plan.ValueCodec {
+fn capabilityResultCodecForOpIndexed(
+    plan: program_plan.ProgramPlan,
+    op_index: usize,
+    op_codecs: []const PlanOpCodecInfo,
+) !program_plan.ValueCodec {
     const op = plan.ops[op_index];
     return switch (op.mode) {
         .transform => op.resume_codec,
         .choice => blk: {
-            const terminal_codec = try terminalResultCodecForOp(plan, @intCast(op_index));
+            const terminal_codec = try terminalResultCodecForOpIndexed(plan, op_index, op_codecs);
             if (terminal_codec != op.resume_codec) return error.InvalidRequiredSection;
             break :blk op.resume_codec;
         },
-        .abort => try terminalResultCodecForOp(plan, @intCast(op_index)),
+        .abort => try terminalResultCodecForOpIndexed(plan, op_index, op_codecs),
     };
+}
+
+fn afterCapabilityResultCodecForOpIndexed(op_index: usize, op_codecs: []const PlanOpCodecInfo) ?program_plan.ValueCodec {
+    if (op_index >= op_codecs.len or op_codecs[op_index].after_result_conflict) return null;
+    return op_codecs[op_index].after_result;
+}
+
+fn afterCapabilityPayloadCodecForOpIndexed(op_index: usize, op_codecs: []const PlanOpCodecInfo) ?program_plan.ValueCodec {
+    if (op_index >= op_codecs.len or op_codecs[op_index].after_payload_conflict) return null;
+    return op_codecs[op_index].after_payload;
+}
+
+fn terminalResultCodecForOpIndexed(
+    plan: program_plan.ProgramPlan,
+    op_index: usize,
+    op_codecs: []const PlanOpCodecInfo,
+) !program_plan.ValueCodec {
+    if (op_index >= plan.ops.len or op_index >= op_codecs.len) return error.InvalidRequiredSection;
+    if (op_codecs[op_index].terminal_result_conflict) return error.InvalidRequiredSection;
+    return op_codecs[op_index].terminal_result orelse error.InvalidRequiredSection;
 }
 
 /// Resolve the unique function answer codec that one transform/choice op would feed into an `after*` hook.

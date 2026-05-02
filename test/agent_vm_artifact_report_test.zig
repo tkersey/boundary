@@ -61,9 +61,15 @@ test "agent-vm-artifact-report parses artifact flag" {
         report.parseArgs(&.{ "agent-vm-artifact-report", "--artifact", "--fixture.artifact" }).artifact.path,
     );
     try std.testing.expect(report.parseArgs(&.{ "agent-vm-artifact-report", "--help" }) == .help);
-    try std.testing.expect(report.parseArgs(&.{ "agent-vm-artifact-report", "--help", "--artifact", "artifact.bin" }) == .help);
+    try std.testing.expectEqualStrings(
+        "option '--help' does not accept extra arguments",
+        report.parseArgs(&.{ "agent-vm-artifact-report", "--help", "--artifact", "artifact.bin" }).invalid,
+    );
     try std.testing.expect(report.parseArgs(&.{ "agent-vm-artifact-report", "--version" }) == .version);
-    try std.testing.expect(report.parseArgs(&.{ "agent-vm-artifact-report", "--json", "--version" }) == .version);
+    try std.testing.expectEqualStrings(
+        "option '--version' does not accept extra arguments",
+        report.parseArgs(&.{ "agent-vm-artifact-report", "--json", "--version" }).invalid,
+    );
     try std.testing.expectEqualStrings(
         "missing required --artifact <path>",
         report.parseArgs(&.{"agent-vm-artifact-report"}).invalid,

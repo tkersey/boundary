@@ -99,6 +99,7 @@ test "ability_agent_vm public smoke executes artifact bytes through the supporte
                 .string => |value| try std.testing.expectEqualStrings("done", value),
                 else => return error.TestUnexpectedResult,
             }
+            try std.testing.expectEqual(ability_agent_vm.host.OutputCodec.string, completed.value_codec);
             try std.testing.expectEqual(@as(usize, 0), completed.outputs.len);
             try std.testing.expectEqual(@as(usize, 1), completed.logs.len);
             switch (completed.logs[0].request) {
@@ -520,6 +521,46 @@ test "ability_agent_vm public output snapshot fallback rejects multi-output posi
     try std.testing.expectError(
         error.MissingOutputSnapshot,
         adapter.collectOutputSnapshots(allocator, &descriptors),
+    );
+}
+
+test "ability_agent_vm public legacy output collector rejects multi-output positional collection" {
+    const allocator = std.testing.allocator;
+    const adapter: ability_agent_vm.host.Adapter = .{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                _: *const ability_agent_vm.host.Request,
+            ) anyerror!ability_agent_vm.host.Response {
+                return error.TestUnexpectedDispatch;
+            }
+        }.dispatch,
+        .collectOutputsFn = struct {
+            fn collect(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                _: []const ability_agent_vm.host.OutputDescriptor,
+            ) anyerror![]ability_agent_vm.host.DataValue {
+                return error.TestUnexpectedLegacyCollection;
+            }
+        }.collect,
+    };
+    const descriptors = [_]ability_agent_vm.host.OutputDescriptor{
+        .{
+            .label = "first",
+            .codec = .string,
+        },
+        .{
+            .label = "second",
+            .codec = .string,
+        },
+    };
+
+    try std.testing.expectError(
+        error.MissingOutputSnapshot,
+        adapter.collectOutputs(allocator, &descriptors),
     );
 }
 

@@ -1,16 +1,56 @@
 const artifact = @import("artifact_api");
+const conformance_fixture_generator_options = @import("conformance_fixture_generator_options");
 const program_plan = @import("internal_program_plan");
 const std = @import("std");
 
 const oversized_return_bytes = (1 << 20) + 1;
+const usage_text =
+    "usage: generate-agent-vm-conformance-fixtures <no-host> <host-call> <output-snapshot> <oversized-return>\n" ++
+    "       generate-agent-vm-conformance-fixtures --version\n" ++
+    "       generate-agent-vm-conformance-fixtures --help\n" ++
+    "Build-only helper: writes no-host, host-call, output-snapshot, and oversized-return ArtifactV1 conformance fixtures. Each argument is an output path.\n";
+
+fn isSingletonHelpOrVersionArg(arg: []const u8) bool {
+    return std.mem.eql(u8, arg, "--help") or
+        std.mem.eql(u8, arg, "-h") or
+        std.mem.eql(u8, arg, "--version");
+}
 
 /// Build-only fixture generator for the public Agent VM conformance suite.
 pub fn main(init: std.process.Init) anyerror!void {
     const allocator = init.gpa;
     const args = try init.minimal.args.toSlice(allocator);
     defer allocator.free(args);
+    if (args.len == 2 and (std.mem.eql(u8, args[1], "--help") or std.mem.eql(u8, args[1], "-h"))) {
+        var stdout_buffer: [256]u8 = undefined;
+        var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+        try stdout_writer.interface.writeAll(usage_text);
+        try stdout_writer.interface.flush();
+        return;
+    }
+    if (args.len == 2 and std.mem.eql(u8, args[1], "--version")) {
+        var stdout_buffer: [96]u8 = undefined;
+        var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+        try stdout_writer.interface.print("generate-agent-vm-conformance-fixtures {s} (build helper)\n", .{conformance_fixture_generator_options.version});
+        try stdout_writer.interface.flush();
+        return;
+    }
     if (args.len != 5) {
-        std.debug.print("usage: generate-agent-vm-conformance-fixtures <no-host> <host-call> <output-snapshot> <oversized-return>\n", .{});
+        var stderr_buffer: [512]u8 = undefined;
+        var stderr_writer = std.Io.File.stderr().writerStreaming(init.io, &stderr_buffer);
+        if (args.len > 1 and isSingletonHelpOrVersionArg(args[1])) {
+            try stderr_writer.interface.writeAll("generate-agent-vm-conformance-fixtures: option ");
+            try writeEscapedDiagnosticValue(&stderr_writer.interface, args[1]);
+            try stderr_writer.interface.writeAll(" does not accept extra arguments; run --help for usage\n");
+        } else if (args.len > 1 and std.mem.startsWith(u8, args[1], "-")) {
+            try stderr_writer.interface.writeAll("generate-agent-vm-conformance-fixtures: unknown option ");
+            try writeEscapedDiagnosticValue(&stderr_writer.interface, args[1]);
+            try stderr_writer.interface.writeAll("; run --help for usage\n");
+        } else {
+            try stderr_writer.interface.print("generate-agent-vm-conformance-fixtures: expected 4 output paths, got {d}; run --help for usage\n", .{args.len - 1});
+        }
+        try stderr_writer.interface.writeAll(usage_text);
+        try stderr_writer.interface.flush();
         std.process.exit(2);
     }
 
@@ -22,6 +62,20 @@ pub fn main(init: std.process.Init) anyerror!void {
     defer allocator.free(oversized);
     @memset(oversized, 'x');
     try writeArtifact(init.io, allocator, args[4], try makeReturnStringArtifact(allocator, oversized));
+}
+
+fn writeEscapedDiagnosticValue(writer: anytype, value: []const u8) !void {
+    try writer.writeByte('\'');
+    for (value) |byte| switch (byte) {
+        '\n' => try writer.writeAll("\\n"),
+        '\r' => try writer.writeAll("\\r"),
+        '\t' => try writer.writeAll("\\t"),
+        '\\' => try writer.writeAll("\\\\"),
+        '\'' => try writer.writeAll("\\'"),
+        0x20...0x26, 0x28...0x5b, 0x5d...0x7e => try writer.writeByte(byte),
+        else => try writer.print("\\x{x:0>2}", .{byte}),
+    };
+    try writer.writeByte('\'');
 }
 
 fn writeArtifact(io: std.Io, allocator: std.mem.Allocator, path: []const u8, bytes: []u8) !void {
