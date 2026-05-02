@@ -2177,11 +2177,34 @@ fn BindingSchemaFamily(comptime BindingSchema: type) type {
     @compileError("binding schema must declare family or Family");
 }
 
-fn bindingFamilyForLabel(comptime binding_schemas: anytype, comptime label: []const u8) ?type {
-    const BindingSchemasType = if (@TypeOf(binding_schemas) == type) binding_schemas else @TypeOf(binding_schemas);
+fn bindingSchemaFamilyIfLabelMatches(comptime BindingSchema: type, comptime label: []const u8) ?type {
+    if (std.mem.eql(u8, BindingSchema.requirement_label, label)) return BindingSchemaFamily(BindingSchema);
+    return null;
+}
+
+fn bindingFamilyForLabelFromTupleType(comptime BindingSchemasType: type, comptime label: []const u8) ?type {
     inline for (@typeInfo(BindingSchemasType).@"struct".fields) |field| {
-        const BindingSchemaType = if (field.type == type) @field(binding_schemas, field.name) else field.type;
-        if (std.mem.eql(u8, BindingSchemaType.requirement_label, label)) return BindingSchemaFamily(BindingSchemaType);
+        if (bindingSchemaFamilyIfLabelMatches(field.type, label)) |family_schema| return family_schema;
+    }
+    return null;
+}
+
+fn bindingFamilyForLabel(comptime binding_schemas: anytype, comptime label: []const u8) ?type {
+    if (@TypeOf(binding_schemas) == type) return bindingFamilyForLabelFromTupleType(binding_schemas, label);
+
+    switch (@typeInfo(@TypeOf(binding_schemas))) {
+        .@"struct" => |info| {
+            inline for (info.fields) |field| {
+                const BindingSchemaType = if (field.type == type) @field(binding_schemas, field.name) else field.type;
+                if (bindingSchemaFamilyIfLabelMatches(BindingSchemaType, label)) |family_schema| return family_schema;
+            }
+        },
+        .array => {
+            inline for (binding_schemas) |BindingSchemaType| {
+                if (bindingSchemaFamilyIfLabelMatches(BindingSchemaType, label)) |family_schema| return family_schema;
+            }
+        },
+        else => @compileError("binding schemas must be a tuple type, tuple value, or array value"),
     }
     return null;
 }
@@ -2359,6 +2382,19 @@ const source_path_compat_excluded_binding_tests = if (source_path_compat_mode) s
         });
         try std.testing.expectEqual(RequirementLifecycleTag.state_cell, exact.requirements[0].lifecycle_tag);
         try std.testing.expectEqual(RequirementOutputTag.accumulator, exact.requirements[1].output_tag);
+
+        const array_exact = enrichPlanWithBindingSchemasExact(base_plan, [_]type{
+            struct {
+                const requirement_label = "state";
+                const family = state_family;
+            },
+            struct {
+                const requirement_label = "writer";
+                const family = writer_family;
+            },
+        });
+        try std.testing.expectEqual(RequirementLifecycleTag.state_cell, array_exact.requirements[0].lifecycle_tag);
+        try std.testing.expectEqual(RequirementOutputTag.accumulator, array_exact.requirements[1].output_tag);
     }
 
     test "binding schema enrichment preserves plan shape while attaching lifecycle metadata" {
