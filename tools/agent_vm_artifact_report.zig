@@ -14,15 +14,15 @@ const usage_text =
     "  --artifact <path>  classify one ArtifactV1 payload\n" ++
     "  --format <mode>    output mode: text or json\n" ++
     "  --json             emit a machine-readable JSON verdict\n" ++
-    "  --report-only      emit classified artifact verdicts without failing on non-compatibility\n" ++
+    "  --report-only      emit decoded artifact verdicts without failing on non-compatibility\n" ++
     "  --version          print the tool version\n" ++
     "  --help, -h         print this help\n" ++
     "\n" ++
     "exit status:\n" ++
     "  0  compatible artifact\n" ++
-    "  1  classified artifact verdict with status incompatible, invalid, or unsupported\n" ++
-    "  2  CLI usage or artifact read failure\n" ++
-    "  With --report-only, classified artifact verdicts exit 0; CLI usage and artifact read failures still exit 2.\n";
+    "  1  decoded artifact verdict: incompatible, invalid artifact, or unsupported\n" ++
+    "  2  CLI usage or artifact file-read failure, even when JSON status is invalid\n" ++
+    "  With --report-only, decoded artifact verdicts exit 0; CLI usage and artifact file-read failures still exit 2.\n";
 
 /// Maximum ArtifactV1 payload size accepted by the fixed conformance profile.
 pub const max_artifact_bytes = 16 * 1024 * 1024;
@@ -393,16 +393,16 @@ fn stableArtifactDecoderDetail(message: []const u8) []const u8 {
 }
 
 fn stableFailureDetail(message: []const u8) []const u8 {
-    if (std.mem.eql(u8, message, "artifact completed value payload budget exceeded")) return "artifact completed value payload budget exceeded";
-    if (std.mem.eql(u8, message, "artifact block budget exceeded")) return "artifact block budget exceeded";
-    if (std.mem.eql(u8, message, "artifact instruction budget exceeded")) return "artifact instruction budget exceeded";
-    if (std.mem.eql(u8, message, "artifact call-depth budget exceeded")) return "artifact call-depth budget exceeded";
-    if (std.mem.eql(u8, message, "artifact after-frame budget exceeded")) return "artifact after-frame budget exceeded";
-    if (std.mem.eql(u8, message, "artifact host-log budget exceeded")) return "artifact host-log budget exceeded";
-    if (std.mem.eql(u8, message, "artifact host-log byte budget exceeded")) return "artifact host-log byte budget exceeded";
-    if (std.mem.eql(u8, message, "artifact host-log payload budget exceeded")) return "artifact host-log payload budget exceeded";
-    if (std.mem.eql(u8, message, "artifact host-request payload budget exceeded")) return "artifact host-request payload budget exceeded";
-    if (std.mem.eql(u8, message, "artifact output snapshot payload budget exceeded")) return "artifact output snapshot payload budget exceeded";
+    if (std.mem.eql(u8, message, "artifact completed value payload budget exceeded")) return "artifact completed value payload budget exceeded; reduce the returned value below fixed profile max_bytes=1048576 or inspect with a larger-profile tool";
+    if (std.mem.eql(u8, message, "artifact block budget exceeded")) return "artifact block budget exceeded; reduce generated control-flow size or inspect with a larger-profile tool";
+    if (std.mem.eql(u8, message, "artifact instruction budget exceeded")) return "artifact instruction budget exceeded; reduce generated instruction count or inspect with a larger-profile tool";
+    if (std.mem.eql(u8, message, "artifact call-depth budget exceeded")) return "artifact call-depth budget exceeded; reduce nested calls or inspect with a larger-profile tool";
+    if (std.mem.eql(u8, message, "artifact after-frame budget exceeded")) return "artifact after-frame budget exceeded; reduce nested after handlers or inspect with a larger-profile tool";
+    if (std.mem.eql(u8, message, "artifact host-log budget exceeded")) return "artifact host-log budget exceeded; this report profile has zero host-log allowance, so rebuild without host logging or use a host-aware inspection path";
+    if (std.mem.eql(u8, message, "artifact host-log byte budget exceeded")) return "artifact host-log byte budget exceeded; this report profile has zero host-log byte allowance, so rebuild without host logging or use a host-aware inspection path";
+    if (std.mem.eql(u8, message, "artifact host-log payload budget exceeded")) return "artifact host-log payload budget exceeded; this report profile has zero host-log payload allowance, so rebuild without host logging or use a host-aware inspection path";
+    if (std.mem.eql(u8, message, "artifact host-request payload budget exceeded")) return "artifact host-request payload budget exceeded; reduce host request payload size or use a host-aware inspection path";
+    if (std.mem.eql(u8, message, "artifact output snapshot payload budget exceeded")) return "artifact output snapshot payload budget exceeded; reduce declared output snapshot payload size or use a host-aware inspection path";
     if (std.mem.eql(u8, message, "host reply schema_version must be 1")) return "host reply schema_version must be 1";
     if (std.mem.eql(u8, message, "host reply request_id must echo the request")) return "host reply request_id must echo the request";
     if (std.mem.eql(u8, message, "host reply tool_id must echo the request")) return "host reply tool_id must echo the request";
@@ -641,6 +641,11 @@ test "ArtifactV1 decoder detail has actionable oversized and fallback recovery" 
         "runtime failed under the fixed conformance profile with an unclassified error; regenerate the artifact with this exact report binary or installed package and file an issue with this verdict if it persists",
         stableFailureDetail("new runtime error"),
     );
+}
+
+test "usage distinguishes artifact verdict invalid from CLI invalid" {
+    try std.testing.expect(std.mem.find(u8, usage_text, "decoded artifact verdict: incompatible, invalid artifact, or unsupported") != null);
+    try std.testing.expect(std.mem.find(u8, usage_text, "CLI usage or artifact file-read failure, even when JSON status is invalid") != null);
 }
 
 test "artifact read failures explain option-looking paths" {

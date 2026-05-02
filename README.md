@@ -8,6 +8,11 @@ supported package surface is intentionally small: effect bindings, runtime
 execution, ProgramPlan-first artifact compilation, and a retained compatibility
 module for ArtifactV1 execution.
 
+Start with `ability.with` when a Zig program needs to run an effectful body with
+typed handlers in the same process. Reach for `ability.compile` only when a
+caller already owns a `ProgramPlan` and needs to package it as ArtifactV1 for the
+retained agent-VM compatibility path.
+
 ## Shipped Surface
 
 The public root export set is intentionally narrow:

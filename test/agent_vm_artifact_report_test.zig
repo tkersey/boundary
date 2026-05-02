@@ -116,7 +116,10 @@ test "agent-vm-artifact-report classifies compatible, unsupported, invalid, and 
     const incompatible = try report.fixedProfileVerdict(allocator, oversized_bytes);
     try std.testing.expectEqual(report.VerdictStatus.incompatible, incompatible.status);
     try std.testing.expectEqualStrings("resource_exhausted", incompatible.code);
-    try std.testing.expectEqualStrings("artifact completed value payload budget exceeded", incompatible.detail);
+    try std.testing.expectEqualStrings(
+        "artifact completed value payload budget exceeded; reduce the returned value below fixed profile max_bytes=1048576 or inspect with a larger-profile tool",
+        incompatible.detail,
+    );
 }
 
 test "agent-vm-artifact-report classifies in-memory artifacts over artifact-size profile cap" {
