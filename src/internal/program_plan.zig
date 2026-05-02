@@ -4,6 +4,10 @@ const std = @import("std");
 
 const source_path_compat_mode = @hasDecl(@import("root"), "source_path_compat_mode");
 const nested_with_metadata_delimiter = "\x1f";
+/// Maximum declared outputs accepted for one executable ProgramPlan function.
+pub const max_validated_function_outputs = 4096;
+const max_indexed_table_len = std.math.maxInt(u16) + 1;
+const small_output_scan_limit = 8;
 
 /// Serializable value codecs admitted by the first redesign wave.
 pub const ValueCodec = enum {
@@ -192,10 +196,11 @@ pub const ProgramPlan = struct {
         if (self.schema_version != current_schema_version) return error.UnsupportedSchemaVersion;
         if (self.label.len == 0) return error.EmptyLabel;
         if (self.functions.len == 0) return error.EmptyProgram;
+        try self.validateAddressableTableLengths();
         if (self.entry_index >= self.functions.len) return error.InvalidEntryIndex;
-        var reachable_blocks = [_]bool{false} ** (std.math.maxInt(u16) + 1);
-        var terminal_reachability = [_]bool{false} ** (std.math.maxInt(u16) + 1);
-        var completion_reachability = [_]bool{false} ** (std.math.maxInt(u16) + 1);
+        var reachable_blocks = [_]bool{false} ** max_indexed_table_len;
+        var terminal_reachability = [_]bool{false} ** max_indexed_table_len;
+        var completion_reachability = [_]bool{false} ** max_indexed_table_len;
 
         for (self.functions) |function| {
             if (function.symbol_name.len == 0) return error.EmptyFunctionSymbol;
@@ -205,6 +210,7 @@ pub const ProgramPlan = struct {
             if (requirement_end > self.requirements.len) return error.InvalidFunctionRequirementSpan;
             const output_end = rangeEnd(function.first_output, function.output_count) orelse return error.InvalidFunctionOutputSpan;
             if (output_end > self.outputs.len) return error.InvalidFunctionOutputSpan;
+            try self.validateFunctionOutputLabels(function);
             const local_end = rangeEnd(function.first_local, function.local_count) orelse return error.InvalidFunctionLocalSpan;
             if (local_end > self.locals.len) return error.InvalidFunctionLocalSpan;
             const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
@@ -241,14 +247,14 @@ pub const ProgramPlan = struct {
         }
 
         var changed = true;
-        var executable_blocks = [_]bool{false} ** (std.math.maxInt(u16) + 1);
+        var executable_blocks = [_]bool{false} ** max_indexed_table_len;
         while (changed) {
             changed = false;
             function_completion_scan: for (self.functions, 0..) |function, function_index| {
                 if (completion_reachability[function_index]) continue :function_completion_scan;
-                @memset(executable_blocks[0..], false);
-                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks);
                 const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+                @memset(executable_blocks[function.first_block..block_end], false);
+                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks);
                 executable_block_completion_scan: for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
                     const block_index = @as(usize, function.first_block) + relative_block_index;
                     if (!executable_blocks[block_index]) continue :executable_block_completion_scan;
@@ -274,9 +280,9 @@ pub const ProgramPlan = struct {
             changed = false;
             function_terminal_scan: for (self.functions, 0..) |function, function_index| {
                 if (terminal_reachability[function_index]) continue :function_terminal_scan;
-                @memset(executable_blocks[0..], false);
-                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks);
                 const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+                @memset(executable_blocks[function.first_block..block_end], false);
+                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks);
                 executable_block_terminal_scan: for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
                     const block_index = @as(usize, function.first_block) + relative_block_index;
                     if (!executable_blocks[block_index]) continue :executable_block_terminal_scan;
@@ -532,7 +538,66 @@ pub const ProgramPlan = struct {
         }
         return hasher.final();
     }
+
+    fn validateFunctionOutputLabels(self: @This(), function: FunctionPlan) ValidationError!void {
+        const output_start = function.first_output;
+        const output_end = rangeEnd(output_start, function.output_count) orelse return error.InvalidFunctionOutputSpan;
+        const outputs = self.outputs[output_start..output_end];
+        if (outputs.len <= 1) return;
+        if (outputs.len > max_validated_function_outputs) return error.TooManyFunctionOutputs;
+
+        if (outputs.len <= small_output_scan_limit) {
+            for (outputs[0 .. outputs.len - 1], 0..) |output, output_index| {
+                for (outputs[output_index + 1 ..]) |other_output| {
+                    if (std.mem.eql(u8, output.label, other_output.label)) return error.DuplicateOutputLabel;
+                }
+            }
+            return;
+        }
+
+        var sort_keys = [_]OutputLabelSortKey{.{ .hash = 0, .index = 0 }} ** max_validated_function_outputs;
+        const keys = sort_keys[0..outputs.len];
+        for (outputs, 0..) |output, output_index| {
+            keys[output_index] = .{
+                .hash = std.hash.Wyhash.hash(0, output.label),
+                .index = @intCast(output_index),
+            };
+        }
+        std.mem.sort(OutputLabelSortKey, keys, OutputLabelSortContext{ .outputs = outputs }, outputLabelSortKeyLessThan);
+
+        for (keys[1..], 1..) |key, key_index| {
+            const previous_key = keys[key_index - 1];
+            if (previous_key.hash != key.hash) continue;
+            if (std.mem.eql(u8, outputs[previous_key.index].label, outputs[key.index].label)) return error.DuplicateOutputLabel;
+        }
+    }
+
+    fn validateAddressableTableLengths(self: @This()) ValidationError!void {
+        if (self.functions.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
+        if (self.requirements.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
+        if (self.ops.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
+        if (self.outputs.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
+        if (self.locals.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
+        if (self.call_args.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
+        if (self.blocks.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
+        if (self.terminators.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
+        if (self.instructions.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
+    }
 };
+
+const OutputLabelSortKey = struct {
+    hash: u64,
+    index: u16,
+};
+
+const OutputLabelSortContext = struct {
+    outputs: []const OutputPlan,
+};
+
+fn outputLabelSortKeyLessThan(context: OutputLabelSortContext, lhs: OutputLabelSortKey, rhs: OutputLabelSortKey) bool {
+    if (lhs.hash != rhs.hash) return lhs.hash < rhs.hash;
+    return std.mem.lessThan(u8, context.outputs[lhs.index].label, context.outputs[rhs.index].label);
+}
 
 /// Internal construction kernel for compiler-produced runtime plans.
 ///
@@ -703,6 +768,9 @@ pub const ValidationError = error{
     EmptyOutputLabel,
     EmptyProgram,
     EmptyRequirementLabel,
+    DuplicateOutputLabel,
+    TooManyFunctionOutputs,
+    ProgramPlanTableTooLarge,
     InvalidCallHelperTarget,
     InvalidCallHelperArgSpan,
     InvalidCallOpTarget,
@@ -1645,6 +1713,9 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
         error.EmptyOutputLabel => "runtime plan generator produced an empty output label",
         error.EmptyProgram => "runtime plan generator produced an empty program",
         error.EmptyRequirementLabel => "runtime plan generator produced an empty requirement label",
+        error.DuplicateOutputLabel => "runtime plan generator produced duplicate output labels in one function",
+        error.TooManyFunctionOutputs => "runtime plan generator produced too many outputs in one function",
+        error.ProgramPlanTableTooLarge => "runtime plan generator produced a table larger than the u16-indexed executable profile",
         error.InvalidCallHelperArgSpan => "runtime plan generator produced an invalid helper call argument span",
         error.InvalidCallHelperTarget => "runtime plan generator produced an out-of-range helper target",
         error.InvalidCallOpTarget => "runtime plan generator produced an out-of-range or foreign-row op target",
@@ -2926,6 +2997,101 @@ test "ProgramPlan.validate rejects functions without owned blocks" {
     };
 
     try std.testing.expectError(error.InvalidFunctionEntryBlock, plan.validate());
+}
+
+test "ProgramPlan.validate rejects duplicate output labels within one function" {
+    const plan = ProgramPlan{
+        .label = "invalid.duplicate_outputs",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 2,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{
+            .{ .label = "result", .codec = .string },
+            .{ .label = "result", .codec = .string },
+        },
+        .locals = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    try std.testing.expectError(error.DuplicateOutputLabel, plan.validate());
+}
+
+test "ProgramPlan.validate rejects too many outputs before label sorting" {
+    const allocator = std.testing.allocator;
+    const output_count = max_validated_function_outputs + 1;
+    const outputs = try allocator.alloc(OutputPlan, output_count);
+    defer allocator.free(outputs);
+    for (outputs) |*output| {
+        output.* = .{ .label = "result", .codec = .string };
+    }
+
+    const plan = ProgramPlan{
+        .label = "invalid.too_many_outputs",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = @intCast(output_count),
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = outputs,
+        .locals = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    try std.testing.expectError(error.TooManyFunctionOutputs, plan.validate());
+}
+
+test "ProgramPlan.validate rejects tables outside the u16-indexed profile" {
+    const allocator = std.testing.allocator;
+    const functions = try allocator.alloc(FunctionPlan, max_indexed_table_len + 1);
+    defer allocator.free(functions);
+
+    const plan = ProgramPlan{
+        .label = "invalid.too_many_functions",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .blocks = &.{},
+        .terminators = &.{},
+        .instructions = &.{},
+    };
+
+    try std.testing.expectError(error.ProgramPlanTableTooLarge, plan.validate());
 }
 
 test "upgradeLegacyProgramPlan preserves schema-1 function metadata when present" {

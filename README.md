@@ -265,6 +265,10 @@ iteration, but they are not additional test contracts:
 - `zig build generate-ability-agent-vm-fixture` to regenerate the committed
   compatibility artifact fixture
   (`zig build generate-ability-agent-vm-fixture -- --help` prints generator help)
+- `zig build generate-agent-vm-conformance-fixtures` to build the internal
+  Agent VM conformance fixture generator helper
+  (`./zig-out/bin/generate-agent-vm-conformance-fixtures --help` prints helper
+  usage after the build step installs the binary)
 - `zig build bench`
 - `zig build bench-first-suspend`
 - `zig build bench-state-effect`

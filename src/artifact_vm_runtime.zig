@@ -21,6 +21,7 @@ pub const ExecutionOutputV1 = struct {
 /// Result of executing ArtifactV1 bytes through the synchronous HostAdapterV1 runtime.
 pub const ExecutionResultV1 = struct {
     value: lowered_machine.ProgramValue,
+    value_codec: host.OutputCodecV1,
     outputs: []ExecutionOutputV1,
     logs: []host.HostLogEntryV1,
 
@@ -32,6 +33,7 @@ pub const ExecutionResultV1 = struct {
         allocator.free(self.logs);
         self.* = .{
             .value = .none,
+            .value_codec = .unit,
             .outputs = &.{},
             .logs = &.{},
         };
@@ -131,11 +133,26 @@ pub fn runArtifactWithOptions(
         .dispatch_table = &dispatch_table,
         .options = options,
     };
-    const result = try executeFunction(
+    const result = executeFunction(
         &execution,
         plan.entry_index,
         &.{},
-    );
+    ) catch |err| switch (err) {
+        error.ProgramContractViolation => {
+            const failure = try programContractViolationFailure(allocator);
+            errdefer {
+                var owned_failure = failure;
+                owned_failure.deinit(allocator);
+            }
+            return .{
+                .failed = .{
+                    .failure = failure,
+                    .logs = try logs.toOwnedSlice(allocator),
+                },
+            };
+        },
+        else => return err,
+    };
     return switch (result) {
         .terminal => |value| try completeExecutionResult(allocator, &execution, &logs, value),
         .value => |value| try completeExecutionResult(allocator, &execution, &logs, value),
@@ -211,6 +228,7 @@ fn completeExecutionResult(
     return .{
         .completed = .{
             .value = owned_value,
+            .value_codec = outputCodecFromProgramCodec(program_plan.functionResultCodec(ctx.plan.functions[ctx.plan.entry_index])),
             .outputs = outputs,
             .logs = try logs.toOwnedSlice(allocator),
         },
@@ -221,6 +239,17 @@ const RuntimeValue = struct {
     value: lowered_machine.ProgramValue,
     owned: bool = false,
 };
+
+fn outputCodecFromProgramCodec(codec: program_plan.ValueCodec) host.OutputCodecV1 {
+    return switch (codec) {
+        .bool => .bool,
+        .i32 => .i32,
+        .string => .string,
+        .string_list => .string_list,
+        .unit => .unit,
+        .usize => .usize,
+    };
+}
 
 const OutputMaterializationResult = union(enum) {
     failed: host.FailureV1,
@@ -453,6 +482,18 @@ fn resourceExhaustedFailure(allocator: std.mem.Allocator, message: []const u8) !
     const code = try allocator.dupe(u8, "resource_exhausted");
     errdefer allocator.free(code);
     const owned_message = try allocator.dupe(u8, message);
+    return .{
+        .code = code,
+        .message = owned_message,
+        .owns_code = true,
+        .owns_message = true,
+    };
+}
+
+fn programContractViolationFailure(allocator: std.mem.Allocator) !host.FailureV1 {
+    const code = try allocator.dupe(u8, "program_contract_violation");
+    errdefer allocator.free(code);
+    const owned_message = try allocator.dupe(u8, "artifact program contract violation");
     return .{
         .code = code,
         .message = owned_message,
@@ -4582,6 +4623,69 @@ test "artifact runtime returns ProgramContractViolation on add_const_i32 overflo
     try std.testing.expectError(error.ProgramContractViolation, executeFunction(&ctx, 0, &.{
         .{ .i32 = std.math.maxInt(i32) },
     }));
+}
+
+test "artifact runtime reports program contract violations as failed ArtifactV1 verdicts" {
+    const allocator = std.testing.allocator;
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.public_contract_violation",
+        .ir_hash = 0x305,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .i32,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 2,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 3,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{
+            .{ .codec = .i32 },
+            .{ .codec = .i32 },
+        },
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_i32, .dst = 0, .operand = 0xffff, .aux = 0x7fff },
+            .{ .kind = .add_const_i32, .dst = 1, .operand = 0, .aux = 1 },
+            .{ .kind = .return_value, .operand = 1 },
+        },
+    };
+    const bytes = try artifact.encodeProgramPlan(allocator, plan, .{
+        .build_fingerprint_blake3_256 = artifact.buildFingerprintFromSeed("runtime-public-contract-violation"),
+        .capabilities = &.{},
+    });
+    defer allocator.free(bytes);
+
+    var result = try runArtifact(allocator, bytes, .{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(_: ?*anyopaque, _: std.mem.Allocator, _: host.HostEffectRequestV1) anyerror!host.HostEffectResultV1 {
+                return error.UnexpectedHostDispatch;
+            }
+        }.dispatch,
+    });
+    defer result.deinit(allocator);
+
+    switch (result) {
+        .failed => |failure| {
+            try std.testing.expectEqualStrings("program_contract_violation", failure.failure.code);
+            try std.testing.expectEqualStrings("artifact program contract violation", failure.failure.message);
+        },
+        else => return error.TestUnexpectedResult,
+    }
 }
 
 fn deinitProgramValue(allocator: std.mem.Allocator, value: *lowered_machine.ProgramValue) void {

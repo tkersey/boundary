@@ -855,7 +855,7 @@ fn analyzeProgramGraphWithRootSource(
         error.ParseError => @compileError("public lowering rejected source text that does not parse as Zig"),
         error.EntryMissing => @compileError("public lowering could not find the requested entry symbol in the embedded source"),
         error.MissingImport => @compileError("public lowering could not resolve one imported helper module or helper symbol"),
-        error.RecursiveHelpers => @compileError("public lowering encountered an unexpected recursive helper analysis failure"),
+        error.RecursiveHelpers => @compileError("public lowering does not support recursive helper call graphs; inline the helper, break the cycle, or keep recursive logic outside the source-backed lowered body"),
         error.TooManyFunctions => @compileError("public lowering source graph exceeded the supported function limit"),
         error.TooManyFunctionParams => @compileError("public lowering source graph exceeded the supported helper parameter limit"),
         error.TooManyImports => @compileError("public lowering source graph exceeded the supported import limit"),
