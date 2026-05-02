@@ -5467,6 +5467,7 @@ pub fn build(b: *std.Build) void {
     const agent_vm_report_install = b.addInstallArtifact(agent_vm_report_exe, .{});
     const run_agent_vm_report = b.addRunArtifact(agent_vm_report_exe);
     if (agent_vm_artifact_report_path) |artifact_path| {
+        run_agent_vm_report.addArg("--report-only");
         if (artifact_report_format) |format| {
             run_agent_vm_report.addArgs(&.{ "--format", format });
         }

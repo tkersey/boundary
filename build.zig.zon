@@ -16,6 +16,7 @@
     .paths = .{
         "LICENSE",
         "README.md",
+        "ability_agent_vm_source_path_consumer.zig",
         "bench",
         "build.zig",
         "build.zig.zon",

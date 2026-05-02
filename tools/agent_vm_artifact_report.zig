@@ -5,6 +5,7 @@ const tool_build_options = @import("tool_build_options");
 const usage_text =
     "usage: agent-vm-artifact-report [--json] --artifact <path>\n" ++
     "       agent-vm-artifact-report [--format text|json] --artifact <path>\n" ++
+    "       agent-vm-artifact-report [--report-only] [--json|--format text|json] --artifact <path>\n" ++
     "       agent-vm-artifact-report --version\n" ++
     "\n" ++
     "Runs one ArtifactV1 payload under the fixed no-host conformance profile.\n" ++
@@ -13,8 +14,15 @@ const usage_text =
     "  --artifact <path>  classify one ArtifactV1 payload\n" ++
     "  --format <mode>    output mode: text or json\n" ++
     "  --json             emit a machine-readable JSON verdict\n" ++
+    "  --report-only      emit classified artifact verdicts without failing on non-compatibility\n" ++
     "  --version          print the tool version\n" ++
-    "  --help, -h         print this help\n";
+    "  --help, -h         print this help\n" ++
+    "\n" ++
+    "exit status:\n" ++
+    "  0  compatible artifact\n" ++
+    "  1  classified artifact verdict with status incompatible, invalid, or unsupported\n" ++
+    "  2  CLI usage or artifact read failure\n" ++
+    "  With --report-only, classified artifact verdicts exit 0; CLI usage and artifact read failures still exit 2.\n";
 
 /// Maximum ArtifactV1 payload size accepted by the fixed conformance profile.
 pub const max_artifact_bytes = 16 * 1024 * 1024;
@@ -66,6 +74,7 @@ pub const ArtifactReadResult = union(enum) {
 pub const ArtifactRequest = struct {
     path: []const u8,
     format: OutputFormat = .text,
+    report_only: bool = false,
 };
 
 const OutputFormatFlag = enum {
@@ -99,7 +108,9 @@ pub fn parseErrorOutputFormat(args: []const []const u8) OutputFormat {
                 if (std.mem.eql(u8, value, "json")) return .json;
                 if (!std.mem.startsWith(u8, value, "--")) index += 1;
             }
+            continue;
         }
+        if (std.mem.eql(u8, arg, "--report-only")) continue;
     }
     return .text;
 }
@@ -131,6 +142,8 @@ pub fn parseArgs(args: []const []const u8) ParseArgsResult {
     var index: usize = 1;
     while (index < args.len) {
         const arg = args[index];
+        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) return .help;
+        if (std.mem.eql(u8, arg, "--version")) return .version;
         if (std.mem.eql(u8, arg, "--artifact")) {
             if (saw_artifact) return .{ .invalid = "duplicate --artifact flag" };
             if (index + 1 >= args.len) {
@@ -150,6 +163,12 @@ pub fn parseArgs(args: []const []const u8) ParseArgsResult {
             }
             output_format_flag = .json;
             request.format = .json;
+            index += 1;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--report-only")) {
+            if (request.report_only) return .{ .invalid = "duplicate --report-only flag" };
+            request.report_only = true;
             index += 1;
             continue;
         }
@@ -186,6 +205,7 @@ fn isKnownFlagName(arg: []const u8) bool {
     return std.mem.eql(u8, arg, "--artifact") or
         std.mem.eql(u8, arg, "--format") or
         std.mem.eql(u8, arg, "--json") or
+        std.mem.eql(u8, arg, "--report-only") or
         std.mem.eql(u8, arg, "--help") or
         std.mem.eql(u8, arg, "-h") or
         std.mem.eql(u8, arg, "--version");
@@ -263,6 +283,8 @@ pub fn readArtifactForReport(
 
 /// Classify one ArtifactV1 byte stream under the fixed no-host profile.
 pub fn fixedProfileVerdict(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Verdict {
+    if (bytes.len > max_artifact_bytes) return artifactSizeExceededVerdict();
+
     var result = ability_agent_vm.runtime.runArtifactWithOptions(
         allocator,
         bytes,
@@ -297,6 +319,15 @@ pub fn fixedProfileVerdict(allocator: std.mem.Allocator, bytes: []const u8) anye
 }
 
 fn classifyFailure(failure: ability_agent_vm.host.Failure) Verdict {
+    if (std.mem.eql(u8, failure.code, "invalid_host_reply") and
+        std.mem.eql(u8, failure.message, "host adapter must collect declared outputs"))
+    {
+        return .{
+            .status = .unsupported,
+            .code = "output_snapshot",
+            .detail = "artifact declares output snapshots, which this fixed no-host report cannot inspect; rebuild without declared outputs or use a host-aware artifact inspection path",
+        };
+    }
     if (std.mem.eql(u8, failure.code, "resource_exhausted") and
         std.mem.eql(u8, failure.message, "artifact host-call budget exceeded"))
     {
@@ -336,10 +367,10 @@ fn classifyRejected(failure: ability_agent_vm.host.Failure) Verdict {
 }
 
 fn stableArtifactDecoderDetail(message: []const u8) []const u8 {
-    if (std.mem.eql(u8, message, "EndOfStream")) return "invalid artifact (EndOfStream): artifact ended before all required ArtifactV1 bytes were read; regenerate the artifact from this checkout";
+    if (std.mem.eql(u8, message, "EndOfStream")) return "invalid artifact (EndOfStream): artifact ended before all required ArtifactV1 bytes were read; regenerate the artifact with this exact report binary or installed package";
     if (std.mem.eql(u8, message, "ArtifactTooLarge")) return "invalid artifact (ArtifactTooLarge): artifact exceeds the fixed conformance profile; regenerate a smaller artifact or use a dedicated inspection tool that supports larger profiles";
-    if (std.mem.eql(u8, message, "BadMagic")) return "invalid artifact (BadMagic): file is not an Ability ArtifactV1 payload or is corrupted; pass an artifact generated by this checkout";
-    if (std.mem.eql(u8, message, "BuildFingerprintMismatch")) return "invalid artifact (BuildFingerprintMismatch): artifact was generated from different source or build metadata; regenerate it from this checkout";
+    if (std.mem.eql(u8, message, "BadMagic")) return "invalid artifact (BadMagic): file is not an Ability ArtifactV1 payload or is corrupted; pass an artifact generated by the matching ability toolchain";
+    if (std.mem.eql(u8, message, "BuildFingerprintMismatch")) return "invalid artifact (BuildFingerprintMismatch): artifact was generated from different source or build metadata; regenerate the artifact with this exact report binary or installed package";
     if (std.mem.eql(u8, message, "DuplicateCapabilityId")) return "invalid artifact (DuplicateCapabilityId): capability manifest repeats an id; regenerate the artifact with the current encoder";
     if (std.mem.eql(u8, message, "DuplicateCapabilityOpId")) return "invalid artifact (DuplicateCapabilityOpId): capability manifest repeats an op id; regenerate the artifact with the current encoder";
     if (std.mem.eql(u8, message, "DuplicateDirectorySection")) return "invalid artifact (DuplicateDirectorySection): section directory repeats a section; regenerate the artifact with the current encoder";
@@ -354,11 +385,11 @@ fn stableArtifactDecoderDetail(message: []const u8) []const u8 {
     if (std.mem.eql(u8, message, "StringRefOutOfBounds")) return "invalid artifact (StringRefOutOfBounds): manifest string reference points outside the string table; regenerate the artifact";
     if (std.mem.eql(u8, message, "UnsortedDirectorySection")) return "invalid artifact (UnsortedDirectorySection): section directory is not canonical; regenerate the artifact with the current encoder";
     if (std.mem.eql(u8, message, "UnsupportedEntryParameters")) return "invalid artifact (UnsupportedEntryParameters): entry function requires parameters outside the report profile";
-    if (std.mem.eql(u8, message, "UnsupportedVersion")) return "invalid artifact (UnsupportedVersion): ArtifactV1 version is not supported by this checkout";
+    if (std.mem.eql(u8, message, "UnsupportedVersion")) return "invalid artifact (UnsupportedVersion): ArtifactV1 version is not supported by this report tool";
     if (std.mem.eql(u8, message, "ArtifactHashMismatch")) return "invalid artifact (ArtifactHashMismatch): payload hash does not match the artifact header; regenerate or recopy the artifact";
     if (std.mem.eql(u8, message, "UnsupportedExecutableCodec")) return "invalid artifact (UnsupportedExecutableCodec): program uses a value codec outside the executable profile";
     if (std.mem.eql(u8, message, "UnsupportedExecInstruction")) return "invalid artifact (UnsupportedExecInstruction): program uses an instruction outside the executable profile";
-    return "ArtifactV1 decoder rejected artifact with an unclassified error; regenerate with this checkout and file an issue with this verdict if it persists";
+    return "ArtifactV1 decoder rejected artifact with an unclassified error; regenerate the artifact with this exact report binary or installed package and file an issue with this verdict if it persists";
 }
 
 fn stableFailureDetail(message: []const u8) []const u8 {
@@ -381,7 +412,7 @@ fn stableFailureDetail(message: []const u8) []const u8 {
     if (std.mem.eql(u8, message, "host output snapshot count must match the declared outputs")) return "host output snapshot count must match the declared outputs";
     if (std.mem.eql(u8, message, "host output snapshot labels must match the declared outputs")) return "host output snapshot labels must match the declared outputs";
     if (std.mem.eql(u8, message, "host output snapshot value does not match the declared codec")) return "host output snapshot value does not match the declared codec";
-    return "runtime failed under the fixed conformance profile with an unclassified error; regenerate with this checkout and file an issue with this verdict if it persists";
+    return "runtime failed under the fixed conformance profile with an unclassified error; regenerate the artifact with this exact report binary or installed package and file an issue with this verdict if it persists";
 }
 
 fn dataValueBoundsDetail(err: anyerror) []const u8 {
@@ -531,10 +562,18 @@ pub fn main(init: std.process.Init) anyerror!void {
         },
         .artifact => |request| {
             const read_result = readArtifactForReport(init.io, allocator, request.path) catch |err| {
+                const verdict = artifactReadFailureVerdictForPath(err, request.path);
+                if (request.report_only) {
+                    var stdout_buffer: [512]u8 = undefined;
+                    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+                    try writeFormattedVerdict(&stdout_writer.interface, verdict, request.format);
+                    try stdout_writer.interface.flush();
+                    std.process.exit(2);
+                }
                 if (request.format == .json) {
                     var stdout_buffer: [512]u8 = undefined;
                     var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
-                    try writeJsonVerdict(&stdout_writer.interface, artifactReadFailureVerdictForPath(err, request.path));
+                    try writeJsonVerdict(&stdout_writer.interface, verdict);
                     try stdout_writer.interface.flush();
                     std.process.exit(2);
                 }
@@ -566,7 +605,7 @@ pub fn main(init: std.process.Init) anyerror!void {
             var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
             try writeFormattedVerdict(&stdout_writer.interface, verdict, request.format);
             try stdout_writer.interface.flush();
-            if (!verdict.success()) std.process.exit(1);
+            if (!request.report_only and !verdict.success()) std.process.exit(1);
         },
     }
 }
@@ -595,11 +634,11 @@ test "ArtifactV1 decoder detail has actionable oversized and fallback recovery" 
         stableArtifactDecoderDetail("ArtifactTooLarge"),
     );
     try std.testing.expectEqualStrings(
-        "ArtifactV1 decoder rejected artifact with an unclassified error; regenerate with this checkout and file an issue with this verdict if it persists",
+        "ArtifactV1 decoder rejected artifact with an unclassified error; regenerate the artifact with this exact report binary or installed package and file an issue with this verdict if it persists",
         stableArtifactDecoderDetail("NewDecoderError"),
     );
     try std.testing.expectEqualStrings(
-        "runtime failed under the fixed conformance profile with an unclassified error; regenerate with this checkout and file an issue with this verdict if it persists",
+        "runtime failed under the fixed conformance profile with an unclassified error; regenerate the artifact with this exact report binary or installed package and file an issue with this verdict if it persists",
         stableFailureDetail("new runtime error"),
     );
 }
@@ -652,6 +691,7 @@ test "JSON parse errors include the offending argument" {
 test "json parse-error mode is detected before artifact request success" {
     try std.testing.expectEqual(OutputFormat.json, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--json", "--bad" }));
     try std.testing.expectEqual(OutputFormat.json, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "json", "--bad" }));
+    try std.testing.expectEqual(OutputFormat.json, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--report-only", "--format", "json", "--bad" }));
     try std.testing.expectEqual(OutputFormat.json, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--format", "--json", "--bad" }));
     try std.testing.expectEqual(OutputFormat.json, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--json", "--artifact", "--help", "--bad" }));
     try std.testing.expectEqual(OutputFormat.json, parseErrorOutputFormat(&.{ "agent-vm-artifact-report", "--artifact", "--help", "--format", "json", "--bad" }));

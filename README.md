@@ -242,15 +242,17 @@ iteration, but they are not additional test contracts:
   one ArtifactV1 payload under the fixed no-host conformance profile. The
   report is runtime-only: it reads user-provided ArtifactV1 bytes, executes
   through `ability_agent_vm.runtime.runArtifactWithOptions`, rejects host-call
-  artifacts as unsupported, and applies the fixed v1 budget profile
+  artifacts and artifacts that declare output snapshots as unsupported, and
+  applies the fixed v1 budget profile
   (16 MiB artifact cap, zero host/log allowance, DataValue depth 64, nodes 4096,
   bytes 1 MiB). For a clean machine-readable stream, build the tool and run
   `./zig-out/bin/agent-vm-artifact-report --json --artifact <path>` or
   `./zig-out/bin/agent-vm-artifact-report --format json --artifact <path>`;
   those direct invocations print a stable `schema_version`, `status`, `code`,
-  and `detail` verdict object. Build-step runs may add
-  `-Dagent-vm-artifact-format=json`, but expected non-compatible verdicts still
-  make `zig build` report the failing child command after the JSON verdict.
+  and `detail` verdict object with strict exit statuses. Build-step runs use
+  report-only mode, may add `-Dagent-vm-artifact-format=json`, and emit verdicts
+  without turning non-compatible classifications into build failures; input and
+  artifact-read errors still fail the build.
   Artifact-size and log-budget envelope expansion are deferred follow-up
   surfaces, not part of this conformance report.
 - `zig build check-ability-agent-vm-fixture` to verify the committed
