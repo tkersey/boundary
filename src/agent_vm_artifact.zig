@@ -2018,7 +2018,24 @@ const CapabilityValidationIndex = struct {
         other_requirement_index: usize,
     ) bool {
         if (self.requirement_shape_hashes[requirement_index] != self.requirement_shape_hashes[other_requirement_index]) return false;
-        return requirementCapabilityShapesMatch(plan, requirement_index, other_requirement_index, self.op_codecs);
+        return requirementCapabilityOpShapesMatch(plan, requirement_index, other_requirement_index, self.op_codecs) and
+            self.requirementsCanBindSameCapability(plan, requirement_index, other_requirement_index);
+    }
+
+    fn requirementsCanBindSameCapability(
+        self: @This(),
+        plan: program_plan.ProgramPlan,
+        requirement_index: usize,
+        other_requirement_index: usize,
+    ) bool {
+        for (self.lookup.capabilities, 0..) |_, capability_index| {
+            if (self.capabilityMatchesRequirement(plan, requirement_index, capability_index) and
+                self.capabilityMatchesRequirement(plan, other_requirement_index, capability_index))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     fn validateRequirementCapabilityOpNameDisambiguation(
@@ -2062,7 +2079,6 @@ fn requirementCapabilityShapeHash(
 ) !u64 {
     const requirement = plan.requirements[requirement_index];
     var hasher = std.hash.Wyhash.init(0);
-    hashCapabilityShapeBytes(&hasher, requirement.label);
     hasher.update(std.mem.asBytes(&requirement.op_count));
     const op_start = requirement.first_op;
     const op_end = op_start + requirement.op_count;
@@ -2087,7 +2103,7 @@ fn hashCapabilityShapeBytes(hasher: *std.hash.Wyhash, bytes: []const u8) void {
     hasher.update(bytes);
 }
 
-fn requirementCapabilityShapesMatch(
+fn requirementCapabilityOpShapesMatch(
     plan: program_plan.ProgramPlan,
     requirement_index: usize,
     other_requirement_index: usize,
@@ -2095,7 +2111,6 @@ fn requirementCapabilityShapesMatch(
 ) bool {
     const requirement = plan.requirements[requirement_index];
     const other = plan.requirements[other_requirement_index];
-    if (!std.mem.eql(u8, requirement.label, other.label)) return false;
     if (requirement.op_count != other.op_count) return false;
     const requirement_ops = plan.ops[requirement.first_op .. requirement.first_op + requirement.op_count];
     const other_ops = plan.ops[other.first_op .. other.first_op + other.op_count];
@@ -6027,6 +6042,142 @@ test "ArtifactV1 rejects custom capabilities that ambiguously match repeated req
         .build_fingerprint_blake3_256 = build_fingerprint,
         .capabilities = &capabilities,
     }));
+}
+
+test "ArtifactV1 rejects ambiguous generated-label and exact-label capability binding" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-generated-exact-requirement-op-name-disambiguation");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.generated_exact_requirement_op_name_disambiguation",
+        .ir_hash = 0xb3,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 2,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{
+            .{ .label = "writer", .first_op = 0, .op_count = 1 },
+            .{ .label = "generated/writer@v1", .first_op = 1, .op_count = 1 },
+        },
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "write", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+            .{ .requirement_index = 1, .op_name = "flush", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+        },
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const capabilities = [_]CapabilityV1{.{
+        .capability_id = 11,
+        .kind = .tool,
+        .label = "generated/writer@v1",
+        .ops = &.{.{
+            .capability_id = 11,
+            .op_id = 0,
+            .host_op_kind = .call,
+            .payload_codec = .unit,
+            .result_codec = .string,
+            .plan_op_ordinal = 0,
+        }},
+    }};
+
+    try std.testing.expectError(error.InvalidRequiredSection, encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    }));
+}
+
+test "ArtifactV1 accepts same-codec requirements that bind distinct capability labels" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-distinct-label-requirement-op-name-disambiguation");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.distinct_label_requirement_op_name_disambiguation",
+        .ir_hash = 0xb4,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 2,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{
+            .{ .label = "reader", .first_op = 0, .op_count = 1 },
+            .{ .label = "writer", .first_op = 1, .op_count = 1 },
+        },
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "read", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+            .{ .requirement_index = 1, .op_name = "write", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+        },
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const capabilities = [_]CapabilityV1{
+        .{
+            .capability_id = 11,
+            .kind = .tool,
+            .label = "generated/reader@v1",
+            .ops = &.{.{
+                .capability_id = 11,
+                .op_id = 0,
+                .host_op_kind = .call,
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            }},
+        },
+        .{
+            .capability_id = 29,
+            .kind = .tool,
+            .label = "generated/writer@v1",
+            .ops = &.{.{
+                .capability_id = 29,
+                .op_id = 0,
+                .host_op_kind = .call,
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            }},
+        },
+    };
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(encoded);
+
+    var decoded = try decode(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+
+    try std.testing.expectEqualSlices(u16, &.{ 11, 29 }, decoded.requirement_capability_ids);
+    try decoded.validate(std.testing.allocator);
 }
 
 test "ArtifactV1 rejects conflicting terminal owner codecs during encode and decode" {
