@@ -2198,7 +2198,13 @@ fn bindingFamilyForLabel(comptime binding_schemas: anytype, comptime label: []co
                 if (bindingSchemaFamilyIfLabelMatches(BindingSchemaType, label)) |family_schema| return family_schema;
             }
         },
-        else => @compileError("binding schemas must be a tuple type, tuple value, or array value"),
+        .pointer => |pointer| {
+            if (pointer.size != .one) {
+                @compileError("binding schema pointers must point to a comptime tuple or array value");
+            }
+            return bindingFamilyForLabel(binding_schemas.*, label);
+        },
+        else => @compileError("binding schemas must be a tuple type, tuple value, array value, or pointer to one"),
     }
     return null;
 }
@@ -2386,6 +2392,19 @@ test "binding schema enrichment preserves plan shape while attaching lifecycle m
     });
     try std.testing.expectEqual(RequirementLifecycleTag.state_cell, array_exact.requirements[0].lifecycle_tag);
     try std.testing.expectEqual(RequirementOutputTag.accumulator, array_exact.requirements[1].output_tag);
+
+    const pointer_exact = enrichPlanWithBindingSchemasExact(base_plan, &.{
+        struct {
+            const requirement_label = "state";
+            const family = state_family;
+        },
+        struct {
+            const requirement_label = "writer";
+            const family = writer_family;
+        },
+    });
+    try std.testing.expectEqual(RequirementLifecycleTag.state_cell, pointer_exact.requirements[0].lifecycle_tag);
+    try std.testing.expectEqual(RequirementOutputTag.accumulator, pointer_exact.requirements[1].output_tag);
 }
 
 /// Lower one body-bearing open-row program into a runtime-owned executable plan shape.
