@@ -49,8 +49,12 @@ test "agent-vm-artifact-report parses artifact flag" {
         report.parseArgs(&.{ "agent-vm-artifact-report", "--report-only", "--report-only", "--artifact", "artifact.bin" }).invalid,
     );
     try std.testing.expectEqualStrings(
-        "--json",
-        report.parseArgs(&.{ "agent-vm-artifact-report", "--artifact", "--json" }).artifact.path,
+        "missing required --artifact <path>",
+        report.parseArgs(&.{ "agent-vm-artifact-report", "--artifact", "--json" }).invalid,
+    );
+    try std.testing.expectEqualStrings(
+        "missing required --artifact <path>",
+        report.parseArgs(&.{ "agent-vm-artifact-report", "--artifact", "--format", "json" }).invalid,
     );
     try std.testing.expectEqualStrings(
         "--fixture.artifact",
