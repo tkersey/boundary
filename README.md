@@ -117,7 +117,7 @@ Requires Zig 0.16.0 for the commands below.
 Pin a release tag or exact commit rather than an unqualified branch:
 
 ```bash
-zig fetch --save-exact=ability git+https://github.com/tkersey/ability.git#v0.0.2
+zig fetch --save-exact=ability git+https://github.com/tkersey/ability.git#v0.1.0
 ```
 
 That command writes a dependency entry with the package hash into the consuming
@@ -126,7 +126,7 @@ project's `build.zig.zon`:
 ```zig
 .dependencies = .{
     .ability = .{
-        .url = "git+https://github.com/tkersey/ability.git#v0.0.2",
+        .url = "git+https://github.com/tkersey/ability.git#v0.1.0",
         .hash = "<hash emitted by zig fetch>",
     },
 }

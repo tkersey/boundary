@@ -1,6 +1,6 @@
 .{
     .name = .ability,
-    .version = "0.0.2",
+    .version = "0.1.0",
     .dependencies = .{
         .zlinter = .{
             .url = "git+https://github.com/KurtWagner/zlinter?ref=0.16.x#9b4d67b9725e7137ac876cc628fe5dd2ca5a2681",
