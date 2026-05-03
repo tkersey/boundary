@@ -21,7 +21,7 @@ fn dummyPointer(comptime PtrType: type) PtrType {
     const Child = std.meta.Child(PtrType);
     if (pointer.size == .slice) {
         const many = @as([*]Child, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child))));
-        const slice = many[0..1];
+        const slice = if (comptime pointer.sentinel()) |sentinel| many[0..1 :sentinel] else many[0..1];
         if (pointer.is_const) return @as(PtrType, slice);
         return @as(PtrType, @constCast(slice));
     }

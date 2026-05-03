@@ -15,6 +15,13 @@ const PlainBody = struct {
     }
 };
 
+const SentinelHandlers = struct { label: [:0]const u8 };
+const SentinelBody = struct {
+    pub fn program(_: *ability.Runtime, handlers: SentinelHandlers) !usize {
+        return handlers.label.len;
+    }
+};
+
 const EmptyHandlers = struct {};
 
 const RuntimeGuardBody = struct {
@@ -48,6 +55,16 @@ test "ability.program enters runtime execution for plain bodies" {
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expect(result.value);
+}
+
+test "ability.program infers return type for sentinel slice handlers" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Program = ability.program("sentinel-handler", SentinelHandlers, SentinelBody);
+    var result = try Program.run(&runtime, .{ .label = "hello" });
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 5), result.value);
 }
 
 test "ability.program rejects destroyed runtime before plain body execution" {
