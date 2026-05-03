@@ -4,6 +4,8 @@ const inner = @import("./internal/program_plan.zig");
 pub const BlockPlan = inner.BlockPlan;
 /// Re-exported control mode tag.
 pub const ControlMode = inner.ControlMode;
+/// Re-exported codec-selection error set.
+pub const CodecError = inner.CodecError;
 /// Re-exported function descriptor.
 pub const FunctionPlan = inner.FunctionPlan;
 /// Re-exported instruction descriptor.
@@ -32,6 +34,8 @@ pub const ValidationError = inner.ValidationError;
 pub const ValueCodec = inner.ValueCodec;
 /// Re-exported value codec resolver.
 pub const codecForType = inner.codecForType;
+/// Re-exported authored bound-plan construction helper.
+pub const authoredBoundPlan = inner.authoredBoundPlan;
 /// Re-exported function result codec resolver.
 pub const functionResultCodec = inner.functionResultCodec;
 /// Re-exported payload helper.

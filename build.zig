@@ -180,6 +180,15 @@ pub fn build(b: *std.Build) void {
     const program_api_tests = b.addTest(.{ .root_module = program_api_tests_mod });
     test_step.dependOn(&addRunArtifact(b, program_api_tests).step);
 
+    const public_optional_tests_mod = b.createModule(.{
+        .root_source_file = b.path("test/public_optional_bound_program_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    public_optional_tests_mod.addImport("ability", ability);
+    const public_optional_tests = b.addTest(.{ .root_module = public_optional_tests_mod });
+    test_step.dependOn(&addRunArtifact(b, public_optional_tests).step);
+
     const examples = [_]struct {
         name: []const u8,
         path: []const u8,
@@ -225,6 +234,7 @@ pub fn build(b: *std.Build) void {
             b.path("examples/state_basic.zig"),
             b.path("examples/custom_approval_workflow.zig"),
             b.path("test/program_api_test.zig"),
+            b.path("test/public_optional_bound_program_test.zig"),
         },
         .exclude = &.{},
     });
