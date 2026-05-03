@@ -2,9 +2,38 @@
 const ability = @import("ability");
 const std = @import("std");
 
+const PlainHandlers = struct { base: i32 };
+const PlainBody = struct {
+    pub fn program(_: *ability.Runtime, handlers: PlainHandlers) !struct {
+        value: i32,
+        outputs: struct { total: i32 },
+    } {
+        return .{
+            .value = handlers.base + 1,
+            .outputs = .{ .total = handlers.base + 2 },
+        };
+    }
+};
+
+test "ability.program names and re-runs an explicit local body" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Program = ability.program("plain", PlainHandlers, PlainBody);
+    var first = try Program.run(&runtime, .{ .base = 40 });
+    defer first.deinit();
+    try std.testing.expectEqual(@as(i32, 41), first.value);
+    try std.testing.expectEqual(@as(i32, 42), first.outputs.total);
+
+    var second = try Program.run(&runtime, .{ .base = 1 });
+    defer second.deinit();
+    try std.testing.expectEqual(@as(i32, 2), second.value);
+    try std.testing.expectEqual(@as(i32, 3), second.outputs.total);
+}
+
 const StateHandlers = struct { initial: i32 };
 const StateBody = struct {
-    pub fn program(runtime: *ability.Runtime, handlers: StateHandlers) anyerror!struct {
+    pub fn program(runtime: *ability.Runtime, handlers: StateHandlers) !struct {
         value: i32,
         outputs: struct { state: i32 },
     } {
@@ -35,23 +64,14 @@ const StateBody = struct {
     }
 };
 
-/// Write the state-effect transcript through an explicit reusable program.
-pub fn run(writer: anytype) anyerror!void {
-    var runtime = ability.Runtime.init(std.heap.page_allocator);
+test "ability.program composes with public effect handlers" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const Program = ability.program("state-basic", StateHandlers, StateBody);
+    const Program = ability.program("state", StateHandlers, StateBody);
     var result = try Program.run(&runtime, .{ .initial = 5 });
     defer result.deinit();
 
-    try writer.print("before=5\nafter=6\nfinal_state={d}\nvalue={d}\n", .{ result.outputs.state, result.value });
-}
-
-/// Run the state-effect example.
-pub fn main(init: std.process.Init) anyerror!void {
-    var stdout_buffer: [256]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
-    const stdout = &stdout_writer.interface;
-    try run(stdout);
-    try stdout.flush();
+    try std.testing.expectEqual(@as(i32, 11), result.value);
+    try std.testing.expectEqual(@as(i32, 6), result.outputs.state);
 }

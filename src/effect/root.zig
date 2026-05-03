@@ -1,11 +1,11 @@
 const family = @import("family.zig");
-/// Public lexical choice-decision helper namespace.
+/// Public handler choice-decision helper namespace.
 pub const choice = @import("choice.zig");
 /// Public sealed custom-effect generator.
 pub const Define = @import("define.zig").Define;
 /// Public op-descriptor namespace for `ability.effect.Define(...)`.
 pub const ops = @import("define.zig").ops;
-/// Exception effect family for returning a thrown payload through `ability.with(...)`.
+/// Exception effect family for returning a thrown payload through `ability.effect handlers`.
 pub const exception = @import("exception.zig");
 /// Optional effect family for choosing between early return and resumed execution.
 pub const optional = @import("optional.zig");

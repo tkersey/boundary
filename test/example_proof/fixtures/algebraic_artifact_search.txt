@@ -1,6 +1,0 @@
-query=artifact-search
-messages=1
-tool_calls=0
-memory_blocks=1
-opencode_source=jsonl
-total=3

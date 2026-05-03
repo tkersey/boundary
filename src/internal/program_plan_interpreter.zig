@@ -1299,8 +1299,8 @@ test "program plan interpreter applies caller budget to nested lexical with bodi
                 "\x1fHandlers" ++
                 "\x1fInnerHandler" ++
                 "\x1fnested_budget" ++
-                "\x1fsrc/witness_sources.zig" ++
-                "\x1fwitnessStaticRedelimInnerBody",
+                "\x1fsrc/internal/program_plan_interpreter.zig" ++
+                "\x1fNestedBudgetTestSource",
         }},
     };
     try compiled_plan.validate();

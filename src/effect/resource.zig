@@ -1,7 +1,7 @@
 const algebraic = @import("algebraic.zig");
 const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
-const lexical_with = @import("../with_api.zig");
+const lexical_with = @import("../internal/lexical_support.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
 const ability = lowered_machine;
@@ -24,45 +24,45 @@ pub fn Instance(comptime ResourceType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.resume_then_transform, ResourceType, ErrorSetType);
 }
 
-/// Lexical resource handle used by `ability.with(...)`.
+/// Handler resource handle used by `ability.effect handlers`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
 
-        /// Acquire one resource through the lexical handle.
+        /// Acquire one resource through the handler handle.
         pub fn acquire(self: @This()) lowered_machine.ResetError(family.ContextErrorSetType(ContextPtrType))!family.ContextStateType(ContextPtrType) {
             return try algebraic.acquireResource(Cap, self.ctx.?);
         }
     };
 }
 
-/// Descriptor value used by `ability.with(...)` for the built-in resource family.
+/// Descriptor value used by `ability.effect handlers` for the built-in resource family.
 pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: type, comptime Manager: type) type {
     return struct {
-        /// Shared error set carried by the lexical resource descriptor.
+        /// Shared error set carried by the handler resource descriptor.
         pub const ErrorSet = ErrorSetType;
-        /// Resource type threaded through the lexical resource context.
+        /// Resource type threaded through the handler resource context.
         pub const State = ResourceType;
-        /// Resource lexical descriptors do not surface an extra output value.
+        /// Resource handler descriptors do not surface an extra output value.
         pub const Output = void;
 
-        /// Resolve the lexical resource handle type for one exact context.
+        /// Resolve the handler resource handle type for one exact context.
         pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
             return LexicalHandle(Cap, ContextPtrType);
         }
 
-        /// Bind one lexical resource handle to the active exact context.
+        /// Bind one handler resource handle to the active exact context.
         pub fn bindLexical(self: @This(), comptime Cap: type, ctx: anytype) HandleType(Cap, @TypeOf(ctx)) {
             _ = self;
             return .{ .ctx = ctx };
         }
 
-        /// Return the shared binding schema for this lexical descriptor under one requirement label.
+        /// Return the shared binding schema for this handler descriptor under one requirement label.
         pub fn BindingSchema(comptime requirement_label: [:0]const u8) type {
             return effect_schema.Binding(requirement_label, Schema(ResourceType, ErrorSetType, Manager), struct {});
         }
 
-        /// Run one lexical resource descriptor through the existing resource family.
+        /// Run one handler resource descriptor through the existing resource family.
         pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = family.InstanceWithMode(.resume_then_transform, ResourceType, ErrorSetType).init();
@@ -79,7 +79,7 @@ pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: typ
     };
 }
 
-/// Create one lexical resource descriptor for `ability.with(...)`.
+/// Create one handler resource descriptor for `ability.effect handlers`.
 pub fn use(comptime ResourceType: type, comptime Manager: type) LexicalDescriptor(ResourceType, ManagerErrorSet(Manager), Manager) {
     return .{};
 }
@@ -288,7 +288,7 @@ test "resource handle releases before outer exception catch returns" {
     const result = try @import("exception.zig").handle([]const u8, &runtime, &exception_instance, catcher, struct {
         /// Enter the outer exception handle and hand its capability to the inner resource scope.
         pub fn program(comptime ExceptionCap: type, exception_ctx: anytype) @TypeOf(@import("exception.zig").computeProgram(ExceptionCap, exception_ctx, struct {
-            /// Re-enter the resource witness through the outer exception capability.
+            /// Re-enter the resource handle through the outer exception context.
             pub fn run() lowered_machine.ResetError(NoError)![]const u8 {
                 const ExceptionCtxType = @TypeOf(exception_ctx);
                 const ctx: ExceptionCtxType = @ptrCast(@alignCast(@constCast(scenario.outer_exception_ctx.?)));
@@ -298,7 +298,7 @@ test "resource handle releases before outer exception catch returns" {
         }.run)) {
             scenario.outer_exception_ctx = @ptrCast(exception_ctx);
             return @import("exception.zig").computeProgram(ExceptionCap, exception_ctx, struct {
-                /// Re-enter the resource witness through the outer exception capability.
+                /// Re-enter the resource handle through the outer exception context.
                 pub fn run() lowered_machine.ResetError(NoError)![]const u8 {
                     const ExceptionCtxType = @TypeOf(exception_ctx);
                     const ctx: ExceptionCtxType = @ptrCast(@alignCast(@constCast(scenario.outer_exception_ctx.?)));
@@ -437,7 +437,7 @@ test "resource handle releases before outer optional return-now completes" {
     const result = try @import("optional.zig").handle([]const u8, &runtime, &optional_instance, policy, struct {
         /// Enter the outer optional handle and hand its capability to the inner resource scope.
         pub fn program(comptime OptionalCap: type, optional_ctx: anytype) @TypeOf(@import("optional.zig").computeProgram(OptionalCap, optional_ctx, struct {
-            /// Re-enter the resource witness through the outer optional capability.
+            /// Re-enter the resource handle through the outer optional context.
             pub fn run() lowered_machine.ResetError(NoError)![]const u8 {
                 const OptionalCtxType = @TypeOf(optional_ctx);
                 const ctx: OptionalCtxType = @ptrCast(@alignCast(@constCast(scenario.outer_optional_ctx.?)));
@@ -447,7 +447,7 @@ test "resource handle releases before outer optional return-now completes" {
         }.run)) {
             scenario.outer_optional_ctx = @ptrCast(optional_ctx);
             return @import("optional.zig").computeProgram(OptionalCap, optional_ctx, struct {
-                /// Re-enter the resource witness through the outer optional capability.
+                /// Re-enter the resource handle through the outer optional context.
                 pub fn run() lowered_machine.ResetError(NoError)![]const u8 {
                     const OptionalCtxType = @TypeOf(optional_ctx);
                     const ctx: OptionalCtxType = @ptrCast(@alignCast(@constCast(scenario.outer_optional_ctx.?)));
@@ -597,13 +597,13 @@ test "nested same-shaped resource handles get distinct capability types" {
     const result = try handle(i32, &runtime, &outer_instance, manager, struct {
         /// Enter the outer resource handle and hand its capability inward.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(computeProgram(OuterCap, ctx, struct {
-            /// Re-enter the nested resource witness through the outer capability.
+            /// Re-enter the nested resource handle through the outer context.
             pub fn run(_: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
                 return try demo.outer(OuterCap, {});
             }
         })) {
             return computeProgram(OuterCap, ctx, struct {
-                /// Re-enter the nested resource witness through the outer capability.
+                /// Re-enter the nested resource handle through the outer context.
                 pub fn run(_: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
                     return try demo.outer(OuterCap, {});
                 }

@@ -1,5 +1,5 @@
-const effect_ir = @import("../effect_ir.zig");
-const program_frontend = @import("../program_frontend.zig");
+const effect_ir = @import("effect_ir");
+const program_frontend = @import("program_frontend");
 const std = @import("std");
 
 const source_path_compat_mode = @hasDecl(@import("root"), "source_path_compat_mode");

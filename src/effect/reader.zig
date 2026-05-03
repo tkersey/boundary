@@ -1,7 +1,7 @@
 const algebraic = @import("algebraic.zig");
 const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
-const lexical_with = @import("../with_api.zig");
+const lexical_with = @import("../internal/lexical_support.zig");
 const lowered_machine = @import("lowered_machine");
 const ability = lowered_machine;
 const std = @import("std");
@@ -9,47 +9,47 @@ const std = @import("std");
 /// Prompt-backed effect instance for a reader family.
 pub const Instance = family.Instance;
 
-/// Lexical reader handle used by `ability.with(...)`.
+/// Handler reader handle used by `ability.effect handlers`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
 
-        /// Read the current environment through the lexical handle.
+        /// Read the current environment through the handler handle.
         pub fn ask(self: @This()) lowered_machine.ResetError(family.ContextErrorSetType(ContextPtrType))!family.ContextStateType(ContextPtrType) {
             return try algebraic.readerAsk(Cap, self.ctx.?);
         }
     };
 }
 
-/// Descriptor value used by `ability.with(...)` for the built-in reader family.
+/// Descriptor value used by `ability.effect handlers` for the built-in reader family.
 pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) type {
     return struct {
-        /// Shared error set carried by the lexical reader descriptor.
+        /// Shared error set carried by the handler reader descriptor.
         pub const ErrorSet = ErrorSetType;
-        /// Environment type threaded through the lexical reader context.
+        /// Environment type threaded through the handler reader context.
         pub const State = StateType;
-        /// Reader lexical descriptors do not surface an extra output value.
+        /// Reader handler descriptors do not surface an extra output value.
         pub const Output = void;
 
         environment: StateType,
 
-        /// Resolve the lexical reader handle type for one exact context.
+        /// Resolve the handler reader handle type for one exact context.
         pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
             return LexicalHandle(Cap, ContextPtrType);
         }
 
-        /// Bind one lexical reader handle to the active exact context.
+        /// Bind one handler reader handle to the active exact context.
         pub fn bindLexical(self: @This(), comptime Cap: type, ctx: anytype) HandleType(Cap, @TypeOf(ctx)) {
             _ = self;
             return .{ .ctx = ctx };
         }
 
-        /// Return the shared binding schema for this lexical descriptor under one requirement label.
+        /// Return the shared binding schema for this handler descriptor under one requirement label.
         pub fn BindingSchema(comptime requirement_label: [:0]const u8) type {
             return effect_schema.Binding(requirement_label, Schema(StateType, ErrorSetType), struct {});
         }
 
-        /// Run one lexical reader descriptor through the existing reader family.
+        /// Run one handler reader descriptor through the existing reader family.
         pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(StateType, ErrorSetType).init();
             const result = try algebraic.handleReaderWithErrorSetLexical(AnswerType, RunErrorSetType, .{
@@ -66,7 +66,7 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
     };
 }
 
-/// Create one lexical reader descriptor for `ability.with(...)`.
+/// Create one handler reader descriptor for `ability.effect handlers`.
 pub fn use(environment: anytype) LexicalDescriptor(@TypeOf(environment), error{}) {
     return .{ .environment = environment };
 }

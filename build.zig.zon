@@ -1,6 +1,6 @@
 .{
     .name = .ability,
-    .version = "0.1.0",
+    .version = "0.2.0",
     .dependencies = .{
         .zlinter = .{
             .url = "git+https://github.com/KurtWagner/zlinter?ref=0.16.x#9b4d67b9725e7137ac876cc628fe5dd2ca5a2681",
@@ -16,15 +16,12 @@
     .paths = .{
         "LICENSE",
         "README.md",
-        "ability_agent_vm_source_path_consumer.zig",
-        "bench",
         "build.zig",
         "build.zig.zon",
-        "examples",
-        "source_graph_embed.zig",
+        "examples/custom_approval_workflow.zig",
+        "examples/state_basic.zig",
         "src",
-        "test",
-        "tools",
+        "test/program_api_test.zig",
     },
     .fingerprint = 0x35cfee3c29e35cbe,
 }

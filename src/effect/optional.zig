@@ -2,7 +2,7 @@ const algebraic = @import("algebraic.zig");
 const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
 const frontend = @import("frontend_support");
-const lexical_with = @import("../with_api.zig");
+const lexical_with = @import("../internal/lexical_support.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
 const ability = lowered_machine;
@@ -25,7 +25,7 @@ pub fn Instance(comptime ResumeType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.resume_or_return, ResumeType, ErrorSetType);
 }
 
-/// Lexical optional handle used by `ability.with(...)`.
+/// Handler optional handle used by `ability.effect handlers`.
 pub fn LexicalHandle(
     comptime Cap: type,
     comptime ContextPtrType: type,
@@ -35,7 +35,7 @@ pub fn LexicalHandle(
 ) type {
     const binder_index = index;
     return struct {
-        /// Caller source location preserved across optional lexical continuation re-entry.
+        /// Caller source location preserved across optional handler continuation re-entry.
         pub const caller_source = family.contextCallerSource(ContextPtrType);
         ctx: ?ContextPtrType,
         runtime: ?*ability.Runtime,
@@ -43,19 +43,19 @@ pub fn LexicalHandle(
         previous_eff: PreviousEffType,
         outputs_ptr: ?*lexical_with.OutputBundleType(HandlersType),
 
-        /// Request the optional policy decision through the lexical handle and resume through an explicit lexical continuation.
-        pub fn request(self: @This(), comptime Continuation: anytype) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())))!lexical_with.ChoiceAnswerTypeFor(Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())) {
+        /// Request the optional policy decision through the handler handle and resume through an explicit handler continuation.
+        pub fn request(self: @This(), comptime Continuation: anytype) lowered_machine.ResetError(lexical_with.ChoiceFailureSet(family.ContextErrorSetType(ContextPtrType), Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())))!lexical_with.ChoiceAnswerTypeFor(Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())) {
             const Handle = @This();
             const ResumeType = family.ContextStateType(ContextPtrType);
             const ContinuationEff = lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, Handle);
             const AnswerType = lexical_with.ChoiceAnswerTypeFor(Continuation, ResumeType, ContinuationEff);
-            const ExecutionError = lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, ResumeType, ContinuationEff);
+            const ChoiceFailure = lexical_with.ChoiceFailureSet(family.ContextErrorSetType(ContextPtrType), Continuation, ResumeType, ContinuationEff);
 
             const request_state = struct {
                 /// Caller source location preserved for the resumed optional continuation frame.
                 pub const caller_source = Handle.caller_source;
-                /// Re-enter the lexical continuation after one optional resume.
-                pub fn apply(current_handle: *Handle, value: ResumeType) lowered_machine.ResetError(ExecutionError)!AnswerType {
+                /// Re-enter the handler continuation after one optional resume.
+                pub fn apply(current_handle: *Handle, value: ResumeType) lowered_machine.ResetError(ChoiceFailure)!AnswerType {
                     const frame = struct {
                         /// Caller source location forwarded into the rebuilt continuation chain.
                         pub const caller_source = Handle.caller_source;
@@ -84,24 +84,24 @@ pub fn LexicalHandle(
             var current_handle = self;
             var authored = algebraic.activeEngineContext(Cap, self.ctx.?).performProgramWithContext(Cap.RequestOp(), {}, &current_handle, request_state);
             if (comptime !(@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan)) {
-                @compileError("optional lexical choice continuations must compile to supported direct execution; interpreted frontend fallback is unsupported");
+                @compileError("optional handler choice continuations must compile to supported direct execution; interpreted frontend fallback is unsupported");
             }
             return try authored.runCompiled(self.runtime.?);
         }
     };
 }
 
-/// Descriptor value used by `ability.with(...)` for the built-in optional family.
+/// Descriptor value used by `ability.effect handlers` for the built-in optional family.
 pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type, comptime Policy: type) type {
     return struct {
-        /// Shared error set carried by the lexical optional descriptor.
+        /// Shared error set carried by the handler optional descriptor.
         pub const ErrorSet = ErrorSetType;
-        /// Resume value threaded through the lexical optional context.
+        /// Resume value threaded through the handler optional context.
         pub const State = ResumeType;
-        /// Optional lexical descriptors do not surface an extra output value.
+        /// Optional handler descriptors do not surface an extra output value.
         pub const Output = void;
 
-        /// Resolve the lexical optional handle type for one exact context.
+        /// Resolve the handler optional handle type for one exact context.
         pub fn HandleType(
             comptime Cap: type,
             comptime ContextPtrType: type,
@@ -112,7 +112,7 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
             return LexicalHandle(Cap, ContextPtrType, HandlersType, PreviousEffType, index);
         }
 
-        /// Bind one lexical optional handle to the active exact context.
+        /// Bind one handler optional handle to the active exact context.
         pub fn bindLexical(
             self: @This(),
             comptime Cap: type,
@@ -132,7 +132,7 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
             };
         }
 
-        /// Return the shared binding schema for this lexical descriptor under one requirement label.
+        /// Return the shared binding schema for this handler descriptor under one requirement label.
         pub fn BindingSchema(comptime requirement_label: [:0]const u8) type {
             const policy_binding_handler = struct {
                 /// Finalize the resumed optional answer through the policy after-hook.
@@ -143,11 +143,11 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
             return effect_schema.Binding(requirement_label, Schema(ResumeType, ErrorSetType, Policy), policy_binding_handler);
         }
 
-        /// Run one lexical optional descriptor through the continuation-taking lexical optional family.
+        /// Run one handler optional descriptor through the continuation-taking handler optional family.
         pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = family.InstanceWithMode(.resume_or_return, ResumeType, ErrorSetType).init();
-            const result = try algebraic.handleOptionalLexicalWithErrorSet(AnswerType, RunErrorSetType, .{
+            const result = try algebraic.handleOptionalHandlerWithErrorSet(AnswerType, RunErrorSetType, .{
                 .runtime = run_ctx.runtime,
                 .instance = &instance,
                 .lexical_state = @constCast(run_ctx.lexical_state),
@@ -160,7 +160,7 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
     };
 }
 
-/// Create one lexical optional descriptor for `ability.with(...)`.
+/// Create one handler optional descriptor for `ability.effect handlers`.
 pub fn use(comptime ResumeType: type, comptime Policy: type) LexicalDescriptor(ResumeType, PolicyErrorSet(Policy), Policy) {
     return .{};
 }

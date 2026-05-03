@@ -1,7 +1,0 @@
-acquire=a
-use=a
-acquire=b
-use=b
-release=b
-release=a
-final=done

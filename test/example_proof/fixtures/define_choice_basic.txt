@@ -1,8 +1,0 @@
-branch=return_now
-policy-return-now
-final=result=early
-branch=resume_with
-policy-resume
-body-after-pick
-policy-after-resume
-final=answer=42
