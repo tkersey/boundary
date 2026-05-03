@@ -5378,7 +5378,6 @@ pub fn build(b: *std.Build) void {
     const run_custom_artifact_tests = addRunArtifactWithArgs(b, custom_effect_artifact_tests, test_runner_args.passthrough.items);
     run_custom_artifact_tests.step.dependOn(&run_fixture_check.step);
     run_custom_effect_tests.step.dependOn(&run_custom_artifact_tests.step);
-    run_effect_row_contract_tests.step.dependOn(&run_custom_effect_tests.step);
 
     const custom_effect_bad_choice_mod = b.createModule(.{
         .root_source_file = b.path("test/custom_effect_bad_choice_handler_negative.zig"),
