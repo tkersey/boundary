@@ -225,10 +225,17 @@ portability-contract
 program-frontend-boundary
 agent-vm-artifact-report
 source-ownership-probe
+effect-row-contract
 custom-effect-workflow
 comptime-contract
 lexical-witness
 lexical-with
+```
+
+The focused generated-effect row contract lane is:
+
+```bash
+zig build test -Dtest-suites=effect-row-contract --summary none
 ```
 
 The focused custom-effect proof lane is:
@@ -240,7 +247,7 @@ zig build test -Dtest-suites=custom-effect-workflow --summary none
 The regression bundle for the generalized effects path is:
 
 ```bash
-zig build test -Dtest-suites=custom-effect-workflow,comptime-contract,source-ownership-probe,lexical-with,program-plan-review --summary none
+zig build test -Dtest-suites=effect-row-contract,comptime-contract,source-ownership-probe,lexical-with,program-plan-review --summary none
 ```
 
 Deleted child-build and package-export probes are not hidden behind opt-in test

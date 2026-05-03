@@ -2,6 +2,7 @@ const artifact_api = @import("artifact_api");
 const builtin = @import("builtin");
 const compile_api = @import("ability_compile_api");
 const effect_root = @import("effect/root.zig");
+const effect_schema_api = @import("effect_schema.zig");
 const error_witness = @import("error_witness");
 const interpreter_api = @import("interpreter");
 const ir_api = @import("ir_api");
@@ -19,6 +20,8 @@ pub const CompilePlan = compile_api.CompilePlan;
 pub const compile = compile_api.compile;
 /// Public effect family and handler constructors retained at the root surface.
 pub const effect = effect_root;
+/// Internal shared schema DSL used by compile-time contract tests and retained compile surfaces.
+pub const effect_schema = effect_schema_api;
 /// Canonical lowered runtime retained at the root surface.
 pub const Runtime = lowered_machine.Runtime;
 /// Public runtime misuse and semantic-contract errors retained at the root surface.

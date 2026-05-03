@@ -5094,7 +5094,13 @@ pub fn build(b: *std.Build) void {
     const fixture_gen_options = b.addOptions();
     fixture_gen_options.addOption([]const u8, "version", packageVersionAlloc(b));
     ability_agent_vm_fixture_mod.addOptions("fixture_generator_options", fixture_gen_options);
+    ability_agent_vm_fixture_mod.addImport("ability", ability_mod);
     ability_agent_vm_fixture_mod.addImport("ability_compile", ability_compile_mod);
+    ability_agent_vm_fixture_mod.addImport("example_custom_approval_workflow", createShiftConsumerModule(b, "examples/custom_approval_workflow.zig", target, optimize, .{
+        .ability_mod = ability_mod,
+        .ability_compile_mod = null,
+        .lowered_runtime_mod = null,
+    }));
     const ability_agent_vm_fixture_exe = b.addExecutable(.{
         .name = "generate-ability-agent-vm-fixture",
         .root_module = ability_agent_vm_fixture_mod,
@@ -5347,6 +5353,20 @@ pub fn build(b: *std.Build) void {
     }));
     const custom_effect_workflow_tests = addFilteredTest(b, custom_effect_workflow_mod, test_runner_args.filters.items);
     const run_custom_effect_tests = addRunArtifactWithArgs(b, custom_effect_workflow_tests, test_runner_args.passthrough.items);
+    const effect_row_contract_mod = b.createModule(.{
+        .root_source_file = b.path("test/effect_row_contract_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    effect_row_contract_mod.addImport("ability", ability_mod);
+    effect_row_contract_mod.addImport("ability_compile", ability_compile_mod);
+    effect_row_contract_mod.addImport("example_custom_approval_workflow", createShiftConsumerModule(b, "examples/custom_approval_workflow.zig", target, optimize, .{
+        .ability_mod = ability_mod,
+        .ability_compile_mod = null,
+        .lowered_runtime_mod = null,
+    }));
+    const effect_row_contract_tests = addFilteredTest(b, effect_row_contract_mod, test_runner_args.filters.items);
+    const run_effect_row_contract_tests = addRunArtifactWithArgs(b, effect_row_contract_tests, test_runner_args.passthrough.items);
     const custom_effect_artifact_vm_mod = b.createModule(.{
         .root_source_file = b.path("test/custom_effect_artifact_vm_test.zig"),
         .target = target,
@@ -5358,6 +5378,7 @@ pub fn build(b: *std.Build) void {
     const run_custom_artifact_tests = addRunArtifactWithArgs(b, custom_effect_artifact_tests, test_runner_args.passthrough.items);
     run_custom_artifact_tests.step.dependOn(&run_fixture_check.step);
     run_custom_effect_tests.step.dependOn(&run_custom_artifact_tests.step);
+    run_effect_row_contract_tests.step.dependOn(&run_custom_effect_tests.step);
 
     const custom_effect_bad_choice_mod = b.createModule(.{
         .root_source_file = b.path("test/custom_effect_bad_choice_handler_negative.zig"),
@@ -5684,6 +5705,7 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "program-frontend-boundary", .description = "Program frontend boundary suite", .run_step = &run_boundary_tests.step },
         .{ .suite_id = "agent-vm-artifact-report", .description = "Agent VM artifact report CLI suite", .run_step = &run_agent_vm_report_tests.step },
         .{ .suite_id = "source-ownership-probe", .description = "Source ownership probe suite", .run_step = &run_src_ownership_probe_tests.step },
+        .{ .suite_id = "effect-row-contract", .description = "Generated effect row to ProgramPlan contract proof", .run_step = &run_effect_row_contract_tests.step },
         .{ .suite_id = "custom-effect-workflow", .description = "Root-public custom effect workflow proof", .run_step = &run_custom_effect_tests.step },
         .{ .suite_id = "comptime-contract", .description = "Public comptime contract suite", .run_step = &run_comptime_contract_tests.step },
         .{ .suite_id = "lexical-witness", .description = "Lexical witness suite", .run_step = run_lexical_witness_tests },

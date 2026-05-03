@@ -3,6 +3,8 @@ const shared = @import("ability_shared");
 
 /// Retained internal explicit compile-time IR surface.
 pub const effect_ir = shared.ir;
+/// Retained internal effect schema surface used by maintainer contract tests.
+pub const effect_schema = shared.effect_schema;
 /// Retained internal lowering and source-provenance surface.
 pub const lowering_api = shared.lowering;
 /// Retained internal compile helper from explicit lowering inputs to the runtime-owned plan bridge.
@@ -21,6 +23,7 @@ test {
     _ = CompilePlan;
     _ = compile;
     _ = artifact;
+    _ = effect_schema;
     _ = effect_ir;
     _ = lowering_api;
     _ = lower;
