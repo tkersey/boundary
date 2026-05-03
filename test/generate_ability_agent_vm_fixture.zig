@@ -82,14 +82,7 @@ fn generateFixtureBytes(allocator: std.mem.Allocator) ![]u8 {
 }
 
 fn generateCustomApprovalFixtureBytes(allocator: std.mem.Allocator) ![]u8 {
-    const Lowered = ability_compile.lowering_api.lowerAt(
-        "examples/custom_approval_workflow.zig",
-        fixture.CustomApprovalSpec,
-    );
-    const Compiled = ability_compile.compile(fixture.CustomApprovalSpec.label, Lowered.runtime_plan, .{
-        .stable_build_fingerprint_seed = "custom-approval-workflow-test",
-    });
-    return try Compiled.encodeArtifactV1(allocator);
+    return try fixture.CustomApprovalProgram.encodeArtifactV1(allocator);
 }
 
 fn readCommittedFixtureBytes(io: std.Io, allocator: std.mem.Allocator) ![]u8 {

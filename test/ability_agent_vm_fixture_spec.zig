@@ -52,6 +52,20 @@ const CustomDirectoryBinding = @TypeOf(example.directory.use(.{ .handler = custo
 const CustomApprovalBinding = @TypeOf(example.approval.use(.{ .handler = custom_approval_handler{} })).BindingSchema("approval");
 const CustomGuardBinding = @TypeOf(example.guard.use(.{ .handler = custom_guard_handler{} })).BindingSchema("guard");
 
+const CustomApprovalHandlers = @TypeOf(.{
+    .directory = example.directory.use(.{ .handler = custom_directory_handler{} }),
+    .guard = example.guard.use(.{ .handler = custom_guard_handler{} }),
+    .approval = example.approval.use(.{ .handler = custom_approval_handler{} }),
+});
+
+/// Public `ability.program(...)` used to generate the custom approval ArtifactV1 fixture.
+pub const CustomApprovalProgram = ability.program(
+    "example.custom_approval_workflow.public_program",
+    CustomApprovalHandlers,
+    example.approval_runtime_body,
+    .{ .stable_build_fingerprint_seed = "custom-approval-workflow-public-program" },
+);
+
 const custom_approval_generated_row = ability_compile.effect_ir.mergeRows(.{
     ability_compile.effect_schema.row(CustomDirectoryBinding),
     ability_compile.effect_schema.row(CustomApprovalBinding),
