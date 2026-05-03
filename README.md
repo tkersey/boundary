@@ -43,10 +43,14 @@ tests, but it is a separate package module rather than part of the
 `ability.with` is the public one-shot lexical entrypoint. `ability.program` is
 the public compile-once lexical entrypoint: call
 `ability.program("label", @TypeOf(handlers), Body, .{})` to get a namespace that
-exposes `runtime_plan`, `ir_hash`, `run`, `encodeArtifactV1`,
+exposes `contract`, `runtime_plan`, `ir_hash`, `run`, `encodeArtifactV1`,
 `decodeArtifactV1`, `disasmArtifactV1`, and the shorter `encode`/`decode`/
-`disasmAlloc` aliases. `ability.compile` remains the public ProgramPlan-first
-ArtifactV1 entrypoint for callers that already own a `ProgramPlan`.
+`disasmAlloc` aliases. `contract` is a view-only projection of the executable
+ProgramPlan: requirement labels, generated operation names/modes/after flags,
+and declared output labels. It is caller-side inspection metadata, not an
+ArtifactV1 host capability map or codec schema. `ability.compile` remains the
+public ProgramPlan-first ArtifactV1 entrypoint for callers that already own a
+`ProgramPlan`.
 Downstream packages that want lexical execution or compiled lexical packaging
 for ordinary local body structs must make the source witness part of the body
 type itself:
@@ -225,6 +229,7 @@ portability-contract
 program-frontend-boundary
 agent-vm-artifact-report
 source-ownership-probe
+program-contract-view
 effect-row-contract
 custom-effect-workflow
 comptime-contract
@@ -238,6 +243,12 @@ The focused generated-effect row contract lane is:
 zig build test -Dtest-suites=effect-row-contract --summary none
 ```
 
+The focused public program contract projection lane is:
+
+```bash
+zig build test -Dtest-suites=program-contract-view --summary none
+```
+
 The focused custom-effect proof lane is:
 
 ```bash
@@ -247,7 +258,7 @@ zig build test -Dtest-suites=custom-effect-workflow --summary none
 The regression bundle for the generalized effects path is:
 
 ```bash
-zig build test -Dtest-suites=effect-row-contract,custom-effect-workflow,comptime-contract,source-ownership-probe,lexical-with,program-plan-review --summary none
+zig build test -Dtest-suites=program-contract-view,effect-row-contract,custom-effect-workflow,comptime-contract,source-ownership-probe,lexical-with,program-plan-review --summary none
 ```
 
 Deleted child-build and package-export probes are not hidden behind opt-in test

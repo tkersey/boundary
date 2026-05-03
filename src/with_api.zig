@@ -989,6 +989,72 @@ fn NestedSourceModuleForBody(comptime Body: type) type {
     return Body;
 }
 
+fn ProgramContractView(comptime plan: anytype) type {
+    return struct {
+        /// Public view-only control mode projection for a generated operation.
+        pub const Mode = enum { abort, choice, transform };
+
+        /// Public view-only operation descriptor derived from the executable ProgramPlan.
+        pub const Operation = struct {
+            requirement_label: []const u8,
+            name: []const u8,
+            mode: Mode,
+            has_after: bool,
+        };
+
+        /// Public view-only requirement descriptor derived from the executable ProgramPlan.
+        pub const Requirement = struct {
+            label: []const u8,
+        };
+
+        /// Public view-only declared output descriptor derived from the executable ProgramPlan.
+        pub const Output = struct {
+            label: []const u8,
+        };
+
+        const op_storage = blk: {
+            var buffer: [plan.ops.len]Operation = undefined;
+            for (plan.ops, 0..) |op, index| {
+                const requirement = plan.requirements[op.requirement_index];
+                buffer[index] = .{
+                    .requirement_label = requirement.label,
+                    .name = op.op_name,
+                    .mode = switch (op.mode) {
+                        .transform => .transform,
+                        .choice => .choice,
+                        .abort => .abort,
+                    },
+                    .has_after = op.has_after,
+                };
+            }
+            break :blk buffer;
+        };
+
+        const requirement_storage = blk: {
+            var buffer: [plan.requirements.len]Requirement = undefined;
+            for (plan.requirements, 0..) |requirement, index| {
+                buffer[index] = .{ .label = requirement.label };
+            }
+            break :blk buffer;
+        };
+
+        const output_storage = blk: {
+            var buffer: [plan.outputs.len]Output = undefined;
+            for (plan.outputs, 0..) |output, index| {
+                buffer[index] = .{ .label = output.label };
+            }
+            break :blk buffer;
+        };
+
+        /// Requirement labels visible to caller-side inspection tools.
+        pub const requirements = requirement_storage[0..];
+        /// Generated operation names/modes visible to caller-side inspection tools.
+        pub const ops = op_storage[0..];
+        /// Declared lexical outputs visible to caller-side inspection tools.
+        pub const outputs = output_storage[0..];
+    };
+}
+
 fn CompiledLexicalProgram(
     comptime HandlersType: type,
     comptime Body: type,
@@ -1020,6 +1086,8 @@ fn CompiledLexicalProgram(
         pub const ir_hash = compiled_plan.ir_hash;
         /// Runtime-owned ProgramPlan compiled from the lexical body and handler schema.
         pub const runtime_plan = compiled_plan;
+        /// View-only contract derived from the executable ProgramPlan.
+        pub const contract = ProgramContractView(compiled_plan);
         /// Public run result declaration for this compiled lexical program.
         pub const Result = WithResult(HandlersType, BodyAnswerType(Body, PreviewBodyEffType(HandlersType)));
         /// Public semantic error-set declaration for this compiled lexical program.
