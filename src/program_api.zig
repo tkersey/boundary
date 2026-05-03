@@ -105,6 +105,9 @@ pub fn program(
 
         /// Execute the explicit body against one caller-owned runtime.
         pub fn run(runtime: *lowered_machine.Runtime, handlers: HandlersType) Error!Result {
+            try lowered_machine.beginExecution(runtime);
+            defer lowered_machine.endExecution(runtime);
+
             const raw = if (comptime @typeInfo(ReturnType) == .error_union)
                 Body.program(runtime, handlers) catch |err| return @errorCast(err)
             else

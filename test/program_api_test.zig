@@ -15,6 +15,15 @@ const PlainBody = struct {
     }
 };
 
+const EmptyHandlers = struct {};
+
+const RuntimeGuardBody = struct {
+    pub fn program(runtime: *ability.Runtime, _: EmptyHandlers) !bool {
+        try std.testing.expectError(error.RuntimeBusy, runtime.deinitChecked());
+        return true;
+    }
+};
+
 test "ability.program names and re-runs an explicit local body" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -29,6 +38,24 @@ test "ability.program names and re-runs an explicit local body" {
     defer second.deinit();
     try std.testing.expectEqual(@as(i32, 2), second.value);
     try std.testing.expectEqual(@as(i32, 3), second.outputs.total);
+}
+
+test "ability.program enters runtime execution for plain bodies" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Program = ability.program("runtime-guard", EmptyHandlers, RuntimeGuardBody);
+    var result = try Program.run(&runtime, .{});
+    defer result.deinit();
+    try std.testing.expect(result.value);
+}
+
+test "ability.program rejects destroyed runtime before plain body execution" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    try runtime.deinitChecked();
+
+    const Program = ability.program("destroyed-runtime", PlainHandlers, PlainBody);
+    try std.testing.expectError(error.RuntimeDestroyed, Program.run(&runtime, .{ .base = 1 }));
 }
 
 const StateHandlers = struct { initial: i32 };

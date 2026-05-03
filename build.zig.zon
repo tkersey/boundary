@@ -22,6 +22,7 @@
         "examples/state_basic.zig",
         "src",
         "test/program_api_test.zig",
+        "test/public_optional_bound_program_test.zig",
     },
     .fingerprint = 0x35cfee3c29e35cbe,
 }
