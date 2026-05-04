@@ -527,12 +527,18 @@ fn Binding(
 
         fn supportedAuthoredPayloadCodec() ?lowering_api.ValueCodec {
             const codec = lowering_api.executableResultCodecForType(Op.Payload) catch return null;
-            return if (codec == .string_list) null else codec;
+            return switch (codec) {
+                .product, .string_list, .sum => null,
+                else => codec,
+            };
         }
 
         fn supportedAuthoredResumeCodec() ?lowering_api.ValueCodec {
             const codec = lowering_api.executableResultCodecForType(Op.Resume) catch return null;
-            return if (codec == .string_list) null else codec;
+            return switch (codec) {
+                .product, .string_list, .sum => null,
+                else => codec,
+            };
         }
 
         fn supportedAuthoredResultType() ?type {
@@ -550,6 +556,7 @@ fn Binding(
                 .usize => .{ .usize = payload },
                 .string => .{ .string = payload },
                 .string_list => unreachable,
+                .product, .sum => unreachable,
             };
         }
 

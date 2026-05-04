@@ -1,5 +1,6 @@
 // zlinter-disable function_naming no_empty_block no_undefined no_swallow_error
 const lowered_machine = @import("lowered_machine");
+const lowering_api = @import("lowering_api");
 const std = @import("std");
 
 fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
@@ -37,58 +38,39 @@ fn dummyValue(comptime T: type) T {
     };
 }
 
-fn ProgramReturnType(comptime HandlersType: type, comptime Body: type) type {
-    if (!hasDeclSafe(Body, "program")) {
-        @compileError("ability.program bodies must declare pub fn program(runtime, handlers)");
+fn ProgramPlanForBody(comptime Body: type) lowering_api.ProgramPlan {
+    if (!hasDeclSafe(Body, "compiled_plan")) {
+        @compileError("ability.program bodies must declare pub const compiled_plan: ability.ir.ProgramPlan");
     }
-    return @TypeOf(Body.program(dummyValue(*lowered_machine.Runtime), dummyValue(HandlersType)));
-}
-
-fn ProgramPayloadType(comptime ReturnType: type) type {
-    return switch (@typeInfo(ReturnType)) {
-        .error_union => |err_union| err_union.payload,
-        else => ReturnType,
-    };
-}
-
-fn resultEnvelopeMarker(comptime Payload: type) bool {
-    if (!hasDeclSafe(Payload, "ability_result_envelope")) return false;
-    if (@TypeOf(Payload.ability_result_envelope) != bool) {
-        @compileError("ability_result_envelope must be a bool");
+    const plan = Body.compiled_plan;
+    if (@TypeOf(plan) != lowering_api.ProgramPlan) {
+        @compileError("Body.compiled_plan must have type ability.ir.ProgramPlan");
     }
-    return Payload.ability_result_envelope;
+    comptime {
+        @setEvalBranchQuota(100_000);
+        plan.validate() catch |err| {
+            @compileError("Body.compiled_plan failed ProgramPlan.validate: " ++ @errorName(err));
+        };
+    }
+    return plan;
 }
 
-fn isResultEnvelope(comptime Payload: type) bool {
-    if (!resultEnvelopeMarker(Payload)) return false;
-    return switch (@typeInfo(Payload)) {
-        .@"struct" => blk: {
-            if (!@hasField(Payload, "value") or !@hasField(Payload, "outputs")) {
-                @compileError("marked ability.program result envelopes must declare value and outputs fields");
-            }
-            break :blk true;
-        },
-        else => @compileError("marked ability.program result envelopes must be structs"),
+fn ProgramValueTypeForCodec(comptime codec: lowering_api.ValueCodec) type {
+    return switch (codec) {
+        .unit => void,
+        .bool => bool,
+        .i32 => i32,
+        .product => @compileError("product ProgramPlan results require schema-specific ability.program decoding"),
+        .usize => usize,
+        .string => []const u8,
+        .string_list => @compileError("string-list ProgramPlan results require interpreter value support"),
+        .sum => @compileError("sum ProgramPlan results require schema-specific ability.program decoding"),
     };
 }
 
-fn ProgramValueType(comptime ReturnType: type) type {
-    const Payload = ProgramPayloadType(ReturnType);
-    if (comptime isResultEnvelope(Payload)) return @FieldType(Payload, "value");
-    return Payload;
-}
-
-fn ProgramOutputsType(comptime ReturnType: type) type {
-    const Payload = ProgramPayloadType(ReturnType);
-    if (comptime isResultEnvelope(Payload)) return @FieldType(Payload, "outputs");
-    return void;
-}
-
-fn ProgramErrorSet(comptime ReturnType: type) type {
-    return switch (@typeInfo(ReturnType)) {
-        .error_union => |err_union| lowered_machine.ResetError(err_union.error_set),
-        else => lowered_machine.ResetError(error{}),
-    };
+fn ProgramErrorSet(comptime Body: type) type {
+    if (comptime hasDeclSafe(Body, "Error")) return lowered_machine.ResetError(Body.Error);
+    return anyerror;
 }
 
 /// Declare one reusable explicit local effect program.
@@ -98,13 +80,15 @@ pub fn program(
     comptime Body: type,
 ) type {
     if (label.len == 0) @compileError("ability.program label must be non-empty");
-    const ReturnType = ProgramReturnType(HandlersType, Body);
-    const Value = ProgramValueType(ReturnType);
-    const Outputs = ProgramOutputsType(ReturnType);
+    const body_compiled_plan = ProgramPlanForBody(Body);
+    const Value = ProgramValueTypeForCodec(lowering_api.executableResultCodecForPlan(body_compiled_plan));
+    const Outputs = void;
 
     return struct {
+        /// Runtime-owned executable plan for this public program.
+        pub const compiled_plan = body_compiled_plan;
         /// Public execution error for this program.
-        pub const Error = ProgramErrorSet(ReturnType);
+        pub const Error = ProgramErrorSet(Body);
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {
@@ -124,22 +108,18 @@ pub fn program(
             }
         };
 
-        /// Execute the explicit body against one caller-owned runtime.
+        /// Execute the compiled ProgramPlan against one caller-owned runtime.
         pub fn run(runtime: *lowered_machine.Runtime, handlers: HandlersType) Error!Result {
-            try lowered_machine.beginExecution(runtime);
-            defer lowered_machine.endExecution(runtime);
-
-            const raw = if (comptime @typeInfo(ReturnType) == .error_union)
-                Body.program(runtime, handlers) catch |err| return @errorCast(err)
+            var mutable_handlers = handlers;
+            const args = if (comptime hasDeclSafe(Body, "encodeArgs"))
+                Body.encodeArgs(mutable_handlers)
             else
-                Body.program(runtime, handlers);
-            const payload = raw;
-            const value = if (comptime isResultEnvelope(@TypeOf(payload))) payload.value else payload;
-            const outputs = if (comptime isResultEnvelope(@TypeOf(payload))) payload.outputs else {};
+                &.{};
+            const raw = lowering_api.runExecutablePlanWithArgs(runtime, compiled_plan, &mutable_handlers, args) catch |err| return @errorCast(err);
             return .{
                 .allocator = lowered_machine.runtimeAllocator(runtime),
-                .value = value,
-                .outputs = outputs,
+                .value = raw.value,
+                .outputs = {},
             };
         }
     };

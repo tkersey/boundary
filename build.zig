@@ -303,6 +303,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     ir_api_tests_mod.addImport("effect_ir", core.effect_ir);
+    ir_api_tests_mod.addImport("internal_kernel", core.internal_kernel);
+    ir_api_tests_mod.addImport("internal_program_plan", core.internal_program_plan);
     addTestArtifact(b, test_step, ir_api_tests_mod, test_args);
 
     const synthetic_root_tests_mod = b.createModule(.{
