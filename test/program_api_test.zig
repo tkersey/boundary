@@ -1795,6 +1795,20 @@ test "ability.program preserves const pointer handler bundle dispatch" {
     try std.testing.expectEqual(@as(i32, 41), result.value);
 }
 
+test "ability.program preserves pointer-valued handler field dispatch" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var authored: AuthoredHandlers = .{ .base = 30 };
+    const PointerFieldHandlers = struct {
+        authored: *AuthoredHandlers,
+    };
+    const Program = ability.program("compiled-pointer-handler-field", PointerFieldHandlers, CompiledBody);
+    var result = try Program.run(&runtime, .{ .authored = &authored });
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 41), result.value);
+}
+
 test "ability.program executes plans beyond legacy interpreter scratch caps" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();

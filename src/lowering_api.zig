@@ -197,16 +197,26 @@ fn HandlerSetType(comptime HandlersPtr: type) type {
 
 fn HandlerFieldPtrType(comptime HandlersPtr: type, comptime field_name: []const u8) type {
     const Field = @FieldType(HandlerSetType(HandlersPtr), field_name);
-    return switch (@typeInfo(HandlersPtr)) {
-        .pointer => |pointer| if (pointer.is_const) *const Field else *Field,
-        else => *Field,
+    return switch (@typeInfo(Field)) {
+        .pointer => Field,
+        else => switch (@typeInfo(HandlersPtr)) {
+            .pointer => |pointer| if (pointer.is_const) *const Field else *Field,
+            else => *Field,
+        },
     };
 }
 
 fn handlerFieldPtr(handlers: anytype, comptime field_name: []const u8) HandlerFieldPtrType(@TypeOf(handlers), field_name) {
-    return switch (@typeInfo(@TypeOf(handlers))) {
-        .pointer => &@field(handlers.*, field_name),
-        else => &@field(handlers, field_name),
+    const Field = @FieldType(HandlerSetType(@TypeOf(handlers)), field_name);
+    return switch (@typeInfo(Field)) {
+        .pointer => switch (@typeInfo(@TypeOf(handlers))) {
+            .pointer => @field(handlers.*, field_name),
+            else => @field(handlers, field_name),
+        },
+        else => switch (@typeInfo(@TypeOf(handlers))) {
+            .pointer => &@field(handlers.*, field_name),
+            else => &@field(handlers, field_name),
+        },
     };
 }
 

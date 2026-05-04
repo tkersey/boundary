@@ -167,6 +167,9 @@ test "compatibility IR module re-exports retained surface" {
     try std.testing.expect(@hasDecl(@This(), "builder"));
     try std.testing.expect(@hasDecl(@This(), "value"));
     try std.testing.expect(!@hasDecl(@This(), "compile"));
+    try std.testing.expect(internal_kernel.ValueSchemaPlan == program_plan.ValueSchemaPlan);
+    try std.testing.expect(internal_kernel.ValueFieldPlan == program_plan.ValueFieldPlan);
+    try std.testing.expect(internal_kernel.ValueVariantPlan == program_plan.ValueVariantPlan);
 }
 
 test "public builder materializes a ProgramPlan with product schema metadata" {
