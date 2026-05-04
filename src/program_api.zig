@@ -112,9 +112,15 @@ pub fn program(
             value: Value,
             outputs: Outputs,
 
-            /// Release owned result resources. Current explicit programs own no hidden storage.
+            /// Release owned result resources declared by the program body.
             pub fn deinit(self: *@This()) void {
-                _ = self.allocator;
+                if (comptime hasDeclSafe(Body, "deinitResult")) {
+                    const DeinitFn = @TypeOf(Body.deinitResult);
+                    if (DeinitFn != fn (std.mem.Allocator, Value, Outputs) void) {
+                        @compileError("Body.deinitResult must have type fn (std.mem.Allocator, value, outputs) void");
+                    }
+                    Body.deinitResult(self.allocator, self.value, self.outputs);
+                }
             }
         };
 

@@ -77,6 +77,38 @@ const RuntimeGuardBody = struct {
     }
 };
 
+const WriterOutputsBody = struct {
+    pub fn program(runtime: *ability.Runtime, _: EmptyHandlers) !struct {
+        pub const ability_result_envelope = true;
+        value: usize,
+        outputs: []const []const u8,
+    } {
+        var instance = ability.effect.writer.Instance([]const u8, error{}).init();
+        const result = try ability.effect.writer.handle([]const u8, usize, runtime, &instance, std.testing.allocator, struct {
+            pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(ability.effect.writer.computeProgram(Cap, ctx, struct {
+                pub fn run(comptime RunCap: type, run_ctx: anytype) !usize {
+                    try ability.effect.writer.tell(RunCap, run_ctx, "a");
+                    try ability.effect.writer.tell(RunCap, run_ctx, "b");
+                    return 2;
+                }
+            })) {
+                return ability.effect.writer.computeProgram(Cap, ctx, struct {
+                    pub fn run(comptime RunCap: type, run_ctx: anytype) !usize {
+                        try ability.effect.writer.tell(RunCap, run_ctx, "a");
+                        try ability.effect.writer.tell(RunCap, run_ctx, "b");
+                        return 2;
+                    }
+                });
+            }
+        });
+        return .{ .value = result.value, .outputs = result.items };
+    }
+
+    pub fn deinitResult(allocator: std.mem.Allocator, _: usize, outputs: []const []const u8) void {
+        allocator.free(outputs);
+    }
+};
+
 test "ability.program names and re-runs an explicit local body" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -101,6 +133,20 @@ test "ability.program enters runtime execution for plain bodies" {
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expect(result.value);
+}
+
+test "ability.program deinit releases body-owned outputs through hook" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Program = ability.program("writer-outputs", EmptyHandlers, WriterOutputsBody);
+    var result = try Program.run(&runtime, .{});
+    defer result.deinit();
+
+    try std.testing.expectEqual(@as(usize, 2), result.value);
+    try std.testing.expectEqual(@as(usize, 2), result.outputs.len);
+    try std.testing.expectEqualStrings("a", result.outputs[0]);
+    try std.testing.expectEqualStrings("b", result.outputs[1]);
 }
 
 test "ability.program infers return type for sentinel slice handlers" {

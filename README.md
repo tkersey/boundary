@@ -51,7 +51,9 @@ exact type accepted by `Body.program(runtime, handlers)`. A returned struct is
 split into `Program.Result.value` and `Program.Result.outputs` only when it
 declares `pub const ability_result_envelope = true`; otherwise the returned
 struct is preserved as the value. `Program.Result` always exposes `value`,
-`outputs`, and `deinit()`.
+`outputs`, and `deinit()`. If either field contains allocator-owned resources,
+declare `Body.deinitResult(allocator, value, outputs)` and `result.deinit()`
+will call it.
 
 ## Effects
 
