@@ -471,6 +471,7 @@ pub const ProgramPlan = struct {
                     },
                     .call_nested_with => {
                         const result_codec = try valueCodecFromInstructionAux(instruction.aux);
+                        if (valueCodecNeedsSchema(result_codec)) return error.InvalidInstructionCodec;
                         if (result_codec != .unit and !functionLocalHasCodec(self, function, instruction.dst, result_codec)) {
                             return error.InvalidInstructionLocalIndex;
                         }
@@ -3932,6 +3933,82 @@ test "ProgramPlan.validate rejects out-of-range helper instruction locals" {
         };
 
         try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validate());
+    }
+}
+
+test "ProgramPlan.validate rejects schema-bearing nested-with result codecs" {
+    const complete_metadata = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi";
+    const value_schemas = [_]ValueSchemaPlan{
+        .{
+            .label = "Product",
+            .codec = .product,
+            .first_field = 0,
+            .field_count = 1,
+        },
+        .{
+            .label = "Sum",
+            .codec = .sum,
+            .first_variant = 0,
+            .variant_count = 1,
+        },
+    };
+    const value_fields = [_]ValueFieldPlan{.{
+        .name = "value",
+        .codec = .i32,
+    }};
+    const value_variants = [_]ValueVariantPlan{.{
+        .name = "value",
+        .codec = .i32,
+    }};
+    const blocks = [_]BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = 1,
+        .terminator_index = 0,
+    }};
+    const terminators = [_]Terminator{.{ .kind = .return_unit }};
+
+    inline for ([_]struct {
+        codec: ValueCodec,
+        schema_index: u16,
+    }{
+        .{ .codec = .product, .schema_index = 0 },
+        .{ .codec = .sum, .schema_index = 1 },
+    }) |case| {
+        const plan = ProgramPlan{
+            .label = "invalid.nested_with_structured_codec",
+            .ir_hash = 1,
+            .entry_index = 0,
+            .functions = &.{.{
+                .symbol_name = "root",
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 1,
+            }},
+            .requirements = &.{},
+            .ops = &.{},
+            .outputs = &.{},
+            .value_schemas = &value_schemas,
+            .value_fields = &value_fields,
+            .value_variants = &value_variants,
+            .locals = &.{.{ .codec = case.codec, .schema_index = case.schema_index }},
+            .blocks = &blocks,
+            .terminators = &terminators,
+            .instructions = &.{.{
+                .kind = .call_nested_with,
+                .dst = 0,
+                .aux = @intFromEnum(case.codec),
+                .string_literal = complete_metadata,
+            }},
+        };
+
+        try std.testing.expectError(error.InvalidInstructionCodec, plan.validate());
     }
 }
 
