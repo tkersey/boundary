@@ -485,7 +485,6 @@ pub fn build(b: *std.Build) void {
             b.path("src/reference_machine.zig"),
             b.path("src/root.zig"),
             b.path("src/runtime_contract_registry.zig"),
-            b.path("src/shipped_open_row_corpus_registry.zig"),
             b.path("src/witnesses.zig"),
             b.path("examples/state_basic.zig"),
             b.path("examples/custom_approval_workflow.zig"),
