@@ -452,7 +452,6 @@ pub fn build(b: *std.Build) void {
             b.path("src/frontend.zig"),
             b.path("src/helper_body_ir.zig"),
             b.path("src/internal/algebraic_engine.zig"),
-            b.path("src/internal/family_builder.zig"),
             b.path("src/internal/helper_body_ir.zig"),
             b.path("src/internal/kernel.zig"),
             b.path("src/internal/lexical_bundle_schema.zig"),
