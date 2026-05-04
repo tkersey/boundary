@@ -112,8 +112,11 @@ fn functionLocalCodec(
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime function: program_plan.FunctionPlan,
     local_id: u16,
-) program_plan.ValueCodec {
-    return compiled_plan.locals[function.first_local + local_id].codec;
+) ?program_plan.ValueCodec {
+    if (compiled_plan.locals.len == 0) return null;
+    const index = @as(usize, function.first_local) + local_id;
+    if (index >= compiled_plan.locals.len) return null;
+    return compiled_plan.locals[index].codec;
 }
 
 const OperationDispatch = struct {
@@ -142,6 +145,20 @@ const CompletionValue = struct {
     after_stack: []const u16,
     kind: CompletionKind,
 };
+
+fn mappedReturnError(comptime ErrorSet: type, literal: []const u8) anyerror {
+    return switch (@typeInfo(ErrorSet)) {
+        .error_set => |errors| blk: {
+            if (errors) |decls| {
+                inline for (decls) |decl| {
+                    if (std.mem.eql(u8, decl.name, literal)) break :blk @field(ErrorSet, decl.name);
+                }
+            }
+            break :blk error.ProgramContractViolation;
+        },
+        else => @compileError("ProgramPlan return_error mapping requires an error set"),
+    };
+}
 
 fn HandlerSetType(comptime HandlersPtr: type) type {
     return switch (@typeInfo(HandlersPtr)) {
@@ -314,7 +331,9 @@ fn completeFunctionValue(
     return completed;
 }
 
+// zlinter-disable max_positional_args - interpreter recursion keeps the comptime plan, error set, handler bundle, and call frame explicit.
 fn executeKnownFunction(
+    comptime ErrorSet: type,
     runtime: *lowered_machine.Runtime,
     comptime compiled_plan: program_plan.ProgramPlan,
     handlers: anytype,
@@ -329,10 +348,12 @@ fn executeKnownFunction(
     if (args.len != function.parameter_count) return error.ProgramContractViolation;
 
     var locals = [_]lowered_machine.ProgramValue{.none} ** max_interpreter_locals;
-    for (args, 0..) |arg, index| {
-        const local = compiled_plan.locals[function.first_local + index];
-        if (!valueMatchesCodec(local.codec, arg)) return error.ProgramContractViolation;
-        locals[index] = arg;
+    if (comptime function.parameter_count != 0) {
+        for (args, 0..) |arg, index| {
+            const local = compiled_plan.locals[function.first_local + index];
+            if (!valueMatchesCodec(local.codec, arg)) return error.ProgramContractViolation;
+            locals[index] = arg;
+        }
     }
 
     var block_index: usize = @as(usize, function.first_block) + function.entry_block;
@@ -379,7 +400,7 @@ fn executeKnownFunction(
                         }
                         break :blk buffer[0..callee.parameter_count];
                     };
-                    const helper_result = try executeFunction(runtime, compiled_plan, handlers, instruction.operand, call_args, depth + 1);
+                    const helper_result = try executeFunction(ErrorSet, runtime, compiled_plan, handlers, instruction.operand, call_args, depth + 1);
                     if (helper_result.terminal) {
                         return .{
                             .value = try completeFunctionValue(
@@ -436,7 +457,7 @@ fn executeKnownFunction(
                     }
                 },
                 .compare_eq_zero => {
-                    const is_zero = switch (functionLocalCodec(compiled_plan, function, instruction.operand)) {
+                    const is_zero = switch (functionLocalCodec(compiled_plan, function, instruction.operand) orelse return error.ProgramContractViolation) {
                         .bool => !(try decodeArg(.bool, locals[instruction.operand])),
                         .i32 => (try decodeArg(.i32, locals[instruction.operand])) == 0,
                         .usize => (try decodeArg(.usize, locals[instruction.operand])) == 0,
@@ -452,10 +473,10 @@ fn executeKnownFunction(
                         .usize = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch return error.ProgramContractViolation,
                     };
                 },
-                .return_error => return error.ProgramContractViolation,
+                .return_error => return mappedReturnError(ErrorSet, instruction.string_literal),
                 .return_value => last_return = locals[instruction.operand],
                 .sub_one => {
-                    locals[instruction.dst] = switch (functionLocalCodec(compiled_plan, function, instruction.operand)) {
+                    locals[instruction.dst] = switch (functionLocalCodec(compiled_plan, function, instruction.operand) orelse return error.ProgramContractViolation) {
                         .i32 => .{ .i32 = std.math.sub(i32, try decodeArg(.i32, locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
                         .usize => .{ .usize = std.math.sub(usize, try decodeArg(.usize, locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
                         else => return error.ProgramContractViolation,
@@ -501,7 +522,9 @@ fn executeKnownFunction(
     }
 }
 
+// zlinter-disable max_positional_args - dynamic helper dispatch mirrors executeKnownFunction while selecting the comptime function body.
 fn executeFunction(
+    comptime ErrorSet: type,
     runtime: *lowered_machine.Runtime,
     comptime compiled_plan: program_plan.ProgramPlan,
     handlers: anytype,
@@ -511,13 +534,14 @@ fn executeFunction(
 ) anyerror!ExecutionResult {
     inline for (compiled_plan.functions, 0..) |_, index| {
         if (function_index == index) {
-            return executeKnownFunction(runtime, compiled_plan, handlers, index, args, depth);
+            return executeKnownFunction(ErrorSet, runtime, compiled_plan, handlers, index, args, depth);
         }
     }
     return error.ProgramContractViolation;
 }
 
-pub fn runExecutablePlanWithArgs(
+pub fn runExecutablePlanWithArgsForErrorSet(
+    comptime ErrorSet: type,
     runtime: *lowered_machine.Runtime,
     comptime compiled_plan: program_plan.ProgramPlan,
     handlers: anytype,
@@ -528,6 +552,15 @@ pub fn runExecutablePlanWithArgs(
 
     const entry = comptime compiled_plan.functions[compiled_plan.entry_index];
     if (args.len != entry.parameter_count) return error.ProgramContractViolation;
-    const raw = try executeFunction(runtime, compiled_plan, handlers, compiled_plan.entry_index, args, 0);
+    const raw = try executeFunction(ErrorSet, runtime, compiled_plan, handlers, compiled_plan.entry_index, args, 0);
     return .{ .value = try decodeArg(program_plan.functionResultCodec(entry), raw.value) };
+}
+
+pub fn runExecutablePlanWithArgs(
+    runtime: *lowered_machine.Runtime,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    handlers: anytype,
+    args: []const lowered_machine.ProgramValue,
+) anyerror!RunResultTypeForPlan(compiled_plan) {
+    return runExecutablePlanWithArgsForErrorSet(error{}, runtime, compiled_plan, handlers, args);
 }

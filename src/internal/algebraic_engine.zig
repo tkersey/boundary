@@ -790,7 +790,8 @@ fn Binding(
                         &.{}
                     else
                         &.{encodeAuthoredPayload(payload_codec, self.carrier.payload)};
-                    return (lowering_api.runExecutablePlanWithArgs(runtime, compiled_plan, &handlers, args) catch |err| return @errorCast(err)).value;
+                    const RunErrorSet = ErrorSet || ExplicitContinuationErrorSet(Continuation, Op.Resume);
+                    return (lowering_api.runExecutablePlanWithArgsForErrorSet(RunErrorSet, runtime, compiled_plan, &handlers, args) catch |err| return @errorCast(err)).value;
                 }
             };
         }
@@ -857,7 +858,8 @@ fn Binding(
                         &.{}
                     else
                         &.{encodeAuthoredPayload(payload_codec, self.carrier.payload)};
-                    return (lowering_api.runExecutablePlanWithArgs(runtime, compiled_plan, &handlers, args) catch |err| return @errorCast(err)).value;
+                    const RunErrorSet = ErrorSet || ExplicitContinuationErrorSetWithContext(ContextPtrType, Continuation, Op.Resume);
+                    return (lowering_api.runExecutablePlanWithArgsForErrorSet(RunErrorSet, runtime, compiled_plan, &handlers, args) catch |err| return @errorCast(err)).value;
                 }
             };
         }

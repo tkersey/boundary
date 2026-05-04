@@ -51,8 +51,37 @@ fn ProgramPlanForBody(comptime Body: type) lowering_api.ProgramPlan {
         plan.validate() catch |err| {
             @compileError("Body.compiled_plan failed ProgramPlan.validate: " ++ @errorName(err));
         };
+        validatePlanReturnErrors(plan, BodyErrorSet(Body));
     }
     return plan;
+}
+
+fn BodyErrorSet(comptime Body: type) type {
+    if (comptime !hasDeclSafe(Body, "Error")) return error{};
+    if (@typeInfo(Body.Error) != .error_set) @compileError("Body.Error must be an error set");
+    return Body.Error;
+}
+
+fn errorSetContains(comptime ErrorSet: type, literal: []const u8) bool {
+    return switch (@typeInfo(ErrorSet)) {
+        .error_set => |errors| blk: {
+            if (errors) |decls| {
+                inline for (decls) |decl| {
+                    if (std.mem.eql(u8, decl.name, literal)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        else => @compileError("Body.Error must be an error set"),
+    };
+}
+
+fn validatePlanReturnErrors(comptime plan: lowering_api.ProgramPlan, comptime ErrorSet: type) void {
+    for (plan.instructions) |instruction| {
+        if (instruction.kind == .return_error and !errorSetContains(ErrorSet, instruction.string_literal)) {
+            @compileError("Body.compiled_plan return_error is not declared in Body.Error: " ++ instruction.string_literal);
+        }
+    }
 }
 
 fn ProgramValueTypeForCodec(comptime codec: lowering_api.ValueCodec) type {
@@ -115,7 +144,7 @@ pub fn program(
                 Body.encodeArgs(mutable_handlers)
             else
                 &.{};
-            const raw = lowering_api.runExecutablePlanWithArgs(runtime, compiled_plan, &mutable_handlers, args) catch |err| return @errorCast(err);
+            const raw = lowering_api.runExecutablePlanWithArgsForErrorSet(BodyErrorSet(Body), runtime, compiled_plan, &mutable_handlers, args) catch |err| return @errorCast(err);
             return .{
                 .allocator = lowered_machine.runtimeAllocator(runtime),
                 .value = raw.value,

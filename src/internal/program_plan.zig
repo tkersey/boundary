@@ -411,6 +411,19 @@ pub const ProgramPlan = struct {
             if (completion_codecs.value_codec and completion_codecs.result_codec) return error.InvalidFunctionResultCodec;
         }
 
+        const entry = self.functions[self.entry_index];
+        if (entry.result_codec) |entry_result_codec| {
+            if (!valueRefsEqual(
+                .{ .codec = entry_result_codec, .schema_index = entry.result_schema_index },
+                .{ .codec = entry.value_codec, .schema_index = entry.value_schema_index },
+            )) {
+                const entry_completion_codecs = try functionCompletionCodecReachability(self, entry, &completion_reachability);
+                if (entry_completion_codecs.value_codec and terminal_reachability[self.entry_index]) {
+                    return error.InvalidFunctionResultCodec;
+                }
+            }
+        }
+
         for (self.functions) |function| {
             const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
             const function_instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return error.InvalidFunctionInstructionSpan;
@@ -2054,7 +2067,9 @@ fn blockCanResumeToTerminator(
     completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
 ) ValidationError!bool {
     for (self.instructions[first_instruction..instruction_end]) |instruction| {
-        if (instruction.kind == .call_helper) {
+        if (instruction.kind == .return_error) {
+            return false;
+        } else if (instruction.kind == .call_helper) {
             if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
             if (!completion_reachability[instruction.operand]) return false;
         } else if (instruction.kind == .call_op) {
@@ -2075,7 +2090,9 @@ fn blockCanEscapeTerminally(
     reachability: FunctionControlReachability,
 ) ValidationError!bool {
     for (self.instructions[first_instruction..instruction_end]) |instruction| {
-        if (instruction.kind == .call_helper) {
+        if (instruction.kind == .return_error) {
+            return true;
+        } else if (instruction.kind == .call_helper) {
             if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
             if (reachability.terminal[instruction.operand]) return true;
             if (!reachability.completion[instruction.operand]) return false;

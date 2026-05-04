@@ -1062,6 +1062,113 @@ fn helperNormalValueWithTerminalResultCodecPlan(comptime label: []const u8) abil
     }) catch unreachable;
 }
 
+fn returnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const instructions = [_]ability.ir.plan.Instruction{.{
+        .kind = .return_error,
+        .string_literal = "Rejected",
+    }};
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .unit,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 31,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn entryMixedNormalAndTerminalResultCodecPlan(comptime label: []const u8) !ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const condition = ability.ir.builder.local(root, 0);
+    const value = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{ .kind = .const_i32, .dst = value.index, .operand = 0 },
+        .{ .kind = .compare_eq_zero, .dst = condition.index, .operand = value.index },
+        .{ .kind = .const_i32, .dst = value.index, .operand = 5 },
+        ability.ir.builder.returnValue(root, value) catch unreachable,
+        ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), null) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .string,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 3,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "abort", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "abort",
+        .mode = .abort,
+        .payload_codec = .unit,
+        .resume_codec = .unit,
+        .has_after = false,
+    }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+        .{ .first_instruction = 4, .instruction_count = 1, .terminator_index = 2 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+        .{ .kind = .return_value },
+        .{ .kind = .return_unit },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 32,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .bool }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    });
+}
+
 fn matrixPlan(
     comptime mode: ability.ir.PlanControlMode,
     comptime payload_codec: ability.ir.ValueCodec,
@@ -1399,6 +1506,25 @@ test "ability.program preserves normal helper value when result codec covers ter
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 5), result.value);
+}
+
+test "ability.program surfaces declared ProgramPlan return_error values" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const ErrorBody = struct {
+        pub const Error = error{Rejected};
+        pub const compiled_plan = returnErrorPlan("return-error");
+    };
+    const Program = ability.program("return-error", struct {}, ErrorBody);
+    try std.testing.expectError(error.Rejected, Program.run(&runtime, .{}));
+}
+
+test "ability.ir rejects entry plans that mix normal value and terminal result codecs" {
+    try std.testing.expectError(
+        error.InvalidFunctionResultCodec,
+        entryMixedNormalAndTerminalResultCodecPlan("entry-mixed-normal-terminal-result-codec"),
+    );
 }
 
 test "ability.program rejects unsupported structured op payloads without trapping" {
