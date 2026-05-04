@@ -174,6 +174,14 @@ fn handlerFieldPtr(handlers: anytype, comptime field_name: []const u8) *@FieldTy
     };
 }
 
+fn opNameIsUnique(comptime compiled_plan: program_plan.ProgramPlan, comptime op_name: []const u8) bool {
+    comptime var count: usize = 0;
+    inline for (compiled_plan.ops) |candidate| {
+        if (std.mem.eql(u8, candidate.op_name, op_name)) count += 1;
+    }
+    return count == 1;
+}
+
 fn HandlerType(comptime HandlerPtr: type) type {
     return switch (@typeInfo(HandlerPtr)) {
         .pointer => |pointer| pointer.child,
@@ -237,13 +245,27 @@ fn callOpByIndex(
 ) anyerror!OperationDispatch {
     inline for (compiled_plan.ops, 0..) |op, index| {
         if (op_index == index) {
+            const requirement = comptime compiled_plan.requirements[op.requirement_index];
             const HandlerSet = HandlerSetType(@TypeOf(handlers));
-            const authored = if (comptime @hasField(HandlerSet, op.op_name))
+            const authored = if (comptime @hasField(HandlerSet, requirement.label) and
+                @hasDecl(HandlerType(@TypeOf(handlerFieldPtr(handlers, requirement.label))), "dispatch"))
+                handlerFieldPtr(handlers, requirement.label)
+            else if (comptime @hasField(HandlerSet, requirement.label) and
+                @hasField(HandlerSetType(@TypeOf(handlerFieldPtr(handlers, requirement.label))), op.op_name))
+            blk: {
+                const requirement_handler = handlerFieldPtr(handlers, requirement.label);
+                break :blk handlerFieldPtr(requirement_handler, op.op_name);
+            } else if (comptime @hasField(HandlerSet, requirement.label) and
+                @hasField(HandlerSetType(@TypeOf(handlerFieldPtr(handlers, requirement.label))), "authored"))
+            blk: {
+                const requirement_handler = handlerFieldPtr(handlers, requirement.label);
+                break :blk handlerFieldPtr(requirement_handler, "authored");
+            } else if (comptime @hasField(HandlerSet, op.op_name) and opNameIsUnique(compiled_plan, op.op_name))
                 handlerFieldPtr(handlers, op.op_name)
-            else if (comptime @hasField(HandlerSet, "authored"))
+            else if (comptime @hasField(HandlerSet, "authored") and opNameIsUnique(compiled_plan, op.op_name))
                 handlerFieldPtr(handlers, "authored")
             else
-                @compileError("ProgramPlan op has no matching handler field and no authored fallback");
+                @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, or authored fallback");
             const result = try dispatchAuthored(op, authored, payload);
             if (result.resumes and !valueMatchesCodec(op.resume_codec, result.value)) return error.ProgramContractViolation;
             return result;
@@ -271,13 +293,27 @@ fn applyAfterByIndexForCodec(
     inline for (compiled_plan.ops, 0..) |op, index| {
         if (op_index == index) {
             if (!op.has_after) return error.ProgramContractViolation;
+            const requirement = comptime compiled_plan.requirements[op.requirement_index];
             const HandlerSet = HandlerSetType(@TypeOf(handlers));
-            const authored = if (comptime @hasField(HandlerSet, op.op_name))
+            const authored = if (comptime @hasField(HandlerSet, requirement.label) and
+                @hasDecl(HandlerType(@TypeOf(handlerFieldPtr(handlers, requirement.label))), "dispatch"))
+                handlerFieldPtr(handlers, requirement.label)
+            else if (comptime @hasField(HandlerSet, requirement.label) and
+                @hasField(HandlerSetType(@TypeOf(handlerFieldPtr(handlers, requirement.label))), op.op_name))
+            blk: {
+                const requirement_handler = handlerFieldPtr(handlers, requirement.label);
+                break :blk handlerFieldPtr(requirement_handler, op.op_name);
+            } else if (comptime @hasField(HandlerSet, requirement.label) and
+                @hasField(HandlerSetType(@TypeOf(handlerFieldPtr(handlers, requirement.label))), "authored"))
+            blk: {
+                const requirement_handler = handlerFieldPtr(handlers, requirement.label);
+                break :blk handlerFieldPtr(requirement_handler, "authored");
+            } else if (comptime @hasField(HandlerSet, op.op_name) and opNameIsUnique(compiled_plan, op.op_name))
                 handlerFieldPtr(handlers, op.op_name)
-            else if (comptime @hasField(HandlerSet, "authored"))
+            else if (comptime @hasField(HandlerSet, "authored") and opNameIsUnique(compiled_plan, op.op_name))
                 handlerFieldPtr(handlers, "authored")
             else
-                @compileError("ProgramPlan op has no matching handler field and no authored fallback");
+                @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, or authored fallback");
             if (comptime !afterDispatchAccepts(@TypeOf(authored), input_codec)) return error.ProgramContractViolation;
             const decoded = try decodeArg(input_codec, value);
             const completed = try authored.afterDispatch(decoded);
@@ -319,14 +355,16 @@ fn completeFunctionValue(
     const result_codec = comptime program_plan.functionResultCodec(function);
     var completed = completion.value;
     var current_codec = completion.initial_codec;
-    var remaining = completion.after_stack.len;
-    while (remaining != 0) {
-        remaining -= 1;
-        const after = try applyAfterByIndex(compiled_plan, function_index, handlers, completion.after_stack[remaining], completed, current_codec);
-        completed = after.value;
-        current_codec = after.codec;
+    if (completion.kind == .normal) {
+        var remaining = completion.after_stack.len;
+        while (remaining != 0) {
+            remaining -= 1;
+            const after = try applyAfterByIndex(compiled_plan, function_index, handlers, completion.after_stack[remaining], completed, current_codec);
+            completed = after.value;
+            current_codec = after.codec;
+        }
     }
-    const final_codec = if (completion.after_stack.len != 0 or completion.kind == .terminal) result_codec else function.value_codec;
+    const final_codec = if (completion.kind == .terminal or completion.after_stack.len != 0) result_codec else function.value_codec;
     if (!valueMatchesCodec(final_codec, completed)) return error.ProgramContractViolation;
     return completed;
 }
@@ -417,11 +455,17 @@ fn executeKnownFunction(
                             .terminal = true,
                         };
                     }
-                    if (instruction.dst != std.math.maxInt(u16)) locals[instruction.dst] = helper_result.value;
+                    if (instruction.dst != std.math.maxInt(u16)) switch (helper_result.value) {
+                        .none => {},
+                        else => locals[instruction.dst] = helper_result.value,
+                    };
                 },
                 .call_nested_with => return error.ProgramContractViolation,
                 .call_op => {
-                    const payload = if (instruction.aux == std.math.maxInt(u16)) .none else locals[instruction.aux];
+                    if (comptime compiled_plan.ops.len == 0) return error.ProgramContractViolation;
+                    if (instruction.operand >= compiled_plan.ops.len) return error.ProgramContractViolation;
+                    const op = compiled_plan.ops[instruction.operand];
+                    const payload = if (op.payload_codec == .unit) .none else locals[instruction.aux];
                     const op_result = try callOpByIndex(compiled_plan, handlers, instruction.operand, payload);
                     if (!op_result.resumes) {
                         return .{
@@ -439,9 +483,6 @@ fn executeKnownFunction(
                             .terminal = true,
                         };
                     }
-                    if (comptime compiled_plan.ops.len == 0) return error.ProgramContractViolation;
-                    if (instruction.operand >= compiled_plan.ops.len) return error.ProgramContractViolation;
-                    const op = compiled_plan.ops[instruction.operand];
                     if (!valueMatchesCodec(op.resume_codec, op_result.value)) return error.ProgramContractViolation;
                     if (op.has_after) {
                         if (after_count >= after_stack.len) return error.ProgramContractViolation;

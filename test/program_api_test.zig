@@ -175,6 +175,242 @@ fn stackedAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
+fn terminalBypassesAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const resume_value = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resume_value, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 1), null) catch unreachable,
+        ability.ir.builder.returnValue(root, resume_value) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .string,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 2,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{
+        .{ .label = "outer", .first_op = 0, .op_count = 1 },
+        .{ .label = "abort", .first_op = 1, .op_count = 1 },
+    };
+    const ops = [_]ability.ir.plan.Op{
+        .{
+            .requirement_index = 0,
+            .op_name = "outer",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .i32,
+            .has_after = true,
+        },
+        .{
+            .requirement_index = 1,
+            .op_name = "abort",
+            .mode = .abort,
+            .payload_codec = .unit,
+            .resume_codec = .unit,
+        },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 33,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn duplicateOperationNamesPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const left_value = ability.ir.builder.local(root, 0);
+    const right_value = ability.ir.builder.local(root, 1);
+    const total = ability.ir.builder.local(root, 2);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, left_value, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.callOp(root, right_value, ability.ir.builder.op(root, 1), null) catch unreachable,
+        .{ .kind = .add_i32, .dst = total.index, .operand = left_value.index, .aux = right_value.index },
+        ability.ir.builder.returnValue(root, total) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 2,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 3,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{
+        .{ .label = "left", .first_op = 0, .op_count = 1 },
+        .{ .label = "right", .first_op = 1, .op_count = 1 },
+    };
+    const ops = [_]ability.ir.plan.Op{
+        .{ .requirement_index = 0, .op_name = "get", .mode = .transform, .payload_codec = .unit, .resume_codec = .i32 },
+        .{ .requirement_index = 1, .op_name = "get", .mode = .transform, .payload_codec = .unit, .resume_codec = .i32 },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 34,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn invalidUnitPayloadOperandPlan(comptime label: []const u8) !ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const value = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{ .kind = .call_op, .dst = value.index, .operand = 0, .aux = 99 },
+        ability.ir.builder.returnValue(root, value) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "source", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "get",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 35,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    });
+}
+
+fn invalidUnitHelperDestinationPlan(comptime label: []const u8) !ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const helper = ability.ir.builder.function(1);
+    const instructions = [_]ability.ir.plan.Instruction{.{ .kind = .call_helper, .dst = 99, .operand = helper.index }};
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        },
+        .{
+            .symbol_name = "helper",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 1,
+            .instruction_count = 0,
+        },
+    };
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 0, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_unit },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 36,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    });
+}
+
 const AuthoredHandlers = struct {
     base: i32,
 
@@ -1453,6 +1689,102 @@ test "ability.program unwinds stacked after continuations with current answer co
     try std.testing.expectEqualStrings("outer:true", result.value);
     try std.testing.expectEqual(@as(usize, 1), outer_count);
     try std.testing.expectEqual(@as(usize, 1), inner_count);
+}
+
+test "ability.program skips after continuations for terminal escapes" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const TerminalHandlers = struct {
+        outer: struct {
+            count: *usize,
+
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 7;
+            }
+
+            pub fn afterDispatch(self: *const @This(), value: i32) ![]const u8 {
+                self.count.* += 1;
+                try std.testing.expectEqual(@as(i32, 7), value);
+                return "normal";
+            }
+        },
+        abort: struct {
+            pub fn dispatch(_: *const @This()) ![]const u8 {
+                return "terminal";
+            }
+        },
+    };
+    const TerminalBody = struct {
+        pub const compiled_plan = terminalBypassesAfterPlan("terminal-bypasses-after");
+    };
+
+    var after_count: usize = 0;
+    const Program = ability.program("terminal-bypasses-after", TerminalHandlers, TerminalBody);
+    var result = try Program.run(&runtime, .{
+        .outer = .{ .count = &after_count },
+        .abort = .{},
+    });
+    defer result.deinit();
+    try std.testing.expectEqualStrings("terminal", result.value);
+    try std.testing.expectEqual(@as(usize, 0), after_count);
+}
+
+test "ability.program dispatches duplicate op names by requirement namespace" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const NamespacedHandlers = struct {
+        left: struct {
+            get: struct {
+                pub fn dispatch(_: *const @This()) !i32 {
+                    return 10;
+                }
+            },
+        },
+        right: struct {
+            get: struct {
+                pub fn dispatch(_: *const @This()) !i32 {
+                    return 32;
+                }
+            },
+        },
+    };
+    const NamespacedBody = struct {
+        pub const compiled_plan = duplicateOperationNamesPlan("duplicate-op-names");
+    };
+
+    const Program = ability.program("duplicate-op-names", NamespacedHandlers, NamespacedBody);
+    var result = try Program.run(&runtime, .{ .left = .{ .get = .{} }, .right = .{ .get = .{} } });
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+}
+
+test "ability.program ignores unchecked unit operands" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const UnitPayloadBody = struct {
+        pub const compiled_plan = invalidUnitPayloadOperandPlan("ignored-unit-payload-operand") catch unreachable;
+    };
+    const UnitPayloadHandlers = struct {
+        source: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 7;
+            }
+        },
+    };
+    const UnitPayloadProgram = ability.program("ignored-unit-payload-operand", UnitPayloadHandlers, UnitPayloadBody);
+    var unit_payload_result = try UnitPayloadProgram.run(&runtime, .{ .source = .{} });
+    defer unit_payload_result.deinit();
+    try std.testing.expectEqual(@as(i32, 7), unit_payload_result.value);
+
+    const UnitHelperBody = struct {
+        pub const compiled_plan = invalidUnitHelperDestinationPlan("ignored-unit-helper-destination") catch unreachable;
+    };
+    const UnitHelperProgram = ability.program("ignored-unit-helper-destination", struct {}, UnitHelperBody);
+    var unit_helper_result = try UnitHelperProgram.run(&runtime, .{});
+    defer unit_helper_result.deinit();
 }
 
 test "ability.program abort op completes without running body tail" {
