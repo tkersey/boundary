@@ -21,7 +21,8 @@ const Sample = struct {
 };
 
 fn elapsedNsSince(io: std.Io, start: std.Io.Timestamp) u64 {
-    return @intCast(start.durationTo(std.Io.Timestamp.now(io, .boot)).toNanoseconds());
+    const finish = std.Io.Timestamp.now(io, .boot);
+    return @intCast(start.durationTo(finish).toNanoseconds());
 }
 
 fn sortAscending(values: []u64) void {

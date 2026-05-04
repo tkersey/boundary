@@ -497,5 +497,12 @@ pub fn build(b: *std.Build) void {
         const rule: zlinter.BuiltinLintRule = @enumFromInt(field.value);
         builder.addRule(.{ .builtin = rule }, .{});
     }
+    const saved_global_cache_path = b.graph.global_cache_root.path;
+    if (saved_global_cache_path) |path| {
+        if (!std.Io.Dir.path.isAbsolute(path)) {
+            b.graph.global_cache_root.path = b.pathFromRoot(path);
+        }
+    }
+    defer b.graph.global_cache_root.path = saved_global_cache_path;
     lint_step.dependOn(builder.build());
 }
