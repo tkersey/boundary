@@ -1388,6 +1388,74 @@ fn returnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
+fn errorOnlyHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const helper = ability.ir.builder.function(1);
+    const value = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callHelperDiscardingResult(root, std.math.maxInt(u16), helper, null),
+        .{ .kind = .const_i32, .dst = value.index, .operand = 5 },
+        ability.ir.builder.returnValue(root, value) catch unreachable,
+        .{ .kind = .return_error, .string_literal = "Rejected" },
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .i32,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 3,
+        },
+        .{
+            .symbol_name = "error_helper",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 0,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 3,
+            .instruction_count = 1,
+        },
+    };
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 },
+        .{ .first_instruction = 3, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .return_unit },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 35,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn entryMixedNormalAndTerminalResultCodecPlan(comptime label: []const u8) !ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const condition = ability.ir.builder.local(root, 0);
@@ -2222,6 +2290,18 @@ test "ability.program allows anyerror ProgramPlan return_error values" {
         pub const compiled_plan = returnErrorPlan("anyerror-return-error");
     };
     const Program = ability.program("anyerror-return-error", struct {}, ErrorBody);
+    try std.testing.expectError(error.Rejected, Program.run(&runtime, .{}));
+}
+
+test "ability.program propagates error-only helper without result-codec match" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const ErrorBody = struct {
+        pub const Error = error{Rejected};
+        pub const compiled_plan = errorOnlyHelperPlan("error-only-helper");
+    };
+    const Program = ability.program("error-only-helper", struct {}, ErrorBody);
     try std.testing.expectError(error.Rejected, Program.run(&runtime, .{}));
 }
 

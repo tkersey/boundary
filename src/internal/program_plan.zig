@@ -2092,7 +2092,7 @@ fn blockCanEscapeTerminally(
 ) ValidationError!bool {
     for (self.instructions[first_instruction..instruction_end]) |instruction| {
         if (instruction.kind == .return_error) {
-            return true;
+            return false;
         } else if (instruction.kind == .call_helper) {
             if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
             if (reachability.terminal[instruction.operand]) return true;
