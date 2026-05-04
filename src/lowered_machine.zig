@@ -114,10 +114,10 @@ pub fn beginExecution(runtime: *Runtime) (RuntimeError || SetupError)!void {
         active_runtime_stack_len += 1;
     } else {
         // Keep overflow bookkeeping off the runtime allocator so perf probes stay comparable.
-        // zlinter-disable-next-line no_hidden_allocations - overflow bookkeeping must stay off the runtime allocator
+        // zlinter-disable no_hidden_allocations
         const entry = try std.heap.page_allocator.create(ActiveRuntimeOverflowEntry);
-        // zlinter-disable-next-line no_hidden_allocations - overflow bookkeeping must unwind through the same non-runtime allocator
         errdefer std.heap.page_allocator.destroy(entry);
+        // zlinter-enable no_hidden_allocations
         entry.* = .{
             .runtime = runtime,
             .previous = active_runtime_overflow,
@@ -139,8 +139,10 @@ pub fn endExecutionChecked(runtime: *Runtime) RuntimeError!void {
     if (active_runtime_overflow) |entry| {
         if (entry.runtime != runtime) return error.RuntimeBusy;
         active_runtime_overflow = entry.previous;
-        // zlinter-disable-next-line no_hidden_allocations - overflow bookkeeping must unwind through the same non-runtime allocator
+        // Overflow bookkeeping must unwind through the same non-runtime allocator.
+        // zlinter-disable no_hidden_allocations
         std.heap.page_allocator.destroy(entry);
+        // zlinter-enable no_hidden_allocations
         runtime.core.active_reset_count -= 1;
         return;
     }
