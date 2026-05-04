@@ -1,38 +1,14 @@
 const shared = @import("ability_shared");
 
-/// Public lexical effect namespace.
+/// Public effect namespace.
 pub const effect = shared.effect;
-/// Canonical runtime handle for lexical execution.
+/// Canonical runtime handle for local program execution.
 pub const Runtime = shared.Runtime;
-/// Public runtime misuse and semantic-contract errors surfaced by `ability`.
-pub const RuntimeError = shared.RuntimeError;
-/// Stable source-content hash helper for source-backed `ability.with` bodies.
-pub const sourceHash = shared.sourceHash;
-/// Compile-time options for ProgramPlan-first ArtifactV1 emission.
-pub const CompileOptionsV1 = shared.CompileOptionsV1;
-/// Compile one runtime-owned ProgramPlan into a typed execution and ArtifactV1 surface.
-pub const CompilePlan = shared.CompilePlan;
-/// ProgramPlan-first compile entrypoint.
-pub const compile = shared.compile;
-/// Compile a lexical effect body into a reusable ProgramPlan execution and ArtifactV1 namespace.
+/// Declare one reusable explicit effect program.
 pub const program = shared.program;
-/// Run the public lexical handler entrypoint.
-pub fn with(
-    runtime: *Runtime,
-    handlers: anytype,
-    comptime Body: type,
-) shared.WithFnReturnType(@TypeOf(handlers), Body) {
-    return shared.with(runtime, handlers, Body);
-}
 
 test {
     _ = Runtime;
-    _ = RuntimeError;
-    _ = CompileOptionsV1;
-    _ = CompilePlan;
-    _ = compile;
     _ = program;
     _ = effect;
-    _ = sourceHash;
-    _ = with;
 }

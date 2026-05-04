@@ -1,7 +1,7 @@
 const algebraic = @import("algebraic.zig");
 const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
-const lexical_with = @import("../with_api.zig");
+const lexical_with = @import("../internal/lexical_support.zig");
 const lowered_machine = @import("lowered_machine");
 const ability = lowered_machine;
 const std = @import("std");
@@ -73,55 +73,55 @@ const HandleWithErrorSetTypes = struct {
     ErrorSet: type,
 };
 
-/// Lexical writer handle used by `ability.with(...)`.
+/// Handler writer handle used by `ability.effect handlers`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type, comptime ItemType: type) type {
     return struct {
         ctx: ?ContextPtrType,
 
-        /// Append one item through the lexical writer handle.
+        /// Append one item through the handler writer handle.
         pub fn tell(self: @This(), item: ItemType) lowered_machine.ResetError(family.ContextErrorSetType(ContextPtrType))!void {
             try algebraic.writerTell(Cap, self.ctx.?, item);
         }
     };
 }
 
-/// Descriptor value used by `ability.with(...)` for the built-in writer family.
+/// Descriptor value used by `ability.effect handlers` for the built-in writer family.
 pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) type {
     return struct {
-        /// Shared error set carried by the lexical writer descriptor.
+        /// Shared error set carried by the handler writer descriptor.
         pub const ErrorSet = ErrorSetType;
-        /// Preview-only state placeholder for lexical writer contexts.
+        /// Preview-only state placeholder for handler writer contexts.
         pub const State = void;
-        /// Final writer log output produced by the lexical writer descriptor.
+        /// Final writer log output produced by the handler writer descriptor.
         pub const Output = []ItemType;
 
         allocator: std.mem.Allocator,
 
-        /// Resolve the lexical writer handle type for one exact context.
+        /// Resolve the handler writer handle type for one exact context.
         pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
             return LexicalHandle(Cap, ContextPtrType, ItemType);
         }
 
-        /// Bind one lexical writer handle to the active exact context.
+        /// Bind one handler writer handle to the active exact context.
         pub fn bindLexical(self: @This(), comptime Cap: type, ctx: anytype) HandleType(Cap, @TypeOf(ctx)) {
             _ = self;
             return .{ .ctx = ctx };
         }
 
-        /// Return the shared binding schema for this lexical descriptor under one requirement label.
+        /// Return the shared binding schema for this handler descriptor under one requirement label.
         pub fn BindingSchema(comptime requirement_label: [:0]const u8) type {
             return effect_schema.Binding(requirement_label, Schema(ItemType, ErrorSetType), struct {});
         }
 
-        /// Run one lexical writer descriptor through the existing writer family.
+        /// Run one handler writer descriptor through the existing writer family.
         pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(WriterState(ItemType), ErrorSetType).init();
             const writer_contract = struct {
-                /// Item type carried by this lexical writer helper.
+                /// Item type carried by this handler writer helper.
                 pub const Item = ItemType;
-                /// Answer type carried by this lexical writer helper.
+                /// Answer type carried by this handler writer helper.
                 pub const Answer = AnswerType;
-                /// Writer state type carried by this lexical writer helper.
+                /// Writer state type carried by this handler writer helper.
                 pub const WriterStateType = WriterState(ItemType);
             };
             const result = try algebraic.handleWriterWithErrorSetLexical(writer_contract, RunErrorSetType, .{
@@ -138,7 +138,7 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
     };
 }
 
-/// Create one lexical writer descriptor for `ability.with(...)`.
+/// Create one handler writer descriptor for `ability.effect handlers`.
 pub fn use(comptime ItemType: type, allocator: std.mem.Allocator) LexicalDescriptor(ItemType, error{}) {
     return .{ .allocator = allocator };
 }

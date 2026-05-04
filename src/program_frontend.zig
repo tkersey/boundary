@@ -1,7 +1,7 @@
 const source_path_compat_mode = @hasDecl(@import("root"), "source_path_compat_mode");
-const effect_ir = @import("./effect_ir.zig");
-const helper_body_ir = @import("./internal/helper_body_ir.zig");
-const parity_scenarios = @import("./parity_scenarios.zig");
+const effect_ir = @import("effect_ir");
+const helper_body_ir = @import("helper_body_ir");
+const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
 
 /// One lowered helper-body basic block carried by the internal front end.

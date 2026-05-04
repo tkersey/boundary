@@ -2,7 +2,7 @@ const algebraic = @import("algebraic.zig");
 const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
 const frontend = @import("frontend_support");
-const lexical_with = @import("../with_api.zig");
+const lexical_with = @import("../internal/lexical_support.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
 const ability = lowered_machine;
@@ -24,45 +24,45 @@ pub fn Instance(comptime PayloadType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.direct_return, PayloadType, ErrorSetType);
 }
 
-/// Lexical exception handle used by `ability.with(...)`.
+/// Handler exception handle used by `ability.effect handlers`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
 
-        /// Throw one payload through the lexical exception handle.
+        /// Throw one payload through the handler exception handle.
         pub fn throw(self: @This(), payload: family.ContextStateType(ContextPtrType)) lowered_machine.ResetError(family.ContextErrorSetType(ContextPtrType))!noreturn {
             return try algebraic.throwException(Cap, self.ctx.?, payload);
         }
     };
 }
 
-/// Descriptor value used by `ability.with(...)` for the built-in exception family.
+/// Descriptor value used by `ability.effect handlers` for the built-in exception family.
 pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type, comptime Catch: type) type {
     return struct {
-        /// Shared error set carried by the lexical exception descriptor.
+        /// Shared error set carried by the handler exception descriptor.
         pub const ErrorSet = ErrorSetType;
-        /// Payload type threaded through the lexical exception context.
+        /// Payload type threaded through the handler exception context.
         pub const State = PayloadType;
-        /// Exception lexical descriptors do not surface an extra output value.
+        /// Exception handler descriptors do not surface an extra output value.
         pub const Output = void;
 
-        /// Resolve the lexical exception handle type for one exact context.
+        /// Resolve the handler exception handle type for one exact context.
         pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
             return LexicalHandle(Cap, ContextPtrType);
         }
 
-        /// Bind one lexical exception handle to the active exact context.
+        /// Bind one handler exception handle to the active exact context.
         pub fn bindLexical(self: @This(), comptime Cap: type, ctx: anytype) HandleType(Cap, @TypeOf(ctx)) {
             _ = self;
             return .{ .ctx = ctx };
         }
 
-        /// Return the shared binding schema for this lexical descriptor under one requirement label.
+        /// Return the shared binding schema for this handler descriptor under one requirement label.
         pub fn BindingSchema(comptime requirement_label: [:0]const u8) type {
             return effect_schema.Binding(requirement_label, Schema(PayloadType, ErrorSetType, Catch), struct {});
         }
 
-        /// Run one lexical exception descriptor through the existing exception family.
+        /// Run one handler exception descriptor through the existing exception family.
         pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = family.InstanceWithMode(.direct_return, PayloadType, ErrorSetType).init();
@@ -79,7 +79,7 @@ pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type
     };
 }
 
-/// Create one lexical exception descriptor for `ability.with(...)`.
+/// Create one handler exception descriptor for `ability.effect handlers`.
 pub fn use(comptime PayloadType: type, comptime Catch: type) LexicalDescriptor(PayloadType, CatchErrorSet(Catch), Catch) {
     return .{};
 }

@@ -14,6 +14,10 @@ const Sample = struct {
     elapsed_ns: u64,
 };
 
+fn elapsedNsSince(io: std.Io, start: std.Io.Timestamp) u64 {
+    return @intCast(start.durationTo(std.Io.Timestamp.now(io, .boot)).toNanoseconds());
+}
+
 const resource_inline_capacity = 4;
 
 const LaneReport = struct {
@@ -166,19 +170,19 @@ const BenchCleanupFrame = struct {
     }
 };
 
-fn runResourceRawSample(allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runResourceRawSample(io: std.Io, allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_resource.current_base = index * items_per_body;
         checksum += preserveValue(try raw_resource.body(allocator, items_per_body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runResourceEffectSample(runtime: *ability.Runtime, instance: *const ResourceInstance, comptime items_per_body: usize, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runResourceEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const ResourceInstance, comptime items_per_body: usize, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
@@ -192,11 +196,11 @@ fn runResourceEffectSample(runtime: *ability.Runtime, instance: *const ResourceI
         };
         checksum += preserveValue(try ability.effect.resource.handle(usize, runtime, instance, effect_resource.manager, body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runResourceCleanupOnlySample(allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runResourceCleanupOnlySample(io: std.Io, allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
@@ -205,7 +209,7 @@ fn runResourceCleanupOnlySample(allocator: std.mem.Allocator, comptime items_per
         checksum +%= try frame.fill(index * items_per_body, items_per_body);
         checksum +%= preserveValue(frame.cleanup());
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
 fn printLine(writer: anytype, report: *const LaneReport) !void {
@@ -228,10 +232,10 @@ fn printLine(writer: anytype, report: *const LaneReport) !void {
     );
 }
 
-fn runLane(runtime: *ability.Runtime, instance: *const ResourceInstance, allocator: std.mem.Allocator, comptime items_per_body: usize) !LaneReport {
-    _ = try runResourceRawSample(allocator, items_per_body, warmup_iterations);
-    _ = try runResourceEffectSample(runtime, instance, items_per_body, warmup_iterations);
-    _ = try runResourceCleanupOnlySample(allocator, items_per_body, warmup_iterations);
+fn runLane(io: std.Io, runtime: *ability.Runtime, instance: *const ResourceInstance, allocator: std.mem.Allocator, comptime items_per_body: usize) !LaneReport {
+    _ = try runResourceRawSample(io, allocator, items_per_body, warmup_iterations);
+    _ = try runResourceEffectSample(io, runtime, instance, items_per_body, warmup_iterations);
+    _ = try runResourceCleanupOnlySample(io, allocator, items_per_body, warmup_iterations);
 
     var raw_samples = [_]u64{0} ** samples_per_run;
     var effect_samples = [_]u64{0} ** samples_per_run;
@@ -242,9 +246,9 @@ fn runLane(runtime: *ability.Runtime, instance: *const ResourceInstance, allocat
 
     var index: usize = 0;
     while (index < samples_per_run) : (index += 1) {
-        const raw_sample = try runResourceRawSample(allocator, items_per_body, timed_iterations);
-        const effect_sample = try runResourceEffectSample(runtime, instance, items_per_body, timed_iterations);
-        const cleanup_sample = try runResourceCleanupOnlySample(allocator, items_per_body, timed_iterations);
+        const raw_sample = try runResourceRawSample(io, allocator, items_per_body, timed_iterations);
+        const effect_sample = try runResourceEffectSample(io, runtime, instance, items_per_body, timed_iterations);
+        const cleanup_sample = try runResourceCleanupOnlySample(io, allocator, items_per_body, timed_iterations);
 
         if (raw_checksum) |checksum| {
             if (checksum != raw_sample.checksum) return error.RawChecksumMismatch;
@@ -278,8 +282,8 @@ pub fn main(init: std.process.Init) anyerror!void {
     defer runtime.deinit();
     var instance = ResourceInstance.init();
 
-    const lane4 = try runLane(&runtime, &instance, std.heap.smp_allocator, 4);
-    const lane32 = try runLane(&runtime, &instance, std.heap.smp_allocator, 32);
+    const lane4 = try runLane(init.io, &runtime, &instance, std.heap.smp_allocator, 4);
+    const lane32 = try runLane(init.io, &runtime, &instance, std.heap.smp_allocator, 32);
 
     var stdout_buffer: [2048]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);

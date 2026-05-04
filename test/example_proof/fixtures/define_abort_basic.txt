@@ -1,3 +1,0 @@
-validate=name
-abort=missing-name
-final=error=missing-name

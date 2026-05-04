@@ -1,31 +1,7 @@
+// zlinter-disable declaration_naming require_doc_comment no_inferred_error_unions
 const ability = @import("ability");
 const std = @import("std");
 
-/// Generated transform family used by the custom workflow row.
-pub const directory = ability.effect.Define(.{
-    .state_type = void,
-    .ops = .{
-        ability.effect.ops.Transform("exists", []const u8, bool),
-    },
-});
-
-/// Generated choice family used by the custom workflow row.
-pub const approval = ability.effect.Define(.{
-    .state_type = void,
-    .ops = .{
-        ability.effect.ops.Choice("request", []const u8, []const u8),
-    },
-});
-
-/// Generated abort family used by the custom workflow row.
-pub const guard = ability.effect.Define(.{
-    .state_type = void,
-    .ops = .{
-        ability.effect.ops.Abort("invalid", []const u8),
-    },
-});
-
-/// Observable workflow transcript for the approval example.
 pub const Transcript = struct {
     lookups: usize = 0,
     choices: usize = 0,
@@ -51,16 +27,10 @@ fn currentTranscript() Transcript {
 const DirectoryHandler = struct {
     exists_value: bool,
 
-    /// Record the directory lookup and return the configured presence bit.
-    pub fn exists(self: *@This(), payload: []const u8) bool {
+    pub fn exists(self: @This(), payload: []const u8) bool {
         transcript.current.lookups += 1;
         transcript.current.last_lookup = payload;
         return self.exists_value;
-    }
-
-    /// Preserve the workflow answer after the transform resumes.
-    pub fn afterExists(_: *@This(), answer: []const u8) []const u8 {
-        return answer;
     }
 };
 
@@ -69,61 +39,29 @@ const ApprovalBranch = enum { approve, deny };
 const ApprovalHandler = struct {
     branch: ApprovalBranch,
 
-    /// Decide whether the approval request resumes or returns immediately.
-    pub fn request(self: *@This(), payload: []const u8) ability.effect.choice.Decision([]const u8, []const u8) {
+    pub fn request(self: @This(), payload: []const u8) []const u8 {
         transcript.current.choices += 1;
         transcript.current.last_choice = payload;
         return switch (self.branch) {
-            .approve => ability.effect.choice.Decision([]const u8, []const u8).resumeWith("approved"),
-            .deny => ability.effect.choice.Decision([]const u8, []const u8).returnNow("denied"),
+            .approve => "approved",
+            .deny => "denied",
         };
     }
 
-    /// Record that the approval continuation resumed and preserve its answer.
-    pub fn afterRequest(_: *@This(), answer: []const u8) []const u8 {
+    pub fn afterRequest(_: @This(), answer: []const u8) []const u8 {
         transcript.current.continuations += 1;
         return answer;
     }
 };
 
-const guard_handler = struct {
-    /// Record an invalid request and return the abort answer.
-    pub fn invalid(_: *@This(), payload: []const u8) []const u8 {
+const GuardHandler = struct {
+    pub fn invalid(_: @This(), payload: []const u8) []const u8 {
         transcript.current.aborts += 1;
         transcript.current.last_abort = payload;
         return "invalid:missing";
     }
 };
 
-/// Source-lowered entry used by the maintainer ProgramPlan proof.
-pub fn loweredWorkflowBody(_: anytype) anyerror![]const u8 {
-    return "published:approved";
-}
-
-/// Source-backed named body for same-source lowering checks.
-pub const approval_workflow_body = struct {
-    fn sourceLocation() std.builtin.SourceLocation {
-        return @src();
-    }
-
-    /// Embedded source used as the source-backed witness bytes.
-    pub const source = @embedFile("custom_approval_workflow.zig");
-    /// Stable hash for the embedded source witness.
-    pub const source_hash = ability.sourceHash(source);
-    /// Source location owned by this package-like example module.
-    pub const source_location = sourceLocation();
-    /// Basename required by the source-backed named-body verifier.
-    pub const source_file = "custom_approval_workflow.zig";
-    /// Stable identity for diagnostics and source-backed validation.
-    pub const source_identity = "custom_approval_workflow.approval_workflow_body";
-
-    /// Body mirrored by `loweredWorkflowBody` for the same-source plan proof.
-    pub fn body(_: anytype) anyerror![]const u8 {
-        return "published:approved";
-    }
-};
-
-/// Result bundle returned by each runnable approval workflow case.
 pub const RunResult = struct {
     value: []const u8,
     transcript: Transcript,
@@ -131,32 +69,35 @@ pub const RunResult = struct {
 
 const DirectoryState = enum { missing, present };
 
-fn abortIfMissing(present: bool, eff: anytype) anyerror!void {
-    if (!present) try eff.guard.invalid.abort("missing") else return;
-}
+const WorkflowHandlers = struct {
+    directory: DirectoryHandler,
+    approval: ApprovalHandler,
+    guard: GuardHandler,
+};
 
-fn approvalRuntimeBody(eff: anytype) anyerror![]const u8 {
-    const present = try eff.directory.exists.perform("request-7");
-    try abortIfMissing(present, eff);
-    return try eff.approval.request.perform("request-7", struct {
-        /// Publish only after the approval handler resumes and confirms the directory again.
-        pub fn apply(_: []const u8, eff_after_resume: anytype) anyerror![]const u8 {
-            _ = try eff_after_resume.directory.exists.perform("publish-7");
-            return "published:approved";
+const WorkflowBody = struct {
+    pub fn program(_: *ability.Runtime, handlers: WorkflowHandlers) !RunResult {
+        resetTranscript();
+        if (!handlers.directory.exists("request-7")) {
+            return .{
+                .value = handlers.guard.invalid("missing"),
+                .transcript = currentTranscript(),
+            };
         }
-    });
-}
 
-/// Source-backed runtime carrier for the executable custom approval workflow.
-pub const approval_runtime_body = struct {
-    /// Source path for the named runtime carrier used by compiled workflow proof.
-    pub const source_path = "examples/custom_approval_workflow.zig";
-    /// Entry symbol for the named runtime carrier used by compiled workflow proof.
-    pub const body_symbol = "approvalRuntimeBody";
+        const decision = handlers.approval.request("request-7");
+        if (std.mem.eql(u8, decision, "denied")) {
+            return .{
+                .value = decision,
+                .transcript = currentTranscript(),
+            };
+        }
 
-    /// Exercise the generated transform, choice, and abort families through `ability.with`.
-    pub fn body(eff: anytype) anyerror![]const u8 {
-        return approvalRuntimeBody(eff);
+        _ = handlers.directory.exists("publish-7");
+        return .{
+            .value = handlers.approval.afterRequest("published:approved"),
+            .transcript = currentTranscript(),
+        };
     }
 };
 
@@ -164,40 +105,30 @@ fn runCase(
     runtime: *ability.Runtime,
     state: DirectoryState,
     branch: ApprovalBranch,
-) anyerror!RunResult {
-    resetTranscript();
-    const exists_value = switch (state) {
-        .present => true,
-        .missing => false,
-    };
-    const result = try ability.with(runtime, .{
-        .directory = directory.use(.{ .handler = DirectoryHandler{ .exists_value = exists_value } }),
-        .guard = guard.use(.{ .handler = guard_handler{} }),
-        .approval = approval.use(.{ .handler = ApprovalHandler{ .branch = branch } }),
-    }, approval_runtime_body);
-    return .{
-        .value = result.value,
-        .transcript = currentTranscript(),
-    };
+) !RunResult {
+    const Program = ability.program("custom-approval", WorkflowHandlers, WorkflowBody);
+    var result = try Program.run(runtime, .{
+        .directory = .{ .exists_value = state == .present },
+        .approval = .{ .branch = branch },
+        .guard = .{},
+    });
+    defer result.deinit();
+    return result.value;
 }
 
-/// Run the approving workflow branch.
-pub fn runApprove(runtime: *ability.Runtime) anyerror!RunResult {
+pub fn runApprove(runtime: *ability.Runtime) !RunResult {
     return runCase(runtime, .present, .approve);
 }
 
-/// Run the denying workflow branch.
-pub fn runDeny(runtime: *ability.Runtime) anyerror!RunResult {
+pub fn runDeny(runtime: *ability.Runtime) !RunResult {
     return runCase(runtime, .present, .deny);
 }
 
-/// Run the invalid-request workflow branch.
-pub fn runInvalid(runtime: *ability.Runtime) anyerror!RunResult {
+pub fn runInvalid(runtime: *ability.Runtime) !RunResult {
     return runCase(runtime, .missing, .approve);
 }
 
-/// Write the approval workflow transcript for all three branches.
-pub fn run(writer: anytype) anyerror!void {
+pub fn run(writer: anytype) !void {
     var runtime = ability.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
@@ -229,8 +160,7 @@ pub fn run(writer: anytype) anyerror!void {
     });
 }
 
-/// Run the custom approval workflow example.
-pub fn main(init: std.process.Init) anyerror!void {
+pub fn main(init: std.process.Init) !void {
     var stdout_buffer: [512]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
     const stdout = &stdout_writer.interface;

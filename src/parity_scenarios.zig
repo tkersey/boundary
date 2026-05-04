@@ -750,7 +750,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "open_row_generator",
         .expected_transcript = "yield=1\nyield=2\nyield=3\ndone=3\n",
-        .fixture_name = "open_row_generator.txt",
         .scenario_id = .generator,
         .surface = .example,
         .steps = &generator_steps,
@@ -765,7 +764,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "open_row_transform_basic",
         .expected_transcript = "counter=6\n",
-        .fixture_name = "open_row_transform_basic.txt",
         .scenario_id = .define_basic,
         .surface = .example,
         .steps = &define_basic_steps,
@@ -773,7 +771,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "open_row_choice_basic",
         .expected_transcript = "branch=return_now\npolicy-return-now\nfinal=result=early\nbranch=resume_with\npolicy-resume\nbody-after-pick\npolicy-after-resume\nfinal=answer=42\n",
-        .fixture_name = "open_row_choice_basic.txt",
         .scenario_id = .define_choice_basic,
         .surface = .example,
         .steps = &define_choice_steps,
@@ -781,7 +778,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "open_row_abort_basic",
         .expected_transcript = "validate=name\nabort=missing-name\nfinal=error=missing-name\n",
-        .fixture_name = "open_row_abort_basic.txt",
         .scenario_id = .define_abort_basic,
         .surface = .example,
         .steps = &define_abort_steps,
@@ -789,7 +785,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "early_exit",
         .expected_transcript = "handler-direct-return\nfinal=result=early\n",
-        .fixture_name = "early_exit.txt",
         .scenario_id = .early_exit,
         .surface = .example,
         .steps = &early_exit_steps,
@@ -797,7 +792,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "resume_or_return",
         .expected_transcript = "branch=return_now\nhandler-return-now\nfinal=result=early\nbranch=resume_with\nhandler-decide-resume\nbody-after-shift\nhandler-after-resume\nfinal=answer=42\n",
-        .fixture_name = "resume_or_return.txt",
         .scenario_id = .resume_or_return,
         .surface = .example,
         .steps = &resume_or_return_steps,
@@ -805,7 +799,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "open_row_workflow",
         .expected_transcript = "search=artifact-search\napproval=publish\nitem=query=artifact-search\nitem=workflow=queued\nfinal_state=3\ntotal=3\nresult=completed\n",
-        .fixture_name = "open_row_workflow.txt",
         .scenario_id = .front_door_workflow,
         .surface = .example,
         .steps = &front_door_workflow_steps,
@@ -813,7 +806,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "nested_workflow",
         .expected_transcript = "workflow=queued\naudit=entered\naudit=after\napproval=publish\nworkflow=done\nresult=completed\n",
-        .fixture_name = "nested_workflow.txt",
         .scenario_id = .nested_workflow_publish,
         .surface = .example,
         .steps = &nested_workflow_steps,
@@ -822,7 +814,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "reader_basic",
         .expected_transcript = "env=21\nvalue=42\n",
-        .fixture_name = "reader_basic.txt",
         .scenario_id = .reader_basic,
         .surface = .effect,
         .steps = &reader_basic_steps,
@@ -830,7 +821,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "exception_basic",
         .expected_transcript = "branch=pass\nbody-pass\nfinal=result=ok\nbranch=throw\nbody-before-throw\ncatch=result=boom\nfinal=result=boom\n",
-        .fixture_name = "exception_basic.txt",
         .scenario_id = .exception_basic,
         .surface = .effect,
         .steps = &exception_basic_steps,
@@ -838,7 +828,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "optional_basic",
         .expected_transcript = "branch=return_now\npolicy-return-now\nfinal=result=early\nbranch=resume_with\npolicy-resume\nbody-after-request\npolicy-after-resume\nfinal=answer=42\n",
-        .fixture_name = "optional_basic.txt",
         .scenario_id = .optional_basic,
         .surface = .effect,
         .steps = &optional_basic_steps,
@@ -846,7 +835,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "resource_basic",
         .expected_transcript = "acquire=a\nuse=a\nacquire=b\nuse=b\nrelease=b\nrelease=a\nfinal=done\n",
-        .fixture_name = "resource_basic.txt",
         .scenario_id = .resource_basic,
         .surface = .effect,
         .steps = &resource_basic_steps,
@@ -854,7 +842,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "writer_basic",
         .expected_transcript = "item=a\nitem=b\nvalue=done\n",
-        .fixture_name = "writer_basic.txt",
         .scenario_id = .writer_basic,
         .surface = .effect,
         .steps = &writer_basic_steps,
@@ -862,7 +849,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "state_basic",
         .expected_transcript = "before=5\nafter=6\nfinal_state=6\nvalue=11\n",
-        .fixture_name = "state_basic.txt",
         .scenario_id = .state_basic,
         .surface = .effect,
         .steps = &state_basic_steps,
@@ -926,7 +912,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "open_row_abortive_validation",
         .expected_transcript = "validate=name\nabort=missing-name\nfinal=error=missing-name\n",
-        .fixture_name = "open_row_abortive_validation.txt",
         .scenario_id = .algebraic_abortive_validation,
         .surface = .algebraic,
         .steps = &alg_abort_steps,
@@ -934,7 +919,6 @@ pub const scenarios = [_]Scenario{
     .{
         .case_id = "open_row_artifact_search",
         .expected_transcript = "query=artifact-search\nmessages=1\ntool_calls=0\nmemory_blocks=1\nopencode_source=jsonl\ntotal=3\n",
-        .fixture_name = "open_row_artifact_search.txt",
         .scenario_id = .algebraic_artifact_search,
         .surface = .algebraic,
         .steps = &alg_artifact_steps,

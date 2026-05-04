@@ -15,6 +15,10 @@ const Sample = struct {
     elapsed_ns: u64,
 };
 
+fn elapsedNsSince(io: std.Io, start: std.Io.Timestamp) u64 {
+    return @intCast(start.durationTo(std.Io.Timestamp.now(io, .boot)).toNanoseconds());
+}
+
 fn sortAscending(values: []u64) void {
     var index: usize = 1;
     while (index < values.len) : (index += 1) {
@@ -81,19 +85,16 @@ const effect_algebraic_transform = struct {
     const empty_configured = empty_program.handlers(.{});
 
     const transform_body = struct {
-        /// Execute one algebraic transform operation through the explicit program path.
-        pub fn program(ctx: *@TypeOf(transform_configured).Context) @TypeOf(ctx.performProgram(AlgebraicTransformOp, 0, struct {
+        const continuation = struct {
             /// Preserve the resumed algebraic value plus the benchmark's one-step tail.
             pub fn apply(value: usize) usize {
                 return value + 1;
             }
-        })) {
-            return ctx.performProgram(AlgebraicTransformOp, raw_transform.current_value, struct {
-                /// Preserve the resumed algebraic value plus the benchmark's one-step tail.
-                pub fn apply(value: usize) usize {
-                    return value + 1;
-                }
-            });
+        };
+
+        /// Execute one algebraic transform operation through the explicit program path.
+        pub fn program(ctx: *@TypeOf(transform_configured).Context) @TypeOf(ctx.performProgram(AlgebraicTransformOp, 0, continuation)) {
+            return ctx.performProgram(AlgebraicTransformOp, raw_transform.current_value, continuation);
         }
     };
 
@@ -105,37 +106,37 @@ const effect_algebraic_transform = struct {
     };
 };
 
-fn runRawTransformSample(runtime: *ability.Runtime, prompt: *RawTransformPrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runRawTransformSample(io: std.Io, runtime: *ability.Runtime, prompt: *RawTransformPrompt, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_transform.current_value = index;
         checksum += preserveValue(try ability.reset(runtime, prompt, raw_transform.program()));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runConfiguredShellSample(runtime: *ability.Runtime, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runConfiguredShellSample(io: std.Io, runtime: *ability.Runtime, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_transform.current_value = index;
         checksum += preserveValue(try effect_algebraic_transform.empty_configured.run(runtime, effect_algebraic_transform.empty_body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runConfiguredTransformSample(runtime: *ability.Runtime, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runConfiguredTransformSample(io: std.Io, runtime: *ability.Runtime, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_transform.current_value = index;
         checksum += preserveValue(try effect_algebraic_transform.transform_configured.run(runtime, effect_algebraic_transform.transform_body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
 fn printLine(writer: anytype, name: []const u8, samples: *const [samples_per_run]u64, checksum: usize) !void {
@@ -174,9 +175,9 @@ pub fn main(init: std.process.Init) anyerror!void {
     var full_runtime = ability.Runtime.init(std.heap.smp_allocator);
     defer full_runtime.deinit();
 
-    _ = try runRawTransformSample(&raw_runtime, &raw_prompt, warmup_iterations);
-    _ = try runConfiguredShellSample(&shell_runtime, warmup_iterations);
-    _ = try runConfiguredTransformSample(&full_runtime, warmup_iterations);
+    _ = try runRawTransformSample(init.io, &raw_runtime, &raw_prompt, warmup_iterations);
+    _ = try runConfiguredShellSample(init.io, &shell_runtime, warmup_iterations);
+    _ = try runConfiguredTransformSample(init.io, &full_runtime, warmup_iterations);
 
     var raw_samples = [_]u64{0} ** samples_per_run;
     var shell_samples = [_]u64{0} ** samples_per_run;
@@ -188,9 +189,9 @@ pub fn main(init: std.process.Init) anyerror!void {
 
     var index: usize = 0;
     while (index < samples_per_run) : (index += 1) {
-        const raw_sample = try runRawTransformSample(&raw_runtime, &raw_prompt, timed_iterations);
-        const shell_sample = try runConfiguredShellSample(&shell_runtime, timed_iterations);
-        const full_sample = try runConfiguredTransformSample(&full_runtime, timed_iterations);
+        const raw_sample = try runRawTransformSample(init.io, &raw_runtime, &raw_prompt, timed_iterations);
+        const shell_sample = try runConfiguredShellSample(init.io, &shell_runtime, timed_iterations);
+        const full_sample = try runConfiguredTransformSample(init.io, &full_runtime, timed_iterations);
 
         if (raw_checksum) |checksum| {
             if (checksum != raw_sample.checksum) return error.RawTransformChecksumMismatch;

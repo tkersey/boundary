@@ -1,7 +1,7 @@
 const algebraic = @import("algebraic.zig");
 const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
-const lexical_with = @import("../with_api.zig");
+const lexical_with = @import("../internal/lexical_support.zig");
 const lowered_machine = @import("lowered_machine");
 const ability = lowered_machine;
 const std = @import("std");
@@ -12,52 +12,52 @@ pub const Instance = family.Instance;
 /// Final state plus body answer returned from a handled state program.
 pub const HandleResult = family.HandleResult;
 
-/// Lexical state handle used by `ability.with(...)`.
+/// Handler state handle used by `ability.effect handlers`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
 
-        /// Read the current state value through the lexical handle.
+        /// Read the current state value through the handler handle.
         pub fn get(self: @This()) lowered_machine.ResetError(family.ContextErrorSetType(ContextPtrType))!family.ContextStateType(ContextPtrType) {
             return try algebraic.stateGet(Cap, self.ctx.?);
         }
 
-        /// Replace the current state value through the lexical handle.
+        /// Replace the current state value through the handler handle.
         pub fn set(self: @This(), value: family.ContextStateType(ContextPtrType)) lowered_machine.ResetError(family.ContextErrorSetType(ContextPtrType))!void {
             try algebraic.stateSet(Cap, self.ctx.?, value);
         }
     };
 }
 
-/// Descriptor value used by `ability.with(...)` for the built-in state family.
+/// Descriptor value used by `ability.effect handlers` for the built-in state family.
 pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) type {
     return struct {
-        /// Shared error set carried by the lexical state descriptor.
+        /// Shared error set carried by the handler state descriptor.
         pub const ErrorSet = ErrorSetType;
-        /// State type threaded through the lexical state context.
+        /// State type threaded through the handler state context.
         pub const State = StateType;
-        /// Final state output produced by the lexical state descriptor.
+        /// Final state output produced by the handler state descriptor.
         pub const Output = StateType;
 
         initial_state: StateType,
 
-        /// Resolve the lexical state handle type for one exact context.
+        /// Resolve the handler state handle type for one exact context.
         pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
             return LexicalHandle(Cap, ContextPtrType);
         }
 
-        /// Bind one lexical state handle to the active exact context.
+        /// Bind one handler state handle to the active exact context.
         pub fn bindLexical(self: @This(), comptime Cap: type, ctx: anytype) HandleType(Cap, @TypeOf(ctx)) {
             _ = self;
             return .{ .ctx = ctx };
         }
 
-        /// Return the shared binding schema for this lexical descriptor under one requirement label.
+        /// Return the shared binding schema for this handler descriptor under one requirement label.
         pub fn BindingSchema(comptime requirement_label: [:0]const u8) type {
             return effect_schema.Binding(requirement_label, Schema(StateType, ErrorSetType), struct {});
         }
 
-        /// Run one lexical state descriptor through the existing state family.
+        /// Run one handler state descriptor through the existing state family.
         pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(StateType, ErrorSetType).init();
             const result = try algebraic.handleStateWithErrorSetLexical(AnswerType, RunErrorSetType, .{
@@ -74,7 +74,7 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
     };
 }
 
-/// Create one lexical state descriptor for `ability.with(...)`.
+/// Create one handler state descriptor for `ability.effect handlers`.
 pub fn use(initial_state: anytype) LexicalDescriptor(@TypeOf(initial_state), error{}) {
     return .{ .initial_state = initial_state };
 }
