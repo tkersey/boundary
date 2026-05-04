@@ -76,33 +76,27 @@ const WorkflowHandlers = struct {
 };
 
 const WorkflowBody = struct {
-    pub fn program(_: *ability.Runtime, handlers: WorkflowHandlers) !struct { value: RunResult } {
+    pub fn program(_: *ability.Runtime, handlers: WorkflowHandlers) !RunResult {
         resetTranscript();
         if (!handlers.directory.exists("request-7")) {
             return .{
-                .value = .{
-                    .value = handlers.guard.invalid("missing"),
-                    .transcript = currentTranscript(),
-                },
+                .value = handlers.guard.invalid("missing"),
+                .transcript = currentTranscript(),
             };
         }
 
         const decision = handlers.approval.request("request-7");
         if (std.mem.eql(u8, decision, "denied")) {
             return .{
-                .value = .{
-                    .value = decision,
-                    .transcript = currentTranscript(),
-                },
+                .value = decision,
+                .transcript = currentTranscript(),
             };
         }
 
         _ = handlers.directory.exists("publish-7");
         return .{
-            .value = .{
-                .value = handlers.approval.afterRequest("published:approved"),
-                .transcript = currentTranscript(),
-            },
+            .value = handlers.approval.afterRequest("published:approved"),
+            .transcript = currentTranscript(),
         };
     }
 };

@@ -16,10 +16,128 @@ const CoreModules = struct {
     parity_scenarios: *std.Build.Module,
 };
 
-fn addRunArtifact(b: *std.Build, artifact: *std.Build.Step.Compile) *std.Build.Step.Run {
+const TestArgs = struct {
+    filters: []const []const u8,
+    passthrough: []const []const u8,
+};
+
+fn parseTestArgs(b: *std.Build) TestArgs {
+    const args = b.args orelse return .{
+        .filters = &.{},
+        .passthrough = &.{},
+    };
+
+    var filters: std.ArrayList([]const u8) = .empty;
+    var passthrough: std.ArrayList([]const u8) = .empty;
+
+    var index: usize = 0;
+    while (index < args.len) : (index += 1) {
+        const arg = args[index];
+        if (std.mem.eql(u8, arg, "--test-filter")) {
+            index += 1;
+            if (index >= args.len or args[index].len == 0) {
+                std.process.fatal("Expected a non-empty pattern after '--test-filter'.", .{});
+            }
+            filters.append(b.allocator, args[index]) catch |err|
+                std.process.fatal("unable to store test filter: {s}", .{@errorName(err)});
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--test-filter=")) {
+            const pattern = arg["--test-filter=".len..];
+            if (pattern.len == 0) {
+                std.process.fatal("Expected '--test-filter=' to include a non-empty pattern.", .{});
+            }
+            filters.append(b.allocator, pattern) catch |err|
+                std.process.fatal("unable to store test filter: {s}", .{@errorName(err)});
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--seed")) {
+            index += 1;
+            if (index >= args.len or args[index].len == 0) {
+                std.process.fatal("Expected an unsigned 32-bit integer after '--seed'.", .{});
+            }
+            _ = std.fmt.parseUnsigned(u32, args[index], 0) catch
+                std.process.fatal("Expected '--seed' to contain an unsigned 32-bit integer; got '{s}'.", .{args[index]});
+            passthrough.append(b.allocator, b.fmt("--seed={s}", .{args[index]})) catch |err|
+                std.process.fatal("unable to store test runner seed: {s}", .{@errorName(err)});
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--seed=")) {
+            const seed = arg["--seed=".len..];
+            if (seed.len == 0) {
+                std.process.fatal("Expected '--seed=' to include an unsigned 32-bit integer.", .{});
+            }
+            _ = std.fmt.parseUnsigned(u32, seed, 0) catch
+                std.process.fatal("Expected '--seed' to contain an unsigned 32-bit integer; got '{s}'.", .{seed});
+            passthrough.append(b.allocator, arg) catch |err|
+                std.process.fatal("unable to store test runner seed: {s}", .{@errorName(err)});
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--cache-dir")) {
+            index += 1;
+            if (index >= args.len or args[index].len == 0) {
+                std.process.fatal("Expected a path after '--cache-dir'.", .{});
+            }
+            passthrough.append(b.allocator, b.fmt("--cache-dir={s}", .{args[index]})) catch |err|
+                std.process.fatal("unable to store test runner cache directory: {s}", .{@errorName(err)});
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--cache-dir=")) {
+            if (arg["--cache-dir=".len..].len == 0) {
+                std.process.fatal("Expected '--cache-dir=' to include a path.", .{});
+            }
+            passthrough.append(b.allocator, arg) catch |err|
+                std.process.fatal("unable to store test runner cache directory: {s}", .{@errorName(err)});
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--max-warnings")) {
+            index += 1;
+            if (index >= args.len or args[index].len == 0) {
+                std.process.fatal("Expected a non-empty limit after '--max-warnings'.", .{});
+            }
+            _ = std.fmt.parseUnsigned(usize, args[index], 10) catch
+                std.process.fatal("Expected '--max-warnings' to contain an unsigned integer; got '{s}'.", .{args[index]});
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--max-warnings=")) {
+            const limit = arg["--max-warnings=".len..];
+            if (limit.len == 0) {
+                std.process.fatal("Expected '--max-warnings=' to include a non-empty limit.", .{});
+            }
+            _ = std.fmt.parseUnsigned(usize, limit, 10) catch
+                std.process.fatal("Expected '--max-warnings' to contain an unsigned integer; got '{s}'.", .{limit});
+            continue;
+        }
+        passthrough.append(b.allocator, arg) catch |err|
+            std.process.fatal("unable to store test runner argument: {s}", .{@errorName(err)});
+    }
+
+    return .{
+        .filters = filters.toOwnedSlice(b.allocator) catch |err|
+            std.process.fatal("unable to finalize test filters: {s}", .{@errorName(err)}),
+        .passthrough = passthrough.toOwnedSlice(b.allocator) catch |err|
+            std.process.fatal("unable to finalize test runner arguments: {s}", .{@errorName(err)}),
+    };
+}
+
+fn addRunArtifactWithArgs(
+    b: *std.Build,
+    artifact: *std.Build.Step.Compile,
+    args: []const []const u8,
+) *std.Build.Step.Run {
     const run = b.addRunArtifact(artifact);
-    if (b.args) |args| run.addArgs(args);
+    if (args.len != 0) run.addArgs(args);
     return run;
+}
+
+fn addTestArtifact(
+    b: *std.Build,
+    test_step: *std.Build.Step,
+    root_module: *std.Build.Module,
+    test_args: TestArgs,
+) void {
+    const tests = b.addTest(.{ .root_module = root_module, .filters = test_args.filters });
+    test_step.dependOn(&addRunArtifactWithArgs(b, tests, test_args.passthrough).step);
 }
 
 fn addCoreModules(
@@ -144,6 +262,8 @@ fn wireAbilityImports(mod: *std.Build.Module, core: CoreModules) void {
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
+    const test_args = parseTestArgs(b);
     const core = addCoreModules(b, target, optimize);
 
     const ability_shared = b.createModule(.{
@@ -168,8 +288,30 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(lib_check);
 
     const test_step = b.step("test", "Run the ability test suite.");
-    const root_tests = b.addTest(.{ .root_module = ability });
-    test_step.dependOn(&addRunArtifact(b, root_tests).step);
+    addTestArtifact(b, test_step, ability, test_args);
+    addTestArtifact(b, test_step, ability_shared, test_args);
+    addTestArtifact(b, test_step, core.effect_ir, test_args);
+    addTestArtifact(b, test_step, core.frontend, test_args);
+    addTestArtifact(b, test_step, core.internal_kernel, test_args);
+    addTestArtifact(b, test_step, core.internal_program_plan, test_args);
+    addTestArtifact(b, test_step, core.lowered_machine, test_args);
+    addTestArtifact(b, test_step, core.portable_core, test_args);
+
+    const ir_api_tests_mod = b.createModule(.{
+        .root_source_file = b.path("src/ir_api.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ir_api_tests_mod.addImport("effect_ir", core.effect_ir);
+    addTestArtifact(b, test_step, ir_api_tests_mod, test_args);
+
+    const synthetic_root_tests_mod = b.createModule(.{
+        .root_source_file = b.path("src/internal/synthetic_ability_root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    synthetic_root_tests_mod.addImport("ability_shared", ability_shared);
+    addTestArtifact(b, test_step, synthetic_root_tests_mod, test_args);
 
     const program_api_tests_mod = b.createModule(.{
         .root_source_file = b.path("test/program_api_test.zig"),
@@ -177,8 +319,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     program_api_tests_mod.addImport("ability", ability);
-    const program_api_tests = b.addTest(.{ .root_module = program_api_tests_mod });
-    test_step.dependOn(&addRunArtifact(b, program_api_tests).step);
+    const program_api_tests = b.addTest(.{ .root_module = program_api_tests_mod, .filters = test_args.filters });
+    test_step.dependOn(&addRunArtifactWithArgs(b, program_api_tests, test_args.passthrough).step);
 
     const public_optional_tests_mod = b.createModule(.{
         .root_source_file = b.path("test/public_optional_bound_program_test.zig"),
@@ -186,8 +328,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     public_optional_tests_mod.addImport("ability", ability);
-    const public_optional_tests = b.addTest(.{ .root_module = public_optional_tests_mod });
-    test_step.dependOn(&addRunArtifact(b, public_optional_tests).step);
+    const public_optional_tests = b.addTest(.{ .root_module = public_optional_tests_mod, .filters = test_args.filters });
+    test_step.dependOn(&addRunArtifactWithArgs(b, public_optional_tests, test_args.passthrough).step);
 
     const examples = [_]struct {
         name: []const u8,
@@ -208,29 +350,145 @@ pub fn build(b: *std.Build) void {
         const exe = b.addExecutable(.{ .name = example.name, .root_module = exe_mod });
         const run_step = b.step(example.step, example.desc);
         if (target.query.isNative()) {
-            run_step.dependOn(&addRunArtifact(b, exe).step);
+            run_step.dependOn(&addRunArtifactWithArgs(b, exe, if (b.args) |args| args else &.{}).step);
         } else {
             run_step.dependOn(&exe.step);
         }
+    }
+
+    const bench_check_step = b.step("bench-check", "Compile retained benchmark programs.");
+    test_step.dependOn(bench_check_step);
+
+    const ability_bench = b.createModule(.{
+        .root_source_file = b.path("src/bench_support.zig"),
+        .target = target,
+        .optimize = bench_optimize,
+    });
+    wireAbilityImports(ability_bench, core);
+
+    const bench_specs = [_]struct {
+        name: []const u8,
+        path: []const u8,
+        step: []const u8,
+        desc: []const u8,
+    }{
+        .{ .name = "ability-abortive-effect-decompose-bench", .path = "bench/abortive_effect_decompose_bench.zig", .step = "bench-abortive-effect-decompose", .desc = "Run the abortive effect decomposition benchmark." },
+        .{ .name = "ability-algebraic-builder-decompose-bench", .path = "bench/algebraic_builder_decompose_bench.zig", .step = "bench-algebraic-builder-decompose", .desc = "Run the algebraic builder decomposition benchmark." },
+        .{ .name = "ability-direct-first-suspend-bench", .path = "bench/direct_first_suspend_bench.zig", .step = "bench-first-suspend", .desc = "Run the direct-style first-suspend benchmark." },
+        .{ .name = "ability-effect-family-matrix-bench", .path = "bench/effect_family_matrix_bench.zig", .step = "bench-family-matrix", .desc = "Compare every retained effect family against its comparator lane." },
+        .{ .name = "ability-direct-no-capture-bench", .path = "bench/no_capture_bench.zig", .step = "bench", .desc = "Run the direct-style no-capture benchmark." },
+        .{ .name = "ability-resource-effect-decompose-bench", .path = "bench/resource_effect_decompose_bench.zig", .step = "bench-resource-effect-decompose", .desc = "Run the resource effect decomposition benchmark." },
+        .{ .name = "ability-state-effect-bench", .path = "bench/state_effect_bench.zig", .step = "bench-state-effect", .desc = "Compare the additive state effect against the raw prompt baseline." },
+        .{ .name = "ability-writer-effect-decompose-bench", .path = "bench/writer_effect_decompose_bench.zig", .step = "bench-writer-effect-decompose", .desc = "Run the writer effect decomposition benchmark." },
+    };
+    inline for (bench_specs) |bench| {
+        const bench_mod = b.createModule(.{
+            .root_source_file = b.path(bench.path),
+            .target = target,
+            .optimize = bench_optimize,
+        });
+        bench_mod.addImport("ability", ability_bench);
+        bench_mod.addImport("lowered_machine", core.lowered_machine);
+        const bench_exe = b.addExecutable(.{ .name = bench.name, .root_module = bench_mod });
+        bench_check_step.dependOn(&bench_exe.step);
+        const bench_run_step = b.step(bench.step, bench.desc);
+        if (target.query.isNative()) {
+            bench_run_step.dependOn(&b.addRunArtifact(bench_exe).step);
+        } else {
+            bench_run_step.dependOn(&bench_exe.step);
+        }
+    }
+
+    const zprof_hotspots_step = b.step("zprof-hotspots", "Profile writer/resource allocator hotspots with zprof.");
+    if (b.lazyDependency("zprof", .{
+        .target = target,
+        .optimize = bench_optimize,
+    })) |zprof_dep| {
+        const zprof_hotspots_mod = b.createModule(.{
+            .root_source_file = b.path("bench/zprof_hotspots.zig"),
+            .target = target,
+            .optimize = bench_optimize,
+        });
+        zprof_hotspots_mod.addImport("ability", ability_bench);
+        zprof_hotspots_mod.addImport("zprof", zprof_dep.module("zprof"));
+        const zprof_hotspots_exe = b.addExecutable(.{ .name = "ability-zprof-hotspots", .root_module = zprof_hotspots_mod });
+        zprof_hotspots_step.dependOn(&b.addRunArtifact(zprof_hotspots_exe).step);
     }
 
     const lint_step = b.step("lint", "Lint source code.");
     var builder = zlinter.builder(b, .{});
     builder.addPaths(.{
         .include = &.{
+            b.path("bench/abortive_effect_decompose_bench.zig"),
+            b.path("bench/algebraic_builder_decompose_bench.zig"),
+            b.path("bench/direct_first_suspend_bench.zig"),
+            b.path("bench/effect_family_matrix_bench.zig"),
+            b.path("bench/no_capture_bench.zig"),
+            b.path("bench/resource_effect_decompose_bench.zig"),
+            b.path("bench/state_effect_bench.zig"),
+            b.path("bench/writer_effect_decompose_bench.zig"),
+            b.path("bench/zprof_hotspots.zig"),
             b.path("build.zig"),
-            b.path("src/root.zig"),
             b.path("src/ability_shared.zig"),
-            b.path("src/program_api.zig"),
-            b.path("src/lowering_api.zig"),
-            b.path("src/internal/lexical_support.zig"),
-            b.path("src/effect/state.zig"),
-            b.path("src/effect/reader.zig"),
-            b.path("src/effect/writer.zig"),
-            b.path("src/effect/optional.zig"),
+            b.path("src/algebraic.zig"),
+            b.path("src/bench_support.zig"),
+            b.path("src/decision_api.zig"),
+            b.path("src/effect/algebraic.zig"),
+            b.path("src/effect/choice.zig"),
+            b.path("src/effect/cleanup.zig"),
+            b.path("src/effect/define.zig"),
             b.path("src/effect/exception.zig"),
-            b.path("src/effect/resource.zig"),
+            b.path("src/effect/family.zig"),
             b.path("src/effect/generated_family.zig"),
+            b.path("src/effect/optional.zig"),
+            b.path("src/effect/reader.zig"),
+            b.path("src/effect/resource.zig"),
+            b.path("src/effect/root.zig"),
+            b.path("src/effect/state.zig"),
+            b.path("src/effect/writer.zig"),
+            b.path("src/effect_ir.zig"),
+            b.path("src/effect_schema.zig"),
+            b.path("src/error_witness.zig"),
+            b.path("src/frontend.zig"),
+            b.path("src/helper_body_ir.zig"),
+            b.path("src/internal/algebraic_engine.zig"),
+            b.path("src/internal/family_builder.zig"),
+            b.path("src/internal/helper_body_ir.zig"),
+            b.path("src/internal/kernel.zig"),
+            b.path("src/internal/lexical_bundle_schema.zig"),
+            b.path("src/internal/lexical_executable_bundle.zig"),
+            b.path("src/internal/lexical_support.zig"),
+            b.path("src/internal/program_plan.zig"),
+            b.path("src/internal/program_plan_interpreter.zig"),
+            b.path("src/internal/prompt_support.zig"),
+            b.path("src/internal/sealed_engine.zig"),
+            b.path("src/internal/synthetic_ability_root.zig"),
+            b.path("src/internal_kernel.zig"),
+            b.path("src/internal_program_plan.zig"),
+            b.path("src/interpreter.zig"),
+            b.path("src/ir_api.zig"),
+            b.path("src/lowered_machine.zig"),
+            b.path("src/lowering_api.zig"),
+            b.path("src/op_api.zig"),
+            b.path("src/open_row_runtime_support.zig"),
+            b.path("src/parity_kernel.zig"),
+            b.path("src/parity_machine.zig"),
+            b.path("src/parity_scenarios.zig"),
+            b.path("src/portable_core.zig"),
+            b.path("src/private_modules/helper_body_ir_build.zig"),
+            b.path("src/private_modules/internal_kernel_build.zig"),
+            b.path("src/private_modules/lowered_machine_build.zig"),
+            b.path("src/private_modules/program_frontend_build.zig"),
+            b.path("src/program_api.zig"),
+            b.path("src/program_frontend.zig"),
+            b.path("src/prompt_contract.zig"),
+            b.path("src/prompt_support_internal.zig"),
+            b.path("src/reference_eval.zig"),
+            b.path("src/reference_machine.zig"),
+            b.path("src/root.zig"),
+            b.path("src/runtime_contract_registry.zig"),
+            b.path("src/shipped_open_row_corpus_registry.zig"),
+            b.path("src/witnesses.zig"),
             b.path("examples/state_basic.zig"),
             b.path("examples/custom_approval_workflow.zig"),
             b.path("test/program_api_test.zig"),

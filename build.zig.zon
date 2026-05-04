@@ -18,6 +18,7 @@
         "README.md",
         "build.zig",
         "build.zig.zon",
+        "bench",
         "examples/custom_approval_workflow.zig",
         "examples/state_basic.zig",
         "src",

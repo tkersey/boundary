@@ -1,5 +1,6 @@
+// zlinter-disable declaration_naming - retained compatibility aliases intentionally preserve the prior public IR vocabulary.
+// zlinter-disable require_doc_comment - this compatibility module re-exports documented declarations from the underlying namespaces.
 const effect_ir = @import("effect_ir");
-const lowering_api = @import("lowering_api");
 
 /// Preserve the prior effect_ir namespace while layering public compile helpers on top.
 pub const ControlMode = effect_ir.ControlMode;
@@ -43,9 +44,10 @@ pub const validateOutputs = effect_ir.validateOutputs;
 pub const rowDigest = effect_ir.rowDigest;
 pub const resolveSccs = effect_ir.resolveSccs;
 
-fn Compile(comptime label: []const u8, comptime program: effect_ir.Program) type {
-    return lowering_api.CompileIr(label, program);
-}
+test "compatibility IR module re-exports retained surface" {
+    const std = @import("std");
 
-/// Compile explicit public Effect IR into the same runtime-owned plan shape as explicit-path lowering.
-pub const compile = Compile;
+    try std.testing.expect(@hasDecl(@This(), "Program"));
+    try std.testing.expect(@hasDecl(@This(), "rowDigest"));
+    try std.testing.expect(!@hasDecl(@This(), "compile"));
+}

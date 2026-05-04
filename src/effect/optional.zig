@@ -147,7 +147,7 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
         pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = family.InstanceWithMode(.resume_or_return, ResumeType, ErrorSetType).init();
-            const result = try algebraic.handleOptionalHandlerWithErrorSet(AnswerType, RunErrorSetType, .{
+            const result = try algebraic.handleOptionalLexicalWithErrorSet(AnswerType, RunErrorSetType, .{
                 .runtime = run_ctx.runtime,
                 .instance = &instance,
                 .lexical_state = @constCast(run_ctx.lexical_state),
@@ -383,6 +383,47 @@ test "optional handle can resume and transform the resumed answer" {
     var instance = OptionalInstance.init();
     const result = try handle([]const u8, &runtime, &instance, policy, demo);
     try std.testing.expectEqualStrings("answer=42", result);
+}
+
+test "optional descriptor run uses the lexical backing handler" {
+    const policy = struct {
+        /// Resume the descriptor-backed optional request with a known value.
+        pub fn resumeOrReturn() prompt_contract.ResumeOrReturn(i32, []const u8) {
+            return prompt_contract.ResumeOrReturn(i32, []const u8).resumeWith(41);
+        }
+
+        /// Convert the resumed answer into the enclosing descriptor result.
+        pub fn afterResume(value: i32) []const u8 {
+            if (value != 42) unreachable;
+            return "answer=42";
+        }
+    };
+    const demo = struct {
+        /// Request once and increment the resumed answer.
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(requestBoundProgram(Cap, ctx, struct {
+            /// Increment the resumed optional answer.
+            pub fn apply(current: i32) i32 {
+                return current + 1;
+            }
+        })) {
+            return requestBoundProgram(Cap, ctx, struct {
+                /// Increment the resumed optional answer.
+                pub fn apply(current: i32) i32 {
+                    return current + 1;
+                }
+            });
+        }
+    };
+
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    const descriptor = use(i32, policy);
+    const result = try descriptor.run([]const u8, error{}, .{
+        .runtime = &runtime,
+        .lexical_state = @as(?*anyopaque, null),
+    }, demo);
+    try std.testing.expectEqual({}, result.output);
+    try std.testing.expectEqualStrings("answer=42", result.value);
 }
 
 test "public optional handleWithErrorSet leaves caller provenance absent by default" {

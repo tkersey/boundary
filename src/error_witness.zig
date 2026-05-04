@@ -1,3 +1,5 @@
+// zlinter-disable field_naming - runtime error tags intentionally mirror Zig error names for stable diagnostics.
+// zlinter-disable require_doc_comment - lower-case aliases are machine-readable mirrors of the public error tags.
 /// Public witness surface enum.
 pub const Surface = enum {
     algebraic,

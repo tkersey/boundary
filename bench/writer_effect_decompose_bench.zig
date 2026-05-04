@@ -14,6 +14,10 @@ const Sample = struct {
     elapsed_ns: u64,
 };
 
+fn elapsedNsSince(io: std.Io, start: std.Io.Timestamp) u64 {
+    return @intCast(start.durationTo(std.Io.Timestamp.now(io, .boot)).toNanoseconds());
+}
+
 const BenchWriterState = struct {
     allocator: std.mem.Allocator,
     first_item: ?usize = null,
@@ -64,6 +68,12 @@ const LaneReport = struct {
     finalize_checksum: usize,
 };
 
+const WriterBenchContext = struct {
+    runtime: *ability.Runtime,
+    instance: *const WriterInstance,
+    allocator: std.mem.Allocator,
+};
+
 fn sortAscending(values: []u64) void {
     var index: usize = 1;
     while (index < values.len) : (index += 1) {
@@ -109,18 +119,18 @@ const effect_writer = struct {
     }
 };
 
-fn runWriterRawSample(allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runWriterRawSample(io: std.Io, allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         checksum += preserveValue(try raw_writer.body(allocator, items_per_body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runWriterEffectSample(runtime: *ability.Runtime, instance: *const WriterInstance, allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runWriterEffectSample(io: std.Io, context: WriterBenchContext, comptime items_per_body: usize, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
@@ -130,18 +140,18 @@ fn runWriterEffectSample(runtime: *ability.Runtime, instance: *const WriterInsta
                 return try effect_writer.body(Cap, ctx, items_per_body);
             }
         };
-        const result = preserveValue(try ability.effect.writer.handle(usize, usize, runtime, instance, allocator, body));
-        defer allocator.free(result.items);
+        const result = preserveValue(try ability.effect.writer.handle(usize, usize, context.runtime, context.instance, context.allocator, body));
+        defer context.allocator.free(result.items);
         std.mem.doNotOptimizeAway(result.items.ptr);
         var item_checksum: usize = result.items.len + result.value;
         for (result.items) |item| item_checksum += item;
         checksum += item_checksum;
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runWriterFinalizeOnlySample(allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runWriterFinalizeOnlySample(io: std.Io, allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
@@ -158,7 +168,7 @@ fn runWriterFinalizeOnlySample(allocator: std.mem.Allocator, comptime items_per_
         for (owned) |item| lane_checksum += item;
         checksum += lane_checksum;
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
 fn printLine(writer: anytype, report: *const LaneReport) !void {
@@ -181,10 +191,15 @@ fn printLine(writer: anytype, report: *const LaneReport) !void {
     );
 }
 
-fn runLane(runtime: *ability.Runtime, instance: *const WriterInstance, allocator: std.mem.Allocator, comptime items_per_body: usize) !LaneReport {
-    _ = try runWriterRawSample(allocator, items_per_body, warmup_iterations);
-    _ = try runWriterEffectSample(runtime, instance, allocator, items_per_body, warmup_iterations);
-    _ = try runWriterFinalizeOnlySample(allocator, items_per_body, warmup_iterations);
+fn runLane(io: std.Io, runtime: *ability.Runtime, instance: *const WriterInstance, allocator: std.mem.Allocator, comptime items_per_body: usize) !LaneReport {
+    const context = WriterBenchContext{
+        .runtime = runtime,
+        .instance = instance,
+        .allocator = allocator,
+    };
+    _ = try runWriterRawSample(io, allocator, items_per_body, warmup_iterations);
+    _ = try runWriterEffectSample(io, context, items_per_body, warmup_iterations);
+    _ = try runWriterFinalizeOnlySample(io, allocator, items_per_body, warmup_iterations);
 
     var raw_samples = [_]u64{0} ** samples_per_run;
     var effect_samples = [_]u64{0} ** samples_per_run;
@@ -195,9 +210,9 @@ fn runLane(runtime: *ability.Runtime, instance: *const WriterInstance, allocator
 
     var index: usize = 0;
     while (index < samples_per_run) : (index += 1) {
-        const raw_sample = try runWriterRawSample(allocator, items_per_body, timed_iterations);
-        const effect_sample = try runWriterEffectSample(runtime, instance, allocator, items_per_body, timed_iterations);
-        const finalize_sample = try runWriterFinalizeOnlySample(allocator, items_per_body, timed_iterations);
+        const raw_sample = try runWriterRawSample(io, allocator, items_per_body, timed_iterations);
+        const effect_sample = try runWriterEffectSample(io, context, items_per_body, timed_iterations);
+        const finalize_sample = try runWriterFinalizeOnlySample(io, allocator, items_per_body, timed_iterations);
 
         if (raw_checksum) |checksum| {
             if (checksum != raw_sample.checksum) return error.RawChecksumMismatch;
@@ -231,9 +246,9 @@ pub fn main(init: std.process.Init) anyerror!void {
     defer runtime.deinit();
     var instance = WriterInstance.init();
 
-    const lane1 = try runLane(&runtime, &instance, std.heap.smp_allocator, 1);
-    const lane16 = try runLane(&runtime, &instance, std.heap.smp_allocator, 16);
-    const lane64 = try runLane(&runtime, &instance, std.heap.smp_allocator, 64);
+    const lane1 = try runLane(init.io, &runtime, &instance, std.heap.smp_allocator, 1);
+    const lane16 = try runLane(init.io, &runtime, &instance, std.heap.smp_allocator, 16);
+    const lane64 = try runLane(init.io, &runtime, &instance, std.heap.smp_allocator, 64);
 
     var stdout_buffer: [2048]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);

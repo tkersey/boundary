@@ -72,7 +72,9 @@ pub fn runExecutablePlanWithArgs(
     handlers: anytype,
     args: []const lowered_machine.ProgramValue,
 ) anyerror!RunResultTypeForPlan(compiled_plan) {
-    _ = runtime;
+    try lowered_machine.beginExecution(runtime);
+    defer lowered_machine.endExecution(runtime);
+
     const entry = comptime compiled_plan.functions[compiled_plan.entry_index];
     if (args.len != entry.parameter_count) return error.ProgramContractViolation;
     if (comptime compiled_plan.ops.len != 1 or !std.mem.eql(u8, compiled_plan.ops[0].op_name, "dispatch")) {

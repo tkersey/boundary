@@ -268,10 +268,20 @@ fn dummyPointer(comptime PtrType: type) PtrType {
     const pointer = @typeInfo(PtrType).pointer;
     const Child = std.meta.Child(PtrType);
     if (pointer.size == .slice) {
-        const many = @as([*]Child, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child))));
-        const slice = many[0..1];
-        if (pointer.is_const) return @as(PtrType, slice);
-        return @as(PtrType, @constCast(slice));
+        return blk: {
+            const base = std.mem.alignForward(usize, 1, @alignOf(Child));
+            if (pointer.sentinel_ptr) |sentinel_ptr| {
+                const sentinel = @as(*const Child, @ptrCast(@alignCast(sentinel_ptr))).*;
+                const many = @as([*:sentinel]Child, @ptrFromInt(base));
+                const slice = many[0..0];
+                if (pointer.is_const) break :blk @as(PtrType, slice);
+                break :blk @as(PtrType, @constCast(slice));
+            }
+            const many = @as([*]Child, @ptrFromInt(base));
+            const slice = many[0..1];
+            if (pointer.is_const) break :blk @as(PtrType, slice);
+            break :blk @as(PtrType, @constCast(slice));
+        };
     }
     return @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child))));
 }
@@ -334,6 +344,18 @@ pub fn ChoiceFailureSet(
     comptime EffType: type,
 ) type {
     return BaseErrorSet || ChoiceErrorSet(Continuation, ResumeType, EffType);
+}
+
+test "choice continuation type probe preserves sentinel slices" {
+    const continuation = struct {
+        /// Return the length of one sentinel slice resume value.
+        pub fn apply(value: [:0]const u8, eff: void) usize {
+            _ = eff;
+            return value.len;
+        }
+    };
+
+    try std.testing.expectEqual(usize, ChoiceAnswerTypeFor(continuation, [:0]const u8, void));
 }
 
 fn callChoiceContinuation(

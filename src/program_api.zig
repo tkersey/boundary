@@ -9,13 +9,6 @@ fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
     };
 }
 
-fn hasFieldSafe(comptime T: type, comptime name: []const u8) bool {
-    return switch (@typeInfo(T)) {
-        .@"struct" => @hasField(T, name),
-        else => false,
-    };
-}
-
 fn dummyPointer(comptime PtrType: type) PtrType {
     const pointer = @typeInfo(PtrType).pointer;
     const Child = std.meta.Child(PtrType);
@@ -51,21 +44,43 @@ fn ProgramReturnType(comptime HandlersType: type, comptime Body: type) type {
     return @TypeOf(Body.program(dummyValue(*lowered_machine.Runtime), dummyValue(HandlersType)));
 }
 
-fn ProgramValueType(comptime ReturnType: type) type {
-    const Payload = switch (@typeInfo(ReturnType)) {
+fn ProgramPayloadType(comptime ReturnType: type) type {
+    return switch (@typeInfo(ReturnType)) {
         .error_union => |err_union| err_union.payload,
         else => ReturnType,
     };
-    if (comptime hasFieldSafe(Payload, "value")) return @FieldType(Payload, "value");
+}
+
+fn resultEnvelopeMarker(comptime Payload: type) bool {
+    if (!hasDeclSafe(Payload, "ability_result_envelope")) return false;
+    if (@TypeOf(Payload.ability_result_envelope) != bool) {
+        @compileError("ability_result_envelope must be a bool");
+    }
+    return Payload.ability_result_envelope;
+}
+
+fn isResultEnvelope(comptime Payload: type) bool {
+    if (!resultEnvelopeMarker(Payload)) return false;
+    return switch (@typeInfo(Payload)) {
+        .@"struct" => blk: {
+            if (!@hasField(Payload, "value") or !@hasField(Payload, "outputs")) {
+                @compileError("marked ability.program result envelopes must declare value and outputs fields");
+            }
+            break :blk true;
+        },
+        else => @compileError("marked ability.program result envelopes must be structs"),
+    };
+}
+
+fn ProgramValueType(comptime ReturnType: type) type {
+    const Payload = ProgramPayloadType(ReturnType);
+    if (comptime isResultEnvelope(Payload)) return @FieldType(Payload, "value");
     return Payload;
 }
 
 fn ProgramOutputsType(comptime ReturnType: type) type {
-    const Payload = switch (@typeInfo(ReturnType)) {
-        .error_union => |err_union| err_union.payload,
-        else => ReturnType,
-    };
-    if (comptime hasFieldSafe(Payload, "outputs")) return @FieldType(Payload, "outputs");
+    const Payload = ProgramPayloadType(ReturnType);
+    if (comptime isResultEnvelope(Payload)) return @FieldType(Payload, "outputs");
     return void;
 }
 
@@ -113,8 +128,8 @@ pub fn program(
             else
                 Body.program(runtime, handlers);
             const payload = raw;
-            const value = if (comptime hasFieldSafe(@TypeOf(payload), "value")) payload.value else payload;
-            const outputs = if (comptime hasFieldSafe(@TypeOf(payload), "outputs")) payload.outputs else {};
+            const value = if (comptime isResultEnvelope(@TypeOf(payload))) payload.value else payload;
+            const outputs = if (comptime isResultEnvelope(@TypeOf(payload))) payload.outputs else {};
             return .{
                 .allocator = lowered_machine.runtimeAllocator(runtime),
                 .value = value,

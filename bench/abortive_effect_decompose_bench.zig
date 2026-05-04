@@ -20,6 +20,10 @@ const Sample = struct {
     elapsed_ns: u64,
 };
 
+fn elapsedNsSince(io: std.Io, start: std.Io.Timestamp) u64 {
+    return @intCast(start.durationTo(std.Io.Timestamp.now(io, .boot)).toNanoseconds());
+}
+
 fn sortAscending(values: []u64) void {
     var index: usize = 1;
     while (index < values.len) : (index += 1) {
@@ -211,52 +215,52 @@ const effect_exception = struct {
     }
 };
 
-fn runOptionalReturnRawSample(runtime: *ability.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
+fn runOptionalReturnRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runOptionalReturnEffectSample(runtime, &OptionalInstance.init(), iterations);
+    return try runOptionalReturnEffectSample(io, runtime, &OptionalInstance.init(), iterations);
 }
 
-fn runOptionalReturnEffectSample(runtime: *ability.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runOptionalReturnEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_return.current_value = index;
         checksum += preserveValue(try ability.effect.optional.handle(usize, runtime, instance, effect_optional_return.policy, effect_optional_return));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runOptionalResumeRawSample(runtime: *ability.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
+fn runOptionalResumeRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runOptionalResumeEffectSample(runtime, &OptionalInstance.init(), iterations);
+    return try runOptionalResumeEffectSample(io, runtime, &OptionalInstance.init(), iterations);
 }
 
-fn runOptionalResumeEffectSample(runtime: *ability.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runOptionalResumeEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_resume.current_value = index;
         checksum += preserveValue(try ability.effect.optional.handle(usize, runtime, instance, effect_optional_resume.policy, effect_optional_resume));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runExceptionRawSample(runtime: *ability.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
+fn runExceptionRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runExceptionEffectSample(runtime, &ExceptionInstance.init(), iterations);
+    return try runExceptionEffectSample(io, runtime, &ExceptionInstance.init(), iterations);
 }
 
-fn runExceptionEffectSample(runtime: *ability.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runExceptionEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_exception.pending_payload = index;
         checksum += preserveValue(try ability.effect.exception.handle(usize, runtime, instance, effect_exception.catcher, effect_exception));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
 fn printLine(writer: anytype, name: []const u8, raw_samples: *const [samples_per_run]u64, effect_samples: *const [samples_per_run]u64, raw_checksum: usize, effect_checksum: usize) !void {
@@ -295,12 +299,12 @@ pub fn main(init: std.process.Init) anyerror!void {
     raw_exception.prompt_ptr = &exception_prompt;
     var exception_instance = ExceptionInstance.init();
 
-    _ = try runOptionalReturnRawSample(&optional_return_runtime, &optional_return_prompt, warmup_iterations);
-    _ = try runOptionalReturnEffectSample(&optional_return_runtime, &optional_return_instance, warmup_iterations);
-    _ = try runOptionalResumeRawSample(&optional_resume_runtime, &optional_resume_prompt, warmup_iterations);
-    _ = try runOptionalResumeEffectSample(&optional_resume_runtime, &optional_resume_instance, warmup_iterations);
-    _ = try runExceptionRawSample(&exception_runtime, &exception_prompt, warmup_iterations);
-    _ = try runExceptionEffectSample(&exception_runtime, &exception_instance, warmup_iterations);
+    _ = try runOptionalReturnRawSample(init.io, &optional_return_runtime, &optional_return_prompt, warmup_iterations);
+    _ = try runOptionalReturnEffectSample(init.io, &optional_return_runtime, &optional_return_instance, warmup_iterations);
+    _ = try runOptionalResumeRawSample(init.io, &optional_resume_runtime, &optional_resume_prompt, warmup_iterations);
+    _ = try runOptionalResumeEffectSample(init.io, &optional_resume_runtime, &optional_resume_instance, warmup_iterations);
+    _ = try runExceptionRawSample(init.io, &exception_runtime, &exception_prompt, warmup_iterations);
+    _ = try runExceptionEffectSample(init.io, &exception_runtime, &exception_instance, warmup_iterations);
 
     var opt_ret_raw_samples = [_]u64{0} ** samples_per_run;
     var opt_ret_eff_samples = [_]u64{0} ** samples_per_run;
@@ -318,12 +322,12 @@ pub fn main(init: std.process.Init) anyerror!void {
 
     var index: usize = 0;
     while (index < samples_per_run) : (index += 1) {
-        const opt_ret_raw = try runOptionalReturnRawSample(&optional_return_runtime, &optional_return_prompt, timed_iterations);
-        const opt_ret_eff = try runOptionalReturnEffectSample(&optional_return_runtime, &optional_return_instance, timed_iterations);
-        const opt_res_raw = try runOptionalResumeRawSample(&optional_resume_runtime, &optional_resume_prompt, timed_iterations);
-        const opt_res_eff = try runOptionalResumeEffectSample(&optional_resume_runtime, &optional_resume_instance, timed_iterations);
-        const exn_raw = try runExceptionRawSample(&exception_runtime, &exception_prompt, timed_iterations);
-        const exn_eff = try runExceptionEffectSample(&exception_runtime, &exception_instance, timed_iterations);
+        const opt_ret_raw = try runOptionalReturnRawSample(init.io, &optional_return_runtime, &optional_return_prompt, timed_iterations);
+        const opt_ret_eff = try runOptionalReturnEffectSample(init.io, &optional_return_runtime, &optional_return_instance, timed_iterations);
+        const opt_res_raw = try runOptionalResumeRawSample(init.io, &optional_resume_runtime, &optional_resume_prompt, timed_iterations);
+        const opt_res_eff = try runOptionalResumeEffectSample(init.io, &optional_resume_runtime, &optional_resume_instance, timed_iterations);
+        const exn_raw = try runExceptionRawSample(init.io, &exception_runtime, &exception_prompt, timed_iterations);
+        const exn_eff = try runExceptionEffectSample(init.io, &exception_runtime, &exception_instance, timed_iterations);
 
         if (opt_ret_raw_checksum) |checksum| {
             if (checksum != opt_ret_raw.checksum) return error.OptionalReturnRawChecksumMismatch;

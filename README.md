@@ -22,6 +22,7 @@ const Handlers = struct { base: i32 };
 
 const Body = struct {
     pub fn program(_: *ability.Runtime, handlers: Handlers) !struct {
+        pub const ability_result_envelope = true;
         value: i32,
         outputs: struct { total: i32 },
     } {
@@ -46,8 +47,11 @@ pub fn main() !void {
 ```
 
 The label must be non-empty. The handler type passed to `ability.program` is the
-exact type accepted by `Body.program(runtime, handlers)`. `Program.Result`
-always exposes `value`, `outputs`, and `deinit()`.
+exact type accepted by `Body.program(runtime, handlers)`. A returned struct is
+split into `Program.Result.value` and `Program.Result.outputs` only when it
+declares `pub const ability_result_envelope = true`; otherwise the returned
+struct is preserved as the value. `Program.Result` always exposes `value`,
+`outputs`, and `deinit()`.
 
 ## Effects
 

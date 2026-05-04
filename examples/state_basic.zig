@@ -5,6 +5,7 @@ const std = @import("std");
 const StateHandlers = struct { initial: i32 };
 const StateBody = struct {
     pub fn program(runtime: *ability.Runtime, handlers: StateHandlers) anyerror!struct {
+        pub const ability_result_envelope = true;
         value: i32,
         outputs: struct { state: i32 },
     } {

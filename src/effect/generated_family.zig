@@ -22,7 +22,7 @@ pub fn Definition(comptime OpTag: type) type {
     };
 }
 
-/// Public op-descriptor namespace used by `ability.effect.Define(...)`.
+/// Internal op-descriptor namespace used by generated effect-family definitions.
 pub const ops = struct {
     /// Define one sealed transform op descriptor for a generated family.
     pub fn Transform(
@@ -1074,7 +1074,7 @@ pub fn Build(comptime spec: anytype) type {
             return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body);
         }
 
-        /// Public `handleWithErrorSet` helper.
+        /// Explicit error-set helper for generated-family handlers.
         pub fn handleWithErrorSet(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *ability.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
             return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body);
         }
