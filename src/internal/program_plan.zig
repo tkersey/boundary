@@ -418,7 +418,7 @@ pub const ProgramPlan = struct {
                 .{ .codec = entry.value_codec, .schema_index = entry.value_schema_index },
             )) {
                 const entry_completion_codecs = try functionCompletionCodecReachability(self, entry, &completion_reachability);
-                if (entry_completion_codecs.value_codec and terminal_reachability[self.entry_index]) {
+                if (entry_completion_codecs.value_codec) {
                     return error.InvalidFunctionResultCodec;
                 }
             }

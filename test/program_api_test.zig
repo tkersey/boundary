@@ -1298,6 +1298,52 @@ fn helperNormalValueWithTerminalResultCodecPlan(comptime label: []const u8) abil
     }) catch unreachable;
 }
 
+fn entryNormalValueWithDistinctResultCodecPlan(comptime label: []const u8) !ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const value = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{ .kind = .const_i32, .dst = value.index, .operand = 5 },
+        ability.ir.builder.returnValue(root, value) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .string,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 33,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    });
+}
+
 fn returnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const instructions = [_]ability.ir.plan.Instruction{.{
@@ -2211,6 +2257,13 @@ test "ability.ir rejects entry plans that mix normal value and terminal result c
     try std.testing.expectError(
         error.InvalidFunctionResultCodec,
         entryMixedNormalAndTerminalResultCodecPlan("entry-mixed-normal-terminal-result-codec"),
+    );
+}
+
+test "ability.ir rejects entry plans with normal value completion and distinct result codec" {
+    try std.testing.expectError(
+        error.InvalidFunctionResultCodec,
+        entryNormalValueWithDistinctResultCodecPlan("entry-normal-value-distinct-result-codec"),
     );
 }
 
