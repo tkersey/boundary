@@ -159,18 +159,33 @@ fn consumeInterpreterStep(remaining_steps: *usize) error{ExecutionBudgetExceeded
     remaining_steps.* -= 1;
 }
 
-fn mappedReturnError(comptime ErrorSet: type, literal: []const u8) anyerror {
+fn mappedReturnError(comptime ErrorSet: type, comptime literal: []const u8) anyerror {
     return switch (@typeInfo(ErrorSet)) {
         .error_set => |errors| blk: {
             if (errors) |decls| {
                 inline for (decls) |decl| {
                     if (std.mem.eql(u8, decl.name, literal)) break :blk @field(ErrorSet, decl.name);
                 }
+            } else {
+                break :blk @field(ErrorSet, literal);
             }
             break :blk error.ProgramContractViolation;
         },
         else => @compileError("ProgramPlan return_error mapping requires an error set"),
     };
+}
+
+fn mappedReturnErrorForInstruction(
+    comptime ErrorSet: type,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    instruction_index: usize,
+) anyerror {
+    inline for (compiled_plan.instructions, 0..) |instruction, index| {
+        if (instruction_index == index and instruction.kind == .return_error) {
+            return mappedReturnError(ErrorSet, instruction.string_literal);
+        }
+    }
+    return error.ProgramContractViolation;
 }
 
 fn HandlerSetType(comptime HandlersPtr: type) type {
@@ -180,7 +195,15 @@ fn HandlerSetType(comptime HandlersPtr: type) type {
     };
 }
 
-fn handlerFieldPtr(handlers: anytype, comptime field_name: []const u8) *@FieldType(HandlerSetType(@TypeOf(handlers)), field_name) {
+fn HandlerFieldPtrType(comptime HandlersPtr: type, comptime field_name: []const u8) type {
+    const Field = @FieldType(HandlerSetType(HandlersPtr), field_name);
+    return switch (@typeInfo(HandlersPtr)) {
+        .pointer => |pointer| if (pointer.is_const) *const Field else *Field,
+        else => *Field,
+    };
+}
+
+fn handlerFieldPtr(handlers: anytype, comptime field_name: []const u8) HandlerFieldPtrType(@TypeOf(handlers), field_name) {
     return switch (@typeInfo(@TypeOf(handlers))) {
         .pointer => &@field(handlers.*, field_name),
         else => &@field(handlers, field_name),
@@ -420,7 +443,7 @@ fn executeKnownFunction(
         if (block_index < function.first_block or block_index >= function_block_end) return error.ProgramContractViolation;
         const block = compiled_plan.blocks[block_index];
         const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
-        for (compiled_plan.instructions[block.first_instruction..instruction_end]) |instruction| {
+        for (compiled_plan.instructions[block.first_instruction..instruction_end], block.first_instruction..) |instruction, instruction_index| {
             try consumeInterpreterStep(remaining_steps);
             switch (instruction.kind) {
                 .add_const_i32 => {
@@ -529,7 +552,7 @@ fn executeKnownFunction(
                         .usize = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch return error.ProgramContractViolation,
                     };
                 },
-                .return_error => return mappedReturnError(ErrorSet, instruction.string_literal),
+                .return_error => return mappedReturnErrorForInstruction(ErrorSet, compiled_plan, instruction_index),
                 .return_value => last_return = locals[instruction.operand],
                 .sub_one => {
                     locals[instruction.dst] = switch (functionLocalCodec(compiled_plan, function, instruction.operand) orelse return error.ProgramContractViolation) {

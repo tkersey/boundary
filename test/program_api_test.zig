@@ -1738,6 +1738,17 @@ test "ability.program preserves pointer handler bundle dispatch" {
     try std.testing.expectEqual(@as(i32, 41), result.value);
 }
 
+test "ability.program preserves const pointer handler bundle dispatch" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const handlers: Handlers = .{ .authored = .{ .base = 30 } };
+    const Program = ability.program("compiled-const-pointer-handlers", *const Handlers, CompiledBody);
+    var result = try Program.run(&runtime, &handlers);
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 41), result.value);
+}
+
 test "ability.program executes plans beyond legacy interpreter scratch caps" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -2140,6 +2151,60 @@ test "ability.program surfaces declared ProgramPlan return_error values" {
     };
     const Program = ability.program("return-error", struct {}, ErrorBody);
     try std.testing.expectError(error.Rejected, Program.run(&runtime, .{}));
+}
+
+test "ability.program allows anyerror ProgramPlan return_error values" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const ErrorBody = struct {
+        pub const Error = anyerror;
+        pub const compiled_plan = returnErrorPlan("anyerror-return-error");
+    };
+    const Program = ability.program("anyerror-return-error", struct {}, ErrorBody);
+    try std.testing.expectError(error.Rejected, Program.run(&runtime, .{}));
+}
+
+test "ability.program maps undeclared handler errors to ProgramContractViolation" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const RejectingHandlers = struct {
+        authored: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return error.HandlerRejected;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: i32) !i32 {
+                return value;
+            }
+        },
+    };
+    const Program = ability.program("undeclared-handler-error", RejectingHandlers, CompiledBody);
+    try std.testing.expectError(error.ProgramContractViolation, Program.run(&runtime, .{ .authored = .{} }));
+}
+
+test "ability.program preserves declared handler errors" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const RejectingHandlers = struct {
+        authored: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return error.HandlerRejected;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: i32) !i32 {
+                return value;
+            }
+        },
+    };
+    const ErrorBody = struct {
+        pub const Error = error{HandlerRejected};
+        pub const compiled_plan = compiledTransformPlan("declared-handler-error");
+    };
+    const Program = ability.program("declared-handler-error", RejectingHandlers, ErrorBody);
+    try std.testing.expectError(error.HandlerRejected, Program.run(&runtime, .{ .authored = .{} }));
 }
 
 test "ability.ir rejects entry plans that mix normal value and terminal result codecs" {

@@ -72,6 +72,8 @@ fn errorSetContains(comptime ErrorSet: type, literal: []const u8) bool {
                 inline for (decls) |decl| {
                     if (std.mem.eql(u8, decl.name, literal)) break :blk true;
                 }
+            } else {
+                break :blk true;
             }
             break :blk false;
         },
@@ -102,7 +104,27 @@ fn ProgramValueTypeForCodec(comptime codec: lowering_api.ValueCodec) type {
 
 fn ProgramErrorSet(comptime Body: type) type {
     if (comptime hasDeclSafe(Body, "Error")) return lowered_machine.ResetError(Body.Error);
-    return anyerror;
+    return lowered_machine.ResetError(error{});
+}
+
+fn errorValueInSet(comptime ErrorSet: type, err: anyerror) bool {
+    return switch (@typeInfo(ErrorSet)) {
+        .error_set => |errors| blk: {
+            if (errors) |decls| {
+                inline for (decls) |decl| {
+                    if (err == @field(ErrorSet, decl.name)) break :blk true;
+                }
+                break :blk false;
+            }
+            break :blk true;
+        },
+        else => @compileError("Program.Error must be an error set"),
+    };
+}
+
+fn mapProgramRunError(comptime ErrorSet: type, err: anyerror) ErrorSet {
+    if (errorValueInSet(ErrorSet, err)) return @errorCast(err);
+    return error.ProgramContractViolation;
 }
 
 /// Declare one reusable explicit local effect program.
@@ -148,9 +170,9 @@ pub fn program(
             else
                 &.{};
             const raw = if (comptime @typeInfo(HandlersType) == .pointer)
-                lowering_api.runExecutablePlanWithArgsForErrorSet(BodyErrorSet(Body), runtime, compiled_plan, mutable_handlers, args) catch |err| return @errorCast(err)
+                lowering_api.runExecutablePlanWithArgsForErrorSet(BodyErrorSet(Body), runtime, compiled_plan, mutable_handlers, args) catch |err| return mapProgramRunError(Error, err)
             else
-                lowering_api.runExecutablePlanWithArgsForErrorSet(BodyErrorSet(Body), runtime, compiled_plan, &mutable_handlers, args) catch |err| return @errorCast(err);
+                lowering_api.runExecutablePlanWithArgsForErrorSet(BodyErrorSet(Body), runtime, compiled_plan, &mutable_handlers, args) catch |err| return mapProgramRunError(Error, err);
             return .{
                 .allocator = lowered_machine.runtimeAllocator(runtime),
                 .value = raw.value,
@@ -162,6 +184,57 @@ pub fn program(
 
 test "program rejects empty labels" {
     _ = program;
+}
+
+test "ability.program preserves bounded error set for bodies without user errors" {
+    const program_plan = @import("internal_program_plan");
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 0,
+    }};
+    const blocks = [_]program_plan.BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = 0,
+        .terminator_index = 0,
+    }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_unit }};
+    const body = struct {
+        /// Runtime plan with no user-declared error path.
+        pub const compiled_plan = program_plan.ProgramPlan{
+            .label = "no-user-error",
+            .ir_hash = 1,
+            .entry_index = 0,
+            .functions = &functions,
+            .requirements = &.{},
+            .ops = &.{},
+            .outputs = &.{},
+            .blocks = &blocks,
+            .terminators = &terminators,
+            .instructions = &.{},
+        };
+    };
+    const program_type = program("no-user-error", struct {}, body);
+
+    try std.testing.expect(program_type.Error == lowered_machine.ResetError(error{}));
+
+    const forwarder = struct {
+        fn run(runtime: *lowered_machine.Runtime) lowered_machine.ResetError(error{})!void {
+            var result = try program_type.run(runtime, .{});
+            defer result.deinit();
+        }
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try forwarder.run(&runtime);
 }
 
 test "ability.program executable support rejects nested-with plans" {
