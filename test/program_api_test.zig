@@ -1478,6 +1478,240 @@ fn matrixPlan(
     }) catch unreachable;
 }
 
+fn repeatedI32Locals(comptime count: usize) [count]ability.ir.plan.Local {
+    return [_]ability.ir.plan.Local{.{ .codec = .i32 }} ** count;
+}
+
+fn wideLocalPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    @setEvalBranchQuota(200_000);
+    const local_count = 257;
+    const root = ability.ir.builder.function(0);
+    const target = ability.ir.builder.local(root, local_count - 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{ .kind = .const_i32, .dst = target.index, .operand = 123 },
+        ability.ir.builder.returnValue(root, target) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = local_count,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const locals = repeatedI32Locals(local_count);
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 79,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn manyAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    @setEvalBranchQuota(200_000);
+    const after_count = 65;
+    const root = ability.ir.builder.function(0);
+    const resume_local = ability.ir.builder.local(root, 0);
+    const requirements = comptime blk: {
+        var buf = [_]ability.ir.plan.Requirement{.{ .label = "authored", .first_op = 0, .op_count = 0 }} ** after_count;
+        for (0..after_count) |index| {
+            buf[index] = .{
+                .label = "authored",
+                .first_op = @intCast(index),
+                .op_count = 1,
+            };
+        }
+        break :blk buf;
+    };
+    const ops = comptime blk: {
+        var buf = [_]ability.ir.plan.Op{.{
+            .requirement_index = 0,
+            .op_name = "dispatch",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .i32,
+            .has_after = true,
+        }} ** after_count;
+        for (0..after_count) |index| {
+            buf[index] = .{
+                .requirement_index = @intCast(index),
+                .op_name = "dispatch",
+                .mode = .transform,
+                .payload_codec = .unit,
+                .resume_codec = .i32,
+                .has_after = true,
+            };
+        }
+        break :blk buf;
+    };
+    const instructions = comptime blk: {
+        var buf = [_]ability.ir.plan.Instruction{.{ .kind = .return_value }} ** (after_count + 1);
+        for (0..after_count) |index| {
+            buf[index] = ability.ir.builder.callOp(
+                root,
+                resume_local,
+                ability.ir.builder.op(root, @intCast(index)),
+                null,
+            ) catch unreachable;
+        }
+        buf[after_count] = ability.ir.builder.returnValue(root, resume_local) catch unreachable;
+        break :blk buf;
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = after_count,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 80,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn deepHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    @setEvalBranchQuota(200_000);
+    const function_count = 66;
+    const entry = ability.ir.builder.function(0);
+    const functions = comptime blk: {
+        var buf = [_]ability.ir.plan.Function{.{
+            .symbol_name = "helper",
+            .value_codec = .i32,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }} ** function_count;
+        for (0..function_count) |index| {
+            buf[index] = .{
+                .symbol_name = "helper",
+                .value_codec = .i32,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = @intCast(index),
+                .local_count = 1,
+                .first_block = @intCast(index),
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = @intCast(index * 2),
+                .instruction_count = 2,
+            };
+        }
+        break :blk buf;
+    };
+    const blocks = comptime blk: {
+        var buf = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }} ** function_count;
+        for (0..function_count) |index| {
+            buf[index] = .{
+                .first_instruction = @intCast(index * 2),
+                .instruction_count = 2,
+                .terminator_index = @intCast(index),
+            };
+        }
+        break :blk buf;
+    };
+    const terminators = comptime blk: {
+        var buf = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }} ** function_count;
+        for (0..function_count) |index| {
+            buf[index] = .{ .kind = .return_value };
+        }
+        break :blk buf;
+    };
+    const instructions = comptime blk: {
+        var buf = [_]ability.ir.plan.Instruction{.{ .kind = .return_value }} ** (function_count * 2);
+        for (0..function_count) |index| {
+            const function_ref = ability.ir.builder.function(@intCast(index));
+            const local = ability.ir.builder.local(function_ref, 0);
+            buf[index * 2] = if (index + 1 == function_count)
+                .{ .kind = .const_i32, .dst = local.index, .operand = 7 }
+            else
+                ability.ir.builder.callHelper(
+                    function_ref,
+                    local,
+                    ability.ir.builder.function(@intCast(index + 1)),
+                    null,
+                ) catch unreachable;
+            buf[index * 2 + 1] = ability.ir.builder.returnValue(function_ref, local) catch unreachable;
+        }
+        break :blk buf;
+    };
+    const locals = repeatedI32Locals(function_count);
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 81,
+        .entry = entry,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 test "ability.program executes a builder-backed ProgramPlan" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -1491,6 +1725,27 @@ test "ability.program executes a builder-backed ProgramPlan" {
     var second = try Program.run(&runtime, .{ .authored = .{ .base = 1 } });
     defer second.deinit();
     try std.testing.expectEqual(@as(i32, 12), second.value);
+}
+
+test "ability.program executes plans beyond legacy interpreter scratch caps" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const WideLocalBody = struct {
+        pub const compiled_plan = wideLocalPlan("wide-local-plan");
+    };
+    const WideLocalProgram = ability.program("wide-local-plan", struct {}, WideLocalBody);
+    var wide_local_result = try WideLocalProgram.run(&runtime, .{});
+    defer wide_local_result.deinit();
+    try std.testing.expectEqual(@as(i32, 123), wide_local_result.value);
+
+    const DeepHelperBody = struct {
+        pub const compiled_plan = deepHelperPlan("deep-helper-plan");
+    };
+    const DeepHelperProgram = ability.program("deep-helper-plan", struct {}, DeepHelperBody);
+    var deep_helper_result = try DeepHelperProgram.run(&runtime, .{});
+    defer deep_helper_result.deinit();
+    try std.testing.expectEqual(@as(i32, 7), deep_helper_result.value);
 }
 
 test "ability.program accepts public ProgramValue entry args" {
@@ -1640,6 +1895,30 @@ test "ability.program applies after continuation exactly once" {
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 6), result.value);
     try std.testing.expectEqual(@as(usize, 1), count);
+}
+
+test "ability.program unwinds more after continuations than helper call budget" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const ManyAfterHandlers = struct {
+        authored: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 0;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: i32) !i32 {
+                return value + 1;
+            }
+        },
+    };
+    const ManyAfterBody = struct {
+        pub const compiled_plan = manyAfterPlan("many-after-plan");
+    };
+    const ManyAfterProgram = ability.program("many-after-plan", ManyAfterHandlers, ManyAfterBody);
+    var result = try ManyAfterProgram.run(&runtime, .{ .authored = .{} });
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 65), result.value);
 }
 
 test "ability.program unwinds stacked after continuations with current answer codec" {

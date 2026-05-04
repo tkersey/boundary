@@ -24,8 +24,7 @@ pub fn authoredBoundProgramPlan(
     return program_plan.authoredBoundPlan(label, Payload, Resume, Answer, mode);
 }
 
-const max_interpreter_locals = 256;
-const max_interpreter_call_depth = 64;
+const max_interpreter_steps = 10_000;
 
 fn ValueTypeForCodec(comptime codec: program_plan.ValueCodec) type {
     return switch (codec) {
@@ -145,6 +144,11 @@ const CompletionValue = struct {
     after_stack: []const u16,
     kind: CompletionKind,
 };
+
+fn consumeInterpreterStep(remaining_steps: *usize) error{ExecutionBudgetExceeded}!void {
+    if (remaining_steps.* == 0) return error.ExecutionBudgetExceeded;
+    remaining_steps.* -= 1;
+}
 
 fn mappedReturnError(comptime ErrorSet: type, literal: []const u8) anyerror {
     return switch (@typeInfo(ErrorSet)) {
@@ -377,15 +381,16 @@ fn executeKnownFunction(
     handlers: anytype,
     comptime function_index: usize,
     args: []const lowered_machine.ProgramValue,
-    depth: usize,
+    remaining_steps: *usize,
 ) anyerror!ExecutionResult {
-    if (depth > max_interpreter_call_depth) return error.ProgramContractViolation;
     if (comptime function_index >= compiled_plan.functions.len) return error.ProgramContractViolation;
     const function = comptime compiled_plan.functions[function_index];
-    if (function.local_count > max_interpreter_locals) return error.ProgramContractViolation;
     if (args.len != function.parameter_count) return error.ProgramContractViolation;
 
-    var locals = [_]lowered_machine.ProgramValue{.none} ** max_interpreter_locals;
+    const allocator = lowered_machine.runtimeAllocator(runtime);
+    const locals = try allocator.alloc(lowered_machine.ProgramValue, function.local_count);
+    defer allocator.free(locals);
+    @memset(locals, .none);
     if (comptime function.parameter_count != 0) {
         for (args, 0..) |arg, index| {
             const local = compiled_plan.locals[function.first_local + index];
@@ -397,17 +402,17 @@ fn executeKnownFunction(
     var block_index: usize = @as(usize, function.first_block) + function.entry_block;
     var last_return: lowered_machine.ProgramValue = .none;
     var last_condition: bool = false;
-    var after_stack = [_]u16{0} ** max_interpreter_call_depth;
+    const after_stack = try allocator.alloc(u16, max_interpreter_steps);
+    defer allocator.free(after_stack);
     var after_count: usize = 0;
-    var step_count: usize = 0;
     while (true) {
-        step_count += 1;
-        if (step_count > 10_000) return error.ExecutionBudgetExceeded;
+        try consumeInterpreterStep(remaining_steps);
         const function_block_end = @as(usize, function.first_block) + function.block_count;
         if (block_index < function.first_block or block_index >= function_block_end) return error.ProgramContractViolation;
         const block = compiled_plan.blocks[block_index];
         const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
         for (compiled_plan.instructions[block.first_instruction..instruction_end]) |instruction| {
+            try consumeInterpreterStep(remaining_steps);
             switch (instruction.kind) {
                 .add_const_i32 => {
                     const operand = try decodeArg(.i32, locals[instruction.operand]);
@@ -424,7 +429,8 @@ fn executeKnownFunction(
                 },
                 .call_helper => {
                     const callee = compiled_plan.functions[instruction.operand];
-                    var buffer: [max_interpreter_locals]lowered_machine.ProgramValue = undefined;
+                    const buffer = try allocator.alloc(lowered_machine.ProgramValue, callee.parameter_count);
+                    defer allocator.free(buffer);
                     const call_args = blk: {
                         if (callee.parameter_count == 0) break :blk &[_]lowered_machine.ProgramValue{};
                         if (instruction.aux == std.math.maxInt(u16)) return error.ProgramContractViolation;
@@ -433,12 +439,12 @@ fn executeKnownFunction(
                         const arg_start = instruction.aux;
                         for (0..callee.parameter_count) |arg_index| {
                             const local_id = planCallArgAt(compiled_plan, arg_start + arg_index);
-                            if (local_id >= max_interpreter_locals) return error.ProgramContractViolation;
+                            if (local_id >= locals.len) return error.ProgramContractViolation;
                             buffer[arg_index] = locals[local_id];
                         }
                         break :blk buffer[0..callee.parameter_count];
                     };
-                    const helper_result = try executeFunction(ErrorSet, runtime, compiled_plan, handlers, instruction.operand, call_args, depth + 1);
+                    const helper_result = try executeFunction(ErrorSet, runtime, compiled_plan, handlers, instruction.operand, call_args, remaining_steps);
                     if (helper_result.terminal) {
                         return .{
                             .value = try completeFunctionValue(
@@ -571,11 +577,11 @@ fn executeFunction(
     handlers: anytype,
     function_index: usize,
     args: []const lowered_machine.ProgramValue,
-    depth: usize,
+    remaining_steps: *usize,
 ) anyerror!ExecutionResult {
     inline for (compiled_plan.functions, 0..) |_, index| {
         if (function_index == index) {
-            return executeKnownFunction(ErrorSet, runtime, compiled_plan, handlers, index, args, depth);
+            return executeKnownFunction(ErrorSet, runtime, compiled_plan, handlers, index, args, remaining_steps);
         }
     }
     return error.ProgramContractViolation;
@@ -593,7 +599,8 @@ pub fn runExecutablePlanWithArgsForErrorSet(
 
     const entry = comptime compiled_plan.functions[compiled_plan.entry_index];
     if (args.len != entry.parameter_count) return error.ProgramContractViolation;
-    const raw = try executeFunction(ErrorSet, runtime, compiled_plan, handlers, compiled_plan.entry_index, args, 0);
+    var remaining_steps: usize = max_interpreter_steps;
+    const raw = try executeFunction(ErrorSet, runtime, compiled_plan, handlers, compiled_plan.entry_index, args, &remaining_steps);
     return .{ .value = try decodeArg(program_plan.functionResultCodec(entry), raw.value) };
 }
 
