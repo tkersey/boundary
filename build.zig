@@ -459,7 +459,6 @@ pub fn build(b: *std.Build) void {
             b.path("src/internal/lexical_executable_bundle.zig"),
             b.path("src/internal/lexical_support.zig"),
             b.path("src/internal/program_plan.zig"),
-            b.path("src/internal/program_plan_interpreter.zig"),
             b.path("src/internal/prompt_support.zig"),
             b.path("src/internal/sealed_engine.zig"),
             b.path("src/internal/synthetic_ability_root.zig"),
