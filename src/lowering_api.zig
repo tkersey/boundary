@@ -5,6 +5,9 @@ const std = @import("std");
 
 pub const ProgramPlan = program_plan.ProgramPlan;
 pub const ValueCodec = program_plan.ValueCodec;
+pub const ExecutablePlanSupportError = error{
+    UnsupportedNestedWith,
+};
 
 pub fn executableResultCodecForType(comptime T: type) program_plan.CodecError!program_plan.ValueCodec {
     return program_plan.codecForType(T);
@@ -12,6 +15,12 @@ pub fn executableResultCodecForType(comptime T: type) program_plan.CodecError!pr
 
 pub fn executableResultCodecForPlan(comptime compiled_plan: program_plan.ProgramPlan) program_plan.ValueCodec {
     return program_plan.functionResultCodec(compiled_plan.functions[compiled_plan.entry_index]);
+}
+
+pub fn validateExecutablePlanSupport(comptime compiled_plan: program_plan.ProgramPlan) ExecutablePlanSupportError!void {
+    for (compiled_plan.instructions) |instruction| {
+        if (instruction.kind == .call_nested_with) return error.UnsupportedNestedWith;
+    }
 }
 
 pub fn authoredBoundProgramPlan(
@@ -594,6 +603,7 @@ pub fn runExecutablePlanWithArgsForErrorSet(
     handlers: anytype,
     args: []const lowered_machine.ProgramValue,
 ) anyerror!RunResultTypeForPlan(compiled_plan) {
+    try validateExecutablePlanSupport(compiled_plan);
     try lowered_machine.beginExecution(runtime);
     defer lowered_machine.endExecution(runtime);
 

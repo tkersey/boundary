@@ -51,6 +51,9 @@ fn ProgramPlanForBody(comptime Body: type) lowering_api.ProgramPlan {
         plan.validate() catch |err| {
             @compileError("Body.compiled_plan failed ProgramPlan.validate: " ++ @errorName(err));
         };
+        lowering_api.validateExecutablePlanSupport(plan) catch |err| {
+            @compileError("Body.compiled_plan is not supported by ability.program: " ++ @errorName(err));
+        };
         validatePlanReturnErrors(plan, BodyErrorSet(Body));
     }
     return plan;
@@ -144,7 +147,10 @@ pub fn program(
                 Body.encodeArgs(mutable_handlers)
             else
                 &.{};
-            const raw = lowering_api.runExecutablePlanWithArgsForErrorSet(BodyErrorSet(Body), runtime, compiled_plan, &mutable_handlers, args) catch |err| return @errorCast(err);
+            const raw = if (comptime @typeInfo(HandlersType) == .pointer)
+                lowering_api.runExecutablePlanWithArgsForErrorSet(BodyErrorSet(Body), runtime, compiled_plan, mutable_handlers, args) catch |err| return @errorCast(err)
+            else
+                lowering_api.runExecutablePlanWithArgsForErrorSet(BodyErrorSet(Body), runtime, compiled_plan, &mutable_handlers, args) catch |err| return @errorCast(err);
             return .{
                 .allocator = lowered_machine.runtimeAllocator(runtime),
                 .value = raw.value,
@@ -156,4 +162,49 @@ pub fn program(
 
 test "program rejects empty labels" {
     _ = program;
+}
+
+test "ability.program executable support rejects nested-with plans" {
+    const program_plan = @import("internal_program_plan");
+    const instructions = [_]program_plan.Instruction{.{
+        .kind = .call_nested_with,
+        .aux = @intFromEnum(program_plan.ValueCodec.unit),
+        .string_literal = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi",
+    }};
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const blocks = [_]program_plan.BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_unit }};
+    const nested_with_plan = program_plan.ProgramPlan{
+        .label = "nested-with",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    };
+
+    try nested_with_plan.validate();
+    try std.testing.expectError(
+        error.UnsupportedNestedWith,
+        lowering_api.validateExecutablePlanSupport(nested_with_plan),
+    );
 }

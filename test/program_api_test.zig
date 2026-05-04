@@ -1727,6 +1727,17 @@ test "ability.program executes a builder-backed ProgramPlan" {
     try std.testing.expectEqual(@as(i32, 12), second.value);
 }
 
+test "ability.program preserves pointer handler bundle dispatch" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers: Handlers = .{ .authored = .{ .base = 30 } };
+    const Program = ability.program("compiled-pointer-handlers", *Handlers, CompiledBody);
+    var result = try Program.run(&runtime, &handlers);
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 41), result.value);
+}
+
 test "ability.program executes plans beyond legacy interpreter scratch caps" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
