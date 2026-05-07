@@ -639,7 +639,28 @@ pub fn runExecutablePlanWithArgsForErrorSet(
     try validateExecutablePlanSupport(compiled_plan);
     try lowered_machine.beginExecution(runtime);
     defer lowered_machine.endExecution(runtime);
+    return runExecutablePlanWithArgsForErrorSetUnchecked(ErrorSet, runtime, compiled_plan, handlers, args);
+}
 
+/// Interpret an executable plan after the caller has already entered runtime execution.
+pub fn runExecutablePlanWithArgsForErrorSetInRuntimeExecution(
+    comptime ErrorSet: type,
+    runtime: *lowered_machine.Runtime,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    handlers: anytype,
+    args: []const lowered_machine.ProgramValue,
+) anyerror!RunResultTypeForPlan(compiled_plan) {
+    try validateExecutablePlanSupport(compiled_plan);
+    return runExecutablePlanWithArgsForErrorSetUnchecked(ErrorSet, runtime, compiled_plan, handlers, args);
+}
+
+fn runExecutablePlanWithArgsForErrorSetUnchecked(
+    comptime ErrorSet: type,
+    runtime: *lowered_machine.Runtime,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    handlers: anytype,
+    args: []const lowered_machine.ProgramValue,
+) anyerror!RunResultTypeForPlan(compiled_plan) {
     const entry = comptime compiled_plan.functions[compiled_plan.entry_index];
     if (args.len != entry.parameter_count) return error.ProgramContractViolation;
     var remaining_steps: usize = max_interpreter_steps;

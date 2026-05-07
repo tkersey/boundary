@@ -165,14 +165,16 @@ pub fn program(
         /// Execute the compiled ProgramPlan against one caller-owned runtime.
         pub fn run(runtime: *lowered_machine.Runtime, handlers: HandlersType) Error!Result {
             var mutable_handlers = handlers;
+            lowered_machine.beginExecution(runtime) catch |err| return mapProgramRunError(Error, err);
+            defer lowered_machine.endExecution(runtime);
             const args = if (comptime hasDeclSafe(Body, "encodeArgs"))
                 Body.encodeArgs(mutable_handlers)
             else
                 &.{};
             const raw = if (comptime @typeInfo(HandlersType) == .pointer)
-                lowering_api.runExecutablePlanWithArgsForErrorSet(BodyErrorSet(Body), runtime, compiled_plan, mutable_handlers, args) catch |err| return mapProgramRunError(Error, err)
+                lowering_api.runExecutablePlanWithArgsForErrorSetInRuntimeExecution(BodyErrorSet(Body), runtime, compiled_plan, mutable_handlers, args) catch |err| return mapProgramRunError(Error, err)
             else
-                lowering_api.runExecutablePlanWithArgsForErrorSet(BodyErrorSet(Body), runtime, compiled_plan, &mutable_handlers, args) catch |err| return mapProgramRunError(Error, err);
+                lowering_api.runExecutablePlanWithArgsForErrorSetInRuntimeExecution(BodyErrorSet(Body), runtime, compiled_plan, &mutable_handlers, args) catch |err| return mapProgramRunError(Error, err);
             return .{
                 .allocator = lowered_machine.runtimeAllocator(runtime),
                 .value = raw.value,

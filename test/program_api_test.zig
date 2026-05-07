@@ -1916,6 +1916,49 @@ test "ability.program accepts public ProgramValue entry args" {
     try std.testing.expectEqual(@as(i32, 42), result.value);
 }
 
+test "ability.program enters runtime execution before encoding entry args" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const EncodeGuardHandlers = struct {
+        runtime: *ability.Runtime,
+    };
+    const ParameterizedBody = struct {
+        pub const compiled_plan = parameterizedIdentityPlan("guarded-parameterized-identity");
+
+        pub fn encodeArgs(handlers: EncodeGuardHandlers) []const ability.ir.ProgramValue {
+            std.testing.expectError(error.RuntimeBusy, handlers.runtime.deinitChecked()) catch unreachable;
+            return &.{.{ .i32 = 42 }};
+        }
+    };
+    const Program = ability.program("guarded-parameterized-identity", EncodeGuardHandlers, ParameterizedBody);
+    var result = try Program.run(&runtime, .{ .runtime = &runtime });
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+}
+
+test "ability.program rejects destroyed runtime before encoding entry args" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    try runtime.deinitChecked();
+
+    var encode_calls: usize = 0;
+    const EncodeHandlers = struct {
+        calls: *usize,
+    };
+    const ParameterizedBody = struct {
+        pub const compiled_plan = parameterizedIdentityPlan("destroyed-before-parameterized-identity");
+
+        pub fn encodeArgs(handlers: EncodeHandlers) []const ability.ir.ProgramValue {
+            handlers.calls.* += 1;
+            return &.{.{ .i32 = 42 }};
+        }
+    };
+    const Program = ability.program("destroyed-before-parameterized-identity", EncodeHandlers, ParameterizedBody);
+
+    try std.testing.expectError(error.RuntimeDestroyed, Program.run(&runtime, .{ .calls = &encode_calls }));
+    try std.testing.expectEqual(@as(usize, 0), encode_calls);
+}
+
 test "ability.program enters runtime execution for compiled plans" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
