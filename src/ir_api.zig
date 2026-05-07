@@ -2,6 +2,7 @@
 // zlinter-disable require_doc_comment - this compatibility module re-exports documented declarations from the underlying namespaces.
 const effect_ir = @import("effect_ir");
 const internal_kernel = @import("internal_kernel");
+const lowering_api = @import("lowering_api");
 const program_plan = @import("internal_program_plan");
 
 /// Preserve the prior effect_ir namespace while layering public compile helpers on top.
@@ -43,6 +44,8 @@ pub const ProgramPlan = program_plan.ProgramPlan;
 pub const ProgramValue = internal_kernel.ProgramValue;
 /// Runtime-owned value codec tag.
 pub const ValueCodec = program_plan.ValueCodec;
+/// Explicit resolver entry for executable nested lexical-with rows.
+pub const NestedWithTarget = lowering_api.NestedWithTarget;
 /// Runtime-owned value schema descriptor.
 pub const ValueSchemaPlan = program_plan.ValueSchemaPlan;
 /// Runtime-owned product-field descriptor.

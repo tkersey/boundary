@@ -1543,6 +1543,21 @@ fn ValueSchemaRegistryForFunctions(comptime functions: anytype) type {
     };
 }
 
+/// Return a flat value-schema namespace for an explicit schema type registry.
+pub fn ValueSchemaRegistryForTypes(comptime schema_types: anytype) type {
+    const field_count = countFlatValueFields(schema_types) catch |err| unsupportedValueSchemaType(void, err);
+    const variant_count = countFlatValueVariants(schema_types) catch |err| unsupportedValueSchemaType(void, err);
+    const schemas = buildFlatValueSchemas(schema_types) catch |err| unsupportedValueSchemaType(void, err);
+    const fields = buildFlatValueFields(schema_types, field_count) catch |err| unsupportedValueSchemaType(void, err);
+    const variants = buildFlatValueVariants(schema_types, variant_count) catch |err| unsupportedValueSchemaType(void, err);
+    return struct {
+        pub const registered_schema_types = schema_types;
+        pub const value_schemas = schemas;
+        pub const value_fields = fields;
+        pub const value_variants = variants;
+    };
+}
+
 fn unsupportedValueSchemaType(comptime T: type, comptime err: CodecError) noreturn {
     @compileError(std.fmt.comptimePrint(
         "unsupported ProgramPlan value schema type '{s}': {s}",
