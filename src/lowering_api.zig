@@ -34,6 +34,11 @@ pub fn validateExecutablePlanSupport(comptime compiled_plan: program_plan.Progra
                 const local = compiled_plan.locals[function.first_local + parameter_index];
                 if (!executableScalarCodec(local.codec)) return error.UnsupportedParameterCodec;
             }
+            if ((analysis.terminal_functions[function_index] or analysis.after_result_functions[function_index]) and
+                !executableScalarCodec(program_plan.functionResultCodec(function)))
+            {
+                return error.UnsupportedResultCodec;
+            }
         }
 
         const entry = compiled_plan.functions[compiled_plan.entry_index];
@@ -1354,6 +1359,311 @@ fn supportHelperCyclePlan() program_plan.ProgramPlan {
     }) catch |err| supportPlanError(err);
 }
 
+fn supportAbortBeforeStructuredHelperPlan() program_plan.ProgramPlan {
+    const root = program_plan.program_plan_builder.function(0);
+    const helper = program_plan.program_plan_builder.function(1);
+    const root_value = program_plan.program_plan_builder.local(root, 0);
+    const helper_value = program_plan.program_plan_builder.local(helper, 0);
+    const instructions = [_]program_plan.Instruction{
+        program_plan.program_plan_builder.callOp(root, null, program_plan.program_plan_builder.op(root, 0), null) catch |err| supportPlanError(err),
+        program_plan.program_plan_builder.callHelper(root, root_value, helper, null) catch |err| supportPlanError(err),
+        .{ .kind = .return_value, .operand = helper_value.index },
+    };
+    const functions = [_]program_plan.FunctionPlan{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "dead_structured_helper",
+            .value_codec = .product,
+            .value_schema_index = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 1,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 1,
+        },
+    };
+    const requirements = [_]program_plan.RequirementPlan{.{ .label = "abort", .first_op = 0, .op_count = 1 }};
+    const ops = [_]program_plan.OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "abort",
+        .mode = .abort,
+        .payload_codec = .unit,
+        .resume_codec = .unit,
+    }};
+    const blocks = [_]program_plan.BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]program_plan.Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_value },
+    };
+    const schema = supportSchemaTables(.product);
+    return program_plan.program_plan_builder.finish(.{
+        .label = "abort-before-structured-helper",
+        .ir_hash = 109,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = schema.schemas,
+        .value_fields = schema.fields,
+        .locals = &.{ .{ .codec = .product, .schema_index = 0 }, .{ .codec = .product, .schema_index = 0 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch |err| supportPlanError(err);
+}
+
+fn supportAbortBeforeStructuredSuccessorPlan() program_plan.ProgramPlan {
+    const root = program_plan.program_plan_builder.function(0);
+    const helper = program_plan.program_plan_builder.function(1);
+    const root_value = program_plan.program_plan_builder.local(root, 0);
+    const helper_value = program_plan.program_plan_builder.local(helper, 0);
+    const instructions = [_]program_plan.Instruction{
+        program_plan.program_plan_builder.callOp(root, null, program_plan.program_plan_builder.op(root, 0), null) catch |err| supportPlanError(err),
+        program_plan.program_plan_builder.callHelper(root, root_value, helper, null) catch |err| supportPlanError(err),
+        .{ .kind = .return_value, .operand = helper_value.index },
+    };
+    const functions = [_]program_plan.FunctionPlan{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 2,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "dead_structured_helper",
+            .value_codec = .product,
+            .value_schema_index = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 1,
+            .first_block = 2,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 1,
+        },
+    };
+    const requirements = [_]program_plan.RequirementPlan{.{ .label = "abort", .first_op = 0, .op_count = 1 }};
+    const ops = [_]program_plan.OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "abort",
+        .mode = .abort,
+        .payload_codec = .unit,
+        .resume_codec = .unit,
+    }};
+    const blocks = [_]program_plan.BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+        .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 2 },
+    };
+    const terminators = [_]program_plan.Terminator{
+        .{ .kind = .jump, .primary = 1 },
+        .{ .kind = .return_unit },
+        .{ .kind = .return_value },
+    };
+    const schema = supportSchemaTables(.product);
+    return program_plan.program_plan_builder.finish(.{
+        .label = "abort-before-structured-successor",
+        .ir_hash = 110,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = schema.schemas,
+        .value_fields = schema.fields,
+        .locals = &.{ .{ .codec = .product, .schema_index = 0 }, .{ .codec = .product, .schema_index = 0 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch |err| supportPlanError(err);
+}
+
+fn supportStructuredTerminalHelperResultPlan() program_plan.ProgramPlan {
+    const root = program_plan.program_plan_builder.function(0);
+    const helper = program_plan.program_plan_builder.function(1);
+    const instructions = [_]program_plan.Instruction{
+        program_plan.program_plan_builder.callHelperDiscardingResult(root, std.math.maxInt(u16), helper, null),
+        program_plan.program_plan_builder.callOp(helper, null, program_plan.program_plan_builder.op(helper, 0), null) catch |err| supportPlanError(err),
+    };
+    const functions = [_]program_plan.FunctionPlan{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        },
+        .{
+            .symbol_name = "structured_terminal_helper",
+            .value_codec = .unit,
+            .result_codec = .product,
+            .result_schema_index = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 1,
+            .instruction_count = 1,
+        },
+    };
+    const requirements = [_]program_plan.RequirementPlan{.{ .label = "abort", .first_op = 0, .op_count = 1 }};
+    const ops = [_]program_plan.OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "abort",
+        .mode = .abort,
+        .payload_codec = .unit,
+        .resume_codec = .unit,
+    }};
+    const blocks = [_]program_plan.BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]program_plan.Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_unit },
+    };
+    const schema = supportSchemaTables(.product);
+    return program_plan.program_plan_builder.finish(.{
+        .label = "structured-terminal-helper-result",
+        .ir_hash = 111,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = schema.schemas,
+        .value_fields = schema.fields,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch |err| supportPlanError(err);
+}
+
+fn supportStructuredAfterHelperResultPlan() program_plan.ProgramPlan {
+    const root = program_plan.program_plan_builder.function(0);
+    const helper = program_plan.program_plan_builder.function(1);
+    const instructions = [_]program_plan.Instruction{
+        program_plan.program_plan_builder.callHelperDiscardingResult(root, std.math.maxInt(u16), helper, null),
+        program_plan.program_plan_builder.callOp(helper, null, program_plan.program_plan_builder.op(helper, 0), null) catch |err| supportPlanError(err),
+    };
+    const functions = [_]program_plan.FunctionPlan{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        },
+        .{
+            .symbol_name = "structured_after_helper",
+            .value_codec = .unit,
+            .result_codec = .product,
+            .result_schema_index = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 1,
+            .instruction_count = 1,
+        },
+    };
+    const requirements = [_]program_plan.RequirementPlan{.{ .label = "after", .first_op = 0, .op_count = 1 }};
+    const ops = [_]program_plan.OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "after",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .unit,
+        .has_after = true,
+    }};
+    const blocks = [_]program_plan.BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]program_plan.Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_unit },
+    };
+    const schema = supportSchemaTables(.product);
+    return program_plan.program_plan_builder.finish(.{
+        .label = "structured-after-helper-result",
+        .ir_hash = 112,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = schema.schemas,
+        .value_fields = schema.fields,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch |err| supportPlanError(err);
+}
+
 test "ability.program executable support accepts scalar entry codecs" {
     inline for (.{ program_plan.ValueCodec.unit, .bool, .i32, .usize, .string }) |codec| {
         try validateExecutablePlanSupport(supportResultPlan(codec));
@@ -1364,6 +1674,14 @@ test "ability.program executable support rejects structured result codecs" {
     inline for (.{ program_plan.ValueCodec.product, .sum, .string_list }) |codec| {
         try std.testing.expectError(error.UnsupportedResultCodec, validateExecutablePlanSupport(supportResultPlan(codec)));
     }
+}
+
+test "ability.program executable support rejects structured terminal helper result codecs" {
+    try std.testing.expectError(error.UnsupportedResultCodec, validateExecutablePlanSupport(supportStructuredTerminalHelperResultPlan()));
+}
+
+test "ability.program executable support rejects structured after helper result codecs" {
+    try std.testing.expectError(error.UnsupportedResultCodec, validateExecutablePlanSupport(supportStructuredAfterHelperResultPlan()));
 }
 
 test "ability.program executable support rejects structured entry parameter codecs" {
@@ -1396,4 +1714,9 @@ test "ability.program executable support rejects nested-with, reachable structur
 
 test "ability.program executable support ignores unreachable structured helper metadata" {
     try validateExecutablePlanSupport(supportUnreachableStructuredHelperPlan());
+}
+
+test "ability.program executable support ignores post-terminal structured helper metadata" {
+    try validateExecutablePlanSupport(supportAbortBeforeStructuredHelperPlan());
+    try validateExecutablePlanSupport(supportAbortBeforeStructuredSuccessorPlan());
 }

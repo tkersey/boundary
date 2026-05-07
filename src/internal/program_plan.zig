@@ -2021,6 +2021,8 @@ pub fn EntryExecutionAnalysis(comptime plan: ProgramPlan) type {
         reachable_functions: [plan.functions.len]bool,
         reachable_blocks: [plan.blocks.len]bool,
         reachable_instructions: [plan.instructions.len]bool,
+        terminal_functions: [plan.functions.len]bool,
+        after_result_functions: [plan.functions.len]bool,
         helper_cycle: bool,
         max_active_local_slots: usize,
         max_active_call_arg_slots: usize,
@@ -2031,10 +2033,13 @@ pub fn EntryExecutionAnalysis(comptime plan: ProgramPlan) type {
 pub fn entryExecutionAnalysis(comptime plan: ProgramPlan) ValidationError!EntryExecutionAnalysis(plan) {
     comptime {
         @setEvalBranchQuota(1_000_000);
+        try plan.validateAddressableTableLengths();
         var analysis: EntryExecutionAnalysis(plan) = .{
             .reachable_functions = [_]bool{false} ** plan.functions.len,
             .reachable_blocks = [_]bool{false} ** plan.blocks.len,
             .reachable_instructions = [_]bool{false} ** plan.instructions.len,
+            .terminal_functions = [_]bool{false} ** plan.functions.len,
+            .after_result_functions = [_]bool{false} ** plan.functions.len,
             .helper_cycle = false,
             .max_active_local_slots = 0,
             .max_active_call_arg_slots = 0,
@@ -2043,12 +2048,81 @@ pub fn entryExecutionAnalysis(comptime plan: ProgramPlan) ValidationError!EntryE
         if (plan.entry_index >= plan.functions.len) return error.InvalidEntryIndex;
         analysis.reachable_functions[plan.entry_index] = true;
 
+        var terminal_reachability = [_]bool{false} ** max_indexed_table_len;
+        var completion_reachability = [_]bool{false} ** max_indexed_table_len;
+        var executable_blocks = [_]bool{false} ** max_indexed_table_len;
+        var control_changed = true;
+        while (control_changed) {
+            control_changed = false;
+            function_completion_scan: for (plan.functions, 0..) |function, function_index| {
+                if (completion_reachability[function_index]) continue :function_completion_scan;
+                const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+                @memset(executable_blocks[function.first_block..block_end], false);
+                try markFunctionExecutableBlocks(plan, function, &completion_reachability, &executable_blocks);
+                executable_block_completion_scan: for (plan.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+                    const block_index = @as(usize, function.first_block) + relative_block_index;
+                    if (!executable_blocks[block_index]) continue :executable_block_completion_scan;
+                    const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
+                    if (!try blockCanResumeToTerminator(plan, function, block.first_instruction, instruction_end, &completion_reachability)) {
+                        continue :executable_block_completion_scan;
+                    }
+                    const terminator = plan.terminators[block.terminator_index];
+                    const block_completes = switch (terminator.kind) {
+                        .return_unit, .return_value => true,
+                        .jump => completion_reachability[terminator.primary],
+                        .branch_if => completion_reachability[terminator.primary] or completion_reachability[terminator.secondary],
+                    };
+                    if (block_completes) {
+                        completion_reachability[function_index] = true;
+                        control_changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        control_changed = true;
+        while (control_changed) {
+            control_changed = false;
+            function_terminal_scan: for (plan.functions, 0..) |function, function_index| {
+                if (terminal_reachability[function_index]) continue :function_terminal_scan;
+                const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+                @memset(executable_blocks[function.first_block..block_end], false);
+                try markFunctionExecutableBlocks(plan, function, &completion_reachability, &executable_blocks);
+                executable_block_terminal_scan: for (plan.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+                    const block_index = @as(usize, function.first_block) + relative_block_index;
+                    if (!executable_blocks[block_index]) continue :executable_block_terminal_scan;
+                    const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
+                    if (try blockCanEscapeTerminally(
+                        plan,
+                        function,
+                        block.first_instruction,
+                        instruction_end,
+                        .{
+                            .completion = &completion_reachability,
+                            .terminal = &terminal_reachability,
+                        },
+                    )) {
+                        terminal_reachability[function_index] = true;
+                        control_changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        for (plan.functions, 0..) |function, function_index| {
+            analysis.terminal_functions[function_index] = terminal_reachability[function_index];
+            const completion_codecs = try functionCompletionCodecReachability(plan, function, &completion_reachability);
+            analysis.after_result_functions[function_index] = completion_codecs.result_codec;
+        }
+
         var changed = true;
         while (changed) {
             changed = false;
             reachable_function_scan: for (plan.functions, 0..) |function, function_index| {
                 if (!analysis.reachable_functions[function_index]) continue :reachable_function_scan;
-                if (try markEntryAnalysisFunctionBlocks(plan, function, &analysis)) {
+                if (try markEntryAnalysisFunctionBlocks(plan, function, &analysis, &completion_reachability)) {
                     changed = true;
                 }
                 const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
@@ -2069,6 +2143,15 @@ pub fn entryExecutionAnalysis(comptime plan: ProgramPlan) ValidationError!EntryE
                                 changed = true;
                             }
                         }
+                        if (terminalAbortInstruction(
+                            plan,
+                            function,
+                            instruction_index,
+                            .{
+                                .completion = &completion_reachability,
+                                .terminal = &terminal_reachability,
+                            },
+                        )) break;
                     }
                 }
             }
@@ -2091,6 +2174,7 @@ fn markEntryAnalysisFunctionBlocks(
     comptime plan: ProgramPlan,
     comptime function: FunctionPlan,
     comptime analysis: *EntryExecutionAnalysis(plan),
+    completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
 ) ValidationError!bool {
     const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
     const entry_block_index = @as(usize, function.first_block) + function.entry_block;
@@ -2107,6 +2191,10 @@ fn markEntryAnalysisFunctionBlocks(
         reachable_block_scan: for (plan.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
             const block_index = @as(usize, function.first_block) + relative_block_index;
             if (!analysis.reachable_blocks[block_index]) continue :reachable_block_scan;
+            const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
+            if (!try blockCanResumeToTerminator(plan, function, block.first_instruction, instruction_end, completion_reachability)) {
+                continue :reachable_block_scan;
+            }
             const terminator = plan.terminators[block.terminator_index];
             switch (terminator.kind) {
                 .branch_if => {
