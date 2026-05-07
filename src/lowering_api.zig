@@ -1436,6 +1436,94 @@ fn supportAbortBeforeStructuredHelperPlan() program_plan.ProgramPlan {
     }) catch |err| supportPlanError(err);
 }
 
+fn supportErrorBeforeStructuredHelperPlan() program_plan.ProgramPlan {
+    const root = program_plan.program_plan_builder.function(0);
+    const error_helper = program_plan.program_plan_builder.function(1);
+    const structured_helper = program_plan.program_plan_builder.function(2);
+    const root_value = program_plan.program_plan_builder.local(root, 0);
+    const helper_value = program_plan.program_plan_builder.local(structured_helper, 0);
+    const instructions = [_]program_plan.Instruction{
+        program_plan.program_plan_builder.callHelperDiscardingResult(root, std.math.maxInt(u16), error_helper, null),
+        program_plan.program_plan_builder.callHelper(root, root_value, structured_helper, null) catch |err| supportPlanError(err),
+        .{ .kind = .return_error, .string_literal = "Rejected" },
+        .{ .kind = .return_value, .operand = helper_value.index },
+    };
+    const functions = [_]program_plan.FunctionPlan{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "error_helper",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 0,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 1,
+        },
+        .{
+            .symbol_name = "dead_structured_helper",
+            .value_codec = .product,
+            .value_schema_index = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 1,
+            .first_block = 2,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 3,
+            .instruction_count = 1,
+        },
+    };
+    const blocks = [_]program_plan.BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 1 },
+        .{ .first_instruction = 3, .instruction_count = 1, .terminator_index = 2 },
+    };
+    const terminators = [_]program_plan.Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_unit },
+        .{ .kind = .return_value },
+    };
+    const schema = supportSchemaTables(.product);
+    return program_plan.program_plan_builder.finish(.{
+        .label = "error-before-structured-helper",
+        .ir_hash = 113,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = schema.schemas,
+        .value_fields = schema.fields,
+        .locals = &.{ .{ .codec = .product, .schema_index = 0 }, .{ .codec = .product, .schema_index = 0 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch |err| supportPlanError(err);
+}
+
 fn supportAbortBeforeStructuredSuccessorPlan() program_plan.ProgramPlan {
     const root = program_plan.program_plan_builder.function(0);
     const helper = program_plan.program_plan_builder.function(1);
@@ -1719,4 +1807,5 @@ test "ability.program executable support ignores unreachable structured helper m
 test "ability.program executable support ignores post-terminal structured helper metadata" {
     try validateExecutablePlanSupport(supportAbortBeforeStructuredHelperPlan());
     try validateExecutablePlanSupport(supportAbortBeforeStructuredSuccessorPlan());
+    try validateExecutablePlanSupport(supportErrorBeforeStructuredHelperPlan());
 }

@@ -2005,6 +2005,25 @@ fn terminalAbortInstruction(
     return false;
 }
 
+fn instructionCannotFallThrough(
+    self: ProgramPlan,
+    function: FunctionPlan,
+    instruction_index: usize,
+    completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
+) bool {
+    const instruction_span_end = @as(usize, function.first_instruction) + function.instruction_count;
+    if (instruction_index < function.first_instruction or instruction_index >= instruction_span_end) return false;
+    const instruction = self.instructions[instruction_index];
+    if (instruction.kind == .return_error) return instruction.string_literal.len != 0;
+    if (instruction.kind == .call_helper) {
+        return instruction.operand < self.functions.len and !completion_reachability[instruction.operand];
+    }
+    if (instruction.kind == .call_op) {
+        return instruction.operand < self.ops.len and self.ops[instruction.operand].mode == .abort;
+    }
+    return false;
+}
+
 const FunctionControlReachability = struct {
     completion: *const [std.math.maxInt(u16) + 1]bool,
     terminal: *const [std.math.maxInt(u16) + 1]bool,
@@ -2152,6 +2171,7 @@ pub fn entryExecutionAnalysis(comptime plan: ProgramPlan) ValidationError!EntryE
                                 .terminal = &terminal_reachability,
                             },
                         )) break;
+                        if (instructionCannotFallThrough(plan, function, instruction_index, &completion_reachability)) break;
                     }
                 }
             }
@@ -5101,6 +5121,66 @@ test "ProgramPlan.validate rejects return_value terminators without a return ins
             .dst = 0,
             .operand = 1,
         }},
+    };
+
+    try std.testing.expectError(error.InvalidTerminatorInstruction, plan.validate());
+}
+
+test "ProgramPlan.validate rejects value return_unit after nonterminal helper" {
+    const instructions = [_]Instruction{
+        program_plan_builder.callHelperDiscardingResult(program_plan_builder.function(0), std.math.maxInt(u16), program_plan_builder.function(1), null),
+    };
+    const functions = [_]FunctionPlan{
+        .{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        },
+        .{
+            .symbol_name = "loop",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 1,
+            .instruction_count = 0,
+        },
+    };
+    const blocks = [_]BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 0, .terminator_index = 1 },
+    };
+    const terminators = [_]Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .jump, .primary = 1 },
+    };
+    const plan = ProgramPlan{
+        .label = "invalid.nonterminal_helper_return_unit",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
     };
 
     try std.testing.expectError(error.InvalidTerminatorInstruction, plan.validate());
