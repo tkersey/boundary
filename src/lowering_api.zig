@@ -282,7 +282,7 @@ const InterpreterScratch = struct {
         try scratch.locals.ensureTotalCapacity(allocator, analysis.max_active_local_slots);
         try scratch.call_args.ensureTotalCapacity(allocator, analysis.max_active_call_arg_slots);
         if (analysis.reachable_after_count != 0) {
-            try scratch.after_stack.ensureTotalCapacity(allocator, analysis.reachable_after_count);
+            try scratch.after_stack.ensureTotalCapacity(allocator, max_interpreter_steps);
         }
         return scratch;
     }

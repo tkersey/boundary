@@ -48,6 +48,10 @@ const CountingAllocator = struct {
         self.free_calls += 1;
         self.child.rawFree(memory, alignment, ret_addr);
     }
+
+    fn allocationEvents(self: @This()) usize {
+        return self.alloc_calls + self.resize_calls + self.remap_calls;
+    }
 };
 
 fn compiledTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
@@ -1857,6 +1861,91 @@ fn manyAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
+fn loopedAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const counter = ability.ir.builder.local(root, 0);
+    const resume_local = ability.ir.builder.local(root, 1);
+    const done = ability.ir.builder.local(root, 2);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{
+            .kind = .const_usize,
+            .dst = counter.index,
+            .string_literal = "8",
+        },
+        ability.ir.builder.callOp(root, resume_local, ability.ir.builder.op(root, 0), null) catch unreachable,
+        .{
+            .kind = .sub_one,
+            .dst = counter.index,
+            .operand = counter.index,
+        },
+        .{
+            .kind = .compare_eq_zero,
+            .dst = done.index,
+            .operand = counter.index,
+        },
+        ability.ir.builder.returnValue(root, resume_local) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .i32,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 3,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 3,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{
+        .label = "authored",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "dispatch",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+        .has_after = true,
+    }};
+    const locals = [_]ability.ir.plan.Local{
+        .{ .codec = .usize },
+        .{ .codec = .i32 },
+        .{ .codec = .bool },
+    };
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 3, .terminator_index = 1 },
+        .{ .first_instruction = 4, .instruction_count = 1, .terminator_index = 2 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .jump, .primary = 1 },
+        .{ .kind = .branch_if, .primary = 2, .secondary = 1 },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 83,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn deepHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     @setEvalBranchQuota(200_000);
     const function_count = 66;
@@ -2057,6 +2146,16 @@ test "ability.program uses shared interpreter scratch for helper frames and afte
     defer many_after_result.deinit();
     try std.testing.expectEqual(@as(i32, 65), many_after_result.value);
     try std.testing.expect(counting.alloc_calls - after_deep_helper_allocs <= 3);
+
+    const before_looped_after_events = counting.allocationEvents();
+    const LoopedAfterBody = struct {
+        pub const compiled_plan = loopedAfterPlan("looped-after-shared-scratch");
+    };
+    const LoopedAfterProgram = ability.program("looped-after-shared-scratch", ManyAfterHandlers, LoopedAfterBody);
+    var looped_after_result = try LoopedAfterProgram.run(&runtime, .{ .authored = .{} });
+    defer looped_after_result.deinit();
+    try std.testing.expectEqual(@as(i32, 8), looped_after_result.value);
+    try std.testing.expect(counting.allocationEvents() - before_looped_after_events <= 3);
 }
 
 test "ability.program accepts public ProgramValue entry args" {
