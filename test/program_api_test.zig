@@ -132,6 +132,65 @@ fn compiledTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
+fn choiceReturnNowPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const resume_local = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resume_local, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(root, resume_local) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .i32,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{
+        .label = "authored",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "dispatch",
+        .mode = .choice,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+        .has_after = true,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 11,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn parameterizedIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const arg = ability.ir.builder.local(root, 0);
@@ -2194,7 +2253,7 @@ test "ability.program does not reserve after stack for plans without after hooks
     try std.testing.expectEqual(before_u16_allocs, counting.u16_aligned_alloc_calls);
 }
 
-test "ability.program lazily allocates after stack for one reachable after hook" {
+test "ability.program does not heap allocate after stack for one reachable after hook" {
     var counting = CountingAllocator.init(std.testing.allocator);
     var runtime = ability.Runtime.init(counting.allocator());
     defer runtime.deinit();
@@ -2219,8 +2278,92 @@ test "ability.program lazily allocates after stack for one reachable after hook"
 
     const full_after_stack_reservation = interpreter_step_budget * @sizeOf(u16);
     try std.testing.expectEqual(@as(i32, 42), result.value);
-    try std.testing.expect(counting.u16_aligned_alloc_calls != 0);
+    try std.testing.expectEqual(@as(usize, 0), counting.u16_aligned_alloc_calls);
     try std.testing.expect(counting.largest_u16_alloc_request < full_after_stack_reservation);
+}
+
+test "ability.program applies after stack without post-dispatch allocation failure" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
+    var runtime = ability.Runtime.init(failing.allocator());
+    defer runtime.deinit();
+
+    var dispatch_count: usize = 0;
+    var after_count: usize = 0;
+    const SideEffectHandlers = struct {
+        authored: struct {
+            dispatch_count: *usize,
+            after_count: *usize,
+
+            pub fn dispatch(self: *const @This()) !i32 {
+                self.dispatch_count.* += 1;
+                return 40;
+            }
+
+            pub fn afterDispatch(self: *const @This(), value: i32) !i32 {
+                self.after_count.* += 1;
+                return value + 2;
+            }
+        },
+    };
+    const SideEffectBody = struct {
+        pub const compiled_plan = compiledTransformPlan("after-stack-oom-before-dispatch");
+    };
+    const SideEffectProgram = ability.program("after-stack-oom-before-dispatch", SideEffectHandlers, SideEffectBody);
+
+    var result = try SideEffectProgram.run(&runtime, .{
+        .authored = .{
+            .dispatch_count = &dispatch_count,
+            .after_count = &after_count,
+        },
+    });
+    defer result.deinit();
+
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+    try std.testing.expect(!failing.has_induced_failure);
+    try std.testing.expectEqual(@as(usize, 1), dispatch_count);
+    try std.testing.expectEqual(@as(usize, 1), after_count);
+}
+
+test "ability.program return-now choice does not allocate unused after stack" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
+    var runtime = ability.Runtime.init(failing.allocator());
+    defer runtime.deinit();
+
+    var dispatch_count: usize = 0;
+    var after_count: usize = 0;
+    const ReturnNowHandlers = struct {
+        authored: struct {
+            dispatch_count: *usize,
+            after_count: *usize,
+
+            pub fn dispatch(self: *const @This()) !ability.effect.choice.Decision(i32, i32) {
+                self.dispatch_count.* += 1;
+                return ability.effect.choice.Decision(i32, i32).returnNow(99);
+            }
+
+            pub fn afterDispatch(self: *const @This(), value: i32) !i32 {
+                self.after_count.* += 1;
+                return value + 1;
+            }
+        },
+    };
+    const ReturnNowBody = struct {
+        pub const compiled_plan = choiceReturnNowPlan("choice-return-now-no-after-allocation");
+    };
+    const ReturnNowProgram = ability.program("choice-return-now-no-after-allocation", ReturnNowHandlers, ReturnNowBody);
+
+    var result = try ReturnNowProgram.run(&runtime, .{
+        .authored = .{
+            .dispatch_count = &dispatch_count,
+            .after_count = &after_count,
+        },
+    });
+    defer result.deinit();
+
+    try std.testing.expectEqual(@as(i32, 99), result.value);
+    try std.testing.expect(!failing.has_induced_failure);
+    try std.testing.expectEqual(@as(usize, 1), dispatch_count);
+    try std.testing.expectEqual(@as(usize, 0), after_count);
 }
 
 test "ability.program looped after pushes beyond static reachable after count" {

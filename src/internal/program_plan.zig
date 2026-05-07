@@ -751,18 +751,44 @@ pub const ProgramPlan = struct {
 
     fn validateFunctionExecutionSpanOwnership(self: @This()) ValidationError!void {
         if (self.functions.len <= 1) return;
-        for (self.functions[0 .. self.functions.len - 1], 0..) |function, function_index| {
-            for (self.functions[function_index + 1 ..]) |other_function| {
-                if (rangesOverlap(function.first_block, function.block_count, other_function.first_block, other_function.block_count)) {
-                    return error.OverlappingFunctionBlockSpan;
-                }
-                if (rangesOverlap(function.first_instruction, function.instruction_count, other_function.first_instruction, other_function.instruction_count)) {
-                    return error.OverlappingFunctionInstrSpan;
-                }
-            }
+        var span_keys = [_]FunctionExecutionSpanKey{.{ .first = 0, .count = 0 }} ** max_indexed_table_len;
+        const keys = span_keys[0..self.functions.len];
+
+        for (self.functions, 0..) |function, index| {
+            keys[index] = .{ .first = function.first_block, .count = function.block_count };
         }
+        std.mem.sort(FunctionExecutionSpanKey, keys, {}, functionExecutionSpanLessThan);
+        if (sortedFunctionSpansOverlap(keys)) return error.OverlappingFunctionBlockSpan;
+
+        for (self.functions, 0..) |function, index| {
+            keys[index] = .{ .first = function.first_instruction, .count = function.instruction_count };
+        }
+        std.mem.sort(FunctionExecutionSpanKey, keys, {}, functionExecutionSpanLessThan);
+        if (sortedFunctionSpansOverlap(keys)) return error.OverlappingFunctionInstrSpan;
     }
 };
+
+const FunctionExecutionSpanKey = struct {
+    first: u16,
+    count: u16,
+};
+
+fn functionExecutionSpanLessThan(_: void, lhs: FunctionExecutionSpanKey, rhs: FunctionExecutionSpanKey) bool {
+    if (lhs.first != rhs.first) return lhs.first < rhs.first;
+    return lhs.count < rhs.count;
+}
+
+fn sortedFunctionSpansOverlap(spans: []const FunctionExecutionSpanKey) bool {
+    var max_non_empty_end: usize = 0;
+    var saw_non_empty_span = false;
+    for (spans) |span| {
+        if (span.count == 0) continue;
+        if (saw_non_empty_span and max_non_empty_end > span.first) return true;
+        max_non_empty_end = @max(max_non_empty_end, rangeEnd(span.first, span.count) orelse return true);
+        saw_non_empty_span = true;
+    }
+    return false;
+}
 
 const OutputLabelSortKey = struct {
     hash: u64,
@@ -1964,13 +1990,6 @@ fn rangeEnd(start: u16, len: u16) ?usize {
     const wide_start: usize = start;
     const wide_len: usize = len;
     return std.math.add(usize, wide_start, wide_len) catch null;
-}
-
-fn rangesOverlap(first_a: u16, count_a: u16, first_b: u16, count_b: u16) bool {
-    const end_a = rangeEnd(first_a, count_a) orelse return false;
-    const end_b = rangeEnd(first_b, count_b) orelse return false;
-    if (@as(usize, first_a) == end_a or @as(usize, first_b) == end_b) return false;
-    return first_a < end_b and first_b < end_a;
 }
 
 fn isValidFunctionLocal(local_count: u16, local_id: u16) bool {
@@ -5271,6 +5290,51 @@ fn twoFunctionExecutionSpanPlan(
     };
 }
 
+fn manyDisjointFunctionSpanPlan(comptime label: []const u8) ProgramPlan {
+    const function_count = 1024;
+    const functions = comptime blk: {
+        var buf: [function_count]FunctionPlan = undefined;
+        for (0..function_count) |index| {
+            buf[index] = spanTestFunction(.{
+                .symbol_name = "fn",
+                .first_local = @intCast(index),
+                .first_block = @intCast(index),
+                .block_count = 1,
+                .first_instruction = @intCast(index),
+                .instruction_count = 1,
+            });
+        }
+        break :blk buf;
+    };
+    const blocks = comptime blk: {
+        var buf: [function_count]BlockPlan = undefined;
+        for (0..function_count) |index| {
+            buf[index] = .{
+                .first_instruction = @intCast(index),
+                .instruction_count = 1,
+                .terminator_index = @intCast(index),
+            };
+        }
+        break :blk buf;
+    };
+    const terminators = [_]Terminator{.{ .kind = .return_value }} ** function_count;
+    const instructions = [_]Instruction{.{ .kind = .return_value, .operand = 0 }} ** function_count;
+    const locals = [_]LocalPlan{.{ .codec = .i32 }} ** function_count;
+    return .{
+        .label = label,
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    };
+}
+
 test "ProgramPlan.validate rejects overlapping function block spans" {
     const adjacent_blocks = [_]BlockPlan{
         .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
@@ -5338,6 +5402,14 @@ test "ProgramPlan.validate accepts adjacent function execution spans" {
         },
     );
     try adjacent_plan.validate();
+}
+
+test "ProgramPlan.validate handles many disjoint function spans at comptime" {
+    comptime {
+        @setEvalBranchQuota(1_000_000);
+        const plan = manyDisjointFunctionSpanPlan("valid.many_disjoint_function_spans");
+        plan.validate() catch |err| @compileError(@errorName(err));
+    }
 }
 
 test "ProgramPlan.validate rejects functions whose instruction span is not attached to owned blocks" {
