@@ -233,6 +233,46 @@ fn collectBodyOutputs(
     return {};
 }
 
+const DeinitResultMode = enum {
+    none,
+    value_and_outputs,
+    value_only,
+};
+
+fn bodyDeinitResultMode(comptime Body: type, comptime Value: type, comptime Outputs: type) DeinitResultMode {
+    if (comptime !hasDeclSafe(Body, "deinitResult")) return .none;
+    const DeinitFn = @TypeOf(Body.deinitResult);
+    if (DeinitFn == fn (std.mem.Allocator, Value) void) return .value_only;
+    if (DeinitFn == fn (std.mem.Allocator, Value, Outputs) void) {
+        if (Outputs != void) {
+            @compileError("Body.deinitResult with Body.Outputs must have type fn (std.mem.Allocator, value) void; release outputs separately with Body.deinitOutputs");
+        }
+        return .value_and_outputs;
+    }
+    @compileError("Body.deinitResult must have type fn (std.mem.Allocator, value) void");
+}
+
+fn DeinitBodyResultArgs(comptime Value: type, comptime Outputs: type) type {
+    return struct {
+        allocator: std.mem.Allocator,
+        value: Value,
+        outputs: ?Outputs,
+    };
+}
+
+fn deinitBodyResult(
+    comptime Body: type,
+    comptime Value: type,
+    comptime Outputs: type,
+    args: DeinitBodyResultArgs(Value, Outputs),
+) void {
+    switch (comptime bodyDeinitResultMode(Body, Value, Outputs)) {
+        .none => {},
+        .value_only => Body.deinitResult(args.allocator, args.value),
+        .value_and_outputs => Body.deinitResult(args.allocator, args.value, args.outputs orelse {}),
+    }
+}
+
 fn errorValueInSet(comptime ErrorSet: type, err: anyerror) bool {
     return switch (@typeInfo(ErrorSet)) {
         .error_set => |errors| blk: {
@@ -280,13 +320,11 @@ pub fn program(
 
             /// Release owned result resources declared by the program body.
             pub fn deinit(self: *@This()) void {
-                if (comptime hasDeclSafe(Body, "deinitResult")) {
-                    const DeinitFn = @TypeOf(Body.deinitResult);
-                    if (DeinitFn != fn (std.mem.Allocator, Value, Outputs) void) {
-                        @compileError("Body.deinitResult must have type fn (std.mem.Allocator, value, outputs) void");
-                    }
-                    Body.deinitResult(self.allocator, self.value, self.outputs);
-                }
+                deinitBodyResult(Body, Value, Outputs, .{
+                    .allocator = self.allocator,
+                    .value = self.value,
+                    .outputs = self.outputs,
+                });
                 if (comptime hasDeclSafe(Body, "deinitOutputs")) {
                     const DeinitOutputsFn = @TypeOf(Body.deinitOutputs);
                     if (DeinitOutputsFn != fn (std.mem.Allocator, Outputs) void) {
@@ -312,12 +350,27 @@ pub fn program(
                 lowering_api.runExecutablePlanWithTypedArgsForErrorSetAndNestedTargetsInRuntimeExecution(BodyErrorSet(Body), runtime, compiled_plan, body_value_schema_types, body_nested_with_targets, mutable_handlers, args) catch |err| return mapProgramRunError(Error, err)
             else
                 lowering_api.runExecutablePlanWithTypedArgsForErrorSetAndNestedTargetsInRuntimeExecution(BodyErrorSet(Body), runtime, compiled_plan, body_value_schema_types, body_nested_with_targets, &mutable_handlers, args) catch |err| return mapProgramRunError(Error, err);
+            const allocator = lowered_machine.runtimeAllocator(runtime);
             const outputs = if (comptime @typeInfo(HandlersType) == .pointer)
-                collectBodyOutputs(Body, Outputs, lowered_machine.runtimeAllocator(runtime), mutable_handlers) catch |err| return mapProgramRunError(Error, err)
+                collectBodyOutputs(Body, Outputs, allocator, mutable_handlers) catch |err| {
+                    deinitBodyResult(Body, Value, Outputs, .{
+                        .allocator = allocator,
+                        .value = raw.value,
+                        .outputs = null,
+                    });
+                    return mapProgramRunError(Error, err);
+                }
             else
-                collectBodyOutputs(Body, Outputs, lowered_machine.runtimeAllocator(runtime), &mutable_handlers) catch |err| return mapProgramRunError(Error, err);
+                collectBodyOutputs(Body, Outputs, allocator, &mutable_handlers) catch |err| {
+                    deinitBodyResult(Body, Value, Outputs, .{
+                        .allocator = allocator,
+                        .value = raw.value,
+                        .outputs = null,
+                    });
+                    return mapProgramRunError(Error, err);
+                };
             return .{
-                .allocator = lowered_machine.runtimeAllocator(runtime),
+                .allocator = allocator,
                 .value = raw.value,
                 .outputs = outputs,
             };

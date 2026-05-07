@@ -115,7 +115,9 @@ pub fn main() !void {
 The label must be non-empty. `Program.Result` exposes `value`, `outputs`, and
 `deinit()`. String results in `Program.Result.value` should be treated as
 borrowed unless the body documents and implements ownership cleanup through
-`Body.deinitResult`. Bodies that declare `Outputs` must implement
+`Body.deinitResult(allocator, value)`. The value cleanup hook is independent of
+output cleanup, so it can run even when output collection fails. Bodies that
+declare `Outputs` must implement
 `Body.collectOutputs(allocator, handlers)` and can release those values with
 `Body.deinitOutputs`.
 

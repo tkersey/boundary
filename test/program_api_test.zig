@@ -3053,6 +3053,42 @@ test "ability.program materializes outputs through body collector and deinit hoo
     try std.testing.expectEqual(@as(i32, 91), result.outputs[0]);
 }
 
+test "ability.program deinitializes result value when output collection fails" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        amount: i32,
+    };
+    const CleanupState = struct {
+        var deinit_called = false;
+    };
+    const EmptyHandlers = struct {};
+    const FailingOutputBody = struct {
+        pub const Error = error{OutputFailed};
+        pub const Outputs = []i32;
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = productIdentityPlan(Payload, "output-failure-cleans-result");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{Payload{ .amount = 93 }}) {
+            return .{Payload{ .amount = 93 }};
+        }
+
+        pub fn collectOutputs(_: std.mem.Allocator, _: *EmptyHandlers) Error!Outputs {
+            return error.OutputFailed;
+        }
+
+        pub fn deinitResult(_: std.mem.Allocator, value: Payload) void {
+            std.debug.assert(value.amount == 93);
+            CleanupState.deinit_called = true;
+        }
+    };
+    const Program = ability.program("output-failure-cleans-result", EmptyHandlers, FailingOutputBody);
+    CleanupState.deinit_called = false;
+    try std.testing.expectError(error.OutputFailed, Program.run(&runtime, .{}));
+    try std.testing.expect(CleanupState.deinit_called);
+}
+
 test "ability.program enters runtime execution before encoding entry args" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
