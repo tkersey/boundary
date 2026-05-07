@@ -280,6 +280,7 @@ pub const ProgramPlan = struct {
             const instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return error.InvalidFunctionInstructionSpan;
             if (instruction_end > self.instructions.len) return error.InvalidFunctionInstructionSpan;
         }
+        try self.validateFunctionExecutionSpanOwnership();
 
         for (self.requirements) |requirement| {
             if (requirement.label.len == 0) return error.EmptyRequirementLabel;
@@ -747,6 +748,20 @@ pub const ProgramPlan = struct {
             },
         }
     }
+
+    fn validateFunctionExecutionSpanOwnership(self: @This()) ValidationError!void {
+        if (self.functions.len <= 1) return;
+        for (self.functions[0 .. self.functions.len - 1], 0..) |function, function_index| {
+            for (self.functions[function_index + 1 ..]) |other_function| {
+                if (rangesOverlap(function.first_block, function.block_count, other_function.first_block, other_function.block_count)) {
+                    return error.OverlappingFunctionBlockSpan;
+                }
+                if (rangesOverlap(function.first_instruction, function.instruction_count, other_function.first_instruction, other_function.instruction_count)) {
+                    return error.OverlappingFunctionInstrSpan;
+                }
+            }
+        }
+    }
 };
 
 const OutputLabelSortKey = struct {
@@ -945,6 +960,8 @@ pub const ValidationError = error{
     EmptyValueSchemaLabel,
     EmptyValueVariantName,
     DuplicateOutputLabel,
+    OverlappingFunctionBlockSpan,
+    OverlappingFunctionInstrSpan,
     TooManyFunctionOutputs,
     ProgramPlanTableTooLarge,
     InvalidCallHelperTarget,
@@ -1949,6 +1966,13 @@ fn rangeEnd(start: u16, len: u16) ?usize {
     return std.math.add(usize, wide_start, wide_len) catch null;
 }
 
+fn rangesOverlap(first_a: u16, count_a: u16, first_b: u16, count_b: u16) bool {
+    const end_a = rangeEnd(first_a, count_a) orelse return false;
+    const end_b = rangeEnd(first_b, count_b) orelse return false;
+    if (@as(usize, first_a) == end_a or @as(usize, first_b) == end_b) return false;
+    return first_a < end_b and first_b < end_a;
+}
+
 fn isValidFunctionLocal(local_count: u16, local_id: u16) bool {
     return local_id < local_count;
 }
@@ -2793,6 +2817,8 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
         error.EmptyValueSchemaLabel => "runtime plan generator produced an empty value-schema label",
         error.EmptyValueVariantName => "runtime plan generator produced an empty value-schema variant name",
         error.DuplicateOutputLabel => "runtime plan generator produced duplicate output labels in one function",
+        error.OverlappingFunctionBlockSpan => "runtime plan generator produced overlapping function block spans",
+        error.OverlappingFunctionInstrSpan => "runtime plan generator produced overlapping function instruction spans",
         error.TooManyFunctionOutputs => "runtime plan generator produced too many outputs in one function",
         error.ProgramPlanTableTooLarge => "runtime plan generator produced a table larger than the u16-indexed executable profile",
         error.InvalidCallHelperArgSpan => "runtime plan generator produced an invalid helper call argument span",
@@ -5184,6 +5210,134 @@ test "ProgramPlan.validate rejects value return_unit after nonterminal helper" {
     };
 
     try std.testing.expectError(error.InvalidTerminatorInstruction, plan.validate());
+}
+
+const SpanTestFunction = struct {
+    symbol_name: []const u8,
+    first_local: u16,
+    first_block: u16,
+    block_count: u16,
+    first_instruction: u16,
+    instruction_count: u16,
+};
+
+fn spanTestFunction(comptime options: SpanTestFunction) FunctionPlan {
+    return .{
+        .symbol_name = options.symbol_name,
+        .value_codec = .i32,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = options.first_local,
+        .local_count = 1,
+        .first_block = options.first_block,
+        .entry_block = 0,
+        .block_count = options.block_count,
+        .first_instruction = options.first_instruction,
+        .instruction_count = options.instruction_count,
+    };
+}
+
+fn twoFunctionExecutionSpanPlan(
+    comptime label: []const u8,
+    comptime functions: [2]FunctionPlan,
+    comptime blocks: [2]BlockPlan,
+) ProgramPlan {
+    const terminators = [_]Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+    const instructions = [_]Instruction{
+        .{ .kind = .return_value, .operand = 0 },
+        .{ .kind = .return_value, .operand = 0 },
+    };
+    const locals = [_]LocalPlan{
+        .{ .codec = .i32 },
+        .{ .codec = .i32 },
+    };
+    return .{
+        .label = label,
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    };
+}
+
+test "ProgramPlan.validate rejects overlapping function block spans" {
+    const adjacent_blocks = [_]BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+    };
+
+    const duplicate_plan = twoFunctionExecutionSpanPlan(
+        "invalid.duplicate_function_block_span",
+        .{
+            spanTestFunction(.{ .symbol_name = "root", .first_local = 0, .first_block = 0, .block_count = 1, .first_instruction = 0, .instruction_count = 1 }),
+            spanTestFunction(.{ .symbol_name = "helper", .first_local = 1, .first_block = 0, .block_count = 1, .first_instruction = 1, .instruction_count = 1 }),
+        },
+        adjacent_blocks,
+    );
+    try std.testing.expectError(error.OverlappingFunctionBlockSpan, duplicate_plan.validate());
+
+    const partial_plan = twoFunctionExecutionSpanPlan(
+        "invalid.partial_function_block_span",
+        .{
+            spanTestFunction(.{ .symbol_name = "root", .first_local = 0, .first_block = 0, .block_count = 2, .first_instruction = 0, .instruction_count = 2 }),
+            spanTestFunction(.{ .symbol_name = "helper", .first_local = 1, .first_block = 1, .block_count = 1, .first_instruction = 1, .instruction_count = 1 }),
+        },
+        adjacent_blocks,
+    );
+    try std.testing.expectError(error.OverlappingFunctionBlockSpan, partial_plan.validate());
+}
+
+test "ProgramPlan.validate rejects overlapping function instruction spans" {
+    const adjacent_blocks = [_]BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+    };
+
+    const duplicate_plan = twoFunctionExecutionSpanPlan(
+        "invalid.duplicate_function_instruction_span",
+        .{
+            spanTestFunction(.{ .symbol_name = "root", .first_local = 0, .first_block = 0, .block_count = 1, .first_instruction = 0, .instruction_count = 1 }),
+            spanTestFunction(.{ .symbol_name = "helper", .first_local = 1, .first_block = 1, .block_count = 1, .first_instruction = 0, .instruction_count = 1 }),
+        },
+        adjacent_blocks,
+    );
+    try std.testing.expectError(error.OverlappingFunctionInstrSpan, duplicate_plan.validate());
+
+    const partial_plan = twoFunctionExecutionSpanPlan(
+        "invalid.partial_function_instruction_span",
+        .{
+            spanTestFunction(.{ .symbol_name = "root", .first_local = 0, .first_block = 0, .block_count = 1, .first_instruction = 0, .instruction_count = 2 }),
+            spanTestFunction(.{ .symbol_name = "helper", .first_local = 1, .first_block = 1, .block_count = 1, .first_instruction = 1, .instruction_count = 1 }),
+        },
+        adjacent_blocks,
+    );
+    try std.testing.expectError(error.OverlappingFunctionInstrSpan, partial_plan.validate());
+}
+
+test "ProgramPlan.validate accepts adjacent function execution spans" {
+    const adjacent_plan = twoFunctionExecutionSpanPlan(
+        "valid.adjacent_function_execution_spans",
+        .{
+            spanTestFunction(.{ .symbol_name = "root", .first_local = 0, .first_block = 0, .block_count = 1, .first_instruction = 0, .instruction_count = 1 }),
+            spanTestFunction(.{ .symbol_name = "helper", .first_local = 1, .first_block = 1, .block_count = 1, .first_instruction = 1, .instruction_count = 1 }),
+        },
+        .{
+            .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+            .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+        },
+    );
+    try adjacent_plan.validate();
 }
 
 test "ProgramPlan.validate rejects functions whose instruction span is not attached to owned blocks" {

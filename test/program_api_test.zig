@@ -2,12 +2,19 @@
 const ability = @import("ability");
 const std = @import("std");
 
+const interpreter_step_budget = 10_000;
+
 const CountingAllocator = struct {
     child: std.mem.Allocator,
     alloc_calls: usize = 0,
     resize_calls: usize = 0,
     remap_calls: usize = 0,
     free_calls: usize = 0,
+    total_allocated_bytes: usize = 0,
+    largest_allocation_request: usize = 0,
+    u16_aligned_alloc_calls: usize = 0,
+    u16_aligned_allocated_bytes: usize = 0,
+    largest_u16_alloc_request: usize = 0,
 
     fn init(child: std.mem.Allocator) @This() {
         return .{ .child = child };
@@ -28,6 +35,7 @@ const CountingAllocator = struct {
     fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
         const self: *@This() = @ptrCast(@alignCast(ctx));
         self.alloc_calls += 1;
+        self.recordAllocationRequest(len, alignment);
         return self.child.rawAlloc(len, alignment, ret_addr);
     }
 
@@ -40,6 +48,7 @@ const CountingAllocator = struct {
     fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
         const self: *@This() = @ptrCast(@alignCast(ctx));
         self.remap_calls += 1;
+        self.recordAllocationRequest(new_len, alignment);
         return self.child.rawRemap(memory, alignment, new_len, ret_addr);
     }
 
@@ -51,6 +60,16 @@ const CountingAllocator = struct {
 
     fn allocationEvents(self: @This()) usize {
         return self.alloc_calls + self.resize_calls + self.remap_calls;
+    }
+
+    fn recordAllocationRequest(self: *@This(), len: usize, alignment: std.mem.Alignment) void {
+        self.total_allocated_bytes += len;
+        self.largest_allocation_request = @max(self.largest_allocation_request, len);
+        if (alignment == std.mem.Alignment.of(u16)) {
+            self.u16_aligned_alloc_calls += 1;
+            self.u16_aligned_allocated_bytes += len;
+            self.largest_u16_alloc_request = @max(self.largest_u16_alloc_request, len);
+        }
     }
 };
 
@@ -2156,6 +2175,77 @@ test "ability.program uses shared interpreter scratch for helper frames and afte
     defer looped_after_result.deinit();
     try std.testing.expectEqual(@as(i32, 8), looped_after_result.value);
     try std.testing.expect(counting.allocationEvents() - before_looped_after_events <= 3);
+}
+
+test "ability.program does not reserve after stack for plans without after hooks" {
+    var counting = CountingAllocator.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(counting.allocator());
+    defer runtime.deinit();
+
+    const before_u16_allocs = counting.u16_aligned_alloc_calls;
+    const NoAfterBody = struct {
+        pub const compiled_plan = wideLocalPlan("no-after-allocation");
+    };
+    const NoAfterProgram = ability.program("no-after-allocation", struct {}, NoAfterBody);
+    var result = try NoAfterProgram.run(&runtime, .{});
+    defer result.deinit();
+
+    try std.testing.expectEqual(@as(i32, 123), result.value);
+    try std.testing.expectEqual(before_u16_allocs, counting.u16_aligned_alloc_calls);
+}
+
+test "ability.program lazily allocates after stack for one reachable after hook" {
+    var counting = CountingAllocator.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(counting.allocator());
+    defer runtime.deinit();
+
+    const OneAfterHandlers = struct {
+        authored: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 40;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: i32) !i32 {
+                return value + 2;
+            }
+        },
+    };
+    const OneAfterBody = struct {
+        pub const compiled_plan = compiledTransformPlan("one-after-lazy-allocation");
+    };
+    const OneAfterProgram = ability.program("one-after-lazy-allocation", OneAfterHandlers, OneAfterBody);
+    var result = try OneAfterProgram.run(&runtime, .{ .authored = .{} });
+    defer result.deinit();
+
+    const full_after_stack_reservation = interpreter_step_budget * @sizeOf(u16);
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+    try std.testing.expect(counting.u16_aligned_alloc_calls != 0);
+    try std.testing.expect(counting.largest_u16_alloc_request < full_after_stack_reservation);
+}
+
+test "ability.program looped after pushes beyond static reachable after count" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const LoopedAfterHandlers = struct {
+        authored: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 0;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: i32) !i32 {
+                return value + 1;
+            }
+        },
+    };
+    const LoopedAfterBody = struct {
+        pub const compiled_plan = loopedAfterPlan("looped-after-dynamic-depth");
+    };
+    const LoopedAfterProgram = ability.program("looped-after-dynamic-depth", LoopedAfterHandlers, LoopedAfterBody);
+    var result = try LoopedAfterProgram.run(&runtime, .{ .authored = .{} });
+    defer result.deinit();
+
+    try std.testing.expectEqual(@as(i32, 8), result.value);
 }
 
 test "ability.program accepts public ProgramValue entry args" {
