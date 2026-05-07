@@ -1,5 +1,6 @@
 // zlinter-disable function_naming no_empty_block no_undefined no_swallow_error
 const lowered_machine = @import("lowered_machine");
+const lowering_api = @import("lowering_api");
 const std = @import("std");
 
 fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
@@ -37,58 +38,93 @@ fn dummyValue(comptime T: type) T {
     };
 }
 
-fn ProgramReturnType(comptime HandlersType: type, comptime Body: type) type {
-    if (!hasDeclSafe(Body, "program")) {
-        @compileError("ability.program bodies must declare pub fn program(runtime, handlers)");
+fn ProgramPlanForBody(comptime Body: type) lowering_api.ProgramPlan {
+    if (!hasDeclSafe(Body, "compiled_plan")) {
+        @compileError("ability.program bodies must declare pub const compiled_plan: ability.ir.ProgramPlan");
     }
-    return @TypeOf(Body.program(dummyValue(*lowered_machine.Runtime), dummyValue(HandlersType)));
+    const plan = Body.compiled_plan;
+    if (@TypeOf(plan) != lowering_api.ProgramPlan) {
+        @compileError("Body.compiled_plan must have type ability.ir.ProgramPlan");
+    }
+    comptime {
+        @setEvalBranchQuota(100_000);
+        plan.validate() catch |err| {
+            @compileError("Body.compiled_plan failed ProgramPlan.validate: " ++ @errorName(err));
+        };
+        lowering_api.validateExecutablePlanSupport(plan) catch |err| {
+            @compileError("Body.compiled_plan is not supported by ability.program: " ++ @errorName(err));
+        };
+        validatePlanReturnErrors(plan, BodyErrorSet(Body));
+    }
+    return plan;
 }
 
-fn ProgramPayloadType(comptime ReturnType: type) type {
-    return switch (@typeInfo(ReturnType)) {
-        .error_union => |err_union| err_union.payload,
-        else => ReturnType,
+fn BodyErrorSet(comptime Body: type) type {
+    if (comptime !hasDeclSafe(Body, "Error")) return error{};
+    if (@typeInfo(Body.Error) != .error_set) @compileError("Body.Error must be an error set");
+    return Body.Error;
+}
+
+fn errorSetContains(comptime ErrorSet: type, literal: []const u8) bool {
+    return switch (@typeInfo(ErrorSet)) {
+        .error_set => |errors| blk: {
+            if (errors) |decls| {
+                inline for (decls) |decl| {
+                    if (std.mem.eql(u8, decl.name, literal)) break :blk true;
+                }
+            } else {
+                break :blk true;
+            }
+            break :blk false;
+        },
+        else => @compileError("Body.Error must be an error set"),
     };
 }
 
-fn resultEnvelopeMarker(comptime Payload: type) bool {
-    if (!hasDeclSafe(Payload, "ability_result_envelope")) return false;
-    if (@TypeOf(Payload.ability_result_envelope) != bool) {
-        @compileError("ability_result_envelope must be a bool");
+fn validatePlanReturnErrors(comptime plan: lowering_api.ProgramPlan, comptime ErrorSet: type) void {
+    for (plan.instructions) |instruction| {
+        if (instruction.kind == .return_error and !errorSetContains(ErrorSet, instruction.string_literal)) {
+            @compileError("Body.compiled_plan return_error is not declared in Body.Error: " ++ instruction.string_literal);
+        }
     }
-    return Payload.ability_result_envelope;
 }
 
-fn isResultEnvelope(comptime Payload: type) bool {
-    if (!resultEnvelopeMarker(Payload)) return false;
-    return switch (@typeInfo(Payload)) {
-        .@"struct" => blk: {
-            if (!@hasField(Payload, "value") or !@hasField(Payload, "outputs")) {
-                @compileError("marked ability.program result envelopes must declare value and outputs fields");
+fn ProgramValueTypeForCodec(comptime codec: lowering_api.ValueCodec) type {
+    return switch (codec) {
+        .unit => void,
+        .bool => bool,
+        .i32 => i32,
+        .product => @compileError("product ProgramPlan results require schema-specific ability.program decoding"),
+        .usize => usize,
+        .string => []const u8,
+        .string_list => @compileError("string-list ProgramPlan results require interpreter value support"),
+        .sum => @compileError("sum ProgramPlan results require schema-specific ability.program decoding"),
+    };
+}
+
+fn ProgramErrorSet(comptime Body: type) type {
+    if (comptime hasDeclSafe(Body, "Error")) return lowered_machine.ResetError(Body.Error);
+    return lowered_machine.ResetError(error{});
+}
+
+fn errorValueInSet(comptime ErrorSet: type, err: anyerror) bool {
+    return switch (@typeInfo(ErrorSet)) {
+        .error_set => |errors| blk: {
+            if (errors) |decls| {
+                inline for (decls) |decl| {
+                    if (err == @field(ErrorSet, decl.name)) break :blk true;
+                }
+                break :blk false;
             }
             break :blk true;
         },
-        else => @compileError("marked ability.program result envelopes must be structs"),
+        else => @compileError("Program.Error must be an error set"),
     };
 }
 
-fn ProgramValueType(comptime ReturnType: type) type {
-    const Payload = ProgramPayloadType(ReturnType);
-    if (comptime isResultEnvelope(Payload)) return @FieldType(Payload, "value");
-    return Payload;
-}
-
-fn ProgramOutputsType(comptime ReturnType: type) type {
-    const Payload = ProgramPayloadType(ReturnType);
-    if (comptime isResultEnvelope(Payload)) return @FieldType(Payload, "outputs");
-    return void;
-}
-
-fn ProgramErrorSet(comptime ReturnType: type) type {
-    return switch (@typeInfo(ReturnType)) {
-        .error_union => |err_union| lowered_machine.ResetError(err_union.error_set),
-        else => lowered_machine.ResetError(error{}),
-    };
+fn mapProgramRunError(comptime ErrorSet: type, err: anyerror) ErrorSet {
+    if (errorValueInSet(ErrorSet, err)) return @errorCast(err);
+    return error.ProgramContractViolation;
 }
 
 /// Declare one reusable explicit local effect program.
@@ -98,13 +134,15 @@ pub fn program(
     comptime Body: type,
 ) type {
     if (label.len == 0) @compileError("ability.program label must be non-empty");
-    const ReturnType = ProgramReturnType(HandlersType, Body);
-    const Value = ProgramValueType(ReturnType);
-    const Outputs = ProgramOutputsType(ReturnType);
+    const body_compiled_plan = ProgramPlanForBody(Body);
+    const Value = ProgramValueTypeForCodec(lowering_api.executableResultCodecForPlan(body_compiled_plan));
+    const Outputs = void;
 
     return struct {
+        /// Runtime-owned executable plan for this public program.
+        pub const compiled_plan = body_compiled_plan;
         /// Public execution error for this program.
-        pub const Error = ProgramErrorSet(ReturnType);
+        pub const Error = ProgramErrorSet(Body);
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {
@@ -124,22 +162,23 @@ pub fn program(
             }
         };
 
-        /// Execute the explicit body against one caller-owned runtime.
+        /// Execute the compiled ProgramPlan against one caller-owned runtime.
         pub fn run(runtime: *lowered_machine.Runtime, handlers: HandlersType) Error!Result {
-            try lowered_machine.beginExecution(runtime);
+            var mutable_handlers = handlers;
+            lowered_machine.beginExecution(runtime) catch |err| return mapProgramRunError(Error, err);
             defer lowered_machine.endExecution(runtime);
-
-            const raw = if (comptime @typeInfo(ReturnType) == .error_union)
-                Body.program(runtime, handlers) catch |err| return @errorCast(err)
+            const args = if (comptime hasDeclSafe(Body, "encodeArgs"))
+                Body.encodeArgs(mutable_handlers)
             else
-                Body.program(runtime, handlers);
-            const payload = raw;
-            const value = if (comptime isResultEnvelope(@TypeOf(payload))) payload.value else payload;
-            const outputs = if (comptime isResultEnvelope(@TypeOf(payload))) payload.outputs else {};
+                &.{};
+            const raw = if (comptime @typeInfo(HandlersType) == .pointer)
+                lowering_api.runExecutablePlanWithArgsForErrorSetInRuntimeExecution(BodyErrorSet(Body), runtime, compiled_plan, mutable_handlers, args) catch |err| return mapProgramRunError(Error, err)
+            else
+                lowering_api.runExecutablePlanWithArgsForErrorSetInRuntimeExecution(BodyErrorSet(Body), runtime, compiled_plan, &mutable_handlers, args) catch |err| return mapProgramRunError(Error, err);
             return .{
                 .allocator = lowered_machine.runtimeAllocator(runtime),
-                .value = value,
-                .outputs = outputs,
+                .value = raw.value,
+                .outputs = {},
             };
         }
     };
@@ -147,4 +186,100 @@ pub fn program(
 
 test "program rejects empty labels" {
     _ = program;
+}
+
+test "ability.program preserves bounded error set for bodies without user errors" {
+    const program_plan = @import("internal_program_plan");
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 0,
+    }};
+    const blocks = [_]program_plan.BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = 0,
+        .terminator_index = 0,
+    }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_unit }};
+    const body = struct {
+        /// Runtime plan with no user-declared error path.
+        pub const compiled_plan = program_plan.ProgramPlan{
+            .label = "no-user-error",
+            .ir_hash = 1,
+            .entry_index = 0,
+            .functions = &functions,
+            .requirements = &.{},
+            .ops = &.{},
+            .outputs = &.{},
+            .blocks = &blocks,
+            .terminators = &terminators,
+            .instructions = &.{},
+        };
+    };
+    const program_type = program("no-user-error", struct {}, body);
+
+    try std.testing.expect(program_type.Error == lowered_machine.ResetError(error{}));
+
+    const forwarder = struct {
+        fn run(runtime: *lowered_machine.Runtime) lowered_machine.ResetError(error{})!void {
+            var result = try program_type.run(runtime, .{});
+            defer result.deinit();
+        }
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try forwarder.run(&runtime);
+}
+
+test "ability.program executable support rejects nested-with plans" {
+    const program_plan = @import("internal_program_plan");
+    const instructions = [_]program_plan.Instruction{.{
+        .kind = .call_nested_with,
+        .aux = @intFromEnum(program_plan.ValueCodec.unit),
+        .string_literal = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi",
+    }};
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const blocks = [_]program_plan.BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_unit }};
+    const nested_with_plan = program_plan.ProgramPlan{
+        .label = "nested-with",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    };
+
+    try nested_with_plan.validate();
+    try std.testing.expectError(
+        error.UnsupportedNestedWith,
+        lowering_api.validateExecutablePlanSupport(nested_with_plan),
+    );
 }

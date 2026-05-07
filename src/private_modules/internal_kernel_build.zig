@@ -40,6 +40,12 @@ pub const OpPlan = program_plan.OpPlan;
 pub const OutputPlan = program_plan.OutputPlan;
 /// Runtime-owned local descriptor re-export.
 pub const LocalPlan = program_plan.LocalPlan;
+/// Runtime-owned value schema descriptor re-export.
+pub const ValueSchemaPlan = program_plan.ValueSchemaPlan;
+/// Runtime-owned value field descriptor re-export.
+pub const ValueFieldPlan = program_plan.ValueFieldPlan;
+/// Runtime-owned value variant descriptor re-export.
+pub const ValueVariantPlan = program_plan.ValueVariantPlan;
 /// Runtime-owned block descriptor re-export.
 pub const BlockPlan = program_plan.BlockPlan;
 /// Runtime-owned terminator descriptor re-export.

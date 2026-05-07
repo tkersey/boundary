@@ -1,4 +1,5 @@
 const inner = @import("./internal/program_plan.zig");
+const std = @import("std");
 
 /// Re-exported basic-block descriptor.
 pub const BlockPlan = inner.BlockPlan;
@@ -32,12 +33,28 @@ pub const TerminatorKind = inner.TerminatorKind;
 pub const ValidationError = inner.ValidationError;
 /// Re-exported value codec tag.
 pub const ValueCodec = inner.ValueCodec;
+/// Re-exported value codec plus optional schema reference.
+pub const ValueRef = inner.ValueRef;
+/// Re-exported product field descriptor.
+pub const ValueFieldPlan = inner.ValueFieldPlan;
+/// Re-exported value-schema descriptor.
+pub const ValueSchemaPlan = inner.ValueSchemaPlan;
+/// Re-exported sum variant descriptor.
+pub const ValueVariantPlan = inner.ValueVariantPlan;
 /// Re-exported value codec resolver.
 pub const codecForType = inner.codecForType;
+/// Re-exported value-schema derivation helper.
+pub const ValueSchemaForType = inner.ValueSchemaForType;
+/// Re-exported product-field count helper.
+pub const fieldCountForType = inner.fieldCountForType;
+/// Re-exported sum-variant count helper.
+pub const variantCountForType = inner.variantCountForType;
 /// Re-exported authored bound-plan construction helper.
 pub const authoredBoundPlan = inner.authoredBoundPlan;
 /// Re-exported function result codec resolver.
 pub const functionResultCodec = inner.functionResultCodec;
+/// Re-exported function result codec/schema resolver.
+pub const functionResultRef = inner.functionResultRef;
 /// Re-exported payload helper.
 pub const hasPayload = inner.hasPayload;
 /// Re-exported IR hash helper.
@@ -50,3 +67,7 @@ pub const enrichPlanWithBindingSchemas = inner.enrichPlanWithBindingSchemas;
 pub const enrichPlanWithBindingSchemasExact = inner.enrichPlanWithBindingSchemasExact;
 /// Re-exported legacy plan upgrader.
 pub const upgradeLegacyProgramPlan = inner.upgradeLegacyProgramPlan;
+
+test {
+    std.testing.refAllDecls(inner);
+}

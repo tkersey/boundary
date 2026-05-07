@@ -2,38 +2,86 @@
 const ability = @import("ability");
 const std = @import("std");
 
-const StateHandlers = struct { initial: i32 };
+fn mustInstruction(result: anyerror!ability.ir.plan.Instruction) ability.ir.plan.Instruction {
+    return result catch |err| std.debug.panic("invalid state-basic instruction: {s}", .{@errorName(err)});
+}
+
+fn mustPlan(result: anyerror!ability.ir.ProgramPlan) ability.ir.ProgramPlan {
+    return result catch |err| std.debug.panic("invalid state-basic plan: {s}", .{@errorName(err)});
+}
+
+const StateHandlers = struct {
+    get: struct {
+        state: *i32,
+
+        pub fn dispatch(self: *const @This()) !i32 {
+            return self.state.*;
+        }
+    },
+    set: struct {
+        state: *i32,
+
+        pub fn dispatch(self: *const @This(), value: i32) !void {
+            self.state.* = value;
+        }
+    },
+};
+
+fn statePlan() ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const before = ability.ir.builder.local(root, 0);
+    const next = ability.ir.builder.local(root, 1);
+    const after = ability.ir.builder.local(root, 2);
+    const total = ability.ir.builder.local(root, 3);
+    const instructions = [_]ability.ir.plan.Instruction{
+        mustInstruction(ability.ir.builder.callOp(root, before, ability.ir.builder.op(root, 0), null)),
+        .{ .kind = .add_const_i32, .dst = next.index, .operand = before.index, .aux = 1 },
+        mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 1), next)),
+        mustInstruction(ability.ir.builder.callOp(root, after, ability.ir.builder.op(root, 0), null)),
+        .{ .kind = .add_i32, .dst = total.index, .operand = before.index, .aux = after.index },
+        mustInstruction(ability.ir.builder.returnValue(root, total)),
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 4,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "state", .first_op = 0, .op_count = 2 }};
+    const ops = [_]ability.ir.plan.Op{
+        .{ .requirement_index = 0, .op_name = "get", .mode = .transform, .payload_codec = .unit, .resume_codec = .i32 },
+        .{ .requirement_index = 0, .op_name = "set", .mode = .transform, .payload_codec = .i32, .resume_codec = .unit },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return mustPlan(ability.ir.builder.finish(.{
+        .label = "state-basic",
+        .ir_hash = 10,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 }, .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }));
+}
+
 const StateBody = struct {
-    pub fn program(runtime: *ability.Runtime, handlers: StateHandlers) anyerror!struct {
-        pub const ability_result_envelope = true;
-        value: i32,
-        outputs: struct { state: i32 },
-    } {
-        var instance = ability.effect.state.Instance(i32, error{}).init();
-        const result = try ability.effect.state.handle(i32, runtime, &instance, handlers.initial, struct {
-            pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(ability.effect.state.computeProgram(Cap, ctx, struct {
-                pub fn run(comptime RunCap: type, run_ctx: anytype) !i32 {
-                    const before = try ability.effect.state.get(RunCap, run_ctx);
-                    try ability.effect.state.set(RunCap, run_ctx, before + 1);
-                    const after = try ability.effect.state.get(RunCap, run_ctx);
-                    return before + after;
-                }
-            })) {
-                return ability.effect.state.computeProgram(Cap, ctx, struct {
-                    pub fn run(comptime RunCap: type, run_ctx: anytype) !i32 {
-                        const before = try ability.effect.state.get(RunCap, run_ctx);
-                        try ability.effect.state.set(RunCap, run_ctx, before + 1);
-                        const after = try ability.effect.state.get(RunCap, run_ctx);
-                        return before + after;
-                    }
-                });
-            }
-        });
-        return .{
-            .value = result.value,
-            .outputs = .{ .state = result.state },
-        };
-    }
+    pub const compiled_plan = statePlan();
 };
 
 /// Write the state-effect transcript through an explicit reusable program.
@@ -41,11 +89,15 @@ pub fn run(writer: anytype) anyerror!void {
     var runtime = ability.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
+    var state: i32 = 5;
     const Program = ability.program("state-basic", StateHandlers, StateBody);
-    var result = try Program.run(&runtime, .{ .initial = 5 });
+    var result = try Program.run(&runtime, .{
+        .get = .{ .state = &state },
+        .set = .{ .state = &state },
+    });
     defer result.deinit();
 
-    try writer.print("before=5\nafter=6\nfinal_state={d}\nvalue={d}\n", .{ result.outputs.state, result.value });
+    try writer.print("before=5\nafter=6\nfinal_state={d}\nvalue={d}\n", .{ state, result.value });
 }
 
 /// Run the state-effect example.

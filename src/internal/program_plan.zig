@@ -1,3 +1,4 @@
+// zlinter-disable no_undefined require_doc_comment require_exhaustive_enum_switch
 const effect_ir = @import("effect_ir");
 const program_frontend = @import("program_frontend");
 const std = @import("std");
@@ -10,19 +11,65 @@ const max_indexed_table_len = std.math.maxInt(u16) + 1;
 const small_output_scan_limit = 8;
 
 /// Serializable value codecs admitted by the first redesign wave.
-pub const ValueCodec = enum {
-    bool,
-    i32,
-    string,
-    string_list,
-    unit,
-    usize,
+///
+/// Numeric tags are persisted in `Instruction.aux` for legacy
+/// `call_nested_with` rows, so append new codecs without renumbering old tags.
+pub const ValueCodec = enum(u8) {
+    bool = 0,
+    i32 = 1,
+    product = 6,
+    string = 2,
+    string_list = 3,
+    sum = 7,
+    unit = 4,
+    usize = 5,
 };
 
 /// Return whether this codec carries a runtime payload.
 pub fn hasPayload(codec: ValueCodec) bool {
     return codec != .unit;
 }
+
+fn valueCodecNeedsSchema(codec: ValueCodec) bool {
+    return switch (codec) {
+        .product, .sum => true,
+        else => false,
+    };
+}
+
+/// One product field descriptor in the runtime-owned value-schema table.
+pub const ValueFieldPlan = struct {
+    name: []const u8,
+    codec: ValueCodec,
+    schema_index: ?u16 = null,
+};
+
+/// One sum variant descriptor in the runtime-owned value-schema table.
+pub const ValueVariantPlan = struct {
+    name: []const u8,
+    codec: ValueCodec = .unit,
+    schema_index: ?u16 = null,
+};
+
+/// One resolved value-codec reference, including schema identity for structured values.
+pub const ValueRef = struct {
+    codec: ValueCodec,
+    schema_index: ?u16 = null,
+
+    pub fn eql(self: @This(), other: @This()) bool {
+        return self.codec == other.codec and self.schema_index == other.schema_index;
+    }
+};
+
+/// One runtime-owned value schema for product and sum codecs.
+pub const ValueSchemaPlan = struct {
+    label: []const u8,
+    codec: ValueCodec,
+    first_field: u16 = 0,
+    field_count: u16 = 0,
+    first_variant: u16 = 0,
+    variant_count: u16 = 0,
+};
 
 /// Runtime-owned control-mode tag for executable plan ops.
 pub const ControlMode = enum {
@@ -80,11 +127,13 @@ fn namedNestedWithMetadataIsComplete(encoded: []const u8) bool {
 pub const OutputPlan = struct {
     label: []const u8,
     codec: ValueCodec,
+    schema_index: ?u16 = null,
 };
 
 /// One lowered local slot descriptor in the runtime-owned executable plan.
 pub const LocalPlan = struct {
     codec: ValueCodec,
+    schema_index: ?u16 = null,
 };
 
 /// One lowered operation descriptor in the runtime-owned executable plan.
@@ -93,7 +142,9 @@ pub const OpPlan = struct {
     op_name: []const u8,
     mode: ControlMode,
     payload_codec: ValueCodec,
+    payload_schema_index: ?u16 = null,
     resume_codec: ValueCodec,
+    resume_schema_index: ?u16 = null,
     has_after: bool = false,
 };
 
@@ -110,7 +161,9 @@ pub const RequirementPlan = struct {
 pub const FunctionPlan = struct {
     symbol_name: []const u8,
     value_codec: ValueCodec = .unit,
+    value_schema_index: ?u16 = null,
     result_codec: ?ValueCodec = null,
+    result_schema_index: ?u16 = null,
     parameter_count: u16 = 0,
     first_requirement: u16,
     requirement_count: u16,
@@ -175,7 +228,7 @@ pub const BlockPlan = struct {
 /// Runtime-owned serializable executable plan for lowered or explicit IR programs.
 pub const ProgramPlan = struct {
     /// Stable schema version for JSON-serialized runtime plans.
-    pub const current_schema_version: u32 = 6;
+    pub const current_schema_version: u32 = 8;
 
     schema_version: u32 = current_schema_version,
     label: []const u8,
@@ -185,6 +238,9 @@ pub const ProgramPlan = struct {
     requirements: []const RequirementPlan,
     ops: []const OpPlan,
     outputs: []const OutputPlan,
+    value_schemas: []const ValueSchemaPlan = &.{},
+    value_fields: []const ValueFieldPlan = &.{},
+    value_variants: []const ValueVariantPlan = &.{},
     locals: []const LocalPlan = &.{},
     call_args: []const u16 = &.{},
     blocks: []const BlockPlan = &.{},
@@ -204,6 +260,12 @@ pub const ProgramPlan = struct {
 
         for (self.functions) |function| {
             if (function.symbol_name.len == 0) return error.EmptyFunctionSymbol;
+            try self.validateValueSchemaRef(function.value_codec, function.value_schema_index);
+            if (function.result_codec) |codec| {
+                try self.validateValueSchemaRef(codec, function.result_schema_index);
+            } else if (function.result_schema_index != null) {
+                return error.InvalidValueSchemaIndex;
+            }
             if (function.parameter_count > function.local_count) return error.InvalidFunctionLocalSpan;
             if (function.block_count == 0 or function.entry_block >= function.block_count) return error.InvalidFunctionEntryBlock;
             const requirement_end = rangeEnd(function.first_requirement, function.requirement_count) orelse return error.InvalidFunctionRequirementSpan;
@@ -229,11 +291,45 @@ pub const ProgramPlan = struct {
             if (op.requirement_index >= self.requirements.len) return error.InvalidOpRequirementIndex;
             if (!opBelongsToRequirement(self, @intCast(op_index), op.requirement_index)) return error.InvalidOpRequirementOwnership;
             if (op.op_name.len == 0) return error.EmptyOpName;
+            try self.validateValueSchemaRef(op.payload_codec, op.payload_schema_index);
+            try self.validateValueSchemaRef(op.resume_codec, op.resume_schema_index);
             if (op.has_after and op.mode == .abort) return error.InvalidAfterHookMode;
         }
 
         for (self.outputs) |output| {
             if (output.label.len == 0) return error.EmptyOutputLabel;
+            try self.validateValueSchemaRef(output.codec, output.schema_index);
+        }
+
+        for (self.locals) |local| {
+            try self.validateValueSchemaRef(local.codec, local.schema_index);
+        }
+
+        for (self.value_schemas) |schema| {
+            if (schema.label.len == 0) return error.EmptyValueSchemaLabel;
+            switch (schema.codec) {
+                .product => {
+                    if (schema.variant_count != 0) return error.InvalidValueSchemaSpan;
+                    const field_end = rangeEnd(schema.first_field, schema.field_count) orelse return error.InvalidValueSchemaSpan;
+                    if (field_end > self.value_fields.len) return error.InvalidValueSchemaSpan;
+                },
+                .sum => {
+                    if (schema.field_count != 0) return error.InvalidValueSchemaSpan;
+                    const variant_end = rangeEnd(schema.first_variant, schema.variant_count) orelse return error.InvalidValueSchemaSpan;
+                    if (variant_end > self.value_variants.len) return error.InvalidValueSchemaSpan;
+                },
+                else => return error.InvalidValueSchemaCodec,
+            }
+        }
+
+        for (self.value_fields) |field| {
+            if (field.name.len == 0) return error.EmptyValueFieldName;
+            try self.validateValueSchemaRef(field.codec, field.schema_index);
+        }
+
+        for (self.value_variants) |variant| {
+            if (variant.name.len == 0) return error.EmptyValueVariantName;
+            try self.validateValueSchemaRef(variant.codec, variant.schema_index);
         }
 
         for (self.blocks) |block| {
@@ -307,9 +403,25 @@ pub const ProgramPlan = struct {
 
         for (self.functions) |function| {
             const result_codec = function.result_codec orelse continue;
-            if (result_codec == function.value_codec) continue;
+            if (valueRefsEqual(
+                .{ .codec = result_codec, .schema_index = function.result_schema_index },
+                .{ .codec = function.value_codec, .schema_index = function.value_schema_index },
+            )) continue;
             const completion_codecs = try functionCompletionCodecReachability(self, function, &completion_reachability);
             if (completion_codecs.value_codec and completion_codecs.result_codec) return error.InvalidFunctionResultCodec;
+        }
+
+        const entry = self.functions[self.entry_index];
+        if (entry.result_codec) |entry_result_codec| {
+            if (!valueRefsEqual(
+                .{ .codec = entry_result_codec, .schema_index = entry.result_schema_index },
+                .{ .codec = entry.value_codec, .schema_index = entry.value_schema_index },
+            )) {
+                const entry_completion_codecs = try functionCompletionCodecReachability(self, entry, &completion_reachability);
+                if (entry_completion_codecs.value_codec) {
+                    return error.InvalidFunctionResultCodec;
+                }
+            }
         }
 
         for (self.functions) |function| {
@@ -329,17 +441,17 @@ pub const ProgramPlan = struct {
                     .call_helper => {
                         if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
                         const callee = self.functions[instruction.operand];
-                        const helper_result_codec = functionResultCodec(callee);
+                        const helper_result_ref = functionResultRef(callee);
                         if (block_is_reachable and
-                            helper_result_codec != functionResultCodec(function) and
+                            !valueRefsEqual(helper_result_ref, functionResultRef(function)) and
                             terminal_reachability[instruction.operand])
                         {
                             return error.InvalidInstructionLocalIndex;
                         }
-                        const helper_completion_codec = try functionCompletionValueCodec(self, callee, &completion_reachability);
-                        if (helper_completion_codec != .unit and
+                        const helper_completion_ref = try functionCompletionValueRef(self, callee, &completion_reachability);
+                        if (helper_completion_ref.codec != .unit and
                             completion_reachability[instruction.operand] and
-                            !functionLocalHasCodec(self, function, instruction.dst, helper_completion_codec))
+                            !functionLocalHasValueRef(self, function, instruction.dst, helper_completion_ref))
                         {
                             return error.InvalidInstructionLocalIndex;
                         }
@@ -349,9 +461,9 @@ pub const ProgramPlan = struct {
                             if (call_arg_end > self.call_args.len) return error.InvalidCallHelperArgSpan;
                             for (self.call_args[instruction.aux..call_arg_end], 0..) |local_id, parameter_index| {
                                 if (!isValidFunctionLocal(function.local_count, local_id)) return error.InvalidCallHelperArgSpan;
-                                const expected_codec = functionLocalCodec(self, callee, @intCast(parameter_index)) orelse
+                                const expected_ref = functionLocalValueRef(self, callee, @intCast(parameter_index)) orelse
                                     return error.InvalidFunctionLocalSpan;
-                                if (!functionLocalHasCodec(self, function, local_id, expected_codec)) {
+                                if (!functionLocalHasValueRef(self, function, local_id, expected_ref)) {
                                     return error.InvalidInstructionLocalIndex;
                                 }
                             }
@@ -359,6 +471,7 @@ pub const ProgramPlan = struct {
                     },
                     .call_nested_with => {
                         const result_codec = try valueCodecFromInstructionAux(instruction.aux);
+                        if (valueCodecNeedsSchema(result_codec)) return error.InvalidInstructionCodec;
                         if (result_codec != .unit and !functionLocalHasCodec(self, function, instruction.dst, result_codec)) {
                             return error.InvalidInstructionLocalIndex;
                         }
@@ -370,12 +483,18 @@ pub const ProgramPlan = struct {
                             return error.InvalidCallOpTarget;
                         }
                         if (self.ops[instruction.operand].resume_codec != .unit and
-                            !functionLocalHasCodec(self, function, instruction.dst, self.ops[instruction.operand].resume_codec))
+                            !functionLocalHasValueRef(self, function, instruction.dst, .{
+                                .codec = self.ops[instruction.operand].resume_codec,
+                                .schema_index = self.ops[instruction.operand].resume_schema_index,
+                            }))
                         {
                             return error.InvalidInstructionLocalIndex;
                         }
                         if (self.ops[instruction.operand].payload_codec != .unit and
-                            !functionLocalHasCodec(self, function, instruction.aux, self.ops[instruction.operand].payload_codec))
+                            !functionLocalHasValueRef(self, function, instruction.aux, .{
+                                .codec = self.ops[instruction.operand].payload_codec,
+                                .schema_index = self.ops[instruction.operand].payload_schema_index,
+                            }))
                         {
                             return error.InvalidInstructionLocalIndex;
                         }
@@ -430,7 +549,10 @@ pub const ProgramPlan = struct {
                         block_has_return_value = true;
                         if (!function_returns_value) return error.InvalidTerminatorInstruction;
                         if (relative_index + 1 != block.instruction_count) return error.InvalidTerminatorInstruction;
-                        if (!functionLocalHasCodec(self, function, instruction.operand, function.value_codec)) {
+                        if (!functionLocalHasValueRef(self, function, instruction.operand, .{
+                            .codec = function.value_codec,
+                            .schema_index = function.value_schema_index,
+                        })) {
                             return error.InvalidInstructionLocalIndex;
                         }
                     },
@@ -483,8 +605,10 @@ pub const ProgramPlan = struct {
         for (self.functions) |function| {
             hashBytes(&hasher, function.symbol_name);
             hashBytes(&hasher, @tagName(function.value_codec));
+            hashOptionalU16(&hasher, function.value_schema_index);
             hasher.update(&[_]u8{@intFromBool(function.result_codec != null)});
             if (function.result_codec) |codec| hashBytes(&hasher, @tagName(codec));
+            hashOptionalU16(&hasher, function.result_schema_index);
             hasher.update(std.mem.asBytes(&function.parameter_count));
             hasher.update(std.mem.asBytes(&function.first_requirement));
             hasher.update(std.mem.asBytes(&function.requirement_count));
@@ -502,21 +626,45 @@ pub const ProgramPlan = struct {
             hashBytes(&hasher, requirement.label);
             hasher.update(std.mem.asBytes(&requirement.first_op));
             hasher.update(std.mem.asBytes(&requirement.op_count));
+            hashBytes(&hasher, @tagName(requirement.lifecycle_tag));
+            hashBytes(&hasher, @tagName(requirement.output_tag));
         }
         for (self.ops) |op| {
             hasher.update(std.mem.asBytes(&op.requirement_index));
             hashBytes(&hasher, op.op_name);
             hashBytes(&hasher, @tagName(op.mode));
             hashBytes(&hasher, @tagName(op.payload_codec));
+            hashOptionalU16(&hasher, op.payload_schema_index);
             hashBytes(&hasher, @tagName(op.resume_codec));
+            hashOptionalU16(&hasher, op.resume_schema_index);
             hasher.update(&[_]u8{@intFromBool(op.has_after)});
         }
         for (self.outputs) |output| {
             hashBytes(&hasher, output.label);
             hashBytes(&hasher, @tagName(output.codec));
+            hashOptionalU16(&hasher, output.schema_index);
+        }
+        for (self.value_schemas) |schema| {
+            hashBytes(&hasher, schema.label);
+            hashBytes(&hasher, @tagName(schema.codec));
+            hasher.update(std.mem.asBytes(&schema.first_field));
+            hasher.update(std.mem.asBytes(&schema.field_count));
+            hasher.update(std.mem.asBytes(&schema.first_variant));
+            hasher.update(std.mem.asBytes(&schema.variant_count));
+        }
+        for (self.value_fields) |field| {
+            hashBytes(&hasher, field.name);
+            hashBytes(&hasher, @tagName(field.codec));
+            hashOptionalU16(&hasher, field.schema_index);
+        }
+        for (self.value_variants) |variant| {
+            hashBytes(&hasher, variant.name);
+            hashBytes(&hasher, @tagName(variant.codec));
+            hashOptionalU16(&hasher, variant.schema_index);
         }
         for (self.locals) |local| {
             hashBytes(&hasher, @tagName(local.codec));
+            hashOptionalU16(&hasher, local.schema_index);
         }
         for (self.call_args) |local_id| hasher.update(std.mem.asBytes(&local_id));
         for (self.blocks) |block| {
@@ -577,11 +725,27 @@ pub const ProgramPlan = struct {
         if (self.requirements.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
         if (self.ops.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
         if (self.outputs.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
+        if (self.value_schemas.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
+        if (self.value_fields.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
+        if (self.value_variants.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
         if (self.locals.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
         if (self.call_args.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
         if (self.blocks.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
         if (self.terminators.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
         if (self.instructions.len > max_indexed_table_len) return error.ProgramPlanTableTooLarge;
+    }
+
+    fn validateValueSchemaRef(self: @This(), codec: ValueCodec, schema_index: ?u16) ValidationError!void {
+        switch (codec) {
+            .product, .sum => {
+                const index = schema_index orelse return error.InvalidValueSchemaIndex;
+                if (index >= self.value_schemas.len) return error.InvalidValueSchemaIndex;
+                if (self.value_schemas[index].codec != codec) return error.InvalidValueSchemaCodec;
+            },
+            else => {
+                if (schema_index != null) return error.InvalidValueSchemaIndex;
+            },
+        }
     }
 };
 
@@ -632,6 +796,9 @@ pub const program_plan_builder = struct {
         requirements: []const RequirementPlan,
         ops: []const OpPlan,
         outputs: []const OutputPlan,
+        value_schemas: []const ValueSchemaPlan = &.{},
+        value_fields: []const ValueFieldPlan = &.{},
+        value_variants: []const ValueVariantPlan = &.{},
         locals: []const LocalPlan = &.{},
         call_args: []const u16 = &.{},
         blocks: []const BlockPlan = &.{},
@@ -724,6 +891,9 @@ pub const program_plan_builder = struct {
             .requirements = spec.requirements,
             .ops = spec.ops,
             .outputs = spec.outputs,
+            .value_schemas = spec.value_schemas,
+            .value_fields = spec.value_fields,
+            .value_variants = spec.value_variants,
             .locals = spec.locals,
             .call_args = spec.call_args,
             .blocks = spec.blocks,
@@ -745,6 +915,9 @@ pub const program_plan_builder = struct {
             .requirements = plan.requirements,
             .ops = plan.ops,
             .outputs = plan.outputs,
+            .value_schemas = plan.value_schemas,
+            .value_fields = plan.value_fields,
+            .value_variants = plan.value_variants,
             .locals = plan.locals,
             .call_args = plan.call_args,
             .blocks = plan.blocks,
@@ -768,6 +941,9 @@ pub const ValidationError = error{
     EmptyOutputLabel,
     EmptyProgram,
     EmptyRequirementLabel,
+    EmptyValueFieldName,
+    EmptyValueSchemaLabel,
+    EmptyValueVariantName,
     DuplicateOutputLabel,
     TooManyFunctionOutputs,
     ProgramPlanTableTooLarge,
@@ -795,6 +971,9 @@ pub const ValidationError = error{
     UnsupportedSchemaVersion,
     InvalidInstructionCodec,
     InvalidNestedWithMetadata,
+    InvalidValueSchemaCodec,
+    InvalidValueSchemaIndex,
+    InvalidValueSchemaSpan,
 };
 /// Error set for lowering comptime IR into a runtime-owned plan.
 pub const PlanError = CodecError || effect_ir.NormalizeError || error{EmptyProgram};
@@ -810,7 +989,522 @@ pub fn codecForType(comptime T: type) CodecError!ValueCodec {
     if (T == usize) return .usize;
     if (T == []const u8) return .string;
     if (T == [][]const u8) return .string_list;
+    switch (@typeInfo(T)) {
+        .@"struct" => |info| {
+            inline for (info.fields) |field| {
+                _ = try codecForType(field.type);
+            }
+            return .product;
+        },
+        .@"enum" => return .sum,
+        .@"union" => |info| {
+            if (info.tag_type == null) return error.UnsupportedCodecType;
+            inline for (info.fields) |field| {
+                _ = try codecForType(field.type);
+            }
+            return .sum;
+        },
+        .optional => |info| {
+            _ = try codecForType(info.child);
+            return .sum;
+        },
+        else => {},
+    }
     return error.UnsupportedCodecType;
+}
+
+/// Return how many product fields a supported Zig type contributes.
+pub fn fieldCountForType(comptime T: type) CodecError!usize {
+    return switch (@typeInfo(T)) {
+        .@"struct" => |info| blk: {
+            if (try codecForType(T) != .product) return error.UnsupportedCodecType;
+            break :blk info.fields.len;
+        },
+        else => error.UnsupportedCodecType,
+    };
+}
+
+/// Return how many sum variants a supported Zig type contributes.
+pub fn variantCountForType(comptime T: type) CodecError!usize {
+    return switch (@typeInfo(T)) {
+        .@"enum" => |info| info.fields.len,
+        .@"union" => |info| blk: {
+            if (info.tag_type == null) return error.UnsupportedCodecType;
+            _ = try codecForType(T);
+            break :blk info.fields.len;
+        },
+        .optional => |info| blk: {
+            _ = try codecForType(info.child);
+            break :blk 2;
+        },
+        else => error.UnsupportedCodecType,
+    };
+}
+
+const ValueSchemaEntryCounts = struct {
+    schemas: usize = 0,
+    fields: usize = 0,
+    variants: usize = 0,
+
+    fn add(self: *ValueSchemaEntryCounts, other: ValueSchemaEntryCounts) void {
+        self.schemas += other.schemas;
+        self.fields += other.fields;
+        self.variants += other.variants;
+    }
+};
+
+fn countValueSchemaEntries(comptime T: type) CodecError!ValueSchemaEntryCounts {
+    const codec = try codecForType(T);
+    return switch (codec) {
+        .product => switch (@typeInfo(T)) {
+            .@"struct" => |info| blk: {
+                var counts = ValueSchemaEntryCounts{
+                    .schemas = 1,
+                    .fields = info.fields.len,
+                };
+                inline for (info.fields) |field| counts.add(try countValueSchemaEntries(field.type));
+                break :blk counts;
+            },
+            else => error.UnsupportedCodecType,
+        },
+        .sum => switch (@typeInfo(T)) {
+            .@"enum" => |info| .{
+                .schemas = 1,
+                .variants = info.fields.len,
+            },
+            .@"union" => |info| blk: {
+                if (info.tag_type == null) return error.UnsupportedCodecType;
+                var counts = ValueSchemaEntryCounts{
+                    .schemas = 1,
+                    .variants = info.fields.len,
+                };
+                inline for (info.fields) |field| counts.add(try countValueSchemaEntries(field.type));
+                break :blk counts;
+            },
+            .optional => |info| blk: {
+                var counts = ValueSchemaEntryCounts{
+                    .schemas = 1,
+                    .variants = 2,
+                };
+                counts.add(try countValueSchemaEntries(info.child));
+                break :blk counts;
+            },
+            else => error.UnsupportedCodecType,
+        },
+        else => .{},
+    };
+}
+
+fn ValueSchemaBuildState(
+    comptime schema_count: usize,
+    comptime field_count: usize,
+    comptime variant_count: usize,
+) type {
+    return struct {
+        schemas: [schema_count]ValueSchemaPlan = undefined,
+        fields: [field_count]ValueFieldPlan = undefined,
+        variants: [variant_count]ValueVariantPlan = undefined,
+        next_schema: u16 = 0,
+        next_field: u16 = 0,
+        next_variant: u16 = 0,
+    };
+}
+
+fn fillValueSchemaForType(
+    comptime T: type,
+    state: anytype,
+) CodecError!ValueRef {
+    const codec = try codecForType(T);
+    switch (codec) {
+        .product => switch (@typeInfo(T)) {
+            .@"struct" => |info| {
+                const schema_index = state.next_schema;
+                state.next_schema += 1;
+                const first_field = state.next_field;
+                state.next_field += @intCast(info.fields.len);
+                state.schemas[schema_index] = .{
+                    .label = @typeName(T),
+                    .codec = .product,
+                    .first_field = first_field,
+                    .field_count = @intCast(info.fields.len),
+                };
+                inline for (info.fields, 0..) |field, field_index| {
+                    const field_ref = try fillValueSchemaForType(field.type, state);
+                    state.fields[first_field + field_index] = .{
+                        .name = field.name,
+                        .codec = field_ref.codec,
+                        .schema_index = field_ref.schema_index,
+                    };
+                }
+                return .{ .codec = .product, .schema_index = schema_index };
+            },
+            else => return error.UnsupportedCodecType,
+        },
+        .sum => switch (@typeInfo(T)) {
+            .@"enum" => |info| {
+                const schema_index = state.next_schema;
+                state.next_schema += 1;
+                const first_variant = state.next_variant;
+                state.next_variant += @intCast(info.fields.len);
+                state.schemas[schema_index] = .{
+                    .label = @typeName(T),
+                    .codec = .sum,
+                    .first_variant = first_variant,
+                    .variant_count = @intCast(info.fields.len),
+                };
+                inline for (info.fields, 0..) |field, field_index| {
+                    state.variants[first_variant + field_index] = .{
+                        .name = field.name,
+                        .codec = .unit,
+                    };
+                }
+                return .{ .codec = .sum, .schema_index = schema_index };
+            },
+            .@"union" => |info| {
+                if (info.tag_type == null) return error.UnsupportedCodecType;
+                const schema_index = state.next_schema;
+                state.next_schema += 1;
+                const first_variant = state.next_variant;
+                state.next_variant += @intCast(info.fields.len);
+                state.schemas[schema_index] = .{
+                    .label = @typeName(T),
+                    .codec = .sum,
+                    .first_variant = first_variant,
+                    .variant_count = @intCast(info.fields.len),
+                };
+                inline for (info.fields, 0..) |field, field_index| {
+                    const variant_ref = try fillValueSchemaForType(field.type, state);
+                    state.variants[first_variant + field_index] = .{
+                        .name = field.name,
+                        .codec = variant_ref.codec,
+                        .schema_index = variant_ref.schema_index,
+                    };
+                }
+                return .{ .codec = .sum, .schema_index = schema_index };
+            },
+            .optional => |info| {
+                const schema_index = state.next_schema;
+                state.next_schema += 1;
+                const first_variant = state.next_variant;
+                state.next_variant += 2;
+                state.schemas[schema_index] = .{
+                    .label = @typeName(T),
+                    .codec = .sum,
+                    .first_variant = first_variant,
+                    .variant_count = 2,
+                };
+                state.variants[first_variant] = .{ .name = "none" };
+                const child_ref = try fillValueSchemaForType(info.child, state);
+                state.variants[first_variant + 1] = .{
+                    .name = "some",
+                    .codec = child_ref.codec,
+                    .schema_index = child_ref.schema_index,
+                };
+                return .{ .codec = .sum, .schema_index = schema_index };
+            },
+            else => return error.UnsupportedCodecType,
+        },
+        else => return .{ .codec = codec },
+    }
+}
+
+/// Return a comptime value-schema namespace for one supported scalar/product/sum type.
+pub fn ValueSchemaForType(comptime T: type) type {
+    const counts = countValueSchemaEntries(T) catch |err| unsupportedValueSchemaType(T, err);
+    const State = ValueSchemaBuildState(counts.schemas, counts.fields, counts.variants);
+    const built = comptime blk: {
+        var state = State{};
+        const ref = fillValueSchemaForType(T, &state) catch |err| unsupportedValueSchemaType(T, err);
+        break :blk struct {
+            const value_ref = ref;
+            const schemas = state.schemas;
+            const fields = state.fields;
+            const variants = state.variants;
+        };
+    };
+    return struct {
+        pub const codec = built.value_ref.codec;
+        pub const schema_index = built.value_ref.schema_index;
+        pub const value_schemas = built.schemas[0..];
+        pub const value_fields = built.fields[0..];
+        pub const value_variants = built.variants[0..];
+    };
+}
+
+fn directValueSchemaFieldCount(comptime T: type) CodecError!usize {
+    return switch (try codecForType(T)) {
+        .product => switch (@typeInfo(T)) {
+            .@"struct" => |info| info.fields.len,
+            else => error.UnsupportedCodecType,
+        },
+        else => 0,
+    };
+}
+
+fn directValueSchemaVariantCount(comptime T: type) CodecError!usize {
+    return switch (try codecForType(T)) {
+        .sum => switch (@typeInfo(T)) {
+            .@"enum" => |info| info.fields.len,
+            .@"union" => |info| blk: {
+                if (info.tag_type == null) return error.UnsupportedCodecType;
+                break :blk info.fields.len;
+            },
+            .optional => 2,
+            else => error.UnsupportedCodecType,
+        },
+        else => 0,
+    };
+}
+
+fn schemaTypeAlreadyAdded(comptime max_schema_types: usize, types: *const [max_schema_types]type, count: usize, comptime T: type) bool {
+    for (types[0..count]) |SchemaType| {
+        if (SchemaType == T) return true;
+    }
+    return false;
+}
+
+fn countPotentialSchemaTypesForType(comptime T: type) CodecError!usize {
+    return switch (try codecForType(T)) {
+        .product => switch (@typeInfo(T)) {
+            .@"struct" => |info| blk: {
+                var total: usize = 1;
+                inline for (info.fields) |field| total += try countPotentialSchemaTypesForType(field.type);
+                break :blk total;
+            },
+            else => error.UnsupportedCodecType,
+        },
+        .sum => switch (@typeInfo(T)) {
+            .@"enum" => 1,
+            .@"union" => |info| blk: {
+                if (info.tag_type == null) return error.UnsupportedCodecType;
+                var total: usize = 1;
+                inline for (info.fields) |field| total += try countPotentialSchemaTypesForType(field.type);
+                break :blk total;
+            },
+            .optional => |info| 1 + try countPotentialSchemaTypesForType(info.child),
+            else => error.UnsupportedCodecType,
+        },
+        else => 0,
+    };
+}
+
+fn countPotentialSchemaTypesForFunctions(comptime functions: anytype) CodecError!usize {
+    var total: usize = 0;
+    inline for (functions) |function| {
+        total += try countPotentialSchemaTypesForType(function.ValueType);
+        inline for (function.outputs) |output| total += try countPotentialSchemaTypesForType(output.OutputType);
+        inline for (function.row.requirements) |requirement| {
+            inline for (requirement.ops) |op| {
+                total += try countPotentialSchemaTypesForType(op.PayloadType);
+                total += try countPotentialSchemaTypesForType(op.ResumeType);
+            }
+        }
+    }
+    return total;
+}
+
+fn addSchemaTypesForType(
+    comptime max_schema_types: usize,
+    types: *[max_schema_types]type,
+    count: *usize,
+    comptime T: type,
+) CodecError!void {
+    switch (try codecForType(T)) {
+        .product => switch (@typeInfo(T)) {
+            .@"struct" => |info| {
+                if (!schemaTypeAlreadyAdded(max_schema_types, types, count.*, T)) {
+                    types[count.*] = T;
+                    count.* += 1;
+                }
+                inline for (info.fields) |field| try addSchemaTypesForType(max_schema_types, types, count, field.type);
+            },
+            else => return error.UnsupportedCodecType,
+        },
+        .sum => switch (@typeInfo(T)) {
+            .@"enum" => {
+                if (!schemaTypeAlreadyAdded(max_schema_types, types, count.*, T)) {
+                    types[count.*] = T;
+                    count.* += 1;
+                }
+            },
+            .@"union" => |info| {
+                if (info.tag_type == null) return error.UnsupportedCodecType;
+                if (!schemaTypeAlreadyAdded(max_schema_types, types, count.*, T)) {
+                    types[count.*] = T;
+                    count.* += 1;
+                }
+                inline for (info.fields) |field| try addSchemaTypesForType(max_schema_types, types, count, field.type);
+            },
+            .optional => |info| {
+                if (!schemaTypeAlreadyAdded(max_schema_types, types, count.*, T)) {
+                    types[count.*] = T;
+                    count.* += 1;
+                }
+                try addSchemaTypesForType(max_schema_types, types, count, info.child);
+            },
+            else => return error.UnsupportedCodecType,
+        },
+        else => {},
+    }
+}
+
+fn valueSchemaIndexForType(comptime schema_types: anytype, comptime T: type) CodecError!u16 {
+    inline for (schema_types, 0..) |SchemaType, index| {
+        if (SchemaType == T) return @intCast(index);
+    }
+    return error.UnsupportedCodecType;
+}
+
+fn valueRefForTypeInRegistry(comptime schema_types: anytype, comptime T: type) CodecError!ValueRef {
+    const codec = try codecForType(T);
+    return .{
+        .codec = codec,
+        .schema_index = if (valueCodecNeedsSchema(codec)) try valueSchemaIndexForType(schema_types, T) else null,
+    };
+}
+
+fn buildFlatValueSchemas(comptime schema_types: anytype) CodecError![schema_types.len]ValueSchemaPlan {
+    var schemas: [schema_types.len]ValueSchemaPlan = undefined;
+    var first_field: u16 = 0;
+    var first_variant: u16 = 0;
+    inline for (schema_types, 0..) |SchemaType, index| {
+        const codec = try codecForType(SchemaType);
+        const field_count = try directValueSchemaFieldCount(SchemaType);
+        const variant_count = try directValueSchemaVariantCount(SchemaType);
+        schemas[index] = .{
+            .label = @typeName(SchemaType),
+            .codec = codec,
+            .first_field = first_field,
+            .field_count = @intCast(field_count),
+            .first_variant = first_variant,
+            .variant_count = @intCast(variant_count),
+        };
+        first_field += @intCast(field_count);
+        first_variant += @intCast(variant_count);
+    }
+    return schemas;
+}
+
+fn countFlatValueFields(comptime schema_types: anytype) CodecError!usize {
+    var total: usize = 0;
+    inline for (schema_types) |SchemaType| total += try directValueSchemaFieldCount(SchemaType);
+    return total;
+}
+
+fn countFlatValueVariants(comptime schema_types: anytype) CodecError!usize {
+    var total: usize = 0;
+    inline for (schema_types) |SchemaType| total += try directValueSchemaVariantCount(SchemaType);
+    return total;
+}
+
+fn buildFlatValueFields(
+    comptime schema_types: anytype,
+    comptime field_count: usize,
+) CodecError![field_count]ValueFieldPlan {
+    var fields: [field_count]ValueFieldPlan = undefined;
+    var field_index: usize = 0;
+    inline for (schema_types) |SchemaType| {
+        if ((try codecForType(SchemaType)) != .product) continue;
+        switch (@typeInfo(SchemaType)) {
+            .@"struct" => |info| inline for (info.fields) |field| {
+                const field_ref = try valueRefForTypeInRegistry(schema_types, field.type);
+                fields[field_index] = .{
+                    .name = field.name,
+                    .codec = field_ref.codec,
+                    .schema_index = field_ref.schema_index,
+                };
+                field_index += 1;
+            },
+            else => return error.UnsupportedCodecType,
+        }
+    }
+    return fields;
+}
+
+fn buildFlatValueVariants(
+    comptime schema_types: anytype,
+    comptime variant_count: usize,
+) CodecError![variant_count]ValueVariantPlan {
+    var variants: [variant_count]ValueVariantPlan = undefined;
+    var variant_index: usize = 0;
+    inline for (schema_types) |SchemaType| {
+        if ((try codecForType(SchemaType)) != .sum) continue;
+        switch (@typeInfo(SchemaType)) {
+            .@"enum" => |info| inline for (info.fields) |field| {
+                variants[variant_index] = .{
+                    .name = field.name,
+                    .codec = .unit,
+                };
+                variant_index += 1;
+            },
+            .@"union" => |info| {
+                if (info.tag_type == null) return error.UnsupportedCodecType;
+                inline for (info.fields) |field| {
+                    const variant_ref = try valueRefForTypeInRegistry(schema_types, field.type);
+                    variants[variant_index] = .{
+                        .name = field.name,
+                        .codec = variant_ref.codec,
+                        .schema_index = variant_ref.schema_index,
+                    };
+                    variant_index += 1;
+                }
+            },
+            .optional => |info| {
+                variants[variant_index] = .{ .name = "none" };
+                variant_index += 1;
+                const child_ref = try valueRefForTypeInRegistry(schema_types, info.child);
+                variants[variant_index] = .{
+                    .name = "some",
+                    .codec = child_ref.codec,
+                    .schema_index = child_ref.schema_index,
+                };
+                variant_index += 1;
+            },
+            else => return error.UnsupportedCodecType,
+        }
+    }
+    return variants;
+}
+
+fn ValueSchemaRegistryForFunctions(comptime functions: anytype) type {
+    const max_schema_types = countPotentialSchemaTypesForFunctions(functions) catch |err| unsupportedValueSchemaType(void, err);
+    const schema_types = comptime blk: {
+        var max_types: [max_schema_types]type = undefined;
+        var count: usize = 0;
+        for (functions) |function| {
+            addSchemaTypesForType(max_schema_types, &max_types, &count, function.ValueType) catch |err| unsupportedValueSchemaType(function.ValueType, err);
+            for (function.outputs) |output| {
+                addSchemaTypesForType(max_schema_types, &max_types, &count, output.OutputType) catch |err| unsupportedValueSchemaType(output.OutputType, err);
+            }
+            for (function.row.requirements) |requirement| {
+                for (requirement.ops) |op| {
+                    addSchemaTypesForType(max_schema_types, &max_types, &count, op.PayloadType) catch |err| unsupportedValueSchemaType(op.PayloadType, err);
+                    addSchemaTypesForType(max_schema_types, &max_types, &count, op.ResumeType) catch |err| unsupportedValueSchemaType(op.ResumeType, err);
+                }
+            }
+        }
+        var exact: [count]type = undefined;
+        for (max_types[0..count], 0..) |SchemaType, index| exact[index] = SchemaType;
+        break :blk exact;
+    };
+    const field_count = countFlatValueFields(schema_types[0..]) catch |err| unsupportedValueSchemaType(void, err);
+    const variant_count = countFlatValueVariants(schema_types[0..]) catch |err| unsupportedValueSchemaType(void, err);
+    const schemas = buildFlatValueSchemas(schema_types[0..]) catch |err| unsupportedValueSchemaType(void, err);
+    const fields = buildFlatValueFields(schema_types[0..], field_count) catch |err| unsupportedValueSchemaType(void, err);
+    const variants = buildFlatValueVariants(schema_types[0..], variant_count) catch |err| unsupportedValueSchemaType(void, err);
+    return struct {
+        pub const registered_schema_types = schema_types;
+        pub const value_schemas = schemas;
+        pub const value_fields = fields;
+        pub const value_variants = variants;
+    };
+}
+
+fn unsupportedValueSchemaType(comptime T: type, comptime err: CodecError) noreturn {
+    @compileError(std.fmt.comptimePrint(
+        "unsupported ProgramPlan value schema type '{s}': {s}",
+        .{ @typeName(T), @errorName(err) },
+    ));
 }
 
 fn hashAuthoredBoundPlan(
@@ -844,7 +1538,12 @@ pub fn authoredBoundPlan(
         .transform, .choice => codecForType(ResumeType) catch return null,
     };
     const result_codec = comptime codecForType(ResultType) catch return null;
-    if (payload_codec == .string_list or resume_codec == .string_list) return null;
+    if (!codecSupportedByAuthoredScalarRunner(payload_codec) or
+        !codecSupportedByAuthoredScalarRunner(resume_codec) or
+        !codecSupportedByAuthoredScalarRunner(result_codec))
+    {
+        return null;
+    }
 
     const locals = comptime switch (control_mode) {
         .abort => if (payload_codec == .unit)
@@ -966,17 +1665,56 @@ pub fn functionResultCodec(function: FunctionPlan) ValueCodec {
     return function.result_codec orelse function.value_codec;
 }
 
-fn functionCompletionValueCodec(
+pub fn functionResultRef(function: FunctionPlan) ValueRef {
+    if (function.result_codec) |codec| {
+        return .{
+            .codec = codec,
+            .schema_index = function.result_schema_index,
+        };
+    }
+    return .{
+        .codec = function.value_codec,
+        .schema_index = function.value_schema_index,
+    };
+}
+
+fn valueRefsEqual(lhs: ValueRef, rhs: ValueRef) bool {
+    return lhs.codec == rhs.codec and lhs.schema_index == rhs.schema_index;
+}
+
+fn codecSupportedByAuthoredScalarRunner(codec: ValueCodec) bool {
+    return switch (codec) {
+        .bool, .i32, .string, .unit, .usize => true,
+        .product, .string_list, .sum => false,
+    };
+}
+
+fn functionCompletionValueRef(
     self: ProgramPlan,
     function: FunctionPlan,
     completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
-) ValidationError!ValueCodec {
-    const result_codec = function.result_codec orelse return function.value_codec;
-    if (result_codec == function.value_codec) return function.value_codec;
+) ValidationError!ValueRef {
+    const result_codec = function.result_codec orelse return .{
+        .codec = function.value_codec,
+        .schema_index = function.value_schema_index,
+    };
+    if (valueRefsEqual(
+        .{ .codec = result_codec, .schema_index = function.result_schema_index },
+        .{ .codec = function.value_codec, .schema_index = function.value_schema_index },
+    )) return .{
+        .codec = function.value_codec,
+        .schema_index = function.value_schema_index,
+    };
     const completion_codecs = try functionCompletionCodecReachability(self, function, completion_reachability);
     if (completion_codecs.value_codec and completion_codecs.result_codec) return error.InvalidFunctionResultCodec;
-    if (!completion_codecs.result_codec) return function.value_codec;
-    return result_codec;
+    if (!completion_codecs.result_codec) return .{
+        .codec = function.value_codec,
+        .schema_index = function.value_schema_index,
+    };
+    return .{
+        .codec = result_codec,
+        .schema_index = function.result_schema_index,
+    };
 }
 
 const FunctionCompletionCodecs = struct {
@@ -1069,6 +1807,11 @@ fn hashBytes(hasher: *std.hash.Wyhash, value: []const u8) void {
     hasher.update(&.{0});
 }
 
+fn hashOptionalU16(hasher: *std.hash.Wyhash, value: ?u16) void {
+    hasher.update(&[_]u8{@intFromBool(value != null)});
+    if (value) |unwrapped| hasher.update(std.mem.asBytes(&unwrapped));
+}
+
 fn codecFromEffectIrBody(codec: effect_ir.LocalCodec) ValueCodec {
     return switch (codec) {
         .bool => .bool,
@@ -1078,10 +1821,6 @@ fn codecFromEffectIrBody(codec: effect_ir.LocalCodec) ValueCodec {
         .unit => .unit,
         .usize => .usize,
     };
-}
-
-fn valueCodecFromEffectType(comptime T: type) CodecError!ValueCodec {
-    return try codecForType(T);
 }
 
 fn instructionKindFromEffectIrBody(kind: effect_ir.InstructionKind) InstructionKind {
@@ -1191,6 +1930,16 @@ pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan
         return;
     }
 
+    if (plan.schema_version == 6) {
+        plan.schema_version = ProgramPlan.current_schema_version;
+        return;
+    }
+
+    if (plan.schema_version == 7) {
+        plan.schema_version = ProgramPlan.current_schema_version;
+        return;
+    }
+
     if (plan.schema_version != ProgramPlan.current_schema_version) return error.UnsupportedSchemaVersion;
 }
 
@@ -1217,8 +1966,22 @@ fn functionLocalCodec(self: ProgramPlan, function: FunctionPlan, local_id: u16) 
     return self.locals[function.first_local + local_id].codec;
 }
 
+fn functionLocalValueRef(self: ProgramPlan, function: FunctionPlan, local_id: u16) ?ValueRef {
+    if (!isValidFunctionLocal(function.local_count, local_id)) return null;
+    const local = self.locals[function.first_local + local_id];
+    return .{
+        .codec = local.codec,
+        .schema_index = local.schema_index,
+    };
+}
+
 fn functionLocalHasCodec(self: ProgramPlan, function: FunctionPlan, local_id: u16, expected: ValueCodec) bool {
     return functionLocalCodec(self, function, local_id) == expected;
+}
+
+fn functionLocalHasValueRef(self: ProgramPlan, function: FunctionPlan, local_id: u16, expected: ValueRef) bool {
+    const actual = functionLocalValueRef(self, function, local_id) orelse return false;
+    return valueRefsEqual(actual, expected);
 }
 
 fn terminalAbortInstruction(
@@ -1305,7 +2068,9 @@ fn blockCanResumeToTerminator(
     completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
 ) ValidationError!bool {
     for (self.instructions[first_instruction..instruction_end]) |instruction| {
-        if (instruction.kind == .call_helper) {
+        if (instruction.kind == .return_error) {
+            return false;
+        } else if (instruction.kind == .call_helper) {
             if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
             if (!completion_reachability[instruction.operand]) return false;
         } else if (instruction.kind == .call_op) {
@@ -1326,7 +2091,9 @@ fn blockCanEscapeTerminally(
     reachability: FunctionControlReachability,
 ) ValidationError!bool {
     for (self.instructions[first_instruction..instruction_end]) |instruction| {
-        if (instruction.kind == .call_helper) {
+        if (instruction.kind == .return_error) {
+            return false;
+        } else if (instruction.kind == .call_helper) {
             if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
             if (reachability.terminal[instruction.operand]) return true;
             if (!reachability.completion[instruction.operand]) return false;
@@ -1663,8 +2430,11 @@ fn loweredBlockAppliesAfterOnCompletion(
     return false;
 }
 
-fn loweredFunctionResultCodecReachability(comptime program: program_frontend.LoweredOpenRowProgram) PlanError![program.functions.len]bool {
-    const program_result_codec = try valueCodecFromEffectType(program.functions[program.entry_index].ValueType);
+fn loweredFunctionResultCodecReachability(
+    comptime program: program_frontend.LoweredOpenRowProgram,
+    comptime schema_types: anytype,
+) PlanError![program.functions.len]bool {
+    const program_result_ref = try valueRefForTypeInRegistry(schema_types, program.functions[program.entry_index].ValueType);
     var completion_reachability = [_]bool{false} ** program.functions.len;
     var terminal_reachability = [_]bool{false} ** program.functions.len;
 
@@ -1694,9 +2464,9 @@ fn loweredFunctionResultCodecReachability(comptime program: program_frontend.Low
 
     var result_codec_reachability = [_]bool{false} ** program.functions.len;
     for (program.functions, 0..) |function, function_index| {
-        const value_codec = try valueCodecFromEffectType(function.ValueType);
+        const value_ref = try valueRefForTypeInRegistry(schema_types, function.ValueType);
         const completion_codecs = try loweredFunctionCompletionCodecReachability(program, function_index, &completion_reachability);
-        if (value_codec != program_result_codec and completion_codecs.value_codec and completion_codecs.result_codec) {
+        if (!valueRefsEqual(value_ref, program_result_ref) and completion_codecs.value_codec and completion_codecs.result_codec) {
             return error.InvalidProgramBodyShape;
         }
         result_codec_reachability[function_index] =
@@ -1713,6 +2483,9 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
         error.EmptyOutputLabel => "runtime plan generator produced an empty output label",
         error.EmptyProgram => "runtime plan generator produced an empty program",
         error.EmptyRequirementLabel => "runtime plan generator produced an empty requirement label",
+        error.EmptyValueFieldName => "runtime plan generator produced an empty value-schema field name",
+        error.EmptyValueSchemaLabel => "runtime plan generator produced an empty value-schema label",
+        error.EmptyValueVariantName => "runtime plan generator produced an empty value-schema variant name",
         error.DuplicateOutputLabel => "runtime plan generator produced duplicate output labels in one function",
         error.TooManyFunctionOutputs => "runtime plan generator produced too many outputs in one function",
         error.ProgramPlanTableTooLarge => "runtime plan generator produced a table larger than the u16-indexed executable profile",
@@ -1732,6 +2505,9 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
         error.InvalidInstructionCodec => "runtime plan generator produced an instruction whose encoded codec is invalid",
         error.InvalidInstructionLocalIndex => "runtime plan generator produced an instruction with an out-of-range function-local reference",
         error.InvalidNestedWithMetadata => "runtime plan generator produced an incomplete nested lexical-with metadata packet",
+        error.InvalidValueSchemaCodec => "runtime plan generator produced a mismatched value-schema codec",
+        error.InvalidValueSchemaIndex => "runtime plan generator produced an invalid value-schema index",
+        error.InvalidValueSchemaSpan => "runtime plan generator produced an invalid value-schema table span",
         error.InvalidAfterHookMode => "runtime plan generator marked an abort op as requiring an after hook",
         error.InvalidOpRequirementIndex => "runtime plan generator produced an op with an invalid requirement index",
         error.InvalidOpRequirementOwnership => "runtime plan generator produced an op whose requirement index does not own its op span",
@@ -1749,7 +2525,7 @@ const RowOnlyFunctionSynthesis = struct {
     local_count: usize,
     value_result_local: ?u16,
     return_local: ?u16,
-    value_result_codec: ?ValueCodec,
+    value_result_ref: ?ValueRef,
 };
 
 fn validateRowOnlyCallGraph(comptime program: effect_ir.Program) PlanError!void {
@@ -1775,17 +2551,18 @@ fn validateRowOnlyCallGraph(comptime program: effect_ir.Program) PlanError!void 
 fn rowOnlyFunctionSynthesis(
     comptime program: effect_ir.Program,
     comptime function_index: usize,
+    comptime schema_types: anytype,
 ) PlanError!RowOnlyFunctionSynthesis {
     const function = program.functions[function_index];
-    const function_value_codec: ?ValueCodec = if (function.ValueType == void)
+    const function_value_ref: ?ValueRef = if (function.ValueType == void)
         null
     else
-        try valueCodecFromEffectType(function.ValueType);
+        try valueRefForTypeInRegistry(schema_types, function.ValueType);
 
     var helper_call_count: usize = 0;
     var forwarded_arg_count: usize = 0;
     var value_returning_helper_count: usize = 0;
-    var value_result_codec: ?ValueCodec = null;
+    var value_result_ref: ?ValueRef = null;
     call_edge_scan: for (program.call_edges) |edge| {
         if (!edge.caller.eql(function.symbol)) continue :call_edge_scan;
         helper_call_count += 1;
@@ -1800,28 +2577,31 @@ fn rowOnlyFunctionSynthesis(
 
         if (callee.ValueType == void) continue :call_edge_scan;
         value_returning_helper_count += 1;
-        const callee_value_codec = try valueCodecFromEffectType(callee.ValueType);
-        if (value_result_codec == null) {
-            value_result_codec = callee_value_codec;
-        } else if (value_result_codec.? != callee_value_codec) {
+        const callee_value_ref = try valueRefForTypeInRegistry(schema_types, callee.ValueType);
+        if (value_result_ref == null) {
+            value_result_ref = callee_value_ref;
+        } else if (!valueRefsEqual(value_result_ref.?, callee_value_ref)) {
             return error.InvalidProgramBodyShape;
         }
     }
 
-    const value_result_local: ?u16 = if (value_result_codec == null)
+    const value_result_local: ?u16 = if (value_result_ref == null)
         null
     else
         @intCast(function.parameter_codecs.len);
     const local_count = function.parameter_codecs.len + @intFromBool(value_result_local != null);
-    const return_local: ?u16 = if (function_value_codec == null) blk: {
+    const return_local: ?u16 = if (function_value_ref == null) blk: {
         break :blk null;
     } else if (value_result_local) |local_id| blk: {
         if (value_returning_helper_count > 1) return error.InvalidProgramBodyShape;
-        if (value_result_codec.? != function_value_codec.?) return error.InvalidProgramBodyShape;
+        if (!valueRefsEqual(value_result_ref.?, function_value_ref.?)) return error.InvalidProgramBodyShape;
         break :blk local_id;
     } else blk: {
         if (function.parameter_codecs.len != 1) return error.InvalidProgramBodyShape;
-        if (codecFromEffectIrBody(function.parameter_codecs[0]) != function_value_codec.?) {
+        if (!valueRefsEqual(
+            .{ .codec = codecFromEffectIrBody(function.parameter_codecs[0]) },
+            function_value_ref.?,
+        )) {
             return error.InvalidProgramBodyShape;
         }
         break :blk 0;
@@ -1833,30 +2613,30 @@ fn rowOnlyFunctionSynthesis(
         .local_count = local_count,
         .value_result_local = value_result_local,
         .return_local = return_local,
-        .value_result_codec = value_result_codec,
+        .value_result_ref = value_result_ref,
     };
 }
 
-fn countRowOnlyLocals(comptime program: effect_ir.Program) PlanError!usize {
+fn countRowOnlyLocals(comptime program: effect_ir.Program, comptime schema_types: anytype) PlanError!usize {
     var total: usize = 0;
     for (program.functions, 0..) |_, function_index| {
-        total += (try rowOnlyFunctionSynthesis(program, function_index)).local_count;
+        total += (try rowOnlyFunctionSynthesis(program, function_index, schema_types)).local_count;
     }
     return total;
 }
 
-fn countRowOnlyCallArgs(comptime program: effect_ir.Program) PlanError!usize {
+fn countRowOnlyCallArgs(comptime program: effect_ir.Program, comptime schema_types: anytype) PlanError!usize {
     var total: usize = 0;
     for (program.functions, 0..) |_, function_index| {
-        total += (try rowOnlyFunctionSynthesis(program, function_index)).forwarded_arg_count;
+        total += (try rowOnlyFunctionSynthesis(program, function_index, schema_types)).forwarded_arg_count;
     }
     return total;
 }
 
-fn countRowOnlyInstructions(comptime program: effect_ir.Program) PlanError!usize {
+fn countRowOnlyInstructions(comptime program: effect_ir.Program, comptime schema_types: anytype) PlanError!usize {
     var total: usize = 0;
     for (program.functions, 0..) |_, function_index| {
-        const synthesis = try rowOnlyFunctionSynthesis(program, function_index);
+        const synthesis = try rowOnlyFunctionSynthesis(program, function_index, schema_types);
         total += synthesis.helper_call_count + @intFromBool(synthesis.return_local != null);
     }
     return total;
@@ -1964,10 +2744,12 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         for (program.functions) |function| total += function.outputs.len;
         break :blk total;
     };
-    const local_total = try countRowOnlyLocals(program);
-    const call_arg_total = try countRowOnlyCallArgs(program);
-    const instruction_total = try countRowOnlyInstructions(program);
     const ir_hash = try irHashForProgram(program);
+    const value_schema_registry = ValueSchemaRegistryForFunctions(program.functions);
+    const schema_types = value_schema_registry.registered_schema_types[0..];
+    const local_total = try countRowOnlyLocals(program, schema_types);
+    const call_arg_total = try countRowOnlyCallArgs(program, schema_types);
+    const instruction_total = try countRowOnlyInstructions(program, schema_types);
 
     const functions = comptime blk: {
         var buf: [program.functions.len]FunctionPlan = undefined;
@@ -1976,10 +2758,12 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         var local_index: u16 = 0;
         var instruction_index: u16 = 0;
         for (program.functions, 0..) |function, index| {
-            const synthesis = try rowOnlyFunctionSynthesis(program, index);
+            const synthesis = try rowOnlyFunctionSynthesis(program, index, schema_types);
+            const value_ref = try valueRefForTypeInRegistry(schema_types, function.ValueType);
             buf[index] = .{
                 .symbol_name = function.symbol.symbol_name,
-                .value_codec = try valueCodecFromEffectType(function.ValueType),
+                .value_codec = value_ref.codec,
+                .value_schema_index = value_ref.schema_index,
                 .parameter_count = @intCast(function.parameter_codecs.len),
                 .first_requirement = requirement_index,
                 .requirement_count = @intCast(function.row.requirements.len),
@@ -2025,12 +2809,16 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         for (program.functions) |function| {
             for (function.row.requirements) |requirement| {
                 for (requirement.ops) |op| {
+                    const payload_ref = try valueRefForTypeInRegistry(schema_types, op.PayloadType);
+                    const resume_ref = try valueRefForTypeInRegistry(schema_types, op.ResumeType);
                     buf[op_index] = .{
                         .requirement_index = requirement_index,
                         .op_name = op.op_name,
                         .mode = controlModeFromIr(op.mode),
-                        .payload_codec = try codecForType(op.PayloadType),
-                        .resume_codec = try codecForType(op.ResumeType),
+                        .payload_codec = payload_ref.codec,
+                        .payload_schema_index = payload_ref.schema_index,
+                        .resume_codec = resume_ref.codec,
+                        .resume_schema_index = resume_ref.schema_index,
                         .has_after = op.has_after,
                     };
                     op_index += 1;
@@ -2046,9 +2834,11 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         var output_index: usize = 0;
         for (program.functions) |function| {
             for (function.outputs) |output| {
+                const output_ref = try valueRefForTypeInRegistry(schema_types, output.OutputType);
                 buf[output_index] = .{
                     .label = output.label,
-                    .codec = try codecForType(output.OutputType),
+                    .codec = output_ref.codec,
+                    .schema_index = output_ref.schema_index,
                 };
                 output_index += 1;
             }
@@ -2064,9 +2854,12 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
                 buf[local_index] = .{ .codec = codecFromEffectIrBody(codec) };
                 local_index += 1;
             }
-            const synthesis = try rowOnlyFunctionSynthesis(program, function_index);
-            if (synthesis.value_result_codec) |codec| {
-                buf[local_index] = .{ .codec = codec };
+            const synthesis = try rowOnlyFunctionSynthesis(program, function_index, schema_types);
+            if (synthesis.value_result_ref) |value_ref| {
+                buf[local_index] = .{
+                    .codec = value_ref.codec,
+                    .schema_index = value_ref.schema_index,
+                };
                 local_index += 1;
             }
         }
@@ -2120,7 +2913,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         var call_arg_base: u16 = 0;
         for (program.functions, 0..) |function, function_index| {
             const caller_ref = program_plan_builder.function(@intCast(function_index));
-            const synthesis = try rowOnlyFunctionSynthesis(program, function_index);
+            const synthesis = try rowOnlyFunctionSynthesis(program, function_index, schema_types);
             instruction_edge_scan: for (program.call_edges) |edge| {
                 if (!edge.caller.eql(function.symbol)) continue :instruction_edge_scan;
                 const callee_index = symbolIndex(program, edge.callee) orelse return error.UnknownSymbol;
@@ -2162,6 +2955,9 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         .requirements = &requirements,
         .ops = &ops,
         .outputs = &outputs,
+        .value_schemas = value_schema_registry.value_schemas[0..],
+        .value_fields = value_schema_registry.value_fields[0..],
+        .value_variants = value_schema_registry.value_variants[0..],
         .locals = &locals,
         .call_args = &call_args,
         .blocks = &blocks,
@@ -2265,6 +3061,9 @@ fn enrichPlanWithBindingSchemasMode(
         .requirements = &enriched_requirements,
         .ops = base_plan.ops,
         .outputs = base_plan.outputs,
+        .value_schemas = base_plan.value_schemas,
+        .value_fields = base_plan.value_fields,
+        .value_variants = base_plan.value_variants,
         .locals = base_plan.locals,
         .call_args = base_plan.call_args,
         .blocks = base_plan.blocks,
@@ -2291,37 +3090,38 @@ pub fn enrichPlanWithBindingSchemasExact(
 
 const source_path_compat_excluded_binding_tests = if (source_path_compat_mode) struct {} else struct {
     fn expectBindingSchemaEnrichmentPreservesPlanShape() !void {
-        const base_row = comptime effect_ir.mergeRows(.{
-            effect_ir.rowFromSpec(.{
-                .state = .{
-                    .get = effect_ir.Transform(void, i32),
-                    .set = effect_ir.Transform(i32, void),
-                },
-            }),
-            effect_ir.rowFromSpec(.{
-                .writer = .{
-                    .tell = effect_ir.Transform([]const u8, void),
-                },
-            }),
-        });
-        const base_program = comptime effect_ir.Program{
+        const base_plan = comptime ProgramPlan{
+            .label = "effect_schema.enrichment",
+            .ir_hash = 1,
             .entry_index = 0,
             .functions = &.{.{
-                .symbol = .{
-                    .module_path = "test/effect_schema_program_plan_enrichment.zig",
-                    .symbol_name = "runBody",
-                },
-                .row = base_row,
-                .ValueType = []const u8,
-                .outputs = &.{
-                    .{ .label = "state", .OutputType = i32 },
-                    .{ .label = "writer", .OutputType = [][]const u8 },
-                },
+                .symbol_name = "runBody",
+                .value_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 2,
+                .first_output = 0,
+                .output_count = 2,
+                .first_local = 0,
+                .local_count = 0,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 0,
             }},
-            .call_edges = &.{},
-        };
-        const base_plan = comptime blk: {
-            break :blk try planFromProgram("effect_schema.enrichment", base_program);
+            .requirements = &.{
+                .{ .label = "state", .first_op = 0, .op_count = 0 },
+                .{ .label = "writer", .first_op = 0, .op_count = 0 },
+            },
+            .ops = &.{},
+            .outputs = &.{
+                .{ .label = "state", .codec = .i32 },
+                .{ .label = "writer", .codec = .string_list },
+            },
+            .locals = &.{},
+            .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+            .terminators = &.{.{ .kind = .return_value }},
+            .instructions = &.{},
         };
         const state_family = struct {
             const lifecycle_tag = enum {
@@ -2459,8 +3259,10 @@ pub fn planFromOpenRowProgram(
     const terminator_total = countBodyTerminators(program);
     const instruction_total = countBodyInstructions(program);
     const ir_hash = try irHashForProgram(summary_program);
-    const program_result_codec = try valueCodecFromEffectType(program.functions[program.entry_index].ValueType);
-    const result_codec_reachability = try loweredFunctionResultCodecReachability(program);
+    const value_schema_registry = ValueSchemaRegistryForFunctions(program.functions);
+    const schema_types = value_schema_registry.registered_schema_types[0..];
+    const program_result_ref = try valueRefForTypeInRegistry(schema_types, program.functions[program.entry_index].ValueType);
+    const result_codec_reachability = try loweredFunctionResultCodecReachability(program, schema_types);
 
     const functions = comptime blk: {
         var buf: [program.functions.len]FunctionPlan = undefined;
@@ -2476,12 +3278,17 @@ pub fn planFromOpenRowProgram(
                 for (body.blocks) |block| total += block.instructions.len;
                 break :count total;
             };
-            const value_codec = try valueCodecFromEffectType(function.ValueType);
+            const value_ref = try valueRefForTypeInRegistry(schema_types, function.ValueType);
             buf[index] = .{
                 .symbol_name = function.symbol.symbol_name,
-                .value_codec = value_codec,
-                .result_codec = if (value_codec != program_result_codec and result_codec_reachability[index])
-                    program_result_codec
+                .value_codec = value_ref.codec,
+                .value_schema_index = value_ref.schema_index,
+                .result_codec = if (!valueRefsEqual(value_ref, program_result_ref) and result_codec_reachability[index])
+                    program_result_ref.codec
+                else
+                    null,
+                .result_schema_index = if (!valueRefsEqual(value_ref, program_result_ref) and result_codec_reachability[index])
+                    program_result_ref.schema_index
                 else
                     null,
                 .parameter_count = @intCast(function.parameter_codecs.len),
@@ -2531,12 +3338,16 @@ pub fn planFromOpenRowProgram(
         for (program.functions) |function| {
             for (function.row.requirements) |requirement| {
                 for (requirement.ops) |op| {
+                    const payload_ref = try valueRefForTypeInRegistry(schema_types, op.PayloadType);
+                    const resume_ref = try valueRefForTypeInRegistry(schema_types, op.ResumeType);
                     buf[op_index] = .{
                         .requirement_index = requirement_index,
                         .op_name = op.op_name,
                         .mode = controlModeFromIr(op.mode),
-                        .payload_codec = try codecForType(op.PayloadType),
-                        .resume_codec = try codecForType(op.ResumeType),
+                        .payload_codec = payload_ref.codec,
+                        .payload_schema_index = payload_ref.schema_index,
+                        .resume_codec = resume_ref.codec,
+                        .resume_schema_index = resume_ref.schema_index,
                         .has_after = op.has_after,
                     };
                     op_index += 1;
@@ -2552,9 +3363,11 @@ pub fn planFromOpenRowProgram(
         var output_index: usize = 0;
         for (program.functions) |function| {
             for (function.outputs) |output| {
+                const output_ref = try valueRefForTypeInRegistry(schema_types, output.OutputType);
                 buf[output_index] = .{
                     .label = output.label,
-                    .codec = try codecForType(output.OutputType),
+                    .codec = output_ref.codec,
+                    .schema_index = output_ref.schema_index,
                 };
                 output_index += 1;
             }
@@ -2664,12 +3477,16 @@ pub fn planFromOpenRowProgram(
                                 if (target_parameter_count == 0) null else call_arg_base + instruction.aux,
                             );
                         },
-                        .call_op => program_plan_builder.callOp(
-                            caller_ref,
-                            program_plan_builder.local(caller_ref, instruction.dst),
-                            program_plan_builder.op(caller_ref, instruction.operand),
-                            if (instruction.aux == std.math.maxInt(u16)) null else program_plan_builder.local(caller_ref, instruction.aux),
-                        ) catch |err| invalidGeneratedPlan(err),
+                        .call_op => call_op: {
+                            if (instruction.operand >= ops.len) invalidGeneratedPlan(error.InvalidCallOpTarget);
+                            const target_op = ops[instruction.operand];
+                            break :call_op program_plan_builder.callOp(
+                                caller_ref,
+                                if (target_op.resume_codec == .unit) null else program_plan_builder.local(caller_ref, instruction.dst),
+                                program_plan_builder.op(caller_ref, instruction.operand),
+                                if (instruction.aux == std.math.maxInt(u16)) null else program_plan_builder.local(caller_ref, instruction.aux),
+                            ) catch |err| invalidGeneratedPlan(err);
+                        },
                         .return_value => program_plan_builder.returnValue(
                             caller_ref,
                             program_plan_builder.local(caller_ref, instruction.operand),
@@ -2698,6 +3515,9 @@ pub fn planFromOpenRowProgram(
         .requirements = &requirements,
         .ops = &ops,
         .outputs = &outputs,
+        .value_schemas = value_schema_registry.value_schemas[0..],
+        .value_fields = value_schema_registry.value_fields[0..],
+        .value_variants = value_schema_registry.value_variants[0..],
         .locals = &locals,
         .call_args = &call_args,
         .blocks = &blocks,
@@ -2707,15 +3527,94 @@ pub fn planFromOpenRowProgram(
     return plan;
 }
 
-test "codecForType covers the retained public scalar and string shapes" {
+test "codecForType covers scalar product and sum shapes" {
+    const Product = struct {
+        amount: i32,
+        label: []const u8,
+    };
+    const Sum = union(enum) {
+        accept: i32,
+        reject,
+    };
+    const BareEnum = enum {
+        first,
+        second,
+    };
+
     try std.testing.expectEqual(ValueCodec.unit, try codecForType(void));
     try std.testing.expectEqual(ValueCodec.bool, try codecForType(bool));
     try std.testing.expectEqual(ValueCodec.i32, try codecForType(i32));
     try std.testing.expectEqual(ValueCodec.usize, try codecForType(usize));
     try std.testing.expectEqual(ValueCodec.string, try codecForType([]const u8));
     try std.testing.expectEqual(ValueCodec.string_list, try codecForType([][]const u8));
+    try std.testing.expectEqual(ValueCodec.product, try codecForType(Product));
+    try std.testing.expectEqual(ValueCodec.sum, try codecForType(Sum));
+    try std.testing.expectEqual(ValueCodec.sum, try codecForType(BareEnum));
+    try std.testing.expectEqual(@as(usize, 2), try fieldCountForType(Product));
+    try std.testing.expectEqual(@as(usize, 2), try variantCountForType(Sum));
+    try std.testing.expectEqual(@as(usize, 2), try variantCountForType(BareEnum));
+    try std.testing.expectError(error.UnsupportedCodecType, codecForType(*const i32));
     try std.testing.expect(!hasPayload(.unit));
     try std.testing.expect(hasPayload(.string));
+}
+
+test "ValueCodec preserves legacy serialized numeric tags" {
+    try std.testing.expectEqual(@as(u8, 0), @intFromEnum(ValueCodec.bool));
+    try std.testing.expectEqual(@as(u8, 1), @intFromEnum(ValueCodec.i32));
+    try std.testing.expectEqual(@as(u8, 2), @intFromEnum(ValueCodec.string));
+    try std.testing.expectEqual(@as(u8, 3), @intFromEnum(ValueCodec.string_list));
+    try std.testing.expectEqual(@as(u8, 4), @intFromEnum(ValueCodec.unit));
+    try std.testing.expectEqual(@as(u8, 5), @intFromEnum(ValueCodec.usize));
+    try std.testing.expectEqual(@as(u8, 6), @intFromEnum(ValueCodec.product));
+    try std.testing.expectEqual(@as(u8, 7), @intFromEnum(ValueCodec.sum));
+    try std.testing.expectEqual(ValueCodec.string, try valueCodecFromInstructionAux(2));
+    try std.testing.expectEqual(ValueCodec.string_list, try valueCodecFromInstructionAux(3));
+    try std.testing.expectEqual(ValueCodec.unit, try valueCodecFromInstructionAux(4));
+    try std.testing.expectEqual(ValueCodec.usize, try valueCodecFromInstructionAux(5));
+}
+
+test "planFromProgram derives product and sum schema refs for ops and outputs" {
+    const Product = struct {
+        amount: i32,
+        label: []const u8,
+    };
+    const Decision = enum {
+        accept,
+        reject,
+    };
+    const row = comptime effect_ir.rowFromSpec(.{
+        .approval = .{
+            .request = effect_ir.Transform(Product, Decision),
+        },
+    });
+    const program = effect_ir.Program{
+        .functions = &.{.{
+            .symbol = .{
+                .module_path = "test/program_plan_codecs.zig",
+                .symbol_name = "runBody",
+            },
+            .row = row,
+            .ValueType = void,
+            .outputs = &.{.{ .label = "approval", .OutputType = Product }},
+        }},
+        .call_edges = &.{},
+    };
+    const plan = comptime planFromProgram("codec.derived.product_sum", program) catch unreachable;
+
+    try std.testing.expectEqual(@as(usize, 2), plan.value_schemas.len);
+    try std.testing.expectEqual(ValueCodec.unit, plan.functions[0].value_codec);
+    try std.testing.expectEqual(@as(?u16, null), plan.functions[0].value_schema_index);
+    try std.testing.expectEqual(ValueCodec.product, plan.ops[0].payload_codec);
+    try std.testing.expectEqual(@as(u16, 0), plan.ops[0].payload_schema_index.?);
+    try std.testing.expectEqual(ValueCodec.sum, plan.ops[0].resume_codec);
+    try std.testing.expectEqual(@as(u16, 1), plan.ops[0].resume_schema_index.?);
+    try std.testing.expectEqual(ValueCodec.product, plan.outputs[0].codec);
+    try std.testing.expectEqual(@as(u16, 0), plan.outputs[0].schema_index.?);
+    try std.testing.expectEqual(@as(u16, 0), plan.value_schemas[0].first_field);
+    try std.testing.expectEqual(@as(u16, 2), plan.value_schemas[0].field_count);
+    try std.testing.expectEqual(@as(u16, 0), plan.value_schemas[1].first_variant);
+    try std.testing.expectEqual(@as(u16, 2), plan.value_schemas[1].variant_count);
+    try plan.validate();
 }
 
 test "program_plan_builder rejects cross-function refs before materializing a plan" {
@@ -2902,6 +3801,43 @@ test "planFromOpenRowProgram preserves row-only helper call plans" {
     try std.testing.expectEqualStrings(row_only_plan.ops[0].op_name, open_row_plan.ops[0].op_name);
 }
 
+test "planFromOpenRowProgram drops destinations for unit-resume ops" {
+    const row = comptime effect_ir.rowFromSpec(.{
+        .state = .{
+            .set = effect_ir.Transform(i32, void),
+        },
+    });
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/unit_resume.zig",
+        .symbol_name = "root",
+    };
+    const lowered = comptime program_frontend.LoweredOpenRowProgram{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = root_symbol,
+            .row = row,
+            .ValueType = i32,
+        }},
+        .call_edges = &.{},
+        .function_bodies = &.{.{
+            .local_codecs = &.{.i32},
+            .call_arg_locals = &.{},
+            .entry_block = 0,
+            .blocks = &.{.{
+                .instructions = &.{
+                    .{ .kind = .call_op, .dst = 0, .operand = 0, .aux = 0 },
+                    .{ .kind = .return_value, .operand = 0 },
+                },
+                .terminator = .{ .kind = .return_value },
+            }},
+        }},
+    };
+
+    const plan = comptime try planFromOpenRowProgram("unit-resume", lowered);
+    try std.testing.expectEqual(InstructionKind.call_op, plan.instructions[0].kind);
+    try std.testing.expectEqual(std.math.maxInt(u16), plan.instructions[0].dst);
+}
+
 test "ProgramPlan.validate rejects out-of-range helper targets" {
     const plan = ProgramPlan{
         .label = "invalid.helper_target",
@@ -2981,7 +3917,6 @@ test "ProgramPlan.validate rejects out-of-range helper instruction locals" {
         .{ .kind = .compare_eq_zero, .dst = 0, .operand = 1 },
         .{ .kind = .const_i32, .dst = 1, .operand = 1 },
         .{ .kind = .sub_one, .dst = 0, .operand = 1 },
-        .{ .kind = .return_value, .operand = 1 },
     }) |instruction| {
         const plan = ProgramPlan{
             .label = base_plan.label,
@@ -2998,6 +3933,82 @@ test "ProgramPlan.validate rejects out-of-range helper instruction locals" {
         };
 
         try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validate());
+    }
+}
+
+test "ProgramPlan.validate rejects schema-bearing nested-with result codecs" {
+    const complete_metadata = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi";
+    const value_schemas = [_]ValueSchemaPlan{
+        .{
+            .label = "Product",
+            .codec = .product,
+            .first_field = 0,
+            .field_count = 1,
+        },
+        .{
+            .label = "Sum",
+            .codec = .sum,
+            .first_variant = 0,
+            .variant_count = 1,
+        },
+    };
+    const value_fields = [_]ValueFieldPlan{.{
+        .name = "value",
+        .codec = .i32,
+    }};
+    const value_variants = [_]ValueVariantPlan{.{
+        .name = "value",
+        .codec = .i32,
+    }};
+    const blocks = [_]BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = 1,
+        .terminator_index = 0,
+    }};
+    const terminators = [_]Terminator{.{ .kind = .return_unit }};
+
+    inline for ([_]struct {
+        codec: ValueCodec,
+        schema_index: u16,
+    }{
+        .{ .codec = .product, .schema_index = 0 },
+        .{ .codec = .sum, .schema_index = 1 },
+    }) |case| {
+        const plan = ProgramPlan{
+            .label = "invalid.nested_with_structured_codec",
+            .ir_hash = 1,
+            .entry_index = 0,
+            .functions = &.{.{
+                .symbol_name = "root",
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 1,
+            }},
+            .requirements = &.{},
+            .ops = &.{},
+            .outputs = &.{},
+            .value_schemas = &value_schemas,
+            .value_fields = &value_fields,
+            .value_variants = &value_variants,
+            .locals = &.{.{ .codec = case.codec, .schema_index = case.schema_index }},
+            .blocks = &blocks,
+            .terminators = &terminators,
+            .instructions = &.{.{
+                .kind = .call_nested_with,
+                .dst = 0,
+                .aux = @intFromEnum(case.codec),
+                .string_literal = complete_metadata,
+            }},
+        };
+
+        try std.testing.expectError(error.InvalidInstructionCodec, plan.validate());
     }
 }
 
@@ -3197,12 +4208,13 @@ test "ProgramPlan.validate rejects tables outside the u16-indexed profile" {
 }
 
 test "upgradeLegacyProgramPlan preserves schema-1 function metadata when present" {
+    const allocator = std.testing.allocator;
     var plan = ProgramPlan{
         .schema_version = 1,
         .label = "legacy.schema1.metadata",
         .ir_hash = 1,
         .entry_index = 0,
-        .functions = &.{.{
+        .functions = try allocator.dupe(FunctionPlan, &.{.{
             .symbol_name = "root",
             .value_codec = .i32,
             .parameter_count = 2,
@@ -3217,34 +4229,47 @@ test "upgradeLegacyProgramPlan preserves schema-1 function metadata when present
             .block_count = 2,
             .first_instruction = 0,
             .instruction_count = 1,
-        }},
-        .requirements = &.{},
-        .ops = &.{},
-        .outputs = &.{.{ .label = "result", .codec = .i32 }},
-        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 }, .{ .codec = .i32 } },
-        .call_args = &.{},
-        .blocks = &.{
+        }}),
+        .requirements = try allocator.dupe(RequirementPlan, &.{}),
+        .ops = try allocator.dupe(OpPlan, &.{}),
+        .outputs = try allocator.dupe(OutputPlan, &.{.{ .label = "result", .codec = .i32 }}),
+        .locals = try allocator.dupe(LocalPlan, &.{ .{ .codec = .i32 }, .{ .codec = .i32 }, .{ .codec = .i32 } }),
+        .call_args = try allocator.dupe(u16, &.{}),
+        .blocks = try allocator.dupe(BlockPlan, &.{
             .{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 },
             .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 1 },
-        },
-        .terminators = &.{
+        }),
+        .terminators = try allocator.dupe(Terminator, &.{
             .{ .kind = .jump, .primary = 1 },
             .{ .kind = .return_value },
-        },
-        .instructions = &.{.{ .kind = .return_value, .dst = 0, .operand = 2, .aux = 0 }},
+        }),
+        .instructions = try allocator.dupe(Instruction, &.{.{ .kind = .return_value, .dst = 0, .operand = 2, .aux = 0 }}),
     };
 
-    try upgradeLegacyProgramPlan(std.testing.allocator, &plan);
+    var release_on_error = true;
+    errdefer if (release_on_error) {
+        allocator.free(plan.functions);
+        allocator.free(plan.requirements);
+        allocator.free(plan.ops);
+        allocator.free(plan.outputs);
+        allocator.free(plan.locals);
+        allocator.free(plan.call_args);
+        allocator.free(plan.blocks);
+        allocator.free(plan.terminators);
+        allocator.free(plan.instructions);
+    };
+    try upgradeLegacyProgramPlan(allocator, &plan);
+    release_on_error = false;
     defer {
-        std.testing.allocator.free(plan.functions);
-        std.testing.allocator.free(plan.requirements);
-        std.testing.allocator.free(plan.ops);
-        std.testing.allocator.free(plan.outputs);
-        std.testing.allocator.free(plan.locals);
-        std.testing.allocator.free(plan.call_args);
-        std.testing.allocator.free(plan.blocks);
-        std.testing.allocator.free(plan.terminators);
-        std.testing.allocator.free(plan.instructions);
+        allocator.free(plan.functions);
+        allocator.free(plan.requirements);
+        allocator.free(plan.ops);
+        allocator.free(plan.outputs);
+        allocator.free(plan.locals);
+        allocator.free(plan.call_args);
+        allocator.free(plan.blocks);
+        allocator.free(plan.terminators);
+        allocator.free(plan.instructions);
     }
 
     try std.testing.expectEqual(ProgramPlan.current_schema_version, plan.schema_version);
@@ -3764,7 +4789,6 @@ test "ProgramPlan.validate rejects return_value terminators without a return ins
         .entry_index = 0,
         .functions = &.{.{
             .symbol_name = "root",
-            .value_codec = .i32,
             .first_requirement = 0,
             .requirement_count = 0,
             .first_output = 0,
@@ -3803,7 +4827,6 @@ test "ProgramPlan.validate rejects functions whose instruction span is not attac
         .entry_index = 0,
         .functions = &.{.{
             .symbol_name = "root",
-            .value_codec = .i32,
             .first_requirement = 0,
             .requirement_count = 0,
             .first_output = 0,
@@ -3823,7 +4846,7 @@ test "ProgramPlan.validate rejects functions whose instruction span is not attac
         .terminators = &.{},
         .instructions = &.{.{ .kind = .return_value, .operand = 0 }},
     };
-    try std.testing.expectError(error.InvalidFunctionInstructionSpan, zero_block_plan.validate());
+    try std.testing.expectError(error.InvalidFunctionEntryBlock, zero_block_plan.validate());
 
     const uncovered_instruction_plan = ProgramPlan{
         .label = "invalid.unowned_instruction_span.uncovered",
@@ -3831,7 +4854,6 @@ test "ProgramPlan.validate rejects functions whose instruction span is not attac
         .entry_index = 0,
         .functions = &.{.{
             .symbol_name = "root",
-            .value_codec = .i32,
             .first_requirement = 0,
             .requirement_count = 0,
             .first_output = 0,
@@ -3960,12 +4982,13 @@ test "ProgramPlan hash survives JSON roundtrip" {
         .entry_index = 0,
         .functions = &.{.{
             .symbol_name = "root",
+            .value_codec = .i32,
             .first_requirement = 0,
             .requirement_count = 1,
             .first_output = 0,
-            .output_count = 1,
+            .output_count = 2,
             .first_local = 0,
-            .local_count = 0,
+            .local_count = 1,
             .first_block = 0,
             .block_count = 1,
             .first_instruction = 0,
@@ -3983,11 +5006,39 @@ test "ProgramPlan hash survives JSON roundtrip" {
             .payload_codec = .string,
             .resume_codec = .unit,
         }},
-        .outputs = &.{.{
+        .outputs = &.{ .{
             .label = "writer",
             .codec = .string_list,
-        }},
-        .locals = &.{},
+        }, .{
+            .label = "approval",
+            .codec = .product,
+            .schema_index = 0,
+        } },
+        .value_schemas = &.{ .{
+            .label = "Approval",
+            .codec = .product,
+            .first_field = 0,
+            .field_count = 2,
+        }, .{
+            .label = "Decision",
+            .codec = .sum,
+            .first_variant = 0,
+            .variant_count = 2,
+        } },
+        .value_fields = &.{ .{
+            .name = "amount",
+            .codec = .i32,
+        }, .{
+            .name = "label",
+            .codec = .string,
+        } },
+        .value_variants = &.{ .{
+            .name = "reject",
+        }, .{
+            .name = "accept",
+            .codec = .i32,
+        } },
+        .locals = &.{.{ .codec = .i32 }},
         .blocks = &.{.{
             .first_instruction = 0,
             .instruction_count = 1,
@@ -4012,4 +5063,59 @@ test "ProgramPlan hash survives JSON roundtrip" {
 
     try parsed.value.validate();
     try std.testing.expectEqual(plan.hash(), parsed.value.hash());
+}
+
+test "ProgramPlan hash includes requirement semantics" {
+    const base = ProgramPlan{
+        .label = "hash.requirement_semantics",
+        .ir_hash = 42,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{.{
+            .label = "state",
+            .first_op = 0,
+            .op_count = 0,
+            .lifecycle_tag = .plain_transform,
+            .output_tag = .none,
+        }},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const enriched = ProgramPlan{
+        .label = base.label,
+        .ir_hash = base.ir_hash,
+        .entry_index = base.entry_index,
+        .functions = base.functions,
+        .requirements = &.{.{
+            .label = "state",
+            .first_op = 0,
+            .op_count = 0,
+            .lifecycle_tag = .state_cell,
+            .output_tag = .final_state,
+        }},
+        .ops = base.ops,
+        .outputs = base.outputs,
+        .locals = base.locals,
+        .blocks = base.blocks,
+        .terminators = base.terminators,
+        .instructions = base.instructions,
+    };
+
+    try std.testing.expect(base.hash() != enriched.hash());
 }
