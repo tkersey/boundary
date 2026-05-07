@@ -28,12 +28,16 @@ pub fn validateExecutablePlanSupport(comptime compiled_plan: program_plan.Progra
         const analysis = program_plan.entryExecutionAnalysis(compiled_plan) catch return error.UnsupportedLocalCodec;
         if (analysis.helper_cycle) return error.UnsupportedHelperCycle;
 
+        for (compiled_plan.functions, 0..) |function, function_index| {
+            if (!analysis.reachable_functions[function_index]) continue;
+            for (0..function.parameter_count) |parameter_index| {
+                const local = compiled_plan.locals[function.first_local + parameter_index];
+                if (!executableScalarCodec(local.codec)) return error.UnsupportedParameterCodec;
+            }
+        }
+
         const entry = compiled_plan.functions[compiled_plan.entry_index];
         if (!executableScalarCodec(program_plan.functionResultCodec(entry))) return error.UnsupportedResultCodec;
-        for (0..entry.parameter_count) |parameter_index| {
-            const local = compiled_plan.locals[entry.first_local + parameter_index];
-            if (!executableScalarCodec(local.codec)) return error.UnsupportedParameterCodec;
-        }
 
         for (compiled_plan.instructions, 0..) |instruction, instruction_index| {
             if (!analysis.reachable_instructions[instruction_index]) continue;
@@ -1181,6 +1185,75 @@ fn supportStructuredHelperLocalPlan() program_plan.ProgramPlan {
     }) catch |err| supportPlanError(err);
 }
 
+fn supportStructuredHelperParameterPlan() program_plan.ProgramPlan {
+    const root = program_plan.program_plan_builder.function(0);
+    const helper = program_plan.program_plan_builder.function(1);
+    const instructions = [_]program_plan.Instruction{
+        program_plan.program_plan_builder.callHelperDiscardingResult(root, std.math.maxInt(u16), helper, 0),
+    };
+    const functions = [_]program_plan.FunctionPlan{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        },
+        .{
+            .symbol_name = "helper",
+            .value_codec = .unit,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 1,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 1,
+            .instruction_count = 0,
+        },
+    };
+    const blocks = [_]program_plan.BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 0, .terminator_index = 1 },
+    };
+    const terminators = [_]program_plan.Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_unit },
+    };
+    const schema = supportSchemaTables(.product);
+    return program_plan.program_plan_builder.finish(.{
+        .label = "structured-helper-parameter",
+        .ir_hash = 108,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = schema.schemas,
+        .value_fields = schema.fields,
+        .locals = &.{
+            .{ .codec = .product, .schema_index = 0 },
+            .{ .codec = .product, .schema_index = 0 },
+        },
+        .call_args = &.{0},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch |err| supportPlanError(err);
+}
+
 fn supportUnreachableStructuredHelperPlan() program_plan.ProgramPlan {
     const root = program_plan.program_plan_builder.function(0);
     const helper = program_plan.program_plan_builder.function(1);
@@ -1297,6 +1370,10 @@ test "ability.program executable support rejects structured entry parameter code
     inline for (.{ program_plan.ValueCodec.product, .sum, .string_list }) |codec| {
         try std.testing.expectError(error.UnsupportedParameterCodec, validateExecutablePlanSupport(supportParameterPlan(codec)));
     }
+}
+
+test "ability.program executable support rejects structured helper parameter codecs" {
+    try std.testing.expectError(error.UnsupportedParameterCodec, validateExecutablePlanSupport(supportStructuredHelperParameterPlan()));
 }
 
 test "ability.program executable support rejects structured op payload codecs" {
