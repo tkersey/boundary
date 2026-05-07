@@ -2,6 +2,58 @@
 const ability = @import("ability");
 const std = @import("std");
 
+const CountingAllocator = struct {
+    child: std.mem.Allocator,
+    alloc_calls: usize = 0,
+    resize_calls: usize = 0,
+    remap_calls: usize = 0,
+    free_calls: usize = 0,
+
+    fn init(child: std.mem.Allocator) @This() {
+        return .{ .child = child };
+    }
+
+    fn allocator(self: *@This()) std.mem.Allocator {
+        return .{
+            .ptr = self,
+            .vtable = &.{
+                .alloc = alloc,
+                .resize = resize,
+                .remap = remap,
+                .free = free,
+            },
+        };
+    }
+
+    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        self.alloc_calls += 1;
+        return self.child.rawAlloc(len, alignment, ret_addr);
+    }
+
+    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        self.resize_calls += 1;
+        return self.child.rawResize(memory, alignment, new_len, ret_addr);
+    }
+
+    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        self.remap_calls += 1;
+        return self.child.rawRemap(memory, alignment, new_len, ret_addr);
+    }
+
+    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        self.free_calls += 1;
+        self.child.rawFree(memory, alignment, ret_addr);
+    }
+
+    fn allocationEvents(self: @This()) usize {
+        return self.alloc_calls + self.resize_calls + self.remap_calls;
+    }
+};
+
 fn compiledTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const resume_local = ability.ir.builder.local(root, 0);
@@ -448,6 +500,83 @@ const UnitHandlers = struct {
 const CompiledBody = struct {
     pub const compiled_plan = compiledTransformPlan("compiled-body");
 };
+
+fn voidReturnPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .unit,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 0,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 82,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &.{},
+    }) catch unreachable;
+}
+
+fn stringLiteralPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const value = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{ .kind = .const_string, .dst = value.index, .string_literal = "scalar string" },
+        ability.ir.builder.returnValue(root, value) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .string,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 83,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
 
 fn overflowArithmeticPlan(comptime label: []const u8, comptime use_binary_add: bool) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
@@ -1732,6 +1861,91 @@ fn manyAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
+fn loopedAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const counter = ability.ir.builder.local(root, 0);
+    const resume_local = ability.ir.builder.local(root, 1);
+    const done = ability.ir.builder.local(root, 2);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{
+            .kind = .const_usize,
+            .dst = counter.index,
+            .string_literal = "8",
+        },
+        ability.ir.builder.callOp(root, resume_local, ability.ir.builder.op(root, 0), null) catch unreachable,
+        .{
+            .kind = .sub_one,
+            .dst = counter.index,
+            .operand = counter.index,
+        },
+        .{
+            .kind = .compare_eq_zero,
+            .dst = done.index,
+            .operand = counter.index,
+        },
+        ability.ir.builder.returnValue(root, resume_local) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .i32,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 3,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 3,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{
+        .label = "authored",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "dispatch",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+        .has_after = true,
+    }};
+    const locals = [_]ability.ir.plan.Local{
+        .{ .codec = .usize },
+        .{ .codec = .i32 },
+        .{ .codec = .bool },
+    };
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 3, .terminator_index = 1 },
+        .{ .first_instruction = 4, .instruction_count = 1, .terminator_index = 2 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .jump, .primary = 1 },
+        .{ .kind = .branch_if, .primary = 2, .secondary = 1 },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 83,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn deepHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     @setEvalBranchQuota(200_000);
     const function_count = 66;
@@ -1898,6 +2112,52 @@ test "ability.program executes plans beyond legacy interpreter scratch caps" {
     try std.testing.expectEqual(@as(i32, 7), deep_helper_result.value);
 }
 
+test "ability.program uses shared interpreter scratch for helper frames and after stack" {
+    var counting = CountingAllocator.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(counting.allocator());
+    defer runtime.deinit();
+
+    const DeepHelperBody = struct {
+        pub const compiled_plan = deepHelperPlan("deep-helper-shared-scratch");
+    };
+    const DeepHelperProgram = ability.program("deep-helper-shared-scratch", struct {}, DeepHelperBody);
+    var deep_helper_result = try DeepHelperProgram.run(&runtime, .{});
+    defer deep_helper_result.deinit();
+    try std.testing.expectEqual(@as(i32, 7), deep_helper_result.value);
+    try std.testing.expect(counting.alloc_calls <= 2);
+
+    const after_deep_helper_allocs = counting.alloc_calls;
+    const ManyAfterHandlers = struct {
+        authored: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 0;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: i32) !i32 {
+                return value + 1;
+            }
+        },
+    };
+    const ManyAfterBody = struct {
+        pub const compiled_plan = manyAfterPlan("many-after-shared-scratch");
+    };
+    const ManyAfterProgram = ability.program("many-after-shared-scratch", ManyAfterHandlers, ManyAfterBody);
+    var many_after_result = try ManyAfterProgram.run(&runtime, .{ .authored = .{} });
+    defer many_after_result.deinit();
+    try std.testing.expectEqual(@as(i32, 65), many_after_result.value);
+    try std.testing.expect(counting.alloc_calls - after_deep_helper_allocs <= 3);
+
+    const before_looped_after_events = counting.allocationEvents();
+    const LoopedAfterBody = struct {
+        pub const compiled_plan = loopedAfterPlan("looped-after-shared-scratch");
+    };
+    const LoopedAfterProgram = ability.program("looped-after-shared-scratch", ManyAfterHandlers, LoopedAfterBody);
+    var looped_after_result = try LoopedAfterProgram.run(&runtime, .{ .authored = .{} });
+    defer looped_after_result.deinit();
+    try std.testing.expectEqual(@as(i32, 8), looped_after_result.value);
+    try std.testing.expect(counting.allocationEvents() - before_looped_after_events <= 3);
+}
+
 test "ability.program accepts public ProgramValue entry args" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -2061,6 +2321,51 @@ test "ability.program interprets pure arithmetic and helper ProgramPlan instruct
     defer unit_resume_keeps_local_result.deinit();
     try std.testing.expectEqual(@as(i32, 7), unit_resume_keeps_local_result.value);
     try std.testing.expectEqual(@as(usize, 1), touch_calls);
+}
+
+test "ability.program executes the public scalar ProgramPlan subset" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const VoidBody = struct {
+        pub const compiled_plan = voidReturnPlan("scalar-void");
+    };
+    const VoidProgram = ability.program("scalar-void", struct {}, VoidBody);
+    var void_result = try VoidProgram.run(&runtime, .{});
+    defer void_result.deinit();
+    try std.testing.expectEqual({}, void_result.value);
+
+    const BoolBody = struct {
+        pub const compiled_plan = boolComparePlan("scalar-bool");
+    };
+    const BoolProgram = ability.program("scalar-bool", BoolHandlers, BoolBody);
+    var bool_result = try BoolProgram.run(&runtime, .{ .probe = .{} });
+    defer bool_result.deinit();
+    try std.testing.expectEqual(true, bool_result.value);
+
+    const I32Body = struct {
+        pub const compiled_plan = pureArithmeticPlan("scalar-i32");
+    };
+    const I32Program = ability.program("scalar-i32", struct {}, I32Body);
+    var i32_result = try I32Program.run(&runtime, .{});
+    defer i32_result.deinit();
+    try std.testing.expectEqual(@as(i32, 7), i32_result.value);
+
+    const UsizeBody = struct {
+        pub const compiled_plan = usizeLiteralPlan("scalar-usize");
+    };
+    const UsizeProgram = ability.program("scalar-usize", struct {}, UsizeBody);
+    var usize_result = try UsizeProgram.run(&runtime, .{});
+    defer usize_result.deinit();
+    try std.testing.expectEqual(@as(usize, 0xff), usize_result.value);
+
+    const StringBody = struct {
+        pub const compiled_plan = stringLiteralPlan("scalar-string");
+    };
+    const StringProgram = ability.program("scalar-string", struct {}, StringBody);
+    var string_result = try StringProgram.run(&runtime, .{});
+    defer string_result.deinit();
+    try std.testing.expectEqualStrings("scalar string", string_result.value);
 }
 
 test "ability.program applies after continuation exactly once" {
@@ -2404,18 +2709,10 @@ test "ability.ir rejects entry plans with normal value completion and distinct r
     );
 }
 
-test "ability.program rejects unsupported structured op payloads without trapping" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
-    defer runtime.deinit();
-
-    const StructuredBody = struct {
-        pub const compiled_plan = unsupportedStructuredPayloadPlan("unsupported-structured-payload");
-    };
-    const StructuredHandlers = struct {
-        structured: struct {},
-    };
-    const Program = ability.program("unsupported-structured-payload", StructuredHandlers, StructuredBody);
-    try std.testing.expectError(error.ProgramContractViolation, Program.run(&runtime, .{ .structured = .{} }));
+test "ability.ir can describe structured op payload metadata outside the executable subset" {
+    const plan = unsupportedStructuredPayloadPlan("unsupported-structured-payload");
+    try std.testing.expectEqual(ability.ir.ValueCodec.product, plan.ops[0].payload_codec);
+    try std.testing.expectEqual(@as(?u16, 0), plan.ops[0].payload_schema_index);
 }
 
 test "ability.program rejects i32 arithmetic overflow without trapping" {

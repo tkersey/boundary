@@ -20,6 +20,14 @@ repeatedly.
 with `ability.ir.builder`, validated before it escapes, and interpreted by
 `Program.run`.
 
+`ability.ir.ProgramPlan` can describe richer value schemas than
+`ability.program` executes today. The current executable subset is scalar-only:
+entry results, entry parameters, operation payloads, operation resumes, and
+instruction-reachable locals must use `unit`, `bool`, `i32`, `usize`, or
+`string` codecs. `product`, `sum`, and `string_list` remain visible in the IR as
+schema and metadata shapes, but they are not executable through
+`ability.program` yet.
+
 ```zig
 const std = @import("std");
 const ability = @import("ability");
@@ -97,9 +105,11 @@ pub fn main() !void {
 ```
 
 The label must be non-empty. `Program.Result` exposes `value`, `outputs`, and
-`deinit()`. `outputs` is currently `void`; observable outputs should be modeled
-as explicit ProgramPlan values or handler-owned state until output materialization
-is promoted onto the public plan-backed path.
+`deinit()`. String results in `Program.Result.value` should be treated as
+borrowed unless the body documents and implements ownership cleanup through
+`Body.deinitResult`. `outputs` is currently `void`; observable outputs should
+remain explicit ProgramPlan values or handler-owned state until output
+materialization is promoted onto the public plan-backed path.
 
 Plans with entry parameters can add `Body.encodeArgs(handlers)` and return a
 `[]const ability.ir.ProgramValue`. That public value union is the argument
