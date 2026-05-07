@@ -274,74 +274,74 @@ const InterpreterFrame = struct {
     after_start: usize,
 };
 
-const InterpreterScratch = struct {
-    allocator: std.mem.Allocator,
-    locals: std.ArrayList(lowered_machine.ProgramValue) = .empty,
-    call_args: std.ArrayList(lowered_machine.ProgramValue) = .empty,
-    after_stack: std.ArrayList(u16) = .empty,
-
-    fn init(
+fn InterpreterScratch(comptime after_stack_capacity: usize) type {
+    return struct {
         allocator: std.mem.Allocator,
-        comptime compiled_plan: program_plan.ProgramPlan,
-    ) std.mem.Allocator.Error!@This() {
-        const analysis = comptime program_plan.entryExecutionAnalysis(compiled_plan) catch |err|
-            @compileError("validated ProgramPlan entry analysis failed: " ++ @errorName(err));
-        var scratch: @This() = .{ .allocator = allocator };
-        errdefer scratch.deinit();
-        try scratch.locals.ensureTotalCapacity(allocator, analysis.max_active_local_slots);
-        try scratch.call_args.ensureTotalCapacity(allocator, analysis.max_active_call_arg_slots);
-        if (analysis.reachable_after_count != 0) {
-            try scratch.after_stack.ensureTotalCapacity(allocator, max_interpreter_steps);
+        locals: std.ArrayList(lowered_machine.ProgramValue) = .empty,
+        call_args: std.ArrayList(lowered_machine.ProgramValue) = .empty,
+        after_stack: [after_stack_capacity]u16 = [_]u16{0} ** after_stack_capacity,
+        after_stack_len: usize = 0,
+
+        fn init(
+            allocator: std.mem.Allocator,
+            max_active_local_slots: usize,
+            max_active_call_arg_slots: usize,
+        ) std.mem.Allocator.Error!@This() {
+            var scratch: @This() = .{ .allocator = allocator };
+            errdefer scratch.deinit();
+            try scratch.locals.ensureTotalCapacity(allocator, max_active_local_slots);
+            try scratch.call_args.ensureTotalCapacity(allocator, max_active_call_arg_slots);
+            return scratch;
         }
-        return scratch;
-    }
 
-    fn deinit(self: *@This()) void {
-        self.after_stack.deinit(self.allocator);
-        self.call_args.deinit(self.allocator);
-        self.locals.deinit(self.allocator);
-    }
+        fn deinit(self: *@This()) void {
+            self.call_args.deinit(self.allocator);
+            self.locals.deinit(self.allocator);
+        }
 
-    fn pushFrame(self: *@This(), local_count: usize) std.mem.Allocator.Error!InterpreterFrame {
-        const frame: InterpreterFrame = .{
-            .locals_start = self.locals.items.len,
-            .locals_len = local_count,
-            .call_args_start = self.call_args.items.len,
-            .after_start = self.after_stack.items.len,
-        };
-        try self.locals.resize(self.allocator, frame.locals_start + local_count);
-        @memset(self.locals.items[frame.locals_start..][0..local_count], .none);
-        return frame;
-    }
+        fn pushFrame(self: *@This(), local_count: usize) std.mem.Allocator.Error!InterpreterFrame {
+            const frame: InterpreterFrame = .{
+                .locals_start = self.locals.items.len,
+                .locals_len = local_count,
+                .call_args_start = self.call_args.items.len,
+                .after_start = self.after_stack_len,
+            };
+            try self.locals.resize(self.allocator, frame.locals_start + local_count);
+            @memset(self.locals.items[frame.locals_start..][0..local_count], .none);
+            return frame;
+        }
 
-    fn popFrame(self: *@This(), frame: InterpreterFrame) void {
-        self.after_stack.shrinkRetainingCapacity(frame.after_start);
-        self.call_args.shrinkRetainingCapacity(frame.call_args_start);
-        self.locals.shrinkRetainingCapacity(frame.locals_start);
-    }
+        fn popFrame(self: *@This(), frame: InterpreterFrame) void {
+            self.after_stack_len = frame.after_start;
+            self.call_args.shrinkRetainingCapacity(frame.call_args_start);
+            self.locals.shrinkRetainingCapacity(frame.locals_start);
+        }
 
-    fn frameLocals(self: *@This(), frame: InterpreterFrame) []lowered_machine.ProgramValue {
-        return self.locals.items[frame.locals_start..][0..frame.locals_len];
-    }
+        fn frameLocals(self: *@This(), frame: InterpreterFrame) []lowered_machine.ProgramValue {
+            return self.locals.items[frame.locals_start..][0..frame.locals_len];
+        }
 
-    fn pushCallArgs(self: *@This(), count: usize) std.mem.Allocator.Error![]lowered_machine.ProgramValue {
-        const start = self.call_args.items.len;
-        try self.call_args.resize(self.allocator, start + count);
-        return self.call_args.items[start..][0..count];
-    }
+        fn pushCallArgs(self: *@This(), count: usize) std.mem.Allocator.Error![]lowered_machine.ProgramValue {
+            const start = self.call_args.items.len;
+            try self.call_args.resize(self.allocator, start + count);
+            return self.call_args.items[start..][0..count];
+        }
 
-    fn popCallArgs(self: *@This(), args: []const lowered_machine.ProgramValue) void {
-        self.call_args.shrinkRetainingCapacity(self.call_args.items.len - args.len);
-    }
+        fn popCallArgs(self: *@This(), args: []const lowered_machine.ProgramValue) void {
+            self.call_args.shrinkRetainingCapacity(self.call_args.items.len - args.len);
+        }
 
-    fn pushAfter(self: *@This(), op_index: u16) std.mem.Allocator.Error!void {
-        try self.after_stack.append(self.allocator, op_index);
-    }
+        fn pushAfter(self: *@This(), op_index: u16) error{ExecutionBudgetExceeded}!void {
+            if (self.after_stack_len >= self.after_stack.len) return error.ExecutionBudgetExceeded;
+            self.after_stack[self.after_stack_len] = op_index;
+            self.after_stack_len += 1;
+        }
 
-    fn frameAfterStack(self: *@This(), frame: InterpreterFrame) []const u16 {
-        return self.after_stack.items[frame.after_start..];
-    }
-};
+        fn frameAfterStack(self: *@This(), frame: InterpreterFrame) []const u16 {
+            return self.after_stack[frame.after_start..self.after_stack_len];
+        }
+    };
+}
 
 fn consumeInterpreterStep(remaining_steps: *usize) error{ExecutionBudgetExceeded}!void {
     if (remaining_steps.* == 0) return error.ExecutionBudgetExceeded;
@@ -610,7 +610,7 @@ fn executeKnownFunction(
     runtime: *lowered_machine.Runtime,
     comptime compiled_plan: program_plan.ProgramPlan,
     handlers: anytype,
-    scratch: *InterpreterScratch,
+    scratch: anytype,
     comptime function_index: usize,
     args: []const lowered_machine.ProgramValue,
     remaining_steps: *usize,
@@ -724,7 +724,6 @@ fn executeKnownFunction(
                     }
                     if (!valueMatchesCodec(op.resume_codec, op_result.value)) return error.ProgramContractViolation;
                     if (op.has_after) {
-                        if (scratch.frameAfterStack(frame).len >= max_interpreter_steps) return error.ProgramContractViolation;
                         try scratch.pushAfter(instruction.operand);
                     }
                     if (op.resume_codec == .unit) {
@@ -807,7 +806,7 @@ fn executeFunction(
     runtime: *lowered_machine.Runtime,
     comptime compiled_plan: program_plan.ProgramPlan,
     handlers: anytype,
-    scratch: *InterpreterScratch,
+    scratch: anytype,
     function_index: usize,
     args: []const lowered_machine.ProgramValue,
     remaining_steps: *usize,
@@ -854,8 +853,15 @@ fn runExecutablePlanWithArgsForErrorSetUnchecked(
 ) anyerror!RunResultTypeForPlan(compiled_plan) {
     const entry = comptime compiled_plan.functions[compiled_plan.entry_index];
     if (args.len != entry.parameter_count) return error.ProgramContractViolation;
+    const analysis = comptime program_plan.entryExecutionAnalysis(compiled_plan) catch |err|
+        @compileError("validated ProgramPlan entry analysis failed: " ++ @errorName(err));
+    const after_stack_capacity = if (analysis.reachable_after_count == 0) 0 else max_interpreter_steps;
     var remaining_steps: usize = max_interpreter_steps;
-    var scratch = try InterpreterScratch.init(lowered_machine.runtimeAllocator(runtime), compiled_plan);
+    var scratch = try InterpreterScratch(after_stack_capacity).init(
+        lowered_machine.runtimeAllocator(runtime),
+        analysis.max_active_local_slots,
+        analysis.max_active_call_arg_slots,
+    );
     defer scratch.deinit();
     const raw = try executeFunction(ErrorSet, runtime, compiled_plan, handlers, &scratch, compiled_plan.entry_index, args, &remaining_steps);
     return .{ .value = try decodeArg(program_plan.functionResultCodec(entry), raw.value) };
