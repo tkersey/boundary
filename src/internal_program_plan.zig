@@ -63,6 +63,10 @@ pub const irHashForProgram = inner.irHashForProgram;
 pub const planFromProgram = inner.planFromProgram;
 /// Re-exported permissive binding-schema metadata enrichment.
 pub const enrichPlanWithBindingSchemas = inner.enrichPlanWithBindingSchemas;
+/// Re-exported entry execution reachability analysis type.
+pub const EntryExecutionAnalysis = inner.EntryExecutionAnalysis;
+/// Re-exported entry execution reachability analysis.
+pub const entryExecutionAnalysis = inner.entryExecutionAnalysis;
 /// Re-exported exact binding-schema metadata enrichment.
 pub const enrichPlanWithBindingSchemasExact = inner.enrichPlanWithBindingSchemasExact;
 /// Re-exported legacy plan upgrader.

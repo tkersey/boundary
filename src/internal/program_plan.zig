@@ -2010,6 +2010,204 @@ const FunctionControlReachability = struct {
     terminal: *const [std.math.maxInt(u16) + 1]bool,
 };
 
+/// Static execution reachability from the ProgramPlan entry function.
+///
+/// This is intentionally control-flow based, not value-sensitive. It marks
+/// both branch targets as reachable and follows helper-call edges from reachable
+/// instructions so public execution support can distinguish active executable
+/// plan surface from schema metadata and dead helpers.
+pub fn EntryExecutionAnalysis(comptime plan: ProgramPlan) type {
+    return struct {
+        reachable_functions: [plan.functions.len]bool,
+        reachable_blocks: [plan.blocks.len]bool,
+        reachable_instructions: [plan.instructions.len]bool,
+        helper_cycle: bool,
+        max_active_local_slots: usize,
+        max_active_call_arg_slots: usize,
+        reachable_after_count: usize,
+    };
+}
+
+pub fn entryExecutionAnalysis(comptime plan: ProgramPlan) ValidationError!EntryExecutionAnalysis(plan) {
+    comptime {
+        @setEvalBranchQuota(1_000_000);
+        var analysis: EntryExecutionAnalysis(plan) = .{
+            .reachable_functions = [_]bool{false} ** plan.functions.len,
+            .reachable_blocks = [_]bool{false} ** plan.blocks.len,
+            .reachable_instructions = [_]bool{false} ** plan.instructions.len,
+            .helper_cycle = false,
+            .max_active_local_slots = 0,
+            .max_active_call_arg_slots = 0,
+            .reachable_after_count = 0,
+        };
+        if (plan.entry_index >= plan.functions.len) return error.InvalidEntryIndex;
+        analysis.reachable_functions[plan.entry_index] = true;
+
+        var changed = true;
+        while (changed) {
+            changed = false;
+            reachable_function_scan: for (plan.functions, 0..) |function, function_index| {
+                if (!analysis.reachable_functions[function_index]) continue :reachable_function_scan;
+                if (try markEntryAnalysisFunctionBlocks(plan, function, &analysis)) {
+                    changed = true;
+                }
+                const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+                reachable_block_scan: for (plan.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+                    const block_index = @as(usize, function.first_block) + relative_block_index;
+                    if (!analysis.reachable_blocks[block_index]) continue :reachable_block_scan;
+                    const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse
+                        return error.InvalidBlockInstructionSpan;
+                    for (plan.instructions[block.first_instruction..instruction_end], block.first_instruction..) |instruction, instruction_index| {
+                        if (!analysis.reachable_instructions[instruction_index]) {
+                            analysis.reachable_instructions[instruction_index] = true;
+                            changed = true;
+                        }
+                        if (instruction.kind == .call_helper) {
+                            if (instruction.operand >= plan.functions.len) return error.InvalidCallHelperTarget;
+                            if (!analysis.reachable_functions[instruction.operand]) {
+                                analysis.reachable_functions[instruction.operand] = true;
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        analysis.helper_cycle = entryAnalysisHasHelperCycle(plan, analysis);
+        analysis.max_active_local_slots = entryAnalysisMaxLocalSlots(plan, analysis, plan.entry_index, [_]bool{false} ** plan.functions.len);
+        analysis.max_active_call_arg_slots = entryAnalysisMaxCallArgSlots(plan, analysis, plan.entry_index, [_]bool{false} ** plan.functions.len);
+        for (plan.instructions, 0..) |instruction, instruction_index| {
+            if (!analysis.reachable_instructions[instruction_index]) continue;
+            if (instruction.kind == .call_op and instruction.operand < plan.ops.len and plan.ops[instruction.operand].has_after) {
+                analysis.reachable_after_count += 1;
+            }
+        }
+        return analysis;
+    }
+}
+
+fn markEntryAnalysisFunctionBlocks(
+    comptime plan: ProgramPlan,
+    comptime function: FunctionPlan,
+    comptime analysis: *EntryExecutionAnalysis(plan),
+) ValidationError!bool {
+    const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+    const entry_block_index = @as(usize, function.first_block) + function.entry_block;
+    if (entry_block_index >= plan.blocks.len) return error.InvalidFunctionBlockSpan;
+    var changed = false;
+    if (!analysis.reachable_blocks[entry_block_index]) {
+        analysis.reachable_blocks[entry_block_index] = true;
+        changed = true;
+    }
+
+    var inner_changed = true;
+    while (inner_changed) {
+        inner_changed = false;
+        reachable_block_scan: for (plan.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+            const block_index = @as(usize, function.first_block) + relative_block_index;
+            if (!analysis.reachable_blocks[block_index]) continue :reachable_block_scan;
+            const terminator = plan.terminators[block.terminator_index];
+            switch (terminator.kind) {
+                .branch_if => {
+                    if (isOwnedBlockTarget(function.first_block, block_end, terminator.primary) and
+                        !analysis.reachable_blocks[terminator.primary])
+                    {
+                        analysis.reachable_blocks[terminator.primary] = true;
+                        inner_changed = true;
+                        changed = true;
+                    }
+                    if (isOwnedBlockTarget(function.first_block, block_end, terminator.secondary) and
+                        !analysis.reachable_blocks[terminator.secondary])
+                    {
+                        analysis.reachable_blocks[terminator.secondary] = true;
+                        inner_changed = true;
+                        changed = true;
+                    }
+                },
+                .jump => {
+                    if (isOwnedBlockTarget(function.first_block, block_end, terminator.primary) and
+                        !analysis.reachable_blocks[terminator.primary])
+                    {
+                        analysis.reachable_blocks[terminator.primary] = true;
+                        inner_changed = true;
+                        changed = true;
+                    }
+                },
+                .return_unit, .return_value => {},
+            }
+        }
+    }
+    return changed;
+}
+
+fn entryAnalysisHasHelperCycle(comptime plan: ProgramPlan, comptime analysis: EntryExecutionAnalysis(plan)) bool {
+    for (plan.functions, 0..) |_, start_index| {
+        if (!analysis.reachable_functions[start_index]) continue;
+        var seen = [_]bool{false} ** plan.functions.len;
+        seen[start_index] = true;
+        var changed = true;
+        while (changed) {
+            changed = false;
+            seen_owner_scan: for (plan.functions, 0..) |owner_function, owner_index| {
+                if (!seen[owner_index]) continue :seen_owner_scan;
+                const instruction_end = rangeEnd(owner_function.first_instruction, owner_function.instruction_count) orelse continue :seen_owner_scan;
+                reachable_instruction_scan: for (plan.instructions[owner_function.first_instruction..instruction_end], owner_function.first_instruction..) |instruction, instruction_index| {
+                    if (!analysis.reachable_instructions[instruction_index] or instruction.kind != .call_helper) continue :reachable_instruction_scan;
+                    if (instruction.operand == start_index) return true;
+                    if (instruction.operand < seen.len and !seen[instruction.operand]) {
+                        seen[instruction.operand] = true;
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
+fn entryAnalysisMaxLocalSlots(
+    comptime plan: ProgramPlan,
+    comptime analysis: EntryExecutionAnalysis(plan),
+    comptime function_index: usize,
+    comptime path: [plan.functions.len]bool,
+) usize {
+    if (function_index >= plan.functions.len or path[function_index]) return 0;
+    const function = plan.functions[function_index];
+    var next_path = path;
+    next_path[function_index] = true;
+    var best_child: usize = 0;
+    const instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return function.local_count;
+    for (plan.instructions[function.first_instruction..instruction_end], function.first_instruction..) |instruction, instruction_index| {
+        if (!analysis.reachable_instructions[instruction_index]) continue;
+        if (instruction.kind != .call_helper) continue;
+        best_child = @max(best_child, entryAnalysisMaxLocalSlots(plan, analysis, instruction.operand, next_path));
+    }
+    return function.local_count + best_child;
+}
+
+fn entryAnalysisMaxCallArgSlots(
+    comptime plan: ProgramPlan,
+    comptime analysis: EntryExecutionAnalysis(plan),
+    comptime function_index: usize,
+    comptime path: [plan.functions.len]bool,
+) usize {
+    if (function_index >= plan.functions.len or path[function_index]) return 0;
+    const function = plan.functions[function_index];
+    var next_path = path;
+    next_path[function_index] = true;
+    var best_child: usize = 0;
+    const instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return 0;
+    for (plan.instructions[function.first_instruction..instruction_end], function.first_instruction..) |instruction, instruction_index| {
+        if (!analysis.reachable_instructions[instruction_index]) continue;
+        if (instruction.kind != .call_helper) continue;
+        const callee = if (instruction.operand < plan.functions.len) plan.functions[instruction.operand] else continue;
+        const child = @as(usize, callee.parameter_count) + entryAnalysisMaxCallArgSlots(plan, analysis, instruction.operand, next_path);
+        best_child = @max(best_child, child);
+    }
+    return best_child;
+}
+
 fn isOwnedBlockTarget(first_block: u16, block_end: usize, target: u16) bool {
     const target_index: usize = target;
     return target_index >= first_block and target_index < block_end;
