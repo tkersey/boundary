@@ -71,6 +71,8 @@ pub const enrichPlanWithBindingSchemas = inner.enrichPlanWithBindingSchemas;
 pub const EntryExecutionAnalysis = inner.EntryExecutionAnalysis;
 /// Re-exported entry execution reachability analysis.
 pub const entryExecutionAnalysis = inner.entryExecutionAnalysis;
+/// Re-exported entry execution reachability analysis with resolver-backed nested targets.
+pub const entryExecutionAnalysisWithNestedTargets = inner.entryExecutionAnalysisWithNestedTargets;
 /// Re-exported exact binding-schema metadata enrichment.
 pub const enrichPlanWithBindingSchemasExact = inner.enrichPlanWithBindingSchemasExact;
 /// Re-exported legacy plan upgrader.

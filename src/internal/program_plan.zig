@@ -2108,6 +2108,20 @@ pub fn EntryExecutionAnalysis(comptime plan: ProgramPlan) type {
 }
 
 pub fn entryExecutionAnalysis(comptime plan: ProgramPlan) ValidationError!EntryExecutionAnalysis(plan) {
+    return entryExecutionAnalysisWithNestedTargets(plan, &.{});
+}
+
+fn nestedWithTargetIndexForMetadata(comptime nested_with_targets: anytype, comptime metadata: []const u8) ?u16 {
+    inline for (nested_with_targets) |target| {
+        if (std.mem.eql(u8, target.metadata, metadata)) return target.function_index;
+    }
+    return null;
+}
+
+pub fn entryExecutionAnalysisWithNestedTargets(
+    comptime plan: ProgramPlan,
+    comptime nested_with_targets: anytype,
+) ValidationError!EntryExecutionAnalysis(plan) {
     comptime {
         @setEvalBranchQuota(1_000_000);
         try plan.validateAddressableTableLengths();
@@ -2219,6 +2233,14 @@ pub fn entryExecutionAnalysis(comptime plan: ProgramPlan) ValidationError!EntryE
                                 analysis.reachable_functions[instruction.operand] = true;
                                 changed = true;
                             }
+                        } else if (instruction.kind == .call_nested_with) {
+                            if (nestedWithTargetIndexForMetadata(nested_with_targets, instruction.string_literal)) |target_index| {
+                                if (target_index >= plan.functions.len) return error.InvalidCallHelperTarget;
+                                if (!analysis.reachable_functions[target_index]) {
+                                    analysis.reachable_functions[target_index] = true;
+                                    changed = true;
+                                }
+                            }
                         }
                         if (terminalAbortInstruction(
                             plan,
@@ -2236,8 +2258,8 @@ pub fn entryExecutionAnalysis(comptime plan: ProgramPlan) ValidationError!EntryE
         }
 
         analysis.helper_cycle = entryAnalysisHasHelperCycle(plan, analysis);
-        analysis.max_active_local_slots = entryAnalysisMaxLocalSlots(plan, analysis, plan.entry_index, [_]bool{false} ** plan.functions.len);
-        analysis.max_active_call_arg_slots = entryAnalysisMaxCallArgSlots(plan, analysis, plan.entry_index, [_]bool{false} ** plan.functions.len);
+        analysis.max_active_local_slots = entryAnalysisMaxLocalSlots(plan, analysis, plan.entry_index, [_]bool{false} ** plan.functions.len, nested_with_targets);
+        analysis.max_active_call_arg_slots = entryAnalysisMaxCallArgSlots(plan, analysis, plan.entry_index, [_]bool{false} ** plan.functions.len, nested_with_targets);
         for (plan.instructions, 0..) |instruction, instruction_index| {
             if (!analysis.reachable_instructions[instruction_index]) continue;
             if (instruction.kind == .call_op and instruction.operand < plan.ops.len and plan.ops[instruction.operand].has_after) {
@@ -2337,6 +2359,7 @@ fn entryAnalysisMaxLocalSlots(
     comptime analysis: EntryExecutionAnalysis(plan),
     comptime function_index: usize,
     comptime path: [plan.functions.len]bool,
+    comptime nested_with_targets: anytype,
 ) usize {
     if (function_index >= plan.functions.len or path[function_index]) return 0;
     const function = plan.functions[function_index];
@@ -2346,8 +2369,13 @@ fn entryAnalysisMaxLocalSlots(
     const instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return function.local_count;
     for (plan.instructions[function.first_instruction..instruction_end], function.first_instruction..) |instruction, instruction_index| {
         if (!analysis.reachable_instructions[instruction_index]) continue;
-        if (instruction.kind != .call_helper) continue;
-        best_child = @max(best_child, entryAnalysisMaxLocalSlots(plan, analysis, instruction.operand, next_path));
+        if (instruction.kind == .call_helper) {
+            best_child = @max(best_child, entryAnalysisMaxLocalSlots(plan, analysis, instruction.operand, next_path, nested_with_targets));
+        } else if (instruction.kind == .call_nested_with) {
+            if (nestedWithTargetIndexForMetadata(nested_with_targets, instruction.string_literal)) |target_index| {
+                best_child = @max(best_child, entryAnalysisMaxLocalSlots(plan, analysis, target_index, next_path, nested_with_targets));
+            }
+        }
     }
     return function.local_count + best_child;
 }
@@ -2357,6 +2385,7 @@ fn entryAnalysisMaxCallArgSlots(
     comptime analysis: EntryExecutionAnalysis(plan),
     comptime function_index: usize,
     comptime path: [plan.functions.len]bool,
+    comptime nested_with_targets: anytype,
 ) usize {
     if (function_index >= plan.functions.len or path[function_index]) return 0;
     const function = plan.functions[function_index];
@@ -2366,10 +2395,15 @@ fn entryAnalysisMaxCallArgSlots(
     const instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return 0;
     for (plan.instructions[function.first_instruction..instruction_end], function.first_instruction..) |instruction, instruction_index| {
         if (!analysis.reachable_instructions[instruction_index]) continue;
-        if (instruction.kind != .call_helper) continue;
-        const callee = if (instruction.operand < plan.functions.len) plan.functions[instruction.operand] else continue;
-        const child = @as(usize, callee.parameter_count) + entryAnalysisMaxCallArgSlots(plan, analysis, instruction.operand, next_path);
-        best_child = @max(best_child, child);
+        if (instruction.kind == .call_helper) {
+            const callee = if (instruction.operand < plan.functions.len) plan.functions[instruction.operand] else continue;
+            const child = @as(usize, callee.parameter_count) + entryAnalysisMaxCallArgSlots(plan, analysis, instruction.operand, next_path, nested_with_targets);
+            best_child = @max(best_child, child);
+        } else if (instruction.kind == .call_nested_with) {
+            if (nestedWithTargetIndexForMetadata(nested_with_targets, instruction.string_literal)) |target_index| {
+                best_child = @max(best_child, entryAnalysisMaxCallArgSlots(plan, analysis, target_index, next_path, nested_with_targets));
+            }
+        }
     }
     return best_child;
 }

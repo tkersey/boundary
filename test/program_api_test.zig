@@ -2916,6 +2916,28 @@ test "ability.program accepts typed product entry args and result" {
     try std.testing.expectEqual(@as(i32, 42), result.value.amount);
 }
 
+test "ability.program preserves OOM while encoding typed product entry args" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
+    var runtime = ability.Runtime.init(failing.allocator());
+    defer runtime.deinit();
+
+    const Payload = struct {
+        amount: i32,
+    };
+    const EmptyHandlers = struct {};
+    const ProductBody = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = productIdentityPlan(Payload, "typed-product-arg-oom");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{Payload{ .amount = 42 }}) {
+            return .{Payload{ .amount = 42 }};
+        }
+    };
+    const Program = ability.program("typed-product-arg-oom", EmptyHandlers, ProductBody);
+    try std.testing.expectError(error.OutOfMemory, Program.run(&runtime, .{}));
+    try std.testing.expect(failing.has_induced_failure);
+}
+
 test "ability.program passes typed product op payloads to handlers" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();

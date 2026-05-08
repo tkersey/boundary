@@ -62,7 +62,7 @@ pub fn ExecutableCapabilityLedgerForPlan(
         var blockers: [max_capability_blockers]CapabilityBlocker = undefined;
         var count: usize = 0;
         var truncated = false;
-        const analysis = program_plan.entryExecutionAnalysis(compiled_plan) catch {
+        const analysis = program_plan.entryExecutionAnalysisWithNestedTargets(compiled_plan, nested_with_targets) catch {
             appendCapabilityBlocker(&blockers, &count, &truncated, .{ .tag = .local_codec });
             const items = blockers[0..count].*;
             break :blk .{ .items = items, .truncated = truncated };
@@ -286,7 +286,7 @@ pub fn validateTypedExecutablePlanSupportWithNestedTargets(
     comptime nested_with_targets: anytype,
 ) ExecutablePlanSupportError!void {
     comptime {
-        const analysis = program_plan.entryExecutionAnalysis(compiled_plan) catch return error.UnsupportedLocalCodec;
+        const analysis = program_plan.entryExecutionAnalysisWithNestedTargets(compiled_plan, nested_with_targets) catch return error.UnsupportedLocalCodec;
 
         for (compiled_plan.functions, 0..) |function, function_index| {
             if (!analysis.reachable_functions[function_index]) continue;
@@ -1866,7 +1866,7 @@ fn encodeTypedTupleEntryArgs(
     scratch: anytype,
     out: []ExecutableValue,
     args: anytype,
-) error{ProgramContractViolation}!void {
+) (std.mem.Allocator.Error || error{ProgramContractViolation})!void {
     const entry = comptime compiled_plan.functions[compiled_plan.entry_index];
     const Args = @TypeOf(args);
     const args_info = @typeInfo(Args);
@@ -1886,7 +1886,7 @@ fn encodeTypedTupleEntryArgs(
             @compileError("Body.encodeArgs tuple field type does not match ProgramPlan entry parameter " ++ std.fmt.comptimePrint("{d}", .{index}));
         }
         out[index] = encodeRuntimeValue(schema_types, scratch, @field(args, field.name)) catch |err| switch (err) {
-            error.OutOfMemory => return error.ProgramContractViolation,
+            error.OutOfMemory => return error.OutOfMemory,
             else => return error.ProgramContractViolation,
         };
     }
@@ -1898,7 +1898,7 @@ fn encodeEntryArgs(
     scratch: anytype,
     out: []ExecutableValue,
     args: anytype,
-) error{ProgramContractViolation}!void {
+) (std.mem.Allocator.Error || error{ProgramContractViolation})!void {
     const Args = @TypeOf(args);
     if (Args == []const lowered_machine.ProgramValue) {
         return encodePublicEntryArgs(compiled_plan, out, args);
@@ -1952,7 +1952,7 @@ fn runExecutablePlanWithTypedArgsForErrorSetAndNestedTargetsUnchecked(
     args: anytype,
 ) anyerror!TypedRunResultTypeForPlan(compiled_plan, schema_types) {
     const entry = comptime compiled_plan.functions[compiled_plan.entry_index];
-    const analysis = comptime program_plan.entryExecutionAnalysis(compiled_plan) catch |err|
+    const analysis = comptime program_plan.entryExecutionAnalysisWithNestedTargets(compiled_plan, nested_with_targets) catch |err|
         @compileError("validated ProgramPlan entry analysis failed: " ++ @errorName(err));
     const after_stack_capacity = if (analysis.reachable_after_count == 0) 0 else max_interpreter_steps;
     var remaining_steps: usize = max_interpreter_steps;
@@ -2223,6 +2223,82 @@ fn supportNestedWithPlan() program_plan.ProgramPlan {
         .ops = &.{},
         .outputs = &.{},
         .locals = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch |err| supportPlanError(err);
+}
+
+fn supportNestedWithStructuredTargetPlan() program_plan.ProgramPlan {
+    const root = program_plan.program_plan_builder.function(0);
+    const nested = program_plan.program_plan_builder.function(1);
+    const nested_payload = program_plan.program_plan_builder.local(nested, 0);
+    const instructions = [_]program_plan.Instruction{
+        .{
+            .kind = .call_nested_with,
+            .aux = @intFromEnum(program_plan.ValueCodec.unit),
+            .string_literal = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi",
+        },
+        program_plan.program_plan_builder.callOp(nested, null, program_plan.program_plan_builder.op(nested, 0), nested_payload) catch |err| supportPlanError(err),
+    };
+    const functions = [_]program_plan.FunctionPlan{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        },
+        .{
+            .symbol_name = "nested",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 1,
+            .instruction_count = 1,
+        },
+    };
+    const requirements = [_]program_plan.RequirementPlan{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
+    const schema = supportSchemaTables(.product);
+    const ops = [_]program_plan.OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "structured",
+        .mode = .transform,
+        .payload_codec = .product,
+        .payload_schema_index = schema.schema_index,
+        .resume_codec = .unit,
+    }};
+    const blocks = [_]program_plan.BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]program_plan.Terminator{ .{ .kind = .return_unit }, .{ .kind = .return_unit } };
+    return program_plan.program_plan_builder.finish(.{
+        .label = "nested-with-structured-target",
+        .ir_hash = 115,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = schema.schemas,
+        .value_fields = schema.fields,
+        .locals = &.{.{ .codec = .product, .schema_index = schema.schema_index }},
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,
@@ -2966,6 +3042,19 @@ test "ability.program executable capability ledger caps blocker records" {
     const ledger = ExecutableCapabilityLedgerForPlan(supportManyNestedWithPlan(max_capability_blockers + 1), &.{}, &.{});
     try std.testing.expectEqual(@as(usize, max_capability_blockers), ledger.blockers.len);
     try std.testing.expect(ledger.truncated);
+}
+
+test "ability.program executable support validates resolver-backed nested target bodies" {
+    const targets = [_]NestedWithTarget{.{
+        .metadata = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi",
+        .function_index = 1,
+    }};
+    try std.testing.expectError(
+        error.UnsupportedPayloadCodec,
+        validateTypedExecutablePlanSupportWithNestedTargets(supportNestedWithStructuredTargetPlan(), &.{}, &targets),
+    );
+    const ledger = ExecutableCapabilityLedgerForPlan(supportNestedWithStructuredTargetPlan(), &.{}, &targets);
+    try std.testing.expectEqual(CapabilityBlockerTag.payload_codec, ledger.blockers[0].tag);
 }
 
 test "ability.program executable support ignores unreachable structured helper metadata" {
