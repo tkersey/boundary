@@ -148,6 +148,10 @@ Plan-native built-in prototypes under `examples/plan_native_*.zig` show the
 same public entry point for optional, state/reader, writer, exception-style
 abort, and resource-style lifecycle workflows while compatibility effect APIs
 remain in place.
+See [docs/custom_effect_authoring.md](docs/custom_effect_authoring.md) for the
+schema-first custom effect authoring direction. Custom generated effects are not
+public yet; custom workflows should still lower to `ProgramPlan` and execute
+through `ability.program`.
 
 ## Effects
 
@@ -169,7 +173,7 @@ IR:
 - `examples/plan_native_writer.zig` demonstrates writer accumulation through
   typed outputs and explicit output cleanup.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
-  abort operations in one plan.
+  abort operations in one plan without exposing a custom effect API.
 
 ## Build
 

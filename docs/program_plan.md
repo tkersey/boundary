@@ -172,3 +172,13 @@ These helpers cover scalar demos, product results, optional or enum-like
 variant branches, tagged-union `i32` payload extraction, and output declarations.
 They are a convenience layer over ProgramPlan, not a parser, compiler, or second
 IR.
+
+## Custom effect authoring direction
+
+Custom effect authoring is not public yet. The intended direction is
+schema-first and plan-native: custom descriptions should lower to the same
+ProgramPlan requirement, op, value schema, output, nested-with, and contract
+metadata used by built-in prototypes.
+
+See [custom_effect_authoring.md](custom_effect_authoring.md) for the design
+boundary and non-goals.
