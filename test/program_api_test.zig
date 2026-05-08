@@ -1673,6 +1673,46 @@ fn resolvedNestedWithStringListPlan(comptime label: []const u8) ability.ir.Progr
     }) catch unreachable;
 }
 
+fn stringListIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const value = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.returnValue(root, value) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .string_list,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 1,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 51,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string_list }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn resolvedNestedWithSplitCompletionPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const nested = ability.ir.builder.function(1);
@@ -3790,10 +3830,10 @@ test "ability.program executes resolver-backed nested-with string-list rows" {
 
     const NestedHandlers = struct {
         authored: struct {
-            const strings = [_][]const u8{ "alpha", "beta" };
+            items: [][]const u8,
 
-            pub fn dispatch(_: *const @This()) ![]const []const u8 {
-                return strings[0..];
+            pub fn dispatch(self: *const @This()) ![][]const u8 {
+                return self.items;
             }
         },
     };
@@ -3805,11 +3845,36 @@ test "ability.program executes resolver-backed nested-with string-list rows" {
         }};
     };
     const Program = ability.program("resolved-nested-with-string-list", NestedHandlers, NestedBody);
-    var result = try Program.run(&runtime, .{ .authored = .{} });
+    var strings = [_][]const u8{ "alpha", "beta" };
+    var result = try Program.run(&runtime, .{ .authored = .{ .items = strings[0..] } });
     defer result.deinit();
     try std.testing.expectEqual(@as(usize, 2), result.value.len);
     try std.testing.expectEqualStrings("alpha", result.value[0]);
     try std.testing.expectEqualStrings("beta", result.value[1]);
+}
+
+test "ability.program accepts string-list typed args with mutable outer carrier" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const StringListHandlers = struct {
+        items: [][]const u8,
+    };
+    const StringListArgs = struct { [][]const u8 };
+    const StringListBody = struct {
+        pub const compiled_plan = stringListIdentityPlan("string-list-typed-args");
+
+        pub fn encodeArgs(handlers: StringListHandlers) StringListArgs {
+            return .{handlers.items};
+        }
+    };
+    const Program = ability.program("string-list-typed-args", StringListHandlers, StringListBody);
+    var strings = [_][]const u8{ "left", "right" };
+    var result = try Program.run(&runtime, .{ .items = strings[0..] });
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 2), result.value.len);
+    try std.testing.expectEqualStrings("left", result.value[0]);
+    try std.testing.expectEqualStrings("right", result.value[1]);
 }
 
 test "ability.program validates nested-with completion codec instead of terminal result codec" {

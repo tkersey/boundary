@@ -111,7 +111,7 @@ pub fn ExecutableCapabilityLedgerForPlan(
                     }
                     const result_codec = program_plan.valueCodecFromInstructionAux(instruction.aux) catch .unit;
                     const completion_ref = effectiveCompletionRefForFunction(analysis, target, target_index);
-                    if (!executableScalarCodec(result_codec) or
+                    if (!executableTypedRef(schema_types, .{ .codec = result_codec }) or
                         completion_ref.codec != result_codec or
                         completion_ref.schema_index != null)
                     {
@@ -525,14 +525,30 @@ fn ValueTypeForRef(
     };
 }
 
+fn isStringListCarrier(comptime T: type) bool {
+    return T == []const []const u8 or T == [][]const u8;
+}
+
+fn typeMatchesRef(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime schema_types: anytype,
+    comptime ref: program_plan.ValueRef,
+    comptime T: type,
+) bool {
+    return switch (ref.codec) {
+        .string_list => isStringListCarrier(T),
+        else => T == ValueTypeForRef(compiled_plan, schema_types, ref),
+    };
+}
+
 fn encodeScalarValue(value: anytype) ExecutableValue {
+    if (comptime isStringListCarrier(@TypeOf(value))) return .{ .string_list = value };
     return switch (@TypeOf(value)) {
         void => .none,
         bool => .{ .bool = value },
         i32 => .{ .i32 = value },
         usize => .{ .usize = value },
         []const u8 => .{ .string = value },
-        []const []const u8 => .{ .string_list = value },
         else => @compileError("unsupported authored scalar result type"),
     };
 }
@@ -674,7 +690,7 @@ fn valueRefForType(comptime schema_types: anytype, comptime T: type) program_pla
     if (T == i32) return .{ .codec = .i32 };
     if (T == usize) return .{ .codec = .usize };
     if (T == []const u8) return .{ .codec = .string };
-    if (T == []const []const u8) return .{ .codec = .string_list };
+    if (isStringListCarrier(T)) return .{ .codec = .string_list };
     const schema_index = schemaIndexForType(schema_types, T) orelse
         @compileError("authored structured value type is not present in Body.value_schema_types: " ++ @typeName(T));
     return switch (@typeInfo(T)) {
@@ -711,13 +727,13 @@ fn encodeRuntimeValueWithInferredRef(
     value: anytype,
 ) anyerror!RuntimeValueWithRef {
     const Value = @TypeOf(value);
+    if (comptime isStringListCarrier(Value)) return .{ .value = .{ .string_list = value }, .ref = .{ .codec = .string_list } };
     return switch (Value) {
         void => .{ .value = .none, .ref = .{ .codec = .unit } },
         bool => .{ .value = .{ .bool = value }, .ref = .{ .codec = .bool } },
         i32 => .{ .value = .{ .i32 = value }, .ref = .{ .codec = .i32 } },
         usize => .{ .value = .{ .usize = value }, .ref = .{ .codec = .usize } },
         []const u8 => .{ .value = .{ .string = value }, .ref = .{ .codec = .string } },
-        []const []const u8 => .{ .value = .{ .string_list = value }, .ref = .{ .codec = .string_list } },
         else => blk: {
             const schema_index = comptime schemaIndexForType(schema_types, Value) orelse std.math.maxInt(u16);
             if (comptime schema_index == std.math.maxInt(u16)) return error.ProgramContractViolation;
@@ -741,8 +757,8 @@ fn encodeRuntimeValueForRef(
     scratch: anytype,
     value: anytype,
 ) anyerror!ExecutableValue {
+    if (comptime !typeMatchesRef(compiled_plan, schema_types, ref, @TypeOf(value))) return error.ProgramContractViolation;
     const Expected = ValueTypeForRef(compiled_plan, schema_types, ref);
-    if (comptime @TypeOf(value) != Expected) return error.ProgramContractViolation;
     return switch (comptime ref.codec) {
         .unit, .bool, .i32, .usize, .string, .string_list => encodeScalarValue(value),
         .product, .sum => try scratch.storeSchemaValue(
@@ -1052,7 +1068,7 @@ fn afterDispatchAccepts(
     const after_dispatch_info = @typeInfo(@TypeOf(Authored.afterDispatch)).@"fn";
     if (after_dispatch_info.params.len != 2) return false;
     const ValueParamType = after_dispatch_info.params[1].type orelse return false;
-    return ValueParamType == ValueTypeForRef(compiled_plan, schema_types, input_ref);
+    return typeMatchesRef(compiled_plan, schema_types, input_ref, ValueParamType);
 }
 
 fn dispatchAuthored(
@@ -2202,9 +2218,15 @@ fn encodeTypedTupleEntryArgs(
     inline for (fields, 0..) |field, index| {
         const local = compiled_plan.locals[entry.first_local + index];
         const ref: program_plan.ValueRef = .{ .codec = local.codec, .schema_index = local.schema_index };
-        const Expected = ValueTypeForRef(compiled_plan, schema_types, ref);
-        if (field.type != Expected) {
-            @compileError("Body.encodeArgs tuple field type does not match ProgramPlan entry parameter " ++ std.fmt.comptimePrint("{d}", .{index}));
+        if (comptime !typeMatchesRef(compiled_plan, schema_types, ref, field.type)) {
+            @compileError(
+                "Body.encodeArgs tuple field type does not match ProgramPlan entry parameter " ++
+                    std.fmt.comptimePrint("{d}", .{index}) ++
+                    ": expected " ++
+                    @typeName(ValueTypeForRef(compiled_plan, schema_types, ref)) ++
+                    ", found " ++
+                    @typeName(field.type),
+            );
         }
         out[index] = encodeRuntimeValueForRef(compiled_plan, schema_types, ref, scratch, @field(args, field.name)) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
@@ -2620,6 +2642,82 @@ fn supportNestedWithStructuredTargetPlan() program_plan.ProgramPlan {
         .value_schemas = schema.schemas,
         .value_fields = schema.fields,
         .locals = &.{.{ .codec = .product, .schema_index = schema.schema_index }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch |err| supportPlanError(err);
+}
+
+fn supportNestedWithStringListTargetPlan() program_plan.ProgramPlan {
+    const root = program_plan.program_plan_builder.function(0);
+    const nested = program_plan.program_plan_builder.function(1);
+    const root_value = program_plan.program_plan_builder.local(root, 0);
+    const nested_value = program_plan.program_plan_builder.local(nested, 0);
+    const instructions = [_]program_plan.Instruction{
+        .{
+            .kind = .call_nested_with,
+            .dst = root_value.index,
+            .aux = @intFromEnum(program_plan.ValueCodec.string_list),
+            .string_literal = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi",
+        },
+        program_plan.program_plan_builder.returnValue(root, root_value) catch |err| supportPlanError(err),
+        program_plan.program_plan_builder.callOp(nested, nested_value, program_plan.program_plan_builder.op(nested, 0), null) catch |err| supportPlanError(err),
+        program_plan.program_plan_builder.returnValue(nested, nested_value) catch |err| supportPlanError(err),
+    };
+    const functions = [_]program_plan.FunctionPlan{
+        .{
+            .symbol_name = "run",
+            .value_codec = .string_list,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "nested",
+            .value_codec = .string_list,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 1,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 2,
+        },
+    };
+    const requirements = [_]program_plan.RequirementPlan{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
+    const ops = [_]program_plan.OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "structured",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .string_list,
+    }};
+    const blocks = [_]program_plan.BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+    };
+    const terminators = [_]program_plan.Terminator{ .{ .kind = .return_value }, .{ .kind = .return_value } };
+    return program_plan.program_plan_builder.finish(.{
+        .label = "nested-with-string-list-target",
+        .ir_hash = 117,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string_list }, .{ .codec = .string_list } },
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,
@@ -3457,6 +3555,18 @@ test "ability.program executable support validates resolver-backed nested target
     );
     const ledger = ExecutableCapabilityLedgerForPlan(supportNestedWithStructuredTargetPlan(), &.{}, &targets);
     try std.testing.expectEqual(CapabilityBlockerTag.payload_codec, ledger.blockers[0].tag);
+}
+
+test "ability.program executable capability ledger accepts string-list nested target results" {
+    const targets = [_]NestedWithTarget{.{
+        .metadata = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi",
+        .function_index = 1,
+    }};
+    try validateTypedExecutablePlanSupportWithNestedTargets(supportNestedWithStringListTargetPlan(), &.{}, &targets);
+
+    const ledger = ExecutableCapabilityLedgerForPlan(supportNestedWithStringListTargetPlan(), &.{}, &targets);
+    try std.testing.expectEqual(@as(usize, 0), ledger.blockers.len);
+    try std.testing.expect(!ledger.truncated);
 }
 
 test "ability.program executable support rejects terminal nested target result mismatches" {
