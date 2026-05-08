@@ -2231,21 +2231,26 @@ pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan
     }
 
     if (plan.schema_version == 8) {
+        try rejectLegacyConstI32StringLiterals(plan.*);
         plan.schema_version = ProgramPlan.current_schema_version;
         return;
     }
 
     if (plan.schema_version == 9) {
-        for (plan.instructions) |instruction| {
-            if (instruction.kind == .const_i32 and instruction.string_literal.len != 0) {
-                return error.UnsupportedSchemaVersion;
-            }
-        }
+        try rejectLegacyConstI32StringLiterals(plan.*);
         plan.schema_version = ProgramPlan.current_schema_version;
         return;
     }
 
     if (plan.schema_version != ProgramPlan.current_schema_version) return error.UnsupportedSchemaVersion;
+}
+
+fn rejectLegacyConstI32StringLiterals(plan: ProgramPlan) LegacySchemaError!void {
+    for (plan.instructions) |instruction| {
+        if (instruction.kind == .const_i32 and instruction.string_literal.len != 0) {
+            return error.UnsupportedSchemaVersion;
+        }
+    }
 }
 
 fn rangeEnd(start: u16, len: u16) ?usize {
@@ -5707,6 +5712,43 @@ test "upgradeLegacyProgramPlan accepts schema-9 operand-only const_i32 plans" {
     try upgradeLegacyProgramPlan(std.testing.allocator, &plan);
     try std.testing.expectEqual(ProgramPlan.current_schema_version, plan.schema_version);
     try plan.validate();
+}
+
+test "upgradeLegacyProgramPlan rejects schema-8 const_i32 string literals" {
+    var plan = ProgramPlan{
+        .schema_version = 8,
+        .label = "legacy.schema8.const_i32_string_literal",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_i32, .dst = 0, .string_literal = "-1" },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    try std.testing.expectError(error.UnsupportedSchemaVersion, upgradeLegacyProgramPlan(std.testing.allocator, &plan));
 }
 
 test "upgradeLegacyProgramPlan rejects schema-9 const_i32 string literals" {
