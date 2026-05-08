@@ -24,12 +24,9 @@ with `ability.ir.builder`, validated before it escapes, and interpreted by
 structured `product` and `sum` values when the body declares an exact
 `Body.value_schema_types` tuple matching the plan schema tables. `ProgramValue`
 stays the scalar public carrier; typed bodies may instead return a tuple from
-`Body.encodeArgs`, and the interpreter carries structured values through entry
-arguments, locals, helper calls, operation payloads, and results without widening
-`ProgramValue`. Sum plans can branch on an exact variant ordinal with
-`sum_variant_is` and extract non-unit payloads with `sum_extract_payload`; both
-operations are validated against the plan's schema-local variant table and exact
-destination refs before execution.
+`Body.encodeArgs`. Sum plans can branch with `sum_variant_is` and extract
+non-unit payloads with `sum_extract_payload`; both operations are validated
+against schema-local variant tables and exact destination refs.
 
 Helper calls run through an interpreter-owned frame stack. Recursive helper
 plans are bounded by the interpreter step budget rather than by host stack depth.
@@ -141,6 +138,12 @@ metadata for tests and callers that need to inspect what a program declares; it
 does not expose mutable ProgramPlan tables, Artifact or VM surfaces, or legacy
 capability maps.
 
+See [docs/program_plan.md](docs/program_plan.md) for typed product/sum bodies,
+tuple entry args, outputs, cleanup hooks, nested-with targets, and
+`Program.contract`. `examples/typed_program_plan.zig` runs product execution,
+sum matching, tagged-union payload extraction, output cleanup, and contract
+inspection through the public API.
+
 ## Effects
 
 Effect families remain under `ability.effect`. Built-in and custom bound
@@ -152,6 +155,8 @@ IR:
 
 - `examples/state_basic.zig` demonstrates two named operations over handler-owned
   state.
+- `examples/typed_program_plan.zig` demonstrates typed product/sum execution,
+  outputs, cleanup, and `Program.contract`.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
   abort operations in one plan.
 
@@ -169,5 +174,6 @@ Useful example runs:
 
 ```sh
 zig build run-state-basic
+zig build run-typed-program-plan
 zig build run-custom-approval-workflow
 ```

@@ -396,6 +396,7 @@ pub fn build(b: *std.Build) void {
         desc: []const u8,
     }{
         .{ .name = "ability-state-basic", .path = "examples/state_basic.zig", .step = "run-state-basic", .desc = "Run the state effect example." },
+        .{ .name = "ability-typed-program-plan", .path = "examples/typed_program_plan.zig", .step = "run-typed-program-plan", .desc = "Run the typed ProgramPlan example." },
         .{ .name = "ability-custom-approval-workflow", .path = "examples/custom_approval_workflow.zig", .step = "run-custom-approval-workflow", .desc = "Run the custom approval workflow example." },
     };
     inline for (examples) |example| {
