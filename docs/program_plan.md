@@ -146,6 +146,11 @@ without a handler-owned side channel for the returned value.
 is materialized as `Program.Result.outputs` and released through
 `Body.deinitOutputs`.
 
+`examples/plan_native_exception.zig` demonstrates exception-like abort control
+flow as a plan-native `throw` operation. The requirement carries `abort_catch`
+metadata, scalar/product/sum payloads are passed to the handler, and the handler
+returns the terminal result.
+
 ## Higher-level builder prototype
 
 Raw `ability.ir.plan.*` tables remain available. For common typed examples,
