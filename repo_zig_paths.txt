@@ -83,5 +83,6 @@ test/compile_fail/missing_reachable_return_error_decl.zig
 test/compile_fail/nested_with_result_codec_mismatch.zig
 test/compile_fail/nested_with_wrong_function_index.zig
 test/compile_fail/value_schema_variant_mismatch.zig
+test/plan_native_contract_matrix_test.zig
 test/program_api_test.zig
 test/public_optional_bound_program_test.zig
