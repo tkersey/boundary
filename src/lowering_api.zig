@@ -67,9 +67,6 @@ pub fn ExecutableCapabilityLedgerForPlan(
             const items = blockers[0..count].*;
             break :blk .{ .items = items, .truncated = truncated };
         };
-        if (analysis.helper_cycle) {
-            appendCapabilityBlocker(&blockers, &count, &truncated, .{ .tag = .helper_cycle });
-        }
         for (compiled_plan.functions, 0..) |function, function_index| {
             if (!analysis.reachable_functions[function_index]) continue;
             for (0..function.parameter_count) |parameter_index| {
@@ -96,7 +93,7 @@ pub fn ExecutableCapabilityLedgerForPlan(
             const owner: ?program_plan.FunctionPlan = if (owner_index == std.math.maxInt(usize)) null else compiled_plan.functions[owner_index];
             switch (instruction.kind) {
                 .call_nested_with => {
-                    const target = nestedWithTargetForMetadata(compiled_plan, nested_with_targets, instruction.string_literal) orelse {
+                    const target_index = nestedWithTargetIndexForMetadata(compiled_plan, nested_with_targets, instruction.string_literal) orelse {
                         appendCapabilityBlocker(&blockers, &count, &truncated, .{
                             .tag = .nested_with_unresolved,
                             .function_index = @intCast(owner_index),
@@ -104,6 +101,7 @@ pub fn ExecutableCapabilityLedgerForPlan(
                         });
                         continue;
                     };
+                    const target = compiled_plan.functions[target_index];
                     if (target.parameter_count != 0) {
                         appendCapabilityBlocker(&blockers, &count, &truncated, .{
                             .tag = .nested_with_target_has_parameters,
@@ -112,7 +110,11 @@ pub fn ExecutableCapabilityLedgerForPlan(
                         });
                     }
                     const result_codec = program_plan.valueCodecFromInstructionAux(instruction.aux) catch .unit;
-                    if (!executableScalarCodec(result_codec) or program_plan.functionResultCodec(target) != result_codec) {
+                    const completion_ref = effectiveCompletionRefForFunction(analysis, target, target_index);
+                    if (!executableScalarCodec(result_codec) or
+                        completion_ref.codec != result_codec or
+                        completion_ref.schema_index != null)
+                    {
                         appendCapabilityBlocker(&blockers, &count, &truncated, .{
                             .tag = .nested_with_result_codec,
                             .function_index = @intCast(owner_index),
@@ -126,6 +128,16 @@ pub fn ExecutableCapabilityLedgerForPlan(
                                 .function_index = @intCast(owner_index),
                                 .instruction_index = @intCast(instruction_index),
                                 .codec = result_codec,
+                            });
+                        }
+                        if (analysis.terminal_functions[target_index] and
+                            !program_plan.functionResultRef(target).eql(program_plan.functionResultRef(owner_function)))
+                        {
+                            appendCapabilityBlocker(&blockers, &count, &truncated, .{
+                                .tag = .nested_with_result_codec,
+                                .function_index = @intCast(owner_index),
+                                .instruction_index = @intCast(instruction_index),
+                                .codec = program_plan.functionResultCodec(target),
                             });
                         }
                     }
@@ -309,17 +321,24 @@ pub fn validateTypedExecutablePlanSupportWithNestedTargets(
             switch (instruction.kind) {
                 .call_nested_with => {
                     const owner = instructionOwnerFunction(compiled_plan, instruction_index) orelse return error.UnsupportedLocalCodec;
-                    const target = nestedWithTargetForMetadata(compiled_plan, nested_with_targets, instruction.string_literal) orelse return error.UnsupportedNestedWith;
+                    const target_index = nestedWithTargetIndexForMetadata(compiled_plan, nested_with_targets, instruction.string_literal) orelse return error.UnsupportedNestedWith;
+                    const target = compiled_plan.functions[target_index];
                     if (target.parameter_count != 0) return error.UnsupportedNestedWith;
                     const result_codec = program_plan.valueCodecFromInstructionAux(instruction.aux) catch return error.UnsupportedResultCodec;
                     if (!executableScalarCodec(result_codec)) return error.UnsupportedResultCodec;
-                    if (program_plan.functionResultCodec(target) != result_codec) return error.UnsupportedResultCodec;
+                    const completion_ref = effectiveCompletionRefForFunction(analysis, target, target_index);
+                    if (completion_ref.codec != result_codec or completion_ref.schema_index != null) return error.UnsupportedResultCodec;
                     if (result_codec != .unit and !instructionLocalHasExecutableTypedRef(
                         compiled_plan,
                         schema_types,
                         owner,
                         instruction.dst,
                     )) return error.UnsupportedLocalCodec;
+                    if (analysis.terminal_functions[target_index] and
+                        !program_plan.functionResultRef(target).eql(program_plan.functionResultRef(owner)))
+                    {
+                        return error.UnsupportedResultCodec;
+                    }
                 },
                 .call_op => {
                     const op = compiled_plan.ops[instruction.operand];
@@ -434,6 +453,19 @@ fn instructionLocalHasExecutableTypedRef(
 ) bool {
     const local_ref = functionLocalRef(compiled_plan, function, local_id) orelse return false;
     return executableTypedRef(schema_types, local_ref);
+}
+
+fn functionValueRef(comptime function: program_plan.FunctionPlan) program_plan.ValueRef {
+    return .{ .codec = function.value_codec, .schema_index = function.value_schema_index };
+}
+
+fn effectiveCompletionRefForFunction(
+    comptime analysis: anytype,
+    comptime function: program_plan.FunctionPlan,
+    comptime function_index: usize,
+) program_plan.ValueRef {
+    if (analysis.after_result_functions[function_index]) return program_plan.functionResultRef(function);
+    return functionValueRef(function);
 }
 
 pub fn authoredBoundProgramPlan(
@@ -668,6 +700,59 @@ fn encodeRuntimeValue(
     };
 }
 
+const RuntimeValueWithRef = struct {
+    value: ExecutableValue,
+    ref: program_plan.ValueRef,
+};
+
+fn encodeRuntimeValueWithInferredRef(
+    comptime schema_types: anytype,
+    scratch: anytype,
+    value: anytype,
+) anyerror!RuntimeValueWithRef {
+    const Value = @TypeOf(value);
+    return switch (Value) {
+        void => .{ .value = .none, .ref = .{ .codec = .unit } },
+        bool => .{ .value = .{ .bool = value }, .ref = .{ .codec = .bool } },
+        i32 => .{ .value = .{ .i32 = value }, .ref = .{ .codec = .i32 } },
+        usize => .{ .value = .{ .usize = value }, .ref = .{ .codec = .usize } },
+        []const u8 => .{ .value = .{ .string = value }, .ref = .{ .codec = .string } },
+        []const []const u8 => .{ .value = .{ .string_list = value }, .ref = .{ .codec = .string_list } },
+        else => blk: {
+            const schema_index = comptime schemaIndexForType(schema_types, Value) orelse std.math.maxInt(u16);
+            if (comptime schema_index == std.math.maxInt(u16)) return error.ProgramContractViolation;
+            const ref: program_plan.ValueRef = comptime switch (@typeInfo(Value)) {
+                .@"struct" => .{ .codec = .product, .schema_index = schema_index },
+                .@"enum", .@"union", .optional => .{ .codec = .sum, .schema_index = schema_index },
+                else => return error.ProgramContractViolation,
+            };
+            break :blk .{
+                .value = try scratch.storeSchemaValue(Value, schema_index, value),
+                .ref = ref,
+            };
+        },
+    };
+}
+
+fn encodeRuntimeValueForRef(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime schema_types: anytype,
+    comptime ref: program_plan.ValueRef,
+    scratch: anytype,
+    value: anytype,
+) anyerror!ExecutableValue {
+    const Expected = ValueTypeForRef(compiled_plan, schema_types, ref);
+    if (comptime @TypeOf(value) != Expected) return error.ProgramContractViolation;
+    return switch (comptime ref.codec) {
+        .unit, .bool, .i32, .usize, .string, .string_list => encodeScalarValue(value),
+        .product, .sum => try scratch.storeSchemaValue(
+            Expected,
+            ref.schema_index orelse @compileError("structured ValueRef is missing a schema index"),
+            value,
+        ),
+    };
+}
+
 fn encodeBorrowedTypedValue(
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime schema_types: anytype,
@@ -750,6 +835,11 @@ const ExecutionResult = struct {
 const AfterApplication = struct {
     value: ExecutableValue,
     ref: program_plan.ValueRef,
+};
+
+const AfterOutputRefMode = enum {
+    inferred,
+    exact,
 };
 
 const CompletionKind = enum {
@@ -969,10 +1059,12 @@ fn dispatchAuthored(
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime schema_types: anytype,
     comptime op: program_plan.OpPlan,
+    comptime terminal_ref: program_plan.ValueRef,
     authored: anytype,
     payload: ExecutableValue,
     scratch: anytype,
 ) anyerror!OperationDispatch {
+    const resume_ref: program_plan.ValueRef = comptime .{ .codec = op.resume_codec, .schema_index = op.resume_schema_index };
     const payload_ref: program_plan.ValueRef = .{ .codec = op.payload_codec, .schema_index = op.payload_schema_index };
     const dispatched = if (comptime op.payload_codec == .unit)
         try authored.dispatch()
@@ -980,20 +1072,20 @@ fn dispatchAuthored(
         try authored.dispatch(try decodeTypedValue(compiled_plan, schema_types, payload_ref, payload));
     return switch (comptime op.mode) {
         .abort => .{
-            .value = try encodeRuntimeValue(schema_types, scratch, dispatched),
+            .value = try encodeRuntimeValueForRef(compiled_plan, schema_types, terminal_ref, scratch, dispatched),
             .resumes = false,
         },
         .transform => .{
-            .value = try encodeRuntimeValue(schema_types, scratch, dispatched),
+            .value = try encodeRuntimeValueForRef(compiled_plan, schema_types, resume_ref, scratch, dispatched),
             .resumes = true,
         },
         .choice => switch (dispatched) {
             .resume_with => |resume_value| .{
-                .value = try encodeRuntimeValue(schema_types, scratch, resume_value),
+                .value = try encodeRuntimeValueForRef(compiled_plan, schema_types, resume_ref, scratch, resume_value),
                 .resumes = true,
             },
             .return_now => |answer| .{
-                .value = try encodeRuntimeValue(schema_types, scratch, answer),
+                .value = try encodeRuntimeValueForRef(compiled_plan, schema_types, terminal_ref, scratch, answer),
                 .resumes = false,
             },
         },
@@ -1003,6 +1095,7 @@ fn dispatchAuthored(
 fn callOpByIndex(
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime schema_types: anytype,
+    comptime terminal_ref: program_plan.ValueRef,
     handlers: anytype,
     scratch: anytype,
     op_index: u16,
@@ -1031,12 +1124,37 @@ fn callOpByIndex(
                 handlerFieldPtr(handlers, "authored")
             else
                 @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, or authored fallback");
-            const result = try dispatchAuthored(compiled_plan, schema_types, op, authored, payload, scratch);
+            const result = try dispatchAuthored(compiled_plan, schema_types, op, terminal_ref, authored, payload, scratch);
             if (result.resumes and !valueMatchesRef(.{
                 .codec = op.resume_codec,
                 .schema_index = op.resume_schema_index,
             }, result.value)) return error.ProgramContractViolation;
             return result;
+        }
+    }
+    return error.ProgramContractViolation;
+}
+
+fn callOpByIndexForFunctionIndex(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime schema_types: anytype,
+    function_index: usize,
+    handlers: anytype,
+    scratch: anytype,
+    op_index: u16,
+    payload: ExecutableValue,
+) anyerror!OperationDispatch {
+    inline for (compiled_plan.functions, 0..) |function, index| {
+        if (function_index == index) {
+            return callOpByIndex(
+                compiled_plan,
+                schema_types,
+                program_plan.functionResultRef(function),
+                handlers,
+                scratch,
+                op_index,
+                payload,
+            );
         }
     }
     return error.ProgramContractViolation;
@@ -1049,7 +1167,89 @@ fn planCallArgAt(comptime compiled_plan: program_plan.ProgramPlan, index: usize)
     return compiled_plan.call_args[index];
 }
 
-fn applyAfterByIndexForRef(
+fn afterDispatchHandler(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime op: program_plan.OpPlan,
+    handlers: anytype,
+) @TypeOf(blk: {
+    const requirement = comptime compiled_plan.requirements[op.requirement_index];
+    const HandlerSet = HandlerSetType(@TypeOf(handlers));
+    const authored = if (comptime @hasField(HandlerSet, requirement.label) and
+        @hasDecl(HandlerType(@TypeOf(handlerFieldPtr(handlers, requirement.label))), "dispatch"))
+        handlerFieldPtr(handlers, requirement.label)
+    else if (comptime @hasField(HandlerSet, requirement.label) and
+        @hasField(HandlerSetType(@TypeOf(handlerFieldPtr(handlers, requirement.label))), op.op_name))
+    op_field: {
+        const requirement_handler = handlerFieldPtr(handlers, requirement.label);
+        break :op_field handlerFieldPtr(requirement_handler, op.op_name);
+    } else if (comptime @hasField(HandlerSet, requirement.label) and
+        @hasField(HandlerSetType(@TypeOf(handlerFieldPtr(handlers, requirement.label))), "authored"))
+    authored_field: {
+        const requirement_handler = handlerFieldPtr(handlers, requirement.label);
+        break :authored_field handlerFieldPtr(requirement_handler, "authored");
+    } else if (comptime @hasField(HandlerSet, op.op_name) and opNameIsUnique(compiled_plan, op.op_name))
+        handlerFieldPtr(handlers, op.op_name)
+    else if (comptime @hasField(HandlerSet, "authored") and opNameIsUnique(compiled_plan, op.op_name))
+        handlerFieldPtr(handlers, "authored")
+    else
+        @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, or authored fallback");
+    break :blk authored;
+}) {
+    const requirement = comptime compiled_plan.requirements[op.requirement_index];
+    const HandlerSet = HandlerSetType(@TypeOf(handlers));
+    return if (comptime @hasField(HandlerSet, requirement.label) and
+        @hasDecl(HandlerType(@TypeOf(handlerFieldPtr(handlers, requirement.label))), "dispatch"))
+        handlerFieldPtr(handlers, requirement.label)
+    else if (comptime @hasField(HandlerSet, requirement.label) and
+        @hasField(HandlerSetType(@TypeOf(handlerFieldPtr(handlers, requirement.label))), op.op_name))
+    op_field: {
+        const requirement_handler = handlerFieldPtr(handlers, requirement.label);
+        break :op_field handlerFieldPtr(requirement_handler, op.op_name);
+    } else if (comptime @hasField(HandlerSet, requirement.label) and
+        @hasField(HandlerSetType(@TypeOf(handlerFieldPtr(handlers, requirement.label))), "authored"))
+    authored_field: {
+        const requirement_handler = handlerFieldPtr(handlers, requirement.label);
+        break :authored_field handlerFieldPtr(requirement_handler, "authored");
+    } else if (comptime @hasField(HandlerSet, op.op_name) and opNameIsUnique(compiled_plan, op.op_name))
+        handlerFieldPtr(handlers, op.op_name)
+    else if (comptime @hasField(HandlerSet, "authored") and opNameIsUnique(compiled_plan, op.op_name))
+        handlerFieldPtr(handlers, "authored")
+    else
+        @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, or authored fallback");
+}
+
+// zlinter-disable max_positional_args - after dispatch preserves explicit input/output refs while keeping the op, plan, handlers, and scratch state visible.
+fn applyAfterByIndexForRefExact(
+    comptime input_ref: program_plan.ValueRef,
+    comptime output_ref: program_plan.ValueRef,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime schema_types: anytype,
+    comptime function_index: usize,
+    handlers: anytype,
+    scratch: anytype,
+    op_index: u16,
+    value: ExecutableValue,
+) anyerror!AfterApplication {
+    _ = function_index;
+    inline for (compiled_plan.ops, 0..) |op, index| {
+        if (op_index == index) {
+            if (!op.has_after) return error.ProgramContractViolation;
+            const authored = afterDispatchHandler(compiled_plan, op, handlers);
+            if (comptime !afterDispatchAccepts(compiled_plan, schema_types, @TypeOf(authored), input_ref)) return error.ProgramContractViolation;
+            const decoded = try decodeTypedValue(compiled_plan, schema_types, input_ref, value);
+            const completed = try authored.afterDispatch(decoded);
+            const encoded = try encodeRuntimeValueForRef(compiled_plan, schema_types, output_ref, scratch, completed);
+            return .{
+                .value = encoded,
+                .ref = output_ref,
+            };
+        }
+    }
+    return error.ProgramContractViolation;
+}
+
+// zlinter-disable max_positional_args - after dispatch preserves inferred intermediate refs while keeping interpreter state visible.
+fn applyAfterByIndexForRefInferred(
     comptime input_ref: program_plan.ValueRef,
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime schema_types: anytype,
@@ -1063,41 +1263,23 @@ fn applyAfterByIndexForRef(
     inline for (compiled_plan.ops, 0..) |op, index| {
         if (op_index == index) {
             if (!op.has_after) return error.ProgramContractViolation;
-            const requirement = comptime compiled_plan.requirements[op.requirement_index];
-            const HandlerSet = HandlerSetType(@TypeOf(handlers));
-            const authored = if (comptime @hasField(HandlerSet, requirement.label) and
-                @hasDecl(HandlerType(@TypeOf(handlerFieldPtr(handlers, requirement.label))), "dispatch"))
-                handlerFieldPtr(handlers, requirement.label)
-            else if (comptime @hasField(HandlerSet, requirement.label) and
-                @hasField(HandlerSetType(@TypeOf(handlerFieldPtr(handlers, requirement.label))), op.op_name))
-            blk: {
-                const requirement_handler = handlerFieldPtr(handlers, requirement.label);
-                break :blk handlerFieldPtr(requirement_handler, op.op_name);
-            } else if (comptime @hasField(HandlerSet, requirement.label) and
-                @hasField(HandlerSetType(@TypeOf(handlerFieldPtr(handlers, requirement.label))), "authored"))
-            blk: {
-                const requirement_handler = handlerFieldPtr(handlers, requirement.label);
-                break :blk handlerFieldPtr(requirement_handler, "authored");
-            } else if (comptime @hasField(HandlerSet, op.op_name) and opNameIsUnique(compiled_plan, op.op_name))
-                handlerFieldPtr(handlers, op.op_name)
-            else if (comptime @hasField(HandlerSet, "authored") and opNameIsUnique(compiled_plan, op.op_name))
-                handlerFieldPtr(handlers, "authored")
-            else
-                @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, or authored fallback");
+            const authored = afterDispatchHandler(compiled_plan, op, handlers);
             if (comptime !afterDispatchAccepts(compiled_plan, schema_types, @TypeOf(authored), input_ref)) return error.ProgramContractViolation;
             const decoded = try decodeTypedValue(compiled_plan, schema_types, input_ref, value);
             const completed = try authored.afterDispatch(decoded);
-            const encoded = try encodeRuntimeValue(schema_types, scratch, completed);
+            const encoded = try encodeRuntimeValueWithInferredRef(schema_types, scratch, completed);
             return .{
-                .value = encoded,
-                .ref = valueRefForType(schema_types, @TypeOf(completed)),
+                .value = encoded.value,
+                .ref = encoded.ref,
             };
         }
     }
     return error.ProgramContractViolation;
 }
 
-fn applyAfterByIndex(
+// zlinter-disable max_positional_args - output-ref dispatch mirrors input-ref dispatch without hiding the interpreter state.
+fn applyAfterByIndexWithExactOutputRef(
+    comptime output_ref: program_plan.ValueRef,
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime schema_types: anytype,
     comptime function_index: usize,
@@ -1108,16 +1290,16 @@ fn applyAfterByIndex(
     current_ref: program_plan.ValueRef,
 ) anyerror!AfterApplication {
     return switch (current_ref.codec) {
-        .unit => applyAfterByIndexForRef(.{ .codec = .unit }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
-        .bool => applyAfterByIndexForRef(.{ .codec = .bool }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
-        .i32 => applyAfterByIndexForRef(.{ .codec = .i32 }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
-        .usize => applyAfterByIndexForRef(.{ .codec = .usize }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
-        .string => applyAfterByIndexForRef(.{ .codec = .string }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
-        .string_list => applyAfterByIndexForRef(.{ .codec = .string_list }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
+        .unit => applyAfterByIndexForRefExact(.{ .codec = .unit }, output_ref, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
+        .bool => applyAfterByIndexForRefExact(.{ .codec = .bool }, output_ref, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
+        .i32 => applyAfterByIndexForRefExact(.{ .codec = .i32 }, output_ref, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
+        .usize => applyAfterByIndexForRefExact(.{ .codec = .usize }, output_ref, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
+        .string => applyAfterByIndexForRefExact(.{ .codec = .string }, output_ref, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
+        .string_list => applyAfterByIndexForRefExact(.{ .codec = .string_list }, output_ref, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
         .product => {
             inline for (schema_types, 0..) |_, schema_index| {
                 if (current_ref.schema_index == @as(u16, @intCast(schema_index))) {
-                    return applyAfterByIndexForRef(.{ .codec = .product, .schema_index = @intCast(schema_index) }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value);
+                    return applyAfterByIndexForRefExact(.{ .codec = .product, .schema_index = @intCast(schema_index) }, output_ref, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value);
                 }
             }
             return error.ProgramContractViolation;
@@ -1125,12 +1307,87 @@ fn applyAfterByIndex(
         .sum => {
             inline for (schema_types, 0..) |_, schema_index| {
                 if (current_ref.schema_index == @as(u16, @intCast(schema_index))) {
-                    return applyAfterByIndexForRef(.{ .codec = .sum, .schema_index = @intCast(schema_index) }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value);
+                    return applyAfterByIndexForRefExact(.{ .codec = .sum, .schema_index = @intCast(schema_index) }, output_ref, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value);
                 }
             }
             return error.ProgramContractViolation;
         },
     };
+}
+
+// zlinter-disable max_positional_args - inferred output-ref dispatch mirrors exact output dispatch for intermediate after frames.
+fn applyAfterByIndexWithInferredOutputRef(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime schema_types: anytype,
+    comptime function_index: usize,
+    handlers: anytype,
+    scratch: anytype,
+    op_index: u16,
+    value: ExecutableValue,
+    current_ref: program_plan.ValueRef,
+) anyerror!AfterApplication {
+    return switch (current_ref.codec) {
+        .unit => applyAfterByIndexForRefInferred(.{ .codec = .unit }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
+        .bool => applyAfterByIndexForRefInferred(.{ .codec = .bool }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
+        .i32 => applyAfterByIndexForRefInferred(.{ .codec = .i32 }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
+        .usize => applyAfterByIndexForRefInferred(.{ .codec = .usize }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
+        .string => applyAfterByIndexForRefInferred(.{ .codec = .string }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
+        .string_list => applyAfterByIndexForRefInferred(.{ .codec = .string_list }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value),
+        .product => {
+            inline for (schema_types, 0..) |_, schema_index| {
+                if (current_ref.schema_index == @as(u16, @intCast(schema_index))) {
+                    return applyAfterByIndexForRefInferred(.{ .codec = .product, .schema_index = @intCast(schema_index) }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value);
+                }
+            }
+            return error.ProgramContractViolation;
+        },
+        .sum => {
+            inline for (schema_types, 0..) |_, schema_index| {
+                if (current_ref.schema_index == @as(u16, @intCast(schema_index))) {
+                    return applyAfterByIndexForRefInferred(.{ .codec = .sum, .schema_index = @intCast(schema_index) }, compiled_plan, schema_types, function_index, handlers, scratch, op_index, value);
+                }
+            }
+            return error.ProgramContractViolation;
+        },
+    };
+}
+
+// zlinter-disable max_positional_args - after-stack unwinding needs the current op, next op, and final function result refs together.
+fn applyAfterByIndex(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime schema_types: anytype,
+    comptime function_index: usize,
+    handlers: anytype,
+    scratch: anytype,
+    op_index: u16,
+    value: ExecutableValue,
+    current_ref: program_plan.ValueRef,
+    next_after_op_index: ?u16,
+    comptime final_ref: program_plan.ValueRef,
+) anyerror!AfterApplication {
+    if (next_after_op_index != null) {
+        return applyAfterByIndexWithInferredOutputRef(
+            compiled_plan,
+            schema_types,
+            function_index,
+            handlers,
+            scratch,
+            op_index,
+            value,
+            current_ref,
+        );
+    }
+    return applyAfterByIndexWithExactOutputRef(
+        final_ref,
+        compiled_plan,
+        schema_types,
+        function_index,
+        handlers,
+        scratch,
+        op_index,
+        value,
+        current_ref,
+    );
 }
 
 fn completeFunctionValue(
@@ -1149,16 +1406,28 @@ fn completeFunctionValue(
     };
     var completed = completion.value;
     var current_ref = completion.initial_ref;
+    const final_ref = if (completion.kind == .terminal or completion.after_stack.len != 0) result_ref else value_ref;
     if (completion.kind == .normal) {
         var remaining = completion.after_stack.len;
         while (remaining != 0) {
             remaining -= 1;
-            const after = try applyAfterByIndex(compiled_plan, schema_types, function_index, handlers, scratch, completion.after_stack[remaining], completed, current_ref);
+            const next_after = if (remaining == 0) null else completion.after_stack[remaining - 1];
+            const after = try applyAfterByIndex(
+                compiled_plan,
+                schema_types,
+                function_index,
+                handlers,
+                scratch,
+                completion.after_stack[remaining],
+                completed,
+                current_ref,
+                next_after,
+                result_ref,
+            );
             completed = after.value;
             current_ref = after.ref;
         }
     }
-    const final_ref = if (completion.kind == .terminal or completion.after_stack.len != 0) result_ref else value_ref;
     if (!valueMatchesRef(final_ref, completed)) return error.ProgramContractViolation;
     return completed;
 }
@@ -1267,7 +1536,15 @@ fn executeKnownFunction(
                     if (instruction.operand >= compiled_plan.ops.len) return error.ProgramContractViolation;
                     const op = compiled_plan.ops[instruction.operand];
                     const payload = if (op.payload_codec == .unit) .none else locals[instruction.aux];
-                    const op_result = try callOpByIndex(compiled_plan, schema_types, handlers, scratch, instruction.operand, payload);
+                    const op_result = try callOpByIndex(
+                        compiled_plan,
+                        schema_types,
+                        program_plan.functionResultRef(function),
+                        handlers,
+                        scratch,
+                        instruction.operand,
+                        payload,
+                    );
                     if (!op_result.resumes) {
                         return .{
                             .value = try completeFunctionValue(
@@ -1640,11 +1917,6 @@ fn executeFunctionWithFrameStack(
                             buffer[arg_index] = locals[local_id];
                         }
                     }
-                    const copied_args = try allocator.alloc(ExecutableValue, callee.parameter_count);
-                    defer allocator.free(copied_args);
-                    if (callee.parameter_count != 0) @memcpy(copied_args, buffer[0..callee.parameter_count]);
-                    scratch.popCallArgs(buffer[0..callee.parameter_count]);
-                    args_popped = true;
                     active.waiting_helper_dst = instruction.dst;
                     try pushActiveInterpreterFrame(
                         allocator,
@@ -1652,8 +1924,11 @@ fn executeFunctionWithFrameStack(
                         scratch,
                         &frames,
                         instruction.operand,
-                        copied_args,
+                        buffer[0..callee.parameter_count],
                     );
+                    frames.top().frame.call_args_start -= callee.parameter_count;
+                    scratch.popCallArgs(buffer[0..callee.parameter_count]);
+                    args_popped = true;
                 },
                 .call_nested_with => {
                     const target_index = nestedWithTargetIndexForMetadata(compiled_plan, nested_with_targets, instruction.string_literal) orelse return error.ProgramContractViolation;
@@ -1676,7 +1951,15 @@ fn executeFunctionWithFrameStack(
                     if (instruction.operand >= compiled_plan.ops.len) return error.ProgramContractViolation;
                     const op = compiled_plan.ops[instruction.operand];
                     const payload = if (op.payload_codec == .unit) .none else locals[instruction.aux];
-                    const op_result = try callOpByIndex(compiled_plan, schema_types, handlers, scratch, instruction.operand, payload);
+                    const op_result = try callOpByIndexForFunctionIndex(
+                        compiled_plan,
+                        schema_types,
+                        active.function_index,
+                        handlers,
+                        scratch,
+                        instruction.operand,
+                        payload,
+                    );
                     if (!op_result.resumes) {
                         const completed = try completeFunctionValueByIndex(
                             compiled_plan,
@@ -1835,11 +2118,7 @@ fn runExecutablePlanWithArgsForErrorSetUnchecked(
     );
     defer scratch.deinit();
     var entry_args: [entry.parameter_count]ExecutableValue = undefined;
-    if (comptime entry.parameter_count != 0) {
-        for (args, 0..) |arg, index| {
-            entry_args[index] = executableValueFromPublic(arg);
-        }
-    }
+    try encodePublicEntryArgs(compiled_plan, entry_args[0..], args);
     const raw = try executeFunctionWithFrameStack(ErrorSet, runtime, compiled_plan, &.{}, &.{}, handlers, &scratch, compiled_plan.entry_index, entry_args[0..], &remaining_steps);
     return .{ .value = try decodeArg(program_plan.functionResultCodec(entry), raw.value) };
 }
@@ -1885,7 +2164,7 @@ fn encodeTypedTupleEntryArgs(
         if (field.type != Expected) {
             @compileError("Body.encodeArgs tuple field type does not match ProgramPlan entry parameter " ++ std.fmt.comptimePrint("{d}", .{index}));
         }
-        out[index] = encodeRuntimeValue(schema_types, scratch, @field(args, field.name)) catch |err| switch (err) {
+        out[index] = encodeRuntimeValueForRef(compiled_plan, schema_types, ref, scratch, @field(args, field.name)) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => return error.ProgramContractViolation,
         };
@@ -2303,6 +2582,80 @@ fn supportNestedWithStructuredTargetPlan() program_plan.ProgramPlan {
         .terminators = &terminators,
         .instructions = &instructions,
     }) catch |err| supportPlanError(err);
+}
+
+fn supportNestedWithTerminalResultMismatchPlan() program_plan.ProgramPlan {
+    const instructions = [_]program_plan.Instruction{
+        .{
+            .kind = .call_nested_with,
+            .aux = @intFromEnum(program_plan.ValueCodec.unit),
+            .string_literal = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi",
+        },
+        .{ .kind = .call_op, .operand = 0 },
+    };
+    const functions = [_]program_plan.FunctionPlan{
+        .{
+            .symbol_name = "run",
+            .value_codec = .i32,
+            .result_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        },
+        .{
+            .symbol_name = "nested",
+            .value_codec = .unit,
+            .result_codec = .string,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 1,
+            .instruction_count = 1,
+        },
+    };
+    const requirements = [_]program_plan.RequirementPlan{.{ .label = "abort", .first_op = 0, .op_count = 1 }};
+    const ops = [_]program_plan.OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "abort",
+        .mode = .abort,
+        .payload_codec = .unit,
+        .resume_codec = .unit,
+    }};
+    const blocks = [_]program_plan.BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]program_plan.Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_unit },
+    };
+    return .{
+        .label = "nested-with-terminal-result-mismatch",
+        .ir_hash = 116,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    };
 }
 
 fn supportManyNestedWithPlan(comptime count: usize) program_plan.ProgramPlan {
@@ -3031,10 +3384,17 @@ test "ability.program executable support rejects nested-with, reachable structur
 test "ability.program executable capability ledger records unresolved nested-with blockers" {
     const ledger = ExecutableCapabilityLedgerForPlan(supportNestedWithPlan(), &.{}, &.{});
     try std.testing.expectEqual(@as(usize, 1), ledger.blockers.len);
-    try std.testing.expectEqual(CapabilityBlockerTag.helper_cycle, ExecutableCapabilityLedgerForPlan(supportHelperCyclePlan(), &.{}, &.{}).blockers[0].tag);
     try std.testing.expectEqual(CapabilityBlockerTag.nested_with_unresolved, ledger.blockers[0].tag);
     try std.testing.expectEqual(@as(u16, 0), ledger.blockers[0].function_index);
     try std.testing.expectEqual(@as(u32, 0), ledger.blockers[0].instruction_index);
+    try std.testing.expect(!ledger.truncated);
+}
+
+test "ability.program executable capability ledger does not block typed helper recursion" {
+    try validateTypedExecutablePlanSupport(supportHelperCyclePlan(), &.{});
+
+    const ledger = ExecutableCapabilityLedgerForPlan(supportHelperCyclePlan(), &.{}, &.{});
+    try std.testing.expectEqual(@as(usize, 0), ledger.blockers.len);
     try std.testing.expect(!ledger.truncated);
 }
 
@@ -3055,6 +3415,19 @@ test "ability.program executable support validates resolver-backed nested target
     );
     const ledger = ExecutableCapabilityLedgerForPlan(supportNestedWithStructuredTargetPlan(), &.{}, &targets);
     try std.testing.expectEqual(CapabilityBlockerTag.payload_codec, ledger.blockers[0].tag);
+}
+
+test "ability.program executable support rejects terminal nested target result mismatches" {
+    const targets = [_]NestedWithTarget{.{
+        .metadata = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi",
+        .function_index = 1,
+    }};
+    try std.testing.expectError(
+        error.UnsupportedResultCodec,
+        validateTypedExecutablePlanSupportWithNestedTargets(supportNestedWithTerminalResultMismatchPlan(), &.{}, &targets),
+    );
+    const ledger = ExecutableCapabilityLedgerForPlan(supportNestedWithTerminalResultMismatchPlan(), &.{}, &targets);
+    try std.testing.expectEqual(CapabilityBlockerTag.nested_with_result_codec, ledger.blockers[0].tag);
 }
 
 test "ability.program executable support ignores unreachable structured helper metadata" {

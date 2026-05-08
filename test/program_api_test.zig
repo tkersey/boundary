@@ -909,6 +909,232 @@ fn productIdentityPlan(comptime Payload: type, comptime label: []const u8) abili
     }) catch unreachable;
 }
 
+fn duplicateSchemaIdentityPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.returnValue(root, payload) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .product,
+        .value_schema_index = 1,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+        .{
+            .label = @typeName(Payload),
+            .codec = .product,
+            .first_field = 0,
+            .field_count = 1,
+        },
+        .{
+            .label = @typeName(Payload),
+            .codec = .product,
+            .first_field = 1,
+            .field_count = 1,
+        },
+    };
+    const value_fields = [_]ability.ir.ValueFieldPlan{
+        .{ .name = "amount", .codec = .i32 },
+        .{ .name = "amount", .codec = .i32 },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 31,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &.{.{ .codec = .product, .schema_index = 1 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn duplicateSchemaAbortResultPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), null) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .product,
+        .value_schema_index = 1,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{
+        .label = "structured",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "structured",
+        .mode = .abort,
+        .payload_codec = .unit,
+        .resume_codec = .unit,
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+        .{
+            .label = @typeName(Payload),
+            .codec = .product,
+            .first_field = 0,
+            .field_count = 1,
+        },
+        .{
+            .label = @typeName(Payload),
+            .codec = .product,
+            .first_field = 1,
+            .field_count = 1,
+        },
+    };
+    const value_fields = [_]ability.ir.ValueFieldPlan{
+        .{ .name = "amount", .codec = .i32 },
+        .{ .name = "amount", .codec = .i32 },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 32,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn duplicateSchemaAfterResultPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const resumed = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .product,
+        .value_schema_index = 1,
+        .result_codec = .product,
+        .result_schema_index = 1,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{
+        .label = "structured",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "structured",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .product,
+        .resume_schema_index = 1,
+        .has_after = true,
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+        .{
+            .label = @typeName(Payload),
+            .codec = .product,
+            .first_field = 0,
+            .field_count = 1,
+        },
+        .{
+            .label = @typeName(Payload),
+            .codec = .product,
+            .first_field = 1,
+            .field_count = 1,
+        },
+    };
+    const value_fields = [_]ability.ir.ValueFieldPlan{
+        .{ .name = "amount", .codec = .i32 },
+        .{ .name = "amount", .codec = .i32 },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 33,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &.{.{ .codec = .product, .schema_index = 1 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn structuredPayloadOpPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const payload = ability.ir.builder.local(root, 0);
@@ -1060,6 +1286,75 @@ fn structuredHelperPlan(comptime Payload: type, comptime label: []const u8) abil
             .{ .codec = .product, .schema_index = 0 },
             .{ .codec = .product, .schema_index = 0 },
         },
+        .call_args = &.{root_arg.index},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn parameterizedHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const helper = ability.ir.builder.function(1);
+    const root_arg = ability.ir.builder.local(root, 0);
+    const root_result = ability.ir.builder.local(root, 1);
+    const helper_arg = ability.ir.builder.local(helper, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callHelper(root, root_result, helper, 0) catch unreachable,
+        ability.ir.builder.returnValue(root, root_result) catch unreachable,
+        ability.ir.builder.returnValue(helper, helper_arg) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .i32,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 2,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "helper",
+            .value_codec = .i32,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 2,
+            .local_count = 1,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 1,
+        },
+    };
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 49,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 }, .{ .codec = .i32 } },
         .call_args = &.{root_arg.index},
         .blocks = &blocks,
         .terminators = &terminators,
@@ -1288,6 +1583,165 @@ fn resolvedNestedWithPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .ops = &.{},
         .outputs = &.{},
         .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn resolvedNestedWithSplitCompletionPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const nested = ability.ir.builder.function(1);
+    const root_value = ability.ir.builder.local(root, 0);
+    const nested_value = ability.ir.builder.local(nested, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{
+            .kind = .call_nested_with,
+            .dst = root_value.index,
+            .aux = @intFromEnum(ability.ir.ValueCodec.i32),
+            .string_literal = nested_with_metadata,
+        },
+        ability.ir.builder.returnValue(root, root_value) catch unreachable,
+        .{ .kind = .const_i32, .dst = nested_value.index, .operand = 42 },
+        ability.ir.builder.returnValue(nested, nested_value) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "nested",
+            .value_codec = .i32,
+            .result_codec = .string,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 1,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 2,
+        },
+    };
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 48,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn resolvedNestedWithAfterCompletionPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const nested = ability.ir.builder.function(1);
+    const root_value = ability.ir.builder.local(root, 0);
+    const nested_value = ability.ir.builder.local(nested, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{
+            .kind = .call_nested_with,
+            .dst = root_value.index,
+            .aux = @intFromEnum(ability.ir.ValueCodec.string),
+            .string_literal = nested_with_metadata,
+        },
+        ability.ir.builder.returnValue(root, root_value) catch unreachable,
+        ability.ir.builder.callOp(nested, nested_value, ability.ir.builder.op(nested, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(nested, nested_value) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .string,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "nested",
+            .value_codec = .i32,
+            .result_codec = .string,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 1,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 2,
+        },
+    };
+    const requirements = [_]ability.ir.plan.Requirement{.{
+        .label = "authored",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "dispatch",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+        .has_after = true,
+    }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 50,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string }, .{ .codec = .i32 } },
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,
@@ -2894,6 +3348,32 @@ test "ability.program accepts public ProgramValue entry args" {
     try std.testing.expectEqual(@as(i32, 42), result.value);
 }
 
+test "ability.program rejects public ProgramValue entry arg length mismatches" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const EmptyHandlers = struct {};
+    const TooManyArgsBody = struct {
+        pub const compiled_plan = parameterizedIdentityPlan("too-many-parameterized-identity");
+
+        pub fn encodeArgs(_: EmptyHandlers) []const ability.ir.ProgramValue {
+            return &.{ .{ .i32 = 42 }, .{ .i32 = 43 } };
+        }
+    };
+    const MissingArgsBody = struct {
+        pub const compiled_plan = parameterizedIdentityPlan("missing-parameterized-identity");
+
+        pub fn encodeArgs(_: EmptyHandlers) []const ability.ir.ProgramValue {
+            return &.{};
+        }
+    };
+    const TooManyProgram = ability.program("too-many-parameterized-identity", EmptyHandlers, TooManyArgsBody);
+    const MissingProgram = ability.program("missing-parameterized-identity", EmptyHandlers, MissingArgsBody);
+
+    try std.testing.expectError(error.ProgramContractViolation, TooManyProgram.run(&runtime, .{}));
+    try std.testing.expectError(error.ProgramContractViolation, MissingProgram.run(&runtime, .{}));
+}
+
 test "ability.program accepts typed product entry args and result" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -2914,6 +3394,80 @@ test "ability.program accepts typed product entry args and result" {
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 42), result.value.amount);
+}
+
+test "ability.program preserves expected schema index for duplicate typed product entry args" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        amount: i32,
+    };
+    const EmptyHandlers = struct {};
+    const ProductBody = struct {
+        pub const value_schema_types = .{ Payload, Payload };
+        pub const compiled_plan = duplicateSchemaIdentityPlan(Payload, "duplicate-schema-typed-product-identity");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{Payload{ .amount = 43 }}) {
+            return .{Payload{ .amount = 43 }};
+        }
+    };
+    const Program = ability.program("duplicate-schema-typed-product-identity", EmptyHandlers, ProductBody);
+    var result = try Program.run(&runtime, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 43), result.value.amount);
+}
+
+test "ability.program preserves expected schema index for duplicate typed op results" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        amount: i32,
+    };
+    const StructuredHandlers = struct {
+        structured: struct {
+            pub fn dispatch(_: *const @This()) !Payload {
+                return .{ .amount = 64 };
+            }
+        },
+    };
+    const ProductBody = struct {
+        pub const value_schema_types = .{ Payload, Payload };
+        pub const compiled_plan = duplicateSchemaAbortResultPlan(Payload, "duplicate-schema-typed-product-op-result");
+    };
+    const Program = ability.program("duplicate-schema-typed-product-op-result", StructuredHandlers, ProductBody);
+    var result = try Program.run(&runtime, .{ .structured = .{} });
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 64), result.value.amount);
+}
+
+test "ability.program preserves expected schema index for duplicate typed after results" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        amount: i32,
+    };
+    const StructuredHandlers = struct {
+        structured: struct {
+            pub fn dispatch(_: *const @This()) !Payload {
+                return .{ .amount = 70 };
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: Payload) !Payload {
+                return .{ .amount = value.amount + 1 };
+            }
+        },
+    };
+    const ProductBody = struct {
+        pub const value_schema_types = .{ Payload, Payload };
+        pub const compiled_plan = duplicateSchemaAfterResultPlan(Payload, "duplicate-schema-typed-product-after-result");
+    };
+    const Program = ability.program("duplicate-schema-typed-product-after-result", StructuredHandlers, ProductBody);
+    var result = try Program.run(&runtime, .{ .structured = .{} });
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 71), result.value.amount);
 }
 
 test "ability.program preserves OOM while encoding typed product entry args" {
@@ -3022,6 +3576,26 @@ test "ability.program bounds unbounded helper cycles by interpreter budget" {
     try std.testing.expectError(error.ExecutionBudgetExceeded, Program.run(&runtime, .{}));
 }
 
+test "ability.program reuses scratch storage for parameterized helper args" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 2 });
+    var runtime = ability.Runtime.init(failing.allocator());
+    defer runtime.deinit();
+
+    const EmptyHandlers = struct {};
+    const HelperBody = struct {
+        pub const compiled_plan = parameterizedHelperPlan("parameterized-helper-no-arg-copy-alloc");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{@as(i32, 42)}) {
+            return .{@as(i32, 42)};
+        }
+    };
+    const Program = ability.program("parameterized-helper-no-arg-copy-alloc", EmptyHandlers, HelperBody);
+    var result = try Program.run(&runtime, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+    try std.testing.expect(!failing.has_induced_failure);
+}
+
 test "ability.program executes resolver-backed nested-with rows" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -3038,6 +3612,53 @@ test "ability.program executes resolver-backed nested-with rows" {
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 42), result.value);
+}
+
+test "ability.program validates nested-with completion codec instead of terminal result codec" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const EmptyHandlers = struct {};
+    const NestedBody = struct {
+        pub const compiled_plan = resolvedNestedWithSplitCompletionPlan("resolved-nested-with-split-completion");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+    };
+    const Program = ability.program("resolved-nested-with-split-completion", EmptyHandlers, NestedBody);
+    var result = try Program.run(&runtime, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+}
+
+test "ability.program validates nested-with after completion codec" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const NestedAfterHandlers = struct {
+        authored: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 42;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: i32) ![]const u8 {
+                try std.testing.expectEqual(@as(i32, 42), value);
+                return "forty-two";
+            }
+        },
+    };
+    const NestedBody = struct {
+        pub const compiled_plan = resolvedNestedWithAfterCompletionPlan("resolved-nested-with-after-completion");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+    };
+    const Program = ability.program("resolved-nested-with-after-completion", NestedAfterHandlers, NestedBody);
+    var result = try Program.run(&runtime, .{ .authored = .{} });
+    defer result.deinit();
+    try std.testing.expectEqualStrings("forty-two", result.value);
 }
 
 test "ability.program materializes outputs through body collector and deinit hook" {

@@ -351,12 +351,12 @@ pub const ProgramPlan = struct {
                 if (completion_reachability[function_index]) continue :function_completion_scan;
                 const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
                 @memset(executable_blocks[function.first_block..block_end], false);
-                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks);
+                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks, &.{});
                 executable_block_completion_scan: for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
                     const block_index = @as(usize, function.first_block) + relative_block_index;
                     if (!executable_blocks[block_index]) continue :executable_block_completion_scan;
                     const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
-                    if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, &completion_reachability)) continue :executable_block_completion_scan;
+                    if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, &completion_reachability, &.{})) continue :executable_block_completion_scan;
                     const terminator = self.terminators[block.terminator_index];
                     const block_completes = switch (terminator.kind) {
                         .return_unit, .return_value => true,
@@ -379,7 +379,7 @@ pub const ProgramPlan = struct {
                 if (terminal_reachability[function_index]) continue :function_terminal_scan;
                 const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
                 @memset(executable_blocks[function.first_block..block_end], false);
-                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks);
+                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks, &.{});
                 executable_block_terminal_scan: for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
                     const block_index = @as(usize, function.first_block) + relative_block_index;
                     if (!executable_blocks[block_index]) continue :executable_block_terminal_scan;
@@ -393,6 +393,7 @@ pub const ProgramPlan = struct {
                             .completion = &completion_reachability,
                             .terminal = &terminal_reachability,
                         },
+                        &.{},
                     )) {
                         terminal_reachability[function_index] = true;
                         changed = true;
@@ -408,7 +409,7 @@ pub const ProgramPlan = struct {
                 .{ .codec = result_codec, .schema_index = function.result_schema_index },
                 .{ .codec = function.value_codec, .schema_index = function.value_schema_index },
             )) continue;
-            const completion_codecs = try functionCompletionCodecReachability(self, function, &completion_reachability);
+            const completion_codecs = try functionCompletionCodecReachability(self, function, &completion_reachability, &.{});
             if (completion_codecs.value_codec and completion_codecs.result_codec) return error.InvalidFunctionResultCodec;
         }
 
@@ -418,7 +419,7 @@ pub const ProgramPlan = struct {
                 .{ .codec = entry_result_codec, .schema_index = entry.result_schema_index },
                 .{ .codec = entry.value_codec, .schema_index = entry.value_schema_index },
             )) {
-                const entry_completion_codecs = try functionCompletionCodecReachability(self, entry, &completion_reachability);
+                const entry_completion_codecs = try functionCompletionCodecReachability(self, entry, &completion_reachability, &.{});
                 if (entry_completion_codecs.value_codec) {
                     return error.InvalidFunctionResultCodec;
                 }
@@ -584,6 +585,7 @@ pub const ProgramPlan = struct {
                                     .completion = &completion_reachability,
                                     .terminal = &terminal_reachability,
                                 },
+                                &.{},
                             )) return error.InvalidTerminatorInstruction;
                         }
                     },
@@ -1763,7 +1765,7 @@ fn functionCompletionValueRef(
         .codec = function.value_codec,
         .schema_index = function.value_schema_index,
     };
-    const completion_codecs = try functionCompletionCodecReachability(self, function, completion_reachability);
+    const completion_codecs = try functionCompletionCodecReachability(self, function, completion_reachability, &.{});
     if (completion_codecs.value_codec and completion_codecs.result_codec) return error.InvalidFunctionResultCodec;
     if (!completion_codecs.result_codec) return .{
         .codec = function.value_codec,
@@ -1811,6 +1813,7 @@ fn functionCompletionCodecReachability(
     self: ProgramPlan,
     function: FunctionPlan,
     completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
+    comptime nested_with_targets: anytype,
 ) ValidationError!FunctionCompletionCodecs {
     var plain_blocks = [_]bool{false} ** (std.math.maxInt(u16) + 1);
     var after_blocks = [_]bool{false} ** (std.math.maxInt(u16) + 1);
@@ -1826,7 +1829,7 @@ fn functionCompletionCodecReachability(
             const block_index = @as(usize, function.first_block) + relative_block_index;
             if (!plain_blocks[block_index] and !after_blocks[block_index]) continue :completion_block_scan;
             const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
-            if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, completion_reachability)) continue :completion_block_scan;
+            if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, completion_reachability, nested_with_targets)) continue :completion_block_scan;
 
             const block_applies_after = try blockAppliesAfterOnCompletion(self, function, block.first_instruction, instruction_end);
             const completes_plain = plain_blocks[block_index] and !block_applies_after;
@@ -2047,6 +2050,7 @@ fn terminalAbortInstruction(
     function: FunctionPlan,
     instruction_index: usize,
     reachability: FunctionControlReachability,
+    comptime nested_with_targets: anytype,
 ) bool {
     const instruction_span_end = @as(usize, function.first_instruction) + function.instruction_count;
     if (instruction_index < function.first_instruction or instruction_index >= instruction_span_end) return false;
@@ -2056,6 +2060,12 @@ fn terminalAbortInstruction(
         return instruction.operand < self.functions.len and
             reachability.terminal[instruction.operand] and
             !reachability.completion[instruction.operand];
+    }
+    if (instruction.kind == .call_nested_with) {
+        const target_index = nestedWithTargetIndexForMetadata(nested_with_targets, instruction.string_literal) orelse return false;
+        return target_index < self.functions.len and
+            reachability.terminal[target_index] and
+            !reachability.completion[target_index];
     }
     if (instruction.kind == .call_op) {
         return instruction.operand < self.ops.len and self.ops[instruction.operand].mode == .abort;
@@ -2068,6 +2078,7 @@ fn instructionCannotFallThrough(
     function: FunctionPlan,
     instruction_index: usize,
     completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
+    comptime nested_with_targets: anytype,
 ) bool {
     const instruction_span_end = @as(usize, function.first_instruction) + function.instruction_count;
     if (instruction_index < function.first_instruction or instruction_index >= instruction_span_end) return false;
@@ -2075,6 +2086,10 @@ fn instructionCannotFallThrough(
     if (instruction.kind == .return_error) return instruction.string_literal.len != 0;
     if (instruction.kind == .call_helper) {
         return instruction.operand < self.functions.len and !completion_reachability[instruction.operand];
+    }
+    if (instruction.kind == .call_nested_with) {
+        const target_index = nestedWithTargetIndexForMetadata(nested_with_targets, instruction.string_literal) orelse return false;
+        return target_index < self.functions.len and !completion_reachability[target_index];
     }
     if (instruction.kind == .call_op) {
         return instruction.operand < self.ops.len and self.ops[instruction.operand].mode == .abort;
@@ -2111,7 +2126,7 @@ pub fn entryExecutionAnalysis(comptime plan: ProgramPlan) ValidationError!EntryE
     return entryExecutionAnalysisWithNestedTargets(plan, &.{});
 }
 
-fn nestedWithTargetIndexForMetadata(comptime nested_with_targets: anytype, comptime metadata: []const u8) ?u16 {
+fn nestedWithTargetIndexForMetadata(comptime nested_with_targets: anytype, metadata: []const u8) ?u16 {
     inline for (nested_with_targets) |target| {
         if (std.mem.eql(u8, target.metadata, metadata)) return target.function_index;
     }
@@ -2149,12 +2164,12 @@ pub fn entryExecutionAnalysisWithNestedTargets(
                 if (completion_reachability[function_index]) continue :function_completion_scan;
                 const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
                 @memset(executable_blocks[function.first_block..block_end], false);
-                try markFunctionExecutableBlocks(plan, function, &completion_reachability, &executable_blocks);
+                try markFunctionExecutableBlocks(plan, function, &completion_reachability, &executable_blocks, nested_with_targets);
                 executable_block_completion_scan: for (plan.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
                     const block_index = @as(usize, function.first_block) + relative_block_index;
                     if (!executable_blocks[block_index]) continue :executable_block_completion_scan;
                     const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
-                    if (!try blockCanResumeToTerminator(plan, function, block.first_instruction, instruction_end, &completion_reachability)) {
+                    if (!try blockCanResumeToTerminator(plan, function, block.first_instruction, instruction_end, &completion_reachability, nested_with_targets)) {
                         continue :executable_block_completion_scan;
                     }
                     const terminator = plan.terminators[block.terminator_index];
@@ -2179,7 +2194,7 @@ pub fn entryExecutionAnalysisWithNestedTargets(
                 if (terminal_reachability[function_index]) continue :function_terminal_scan;
                 const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
                 @memset(executable_blocks[function.first_block..block_end], false);
-                try markFunctionExecutableBlocks(plan, function, &completion_reachability, &executable_blocks);
+                try markFunctionExecutableBlocks(plan, function, &completion_reachability, &executable_blocks, nested_with_targets);
                 executable_block_terminal_scan: for (plan.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
                     const block_index = @as(usize, function.first_block) + relative_block_index;
                     if (!executable_blocks[block_index]) continue :executable_block_terminal_scan;
@@ -2193,6 +2208,7 @@ pub fn entryExecutionAnalysisWithNestedTargets(
                             .completion = &completion_reachability,
                             .terminal = &terminal_reachability,
                         },
+                        nested_with_targets,
                     )) {
                         terminal_reachability[function_index] = true;
                         control_changed = true;
@@ -2204,7 +2220,7 @@ pub fn entryExecutionAnalysisWithNestedTargets(
 
         for (plan.functions, 0..) |function, function_index| {
             analysis.terminal_functions[function_index] = terminal_reachability[function_index];
-            const completion_codecs = try functionCompletionCodecReachability(plan, function, &completion_reachability);
+            const completion_codecs = try functionCompletionCodecReachability(plan, function, &completion_reachability, nested_with_targets);
             analysis.after_result_functions[function_index] = completion_codecs.result_codec;
         }
 
@@ -2213,7 +2229,7 @@ pub fn entryExecutionAnalysisWithNestedTargets(
             changed = false;
             reachable_function_scan: for (plan.functions, 0..) |function, function_index| {
                 if (!analysis.reachable_functions[function_index]) continue :reachable_function_scan;
-                if (try markEntryAnalysisFunctionBlocks(plan, function, &analysis, &completion_reachability)) {
+                if (try markEntryAnalysisFunctionBlocks(plan, function, &analysis, &completion_reachability, nested_with_targets)) {
                     changed = true;
                 }
                 const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
@@ -2250,8 +2266,9 @@ pub fn entryExecutionAnalysisWithNestedTargets(
                                 .completion = &completion_reachability,
                                 .terminal = &terminal_reachability,
                             },
+                            nested_with_targets,
                         )) break;
-                        if (instructionCannotFallThrough(plan, function, instruction_index, &completion_reachability)) break;
+                        if (instructionCannotFallThrough(plan, function, instruction_index, &completion_reachability, nested_with_targets)) break;
                     }
                 }
             }
@@ -2275,6 +2292,7 @@ fn markEntryAnalysisFunctionBlocks(
     comptime function: FunctionPlan,
     comptime analysis: *EntryExecutionAnalysis(plan),
     completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
+    comptime nested_with_targets: anytype,
 ) ValidationError!bool {
     const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
     const entry_block_index = @as(usize, function.first_block) + function.entry_block;
@@ -2292,7 +2310,7 @@ fn markEntryAnalysisFunctionBlocks(
             const block_index = @as(usize, function.first_block) + relative_block_index;
             if (!analysis.reachable_blocks[block_index]) continue :reachable_block_scan;
             const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
-            if (!try blockCanResumeToTerminator(plan, function, block.first_instruction, instruction_end, completion_reachability)) {
+            if (!try blockCanResumeToTerminator(plan, function, block.first_instruction, instruction_end, completion_reachability, nested_with_targets)) {
                 continue :reachable_block_scan;
             }
             const terminator = plan.terminators[block.terminator_index];
@@ -2464,6 +2482,7 @@ fn blockCanResumeToTerminator(
     first_instruction: u16,
     instruction_end: usize,
     completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
+    comptime nested_with_targets: anytype,
 ) ValidationError!bool {
     for (self.instructions[first_instruction..instruction_end]) |instruction| {
         if (instruction.kind == .return_error) {
@@ -2471,6 +2490,11 @@ fn blockCanResumeToTerminator(
         } else if (instruction.kind == .call_helper) {
             if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
             if (!completion_reachability[instruction.operand]) return false;
+        } else if (instruction.kind == .call_nested_with) {
+            if (nestedWithTargetIndexForMetadata(nested_with_targets, instruction.string_literal)) |target_index| {
+                if (target_index >= self.functions.len) return error.InvalidCallHelperTarget;
+                if (!completion_reachability[target_index]) return false;
+            }
         } else if (instruction.kind == .call_op) {
             if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
                 return error.InvalidCallOpTarget;
@@ -2487,6 +2511,7 @@ fn blockCanEscapeTerminally(
     first_instruction: u16,
     instruction_end: usize,
     reachability: FunctionControlReachability,
+    comptime nested_with_targets: anytype,
 ) ValidationError!bool {
     for (self.instructions[first_instruction..instruction_end]) |instruction| {
         if (instruction.kind == .return_error) {
@@ -2495,6 +2520,12 @@ fn blockCanEscapeTerminally(
             if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
             if (reachability.terminal[instruction.operand]) return true;
             if (!reachability.completion[instruction.operand]) return false;
+        } else if (instruction.kind == .call_nested_with) {
+            if (nestedWithTargetIndexForMetadata(nested_with_targets, instruction.string_literal)) |target_index| {
+                if (target_index >= self.functions.len) return error.InvalidCallHelperTarget;
+                if (reachability.terminal[target_index]) return true;
+                if (!reachability.completion[target_index]) return false;
+            }
         } else if (instruction.kind == .call_op) {
             if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
                 return error.InvalidCallOpTarget;
@@ -2510,6 +2541,7 @@ fn markFunctionExecutableBlocks(
     function: FunctionPlan,
     completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
     executable_blocks: *[std.math.maxInt(u16) + 1]bool,
+    comptime nested_with_targets: anytype,
 ) ValidationError!void {
     const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
     const entry_block_index = @as(usize, function.first_block) + function.entry_block;
@@ -2522,7 +2554,7 @@ fn markFunctionExecutableBlocks(
             const block_index = @as(usize, function.first_block) + relative_block_index;
             if (!executable_blocks[block_index]) continue :executable_block_scan;
             const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
-            if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, completion_reachability)) continue :executable_block_scan;
+            if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, completion_reachability, nested_with_targets)) continue :executable_block_scan;
             const terminator = self.terminators[block.terminator_index];
             switch (terminator.kind) {
                 .branch_if => {
@@ -4410,6 +4442,89 @@ test "ProgramPlan.validate rejects schema-bearing nested-with result codecs" {
 
         try std.testing.expectError(error.InvalidInstructionCodec, plan.validate());
     }
+}
+
+test "entryExecutionAnalysisWithNestedTargets propagates terminal nested targets" {
+    const metadata = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi";
+    const instructions = [_]Instruction{
+        .{
+            .kind = .call_nested_with,
+            .aux = @intFromEnum(ValueCodec.unit),
+            .string_literal = metadata,
+        },
+        .{ .kind = .const_i32, .dst = 0, .operand = 7 },
+        .{ .kind = .call_op, .operand = 0 },
+    };
+    const functions = [_]FunctionPlan{
+        .{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "terminal_nested",
+            .result_codec = .string,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 0,
+            .first_block = 1,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 1,
+        },
+    };
+    const requirements = [_]RequirementPlan{.{
+        .label = "abort",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "abort",
+        .mode = .abort,
+        .payload_codec = .unit,
+        .resume_codec = .unit,
+    }};
+    const blocks = [_]BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_unit },
+    };
+    const plan = ProgramPlan{
+        .label = "nested-terminal-analysis",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    };
+    const targets = .{.{ .metadata = metadata, .function_index = 1 }};
+
+    const analysis = comptime entryExecutionAnalysisWithNestedTargets(plan, targets) catch unreachable;
+    try std.testing.expect(analysis.terminal_functions[0]);
+    try std.testing.expect(analysis.terminal_functions[1]);
+    try std.testing.expect(analysis.reachable_instructions[0]);
+    try std.testing.expect(!analysis.reachable_instructions[1]);
+    try std.testing.expect(analysis.reachable_instructions[2]);
 }
 
 test "ProgramPlan.validate rejects helper call arguments outside the owning function locals" {
