@@ -2483,6 +2483,380 @@ fn terminalNestedWithSplitResultPlan(comptime label: []const u8) ability.ir.Prog
     }, targets) catch unreachable;
 }
 
+fn helperNestedWithPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const helper = ability.ir.builder.function(1);
+    const nested = ability.ir.builder.function(2);
+    const root_value = ability.ir.builder.local(root, 0);
+    const helper_value = ability.ir.builder.local(helper, 0);
+    const nested_value = ability.ir.builder.local(nested, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
+        ability.ir.builder.returnValue(root, root_value) catch unreachable,
+        .{
+            .kind = .call_nested_with,
+            .dst = helper_value.index,
+            .aux = @intFromEnum(ability.ir.ValueCodec.i32),
+            .string_literal = nested_with_metadata,
+        },
+        ability.ir.builder.returnValue(helper, helper_value) catch unreachable,
+        .{ .kind = .const_i32, .dst = nested_value.index, .operand = 64 },
+        ability.ir.builder.returnValue(nested, nested_value) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "helper",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 1,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "nested",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 2,
+            .local_count = 1,
+            .first_block = 2,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 4,
+            .instruction_count = 2,
+        },
+    };
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+        .{ .first_instruction = 4, .instruction_count = 2, .terminator_index = 2 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 62,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn terminalNestedWithProductResultPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const nested = ability.ir.builder.function(1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{
+            .kind = .call_nested_with,
+            .aux = @intFromEnum(ability.ir.ValueCodec.unit),
+            .string_literal = nested_with_metadata,
+        },
+        ability.ir.builder.callOp(nested, null, ability.ir.builder.op(nested, 0), null) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .result_codec = .product,
+            .result_schema_index = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        },
+        .{
+            .symbol_name = "nested",
+            .value_codec = .unit,
+            .result_codec = .product,
+            .result_schema_index = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 1,
+            .instruction_count = 1,
+        },
+    };
+    const requirements = [_]ability.ir.plan.Requirement{.{
+        .label = "abort",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "dispatch",
+        .mode = .abort,
+        .payload_codec = .unit,
+        .resume_codec = .unit,
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(Payload),
+        .codec = .product,
+        .first_field = 0,
+        .field_count = 1,
+    }};
+    const value_fields = [_]ability.ir.ValueFieldPlan{.{
+        .name = "amount",
+        .codec = .i32,
+    }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_unit },
+    };
+    const targets = .{ability.ir.NestedWithTarget{
+        .metadata = nested_with_metadata,
+        .function_index = nested.index,
+    }};
+
+    return ability.ir.builder.finishWithNestedTargets(.{
+        .label = label,
+        .ir_hash = 63,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }, targets) catch unreachable;
+}
+
+fn terminalNestedWithSumResultPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const nested = ability.ir.builder.function(1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{
+            .kind = .call_nested_with,
+            .aux = @intFromEnum(ability.ir.ValueCodec.unit),
+            .string_literal = nested_with_metadata,
+        },
+        ability.ir.builder.callOp(nested, null, ability.ir.builder.op(nested, 0), null) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .result_codec = .sum,
+            .result_schema_index = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        },
+        .{
+            .symbol_name = "nested",
+            .value_codec = .unit,
+            .result_codec = .sum,
+            .result_schema_index = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 1,
+            .instruction_count = 1,
+        },
+    };
+    const requirements = [_]ability.ir.plan.Requirement{.{
+        .label = "abort",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "dispatch",
+        .mode = .abort,
+        .payload_codec = .unit,
+        .resume_codec = .unit,
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(Payload),
+        .codec = .sum,
+        .first_variant = 0,
+        .variant_count = 2,
+    }};
+    const value_variants = [_]ability.ir.ValueVariantPlan{
+        .{ .name = "none", .codec = .unit },
+        .{ .name = "some", .codec = .i32 },
+    };
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_unit },
+    };
+    const targets = .{ability.ir.NestedWithTarget{
+        .metadata = nested_with_metadata,
+        .function_index = nested.index,
+    }};
+
+    return ability.ir.builder.finishWithNestedTargets(.{
+        .label = label,
+        .ir_hash = 64,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &.{},
+        .value_variants = &value_variants,
+        .locals = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }, targets) catch unreachable;
+}
+
+fn nestedWithOutputCollectionPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const nested = ability.ir.builder.function(1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{
+            .kind = .call_nested_with,
+            .aux = @intFromEnum(ability.ir.ValueCodec.unit),
+            .string_literal = nested_with_metadata,
+        },
+        ability.ir.builder.callOp(nested, null, ability.ir.builder.op(nested, 0), null) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 1,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        },
+        .{
+            .symbol_name = "nested",
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 1,
+            .instruction_count = 1,
+        },
+    };
+    const requirements = [_]ability.ir.plan.Requirement{.{
+        .label = "observe",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "dispatch",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .unit,
+    }};
+    const outputs = [_]ability.ir.plan.Output{.{
+        .label = "observed",
+        .codec = .i32,
+    }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_unit },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 65,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &outputs,
+        .locals = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn outputMetadataPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const functions = [_]ability.ir.plan.Function{.{
@@ -5413,6 +5787,118 @@ test "ability.program validates terminal nested-with targets before return_unit"
     var result = try Program.run(&runtime, .{ .abort = .{} });
     defer result.deinit();
     try std.testing.expectEqualStrings("terminal", result.value);
+}
+
+test "ability.program executes nested-with inside helper frames" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const EmptyHandlers = struct {};
+    const NestedBody = struct {
+        pub const compiled_plan = helperNestedWithPlan("nested-with-inside-helper");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 2,
+        }};
+    };
+    const Program = ability.program("nested-with-inside-helper", EmptyHandlers, NestedBody);
+    var result = try Program.run(&runtime, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 64), result.value);
+}
+
+test "ability.program supports terminal nested-with product result targets" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        amount: i32,
+    };
+    const ProductHandlers = struct {
+        abort: struct {
+            pub fn dispatch(_: *const @This()) !Payload {
+                return .{ .amount = 81 };
+            }
+        },
+    };
+    const NestedBody = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = terminalNestedWithProductResultPlan(Payload, "terminal-nested-with-product-result");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+    };
+    const Program = ability.program("terminal-nested-with-product-result", ProductHandlers, NestedBody);
+    var result = try Program.run(&runtime, .{ .abort = .{} });
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 81), result.value.amount);
+}
+
+test "ability.program supports terminal nested-with sum result targets" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = ?i32;
+    const SumHandlers = struct {
+        abort: struct {
+            pub fn dispatch(_: *const @This()) !Payload {
+                return @as(Payload, 82);
+            }
+        },
+    };
+    const NestedBody = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = terminalNestedWithSumResultPlan(Payload, "terminal-nested-with-sum-result");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+    };
+    const Program = ability.program("terminal-nested-with-sum-result", SumHandlers, NestedBody);
+    var result = try Program.run(&runtime, .{ .abort = .{} });
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 82), result.value.?);
+}
+
+test "ability.program collects outputs after nested-with execution" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Observe = struct {
+        seen: bool = false,
+
+        pub fn dispatch(self: *@This()) !void {
+            self.seen = true;
+        }
+    };
+    const NestedHandlers = struct {
+        observe: Observe,
+    };
+    const NestedBody = struct {
+        pub const Outputs = []i32;
+        pub const compiled_plan = nestedWithOutputCollectionPlan("nested-with-output-collection");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+
+        pub fn collectOutputs(allocator: std.mem.Allocator, handlers: *NestedHandlers) !Outputs {
+            try std.testing.expect(handlers.observe.seen);
+            const outputs = try allocator.alloc(i32, 1);
+            outputs[0] = 83;
+            return outputs;
+        }
+
+        pub fn deinitOutputs(allocator: std.mem.Allocator, outputs: Outputs) void {
+            allocator.free(outputs);
+        }
+    };
+    const Program = ability.program("nested-with-output-collection", NestedHandlers, NestedBody);
+    var result = try Program.run(&runtime, .{ .observe = .{} });
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 83), result.outputs[0]);
+    try std.testing.expectEqualStrings("observed", Program.contract.outputs[0].label);
 }
 
 test "ability.program materializes outputs through body collector and deinit hook" {

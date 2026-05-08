@@ -378,6 +378,18 @@ pub fn build(b: *std.Build) void {
             .path = "test/compile_fail/invalid_output_cleanup_hook.zig",
             .expected_error = "Body.deinitOutputs must have type fn (std.mem.Allocator, outputs) void",
         },
+        .{
+            .path = "test/compile_fail/missing_nested_with_target.zig",
+            .expected_error = "UnsupportedNestedWith",
+        },
+        .{
+            .path = "test/compile_fail/nested_with_wrong_function_index.zig",
+            .expected_error = "UnsupportedNestedWith",
+        },
+        .{
+            .path = "test/compile_fail/nested_with_result_codec_mismatch.zig",
+            .expected_error = "UnsupportedResultCodec",
+        },
     };
     inline for (compile_fail_specs) |spec| {
         const compile_fail_mod = b.createModule(.{

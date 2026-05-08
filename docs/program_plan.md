@@ -90,7 +90,16 @@ Nested lexical-with execution is explicit. A body opts in with
 metadata packets to function indexes. `ability.ir.builder.finishWithNestedTargets`
 validates the target list while producing the same `ProgramPlan` shape.
 
-Missing or mismatched targets fail closed. There is no global target discovery.
+The metadata string must exactly match the `call_nested_with` instruction packet.
+The function index must name the zero-parameter function that should execute for
+that packet. A target with the right metadata but the wrong function index is not
+treated as a near miss: it is rejected if the indexed function cannot be entered
+as a nested target or if its completion/result shape does not match the call site.
+
+Missing or mismatched targets fail closed. Terminal nested targets may complete
+the whole program when their terminal result ref matches the caller's result ref,
+including typed product and sum results declared through `Body.value_schema_types`.
+There is no global target discovery.
 
 ## Program.contract
 
