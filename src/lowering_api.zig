@@ -325,7 +325,7 @@ pub fn validateTypedExecutablePlanSupportWithNestedTargets(
                     const target = compiled_plan.functions[target_index];
                     if (target.parameter_count != 0) return error.UnsupportedNestedWith;
                     const result_codec = program_plan.valueCodecFromInstructionAux(instruction.aux) catch return error.UnsupportedResultCodec;
-                    if (!executableScalarCodec(result_codec)) return error.UnsupportedResultCodec;
+                    if (!executableTypedRef(schema_types, .{ .codec = result_codec })) return error.UnsupportedResultCodec;
                     const completion_ref = effectiveCompletionRefForFunction(analysis, target, target_index);
                     if (completion_ref.codec != result_codec or completion_ref.schema_index != null) return error.UnsupportedResultCodec;
                     if (result_codec != .unit and !instructionLocalHasExecutableTypedRef(

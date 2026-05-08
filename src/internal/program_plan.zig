@@ -455,7 +455,7 @@ pub const ProgramPlan = struct {
                         {
                             return error.InvalidInstructionLocalIndex;
                         }
-                        const helper_completion_ref = try functionCompletionValueRef(self, callee, &completion_reachability);
+                        const helper_completion_ref = try functionCompletionValueRef(self, callee, &completion_reachability, nested_with_targets);
                         if (helper_completion_ref.codec != .unit and
                             completion_reachability[instruction.operand] and
                             !functionLocalHasValueRef(self, function, instruction.dst, helper_completion_ref))
@@ -1763,6 +1763,7 @@ fn functionCompletionValueRef(
     self: ProgramPlan,
     function: FunctionPlan,
     completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
+    comptime nested_with_targets: anytype,
 ) ValidationError!ValueRef {
     const result_codec = function.result_codec orelse return .{
         .codec = function.value_codec,
@@ -1775,7 +1776,7 @@ fn functionCompletionValueRef(
         .codec = function.value_codec,
         .schema_index = function.value_schema_index,
     };
-    const completion_codecs = try functionCompletionCodecReachability(self, function, completion_reachability, &.{});
+    const completion_codecs = try functionCompletionCodecReachability(self, function, completion_reachability, nested_with_targets);
     if (completion_codecs.value_codec and completion_codecs.result_codec) return error.InvalidFunctionResultCodec;
     if (!completion_codecs.result_codec) return .{
         .codec = function.value_codec,
@@ -4564,6 +4565,125 @@ test "entryExecutionAnalysisWithNestedTargets propagates terminal nested targets
     try std.testing.expect(analysis.reachable_instructions[0]);
     try std.testing.expect(!analysis.reachable_instructions[1]);
     try std.testing.expect(analysis.reachable_instructions[2]);
+}
+
+test "ProgramPlan.validateWithNestedTargets uses resolver-backed helper completion" {
+    const metadata = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi";
+    const instructions = [_]Instruction{
+        .{ .kind = .call_helper, .dst = 0, .operand = 1 },
+        .{ .kind = .return_value, .operand = 0 },
+        .{ .kind = .const_i32, .dst = 0, .operand = 0 },
+        .{ .kind = .compare_eq_zero, .dst = 1, .operand = 0 },
+        .{
+            .kind = .call_nested_with,
+            .aux = @intFromEnum(ValueCodec.unit),
+            .string_literal = metadata,
+        },
+        .{ .kind = .call_op, .operand = 0 },
+        .{ .kind = .const_i32, .dst = 0, .operand = 7 },
+        .{ .kind = .return_value, .operand = 0 },
+        .{ .kind = .call_op, .operand = 1 },
+    };
+    const functions = [_]FunctionPlan{
+        .{
+            .symbol_name = "root",
+            .value_codec = .string,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "helper",
+            .value_codec = .i32,
+            .result_codec = .string,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 2,
+            .first_block = 1,
+            .block_count = 3,
+            .first_instruction = 2,
+            .instruction_count = 6,
+        },
+        .{
+            .symbol_name = "terminal_nested",
+            .result_codec = .string,
+            .first_requirement = 1,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 3,
+            .local_count = 0,
+            .first_block = 4,
+            .block_count = 1,
+            .first_instruction = 8,
+            .instruction_count = 1,
+        },
+    };
+    const requirements = [_]RequirementPlan{
+        .{ .label = "after", .first_op = 0, .op_count = 1 },
+        .{ .label = "abort", .first_op = 1, .op_count = 1 },
+    };
+    const ops = [_]OpPlan{
+        .{
+            .requirement_index = 0,
+            .op_name = "after",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .unit,
+            .has_after = true,
+        },
+        .{
+            .requirement_index = 1,
+            .op_name = "abort",
+            .mode = .abort,
+            .payload_codec = .unit,
+            .resume_codec = .unit,
+        },
+    };
+    const blocks = [_]BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+        .{ .first_instruction = 4, .instruction_count = 1, .terminator_index = 2 },
+        .{ .first_instruction = 5, .instruction_count = 3, .terminator_index = 3 },
+        .{ .first_instruction = 8, .instruction_count = 1, .terminator_index = 4 },
+    };
+    const terminators = [_]Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .branch_if, .primary = 2, .secondary = 3 },
+        .{ .kind = .return_unit },
+        .{ .kind = .return_value },
+        .{ .kind = .return_unit },
+    };
+    const plan = ProgramPlan{
+        .label = "helper-nested-completion",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{
+            .{ .codec = .string },
+            .{ .codec = .i32 },
+            .{ .codec = .bool },
+        },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    };
+    const targets = .{.{ .metadata = metadata, .function_index = 2 }};
+
+    try plan.validateWithNestedTargets(targets);
 }
 
 test "ProgramPlan.validate rejects helper call arguments outside the owning function locals" {

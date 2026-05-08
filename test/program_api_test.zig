@@ -1589,6 +1589,90 @@ fn resolvedNestedWithPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
+fn resolvedNestedWithStringListPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const nested = ability.ir.builder.function(1);
+    const root_value = ability.ir.builder.local(root, 0);
+    const nested_value = ability.ir.builder.local(nested, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{
+            .kind = .call_nested_with,
+            .dst = root_value.index,
+            .aux = @intFromEnum(ability.ir.ValueCodec.string_list),
+            .string_literal = nested_with_metadata,
+        },
+        ability.ir.builder.returnValue(root, root_value) catch unreachable,
+        ability.ir.builder.callOp(nested, nested_value, ability.ir.builder.op(nested, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(nested, nested_value) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .string_list,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "nested",
+            .value_codec = .string_list,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 1,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 2,
+        },
+    };
+    const requirements = [_]ability.ir.plan.Requirement{.{
+        .label = "authored",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "dispatch",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .string_list,
+    }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 49,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string_list }, .{ .codec = .string_list } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn resolvedNestedWithSplitCompletionPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const nested = ability.ir.builder.function(1);
@@ -3698,6 +3782,34 @@ test "ability.program executes resolver-backed nested-with rows" {
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 42), result.value);
+}
+
+test "ability.program executes resolver-backed nested-with string-list rows" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const NestedHandlers = struct {
+        authored: struct {
+            const strings = [_][]const u8{ "alpha", "beta" };
+
+            pub fn dispatch(_: *const @This()) ![]const []const u8 {
+                return strings[0..];
+            }
+        },
+    };
+    const NestedBody = struct {
+        pub const compiled_plan = resolvedNestedWithStringListPlan("resolved-nested-with-string-list");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+    };
+    const Program = ability.program("resolved-nested-with-string-list", NestedHandlers, NestedBody);
+    var result = try Program.run(&runtime, .{ .authored = .{} });
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 2), result.value.len);
+    try std.testing.expectEqualStrings("alpha", result.value[0]);
+    try std.testing.expectEqualStrings("beta", result.value[1]);
 }
 
 test "ability.program validates nested-with completion codec instead of terminal result codec" {
