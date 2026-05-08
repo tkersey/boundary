@@ -151,6 +151,11 @@ flow as a plan-native `throw` operation. The requirement carries `abort_catch`
 metadata, scalar/product/sum payloads are passed to the handler, and the handler
 returns the terminal result.
 
+`examples/plan_native_resource.zig` demonstrates resource-like lifecycle rows as
+plan-native `acquire` and `release` operations with `resource_bracket` metadata.
+The plan explicitly releases typed resources in LIFO order before normal return,
+exception-style abort, and optional return-now control transfer.
+
 ## Higher-level builder prototype
 
 Raw `ability.ir.plan.*` tables remain available. For common typed examples,

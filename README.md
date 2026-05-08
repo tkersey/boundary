@@ -145,8 +145,9 @@ builder prototype that still emits `ProgramPlan`. `examples/typed_program_plan.z
 runs product execution, sum matching, tagged-union payload extraction, output
 cleanup, and contract inspection through the public API.
 Plan-native built-in prototypes under `examples/plan_native_*.zig` show the
-same public entry point for optional, state/reader, writer, and exception-style
-abort workflows while compatibility effect APIs remain in place.
+same public entry point for optional, state/reader, writer, exception-style
+abort, and resource-style lifecycle workflows while compatibility effect APIs
+remain in place.
 
 ## Effects
 

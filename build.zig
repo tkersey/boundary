@@ -331,7 +331,14 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const plan_native_resource_mod = b.createModule(.{
+        .root_source_file = b.path("examples/plan_native_resource.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    plan_native_resource_mod.addImport("ability", ability);
     program_api_tests_mod.addImport("ability", ability);
+    program_api_tests_mod.addImport("plan_native_resource", plan_native_resource_mod);
     const program_api_tests = b.addTest(.{ .root_module = program_api_tests_mod, .filters = test_args.filters });
     test_step.dependOn(&addRunArtifactWithArgs(b, program_api_tests, test_args.passthrough).step);
 
@@ -413,6 +420,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "ability-plan-native-state-reader", .path = "examples/plan_native_state_reader.zig", .step = "run-plan-native-state-reader", .desc = "Run the plan-native state/reader example." },
         .{ .name = "ability-plan-native-writer", .path = "examples/plan_native_writer.zig", .step = "run-plan-native-writer", .desc = "Run the plan-native writer example." },
         .{ .name = "ability-plan-native-exception", .path = "examples/plan_native_exception.zig", .step = "run-plan-native-exception", .desc = "Run the plan-native exception example." },
+        .{ .name = "ability-plan-native-resource", .path = "examples/plan_native_resource.zig", .step = "run-plan-native-resource", .desc = "Run the plan-native resource example." },
         .{ .name = "ability-custom-approval-workflow", .path = "examples/custom_approval_workflow.zig", .step = "run-custom-approval-workflow", .desc = "Run the custom approval workflow example." },
     };
     inline for (examples) |example| {

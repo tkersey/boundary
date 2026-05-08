@@ -1,5 +1,6 @@
 // zlinter-disable declaration_naming no_inferred_error_unions no_swallow_error require_doc_comment
 const ability = @import("ability");
+const plan_native_resource = @import("plan_native_resource");
 const std = @import("std");
 
 const interpreter_step_budget = 10_000;
@@ -6899,6 +6900,48 @@ test "ability.program executes nested plan-native exception terminal escape" {
     var result = try Program.run(&runtime, .{ .throw = .{} });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 71), result.value);
+}
+
+test "ability.program executes plan-native resource LIFO release" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const summary = try plan_native_resource.runNormal(&runtime);
+    try std.testing.expectEqual(@as(i32, 12), summary.value);
+    try std.testing.expectEqual(@as(usize, 4), summary.count);
+    try std.testing.expectEqual(@as(i32, 1), summary.events[0]);
+    try std.testing.expectEqual(@as(i32, 2), summary.events[1]);
+    try std.testing.expectEqual(@as(i32, -2), summary.events[2]);
+    try std.testing.expectEqual(@as(i32, -1), summary.events[3]);
+}
+
+test "ability.program releases plan-native resources before exception terminal escape" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const summary = try plan_native_resource.runExceptionEscape(&runtime);
+    try std.testing.expectEqual(@as(i32, 80), summary.value);
+    try std.testing.expectEqual(@as(usize, 4), summary.count);
+    try std.testing.expectEqual(@as(i32, -2), summary.events[2]);
+    try std.testing.expectEqual(@as(i32, -1), summary.events[3]);
+}
+
+test "ability.program releases plan-native resources before optional return-now escape" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const summary = try plan_native_resource.runOptionalEscape(&runtime);
+    try std.testing.expectEqual(@as(i32, 90), summary.value);
+    try std.testing.expectEqual(@as(usize, 4), summary.count);
+    try std.testing.expectEqual(@as(i32, -2), summary.events[2]);
+    try std.testing.expectEqual(@as(i32, -1), summary.events[3]);
+}
+
+test "ability.program surfaces plan-native resource release failure" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    try std.testing.expectError(error.ReleaseFailed, plan_native_resource.runReleaseFailure(&runtime));
 }
 
 test "ability.program dispatches duplicate op names by requirement namespace" {
