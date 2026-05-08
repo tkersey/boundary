@@ -63,6 +63,7 @@ pub const OpenRowProgram = struct {
     functions: []const effect_ir.Function,
     call_edges: []const effect_ir.CallEdge = &.{},
     function_bodies: []const FunctionBody = &.{},
+    SchemaTypes: []const type = &.{},
 };
 
 /// One lowered open-row program that owns its function storage.
@@ -71,6 +72,7 @@ pub const LoweredOpenRowProgram = struct {
     functions: []const effect_ir.Function,
     call_edges: []const effect_ir.CallEdge = &.{},
     function_bodies: []const FunctionBody = &.{},
+    SchemaTypes: []const type = &.{},
 
     /// Project the owned function storage back into the generic Effect IR view.
     pub fn asEffectProgram(self: *const @This()) effect_ir.Program {
@@ -79,6 +81,7 @@ pub const LoweredOpenRowProgram = struct {
             .functions = self.functions,
             .call_edges = self.call_edges,
             .function_bodies = self.function_bodies,
+            .SchemaTypes = self.SchemaTypes,
         };
     }
 };
@@ -487,6 +490,7 @@ pub fn lowerOpenRow(comptime program: OpenRowProgram) effect_ir.NormalizeError!L
             &.{}
         else
             cloneFunctionBodies(program.function_bodies),
+        .SchemaTypes = program.SchemaTypes,
     };
 }
 

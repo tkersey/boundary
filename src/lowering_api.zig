@@ -644,6 +644,30 @@ fn typeMatchesRef(
     };
 }
 
+fn typeMatchesRuntimeRef(
+    comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
+    comptime T: type,
+) bool {
+    if (T == void) return ref.eql(.{ .codec = .unit });
+    if (T == bool) return ref.eql(.{ .codec = .bool });
+    if (T == i32) return ref.eql(.{ .codec = .i32 });
+    if (T == usize) return ref.eql(.{ .codec = .usize });
+    if (T == []const u8) return ref.eql(.{ .codec = .string });
+    if (comptime isStringListCarrier(T)) return ref.eql(.{ .codec = .string_list });
+    const structured_codec: program_plan.ValueCodec = switch (@typeInfo(T)) {
+        .@"struct" => .product,
+        .@"enum", .@"union", .optional => .sum,
+        else => return false,
+    };
+    if (ref.codec != structured_codec) return false;
+    const schema_index = ref.schema_index orelse return false;
+    inline for (schema_types, 0..) |SchemaType, index| {
+        if (schema_index == index) return SchemaType == T;
+    }
+    return false;
+}
+
 fn encodeScalarValue(value: anytype) ExecutableValue {
     if (comptime isStringListCarrier(@TypeOf(value))) return .{ .string_list = value };
     return switch (@TypeOf(value)) {
@@ -897,6 +921,24 @@ fn prepareRuntimeValueForType(
     };
 }
 
+fn encodeRuntimeValueForRuntimeRef(
+    comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
+    scratch: anytype,
+    value: anytype,
+) anyerror!ExecutableValue {
+    const Value = @TypeOf(value);
+    if (!typeMatchesRuntimeRef(schema_types, ref, Value)) return error.ProgramContractViolation;
+    if (comptime Value == void or Value == bool or Value == i32 or Value == usize or Value == []const u8 or isStringListCarrier(Value)) {
+        return encodeScalarValue(value);
+    }
+    return scratch.storeSchemaValue(
+        Value,
+        ref.schema_index orelse return error.ProgramContractViolation,
+        value,
+    );
+}
+
 fn encodeRuntimeValueForPreparedRef(
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime schema_types: anytype,
@@ -1001,6 +1043,7 @@ fn activeVariantOrdinalForExecutable(
 
 fn extractVariantPayloadForTyped(
     comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
     scratch: anytype,
     comptime T: type,
     value: T,
@@ -1013,7 +1056,10 @@ fn extractVariantPayloadForTyped(
             inline for (union_info.fields, 0..) |field, field_index| {
                 if (variant_ordinal == field_index) {
                     if (field.type == void) return error.ProgramContractViolation;
-                    return encodeRuntimeValueWithInferredRef(schema_types, scratch, @field(value, field.name));
+                    return .{
+                        .value = try encodeRuntimeValueForRuntimeRef(schema_types, ref, scratch, @field(value, field.name)),
+                        .ref = ref,
+                    };
                 }
             }
             return error.ProgramContractViolation;
@@ -1021,7 +1067,10 @@ fn extractVariantPayloadForTyped(
         .optional => |optional_info| {
             _ = optional_info;
             if (variant_ordinal != 1) return error.ProgramContractViolation;
-            return encodeRuntimeValueWithInferredRef(schema_types, scratch, value.?);
+            return .{
+                .value = try encodeRuntimeValueForRuntimeRef(schema_types, ref, scratch, value.?),
+                .ref = ref,
+            };
         },
         else => error.ProgramContractViolation,
     };
@@ -1029,6 +1078,7 @@ fn extractVariantPayloadForTyped(
 
 fn extractVariantPayloadForExecutable(
     comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
     scratch: anytype,
     value: ExecutableValue,
     variant_ordinal: u16,
@@ -1040,7 +1090,7 @@ fn extractVariantPayloadForExecutable(
     inline for (schema_types, 0..) |SchemaType, schema_index| {
         if (schema.schema_index == schema_index) {
             const typed: *const SchemaType = @ptrCast(@alignCast(schema.ptr));
-            return extractVariantPayloadForTyped(schema_types, scratch, SchemaType, typed.*, variant_ordinal);
+            return extractVariantPayloadForTyped(schema_types, ref, scratch, SchemaType, typed.*, variant_ordinal);
         }
     }
     return error.ProgramContractViolation;
@@ -1927,8 +1977,8 @@ fn executeKnownFunction(
                     last_condition = is_variant;
                 },
                 .sum_extract_payload => {
-                    const extracted = try extractVariantPayloadForExecutable(schema_types, scratch, locals[instruction.operand], instruction.aux);
                     const dst_ref = functionLocalRef(compiled_plan, function, instruction.dst) orelse return error.ProgramContractViolation;
+                    const extracted = try extractVariantPayloadForExecutable(schema_types, dst_ref, scratch, locals[instruction.operand], instruction.aux);
                     if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
                     locals[instruction.dst] = extracted.value;
                 },
@@ -2392,8 +2442,8 @@ fn executeFunctionWithFrameStack(
                     active.last_condition = is_variant;
                 },
                 .sum_extract_payload => {
-                    const extracted = try extractVariantPayloadForExecutable(schema_types, scratch, locals[instruction.operand], instruction.aux);
                     const dst_ref = localRefForFunctionIndex(compiled_plan, active.function_index, instruction.dst) orelse return error.ProgramContractViolation;
+                    const extracted = try extractVariantPayloadForExecutable(schema_types, dst_ref, scratch, locals[instruction.operand], instruction.aux);
                     if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
                     locals[instruction.dst] = extracted.value;
                 },

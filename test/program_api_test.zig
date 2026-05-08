@@ -1421,6 +1421,86 @@ fn duplicateSchemaIdentityPlan(comptime Payload: type, comptime label: []const u
     }) catch unreachable;
 }
 
+fn duplicateSchemaSumPayloadExtractionPlan(comptime SumPayload: type, comptime Item: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const extracted = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.sumExtractPayload(root, extracted, payload, 1) catch unreachable,
+        ability.ir.builder.returnValue(root, extracted) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .product,
+        .value_schema_index = 2,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+        .{
+            .label = @typeName(SumPayload),
+            .codec = .sum,
+            .first_variant = 0,
+            .variant_count = 2,
+        },
+        .{
+            .label = @typeName(Item),
+            .codec = .product,
+            .first_field = 0,
+            .field_count = 1,
+            .first_variant = 2,
+        },
+        .{
+            .label = @typeName(Item),
+            .codec = .product,
+            .first_field = 1,
+            .field_count = 1,
+            .first_variant = 2,
+        },
+    };
+    const value_fields = [_]ability.ir.ValueFieldPlan{
+        .{ .name = "amount", .codec = .i32 },
+        .{ .name = "amount", .codec = .i32 },
+    };
+    const value_variants = [_]ability.ir.ValueVariantPlan{
+        .{ .name = "none", .codec = .unit },
+        .{ .name = "some", .codec = .product, .schema_index = 2 },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 39,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &value_variants,
+        .locals = &.{ .{ .codec = .sum, .schema_index = 0 }, .{ .codec = .product, .schema_index = 2 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn duplicateSchemaAbortResultPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const instructions = [_]ability.ir.plan.Instruction{
@@ -4458,6 +4538,29 @@ test "ability.program preserves expected schema index for duplicate typed produc
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 43), result.value.amount);
+}
+
+test "ability.program preserves expected schema index for duplicate typed sum payload extraction" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Item = struct {
+        amount: i32,
+    };
+    const Payload = ?Item;
+    const EmptyHandlers = struct {};
+    const ProductBody = struct {
+        pub const value_schema_types = .{ Payload, Item, Item };
+        pub const compiled_plan = duplicateSchemaSumPayloadExtractionPlan(Payload, Item, "duplicate-schema-typed-sum-payload");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{@as(Payload, Item{ .amount = 57 })}) {
+            return .{@as(Payload, Item{ .amount = 57 })};
+        }
+    };
+    const Program = ability.program("duplicate-schema-typed-sum-payload", EmptyHandlers, ProductBody);
+    var result = try Program.run(&runtime, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 57), result.value.amount);
 }
 
 test "ability.program preserves expected schema index for duplicate typed op results" {

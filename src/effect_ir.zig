@@ -329,6 +329,7 @@ pub const Program = struct {
     functions: []const Function,
     call_edges: []const CallEdge,
     function_bodies: []const FunctionBody = &.{},
+    SchemaTypes: []const type = &.{},
 };
 
 /// One strongly connected component over symbolic functions.

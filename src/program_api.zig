@@ -103,16 +103,24 @@ fn valueSchemaPlansEqual(comptime actual: anytype, comptime expected: anytype) b
         actual.variant_count == expected.variant_count;
 }
 
-fn valueFieldPlansEqual(comptime actual: anytype, comptime expected: anytype) bool {
-    return std.mem.eql(u8, actual.name, expected.name) and
-        actual.codec == expected.codec and
-        actual.schema_index == expected.schema_index;
+fn schemaRefsMatch(comptime schema_types: anytype, actual: ?u16, expected: ?u16) bool {
+    if (actual == expected) return true;
+    const actual_index = actual orelse return false;
+    const expected_index = expected orelse return false;
+    if (actual_index >= schema_types.len or expected_index >= schema_types.len) return false;
+    return schema_types[actual_index] == schema_types[expected_index];
 }
 
-fn valueVariantPlansEqual(comptime actual: anytype, comptime expected: anytype) bool {
+fn valueFieldPlansEqual(comptime schema_types: anytype, comptime actual: anytype, comptime expected: anytype) bool {
     return std.mem.eql(u8, actual.name, expected.name) and
         actual.codec == expected.codec and
-        actual.schema_index == expected.schema_index;
+        schemaRefsMatch(schema_types, actual.schema_index, expected.schema_index);
+}
+
+fn valueVariantPlansEqual(comptime schema_types: anytype, comptime actual: anytype, comptime expected: anytype) bool {
+    return std.mem.eql(u8, actual.name, expected.name) and
+        actual.codec == expected.codec and
+        schemaRefsMatch(schema_types, actual.schema_index, expected.schema_index);
 }
 
 fn validateBodyValueSchemaTypes(
@@ -156,12 +164,12 @@ fn validateBodyValueSchemaTypes(
         }
     }
     inline for (registry.value_fields, 0..) |expected, index| {
-        if (!valueFieldPlansEqual(plan.value_fields[index], expected)) {
+        if (!valueFieldPlansEqual(schema_types, plan.value_fields[index], expected)) {
             @compileError("Body.value_schema_types does not match Body.compiled_plan.value_fields[" ++ schemaIndexLabel(index) ++ "]");
         }
     }
     inline for (registry.value_variants, 0..) |expected, index| {
-        if (!valueVariantPlansEqual(plan.value_variants[index], expected)) {
+        if (!valueVariantPlansEqual(schema_types, plan.value_variants[index], expected)) {
             @compileError("Body.value_schema_types does not match Body.compiled_plan.value_variants[" ++ schemaIndexLabel(index) ++ "]");
         }
     }
