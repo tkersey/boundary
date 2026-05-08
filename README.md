@@ -127,6 +127,15 @@ field types match the entry locals. Product and sum schemas require
 `Body.value_schema_types`; nested lexical-with execution requires
 `Body.nested_with_targets`.
 
+Each compiled program also exposes `Program.contract`, a read-only inspection
+view derived from the validated ProgramPlan. The contract reports the public
+program label, result codec and schema reference, typed result and output Zig
+types, output declarations, requirement and operation metadata, op payload and
+resume references, op modes, after-hook flags, nested-with target declaration
+state, and the executable capability-ledger summary. It is metadata for tests
+and callers that need to inspect what a program declares; it does not expose
+mutable ProgramPlan tables, Artifact or VM surfaces, or legacy capability maps.
+
 ## Effects
 
 Effect families remain under `ability.effect`. Built-in and custom bound

@@ -1,143 +1,81 @@
-Iteration: 4
+Iteration: 7
 
-# Full `ability.program` Execution Expansion
+# Branch 2: `Program.contract` Projection
 
 ## Round Delta
-- Supersedes the earlier ledger-first plan: the capability ledger is now the governance layer for a broader execution expansion.
-- Incorporates `$grill-me` decisions: typed structured values, typed outputs, direct nested-with execution, explicit-stack helper cycles, capped diagnostics, and minor version bump.
-- Adds a campaign-style one-patch execution order so the patch stays reviewable despite broad scope.
+- Refines the earlier Branch 2 idea into a narrow restore: `Program.contract` only, no `ProgramContractV1`, no new root export.
+- Locks the projection as derived compile-time metadata from `Body.compiled_plan`, `Body.value_schema_types`, and `Body.nested_with_targets`.
+- Adds the governing safety rule: contract view must never become a second execution authority.
 
 ## Summary
-Implement one broad `ability.program` patch that expands the executable ProgramPlan subset from scalar-only to typed pass-through structured execution, typed output materialization, direct nested-with rows, and helper cycles through an explicit interpreter call stack. First wave builds the typed value/schema foundation and capability ledger; later waves wire execution semantics, outputs, diagnostics, docs, versioning, and the proof matrix. Done means existing scalar behavior remains equivalent, newly supported surfaces pass targeted matrix tests, unsupported contract violations fail closed, and `zig build`, `zig build test --summary none`, and `zig build lint -- --max-warnings 0` pass.
-
-## Iteration Change Log
-- iteration=1; focus=baseline; round_decision=continue; delta_kind=major; evidence=`$grill-me` confirmed full expansion; what_we_did=reframed from ledger-first to execution-first; change=ledger becomes proof/governance layer; sections_touched=summary,scope,interfaces
-- iteration=2; focus=interfaces; round_decision=continue; delta_kind=major; evidence=locked Body APIs and public compatibility constraints; what_we_did=made schema/result/arg/output contracts decision-complete; change=typed per-Program model, no generic carrier; sections_touched=interfaces,data_flow,edge_cases
-- iteration=3; focus=risk; round_decision=continue; delta_kind=major; evidence=mitigated host-stack and diagnostic risks; what_we_did=replaced recursive helper execution with explicit stack and capped blocker output; change=safer runtime and compile diagnostics; sections_touched=risks,tests,rollback
-- iteration=4; focus=closure; round_decision=close; delta_kind=none; evidence=press pass covered APIs/tests/rollback with no open blockers; what_we_did=verified traceability and non-goals; change=no material delta; sections_touched=traceability,contract_signals,implementation_brief
+Implement Branch 2 from latest `main` (`4b656f0`, verified against `origin/main`): add `ability.program(...).contract` as a read-only compile-time projection for tests and users to inspect executable ProgramPlan metadata. First wave is `src/program_api.zig` only plus focused `test/program_api_test.zig` cases; completion requires scalar/product/sum/output/nested-with/op metadata assertions and full Zig proof gates.
 
 ## Non-Goals/Out of Scope
-- No field access, variant inspection, projection, mutation, or other IR operations over structured values.
-- No generated schema types; users provide `Body.value_schema_types`.
-- No output label remapping; output labels must be valid Zig field identifiers.
-- No generic public structured carrier and no `ProgramValue` variant expansion.
-- No stable public record ordering; only ledger tags and fields are stable append-only.
-
-## Scope Change Log
-scope_change=expanded; reason=`$grill-me` answers moved target from diagnostic ledger to full execution expansion; approved_by=user confirmation
+- No new public root exports, serialization format, ArtifactV1, VM, parser, compile API, or custom-effect authoring.
+- No built-in effect migration and no higher-level builder changes in this branch.
+- No exposure of raw `ProgramPlan.functions`, instruction tables, mutable slices, or execution internals through `contract`.
 
 ## Interfaces/Types/APIs Impacted
-- `Body.value_schema_types = .{ Type0, Type1, ... }` maps one Zig type to each `compiled_plan.value_schemas` index; length and shape mismatches are compile errors.
-- `Body.encodeStructuredArgs(handlers)` returns a typed tuple matching entry parameter order; scalar `Body.encodeArgs` remains unchanged for scalar-only programs.
-- `Program.Result.value` uses the mapped Zig type for structured entry results and existing scalar types for scalar results.
-- `Program.Result.outputs` becomes a generated typed struct for entry outputs; field names are output labels and labels must be valid Zig identifiers.
-- `Body.deinitOutputs(allocator, outputs)` is required for non-void outputs and is called by `Result.deinit`.
-- Capability ledger exposes stable append-only tags and fields on the returned Program type; message text and record order are not compatibility promises.
-- `build.zig.zon` package version bumps from `0.2.0` to the next minor version.
+- Add `pub const contract` inside the type returned by `ability.program(label, Handlers, Body)`.
+- Shape: `Program.contract` is a comptime/read-only namespace or zero-sized value with const fields:
+  - `label`
+  - `Result` and `result_ref`
+  - `has_typed_result_schema`
+  - `Outputs`
+  - `outputs: []const OutputView`
+  - `requirements: []const RequirementView`
+  - `ops: []const OpView`
+  - `nested_with_targets_declared`
+  - `executable: ExecutableView`
+- Views expose derived fields only: labels, codecs, schema refs, op modes, payload/resume refs, `has_after`, lifecycle/output tags, ledger blocker count/truncation/cap.
+- `Program.compiled_plan` remains available; `Program.contract` must not wrap or replace execution.
 
 ## Data Flow
-`Body.compiled_plan` validates structurally, then `value_schema_types` validates every schema by index. Program construction derives typed entry args, result type, internal per-Program execution storage, output struct type, and ledger records. `Program.run` encodes scalar args through the existing path, structured args through typed tuple validation, executes instructions through the typed interpreter, collects outputs from handler fields whose names match entry output labels, then returns `Result { value, outputs }`.
+`Body.compiled_plan` -> existing validation -> `ProgramContractFor(...)` derives const arrays and type aliases -> user/test reads `Program.contract.*`; runtime execution remains `Program.run(...) -> lowering_api interpreter`.
 
 ## Edge Cases/Failure Modes
-- Schema mapping missing, wrong length, wrong codec, or wrong field/variant shape: compile error.
-- Invalid output label for a typed struct field: compile error.
-- Missing handler field for declared output label: compile error.
-- Missing `Body.deinitOutputs` when outputs are non-void: compile error.
-- Handler `finish` errors: declared errors propagate; undeclared errors map to `ProgramContractViolation`.
-- Complete but unresolved `call_nested_with`: ledger blocker and enriched compile error, capped at 64 blockers.
-- Helper cycles: execute through explicit stack and step budget; no host recursion dependency.
-- Structured values are pass-through only; attempting scalar-only instructions on structured locals remains a contract violation or validation error.
+- Unsupported plans still fail at `ability.program` construction before a usable contract exists.
+- Duplicate op names remain distinguishable by requirement label/index in `OpView`.
+- Typed result type is exposed as `Program.contract.Result`; product/sum schema refs must match `Body.value_schema_types`.
+- Empty outputs use an empty const slice and `Outputs == void`.
+- Nested-with reports declaration presence only, not global discovery.
 
 ## Tests/Acceptance
-- Add capability matrix tests for product, sum, and `[]const []const u8` across entry args, results, op payloads, op resumes, helper params/results, and locals.
-- Add nested structured schema tests covering recursive product/sum/list values.
-- Add output materialization tests for valid typed outputs, invalid labels, missing finishers, finish errors, and required `deinitOutputs`.
-- Add nested-with tests for direct execution and unresolved-row ledger blockers.
-- Add helper-cycle tests proving explicit-stack execution is budget-bounded and avoids host recursion assumptions.
-- Add ledger tests for stable tags/fields, deterministic non-contract order, capped diagnostics, and unchanged scalar support.
-- Run `zig build`, `zig build test --summary none`, and `zig build lint -- --max-warnings 0`.
+- Scalar plan: label, result ref, `Result`, no outputs, executable blocker count 0.
+- Product result plan: product codec/schema ref and `Result == Payload`.
+- Sum result plan: add or reuse a small sum fixture; assert sum codec/schema ref and `Result == Choice`.
+- Outputs plan: output label/codec/schema ref and `Outputs` type.
+- Nested-with plan: `nested_with_targets_declared == true`.
+- Transform/choice/abort ops: op mode, payload/resume refs, requirement label, `has_after`.
+- Negative guard: `contract` does not expose raw `functions`, `instructions`, Artifact, VM, or serialization surfaces.
 
 ## Requirement-to-Test Traceability
-- R1 structured execution -> codec matrix tests.
-- R2 typed schema mapping -> compile-fail and positive shape tests.
-- R3 output materialization -> output struct, finisher, error, and cleanup tests.
-- R4 nested-with support -> direct execution plus unresolved blocker tests.
-- R5 helper-cycle safety -> explicit-stack cycle and budget tests.
-- R6 ledger governance -> stable field/tag and capped diagnostic tests.
-- R7 compatibility -> existing scalar Program tests remain green.
+- Stable projection -> scalar/product/sum/output/nested/op tests in `test/program_api_test.zig`.
+- Read-only/no internals -> negative `@hasDecl` assertions.
+- No second authority -> tests compare contract fields to `compiled_plan`-derived refs, then still execute `Program.run`.
 
 ## Rollout/Monitoring
-- Ship as a minor package version bump with README and API comments documenting compatibility changes.
-- No runtime deployment monitoring is needed; this is a library compile/runtime behavior change.
-- Treat proof matrix failures as release blockers.
+- Keep branch narrow and publish as one PR after local closure.
+- Update README Program section with a short inspection example and explicit “metadata, not execution authority” wording.
+- If review challenges abstraction growth, point to no root export, no `ProgramContractV1`, and derived-only implementation.
 
 ## Rollback/Abort Criteria
-- Abort if scalar behavior regresses, `ProgramValue` must gain public variants, helper cycles require host recursion, or outputs cannot be cleaned deterministically.
-- Roll back by restoring scalar-only support checks and `Program.Result.outputs = void`.
-- Do not keep partial structured support without ledger/tests proving exact supported surfaces.
+- Revert the branch if `Program.contract` requires public root growth, raw plan-table exposure, duplicated validation logic, or weakens `Program.run` validation.
+- Abort implementation if Zig comptime type exposure forces an unstable API; fallback is `result_type_name` plus typed tests deferred to a later design.
 
 ## Assumptions/Defaults
-- Zig 0.16.0 remains the target; confidence=high; verification=`build.zig.zon`.
-- One patch means one change set, not one unordered edit; confidence=high; verification=implementation brief checkpoints.
-- `value_schema_types` can be validated fully at comptime; confidence=medium; verification=compile-fail matrix.
-- No external time-sensitive dependency beyond current repo state as of 2026-05-07.
+- baseline=current local and remote `main` at `4b656f0`; confidence=high; verification_plan=rerun `git ls-remote origin refs/heads/main` before implementation if time passes.
+- Branch 1 lands first; confidence=medium; verification_plan=rebase/read `program_api.zig` before editing.
+- Projection is compile-time only; confidence=high; verification_plan=unit tests using `comptime` assertions.
 
 ## Decision Log
-- D1: Make execution expansion primary and ledger governance secondary.
-- D2: Use Body-provided index-aligned schema types instead of generated schema types.
-- D3: Keep structured values pass-through only.
-- D4: Preserve `ProgramValue` by using per-Program typed structured execution.
-- D5: Materialize outputs as typed structs and require `Body.deinitOutputs`.
-- D6: Execute nested-with rows directly where resolvable.
-- D7: Use explicit helper call stack for cycles.
-- D8: Cap enriched compile diagnostics at 64 blockers and stabilize tags/fields only.
-- D9: Bump minor package version.
-
-## Decision Impact Map
-- decision_id=D1; impacted_sections=summary,interfaces,tests; follow_up_action=ledger implemented after typed support foundation
-- decision_id=D2; impacted_sections=interfaces,edge_cases; follow_up_action=compile-time schema validator
-- decision_id=D4; impacted_sections=data_flow,rollback; follow_up_action=do not edit public `ProgramValue` variants
-- decision_id=D5; impacted_sections=outputs,tests; follow_up_action=require finisher/deinit proof
-- decision_id=D7; impacted_sections=runtime,tests; follow_up_action=replace recursive helper execution
-- decision_id=D9; impacted_sections=rollout; follow_up_action=update version and README compatibility note
-
-## Open Questions
-None.
-
-## Stakeholder Signoff Matrix
-product=confirmed full expansion; engineering=decision-complete; operations=n/a library change; security=no new external boundary
-
-## Adversarial Findings
-- lens=feasibility; type=risk; severity=high; section=interfaces; decision=D2; status=mitigated; probability=medium; impact=high; trigger=schema/type validation becomes too large for one patch
-- lens=operability; type=risk; severity=high; section=runtime; decision=D7; status=mitigated; probability=medium; impact=high; trigger=helper cycles consume unbounded stack or budget
-- lens=risk; type=risk; severity=medium; section=outputs; decision=D5; status=mitigated; probability=medium; impact=medium; trigger=owned output cleanup is missing or inconsistent
-- lens=compatibility; type=risk; severity=medium; section=rollout; decision=D9; status=accepted; probability=medium; impact=medium; trigger=public Program result/output shape changes affect users
-
-## Convergence Evidence
-blocking_errors=0; material_risks_open=0; clean_rounds=2; press_pass_clean=true; new_errors=0; sections_pressed=interfaces,tests,rollback,non_goals
-
-## Contract Signals
-contract_version=2
-strictness_profile=balanced
-blocking_errors=0
-material_risks_open=0
-clean_rounds=2
-press_pass_clean=true
-new_errors=0
-rewrite_ratio=0.72
-external_inputs_trusted=false
-improvement_exhausted=true
-stop_reason=none
-
-## Rewrite Justification
-The previous plan centered on a diagnostic capability ledger. `$grill-me` deliberately expanded the target to full executable support for structured values, outputs, nested-with, and helper cycles, so an incremental edit would preserve the wrong governing objective.
+- D1: Add `Program.contract`, not `ability.contract` or `ProgramContractV1`.
+- D2: Derive contract from validated ProgramPlan and body hooks; do not store independent contract truth.
+- D3: Expose readable descriptors, not raw plan internals.
+- D4: Include ledger counts/truncation/cap as executable support summary.
 
 ## Implementation Brief
-1. step=establish typed schema validation; owner=implementer; success_criteria=`Body.value_schema_types` accepts exact mappings and rejects wrong length/shape/codecs.
-2. step=build per-Program typed execution value model; owner=implementer; success_criteria=structured values flow through args, locals, helpers, ops, and results without changing `ProgramValue`.
-3. step=replace helper recursion with explicit call stack; owner=implementer; success_criteria=cycle tests are budget-bounded and host-stack-independent.
-4. step=execute `call_nested_with` rows directly; owner=implementer; success_criteria=resolvable rows run and unresolved rows emit ledger blockers.
-5. step=materialize typed outputs; owner=implementer; success_criteria=handler `finish` collection, error mapping, and `Body.deinitOutputs` cleanup are tested.
-6. step=add capability ledger and capped diagnostics; owner=implementer; success_criteria=stable tags/fields, capped 64-blocker compile errors, and deterministic records.
-7. step=update README/API comments/version; owner=implementer; success_criteria=docs describe compatibility changes, non-goals, and new Body hooks.
-8. step=run proof suite; owner=implementer; success_criteria=targeted matrix plus `zig build`, `zig build test --summary none`, and `zig build lint -- --max-warnings 0` pass.
+1. step=derive contract view in `src/program_api.zig`; owner=implementer; success_criteria=`Program.contract` exposes requested metadata without new root exports.
+2. step=add focused tests in `test/program_api_test.zig`; owner=implementer; success_criteria=all six metadata shapes plus negative internal-surface guards pass.
+3. step=update README; owner=implementer; success_criteria=docs show inspection use and distinguish metadata from Artifact/VM/capability maps.
+4. step=run proof gates; owner=implementer; success_criteria=`zig version`, focused filters, `zig fmt --check build.zig src examples test bench`, `git diff --check`, `zig build --summary all`, `zig build test --summary all`, and `zig build lint -- --max-warnings 0` pass.

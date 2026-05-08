@@ -988,6 +988,64 @@ fn productIdentityPlan(comptime Payload: type, comptime label: []const u8) abili
     }) catch unreachable;
 }
 
+fn sumIdentityPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.returnValue(root, payload) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .sum,
+        .value_schema_index = 0,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(Payload),
+        .codec = .sum,
+        .first_variant = 0,
+        .variant_count = 2,
+    }};
+    const value_variants = [_]ability.ir.ValueVariantPlan{
+        .{ .name = "none", .codec = .unit },
+        .{ .name = "some", .codec = .i32 },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 24,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &.{},
+        .value_variants = &value_variants,
+        .locals = &.{.{ .codec = .sum, .schema_index = 0 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn duplicateSchemaIdentityPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const payload = ability.ir.builder.local(root, 0);
@@ -2076,6 +2134,134 @@ fn outputMetadataPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .terminators = &terminators,
         .instructions = &.{},
     }) catch unreachable;
+}
+
+test "ability.program exposes scalar ProgramPlan contract metadata" {
+    const Body = struct {
+        pub const compiled_plan = pureArithmeticPlan("contract-scalar-plan");
+    };
+    const Program = ability.program("contract-scalar", struct {}, Body);
+
+    try std.testing.expectEqualStrings("contract-scalar", Program.contract.label);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.result_codec);
+    try std.testing.expectEqual(@as(?u16, null), Program.contract.result_schema_index);
+    try std.testing.expectEqual(i32, Program.contract.ResultType);
+    try std.testing.expectEqual(void, Program.contract.OutputsType);
+    try std.testing.expect(!Program.contract.has_typed_result_schema);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.outputs.len);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.requirements.len);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.ops.len);
+    try std.testing.expect(Program.contract.executable.supported);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.executable.blocker_count);
+    try std.testing.expectEqualStrings("capability ledger: blockers=0 truncated=false", Program.contract.executable.summary);
+    try std.testing.expect(!@hasDecl(Program.contract, "functions"));
+    try std.testing.expect(!@hasDecl(Program.contract, "instructions"));
+    try std.testing.expect(!@hasDecl(Program.contract, "ArtifactV1"));
+    try std.testing.expect(!@hasDecl(Program.contract, "VM"));
+}
+
+test "ability.program exposes product result contract metadata" {
+    const Payload = struct {
+        amount: i32,
+    };
+    const Body = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = productIdentityPlan(Payload, "contract-product-plan");
+
+        pub fn encodeArgs(_: struct {}) @TypeOf(.{Payload{ .amount = 7 }}) {
+            return .{Payload{ .amount = 7 }};
+        }
+    };
+    const Program = ability.program("contract-product", struct {}, Body);
+
+    try std.testing.expectEqual(ability.ir.ValueCodec.product, Program.contract.result_ref.codec);
+    try std.testing.expectEqual(@as(?u16, 0), Program.contract.result_ref.schema_index);
+    try std.testing.expect(Program.contract.has_typed_result_schema);
+    try std.testing.expectEqual(Payload, Program.contract.ResultType);
+}
+
+test "ability.program exposes sum result contract metadata" {
+    const Payload = ?i32;
+    const Body = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = sumIdentityPlan(Payload, "contract-sum-plan");
+
+        pub fn encodeArgs(_: struct {}) @TypeOf(.{@as(Payload, 7)}) {
+            return .{@as(Payload, 7)};
+        }
+    };
+    const Program = ability.program("contract-sum", struct {}, Body);
+
+    try std.testing.expectEqual(ability.ir.ValueCodec.sum, Program.contract.result_ref.codec);
+    try std.testing.expectEqual(@as(?u16, 0), Program.contract.result_ref.schema_index);
+    try std.testing.expect(Program.contract.has_typed_result_schema);
+    try std.testing.expectEqual(Payload, Program.contract.ResultType);
+}
+
+test "ability.program exposes output contract metadata" {
+    const Body = struct {
+        pub const Outputs = []const i32;
+        pub const compiled_plan = outputMetadataPlan("contract-output-plan");
+
+        pub fn collectOutputs(_: std.mem.Allocator, _: *struct {}) !Outputs {
+            return &[_]i32{};
+        }
+    };
+    const Program = ability.program("contract-output", struct {}, Body);
+
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.outputs.len);
+    try std.testing.expectEqualStrings("writer", Program.contract.outputs[0].label);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.outputs[0].codec);
+    try std.testing.expectEqual(@as(?u16, null), Program.contract.outputs[0].schema_index);
+}
+
+test "ability.program exposes nested-with target declaration metadata" {
+    const Body = struct {
+        pub const compiled_plan = resolvedNestedWithPlan("contract-nested-plan");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+    };
+    const Program = ability.program("contract-nested", struct {}, Body);
+
+    try std.testing.expect(Program.contract.has_nested_with_targets);
+    try std.testing.expect(Program.contract.executable.supported);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.executable.blocker_count);
+}
+
+test "ability.program exposes transform choice and abort op metadata" {
+    const TransformBody = struct {
+        pub const compiled_plan = matrixPlan(.transform, .string, .i32);
+    };
+    const ChoiceBody = struct {
+        pub const compiled_plan = matrixPlan(.choice, .unit, .i32);
+    };
+    const AbortBody = struct {
+        pub const compiled_plan = matrixPlan(.abort, .unit, .unit);
+    };
+    const TransformProgram = ability.program("contract-transform", struct {}, TransformBody);
+    const ChoiceProgram = ability.program("contract-choice", struct {}, ChoiceBody);
+    const AbortProgram = ability.program("contract-abort", struct {}, AbortBody);
+
+    try std.testing.expectEqual(@as(usize, 1), TransformProgram.contract.requirements.len);
+    try std.testing.expectEqualStrings("matrix", TransformProgram.contract.requirements[0].label);
+    try std.testing.expectEqual(@as(@TypeOf(TransformProgram.contract.requirements[0].lifecycle_tag), .plain_transform), TransformProgram.contract.requirements[0].lifecycle_tag);
+    try std.testing.expectEqual(@as(@TypeOf(TransformProgram.contract.requirements[0].output_tag), .none), TransformProgram.contract.requirements[0].output_tag);
+    try std.testing.expectEqual(@as(usize, 1), TransformProgram.contract.ops.len);
+    try std.testing.expectEqualStrings("authored", TransformProgram.contract.ops[0].op_name);
+    try std.testing.expectEqualStrings("matrix", TransformProgram.contract.ops[0].requirement_label);
+    try std.testing.expectEqual(@as(@TypeOf(TransformProgram.contract.ops[0].mode), .transform), TransformProgram.contract.ops[0].mode);
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, TransformProgram.contract.ops[0].payload_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, TransformProgram.contract.ops[0].resume_ref.codec);
+    try std.testing.expect(TransformProgram.contract.ops[0].has_after);
+
+    try std.testing.expectEqual(@as(@TypeOf(ChoiceProgram.contract.ops[0].mode), .choice), ChoiceProgram.contract.ops[0].mode);
+    try std.testing.expect(ChoiceProgram.contract.ops[0].has_after);
+
+    try std.testing.expectEqual(@as(@TypeOf(AbortProgram.contract.ops[0].mode), .abort), AbortProgram.contract.ops[0].mode);
+    try std.testing.expectEqual(ability.ir.ValueCodec.unit, AbortProgram.contract.ops[0].resume_ref.codec);
+    try std.testing.expect(!AbortProgram.contract.ops[0].has_after);
 }
 
 fn pureArithmeticPlan(comptime label: []const u8) ability.ir.ProgramPlan {
