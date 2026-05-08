@@ -83,36 +83,12 @@ const OptionalHandlers = struct {
 };
 
 fn optionalPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const resumed = ability.ir.builder.local(root, 0);
-    const is_some = ability.ir.builder.local(root, 1);
-    const extracted = ability.ir.builder.local(root, 2);
-    const fallback = ability.ir.builder.local(root, 3);
-    const instructions = [_]ability.ir.plan.Instruction{
-        mustInstruction(ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null)),
-        mustInstruction(ability.ir.builder.sumVariantIs(root, is_some, resumed, 1)),
-        mustInstruction(ability.ir.builder.sumExtractPayload(root, extracted, resumed, 1)),
-        mustInstruction(ability.ir.builder.returnValue(root, extracted)),
-        .{ .kind = .const_i32, .dst = fallback.index, .operand = 0 },
-        mustInstruction(ability.ir.builder.returnValue(root, fallback)),
-    };
-    const functions = [_]ability.ir.plan.Function{.{
-        .symbol_name = "run",
-        .value_codec = .i32,
-        .result_codec = .i32,
-        .parameter_count = 0,
-        .first_requirement = 0,
-        .requirement_count = 1,
-        .first_output = 0,
-        .output_count = 0,
-        .first_local = 0,
-        .local_count = 4,
-        .first_block = 0,
-        .entry_block = 0,
-        .block_count = 3,
-        .first_instruction = 0,
-        .instruction_count = @intCast(instructions.len),
-    }};
+    const layout = ability.ir.builder.layout;
+    const root = comptime ability.ir.builder.function(0);
+    const resumed = comptime ability.ir.builder.local(root, 0);
+    const is_some = comptime ability.ir.builder.local(root, 1);
+    const extracted = comptime ability.ir.builder.local(root, 2);
+    const fallback = comptime ability.ir.builder.local(root, 3);
     const requirements = [_]ability.ir.plan.Requirement{.{
         .label = "optional",
         .first_op = 0,
@@ -138,38 +114,147 @@ fn optionalPlan() ability.ir.ProgramPlan {
         .first_variant = 0,
         .variant_count = @intCast(variants.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{
-        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
-        .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
-        .{ .first_instruction = 4, .instruction_count = 2, .terminator_index = 2 },
-    };
-    const terminators = [_]ability.ir.plan.Terminator{
-        .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
-        .{ .kind = .return_value },
-        .{ .kind = .return_value },
-    };
 
-    return mustPlan(ability.ir.builder.finish(.{
+    return mustPlan(ability.ir.builder.layout.finish(.{
         .label = "matrix-plan-native-optional",
         .ir_hash = 9001,
         .entry = root,
-        .functions = &functions,
         .requirements = &requirements,
         .ops = &ops,
-        .outputs = &.{},
         .value_schemas = &schemas,
-        .value_fields = &.{},
         .value_variants = &variants,
-        .locals = &.{
-            .{ .codec = .sum, .schema_index = 0 },
-            .{ .codec = .bool },
-            .{ .codec = .i32 },
-            .{ .codec = .i32 },
-        },
-        .blocks = &blocks,
-        .terminators = &terminators,
-        .instructions = &instructions,
+        .functions = .{.{
+            .symbol_name = "run",
+            .value_ref = ability.ir.ValueRef{ .codec = .i32 },
+            .result_ref = ability.ir.ValueRef{ .codec = .i32 },
+            .requirements = layout.span(0, 1),
+            .locals = .{
+                .{ .codec = .sum, .schema_index = 0 },
+                .{ .codec = .bool },
+                .{ .codec = .i32 },
+                .{ .codec = .i32 },
+            },
+            .blocks = .{
+                .{
+                    .instructions = .{
+                        mustInstruction(ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null)),
+                        mustInstruction(ability.ir.builder.sumVariantIs(root, is_some, resumed, 1)),
+                    },
+                    .terminator = ability.ir.plan.Terminator{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                },
+                .{
+                    .instructions = .{
+                        mustInstruction(ability.ir.builder.sumExtractPayload(root, extracted, resumed, 1)),
+                        mustInstruction(ability.ir.builder.returnValue(root, extracted)),
+                    },
+                    .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                },
+                .{
+                    .instructions = .{
+                        .{ .kind = .const_i32, .dst = fallback.index, .operand = 0 },
+                        mustInstruction(ability.ir.builder.returnValue(root, fallback)),
+                    },
+                    .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                },
+            },
+        }},
     }));
+}
+
+const LayoutProductPayload = struct {
+    amount: i32,
+};
+
+const LayoutProductHandlers = struct {};
+
+fn layoutProductOutputPlan() ability.ir.ProgramPlan {
+    const layout = ability.ir.builder.layout;
+    const root = comptime ability.ir.builder.function(0);
+    const payload = comptime ability.ir.builder.local(root, 0);
+    const fields = [_]ability.ir.ValueFieldPlan{
+        ability.ir.value.field("amount", i32),
+    };
+    const schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(LayoutProductPayload),
+        .codec = .product,
+        .first_field = 0,
+        .field_count = @intCast(fields.len),
+    }};
+    const outputs = [_]ability.ir.plan.Output{.{
+        .label = "writer",
+        .codec = .i32,
+    }};
+
+    return mustPlan(ability.ir.builder.layout.finish(.{
+        .label = "matrix-layout-product-output",
+        .ir_hash = 9002,
+        .entry = root,
+        .outputs = &outputs,
+        .value_schemas = &schemas,
+        .value_fields = &fields,
+        .functions = .{.{
+            .symbol_name = "run",
+            .value_ref = ability.ir.ValueRef{ .codec = .product, .schema_index = 0 },
+            .result_ref = ability.ir.ValueRef{ .codec = .product, .schema_index = 0 },
+            .parameter_count = 1,
+            .outputs = layout.span(0, 1),
+            .locals = .{
+                .{ .codec = .product, .schema_index = 0 },
+            },
+            .blocks = .{.{
+                .instructions = .{
+                    mustInstruction(ability.ir.builder.returnValue(root, payload)),
+                },
+                .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+            }},
+        }},
+    }));
+}
+
+test "layout builder contract exposes product parameter and output metadata" {
+    const Body = struct {
+        pub const value_schema_types = .{LayoutProductPayload};
+        pub const Outputs = []i32;
+        pub const compiled_plan = layoutProductOutputPlan();
+
+        pub fn encodeArgs(_: LayoutProductHandlers) @TypeOf(.{LayoutProductPayload{ .amount = 7 }}) {
+            return .{LayoutProductPayload{ .amount = 7 }};
+        }
+
+        pub fn collectOutputs(allocator: std.mem.Allocator, _: *LayoutProductHandlers) !Outputs {
+            const outputs = try allocator.alloc(i32, 1);
+            outputs[0] = 12;
+            return outputs;
+        }
+
+        pub fn deinitOutputs(allocator: std.mem.Allocator, outputs: Outputs) void {
+            allocator.free(outputs);
+        }
+    };
+    const Program = ability.program("matrix-layout-product-output", LayoutProductHandlers, Body);
+
+    try std.testing.expectEqualStrings("matrix-layout-product-output", Program.contract.label);
+    try expectRef(Program.contract.result_ref, .{ .codec = .product, .schema_index = 0 });
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.entry_parameters.len);
+    try std.testing.expectEqual(@as(u16, 0), Program.contract.entry_parameters[0].local_index);
+    try expectRef(Program.contract.entry_parameters[0].ref, .{ .codec = .product, .schema_index = 0 });
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.value_schemas.len);
+    try std.testing.expectEqualStrings(@typeName(LayoutProductPayload), Program.contract.value_schemas[0].label);
+    try std.testing.expectEqual(ability.ir.ValueCodec.product, Program.contract.value_schemas[0].codec);
+    try std.testing.expectEqual(@as(u16, 0), Program.contract.value_schemas[0].first_field);
+    try std.testing.expectEqual(@as(u16, 1), Program.contract.value_schemas[0].field_count);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.value_fields.len);
+    try std.testing.expectEqualStrings("amount", Program.contract.value_fields[0].name);
+    try expectRef(Program.contract.value_fields[0].ref, .{ .codec = .i32 });
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.value_variants.len);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.outputs.len);
+    try std.testing.expectEqualStrings("writer", Program.contract.outputs[0].label);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.outputs[0].codec);
+    try std.testing.expectEqual(@as(?u16, null), Program.contract.outputs[0].schema_index);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.requirements.len);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.ops.len);
+    try expectNoNestedTargetsOrReturnErrors(Program.contract);
+    try expectExecutable(Program.contract);
 }
 
 test "plan-native contract conformance matrix optional" {

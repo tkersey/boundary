@@ -47,36 +47,12 @@ pub const RunResult = struct {
 };
 
 fn optionalPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const resumed = ability.ir.builder.local(root, 0);
-    const is_some = ability.ir.builder.local(root, 1);
-    const extracted = ability.ir.builder.local(root, 2);
-    const fallback = ability.ir.builder.local(root, 3);
-    const instructions = [_]ability.ir.plan.Instruction{
-        mustInstruction(ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null)),
-        mustInstruction(ability.ir.builder.sumVariantIs(root, is_some, resumed, 1)),
-        mustInstruction(ability.ir.builder.sumExtractPayload(root, extracted, resumed, 1)),
-        mustInstruction(ability.ir.builder.returnValue(root, extracted)),
-        .{ .kind = .const_i32, .dst = fallback.index, .operand = 0 },
-        mustInstruction(ability.ir.builder.returnValue(root, fallback)),
-    };
-    const functions = [_]ability.ir.plan.Function{.{
-        .symbol_name = "run",
-        .value_codec = .i32,
-        .result_codec = .i32,
-        .parameter_count = 0,
-        .first_requirement = 0,
-        .requirement_count = 1,
-        .first_output = 0,
-        .output_count = 0,
-        .first_local = 0,
-        .local_count = 4,
-        .first_block = 0,
-        .entry_block = 0,
-        .block_count = 3,
-        .first_instruction = 0,
-        .instruction_count = @intCast(instructions.len),
-    }};
+    const layout = ability.ir.builder.layout;
+    const root = comptime ability.ir.builder.function(0);
+    const resumed = comptime ability.ir.builder.local(root, 0);
+    const is_some = comptime ability.ir.builder.local(root, 1);
+    const extracted = comptime ability.ir.builder.local(root, 2);
+    const fallback = comptime ability.ir.builder.local(root, 3);
     const requirements = [_]ability.ir.plan.Requirement{.{
         .label = "optional",
         .first_op = 0,
@@ -102,37 +78,50 @@ fn optionalPlan() ability.ir.ProgramPlan {
         .first_variant = 0,
         .variant_count = @intCast(variants.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{
-        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
-        .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
-        .{ .first_instruction = 4, .instruction_count = 2, .terminator_index = 2 },
-    };
-    const terminators = [_]ability.ir.plan.Terminator{
-        .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
-        .{ .kind = .return_value },
-        .{ .kind = .return_value },
-    };
 
-    return mustPlan(ability.ir.builder.finish(.{
+    return mustPlan(ability.ir.builder.layout.finish(.{
         .label = "plan-native-optional",
         .ir_hash = 40,
         .entry = root,
-        .functions = &functions,
         .requirements = &requirements,
         .ops = &ops,
-        .outputs = &.{},
         .value_schemas = &schemas,
-        .value_fields = &.{},
         .value_variants = &variants,
-        .locals = &.{
-            .{ .codec = .sum, .schema_index = 0 },
-            .{ .codec = .bool },
-            .{ .codec = .i32 },
-            .{ .codec = .i32 },
-        },
-        .blocks = &blocks,
-        .terminators = &terminators,
-        .instructions = &instructions,
+        .functions = .{.{
+            .symbol_name = "run",
+            .value_ref = ability.ir.ValueRef{ .codec = .i32 },
+            .result_ref = ability.ir.ValueRef{ .codec = .i32 },
+            .requirements = layout.span(0, 1),
+            .locals = .{
+                .{ .codec = .sum, .schema_index = 0 },
+                .{ .codec = .bool },
+                .{ .codec = .i32 },
+                .{ .codec = .i32 },
+            },
+            .blocks = .{
+                .{
+                    .instructions = .{
+                        mustInstruction(ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null)),
+                        mustInstruction(ability.ir.builder.sumVariantIs(root, is_some, resumed, 1)),
+                    },
+                    .terminator = ability.ir.plan.Terminator{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                },
+                .{
+                    .instructions = .{
+                        mustInstruction(ability.ir.builder.sumExtractPayload(root, extracted, resumed, 1)),
+                        mustInstruction(ability.ir.builder.returnValue(root, extracted)),
+                    },
+                    .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                },
+                .{
+                    .instructions = .{
+                        .{ .kind = .const_i32, .dst = fallback.index, .operand = 0 },
+                        mustInstruction(ability.ir.builder.returnValue(root, fallback)),
+                    },
+                    .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                },
+            },
+        }},
     }));
 }
 

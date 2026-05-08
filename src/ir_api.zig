@@ -1,4 +1,5 @@
 // zlinter-disable declaration_naming - retained compatibility aliases intentionally preserve the prior public IR vocabulary.
+// zlinter-disable no_undefined - the layout builder fills fixed comptime table buffers before validation observes them.
 // zlinter-disable require_doc_comment - this compatibility module re-exports documented declarations from the underlying namespaces.
 const effect_ir = @import("effect_ir");
 const internal_kernel = @import("internal_kernel");
@@ -119,6 +120,260 @@ pub const builder = struct {
     /// Validate an already assembled ProgramPlan through the builder.
     pub const fromValidatedPlan = inner.fromValidatedPlan;
 
+    /// Compositional ProgramPlan authoring layer that computes flat layout spans.
+    pub const layout = struct {
+        const Span = struct {
+            first: u16 = 0,
+            count: u16 = 0,
+        };
+
+        /// Build a compact span descriptor for function-local requirements or outputs.
+        pub fn span(first: u16, count: u16) Span {
+            return .{ .first = first, .count = count };
+        }
+
+        /// Materialize and validate a ProgramPlan from nested function/block specs.
+        pub fn finish(comptime spec: anytype) program_plan.ValidationError!program_plan.ProgramPlan {
+            return comptime layout.finishWithNestedTargets(spec, &.{});
+        }
+
+        /// Materialize and validate a ProgramPlan with explicit nested lexical-with resolver rows.
+        pub fn finishWithNestedTargets(
+            comptime spec: anytype,
+            comptime nested_with_targets: anytype,
+        ) program_plan.ValidationError!program_plan.ProgramPlan {
+            return comptime finishWithNestedTargetsImpl(spec, nested_with_targets);
+        }
+
+        fn finishWithNestedTargetsImpl(
+            comptime spec: anytype,
+            comptime nested_with_targets: anytype,
+        ) program_plan.ValidationError!program_plan.ProgramPlan {
+            const tables = try layoutTables(spec);
+
+            return inner.finishWithNestedTargets(.{
+                .schema_version = comptime u32Field(spec, "schema_version", program_plan.ProgramPlan.current_schema_version),
+                .label = spec.label,
+                .ir_hash = spec.ir_hash,
+                .entry = spec.entry,
+                .functions = &tables.functions,
+                .requirements = comptime tableField(program_plan.RequirementPlan, spec, "requirements"),
+                .ops = comptime tableField(program_plan.OpPlan, spec, "ops"),
+                .outputs = comptime tableField(program_plan.OutputPlan, spec, "outputs"),
+                .value_schemas = comptime tableField(program_plan.ValueSchemaPlan, spec, "value_schemas"),
+                .value_fields = comptime tableField(program_plan.ValueFieldPlan, spec, "value_fields"),
+                .value_variants = comptime tableField(program_plan.ValueVariantPlan, spec, "value_variants"),
+                .locals = &tables.locals,
+                .call_args = comptime tableField(u16, spec, "call_args"),
+                .blocks = &tables.blocks,
+                .terminators = &tables.terminators,
+                .instructions = &tables.instructions,
+            }, nested_with_targets);
+        }
+
+        fn LayoutTables(comptime spec: anytype) type {
+            const function_count = spec.functions.len;
+            const local_count = comptime countLocals(spec.functions);
+            const block_count = comptime countBlocks(spec.functions);
+            const instruction_count = comptime countInstructions(spec.functions);
+
+            return struct {
+                functions: [function_count]program_plan.FunctionPlan,
+                locals: [local_count]program_plan.LocalPlan,
+                blocks: [block_count]program_plan.BlockPlan,
+                terminators: [block_count]program_plan.Terminator,
+                instructions: [instruction_count]program_plan.Instruction,
+            };
+        }
+
+        fn layoutTables(comptime spec: anytype) program_plan.ValidationError!LayoutTables(spec) {
+            const function_count = spec.functions.len;
+            const local_count = comptime countLocals(spec.functions);
+            const block_count = comptime countBlocks(spec.functions);
+            const instruction_count = comptime countInstructions(spec.functions);
+
+            var functions: [function_count]program_plan.FunctionPlan = undefined;
+            var locals: [local_count]program_plan.LocalPlan = undefined;
+            var blocks: [block_count]program_plan.BlockPlan = undefined;
+            var terminators: [block_count]program_plan.Terminator = undefined;
+            var instructions: [instruction_count]program_plan.Instruction = undefined;
+
+            var next_local: usize = 0;
+            var next_block: usize = 0;
+            var next_instruction: usize = 0;
+
+            inline for (spec.functions, 0..) |function_spec, function_index| {
+                const first_local = next_local;
+                inline for (function_spec.locals) |local_spec| {
+                    locals[next_local] = comptime localFromSpec(local_spec);
+                    next_local += 1;
+                }
+
+                const first_block = next_block;
+                const first_instruction = next_instruction;
+                inline for (function_spec.blocks) |block_spec| {
+                    const block_first_instruction = next_instruction;
+                    inline for (block_spec.instructions) |instruction| {
+                        instructions[next_instruction] = comptime instructionFromSpec(instruction);
+                        next_instruction += 1;
+                    }
+                    blocks[next_block] = .{
+                        .first_instruction = try checkedIndex(block_first_instruction),
+                        .instruction_count = try checkedIndex(next_instruction - block_first_instruction),
+                        .terminator_index = try checkedIndex(next_block),
+                    };
+                    terminators[next_block] = try globalizeTerminator(
+                        block_spec.terminator,
+                        first_block,
+                        function_spec.blocks.len,
+                    );
+                    next_block += 1;
+                }
+
+                const value_ref = comptime valueRefField(function_spec, "value_ref", .{ .codec = .unit });
+                const result_ref = comptime optionalValueRefField(function_spec, "result_ref");
+                const requirement_span = comptime spanField(function_spec, "requirements");
+                const output_span = comptime spanField(function_spec, "outputs");
+                functions[function_index] = .{
+                    .symbol_name = function_spec.symbol_name,
+                    .value_codec = value_ref.codec,
+                    .value_schema_index = value_ref.schema_index,
+                    .result_codec = if (result_ref) |ref| ref.codec else null,
+                    .result_schema_index = if (result_ref) |ref| ref.schema_index else null,
+                    .parameter_count = comptime u16Field(function_spec, "parameter_count", 0),
+                    .first_requirement = requirement_span.first,
+                    .requirement_count = requirement_span.count,
+                    .first_output = output_span.first,
+                    .output_count = output_span.count,
+                    .first_local = try checkedIndex(first_local),
+                    .local_count = try checkedIndex(next_local - first_local),
+                    .first_block = try checkedIndex(first_block),
+                    .entry_block = try checkedIndex(first_block + comptime usizeField(function_spec, "entry_block", 0)),
+                    .block_count = try checkedIndex(next_block - first_block),
+                    .first_instruction = try checkedIndex(first_instruction),
+                    .instruction_count = try checkedIndex(next_instruction - first_instruction),
+                };
+            }
+
+            return .{
+                .functions = functions,
+                .locals = locals,
+                .blocks = blocks,
+                .terminators = terminators,
+                .instructions = instructions,
+            };
+        }
+
+        fn countLocals(comptime functions: anytype) usize {
+            var count: usize = 0;
+            inline for (functions) |function_spec| count += function_spec.locals.len;
+            return count;
+        }
+
+        fn countBlocks(comptime functions: anytype) usize {
+            var count: usize = 0;
+            inline for (functions) |function_spec| count += function_spec.blocks.len;
+            return count;
+        }
+
+        fn countInstructions(comptime functions: anytype) usize {
+            var count: usize = 0;
+            inline for (functions) |function_spec| {
+                inline for (function_spec.blocks) |block_spec| count += block_spec.instructions.len;
+            }
+            return count;
+        }
+
+        fn localFromSpec(comptime local_spec: anytype) program_plan.LocalPlan {
+            return .{
+                .codec = local_spec.codec,
+                .schema_index = if (@hasField(@TypeOf(local_spec), "schema_index")) local_spec.schema_index else null,
+            };
+        }
+
+        fn instructionFromSpec(comptime instruction: anytype) program_plan.Instruction {
+            return .{
+                .kind = instruction.kind,
+                .dst = if (@hasField(@TypeOf(instruction), "dst")) instruction.dst else 0,
+                .operand = if (@hasField(@TypeOf(instruction), "operand")) instruction.operand else 0,
+                .aux = if (@hasField(@TypeOf(instruction), "aux")) instruction.aux else 0,
+                .string_literal = if (@hasField(@TypeOf(instruction), "string_literal")) instruction.string_literal else "",
+            };
+        }
+
+        fn globalizeTerminator(
+            terminator: program_plan.Terminator,
+            comptime first_block: usize,
+            comptime block_count: usize,
+        ) program_plan.ValidationError!program_plan.Terminator {
+            return switch (terminator.kind) {
+                .branch_if => .{
+                    .kind = .branch_if,
+                    .primary = try checkedBlockTarget(first_block, block_count, terminator.primary),
+                    .secondary = try checkedBlockTarget(first_block, block_count, terminator.secondary),
+                },
+                .jump => .{
+                    .kind = .jump,
+                    .primary = try checkedBlockTarget(first_block, block_count, terminator.primary),
+                },
+                .return_unit, .return_value => terminator,
+            };
+        }
+
+        fn checkedBlockTarget(
+            comptime first_block: usize,
+            comptime block_count: usize,
+            target: u16,
+        ) program_plan.ValidationError!u16 {
+            if (target >= block_count) return error.InvalidTerminatorTarget;
+            return checkedIndex(first_block + target);
+        }
+
+        fn checkedIndex(comptime index_value: usize) program_plan.ValidationError!u16 {
+            if (index_value > standard.math.maxInt(u16)) return error.ProgramPlanTableTooLarge;
+            return @intCast(index_value);
+        }
+
+        fn tableField(comptime T: type, comptime spec: anytype, comptime field_name: []const u8) []const T {
+            if (@hasField(@TypeOf(spec), field_name)) return @field(spec, field_name);
+            return &.{};
+        }
+
+        fn spanField(comptime spec: anytype, comptime field_name: []const u8) Span {
+            if (@hasField(@TypeOf(spec), field_name)) return @field(spec, field_name);
+            return .{};
+        }
+
+        fn valueRefField(
+            comptime spec: anytype,
+            comptime field_name: []const u8,
+            comptime default: program_plan.ValueRef,
+        ) program_plan.ValueRef {
+            if (@hasField(@TypeOf(spec), field_name)) return @field(spec, field_name);
+            return default;
+        }
+
+        fn optionalValueRefField(comptime spec: anytype, comptime field_name: []const u8) ?program_plan.ValueRef {
+            if (@hasField(@TypeOf(spec), field_name)) return @field(spec, field_name);
+            return null;
+        }
+
+        fn u16Field(comptime spec: anytype, comptime field_name: []const u8, comptime default: u16) u16 {
+            if (@hasField(@TypeOf(spec), field_name)) return @field(spec, field_name);
+            return default;
+        }
+
+        fn u32Field(comptime spec: anytype, comptime field_name: []const u8, comptime default: u32) u32 {
+            if (@hasField(@TypeOf(spec), field_name)) return @field(spec, field_name);
+            return default;
+        }
+
+        fn usizeField(comptime spec: anytype, comptime field_name: []const u8, comptime default: usize) usize {
+            if (@hasField(@TypeOf(spec), field_name)) return @field(spec, field_name);
+            return default;
+        }
+    };
+
     /// Higher-level typed ProgramPlan constructors for common public examples.
     pub const typed = struct {
         fn mustPlan(result: program_plan.ValidationError!program_plan.ProgramPlan) program_plan.ProgramPlan {
@@ -153,44 +408,23 @@ pub const builder = struct {
         pub fn scalarConstI32(comptime label: []const u8, comptime constant: i32) program_plan.ProgramPlan {
             const root = function(0);
             const result = local(root, 0);
-            const instructions = [_]program_plan.Instruction{
-                constI32(result, constant),
-                mustInstruction(returnValue(root, result)),
-            };
-            const functions = [_]program_plan.FunctionPlan{.{
-                .symbol_name = "run",
-                .value_codec = .i32,
-                .first_requirement = 0,
-                .requirement_count = 0,
-                .first_output = 0,
-                .output_count = 0,
-                .first_local = 0,
-                .local_count = 1,
-                .first_block = 0,
-                .entry_block = 0,
-                .block_count = 1,
-                .first_instruction = 0,
-                .instruction_count = @intCast(instructions.len),
-            }};
-            const blocks = [_]program_plan.BlockPlan{.{
-                .first_instruction = 0,
-                .instruction_count = @intCast(instructions.len),
-                .terminator_index = 0,
-            }};
-            const terminators = [_]program_plan.Terminator{.{ .kind = .return_value }};
 
-            return mustPlan(finish(.{
+            return mustPlan(layout.finish(.{
                 .label = label,
                 .ir_hash = 0x746270000001,
                 .entry = root,
-                .functions = &functions,
-                .requirements = &.{},
-                .ops = &.{},
-                .outputs = &.{},
-                .locals = &.{.{ .codec = .i32 }},
-                .blocks = &blocks,
-                .terminators = &terminators,
-                .instructions = &instructions,
+                .functions = .{.{
+                    .symbol_name = "run",
+                    .value_ref = program_plan.ValueRef{ .codec = .i32 },
+                    .locals = .{.{ .codec = .i32 }},
+                    .blocks = .{.{
+                        .instructions = .{
+                            constI32(result, constant),
+                            mustInstruction(returnValue(root, result)),
+                        },
+                        .terminator = program_plan.Terminator{ .kind = .return_value },
+                    }},
+                }},
             }));
         }
 
@@ -202,54 +436,31 @@ pub const builder = struct {
         ) program_plan.ProgramPlan {
             const root = function(0);
             const payload = local(root, 0);
-            const instructions = [_]program_plan.Instruction{
-                mustInstruction(returnValue(root, payload)),
-            };
-            const functions = [_]program_plan.FunctionPlan{.{
-                .symbol_name = "run",
-                .value_codec = .product,
-                .value_schema_index = 0,
-                .parameter_count = 1,
-                .first_requirement = 0,
-                .requirement_count = 0,
-                .first_output = 0,
-                .output_count = 0,
-                .first_local = 0,
-                .local_count = 1,
-                .first_block = 0,
-                .entry_block = 0,
-                .block_count = 1,
-                .first_instruction = 0,
-                .instruction_count = @intCast(instructions.len),
-            }};
             const value_schemas = [_]program_plan.ValueSchemaPlan{.{
                 .label = @typeName(Payload),
                 .codec = .product,
                 .first_field = 0,
                 .field_count = @intCast(fields.len),
             }};
-            const blocks = [_]program_plan.BlockPlan{.{
-                .first_instruction = 0,
-                .instruction_count = @intCast(instructions.len),
-                .terminator_index = 0,
-            }};
-            const terminators = [_]program_plan.Terminator{.{ .kind = .return_value }};
 
-            return mustPlan(finish(.{
+            return mustPlan(layout.finish(.{
                 .label = label,
                 .ir_hash = 0x746270000002,
                 .entry = root,
-                .functions = &functions,
-                .requirements = &.{},
-                .ops = &.{},
-                .outputs = &.{},
                 .value_schemas = &value_schemas,
                 .value_fields = fields,
-                .value_variants = &.{},
-                .locals = &.{.{ .codec = .product, .schema_index = 0 }},
-                .blocks = &blocks,
-                .terminators = &terminators,
-                .instructions = &instructions,
+                .functions = .{.{
+                    .symbol_name = "run",
+                    .value_ref = program_plan.ValueRef{ .codec = .product, .schema_index = 0 },
+                    .parameter_count = 1,
+                    .locals = .{.{ .codec = .product, .schema_index = 0 }},
+                    .blocks = .{.{
+                        .instructions = .{
+                            mustInstruction(returnValue(root, payload)),
+                        },
+                        .terminator = program_plan.Terminator{ .kind = .return_value },
+                    }},
+                }},
             }));
         }
 
@@ -262,65 +473,51 @@ pub const builder = struct {
             const payload = local(root, 0);
             const condition = local(root, 1);
             const result = local(root, 2);
-            const instructions = [_]program_plan.Instruction{
-                mustInstruction(sumVariantIs(root, condition, payload, spec.variant_ordinal)),
-                constI32(result, spec.matched_value),
-                mustInstruction(returnValue(root, result)),
-                constI32(result, spec.fallback_value),
-                mustInstruction(returnValue(root, result)),
-            };
-            const functions = [_]program_plan.FunctionPlan{.{
-                .symbol_name = "run",
-                .value_codec = .i32,
-                .parameter_count = 1,
-                .first_requirement = 0,
-                .requirement_count = 0,
-                .first_output = 0,
-                .output_count = 0,
-                .first_local = 0,
-                .local_count = 3,
-                .first_block = 0,
-                .entry_block = 0,
-                .block_count = 3,
-                .first_instruction = 0,
-                .instruction_count = @intCast(instructions.len),
-            }};
             const value_schemas = [_]program_plan.ValueSchemaPlan{.{
                 .label = @typeName(Sum),
                 .codec = .sum,
                 .first_variant = 0,
                 .variant_count = @intCast(spec.variants.len),
             }};
-            const blocks = [_]program_plan.BlockPlan{
-                .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
-                .{ .first_instruction = 1, .instruction_count = 2, .terminator_index = 1 },
-                .{ .first_instruction = 3, .instruction_count = 2, .terminator_index = 2 },
-            };
-            const terminators = [_]program_plan.Terminator{
-                .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
-                .{ .kind = .return_value },
-                .{ .kind = .return_value },
-            };
 
-            return mustPlan(finish(.{
+            return mustPlan(layout.finish(.{
                 .label = spec.label,
                 .ir_hash = 0x746270000003,
                 .entry = root,
-                .functions = &functions,
-                .requirements = &.{},
-                .ops = &.{},
-                .outputs = &.{},
                 .value_schemas = &value_schemas,
-                .value_fields = &.{},
                 .value_variants = spec.variants,
-                .locals = &.{
-                    .{ .codec = .sum, .schema_index = 0 },
-                    .{ .codec = .bool },
-                    .{ .codec = .i32 },
-                },
-                .blocks = &blocks,
-                .terminators = &terminators,
-                .instructions = &instructions,
+                .functions = .{.{
+                    .symbol_name = "run",
+                    .value_ref = program_plan.ValueRef{ .codec = .i32 },
+                    .parameter_count = 1,
+                    .locals = .{
+                        .{ .codec = .sum, .schema_index = 0 },
+                        .{ .codec = .bool },
+                        .{ .codec = .i32 },
+                    },
+                    .blocks = .{
+                        .{
+                            .instructions = .{
+                                mustInstruction(sumVariantIs(root, condition, payload, spec.variant_ordinal)),
+                            },
+                            .terminator = program_plan.Terminator{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                        },
+                        .{
+                            .instructions = .{
+                                constI32(result, spec.matched_value),
+                                mustInstruction(returnValue(root, result)),
+                            },
+                            .terminator = program_plan.Terminator{ .kind = .return_value },
+                        },
+                        .{
+                            .instructions = .{
+                                constI32(result, spec.fallback_value),
+                                mustInstruction(returnValue(root, result)),
+                            },
+                            .terminator = program_plan.Terminator{ .kind = .return_value },
+                        },
+                    },
+                }},
             }));
         }
 
@@ -334,57 +531,35 @@ pub const builder = struct {
             const root = function(0);
             const payload = local(root, 0);
             const extracted = local(root, 1);
-            const instructions = [_]program_plan.Instruction{
-                mustInstruction(sumExtractPayload(root, extracted, payload, variant_ordinal)),
-                mustInstruction(returnValue(root, extracted)),
-            };
-            const functions = [_]program_plan.FunctionPlan{.{
-                .symbol_name = "run",
-                .value_codec = .i32,
-                .parameter_count = 1,
-                .first_requirement = 0,
-                .requirement_count = 0,
-                .first_output = 0,
-                .output_count = 0,
-                .first_local = 0,
-                .local_count = 2,
-                .first_block = 0,
-                .entry_block = 0,
-                .block_count = 1,
-                .first_instruction = 0,
-                .instruction_count = @intCast(instructions.len),
-            }};
             const value_schemas = [_]program_plan.ValueSchemaPlan{.{
                 .label = @typeName(Sum),
                 .codec = .sum,
                 .first_variant = 0,
                 .variant_count = @intCast(variants.len),
             }};
-            const blocks = [_]program_plan.BlockPlan{.{
-                .first_instruction = 0,
-                .instruction_count = @intCast(instructions.len),
-                .terminator_index = 0,
-            }};
-            const terminators = [_]program_plan.Terminator{.{ .kind = .return_value }};
 
-            return mustPlan(finish(.{
+            return mustPlan(layout.finish(.{
                 .label = label,
                 .ir_hash = 0x746270000004,
                 .entry = root,
-                .functions = &functions,
-                .requirements = &.{},
-                .ops = &.{},
-                .outputs = &.{},
                 .value_schemas = &value_schemas,
-                .value_fields = &.{},
                 .value_variants = variants,
-                .locals = &.{
-                    .{ .codec = .sum, .schema_index = 0 },
-                    .{ .codec = .i32 },
-                },
-                .blocks = &blocks,
-                .terminators = &terminators,
-                .instructions = &instructions,
+                .functions = .{.{
+                    .symbol_name = "run",
+                    .value_ref = program_plan.ValueRef{ .codec = .i32 },
+                    .parameter_count = 1,
+                    .locals = .{
+                        .{ .codec = .sum, .schema_index = 0 },
+                        .{ .codec = .i32 },
+                    },
+                    .blocks = .{.{
+                        .instructions = .{
+                            mustInstruction(sumExtractPayload(root, extracted, payload, variant_ordinal)),
+                            mustInstruction(returnValue(root, extracted)),
+                        },
+                        .terminator = program_plan.Terminator{ .kind = .return_value },
+                    }},
+                }},
             }));
         }
 
@@ -394,39 +569,21 @@ pub const builder = struct {
             comptime outputs: []const program_plan.OutputPlan,
         ) program_plan.ProgramPlan {
             const root = function(0);
-            const functions = [_]program_plan.FunctionPlan{.{
-                .symbol_name = "run",
-                .first_requirement = 0,
-                .requirement_count = 0,
-                .first_output = 0,
-                .output_count = @intCast(outputs.len),
-                .first_local = 0,
-                .local_count = 0,
-                .first_block = 0,
-                .entry_block = 0,
-                .block_count = 1,
-                .first_instruction = 0,
-                .instruction_count = 0,
-            }};
-            const blocks = [_]program_plan.BlockPlan{.{
-                .first_instruction = 0,
-                .instruction_count = 0,
-                .terminator_index = 0,
-            }};
-            const terminators = [_]program_plan.Terminator{.{ .kind = .return_unit }};
 
-            return mustPlan(finish(.{
+            return mustPlan(layout.finish(.{
                 .label = label,
                 .ir_hash = 0x746270000005,
                 .entry = root,
-                .functions = &functions,
-                .requirements = &.{},
-                .ops = &.{},
                 .outputs = outputs,
-                .locals = &.{},
-                .blocks = &blocks,
-                .terminators = &terminators,
-                .instructions = &.{},
+                .functions = .{.{
+                    .symbol_name = "run",
+                    .outputs = layout.span(0, outputs.len),
+                    .locals = .{},
+                    .blocks = .{.{
+                        .instructions = .{},
+                        .terminator = program_plan.Terminator{ .kind = .return_unit },
+                    }},
+                }},
             }));
         }
     };
@@ -557,4 +714,222 @@ test "public builder materializes a ProgramPlan with product schema metadata" {
 
     try std.testing.expectEqual(ValueCodec.product, built_plan.outputs[0].codec);
     try std.testing.expectEqual(@as(u16, 0), built_plan.outputs[0].schema_index.?);
+}
+
+fn testInstruction(result: program_plan.ValidationError!program_plan.Instruction) program_plan.Instruction {
+    return result catch |err| standard.debug.panic("invalid layout test instruction: {s}", .{@errorName(err)});
+}
+
+fn testConstI32(dst: builder.LocalRef, comptime literal: i32) program_plan.Instruction {
+    if (literal >= 0 and literal <= standard.math.maxInt(u16)) {
+        return .{ .kind = .const_i32, .dst = dst.index, .operand = @intCast(literal) };
+    }
+    return .{
+        .kind = .const_i32,
+        .dst = dst.index,
+        .string_literal = standard.fmt.comptimePrint("{d}", .{literal}),
+    };
+}
+
+test "layout builder computes scalar and output plan spans" {
+    const std = @import("std");
+
+    const root = comptime builder.function(0);
+    const result = comptime builder.local(root, 0);
+    const outputs = [_]program_plan.OutputPlan{.{
+        .label = "writer",
+        .codec = .i32,
+    }};
+    const built_plan = comptime builder.layout.finish(.{
+        .label = "layout.scalar.output",
+        .ir_hash = 10,
+        .entry = root,
+        .outputs = &outputs,
+        .functions = .{.{
+            .symbol_name = "run",
+            .value_ref = program_plan.ValueRef{ .codec = .i32 },
+            .outputs = builder.layout.span(0, outputs.len),
+            .locals = .{.{ .codec = .i32 }},
+            .entry_block = 0,
+            .blocks = .{.{
+                .instructions = .{
+                    testConstI32(result, 42),
+                    testInstruction(builder.returnValue(root, result)),
+                },
+                .terminator = program_plan.Terminator{ .kind = .return_value },
+            }},
+        }},
+    }) catch unreachable;
+
+    try std.testing.expectEqualStrings("layout.scalar.output", built_plan.label);
+    try std.testing.expectEqual(@as(u16, 0), built_plan.functions[0].first_local);
+    try std.testing.expectEqual(@as(u16, 1), built_plan.functions[0].local_count);
+    try std.testing.expectEqual(@as(u16, 0), built_plan.functions[0].first_block);
+    try std.testing.expectEqual(@as(u16, 0), built_plan.functions[0].entry_block);
+    try std.testing.expectEqual(@as(u16, 1), built_plan.functions[0].block_count);
+    try std.testing.expectEqual(@as(u16, 0), built_plan.functions[0].first_instruction);
+    try std.testing.expectEqual(@as(u16, 2), built_plan.functions[0].instruction_count);
+    try std.testing.expectEqual(@as(u16, 0), built_plan.blocks[0].first_instruction);
+    try std.testing.expectEqual(@as(u16, 2), built_plan.blocks[0].instruction_count);
+    try std.testing.expectEqual(@as(u16, 0), built_plan.blocks[0].terminator_index);
+    try std.testing.expectEqual(@as(u16, 0), built_plan.functions[0].first_output);
+    try std.testing.expectEqual(@as(u16, 1), built_plan.functions[0].output_count);
+}
+
+test "layout builder computes product and sum instruction layout" {
+    const std = @import("std");
+
+    const Product = struct {
+        amount: i32,
+    };
+    const Sum = union(enum) {
+        none,
+        yes: i32,
+    };
+    const root = comptime builder.function(0);
+    const product_local = comptime builder.local(root, 0);
+    const sum_local = comptime builder.local(root, 1);
+    const is_yes = comptime builder.local(root, 2);
+    const extracted = comptime builder.local(root, 3);
+    const fallback = comptime builder.local(root, 4);
+    const product_fields = comptime [_]program_plan.ValueFieldPlan{
+        value.field("amount", i32),
+    };
+    const sum_variants = comptime [_]program_plan.ValueVariantPlan{
+        value.unitVariant("none"),
+        value.variant("yes", i32),
+    };
+    const value_schemas = comptime [_]program_plan.ValueSchemaPlan{
+        .{
+            .label = @typeName(Product),
+            .codec = .product,
+            .first_field = 0,
+            .field_count = product_fields.len,
+        },
+        .{
+            .label = @typeName(Sum),
+            .codec = .sum,
+            .first_variant = 0,
+            .variant_count = sum_variants.len,
+        },
+    };
+    const built_plan = comptime builder.layout.finish(.{
+        .label = "layout.product.sum",
+        .ir_hash = 11,
+        .entry = root,
+        .value_schemas = &value_schemas,
+        .value_fields = &product_fields,
+        .value_variants = &sum_variants,
+        .functions = .{.{
+            .symbol_name = "run",
+            .value_ref = program_plan.ValueRef{ .codec = .i32 },
+            .parameter_count = 2,
+            .locals = .{
+                .{ .codec = .product, .schema_index = 0 },
+                .{ .codec = .sum, .schema_index = 1 },
+                .{ .codec = .bool },
+                .{ .codec = .i32 },
+                .{ .codec = .i32 },
+            },
+            .entry_block = 0,
+            .blocks = .{
+                .{
+                    .instructions = .{
+                        testInstruction(builder.sumVariantIs(root, is_yes, sum_local, 1)),
+                    },
+                    .terminator = program_plan.Terminator{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                },
+                .{
+                    .instructions = .{
+                        testInstruction(builder.sumExtractPayload(root, extracted, sum_local, 1)),
+                        testInstruction(builder.returnValue(root, extracted)),
+                    },
+                    .terminator = program_plan.Terminator{ .kind = .return_value },
+                },
+                .{
+                    .instructions = .{
+                        testConstI32(fallback, 0),
+                        testInstruction(builder.returnValue(root, fallback)),
+                    },
+                    .terminator = program_plan.Terminator{ .kind = .return_value },
+                },
+            },
+        }},
+    }) catch unreachable;
+
+    _ = product_local;
+    try std.testing.expectEqual(@as(u16, 5), built_plan.functions[0].local_count);
+    try std.testing.expectEqual(@as(u16, 3), built_plan.functions[0].block_count);
+    try std.testing.expectEqual(@as(u16, 5), built_plan.functions[0].instruction_count);
+    try std.testing.expectEqual(@as(u16, 0), built_plan.blocks[0].first_instruction);
+    try std.testing.expectEqual(@as(u16, 1), built_plan.blocks[1].first_instruction);
+    try std.testing.expectEqual(@as(u16, 3), built_plan.blocks[2].first_instruction);
+    try std.testing.expectEqual(@as(u16, 1), built_plan.terminators[0].primary);
+    try std.testing.expectEqual(@as(u16, 2), built_plan.terminators[0].secondary);
+    try std.testing.expectEqual(ValueCodec.product, built_plan.locals[0].codec);
+    try std.testing.expectEqual(@as(u16, 0), built_plan.locals[0].schema_index.?);
+    try std.testing.expectEqual(ValueCodec.sum, built_plan.locals[1].codec);
+    try std.testing.expectEqual(@as(u16, 1), built_plan.locals[1].schema_index.?);
+}
+
+test "layout builder globalizes function-local branch targets" {
+    const std = @import("std");
+
+    const helper = comptime builder.function(0);
+    const root = comptime builder.function(1);
+    const condition = comptime builder.local(root, 0);
+    const result = comptime builder.local(root, 1);
+    const built_plan = comptime builder.layout.finish(.{
+        .label = "layout.branch.target",
+        .ir_hash = 12,
+        .entry = root,
+        .functions = .{
+            .{
+                .symbol_name = "helper",
+                .locals = .{},
+                .entry_block = 0,
+                .blocks = .{.{
+                    .instructions = .{},
+                    .terminator = program_plan.Terminator{ .kind = .return_unit },
+                }},
+            },
+            .{
+                .symbol_name = "run",
+                .value_ref = program_plan.ValueRef{ .codec = .i32 },
+                .locals = .{
+                    .{ .codec = .bool },
+                    .{ .codec = .i32 },
+                },
+                .entry_block = 0,
+                .blocks = .{
+                    .{
+                        .instructions = .{
+                            .{ .kind = .compare_eq_zero, .dst = condition.index, .operand = result.index },
+                        },
+                        .terminator = program_plan.Terminator{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                    },
+                    .{
+                        .instructions = .{
+                            testConstI32(result, 7),
+                            testInstruction(builder.returnValue(root, result)),
+                        },
+                        .terminator = program_plan.Terminator{ .kind = .return_value },
+                    },
+                    .{
+                        .instructions = .{
+                            testConstI32(result, 8),
+                            testInstruction(builder.returnValue(root, result)),
+                        },
+                        .terminator = program_plan.Terminator{ .kind = .return_value },
+                    },
+                },
+            },
+        },
+    }) catch unreachable;
+
+    try std.testing.expectEqual(@as(u16, 1), built_plan.functions[1].first_block);
+    try std.testing.expectEqual(@as(u16, 1), built_plan.functions[1].entry_block);
+    try std.testing.expectEqual(@as(u16, 2), built_plan.terminators[1].primary);
+    try std.testing.expectEqual(@as(u16, 3), built_plan.terminators[1].secondary);
+    _ = helper;
 }
