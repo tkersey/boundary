@@ -134,6 +134,11 @@ plan-native choice operation. The handler either resumes with a typed optional
 sum value or returns immediately. The plan branches with `sum_variant_is`,
 extracts the `some` payload with `sum_extract_payload`, and leaves the
 compatibility `ability.effect.optional.handle` path intact.
+`ability.effect.optional.plan` is the reusable plan-native helper namespace for
+this shape. It supplies the optional outcome convention, requirement/op rows,
+schema rows with caller-owned field/variant offsets, variant rows, and sum-match
+instructions; ordinary authored plans still own their layout-builder control
+flow.
 
 `examples/plan_native_state_reader.zig` demonstrates state and reader as
 plan-native transform operations. The state requirement carries `state_cell`
@@ -191,6 +196,11 @@ construction except the validated `ProgramPlan`.
 assert contract facts such as labels, result refs, entry parameter refs, value
 schemas, fields, variants, requirements, ops, payload/resume refs, after flags,
 nested-with targets, and outputs instead of depending on mutable table access.
+
+`ability.effect.optional.plan` is the first built-in plan-native helper
+prototype. Future built-ins can follow the same narrow pattern: reusable
+construction helpers that emit ordinary `ProgramPlan` rows and instructions,
+without adding execution semantics, a second runtime, or a new root API.
 
 For common typed examples, `ability.ir.builder.typed` remains available and now
 builds through the layout layer while still returning the same

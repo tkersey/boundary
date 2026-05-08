@@ -141,9 +141,12 @@ capability maps.
 See [docs/program_plan.md](docs/program_plan.md) for typed product/sum bodies,
 tuple entry args, outputs, cleanup hooks, nested-with targets, and
 `Program.contract`. `ability.ir.builder.typed` provides a small higher-level
-builder prototype that still emits `ProgramPlan`. `examples/typed_program_plan.zig`
-runs product execution, sum matching, tagged-union payload extraction, output
-cleanup, and contract inspection through the public API.
+builder prototype that still emits `ProgramPlan`. `ability.effect.optional.plan`
+provides reusable optional-specific rows and instructions for plan-native
+optional authoring while compatibility APIs remain in place.
+`examples/typed_program_plan.zig` runs product execution, sum matching,
+tagged-union payload extraction, output cleanup, and contract inspection through
+the public API.
 Plan-native built-in prototypes under `examples/plan_native_*.zig` show the
 same public entry point for optional, state/reader, writer, exception-style
 abort, and resource-style lifecycle workflows while compatibility effect APIs
@@ -169,7 +172,8 @@ IR:
 - `examples/typed_program_plan.zig` demonstrates typed product/sum execution,
   outputs, cleanup, and `Program.contract`.
 - `examples/plan_native_optional.zig` demonstrates optional-like control flow as
-  a plan-native choice op with a typed sum resume value.
+  a plan-native choice op with a typed sum resume value, using
+  `ability.effect.optional.plan`.
 - `examples/plan_native_state_reader.zig` demonstrates state and reader as
   plan-native transform ops with final state returned through outputs.
 - `examples/plan_native_writer.zig` demonstrates writer accumulation through

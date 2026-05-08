@@ -4,6 +4,7 @@ const family = @import("family.zig");
 const frontend = @import("frontend_support");
 const lexical_with = @import("../internal/lexical_support.zig");
 const lowered_machine = @import("lowered_machine");
+const plan_ir = @import("../ir_api.zig");
 const prompt_contract = @import("prompt_contract_support");
 const ability = lowered_machine;
 const std = @import("std");
@@ -237,6 +238,160 @@ pub fn handleWithErrorSet(
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
     return try algebraic.handleOptionalWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, Policy, Body);
+}
+
+/// Plan-native ProgramPlan construction helpers for the built-in optional family.
+pub const plan = struct {
+    /// Sum-variant ordinal for the `none` optional branch.
+    pub const none_variant_ordinal: u16 = 0;
+    /// Sum-variant ordinal for the `some` optional branch.
+    pub const some_variant_ordinal: u16 = 1;
+
+    /// Whether the optional request operation declares an after hook.
+    pub const AfterHook = enum {
+        absent,
+        present,
+    };
+
+    /// Typed optional outcome used by plan-native optional request operations.
+    pub fn Outcome(comptime ResumeType: type) type {
+        return ?ResumeType;
+    }
+
+    /// Value reference for one optional sum schema table entry.
+    pub fn resumeRef(schema_index: u16) plan_ir.ValueRef {
+        return .{ .codec = .sum, .schema_index = schema_index };
+    }
+
+    /// Local descriptor for a value carrying one optional sum schema.
+    pub fn local(schema_index: u16) plan_ir.plan.Local {
+        const ref = resumeRef(schema_index);
+        return .{ .codec = ref.codec, .schema_index = ref.schema_index };
+    }
+
+    /// Build optional variants for scalar `ResumeType` payloads.
+    pub fn variants(comptime ResumeType: type) [2]plan_ir.ValueVariantPlan {
+        const some_ref = comptime scalarSomeRef(ResumeType);
+        return variantsFromRef(some_ref);
+    }
+
+    /// Build optional variants from an explicit `some` payload value reference.
+    pub fn variantsFromRef(some_ref: plan_ir.ValueRef) [2]plan_ir.ValueVariantPlan {
+        return .{
+            plan_ir.value.unitVariant("none"),
+            .{ .name = "some", .codec = some_ref.codec, .schema_index = some_ref.schema_index },
+        };
+    }
+
+    /// Build one optional sum schema row at caller-owned field and variant-table offsets.
+    pub fn schema(comptime ResumeType: type, first_field: u16, first_variant: u16) plan_ir.ValueSchemaPlan {
+        return .{
+            .label = @typeName(Outcome(ResumeType)),
+            .codec = .sum,
+            .first_field = first_field,
+            .first_variant = first_variant,
+            .variant_count = 2,
+        };
+    }
+
+    /// Build the canonical optional requirement row at a caller-owned op offset.
+    pub fn requirement(first_op: u16) plan_ir.plan.Requirement {
+        return .{
+            .label = "optional",
+            .first_op = first_op,
+            .op_count = 1,
+            .lifecycle_tag = .choice_policy,
+        };
+    }
+
+    /// Build the canonical optional request operation row.
+    pub fn requestOp(requirement_index: u16, resume_schema_index: u16, after_hook: AfterHook) plan_ir.plan.Op {
+        return .{
+            .requirement_index = requirement_index,
+            .op_name = "request",
+            .mode = .choice,
+            .payload_codec = .unit,
+            .resume_codec = .sum,
+            .resume_schema_index = resume_schema_index,
+            .has_after = after_hook == .present,
+        };
+    }
+
+    /// Build an optional request call instruction.
+    pub fn callRequest(
+        caller: plan_ir.builder.FunctionRef,
+        dst: plan_ir.builder.LocalRef,
+        op_ref: plan_ir.builder.OpRef,
+    ) anyerror!plan_ir.plan.Instruction {
+        return plan_ir.builder.callOp(caller, dst, op_ref, null);
+    }
+
+    /// Build an optional `some` predicate instruction.
+    pub fn isSome(
+        caller: plan_ir.builder.FunctionRef,
+        dst: plan_ir.builder.LocalRef,
+        source: plan_ir.builder.LocalRef,
+    ) anyerror!plan_ir.plan.Instruction {
+        return plan_ir.builder.sumVariantIs(caller, dst, source, some_variant_ordinal);
+    }
+
+    /// Build an optional `some` payload extraction instruction.
+    pub fn extractSome(
+        caller: plan_ir.builder.FunctionRef,
+        dst: plan_ir.builder.LocalRef,
+        source: plan_ir.builder.LocalRef,
+    ) anyerror!plan_ir.plan.Instruction {
+        return plan_ir.builder.sumExtractPayload(caller, dst, source, some_variant_ordinal);
+    }
+
+    fn scalarSomeRef(comptime ResumeType: type) plan_ir.ValueRef {
+        const codec = comptime plan_ir.value.codecForType(ResumeType) catch @compileError("unsupported optional resume payload type");
+        return switch (codec) {
+            .product, .sum => @compileError("use optional.plan.variantsFromRef for structured optional payloads"),
+            else => .{ .codec = codec },
+        };
+    }
+};
+
+test "optional plan helpers build canonical rows" {
+    const variants = plan.variants(i32);
+    try std.testing.expectEqualStrings("none", variants[plan.none_variant_ordinal].name);
+    try std.testing.expectEqual(plan_ir.ValueCodec.unit, variants[plan.none_variant_ordinal].codec);
+    try std.testing.expectEqualStrings("some", variants[plan.some_variant_ordinal].name);
+    try std.testing.expectEqual(plan_ir.ValueCodec.i32, variants[plan.some_variant_ordinal].codec);
+
+    const nested_variants = plan.variantsFromRef(.{ .codec = .product, .schema_index = 7 });
+    try std.testing.expectEqual(plan_ir.ValueCodec.product, nested_variants[plan.some_variant_ordinal].codec);
+    try std.testing.expectEqual(@as(?u16, 7), nested_variants[plan.some_variant_ordinal].schema_index);
+
+    const schema = plan.schema(i32, 2, 4);
+    try std.testing.expectEqualStrings(@typeName(plan.Outcome(i32)), schema.label);
+    try std.testing.expectEqual(plan_ir.ValueCodec.sum, schema.codec);
+    try std.testing.expectEqual(@as(u16, 2), schema.first_field);
+    try std.testing.expectEqual(@as(u16, 4), schema.first_variant);
+    try std.testing.expectEqual(@as(u16, 2), schema.variant_count);
+
+    const ref = plan.resumeRef(3);
+    try std.testing.expectEqual(plan_ir.ValueCodec.sum, ref.codec);
+    try std.testing.expectEqual(@as(?u16, 3), ref.schema_index);
+    const local = plan.local(3);
+    try std.testing.expectEqual(plan_ir.ValueCodec.sum, local.codec);
+    try std.testing.expectEqual(@as(?u16, 3), local.schema_index);
+
+    const requirement = plan.requirement(5);
+    try std.testing.expectEqualStrings("optional", requirement.label);
+    try std.testing.expectEqual(@as(u16, 5), requirement.first_op);
+    try std.testing.expectEqual(@as(u16, 1), requirement.op_count);
+    try std.testing.expectEqualStrings("choice_policy", @tagName(requirement.lifecycle_tag));
+
+    const op = plan.requestOp(2, 3, .absent);
+    try std.testing.expectEqual(@as(u16, 2), op.requirement_index);
+    try std.testing.expectEqualStrings("request", op.op_name);
+    try std.testing.expectEqual(plan_ir.PlanControlMode.choice, op.mode);
+    try std.testing.expectEqual(plan_ir.ValueCodec.unit, op.payload_codec);
+    try std.testing.expectEqual(plan_ir.ValueCodec.sum, op.resume_codec);
+    try std.testing.expectEqual(@as(?u16, 3), op.resume_schema_index);
+    try std.testing.expect(!op.has_after);
 }
 
 test "optional instance shell stays prompt-sized" {
