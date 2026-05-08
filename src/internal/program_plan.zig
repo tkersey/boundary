@@ -192,6 +192,8 @@ pub const InstructionKind = enum {
     return_error,
     return_value,
     sub_one,
+    sum_extract_payload,
+    sum_variant_is,
 };
 
 /// One serializable placeholder instruction in the runtime-owned executable plan.
@@ -228,7 +230,7 @@ pub const BlockPlan = struct {
 /// Runtime-owned serializable executable plan for lowered or explicit IR programs.
 pub const ProgramPlan = struct {
     /// Stable schema version for JSON-serialized runtime plans.
-    pub const current_schema_version: u32 = 8;
+    pub const current_schema_version: u32 = 9;
 
     schema_version: u32 = current_schema_version,
     label: []const u8,
@@ -560,6 +562,22 @@ pub const ProgramPlan = struct {
                             return error.InvalidInstructionLocalIndex;
                         }
                     },
+                    .sum_variant_is => {
+                        const source_ref = functionLocalValueRef(self, function, instruction.operand) orelse
+                            return error.InvalidInstructionLocalIndex;
+                        if (sumVariantRef(self, source_ref, instruction.aux) == null) return error.InvalidInstructionCodec;
+                        if (!functionLocalHasCodec(self, function, instruction.dst, .bool)) return error.InvalidInstructionLocalIndex;
+                    },
+                    .sum_extract_payload => {
+                        const source_ref = functionLocalValueRef(self, function, instruction.operand) orelse
+                            return error.InvalidInstructionLocalIndex;
+                        const payload_ref = sumVariantRef(self, source_ref, instruction.aux) orelse
+                            return error.InvalidInstructionCodec;
+                        if (!hasPayload(payload_ref.codec)) return error.InvalidInstructionCodec;
+                        if (!functionLocalHasValueRef(self, function, instruction.dst, payload_ref)) {
+                            return error.InvalidInstructionLocalIndex;
+                        }
+                    },
                     .return_value => {
                         block_has_return_value = true;
                         if (!function_returns_value) return error.InvalidTerminatorInstruction;
@@ -579,7 +597,7 @@ pub const ProgramPlan = struct {
                         if (!isOwnedBlockTarget(function.first_block, block_end, terminator.primary)) return error.InvalidTerminatorTarget;
                         if (!isOwnedBlockTarget(function.first_block, block_end, terminator.secondary)) return error.InvalidTerminatorTarget;
                         if (instruction_end == block.first_instruction or
-                            self.instructions[instruction_end - 1].kind != .compare_eq_zero)
+                            !conditionInstructionKind(self.instructions[instruction_end - 1].kind))
                         {
                             return error.InvalidTerminatorInstruction;
                         }
@@ -924,6 +942,40 @@ pub const program_plan_builder = struct {
             .dst = if (dst) |local_ref| local_ref.index else std.math.maxInt(u16),
             .operand = op_ref.index,
             .aux = if (payload) |local_ref| local_ref.index else std.math.maxInt(u16),
+        };
+    }
+
+    /// Build a sum-tag predicate whose source and destination are owned by the caller.
+    pub fn sumVariantIs(
+        caller: FunctionRef,
+        dst: LocalRef,
+        source: LocalRef,
+        variant_ordinal: u16,
+    ) ValidationError!Instruction {
+        try expectLocalOwnedBy(caller, dst);
+        try expectLocalOwnedBy(caller, source);
+        return .{
+            .kind = .sum_variant_is,
+            .dst = dst.index,
+            .operand = source.index,
+            .aux = variant_ordinal,
+        };
+    }
+
+    /// Build a sum-payload extraction whose source and destination are owned by the caller.
+    pub fn sumExtractPayload(
+        caller: FunctionRef,
+        dst: LocalRef,
+        source: LocalRef,
+        variant_ordinal: u16,
+    ) ValidationError!Instruction {
+        try expectLocalOwnedBy(caller, dst);
+        try expectLocalOwnedBy(caller, source);
+        return .{
+            .kind = .sum_extract_payload,
+            .dst = dst.index,
+            .operand = source.index,
+            .aux = variant_ordinal,
         };
     }
 
@@ -1903,6 +1955,26 @@ fn codecFromEffectIrBody(codec: effect_ir.LocalCodec) ValueCodec {
     };
 }
 
+fn codecFromEffectIrValueRef(codec: effect_ir.ValueCodec) ValueCodec {
+    return switch (codec) {
+        .bool => .bool,
+        .i32 => .i32,
+        .product => .product,
+        .string => .string,
+        .string_list => .string_list,
+        .sum => .sum,
+        .unit => .unit,
+        .usize => .usize,
+    };
+}
+
+fn valueRefFromEffectIr(ref: effect_ir.ValueRef) ValueRef {
+    return .{
+        .codec = codecFromEffectIrValueRef(ref.codec),
+        .schema_index = ref.schema_index,
+    };
+}
+
 fn instructionKindFromEffectIrBody(kind: effect_ir.InstructionKind) InstructionKind {
     return switch (kind) {
         .add_i32 => .add_i32,
@@ -1916,6 +1988,8 @@ fn instructionKindFromEffectIrBody(kind: effect_ir.InstructionKind) InstructionK
         .const_string => .const_string,
         .return_error => .return_error,
         .return_value => .return_value,
+        .sum_extract_payload => .sum_extract_payload,
+        .sum_variant_is => .sum_variant_is,
         .sub_one => .sub_one,
     };
 }
@@ -2020,6 +2094,11 @@ pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan
         return;
     }
 
+    if (plan.schema_version == 8) {
+        plan.schema_version = ProgramPlan.current_schema_version;
+        return;
+    }
+
     if (plan.schema_version != ProgramPlan.current_schema_version) return error.UnsupportedSchemaVersion;
 }
 
@@ -2062,6 +2141,26 @@ fn functionLocalHasCodec(self: ProgramPlan, function: FunctionPlan, local_id: u1
 fn functionLocalHasValueRef(self: ProgramPlan, function: FunctionPlan, local_id: u16, expected: ValueRef) bool {
     const actual = functionLocalValueRef(self, function, local_id) orelse return false;
     return valueRefsEqual(actual, expected);
+}
+
+fn conditionInstructionKind(kind: InstructionKind) bool {
+    return kind == .compare_eq_zero or kind == .sum_variant_is;
+}
+
+fn sumVariantRef(self: ProgramPlan, source_ref: ValueRef, variant_ordinal: u16) ?ValueRef {
+    if (source_ref.codec != .sum) return null;
+    const schema_index = source_ref.schema_index orelse return null;
+    if (schema_index >= self.value_schemas.len) return null;
+    const schema = self.value_schemas[schema_index];
+    if (schema.codec != .sum) return null;
+    if (variant_ordinal >= schema.variant_count) return null;
+    const variant_index = @as(usize, schema.first_variant) + variant_ordinal;
+    if (variant_index >= self.value_variants.len) return null;
+    const variant = self.value_variants[variant_index];
+    return .{
+        .codec = variant.codec,
+        .schema_index = variant.schema_index,
+    };
 }
 
 fn terminalAbortInstruction(
@@ -2655,10 +2754,42 @@ fn validateFunctionBodyParameterPrefix(
     comptime function: effect_ir.Function,
     comptime body: effect_ir.FunctionBody,
 ) PlanError!void {
-    if (body.local_codecs.len < function.parameter_codecs.len) return error.InvalidProgramBodyShape;
-    for (function.parameter_codecs, 0..) |codec, parameter_index| {
-        if (body.local_codecs[parameter_index] != codec) return error.InvalidProgramBodyShape;
+    const parameter_count = effectIrFunctionParameterCount(function);
+    if (effectIrBodyLocalCount(body) < parameter_count) return error.InvalidProgramBodyShape;
+    for (0..parameter_count) |parameter_index| {
+        if (!valueRefsEqual(
+            effectIrFunctionParameterRef(function, parameter_index),
+            effectIrBodyLocalRef(body, parameter_index),
+        )) return error.InvalidProgramBodyShape;
     }
+}
+
+fn effectIrFunctionParameterCount(comptime function: effect_ir.Function) usize {
+    return if (function.parameter_refs.len != 0)
+        function.parameter_refs.len
+    else
+        function.parameter_codecs.len;
+}
+
+fn effectIrFunctionParameterRef(comptime function: effect_ir.Function, comptime parameter_index: usize) ValueRef {
+    return if (function.parameter_refs.len != 0)
+        valueRefFromEffectIr(function.parameter_refs[parameter_index])
+    else
+        .{ .codec = codecFromEffectIrBody(function.parameter_codecs[parameter_index]) };
+}
+
+fn effectIrBodyLocalCount(comptime body: effect_ir.FunctionBody) usize {
+    return if (body.local_refs.len != 0)
+        body.local_refs.len
+    else
+        body.local_codecs.len;
+}
+
+fn effectIrBodyLocalRef(comptime body: effect_ir.FunctionBody, comptime local_index: usize) ValueRef {
+    return if (body.local_refs.len != 0)
+        valueRefFromEffectIr(body.local_refs[local_index])
+    else
+        .{ .codec = codecFromEffectIrBody(body.local_codecs[local_index]) };
 }
 
 fn symbolIndex(comptime program: effect_ir.Program, comptime symbol: effect_ir.SymbolRef) ?u16 {
@@ -2670,7 +2801,7 @@ fn symbolIndex(comptime program: effect_ir.Program, comptime symbol: effect_ir.S
 
 fn countBodyLocals(comptime program: program_frontend.LoweredOpenRowProgram) usize {
     var total: usize = 0;
-    for (program.function_bodies) |body| total += body.local_codecs.len;
+    for (program.function_bodies) |body| total += effectIrBodyLocalCount(body);
     return total;
 }
 
@@ -3246,7 +3377,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
                 .symbol_name = function.symbol.symbol_name,
                 .value_codec = value_ref.codec,
                 .value_schema_index = value_ref.schema_index,
-                .parameter_count = @intCast(function.parameter_codecs.len),
+                .parameter_count = @intCast(effectIrFunctionParameterCount(function)),
                 .first_requirement = requirement_index,
                 .requirement_count = @intCast(function.row.requirements.len),
                 .first_output = output_index,
@@ -3773,13 +3904,13 @@ pub fn planFromOpenRowProgram(
                     program_result_ref.schema_index
                 else
                     null,
-                .parameter_count = @intCast(function.parameter_codecs.len),
+                .parameter_count = @intCast(effectIrFunctionParameterCount(function)),
                 .first_requirement = requirement_index,
                 .requirement_count = @intCast(function.row.requirements.len),
                 .first_output = output_index,
                 .output_count = @intCast(function.outputs.len),
                 .first_local = local_index,
-                .local_count = @intCast(body.local_codecs.len),
+                .local_count = @intCast(effectIrBodyLocalCount(body)),
                 .first_block = block_index,
                 .entry_block = body.entry_block,
                 .block_count = @intCast(body.blocks.len),
@@ -3788,7 +3919,7 @@ pub fn planFromOpenRowProgram(
             };
             requirement_index += @intCast(function.row.requirements.len);
             output_index += @intCast(function.outputs.len);
-            local_index += @intCast(body.local_codecs.len);
+            local_index += @intCast(effectIrBodyLocalCount(body));
             block_index += @intCast(body.blocks.len);
             instruction_index += @intCast(instruction_count);
         }
@@ -3861,8 +3992,12 @@ pub fn planFromOpenRowProgram(
         var buf: [local_total]LocalPlan = undefined;
         var local_index: usize = 0;
         for (program.function_bodies) |body| {
-            for (body.local_codecs) |codec| {
-                buf[local_index] = .{ .codec = codecFromEffectIrBody(codec) };
+            for (0..effectIrBodyLocalCount(body)) |body_local_index| {
+                const local_ref = effectIrBodyLocalRef(body, body_local_index);
+                buf[local_index] = .{
+                    .codec = local_ref.codec,
+                    .schema_index = local_ref.schema_index,
+                };
                 local_index += 1;
             }
         }
@@ -3937,7 +4072,7 @@ pub fn planFromOpenRowProgram(
                         invalidGeneratedPlan(error.InvalidCallHelperTarget);
                     }
                     const target_parameter_count: u16 = if (instruction.kind == .call_helper)
-                        @intCast(program.functions[instruction.operand].parameter_codecs.len)
+                        @intCast(effectIrFunctionParameterCount(program.functions[instruction.operand]))
                     else
                         0;
                     const target_returns_value = instruction.kind == .call_helper and
@@ -3972,6 +4107,18 @@ pub fn planFromOpenRowProgram(
                         .return_value => program_plan_builder.returnValue(
                             caller_ref,
                             program_plan_builder.local(caller_ref, instruction.operand),
+                        ) catch |err| invalidGeneratedPlan(err),
+                        .sum_extract_payload => program_plan_builder.sumExtractPayload(
+                            caller_ref,
+                            program_plan_builder.local(caller_ref, instruction.dst),
+                            program_plan_builder.local(caller_ref, instruction.operand),
+                            instruction.aux,
+                        ) catch |err| invalidGeneratedPlan(err),
+                        .sum_variant_is => program_plan_builder.sumVariantIs(
+                            caller_ref,
+                            program_plan_builder.local(caller_ref, instruction.dst),
+                            program_plan_builder.local(caller_ref, instruction.operand),
+                            instruction.aux,
                         ) catch |err| invalidGeneratedPlan(err),
                         .add_const_i32, .add_i32, .call_nested_with, .compare_eq_zero, .const_i32, .const_string, .const_usize, .return_error, .sub_one => .{
                             .kind = instructionKindFromEffectIrBody(instruction.kind),
@@ -4318,6 +4465,43 @@ test "planFromOpenRowProgram drops destinations for unit-resume ops" {
     const plan = comptime try planFromOpenRowProgram("unit-resume", lowered);
     try std.testing.expectEqual(InstructionKind.call_op, plan.instructions[0].kind);
     try std.testing.expectEqual(std.math.maxInt(u16), plan.instructions[0].dst);
+}
+
+test "planFromOpenRowProgram lowers structured effect_ir value refs" {
+    const Payload = ?i32;
+    const row = comptime effect_ir.rowFromSpec(.{ .empty = .{} });
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/structured_refs.zig",
+        .symbol_name = "root",
+    };
+    const lowered = comptime program_frontend.LoweredOpenRowProgram{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = root_symbol,
+            .row = row,
+            .parameter_refs = &.{.{ .codec = .sum, .schema_index = 0 }},
+            .ValueType = Payload,
+        }},
+        .call_edges = &.{},
+        .function_bodies = &.{.{
+            .local_refs = &.{.{ .codec = .sum, .schema_index = 0 }},
+            .call_arg_locals = &.{},
+            .entry_block = 0,
+            .blocks = &.{.{
+                .instructions = &.{
+                    .{ .kind = .return_value, .operand = 0 },
+                },
+                .terminator = .{ .kind = .return_value },
+            }},
+        }},
+    };
+
+    const plan = comptime try planFromOpenRowProgram("structured-effect-ir-refs", lowered);
+    try std.testing.expectEqual(ValueCodec.sum, plan.locals[0].codec);
+    try std.testing.expectEqual(@as(?u16, 0), plan.locals[0].schema_index);
+    try std.testing.expectEqual(@as(u16, 1), plan.functions[0].parameter_count);
+    try std.testing.expectEqual(ValueCodec.sum, plan.functions[0].value_codec);
+    try std.testing.expectEqual(@as(?u16, 0), plan.functions[0].value_schema_index);
 }
 
 test "ProgramPlan.validate rejects out-of-range helper targets" {

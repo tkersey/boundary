@@ -1046,6 +1046,315 @@ fn sumIdentityPlan(comptime Payload: type, comptime label: []const u8) ability.i
     }) catch unreachable;
 }
 
+fn sumVariantBranchPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const condition = ability.ir.builder.local(root, 1);
+    const result = ability.ir.builder.local(root, 2);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.sumVariantIs(root, condition, payload, 1) catch unreachable,
+        .{ .kind = .const_i32, .dst = result.index, .operand = 11 },
+        ability.ir.builder.returnValue(root, result) catch unreachable,
+        .{ .kind = .const_i32, .dst = result.index, .operand = 22 },
+        ability.ir.builder.returnValue(root, result) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 3,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 3,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(Payload),
+        .codec = .sum,
+        .first_variant = 0,
+        .variant_count = 2,
+    }};
+    const value_variants = [_]ability.ir.ValueVariantPlan{
+        .{ .name = "none", .codec = .unit },
+        .{ .name = "some", .codec = .i32 },
+    };
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 2, .terminator_index = 1 },
+        .{ .first_instruction = 3, .instruction_count = 2, .terminator_index = 2 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 34,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &.{},
+        .value_variants = &value_variants,
+        .locals = &.{ .{ .codec = .sum, .schema_index = 0 }, .{ .codec = .bool }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn sumPayloadExtractionPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const extracted = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.sumExtractPayload(root, extracted, payload, 1) catch unreachable,
+        ability.ir.builder.returnValue(root, extracted) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(Payload),
+        .codec = .sum,
+        .first_variant = 0,
+        .variant_count = 2,
+    }};
+    const value_variants = [_]ability.ir.ValueVariantPlan{
+        .{ .name = "none", .codec = .unit },
+        .{ .name = "some", .codec = .i32 },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 35,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &.{},
+        .value_variants = &value_variants,
+        .locals = &.{ .{ .codec = .sum, .schema_index = 0 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn enumVariantBranchPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const condition = ability.ir.builder.local(root, 1);
+    const result = ability.ir.builder.local(root, 2);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.sumVariantIs(root, condition, payload, 1) catch unreachable,
+        .{ .kind = .const_i32, .dst = result.index, .operand = 11 },
+        ability.ir.builder.returnValue(root, result) catch unreachable,
+        .{ .kind = .const_i32, .dst = result.index, .operand = 22 },
+        ability.ir.builder.returnValue(root, result) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 3,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 3,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(Payload),
+        .codec = .sum,
+        .first_variant = 0,
+        .variant_count = 2,
+    }};
+    const value_variants = [_]ability.ir.ValueVariantPlan{
+        .{ .name = "none", .codec = .unit },
+        .{ .name = "yes", .codec = .unit },
+    };
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 2, .terminator_index = 1 },
+        .{ .first_instruction = 3, .instruction_count = 2, .terminator_index = 2 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 37,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &.{},
+        .value_variants = &value_variants,
+        .locals = &.{ .{ .codec = .sum, .schema_index = 0 }, .{ .codec = .bool }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn taggedUnionPayloadExtractionPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const extracted = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.sumExtractPayload(root, extracted, payload, 1) catch unreachable,
+        ability.ir.builder.returnValue(root, extracted) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(Payload),
+        .codec = .sum,
+        .first_variant = 0,
+        .variant_count = 2,
+    }};
+    const value_variants = [_]ability.ir.ValueVariantPlan{
+        .{ .name = "none", .codec = .unit },
+        .{ .name = "yes", .codec = .i32 },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 38,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &.{},
+        .value_variants = &value_variants,
+        .locals = &.{ .{ .codec = .sum, .schema_index = 0 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn validateSingleSumInstruction(
+    comptime instruction: ability.ir.plan.Instruction,
+    comptime locals: []const ability.ir.plan.Local,
+) !ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const instructions = [_]ability.ir.plan.Instruction{instruction};
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .unit,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = @intCast(locals.len),
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = "?i32",
+        .codec = .sum,
+        .first_variant = 0,
+        .variant_count = 2,
+    }};
+    const value_variants = [_]ability.ir.ValueVariantPlan{
+        .{ .name = "none", .codec = .unit },
+        .{ .name = "some", .codec = .i32 },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+
+    return ability.ir.builder.finish(.{
+        .label = "single-sum-instruction",
+        .ir_hash = 36,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &.{},
+        .value_variants = &value_variants,
+        .locals = locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    });
+}
+
 fn duplicateSchemaIdentityPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const payload = ability.ir.builder.local(root, 0);
@@ -2149,8 +2458,14 @@ test "ability.program exposes scalar ProgramPlan contract metadata" {
     try std.testing.expectEqual(void, Program.contract.OutputsType);
     try std.testing.expect(!Program.contract.has_typed_result_schema);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.outputs.len);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.value_schemas.len);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.value_fields.len);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.value_variants.len);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.entry_parameters.len);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.nested_with_targets.len);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.requirements.len);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.ops.len);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.return_errors.len);
     try std.testing.expect(Program.contract.executable.supported);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.executable.blocker_count);
     try std.testing.expectEqualStrings("capability ledger: blockers=0 truncated=false", Program.contract.executable.summary);
@@ -2178,6 +2493,15 @@ test "ability.program exposes product result contract metadata" {
     try std.testing.expectEqual(@as(?u16, 0), Program.contract.result_ref.schema_index);
     try std.testing.expect(Program.contract.has_typed_result_schema);
     try std.testing.expectEqual(Payload, Program.contract.ResultType);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.value_schemas.len);
+    try std.testing.expectEqualStrings(@typeName(Payload), Program.contract.value_schemas[0].label);
+    try std.testing.expectEqual(ability.ir.ValueCodec.product, Program.contract.value_schemas[0].codec);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.value_fields.len);
+    try std.testing.expectEqualStrings("amount", Program.contract.value_fields[0].name);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.value_fields[0].ref.codec);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.entry_parameters.len);
+    try std.testing.expectEqual(ability.ir.ValueCodec.product, Program.contract.entry_parameters[0].ref.codec);
+    try std.testing.expectEqual(@as(?u16, 0), Program.contract.entry_parameters[0].ref.schema_index);
 }
 
 test "ability.program exposes sum result contract metadata" {
@@ -2196,6 +2520,13 @@ test "ability.program exposes sum result contract metadata" {
     try std.testing.expectEqual(@as(?u16, 0), Program.contract.result_ref.schema_index);
     try std.testing.expect(Program.contract.has_typed_result_schema);
     try std.testing.expectEqual(Payload, Program.contract.ResultType);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.value_schemas.len);
+    try std.testing.expectEqual(ability.ir.ValueCodec.sum, Program.contract.value_schemas[0].codec);
+    try std.testing.expectEqual(@as(usize, 2), Program.contract.value_variants.len);
+    try std.testing.expectEqualStrings("none", Program.contract.value_variants[0].name);
+    try std.testing.expectEqual(ability.ir.ValueCodec.unit, Program.contract.value_variants[0].ref.codec);
+    try std.testing.expectEqualStrings("some", Program.contract.value_variants[1].name);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.value_variants[1].ref.codec);
 }
 
 test "ability.program exposes output contract metadata" {
@@ -2226,6 +2557,9 @@ test "ability.program exposes nested-with target declaration metadata" {
     const Program = ability.program("contract-nested", struct {}, Body);
 
     try std.testing.expect(Program.contract.has_nested_with_targets);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.nested_with_targets.len);
+    try std.testing.expectEqualStrings(nested_with_metadata, Program.contract.nested_with_targets[0].metadata);
+    try std.testing.expectEqual(@as(u16, 1), Program.contract.nested_with_targets[0].function_index);
     try std.testing.expect(Program.contract.executable.supported);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.executable.blocker_count);
 }
@@ -3941,6 +4275,169 @@ test "ability.program accepts typed product entry args and result" {
     try std.testing.expectEqual(@as(i32, 42), result.value.amount);
 }
 
+test "ability.program executes typed sum variant predicates" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = ?i32;
+    const EmptyHandlers = struct {};
+    const SomeBody = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = sumVariantBranchPlan(Payload, "typed-sum-variant-some");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{@as(Payload, 9)}) {
+            return .{@as(Payload, 9)};
+        }
+    };
+    const NoneBody = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = sumVariantBranchPlan(Payload, "typed-sum-variant-none");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{@as(Payload, null)}) {
+            return .{@as(Payload, null)};
+        }
+    };
+    const SomeProgram = ability.program("typed-sum-variant-some", EmptyHandlers, SomeBody);
+    const NoneProgram = ability.program("typed-sum-variant-none", EmptyHandlers, NoneBody);
+
+    var some_result = try SomeProgram.run(&runtime, .{});
+    defer some_result.deinit();
+    var none_result = try NoneProgram.run(&runtime, .{});
+    defer none_result.deinit();
+
+    try std.testing.expectEqual(@as(i32, 11), some_result.value);
+    try std.testing.expectEqual(@as(i32, 22), none_result.value);
+}
+
+test "ability.program executes typed enum variant predicates" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = enum { none, yes };
+    const EmptyHandlers = struct {};
+    const YesBody = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = enumVariantBranchPlan(Payload, "typed-enum-variant-yes");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{Payload.yes}) {
+            return .{Payload.yes};
+        }
+    };
+    const NoBody = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = enumVariantBranchPlan(Payload, "typed-enum-variant-no");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{Payload.none}) {
+            return .{Payload.none};
+        }
+    };
+    const YesProgram = ability.program("typed-enum-variant-yes", EmptyHandlers, YesBody);
+    const NoProgram = ability.program("typed-enum-variant-no", EmptyHandlers, NoBody);
+
+    var yes_result = try YesProgram.run(&runtime, .{});
+    defer yes_result.deinit();
+    var no_result = try NoProgram.run(&runtime, .{});
+    defer no_result.deinit();
+
+    try std.testing.expectEqual(@as(i32, 11), yes_result.value);
+    try std.testing.expectEqual(@as(i32, 22), no_result.value);
+}
+
+test "ability.program extracts typed sum payloads and rejects wrong variants" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = ?i32;
+    const EmptyHandlers = struct {};
+    const SomeBody = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = sumPayloadExtractionPlan(Payload, "typed-sum-extract-some");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{@as(Payload, 31)}) {
+            return .{@as(Payload, 31)};
+        }
+    };
+    const NoneBody = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = sumPayloadExtractionPlan(Payload, "typed-sum-extract-none");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{@as(Payload, null)}) {
+            return .{@as(Payload, null)};
+        }
+    };
+    const SomeProgram = ability.program("typed-sum-extract-some", EmptyHandlers, SomeBody);
+    const NoneProgram = ability.program("typed-sum-extract-none", EmptyHandlers, NoneBody);
+
+    var some_result = try SomeProgram.run(&runtime, .{});
+    defer some_result.deinit();
+
+    try std.testing.expectEqual(@as(i32, 31), some_result.value);
+    try std.testing.expectError(error.ProgramContractViolation, NoneProgram.run(&runtime, .{}));
+}
+
+test "ability.program extracts tagged-union sum payloads" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = union(enum) {
+        none,
+        yes: i32,
+    };
+    const EmptyHandlers = struct {};
+    const YesBody = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = taggedUnionPayloadExtractionPlan(Payload, "typed-union-extract-yes");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{Payload{ .yes = 41 }}) {
+            return .{Payload{ .yes = 41 }};
+        }
+    };
+    const NoBody = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = taggedUnionPayloadExtractionPlan(Payload, "typed-union-extract-no");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{Payload{ .none = {} }}) {
+            return .{Payload{ .none = {} }};
+        }
+    };
+    const YesProgram = ability.program("typed-union-extract-yes", EmptyHandlers, YesBody);
+    const NoProgram = ability.program("typed-union-extract-no", EmptyHandlers, NoBody);
+
+    var yes_result = try YesProgram.run(&runtime, .{});
+    defer yes_result.deinit();
+
+    try std.testing.expectEqual(@as(i32, 41), yes_result.value);
+    try std.testing.expectError(error.ProgramContractViolation, NoProgram.run(&runtime, .{}));
+}
+
+test "ProgramPlan validation enforces exact typed sum instruction refs" {
+    const valid_sum_locals = &[_]ability.ir.plan.Local{
+        .{ .codec = .sum, .schema_index = 0 },
+        .{ .codec = .bool },
+        .{ .codec = .i32 },
+    };
+    try std.testing.expectError(error.InvalidInstructionCodec, validateSingleSumInstruction(
+        .{ .kind = .sum_variant_is, .dst = 1, .operand = 2, .aux = 1 },
+        valid_sum_locals,
+    ));
+    try std.testing.expectError(error.InvalidInstructionLocalIndex, validateSingleSumInstruction(
+        .{ .kind = .sum_variant_is, .dst = 2, .operand = 0, .aux = 1 },
+        valid_sum_locals,
+    ));
+    try std.testing.expectError(error.InvalidInstructionCodec, validateSingleSumInstruction(
+        .{ .kind = .sum_variant_is, .dst = 1, .operand = 0, .aux = 2 },
+        valid_sum_locals,
+    ));
+    try std.testing.expectError(error.InvalidInstructionCodec, validateSingleSumInstruction(
+        .{ .kind = .sum_extract_payload, .dst = 2, .operand = 0, .aux = 0 },
+        valid_sum_locals,
+    ));
+    try std.testing.expectError(error.InvalidInstructionLocalIndex, validateSingleSumInstruction(
+        .{ .kind = .sum_extract_payload, .dst = 1, .operand = 0, .aux = 1 },
+        valid_sum_locals,
+    ));
+}
+
 test "ability.program preserves expected schema index for duplicate typed product entry args" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -4904,6 +5401,8 @@ test "ability.program surfaces declared ProgramPlan return_error values" {
         pub const compiled_plan = returnErrorPlan("return-error");
     };
     const Program = ability.program("return-error", struct {}, ErrorBody);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.return_errors.len);
+    try std.testing.expectEqualStrings("Rejected", Program.contract.return_errors[0]);
     try std.testing.expectError(error.Rejected, Program.run(&runtime, .{}));
 }
 

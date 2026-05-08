@@ -24,6 +24,8 @@ pub const CallEdge = effect_ir.CallEdge;
 pub const LocalId = effect_ir.LocalId;
 pub const BlockId = effect_ir.BlockId;
 pub const LocalCodec = effect_ir.LocalCodec;
+pub const EffectValueCodec = effect_ir.ValueCodec;
+pub const EffectValueRef = effect_ir.ValueRef;
 pub const InstructionKind = effect_ir.InstructionKind;
 pub const Instruction = effect_ir.Instruction;
 pub const TerminatorKind = effect_ir.TerminatorKind;
@@ -101,6 +103,10 @@ pub const builder = struct {
     pub const callHelperDiscardingResult = inner.callHelperDiscardingResult;
     /// Build an effect operation call instruction.
     pub const callOp = inner.callOp;
+    /// Build a sum-tag predicate instruction.
+    pub const sumVariantIs = inner.sumVariantIs;
+    /// Build a sum-payload extraction instruction.
+    pub const sumExtractPayload = inner.sumExtractPayload;
     /// Build a return-value instruction.
     pub const returnValue = inner.returnValue;
     /// Materialize and validate a ProgramPlan.
