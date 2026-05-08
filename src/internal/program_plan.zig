@@ -2207,6 +2207,7 @@ pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan
     }
 
     if (plan.schema_version == 3) {
+        try rejectLegacyConstI32StringLiterals(plan.*);
         plan.schema_version = ProgramPlan.current_schema_version;
         return;
     }
@@ -2216,16 +2217,19 @@ pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan
     }
 
     if (plan.schema_version == 5) {
+        try rejectLegacyConstI32StringLiterals(plan.*);
         plan.schema_version = ProgramPlan.current_schema_version;
         return;
     }
 
     if (plan.schema_version == 6) {
+        try rejectLegacyConstI32StringLiterals(plan.*);
         plan.schema_version = ProgramPlan.current_schema_version;
         return;
     }
 
     if (plan.schema_version == 7) {
+        try rejectLegacyConstI32StringLiterals(plan.*);
         plan.schema_version = ProgramPlan.current_schema_version;
         return;
     }
@@ -5786,6 +5790,48 @@ test "upgradeLegacyProgramPlan rejects schema-9 const_i32 string literals" {
     };
 
     try std.testing.expectError(error.UnsupportedSchemaVersion, upgradeLegacyProgramPlan(std.testing.allocator, &plan));
+}
+
+fn legacyConstI32StringLiteralPlan(schema_version: u32) ProgramPlan {
+    return .{
+        .schema_version = schema_version,
+        .label = "legacy.const_i32_string_literal",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_i32, .dst = 0, .string_literal = "-1" },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+}
+
+test "upgradeLegacyProgramPlan rejects schema-3 through schema-7 const_i32 string literals" {
+    inline for ([_]u32{ 3, 4, 5, 6, 7 }) |schema_version| {
+        var plan = legacyConstI32StringLiteralPlan(schema_version);
+        try std.testing.expectError(error.UnsupportedSchemaVersion, upgradeLegacyProgramPlan(std.testing.allocator, &plan));
+    }
 }
 
 test "ProgramPlan.validate rejects call_op payload locals outside the owning function locals" {
