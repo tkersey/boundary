@@ -158,7 +158,7 @@ pub fn ExecutableCapabilityLedgerForPlan(
         break :blk .{ .items = items, .truncated = truncated };
     };
     return struct {
-        pub const blockers = &data.items;
+        pub const blockers = data.items;
         pub const truncated = data.truncated;
     };
 }

@@ -1,6 +1,7 @@
 // zlinter-disable function_naming no_empty_block no_undefined no_swallow_error
 const lowered_machine = @import("lowered_machine");
 const lowering_api = @import("lowering_api");
+const plan_types = @import("internal_program_plan");
 const std = @import("std");
 
 fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
@@ -219,6 +220,133 @@ fn ProgramErrorSet(comptime Body: type) type {
     return lowered_machine.ResetError(error{});
 }
 
+const ContractOutputView = struct {
+    label: []const u8,
+    codec: lowering_api.ValueCodec,
+    schema_index: ?u16 = null,
+};
+
+const ContractRequirementView = struct {
+    label: []const u8,
+    first_op: u16,
+    op_count: u16,
+    lifecycle_tag: @TypeOf(@as(plan_types.RequirementPlan, undefined).lifecycle_tag),
+    output_tag: @TypeOf(@as(plan_types.RequirementPlan, undefined).output_tag),
+};
+
+const ContractOpView = struct {
+    requirement_index: u16,
+    requirement_label: []const u8,
+    op_name: []const u8,
+    mode: plan_types.ControlMode,
+    payload_ref: lowering_api.ValueRef,
+    resume_ref: lowering_api.ValueRef,
+    has_after: bool,
+};
+
+fn contractOutputs(comptime plan: lowering_api.ProgramPlan) [plan.outputs.len]ContractOutputView {
+    var views: [plan.outputs.len]ContractOutputView = undefined;
+    for (plan.outputs, 0..) |output, index| {
+        views[index] = .{
+            .label = output.label,
+            .codec = output.codec,
+            .schema_index = output.schema_index,
+        };
+    }
+    return views;
+}
+
+fn contractRequirements(comptime plan: lowering_api.ProgramPlan) [plan.requirements.len]ContractRequirementView {
+    var views: [plan.requirements.len]ContractRequirementView = undefined;
+    for (plan.requirements, 0..) |requirement, index| {
+        views[index] = .{
+            .label = requirement.label,
+            .first_op = requirement.first_op,
+            .op_count = requirement.op_count,
+            .lifecycle_tag = requirement.lifecycle_tag,
+            .output_tag = requirement.output_tag,
+        };
+    }
+    return views;
+}
+
+fn contractOps(comptime plan: lowering_api.ProgramPlan) [plan.ops.len]ContractOpView {
+    var views: [plan.ops.len]ContractOpView = undefined;
+    for (plan.ops, 0..) |op, index| {
+        const requirement = plan.requirements[op.requirement_index];
+        views[index] = .{
+            .requirement_index = op.requirement_index,
+            .requirement_label = requirement.label,
+            .op_name = op.op_name,
+            .mode = op.mode,
+            .payload_ref = .{ .codec = op.payload_codec, .schema_index = op.payload_schema_index },
+            .resume_ref = .{ .codec = op.resume_codec, .schema_index = op.resume_schema_index },
+            .has_after = op.has_after,
+        };
+    }
+    return views;
+}
+
+fn ProgramContractFor(
+    comptime program_label: []const u8,
+    comptime plan: lowering_api.ProgramPlan,
+    comptime ResultValue: type,
+    comptime OutputsValue: type,
+    comptime schema_types: anytype,
+    comptime nested_with_targets: anytype,
+) type {
+    const contract_result_ref = lowering_api.executableResultRefForPlan(plan);
+    const output_views = contractOutputs(plan);
+    const requirement_views = contractRequirements(plan);
+    const op_views = contractOps(plan);
+    const Ledger = lowering_api.ExecutableCapabilityLedgerForPlan(plan, schema_types, nested_with_targets);
+    const first_blocker = if (Ledger.blockers.len == 0) null else Ledger.blockers[0];
+
+    return struct {
+        /// Public program label passed to ability.program.
+        pub const label = program_label;
+        /// Result value reference declared by the entry ProgramPlan function.
+        pub const result_ref = contract_result_ref;
+        /// Result codec declared by the entry ProgramPlan function.
+        pub const result_codec = contract_result_ref.codec;
+        /// Result schema index when the result is product or sum typed.
+        pub const result_schema_index = contract_result_ref.schema_index;
+        /// Zig value type produced by Program.run.
+        pub const ResultType = ResultValue;
+        /// Zig outputs type produced by Program.run.
+        pub const OutputsType = OutputsValue;
+        /// Whether ResultType is backed by a typed ProgramPlan schema entry.
+        pub const has_typed_result_schema = contract_result_ref.schema_index != null;
+        /// Output declarations visible to callers without exposing mutable plan tables.
+        pub const outputs = &output_views;
+        /// Requirement declarations visible to callers without exposing mutable plan tables.
+        pub const requirements = &requirement_views;
+        /// Operation declarations visible to callers without exposing mutable plan tables.
+        pub const ops = &op_views;
+        /// Whether the body declared explicit nested lexical-with resolver rows.
+        pub const has_nested_with_targets = nested_with_targets.len != 0;
+        /// Executable support ledger summary for the validated plan.
+        pub const executable = struct {
+            /// Whether the validated ProgramPlan has no executable capability blockers.
+            pub const supported = Ledger.blockers.len == 0;
+            /// Number of blockers retained in the capped executable ledger.
+            pub const blocker_count = Ledger.blockers.len;
+            /// Maximum blocker records retained by the executable ledger.
+            pub const blocker_cap = lowering_api.max_capability_blockers;
+            /// Whether executable ledger diagnostics were truncated at blocker_cap.
+            pub const truncated = Ledger.truncated;
+            /// Stable human-readable executable capability summary.
+            pub const summary = lowering_api.executableCapabilitySummary(plan, schema_types, nested_with_targets);
+            /// First blocker tag, if the executable ledger is non-empty.
+            pub const first_blocker_tag = if (first_blocker) |blocker| blocker.tag else null;
+            /// First blocker function index, if the executable ledger is non-empty.
+            pub const first_blocker_function = if (first_blocker) |blocker| blocker.function_index else null;
+            /// First blocker instruction index, if the executable ledger is non-empty.
+            pub const first_blocker_instruction = if (first_blocker) |blocker| blocker.instruction_index else null;
+        };
+    };
+}
+
 fn ProgramOutputsType(comptime Body: type) type {
     if (comptime hasDeclSafe(Body, "Outputs")) return Body.Outputs;
     return void;
@@ -313,6 +441,8 @@ pub fn program(
     return struct {
         /// Runtime-owned executable plan for this public program.
         pub const compiled_plan = body_compiled_plan;
+        /// Read-only projection of the compiled ProgramPlan contract.
+        pub const contract = ProgramContractFor(label, body_compiled_plan, Value, Outputs, body_value_schema_types, body_nested_with_targets);
         /// Public execution error for this program.
         pub const Error = ProgramErrorSet(Body);
 
