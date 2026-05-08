@@ -120,6 +120,12 @@ It demonstrates typed product execution, optional sum matching,
 tagged-union payload extraction, output collection and cleanup, and
 `Program.contract` inspection through the public API.
 
+`examples/plan_native_optional.zig` demonstrates optional-like control flow as a
+plan-native choice operation. The handler either resumes with a typed optional
+sum value or returns immediately. The plan branches with `sum_variant_is`,
+extracts the `some` payload with `sum_extract_payload`, and leaves the
+compatibility `ability.effect.optional.handle` path intact.
+
 ## Higher-level builder prototype
 
 Raw `ability.ir.plan.*` tables remain available. For common typed examples,

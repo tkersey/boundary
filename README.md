@@ -158,6 +158,8 @@ IR:
   state.
 - `examples/typed_program_plan.zig` demonstrates typed product/sum execution,
   outputs, cleanup, and `Program.contract`.
+- `examples/plan_native_optional.zig` demonstrates optional-like control flow as
+  a plan-native choice op with a typed sum resume value.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
   abort operations in one plan.
 
@@ -176,5 +178,6 @@ Useful example runs:
 ```sh
 zig build run-state-basic
 zig build run-typed-program-plan
+zig build run-plan-native-optional
 zig build run-custom-approval-workflow
 ```
