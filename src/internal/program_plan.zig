@@ -2116,6 +2116,7 @@ pub fn EntryExecutionAnalysis(comptime plan: ProgramPlan) type {
         terminal_functions: [plan.functions.len]bool,
         after_result_functions: [plan.functions.len]bool,
         helper_cycle: bool,
+        max_active_frame_depth: usize,
         max_active_local_slots: usize,
         max_active_call_arg_slots: usize,
         reachable_after_count: usize,
@@ -2147,6 +2148,7 @@ pub fn entryExecutionAnalysisWithNestedTargets(
             .terminal_functions = [_]bool{false} ** plan.functions.len,
             .after_result_functions = [_]bool{false} ** plan.functions.len,
             .helper_cycle = false,
+            .max_active_frame_depth = 0,
             .max_active_local_slots = 0,
             .max_active_call_arg_slots = 0,
             .reachable_after_count = 0,
@@ -2275,6 +2277,7 @@ pub fn entryExecutionAnalysisWithNestedTargets(
         }
 
         analysis.helper_cycle = entryAnalysisHasHelperCycle(plan, analysis);
+        analysis.max_active_frame_depth = entryAnalysisMaxFrameDepth(plan, analysis, plan.entry_index, [_]bool{false} ** plan.functions.len, nested_with_targets);
         analysis.max_active_local_slots = entryAnalysisMaxLocalSlots(plan, analysis, plan.entry_index, [_]bool{false} ** plan.functions.len, nested_with_targets);
         analysis.max_active_call_arg_slots = entryAnalysisMaxCallArgSlots(plan, analysis, plan.entry_index, [_]bool{false} ** plan.functions.len, nested_with_targets);
         for (plan.instructions, 0..) |instruction, instruction_index| {
@@ -2370,6 +2373,32 @@ fn entryAnalysisHasHelperCycle(comptime plan: ProgramPlan, comptime analysis: En
         }
     }
     return false;
+}
+
+fn entryAnalysisMaxFrameDepth(
+    comptime plan: ProgramPlan,
+    comptime analysis: EntryExecutionAnalysis(plan),
+    comptime function_index: usize,
+    comptime path: [plan.functions.len]bool,
+    comptime nested_with_targets: anytype,
+) usize {
+    if (function_index >= plan.functions.len or path[function_index]) return 0;
+    const function = plan.functions[function_index];
+    var next_path = path;
+    next_path[function_index] = true;
+    var best_child: usize = 0;
+    const instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return 1;
+    for (plan.instructions[function.first_instruction..instruction_end], function.first_instruction..) |instruction, instruction_index| {
+        if (!analysis.reachable_instructions[instruction_index]) continue;
+        if (instruction.kind == .call_helper) {
+            best_child = @max(best_child, entryAnalysisMaxFrameDepth(plan, analysis, instruction.operand, next_path, nested_with_targets));
+        } else if (instruction.kind == .call_nested_with) {
+            if (nestedWithTargetIndexForMetadata(nested_with_targets, instruction.string_literal)) |target_index| {
+                best_child = @max(best_child, entryAnalysisMaxFrameDepth(plan, analysis, target_index, next_path, nested_with_targets));
+            }
+        }
+    }
+    return 1 + best_child;
 }
 
 fn entryAnalysisMaxLocalSlots(

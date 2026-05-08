@@ -3142,6 +3142,7 @@ test "ability.program uses shared interpreter scratch for helper frames and afte
     defer deep_helper_result.deinit();
     try std.testing.expectEqual(@as(i32, 7), deep_helper_result.value);
     try std.testing.expect(counting.alloc_calls <= 2);
+    try std.testing.expect(counting.largest_allocation_request < 64 * 1024);
 
     const after_deep_helper_allocs = counting.alloc_calls;
     const ManyAfterHandlers = struct {

@@ -1676,25 +1676,64 @@ const ActiveInterpreterFrame = struct {
     waiting_helper_dst: ?u16 = null,
 };
 
-const ActiveFrameStack = struct {
-    buffer: []ActiveInterpreterFrame,
-    len: usize = 0,
+const inline_active_frame_capacity = 16;
 
-    fn append(self: *@This(), allocator: std.mem.Allocator, frame: ActiveInterpreterFrame) error{ExecutionBudgetExceeded}!void {
-        _ = allocator;
-        if (self.len == self.buffer.len) return error.ExecutionBudgetExceeded;
-        self.buffer[self.len] = frame;
-        self.len += 1;
+const ActiveFrameStack = struct {
+    inline_buffer: []ActiveInterpreterFrame,
+    heap_frames: std.ArrayList(ActiveInterpreterFrame) = .empty,
+    inline_len: usize = 0,
+
+    fn init(
+        allocator: std.mem.Allocator,
+        inline_buffer: []ActiveInterpreterFrame,
+        initial_capacity: usize,
+    ) std.mem.Allocator.Error!@This() {
+        var self: @This() = .{ .inline_buffer = inline_buffer };
+        errdefer self.deinit(allocator);
+        if (initial_capacity > inline_buffer.len) try self.heap_frames.ensureTotalCapacity(allocator, initial_capacity);
+        return self;
+    }
+
+    fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        self.heap_frames.deinit(allocator);
+    }
+
+    fn usingHeap(self: @This()) bool {
+        return self.heap_frames.capacity != 0;
+    }
+
+    fn append(self: *@This(), allocator: std.mem.Allocator, frame: ActiveInterpreterFrame) (std.mem.Allocator.Error || error{ExecutionBudgetExceeded})!void {
+        if (self.len() == max_interpreter_steps) return error.ExecutionBudgetExceeded;
+        if (self.usingHeap()) {
+            try self.heap_frames.append(allocator, frame);
+            return;
+        }
+        if (self.inline_len < self.inline_buffer.len) {
+            self.inline_buffer[self.inline_len] = frame;
+            self.inline_len += 1;
+            return;
+        }
+        try self.heap_frames.ensureTotalCapacity(allocator, self.inline_buffer.len * 2);
+        try self.heap_frames.appendSlice(allocator, self.inline_buffer[0..self.inline_len]);
+        try self.heap_frames.append(allocator, frame);
+        self.inline_len = 0;
     }
 
     fn pop(self: *@This()) ?ActiveInterpreterFrame {
-        if (self.len == 0) return null;
-        self.len -= 1;
-        return self.buffer[self.len];
+        if (self.usingHeap()) return self.heap_frames.pop();
+        if (self.inline_len == 0) return null;
+        self.inline_len -= 1;
+        return self.inline_buffer[self.inline_len];
     }
 
     fn top(self: *@This()) *ActiveInterpreterFrame {
-        return &self.buffer[self.len - 1];
+        if (self.usingHeap()) return &self.heap_frames.items[self.heap_frames.items.len - 1];
+        return &self.inline_buffer[self.inline_len - 1];
+    }
+
+    fn len(self: @This()) usize {
+        if (self.usingHeap()) return self.heap_frames.items.len;
+        return self.inline_len;
     }
 };
 
@@ -1816,11 +1855,11 @@ fn returnFromActiveFrame(
 ) anyerror!?ExecutionResult {
     var returned = initial_returned;
     while (true) {
-        if (frames.len == 0) return error.ProgramContractViolation;
+        if (frames.len() == 0) return error.ProgramContractViolation;
         const completed_frame = frames.pop().?;
         scratch.popFrame(completed_frame.frame);
 
-        if (frames.len == 0) return returned;
+        if (frames.len() == 0) return returned;
         var parent = frames.top();
         if (returned.terminal) {
             const parent_function = compiled_plan.functions[parent.function_index];
@@ -1865,18 +1904,21 @@ fn executeFunctionWithFrameStack(
     remaining_steps: *usize,
 ) anyerror!ExecutionResult {
     _ = runtime;
+    const analysis = comptime program_plan.entryExecutionAnalysisWithNestedTargets(compiled_plan, nested_with_targets) catch |err|
+        @compileError("validated ProgramPlan entry analysis failed: " ++ @errorName(err));
     const allocator = scratch.allocator;
-    var frame_storage: [max_interpreter_steps]ActiveInterpreterFrame = undefined;
-    var frames = ActiveFrameStack{ .buffer = &frame_storage };
+    var inline_frame_storage: [inline_active_frame_capacity]ActiveInterpreterFrame = undefined;
+    var frames = try ActiveFrameStack.init(allocator, &inline_frame_storage, analysis.max_active_frame_depth);
+    defer frames.deinit(allocator);
     defer {
-        while (frames.len != 0) {
+        while (frames.len() != 0) {
             const active = frames.pop().?;
             scratch.popFrame(active.frame);
         }
     }
 
     try pushActiveInterpreterFrame(allocator, compiled_plan, scratch, &frames, function_index, args);
-    while (frames.len != 0) {
+    while (frames.len() != 0) {
         try consumeInterpreterStep(remaining_steps);
         var active = frames.top();
         if (active.waiting_helper_dst != null) return error.ProgramContractViolation;
