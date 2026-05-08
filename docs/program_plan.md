@@ -1,0 +1,184 @@
+# ProgramPlan authoring
+
+`ability.program(label, Handlers, Body)` is the public execution entry point for
+compiled plans. A body must expose `Body.compiled_plan`, and that value must be
+an `ability.ir.ProgramPlan`.
+
+The root package stays small: `ability.effect`, `ability.ir`,
+`ability.program`, and `ability.Runtime`.
+
+## Scalar body
+
+A scalar plan uses scalar locals and scalar `ProgramValue` entry arguments. If
+the plan has entry parameters, `Body.encodeArgs(handlers)` may return a slice or
+array pointer of `ability.ir.ProgramValue`.
+
+## Typed product body
+
+Product plans use `.product` value refs and schema table rows. The body must
+declare `Body.value_schema_types` with the exact Zig product type for each
+schema index that execution can reach.
+
+`Body.encodeArgs` may return a tuple, for example:
+
+```zig
+pub fn encodeArgs(_: Handlers) @TypeOf(.{Payload{ .amount = 42 }}) {
+    return .{Payload{ .amount = 42 }};
+}
+```
+
+The tuple field type must match the entry parameter ref. A product result is
+returned as the typed Zig product in `Program.Result.value`.
+
+## Typed sum body
+
+Sum plans use `.sum` value refs and schema-local variant tables. Optional values,
+enums, and tagged unions are represented as sum schemas. The body declares the
+exact Zig sum type in `Body.value_schema_types`.
+
+`sum_variant_is` compares a sum local against a schema-local variant ordinal and
+writes a bool local for ordinary `branch_if` control flow. Unit enum variants
+can be matched this way.
+
+`sum_extract_payload` extracts a non-unit variant payload into a destination
+local whose value ref exactly matches the variant payload. Extracting a unit
+variant or using the wrong destination ref is rejected during plan validation.
+Extracting the wrong active variant at runtime fails with
+`error.ProgramContractViolation`.
+
+## Outputs
+
+A body with outputs declares:
+
+```zig
+pub const Outputs = []i32;
+pub fn collectOutputs(allocator: std.mem.Allocator, handlers: *Handlers) !Outputs;
+```
+
+The output declarations in `ProgramPlan.outputs` describe the contract metadata.
+`collectOutputs` materializes the typed value that appears at
+`Program.Result.outputs`.
+
+If outputs own memory, add:
+
+```zig
+pub fn deinitOutputs(allocator: std.mem.Allocator, outputs: Outputs) void;
+```
+
+Output cleanup runs from `Program.Result.deinit()`. Result cleanup and output
+cleanup are independent.
+
+## Result cleanup
+
+Typed results that own memory can expose:
+
+```zig
+pub fn deinitResult(allocator: std.mem.Allocator, value: ResultType) void;
+```
+
+`deinitResult` runs from `Program.Result.deinit()`. If output collection fails
+after a result has been produced, result cleanup still runs. Output cleanup does
+not run unless outputs were collected.
+
+Scalar strings and strings inside typed products or sums are borrowed unless the
+body documents allocator ownership and implements the matching cleanup hook.
+
+## Nested lexical-with targets
+
+Nested lexical-with execution is explicit. A body opts in with
+`Body.nested_with_targets`, using `ability.ir.NestedWithTarget` entries that map
+metadata packets to function indexes. `ability.ir.builder.finishWithNestedTargets`
+validates the target list while producing the same `ProgramPlan` shape.
+
+The metadata string must exactly match the `call_nested_with` instruction packet.
+The function index must name the zero-parameter function that should execute for
+that packet. A target with the right metadata but the wrong function index is not
+treated as a near miss: it is rejected if the indexed function cannot be entered
+as a nested target or if its completion/result shape does not match the call site.
+
+Missing or mismatched targets fail closed. Terminal nested targets may complete
+the whole program when their terminal result ref matches the caller's result ref,
+including typed product and sum results declared through `Body.value_schema_types`.
+There is no global target discovery.
+
+## Program.contract
+
+Every compiled program exposes `Program.contract`, a read-only projection of the
+validated body and plan contract. It includes:
+
+- label, result ref, result type, output refs, and output type
+- entry parameter refs
+- value schema, field, and variant declarations
+- requirements, operations, payload refs, resume refs, modes, and after flags
+- nested-with target declarations
+- unique reachable `return_error` literals
+- executable capability-ledger metadata
+
+`Program.contract` is inspection metadata. It does not expose mutable function,
+block, instruction, Artifact, VM, compiler, parser, or capability-map surfaces.
+
+## Examples
+
+Run the typed ProgramPlan example with:
+
+```sh
+zig build run-typed-program-plan
+```
+
+It demonstrates typed product execution, optional sum matching,
+tagged-union payload extraction, output collection and cleanup, and
+`Program.contract` inspection through the public API.
+
+`examples/plan_native_optional.zig` demonstrates optional-like control flow as a
+plan-native choice operation. The handler either resumes with a typed optional
+sum value or returns immediately. The plan branches with `sum_variant_is`,
+extracts the `some` payload with `sum_extract_payload`, and leaves the
+compatibility `ability.effect.optional.handle` path intact.
+
+`examples/plan_native_state_reader.zig` demonstrates state and reader as
+plan-native transform operations. The state requirement carries `state_cell`
+metadata and a `final_state` output declaration. The reader requirement carries
+`reader_environment` metadata and borrows its environment through the handler,
+without a handler-owned side channel for the returned value.
+
+`examples/plan_native_writer.zig` demonstrates writer accumulation through a
+`writer_accumulator` requirement and a typed output declaration. The accumulator
+is materialized as `Program.Result.outputs` and released through
+`Body.deinitOutputs`.
+
+`examples/plan_native_exception.zig` demonstrates exception-like abort control
+flow as a plan-native `throw` operation. The requirement carries `abort_catch`
+metadata, scalar/product/sum payloads are passed to the handler, and the handler
+returns the terminal result.
+
+`examples/plan_native_resource.zig` demonstrates resource-like lifecycle rows as
+plan-native `acquire` and `release` operations with `resource_bracket` metadata.
+The plan explicitly releases typed resources in LIFO order before normal return,
+exception-style abort, and optional return-now control transfer.
+
+## Higher-level builder prototype
+
+Raw `ability.ir.plan.*` tables remain available. For common typed examples,
+`ability.ir.builder.typed` provides constructors that still return the same
+`ability.ir.ProgramPlan`:
+
+- `scalarConstI32`
+- `productIdentity`
+- `sumVariantI32Branch`
+- `sumExtractI32Payload`
+- `unitWithOutputs`
+
+These helpers cover scalar demos, product results, optional or enum-like
+variant branches, tagged-union `i32` payload extraction, and output declarations.
+They are a convenience layer over ProgramPlan, not a parser, compiler, or second
+IR.
+
+## Custom effect authoring direction
+
+Custom effect authoring is not public yet. The intended direction is
+schema-first and plan-native: custom descriptions should lower to the same
+ProgramPlan requirement, op, value schema, output, nested-with, and contract
+metadata used by built-in prototypes.
+
+See [custom_effect_authoring.md](custom_effect_authoring.md) for the design
+boundary and non-goals.

@@ -24,12 +24,9 @@ with `ability.ir.builder`, validated before it escapes, and interpreted by
 structured `product` and `sum` values when the body declares an exact
 `Body.value_schema_types` tuple matching the plan schema tables. `ProgramValue`
 stays the scalar public carrier; typed bodies may instead return a tuple from
-`Body.encodeArgs`, and the interpreter carries structured values through entry
-arguments, locals, helper calls, operation payloads, and results without widening
-`ProgramValue`. Sum plans can branch on an exact variant ordinal with
-`sum_variant_is` and extract non-unit payloads with `sum_extract_payload`; both
-operations are validated against the plan's schema-local variant table and exact
-destination refs before execution.
+`Body.encodeArgs`. Sum plans can branch with `sum_variant_is` and extract
+non-unit payloads with `sum_extract_payload`; both operations are validated
+against schema-local variant tables and exact destination refs.
 
 Helper calls run through an interpreter-owned frame stack. Recursive helper
 plans are bounded by the interpreter step budget rather than by host stack depth.
@@ -141,6 +138,23 @@ metadata for tests and callers that need to inspect what a program declares; it
 does not expose mutable ProgramPlan tables, Artifact or VM surfaces, or legacy
 capability maps.
 
+See [docs/program_plan.md](docs/program_plan.md) for typed product/sum bodies,
+tuple entry args, outputs, cleanup hooks, nested-with targets, and
+`Program.contract`. `ability.ir.builder.typed` provides a small higher-level
+builder prototype that still emits `ProgramPlan`. `examples/typed_program_plan.zig`
+runs product execution, sum matching, tagged-union payload extraction, output
+cleanup, and contract inspection through the public API.
+Plan-native built-in prototypes under `examples/plan_native_*.zig` show the
+same public entry point for optional, state/reader, writer, exception-style
+abort, and resource-style lifecycle workflows while compatibility effect APIs
+remain in place.
+See [docs/custom_effect_authoring.md](docs/custom_effect_authoring.md) for the
+schema-first custom effect authoring direction. Custom generated effects are not
+public yet; custom workflows should still lower to `ProgramPlan` and execute
+through `ability.program`.
+See [docs/release_hardening.md](docs/release_hardening.md) for package/lint
+coverage, file classification, and the built-in effects roadmap.
+
 ## Effects
 
 Effect families remain under `ability.effect`. Built-in and custom bound
@@ -152,8 +166,16 @@ IR:
 
 - `examples/state_basic.zig` demonstrates two named operations over handler-owned
   state.
+- `examples/typed_program_plan.zig` demonstrates typed product/sum execution,
+  outputs, cleanup, and `Program.contract`.
+- `examples/plan_native_optional.zig` demonstrates optional-like control flow as
+  a plan-native choice op with a typed sum resume value.
+- `examples/plan_native_state_reader.zig` demonstrates state and reader as
+  plan-native transform ops with final state returned through outputs.
+- `examples/plan_native_writer.zig` demonstrates writer accumulation through
+  typed outputs and explicit output cleanup.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
-  abort operations in one plan.
+  abort operations in one plan without exposing a custom effect API.
 
 ## Build
 
@@ -169,5 +191,9 @@ Useful example runs:
 
 ```sh
 zig build run-state-basic
+zig build run-typed-program-plan
+zig build run-plan-native-optional
+zig build run-plan-native-state-reader
+zig build run-plan-native-writer
 zig build run-custom-approval-workflow
 ```

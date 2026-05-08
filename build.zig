@@ -140,6 +140,31 @@ fn addTestArtifact(
     test_step.dependOn(&addRunArtifactWithArgs(b, tests, test_args.passthrough).step);
 }
 
+fn addCompileFailArtifact(
+    b: *std.Build,
+    compile_fail_step: *std.Build.Step,
+    root_module: *std.Build.Module,
+    expected_error: []const u8,
+) void {
+    const tests = b.addTest(.{ .root_module = root_module });
+    tests.expect_errors = .{ .contains = expected_error };
+    compile_fail_step.dependOn(&tests.step);
+}
+
+fn addZigPathCoverageGuard(b: *std.Build, lint_step: *std.Build.Step) void {
+    const guard = b.addSystemCommand(&.{
+        "sh",
+        "-c",
+        \\set -eu
+        \\tmp="${TMPDIR:-/tmp}/ability-zig-paths-$$"
+        \\trap 'rm -f "$tmp.actual" "$tmp.expected"' EXIT
+        \\find src examples test bench -type f -name '*.zig' | sort > "$tmp.actual"
+        \\grep -E '^(src|examples|test|bench)/.*\.zig$' repo_zig_paths.txt | sort > "$tmp.expected"
+        \\diff -u "$tmp.expected" "$tmp.actual"
+    });
+    lint_step.dependOn(&guard.step);
+}
+
 fn addCoreModules(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -320,7 +345,14 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const plan_native_resource_mod = b.createModule(.{
+        .root_source_file = b.path("examples/plan_native_resource.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    plan_native_resource_mod.addImport("ability", ability);
     program_api_tests_mod.addImport("ability", ability);
+    program_api_tests_mod.addImport("plan_native_resource", plan_native_resource_mod);
     const program_api_tests = b.addTest(.{ .root_module = program_api_tests_mod, .filters = test_args.filters });
     test_step.dependOn(&addRunArtifactWithArgs(b, program_api_tests, test_args.passthrough).step);
 
@@ -333,6 +365,63 @@ pub fn build(b: *std.Build) void {
     const public_optional_tests = b.addTest(.{ .root_module = public_optional_tests_mod, .filters = test_args.filters });
     test_step.dependOn(&addRunArtifactWithArgs(b, public_optional_tests, test_args.passthrough).step);
 
+    const compile_fail_step = b.step("compile-fail", "Check expected public ProgramPlan compile diagnostics.");
+    test_step.dependOn(compile_fail_step);
+    const compile_fail_specs = [_]struct {
+        path: []const u8,
+        expected_error: []const u8,
+    }{
+        .{
+            .path = "test/compile_fail/missing_reachable_return_error_decl.zig",
+            .expected_error = "Body.compiled_plan reachable return_error is not declared in Body.Error: Rejected",
+        },
+        .{
+            .path = "test/compile_fail/invalid_result_cleanup_with_outputs.zig",
+            .expected_error = "Body.deinitResult with Body.Outputs must have type fn (std.mem.Allocator, value) void; release outputs separately with Body.deinitOutputs",
+        },
+        .{
+            .path = "test/compile_fail/value_schema_variant_mismatch.zig",
+            .expected_error = "Body.value_schema_types does not match Body.compiled_plan.value_variants[1]",
+        },
+        .{
+            .path = "test/compile_fail/invalid_sum_extract_destination.zig",
+            .expected_error = "Body.compiled_plan failed ProgramPlan.validate: InvalidSumPayloadDestination",
+        },
+        .{
+            .path = "test/compile_fail/encode_args_tuple_field_mismatch.zig",
+            .expected_error = "expected i32, found bool",
+        },
+        .{
+            .path = "test/compile_fail/missing_output_collector.zig",
+            .expected_error = "Body.Outputs requires Body.collectOutputs",
+        },
+        .{
+            .path = "test/compile_fail/invalid_output_cleanup_hook.zig",
+            .expected_error = "Body.deinitOutputs must have type fn (std.mem.Allocator, outputs) void",
+        },
+        .{
+            .path = "test/compile_fail/missing_nested_with_target.zig",
+            .expected_error = "UnsupportedNestedWith",
+        },
+        .{
+            .path = "test/compile_fail/nested_with_wrong_function_index.zig",
+            .expected_error = "UnsupportedNestedWith",
+        },
+        .{
+            .path = "test/compile_fail/nested_with_result_codec_mismatch.zig",
+            .expected_error = "UnsupportedResultCodec",
+        },
+    };
+    inline for (compile_fail_specs) |spec| {
+        const compile_fail_mod = b.createModule(.{
+            .root_source_file = b.path(spec.path),
+            .target = target,
+            .optimize = optimize,
+        });
+        compile_fail_mod.addImport("ability", ability);
+        addCompileFailArtifact(b, compile_fail_step, compile_fail_mod, spec.expected_error);
+    }
+
     const examples = [_]struct {
         name: []const u8,
         path: []const u8,
@@ -340,6 +429,12 @@ pub fn build(b: *std.Build) void {
         desc: []const u8,
     }{
         .{ .name = "ability-state-basic", .path = "examples/state_basic.zig", .step = "run-state-basic", .desc = "Run the state effect example." },
+        .{ .name = "ability-typed-program-plan", .path = "examples/typed_program_plan.zig", .step = "run-typed-program-plan", .desc = "Run the typed ProgramPlan example." },
+        .{ .name = "ability-plan-native-optional", .path = "examples/plan_native_optional.zig", .step = "run-plan-native-optional", .desc = "Run the plan-native optional example." },
+        .{ .name = "ability-plan-native-state-reader", .path = "examples/plan_native_state_reader.zig", .step = "run-plan-native-state-reader", .desc = "Run the plan-native state/reader example." },
+        .{ .name = "ability-plan-native-writer", .path = "examples/plan_native_writer.zig", .step = "run-plan-native-writer", .desc = "Run the plan-native writer example." },
+        .{ .name = "ability-plan-native-exception", .path = "examples/plan_native_exception.zig", .step = "run-plan-native-exception", .desc = "Run the plan-native exception example." },
+        .{ .name = "ability-plan-native-resource", .path = "examples/plan_native_resource.zig", .step = "run-plan-native-resource", .desc = "Run the plan-native resource example." },
         .{ .name = "ability-custom-approval-workflow", .path = "examples/custom_approval_workflow.zig", .step = "run-custom-approval-workflow", .desc = "Run the custom approval workflow example." },
     };
     inline for (examples) |example| {
@@ -418,80 +513,15 @@ pub fn build(b: *std.Build) void {
     }
 
     const lint_step = b.step("lint", "Lint source code.");
+    addZigPathCoverageGuard(b, lint_step);
     var builder = zlinter.builder(b, .{});
     builder.addPaths(.{
         .include = &.{
-            b.path("bench/abortive_effect_decompose_bench.zig"),
-            b.path("bench/algebraic_builder_decompose_bench.zig"),
-            b.path("bench/direct_first_suspend_bench.zig"),
-            b.path("bench/effect_family_matrix_bench.zig"),
-            b.path("bench/no_capture_bench.zig"),
-            b.path("bench/resource_effect_decompose_bench.zig"),
-            b.path("bench/state_effect_bench.zig"),
-            b.path("bench/writer_effect_decompose_bench.zig"),
-            b.path("bench/zprof_hotspots.zig"),
             b.path("build.zig"),
-            b.path("src/ability_shared.zig"),
-            b.path("src/algebraic.zig"),
-            b.path("src/bench_support.zig"),
-            b.path("src/decision_api.zig"),
-            b.path("src/effect/algebraic.zig"),
-            b.path("src/effect/choice.zig"),
-            b.path("src/effect/cleanup.zig"),
-            b.path("src/effect/define.zig"),
-            b.path("src/effect/exception.zig"),
-            b.path("src/effect/family.zig"),
-            b.path("src/effect/generated_family.zig"),
-            b.path("src/effect/optional.zig"),
-            b.path("src/effect/reader.zig"),
-            b.path("src/effect/resource.zig"),
-            b.path("src/effect/root.zig"),
-            b.path("src/effect/state.zig"),
-            b.path("src/effect/writer.zig"),
-            b.path("src/effect_ir.zig"),
-            b.path("src/effect_schema.zig"),
-            b.path("src/error_witness.zig"),
-            b.path("src/frontend.zig"),
-            b.path("src/helper_body_ir.zig"),
-            b.path("src/internal/algebraic_engine.zig"),
-            b.path("src/internal/helper_body_ir.zig"),
-            b.path("src/internal/kernel.zig"),
-            b.path("src/internal/lexical_bundle_schema.zig"),
-            b.path("src/internal/lexical_executable_bundle.zig"),
-            b.path("src/internal/lexical_support.zig"),
-            b.path("src/internal/program_plan.zig"),
-            b.path("src/internal/prompt_support.zig"),
-            b.path("src/internal/sealed_engine.zig"),
-            b.path("src/internal/synthetic_ability_root.zig"),
-            b.path("src/internal_kernel.zig"),
-            b.path("src/internal_program_plan.zig"),
-            b.path("src/interpreter.zig"),
-            b.path("src/ir_api.zig"),
-            b.path("src/lowered_machine.zig"),
-            b.path("src/lowering_api.zig"),
-            b.path("src/op_api.zig"),
-            b.path("src/open_row_runtime_support.zig"),
-            b.path("src/parity_kernel.zig"),
-            b.path("src/parity_machine.zig"),
-            b.path("src/parity_scenarios.zig"),
-            b.path("src/portable_core.zig"),
-            b.path("src/private_modules/helper_body_ir_build.zig"),
-            b.path("src/private_modules/internal_kernel_build.zig"),
-            b.path("src/private_modules/lowered_machine_build.zig"),
-            b.path("src/private_modules/program_frontend_build.zig"),
-            b.path("src/program_api.zig"),
-            b.path("src/program_frontend.zig"),
-            b.path("src/prompt_contract.zig"),
-            b.path("src/prompt_support_internal.zig"),
-            b.path("src/reference_eval.zig"),
-            b.path("src/reference_machine.zig"),
-            b.path("src/root.zig"),
-            b.path("src/runtime_contract_registry.zig"),
-            b.path("src/witnesses.zig"),
-            b.path("examples/state_basic.zig"),
-            b.path("examples/custom_approval_workflow.zig"),
-            b.path("test/program_api_test.zig"),
-            b.path("test/public_optional_bound_program_test.zig"),
+            b.path("src"),
+            b.path("examples"),
+            b.path("test"),
+            b.path("bench"),
         },
         .exclude = &.{},
     });

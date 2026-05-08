@@ -1333,6 +1333,13 @@ fn consumeInterpreterStep(remaining_steps: *usize) error{ExecutionBudgetExceeded
     remaining_steps.* -= 1;
 }
 
+fn constI32Value(instruction: program_plan.Instruction) error{ProgramContractViolation}!i32 {
+    if (instruction.string_literal.len != 0) {
+        return std.fmt.parseInt(i32, instruction.string_literal, 0) catch error.ProgramContractViolation;
+    }
+    return @intCast(instruction.operand);
+}
+
 fn mappedReturnError(comptime ErrorSet: type, comptime literal: []const u8) anyerror {
     return switch (@typeInfo(ErrorSet)) {
         .error_set => |errors| blk: {
@@ -1982,7 +1989,7 @@ fn executeKnownFunction(
                     if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
                     locals[instruction.dst] = extracted.value;
                 },
-                .const_i32 => locals[instruction.dst] = .{ .i32 = @intCast(instruction.operand) },
+                .const_i32 => locals[instruction.dst] = .{ .i32 = try constI32Value(instruction) },
                 .const_string => locals[instruction.dst] = .{ .string = instruction.string_literal },
                 .const_usize => {
                     locals[instruction.dst] = .{
@@ -2447,7 +2454,7 @@ fn executeFunctionWithFrameStack(
                     if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
                     locals[instruction.dst] = extracted.value;
                 },
-                .const_i32 => locals[instruction.dst] = .{ .i32 = @intCast(instruction.operand) },
+                .const_i32 => locals[instruction.dst] = .{ .i32 = try constI32Value(instruction) },
                 .const_string => locals[instruction.dst] = .{ .string = instruction.string_literal },
                 .const_usize => {
                     locals[instruction.dst] = .{

@@ -230,7 +230,7 @@ pub const BlockPlan = struct {
 /// Runtime-owned serializable executable plan for lowered or explicit IR programs.
 pub const ProgramPlan = struct {
     /// Stable schema version for JSON-serialized runtime plans.
-    pub const current_schema_version: u32 = 9;
+    pub const current_schema_version: u32 = 10;
 
     schema_version: u32 = current_schema_version,
     label: []const u8,
@@ -551,6 +551,10 @@ pub const ProgramPlan = struct {
                             const dst_codec = functionLocalCodec(self, function, instruction.dst) orelse
                                 return error.InvalidInstructionLocalIndex;
                             if (dst_codec != .i32) return error.InvalidInstructionLocalIndex;
+                            if (instruction.string_literal.len != 0) {
+                                _ = std.fmt.parseInt(i32, instruction.string_literal, 0) catch
+                                    return error.InvalidInstructionLocalIndex;
+                            }
                         } else if (instruction.kind == .sub_one) {
                             const operand_codec = functionLocalCodec(self, function, instruction.operand) orelse
                                 return error.InvalidInstructionLocalIndex;
@@ -564,18 +568,20 @@ pub const ProgramPlan = struct {
                     },
                     .sum_variant_is => {
                         const source_ref = functionLocalValueRef(self, function, instruction.operand) orelse
-                            return error.InvalidInstructionLocalIndex;
-                        if (sumVariantRef(self, source_ref, instruction.aux) == null) return error.InvalidInstructionCodec;
-                        if (!functionLocalHasCodec(self, function, instruction.dst, .bool)) return error.InvalidInstructionLocalIndex;
+                            return error.InvalidSumSourceRef;
+                        if (source_ref.codec != .sum) return error.InvalidSumSourceRef;
+                        if (sumVariantRef(self, source_ref, instruction.aux) == null) return error.InvalidSumVariantOrdinal;
+                        if (!functionLocalHasCodec(self, function, instruction.dst, .bool)) return error.InvalidSumVariantDestination;
                     },
                     .sum_extract_payload => {
                         const source_ref = functionLocalValueRef(self, function, instruction.operand) orelse
-                            return error.InvalidInstructionLocalIndex;
+                            return error.InvalidSumSourceRef;
+                        if (source_ref.codec != .sum) return error.InvalidSumSourceRef;
                         const payload_ref = sumVariantRef(self, source_ref, instruction.aux) orelse
-                            return error.InvalidInstructionCodec;
-                        if (!hasPayload(payload_ref.codec)) return error.InvalidInstructionCodec;
+                            return error.InvalidSumVariantOrdinal;
+                        if (!hasPayload(payload_ref.codec)) return error.InvalidSumPayloadVariant;
                         if (!functionLocalHasEquivalentValueRef(self, function, instruction.dst, payload_ref)) {
-                            return error.InvalidInstructionLocalIndex;
+                            return error.InvalidSumPayloadDestination;
                         }
                     },
                     .return_value => {
@@ -1076,6 +1082,11 @@ pub const ValidationError = error{
     InvalidFunctionRequirementSpan,
     InvalidFunctionResultCodec,
     InvalidInstructionLocalIndex,
+    InvalidSumPayloadDestination,
+    InvalidSumPayloadVariant,
+    InvalidSumSourceRef,
+    InvalidSumVariantDestination,
+    InvalidSumVariantOrdinal,
     InvalidAfterHookMode,
     InvalidOpRequirementIndex,
     InvalidOpRequirementOwnership,
@@ -2196,6 +2207,7 @@ pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan
     }
 
     if (plan.schema_version == 3) {
+        try rejectLegacyConstI32StringLiterals(plan.*);
         plan.schema_version = ProgramPlan.current_schema_version;
         return;
     }
@@ -2205,26 +2217,44 @@ pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan
     }
 
     if (plan.schema_version == 5) {
+        try rejectLegacyConstI32StringLiterals(plan.*);
         plan.schema_version = ProgramPlan.current_schema_version;
         return;
     }
 
     if (plan.schema_version == 6) {
+        try rejectLegacyConstI32StringLiterals(plan.*);
         plan.schema_version = ProgramPlan.current_schema_version;
         return;
     }
 
     if (plan.schema_version == 7) {
+        try rejectLegacyConstI32StringLiterals(plan.*);
         plan.schema_version = ProgramPlan.current_schema_version;
         return;
     }
 
     if (plan.schema_version == 8) {
+        try rejectLegacyConstI32StringLiterals(plan.*);
+        plan.schema_version = ProgramPlan.current_schema_version;
+        return;
+    }
+
+    if (plan.schema_version == 9) {
+        try rejectLegacyConstI32StringLiterals(plan.*);
         plan.schema_version = ProgramPlan.current_schema_version;
         return;
     }
 
     if (plan.schema_version != ProgramPlan.current_schema_version) return error.UnsupportedSchemaVersion;
+}
+
+fn rejectLegacyConstI32StringLiterals(plan: ProgramPlan) LegacySchemaError!void {
+    for (plan.instructions) |instruction| {
+        if (instruction.kind == .const_i32 and instruction.string_literal.len != 0) {
+            return error.UnsupportedSchemaVersion;
+        }
+    }
 }
 
 fn rangeEnd(start: u16, len: u16) ?usize {
@@ -3247,6 +3277,11 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
         error.InvalidFunctionResultCodec => "runtime plan generator produced a function with mixed completion result codecs",
         error.InvalidInstructionCodec => "runtime plan generator produced an instruction whose encoded codec is invalid",
         error.InvalidInstructionLocalIndex => "runtime plan generator produced an instruction with an out-of-range function-local reference",
+        error.InvalidSumPayloadDestination => "runtime plan generator produced a sum payload extraction whose destination does not match the variant payload",
+        error.InvalidSumPayloadVariant => "runtime plan generator produced a sum payload extraction for a unit variant",
+        error.InvalidSumSourceRef => "runtime plan generator produced a sum instruction whose source is not a sum value ref",
+        error.InvalidSumVariantDestination => "runtime plan generator produced a sum variant test whose destination is not bool",
+        error.InvalidSumVariantOrdinal => "runtime plan generator produced a sum instruction with an out-of-range variant ordinal",
         error.InvalidNestedWithMetadata => "runtime plan generator produced an incomplete nested lexical-with metadata packet",
         error.InvalidValueSchemaCodec => "runtime plan generator produced a mismatched value-schema codec",
         error.InvalidValueSchemaIndex => "runtime plan generator produced an invalid value-schema index",
@@ -5644,6 +5679,161 @@ test "program_plan_builder.fromValidatedPlan preserves schema validation boundar
     try std.testing.expectError(error.UnsupportedSchemaVersion, program_plan_builder.fromValidatedPlan(plan));
 }
 
+test "upgradeLegacyProgramPlan accepts schema-9 operand-only const_i32 plans" {
+    var plan = ProgramPlan{
+        .schema_version = 9,
+        .label = "legacy.schema9.const_i32_operand",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_i32, .dst = 0, .operand = 7 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    try upgradeLegacyProgramPlan(std.testing.allocator, &plan);
+    try std.testing.expectEqual(ProgramPlan.current_schema_version, plan.schema_version);
+    try plan.validate();
+}
+
+test "upgradeLegacyProgramPlan rejects schema-8 const_i32 string literals" {
+    var plan = ProgramPlan{
+        .schema_version = 8,
+        .label = "legacy.schema8.const_i32_string_literal",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_i32, .dst = 0, .string_literal = "-1" },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    try std.testing.expectError(error.UnsupportedSchemaVersion, upgradeLegacyProgramPlan(std.testing.allocator, &plan));
+}
+
+test "upgradeLegacyProgramPlan rejects schema-9 const_i32 string literals" {
+    var plan = ProgramPlan{
+        .schema_version = 9,
+        .label = "legacy.schema9.const_i32_string_literal",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_i32, .dst = 0, .string_literal = "-1" },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    try std.testing.expectError(error.UnsupportedSchemaVersion, upgradeLegacyProgramPlan(std.testing.allocator, &plan));
+}
+
+fn legacyConstI32StringLiteralPlan(schema_version: u32) ProgramPlan {
+    return .{
+        .schema_version = schema_version,
+        .label = "legacy.const_i32_string_literal",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_i32, .dst = 0, .string_literal = "-1" },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+}
+
+test "upgradeLegacyProgramPlan rejects schema-3 through schema-7 const_i32 string literals" {
+    inline for ([_]u32{ 3, 4, 5, 6, 7 }) |schema_version| {
+        var plan = legacyConstI32StringLiteralPlan(schema_version);
+        try std.testing.expectError(error.UnsupportedSchemaVersion, upgradeLegacyProgramPlan(std.testing.allocator, &plan));
+    }
+}
+
 test "ProgramPlan.validate rejects call_op payload locals outside the owning function locals" {
     const plan = ProgramPlan{
         .label = "invalid.call_op_payload_local",
@@ -6531,6 +6721,53 @@ test "ProgramPlan.validate rejects const_i32 instructions targeting usize locals
                 .dst = 0,
                 .operand = @as(u16, @bitCast(@as(i16, -1))),
                 .aux = @as(u16, @bitCast(@as(i16, -1))),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+
+    try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validate());
+}
+
+test "ProgramPlan.validate rejects const_i32 string literals outside i32 range" {
+    const plan = ProgramPlan{
+        .label = "invalid.const_i32_string_literal",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .call_args = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 2,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{
+                .kind = .const_i32,
+                .dst = 0,
+                .string_literal = "2147483648",
             },
             .{
                 .kind = .return_value,

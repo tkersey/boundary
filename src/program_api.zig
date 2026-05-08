@@ -59,7 +59,7 @@ fn ProgramPlanForBody(comptime Body: type) lowering_api.ProgramPlan {
             @compileError("Body.compiled_plan is not supported by ability.program: " ++ @errorName(err) ++ "\n" ++
                 lowering_api.executableCapabilitySummary(plan, schema_types, nested_with_targets));
         };
-        validatePlanReturnErrors(plan, BodyErrorSet(Body));
+        validatePlanReturnErrors(plan, nested_with_targets, BodyErrorSet(Body));
     }
     return plan;
 }
@@ -197,10 +197,17 @@ fn errorSetContains(comptime ErrorSet: type, literal: []const u8) bool {
     };
 }
 
-fn validatePlanReturnErrors(comptime plan: lowering_api.ProgramPlan, comptime ErrorSet: type) void {
-    for (plan.instructions) |instruction| {
-        if (instruction.kind == .return_error and !errorSetContains(ErrorSet, instruction.string_literal)) {
-            @compileError("Body.compiled_plan return_error is not declared in Body.Error: " ++ instruction.string_literal);
+fn validatePlanReturnErrors(
+    comptime plan: lowering_api.ProgramPlan,
+    comptime nested_targets: anytype,
+    comptime ErrorSet: type,
+) void {
+    const analysis = comptime plan_types.entryExecutionAnalysisWithNestedTargets(plan, nested_targets) catch |err|
+        @compileError("Body.compiled_plan entry execution analysis failed: " ++ @errorName(err));
+    for (plan.instructions, 0..) |instruction, instruction_index| {
+        if (!analysis.reachable_instructions[instruction_index] or instruction.kind != .return_error) continue;
+        if (!errorSetContains(ErrorSet, instruction.string_literal)) {
+            @compileError("Body.compiled_plan reachable return_error is not declared in Body.Error: " ++ instruction.string_literal);
         }
     }
 }
@@ -392,11 +399,13 @@ fn contractReturnErrorSeen(comptime values: []const []const u8, comptime len: us
     return false;
 }
 
-fn contractReturnErrorCount(comptime plan: lowering_api.ProgramPlan) usize {
+fn contractReturnErrorCount(comptime plan: lowering_api.ProgramPlan, comptime nested_targets: anytype) usize {
+    const analysis = comptime plan_types.entryExecutionAnalysisWithNestedTargets(plan, nested_targets) catch |err|
+        @compileError("Body.compiled_plan entry execution analysis failed: " ++ @errorName(err));
     var values: [plan.instructions.len][]const u8 = undefined;
     var count: usize = 0;
-    for (plan.instructions) |instruction| {
-        if (instruction.kind != .return_error) continue;
+    for (plan.instructions, 0..) |instruction, instruction_index| {
+        if (!analysis.reachable_instructions[instruction_index] or instruction.kind != .return_error) continue;
         if (contractReturnErrorSeen(values[0..], count, instruction.string_literal)) continue;
         values[count] = instruction.string_literal;
         count += 1;
@@ -404,11 +413,16 @@ fn contractReturnErrorCount(comptime plan: lowering_api.ProgramPlan) usize {
     return count;
 }
 
-fn contractReturnErrors(comptime plan: lowering_api.ProgramPlan) [contractReturnErrorCount(plan)][]const u8 {
-    var views: [contractReturnErrorCount(plan)][]const u8 = undefined;
+fn contractReturnErrors(
+    comptime plan: lowering_api.ProgramPlan,
+    comptime nested_targets: anytype,
+) [contractReturnErrorCount(plan, nested_targets)][]const u8 {
+    const analysis = comptime plan_types.entryExecutionAnalysisWithNestedTargets(plan, nested_targets) catch |err|
+        @compileError("Body.compiled_plan entry execution analysis failed: " ++ @errorName(err));
+    var views: [contractReturnErrorCount(plan, nested_targets)][]const u8 = undefined;
     var count: usize = 0;
-    for (plan.instructions) |instruction| {
-        if (instruction.kind != .return_error) continue;
+    for (plan.instructions, 0..) |instruction, instruction_index| {
+        if (!analysis.reachable_instructions[instruction_index] or instruction.kind != .return_error) continue;
         if (contractReturnErrorSeen(views[0..], count, instruction.string_literal)) continue;
         views[count] = instruction.string_literal;
         count += 1;
@@ -433,7 +447,7 @@ fn ProgramContractFor(
     const nested_with_target_views = contractNestedWithTargets(nested_targets);
     const requirement_views = contractRequirements(plan);
     const op_views = contractOps(plan);
-    const return_error_views = contractReturnErrors(plan);
+    const return_error_views = contractReturnErrors(plan, nested_targets);
     const Ledger = lowering_api.ExecutableCapabilityLedgerForPlan(plan, schema_types, nested_targets);
     const first_blocker = if (Ledger.blockers.len == 0) null else Ledger.blockers[0];
 
