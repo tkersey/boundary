@@ -851,6 +851,85 @@ fn unsupportedStructuredPayloadPlan(comptime label: []const u8) ability.ir.Progr
     }) catch unreachable;
 }
 
+fn scalarPlanWithUnreachableStructuredSchema(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const helper = ability.ir.builder.function(1);
+    const helper_value = ability.ir.builder.local(helper, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.returnValue(helper, helper_value) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        },
+        .{
+            .symbol_name = "dead_helper",
+            .value_codec = .product,
+            .value_schema_index = 0,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = @intCast(instructions.len),
+        },
+    };
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 },
+        .{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_value },
+    };
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = "DeadPayload",
+        .codec = .product,
+        .first_field = 0,
+        .field_count = 1,
+    }};
+    const value_fields = [_]ability.ir.ValueFieldPlan{.{
+        .name = "amount",
+        .codec = .i32,
+    }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 90,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &.{.{ .codec = .product, .schema_index = 0 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn productIdentityPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const payload = ability.ir.builder.local(root, 0);
@@ -2043,6 +2122,58 @@ fn pureArithmeticPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .ops = &.{},
         .outputs = &.{},
         .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn budgetSizedStraightLinePlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    @setEvalBranchQuota(80_000);
+    const instruction_count = interpreter_step_budget / 2 + 100;
+    const root = ability.ir.builder.function(0);
+    const value = ability.ir.builder.local(root, 0);
+    const instructions = comptime blk: {
+        var buf = [_]ability.ir.plan.Instruction{.{ .kind = .return_value }} ** instruction_count;
+        buf[0] = .{ .kind = .const_i32, .dst = value.index, .operand = 7 };
+        for (1..instruction_count - 1) |index| {
+            buf[index] = .{ .kind = .add_const_i32, .dst = value.index, .operand = value.index, .aux = 0 };
+        }
+        buf[instruction_count - 1] = ability.ir.builder.returnValue(root, value) catch unreachable;
+        break :blk buf;
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 84,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,
@@ -3558,6 +3689,24 @@ test "ability.program accepts public ProgramValue entry args" {
     try std.testing.expectEqual(@as(i32, 42), result.value);
 }
 
+test "ability.program accepts inferred public ProgramValue entry arg arrays" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const EmptyHandlers = struct {};
+    const ParameterizedBody = struct {
+        pub const compiled_plan = parameterizedIdentityPlan("inferred-program-value-array-args");
+
+        pub fn encodeArgs(_: EmptyHandlers) *const [1]ability.ir.ProgramValue {
+            return &.{ability.ir.ProgramValue{ .i32 = 42 }};
+        }
+    };
+    const Program = ability.program("inferred-program-value-array-args", EmptyHandlers, ParameterizedBody);
+    var result = try Program.run(&runtime, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+}
+
 test "ability.program rejects public ProgramValue entry arg length mismatches" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -3652,6 +3801,36 @@ test "ability.program preserves expected schema index for duplicate typed op res
     try std.testing.expectEqual(@as(i32, 64), result.value.amount);
 }
 
+test "ability.program preallocates typed product op result before handler dispatch" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    var runtime = ability.Runtime.init(failing.allocator());
+    defer runtime.deinit();
+
+    const Payload = struct {
+        amount: i32,
+    };
+    const StructuredHandlers = struct {
+        structured: struct {
+            dispatch_count: *usize,
+
+            pub fn dispatch(self: *const @This()) !Payload {
+                self.dispatch_count.* += 1;
+                return .{ .amount = 64 };
+            }
+        },
+    };
+    const ProductBody = struct {
+        pub const value_schema_types = .{ Payload, Payload };
+        pub const compiled_plan = duplicateSchemaAbortResultPlan(Payload, "typed-product-op-result-prealloc");
+    };
+    const Program = ability.program("typed-product-op-result-prealloc", StructuredHandlers, ProductBody);
+    var dispatch_count: usize = 0;
+
+    try std.testing.expectError(error.OutOfMemory, Program.run(&runtime, .{ .structured = .{ .dispatch_count = &dispatch_count } }));
+    try std.testing.expect(failing.has_induced_failure);
+    try std.testing.expectEqual(@as(usize, 0), dispatch_count);
+}
+
 test "ability.program preserves expected schema index for duplicate typed after results" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -3678,6 +3857,49 @@ test "ability.program preserves expected schema index for duplicate typed after 
     var result = try Program.run(&runtime, .{ .structured = .{} });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 71), result.value.amount);
+}
+
+test "ability.program preallocates typed product after result before afterDispatch" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 3 });
+    var runtime = ability.Runtime.init(failing.allocator());
+    defer runtime.deinit();
+
+    const Payload = struct {
+        amount: i32,
+    };
+    const StructuredHandlers = struct {
+        structured: struct {
+            dispatch_count: *usize,
+            after_count: *usize,
+
+            pub fn dispatch(self: *const @This()) !Payload {
+                self.dispatch_count.* += 1;
+                return .{ .amount = 70 };
+            }
+
+            pub fn afterDispatch(self: *const @This(), value: Payload) !Payload {
+                self.after_count.* += 1;
+                return .{ .amount = value.amount + 1 };
+            }
+        },
+    };
+    const ProductBody = struct {
+        pub const value_schema_types = .{ Payload, Payload };
+        pub const compiled_plan = duplicateSchemaAfterResultPlan(Payload, "typed-product-after-result-prealloc");
+    };
+    const Program = ability.program("typed-product-after-result-prealloc", StructuredHandlers, ProductBody);
+    var dispatch_count: usize = 0;
+    var after_count: usize = 0;
+
+    try std.testing.expectError(error.OutOfMemory, Program.run(&runtime, .{
+        .structured = .{
+            .dispatch_count = &dispatch_count,
+            .after_count = &after_count,
+        },
+    }));
+    try std.testing.expect(failing.has_induced_failure);
+    try std.testing.expectEqual(@as(usize, 1), dispatch_count);
+    try std.testing.expectEqual(@as(usize, 0), after_count);
 }
 
 test "ability.program preserves OOM while encoding typed product entry args" {
@@ -3771,6 +3993,20 @@ test "ability.program executes recursive helpers through interpreter frame stack
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 0), result.value);
+}
+
+test "ability.program charges one budget unit per straight-line instruction" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const EmptyHandlers = struct {};
+    const StraightLineBody = struct {
+        pub const compiled_plan = budgetSizedStraightLinePlan("budget-sized-straight-line");
+    };
+    const Program = ability.program("budget-sized-straight-line", EmptyHandlers, StraightLineBody);
+    var result = try Program.run(&runtime, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 7), result.value);
 }
 
 test "ability.program bounds unbounded helper cycles by interpreter budget" {
@@ -4209,6 +4445,19 @@ test "ability.program executes the public scalar ProgramPlan subset" {
     var string_result = try StringProgram.run(&runtime, .{});
     defer string_result.deinit();
     try std.testing.expectEqualStrings("scalar string", string_result.value);
+}
+
+test "ability.program allows scalar plans with unreachable structured schemas" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = scalarPlanWithUnreachableStructuredSchema("scalar-unreachable-schema");
+    };
+    const Program = ability.program("scalar-unreachable-schema", struct {}, Body);
+    var result = try Program.run(&runtime, .{});
+    defer result.deinit();
+    try std.testing.expectEqual({}, result.value);
 }
 
 test "ability.program applies after continuation exactly once" {

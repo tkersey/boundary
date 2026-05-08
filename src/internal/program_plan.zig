@@ -484,6 +484,14 @@ pub const ProgramPlan = struct {
                         }
                         if (instruction.string_literal.len == 0) return error.InvalidInstructionLocalIndex;
                         if (!namedNestedWithMetadataIsComplete(instruction.string_literal)) return error.InvalidNestedWithMetadata;
+                        if (nestedWithTargetIndexForMetadata(nested_with_targets, instruction.string_literal)) |target_index| {
+                            if (block_is_reachable and
+                                terminal_reachability[target_index] and
+                                !valueRefsEqual(functionResultRef(self.functions[target_index]), functionResultRef(function)))
+                            {
+                                return error.InvalidInstructionLocalIndex;
+                            }
+                        }
                     },
                     .call_op => {
                         if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
@@ -2069,12 +2077,14 @@ fn terminalAbortInstruction(
     if (instruction.kind == .return_error) return instruction.string_literal.len != 0;
     if (instruction.kind == .call_helper) {
         return instruction.operand < self.functions.len and
+            valueRefsEqual(functionResultRef(self.functions[instruction.operand]), functionResultRef(function)) and
             reachability.terminal[instruction.operand] and
             !reachability.completion[instruction.operand];
     }
     if (instruction.kind == .call_nested_with) {
         const target_index = nestedWithTargetIndexForMetadata(nested_with_targets, instruction.string_literal) orelse return false;
         return target_index < self.functions.len and
+            valueRefsEqual(functionResultRef(self.functions[target_index]), functionResultRef(function)) and
             reachability.terminal[target_index] and
             !reachability.completion[target_index];
     }
@@ -4498,6 +4508,7 @@ test "entryExecutionAnalysisWithNestedTargets propagates terminal nested targets
     const functions = [_]FunctionPlan{
         .{
             .symbol_name = "root",
+            .result_codec = .string,
             .first_requirement = 0,
             .requirement_count = 0,
             .first_output = 0,
@@ -4565,6 +4576,83 @@ test "entryExecutionAnalysisWithNestedTargets propagates terminal nested targets
     try std.testing.expect(analysis.reachable_instructions[0]);
     try std.testing.expect(!analysis.reachable_instructions[1]);
     try std.testing.expect(analysis.reachable_instructions[2]);
+}
+
+test "ProgramPlan.validateWithNestedTargets rejects terminal nested target result mismatches" {
+    const metadata = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi";
+    const instructions = [_]Instruction{
+        .{
+            .kind = .call_nested_with,
+            .aux = @intFromEnum(ValueCodec.unit),
+            .string_literal = metadata,
+        },
+        .{ .kind = .call_op, .operand = 0 },
+    };
+    const functions = [_]FunctionPlan{
+        .{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        },
+        .{
+            .symbol_name = "terminal_nested",
+            .result_codec = .string,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 1,
+            .block_count = 1,
+            .first_instruction = 1,
+            .instruction_count = 1,
+        },
+    };
+    const requirements = [_]RequirementPlan{.{
+        .label = "abort",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "abort",
+        .mode = .abort,
+        .payload_codec = .unit,
+        .resume_codec = .unit,
+    }};
+    const blocks = [_]BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_unit },
+    };
+    const plan = ProgramPlan{
+        .label = "nested-terminal-result-mismatch",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    };
+    const targets = .{.{ .metadata = metadata, .function_index = 1 }};
+
+    try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validateWithNestedTargets(targets));
 }
 
 test "ProgramPlan.validateWithNestedTargets uses resolver-backed helper completion" {

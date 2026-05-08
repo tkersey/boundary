@@ -406,11 +406,92 @@ pub fn validateTypedExecutablePlanSupportWithNestedTargets(
     }
 }
 
+pub fn executablePlanNeedsBodyValueSchemaTypes(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime nested_with_targets: anytype,
+) bool {
+    comptime {
+        const analysis = program_plan.entryExecutionAnalysisWithNestedTargets(compiled_plan, nested_with_targets) catch return false;
+        const entry = compiled_plan.functions[compiled_plan.entry_index];
+        if (valueRefNeedsSchemaTypes(program_plan.functionResultRef(entry))) return true;
+
+        for (compiled_plan.functions, 0..) |function, function_index| {
+            if (!analysis.reachable_functions[function_index]) continue;
+            for (0..function.parameter_count) |parameter_index| {
+                const local = compiled_plan.locals[function.first_local + parameter_index];
+                if (valueRefNeedsSchemaTypes(.{ .codec = local.codec, .schema_index = local.schema_index })) return true;
+            }
+            if ((analysis.terminal_functions[function_index] or analysis.after_result_functions[function_index]) and
+                valueRefNeedsSchemaTypes(program_plan.functionResultRef(function)))
+            {
+                return true;
+            }
+        }
+
+        for (compiled_plan.instructions, 0..) |instruction, instruction_index| {
+            if (!analysis.reachable_instructions[instruction_index]) continue;
+            const owner = instructionOwnerFunction(compiled_plan, instruction_index) orelse return false;
+            switch (instruction.kind) {
+                .call_nested_with => {
+                    const target_index = nestedWithTargetIndexForMetadata(compiled_plan, nested_with_targets, instruction.string_literal) orelse continue;
+                    const target = compiled_plan.functions[target_index];
+                    const result_codec = program_plan.valueCodecFromInstructionAux(instruction.aux) catch continue;
+                    if (structuredSchemaCodec(result_codec)) return true;
+                    const completion_ref = effectiveCompletionRefForFunction(analysis, target, target_index);
+                    if (valueRefNeedsSchemaTypes(completion_ref)) return true;
+                    if (result_codec != .unit) {
+                        const local_ref = functionLocalRef(compiled_plan, owner, instruction.dst) orelse return false;
+                        if (valueRefNeedsSchemaTypes(local_ref)) return true;
+                    }
+                },
+                .call_op => {
+                    const op = compiled_plan.ops[instruction.operand];
+                    if (valueRefNeedsSchemaTypes(.{ .codec = op.payload_codec, .schema_index = op.payload_schema_index }) or
+                        valueRefNeedsSchemaTypes(.{ .codec = op.resume_codec, .schema_index = op.resume_schema_index }))
+                    {
+                        return true;
+                    }
+                },
+                .call_helper => {
+                    const callee = compiled_plan.functions[instruction.operand];
+                    for (0..callee.parameter_count) |arg_index| {
+                        const local_id = planCallArgAt(compiled_plan, instruction.aux + arg_index);
+                        const local_ref = functionLocalRef(compiled_plan, owner, local_id) orelse return false;
+                        if (valueRefNeedsSchemaTypes(local_ref)) return true;
+                    }
+                    if (program_plan.functionResultCodec(callee) != .unit and instruction.dst != std.math.maxInt(u16)) {
+                        const local_ref = functionLocalRef(compiled_plan, owner, instruction.dst) orelse return false;
+                        if (valueRefNeedsSchemaTypes(local_ref)) return true;
+                    }
+                },
+                .return_value => {
+                    const local_ref = functionLocalRef(compiled_plan, owner, instruction.operand) orelse return false;
+                    if (valueRefNeedsSchemaTypes(local_ref)) return true;
+                },
+                .add_const_i32, .add_i32, .compare_eq_zero, .const_i32, .const_string, .const_usize, .return_error, .sub_one => {},
+            }
+        }
+
+        return false;
+    }
+}
+
 fn executableScalarCodec(comptime codec: program_plan.ValueCodec) bool {
     return switch (codec) {
         .unit, .bool, .i32, .usize, .string => true,
         .product, .sum, .string_list => false,
     };
+}
+
+fn structuredSchemaCodec(comptime codec: program_plan.ValueCodec) bool {
+    return switch (codec) {
+        .product, .sum => true,
+        .unit, .bool, .i32, .usize, .string, .string_list => false,
+    };
+}
+
+fn valueRefNeedsSchemaTypes(comptime ref: program_plan.ValueRef) bool {
+    return structuredSchemaCodec(ref.codec);
 }
 
 fn executableTypedRef(comptime schema_types: anytype, comptime ref: program_plan.ValueRef) bool {
@@ -700,6 +781,111 @@ fn valueRefForType(comptime schema_types: anytype, comptime T: type) program_pla
     };
 }
 
+fn runtimeValueRefForType(comptime schema_types: anytype, comptime T: type) ?program_plan.ValueRef {
+    if (T == void) return .{ .codec = .unit };
+    if (T == bool) return .{ .codec = .bool };
+    if (T == i32) return .{ .codec = .i32 };
+    if (T == usize) return .{ .codec = .usize };
+    if (T == []const u8) return .{ .codec = .string };
+    if (isStringListCarrier(T)) return .{ .codec = .string_list };
+    const schema_index = schemaIndexForType(schema_types, T) orelse return null;
+    return switch (@typeInfo(T)) {
+        .@"struct" => .{ .codec = .product, .schema_index = schema_index },
+        .@"enum", .@"union", .optional => .{ .codec = .sum, .schema_index = schema_index },
+        else => null,
+    };
+}
+
+fn ReturnPayloadType(comptime ReturnType: type) type {
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.payload,
+        else => ReturnType,
+    };
+}
+
+fn CallableReturnPayloadType(comptime callable: anytype) type {
+    return ReturnPayloadType(@typeInfo(@TypeOf(callable)).@"fn".return_type.?);
+}
+
+fn runtimeTypeNeedsSchemaStorage(comptime schema_types: anytype, comptime T: type) bool {
+    const ref = runtimeValueRefForType(schema_types, T) orelse return false;
+    return structuredSchemaCodec(ref.codec);
+}
+
+fn PreparedRuntimeValue(comptime T: type, comptime structured: bool) type {
+    return struct {
+        schema_index: u16 = 0,
+        ptr: ?*T = null,
+
+        fn encode(self: @This(), value: T) ExecutableValue {
+            if (comptime structured) {
+                const ptr = self.ptr.?;
+                ptr.* = value;
+                return .{ .schema = .{
+                    .schema_index = self.schema_index,
+                    .ptr = ptr,
+                } };
+            }
+            return encodeScalarValue(value);
+        }
+    };
+}
+
+fn prepareRuntimeValueForRef(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime schema_types: anytype,
+    comptime ref: program_plan.ValueRef,
+    scratch: anytype,
+) std.mem.Allocator.Error!PreparedRuntimeValue(
+    ValueTypeForRef(compiled_plan, schema_types, ref),
+    structuredSchemaCodec(ref.codec),
+) {
+    const Expected = ValueTypeForRef(compiled_plan, schema_types, ref);
+    return switch (comptime ref.codec) {
+        .unit, .bool, .i32, .usize, .string, .string_list => .{},
+        .product, .sum => .{
+            .schema_index = ref.schema_index orelse @compileError("structured ValueRef is missing a schema index"),
+            .ptr = try scratch.reserveSchemaValueStorage(
+                Expected,
+            ),
+        },
+    };
+}
+
+fn prepareRuntimeValueForType(
+    comptime schema_types: anytype,
+    scratch: anytype,
+    comptime T: type,
+) anyerror!struct {
+    value: PreparedRuntimeValue(T, runtimeTypeNeedsSchemaStorage(schema_types, T)),
+    ref: program_plan.ValueRef,
+} {
+    const ref = comptime runtimeValueRefForType(schema_types, T) orelse return error.ProgramContractViolation;
+    return switch (comptime ref.codec) {
+        .unit, .bool, .i32, .usize, .string, .string_list => .{ .value = .{}, .ref = ref },
+        .product, .sum => .{
+            .value = .{
+                .schema_index = ref.schema_index orelse @compileError("structured ValueRef is missing a schema index"),
+                .ptr = try scratch.reserveSchemaValueStorage(
+                    T,
+                ),
+            },
+            .ref = ref,
+        },
+    };
+}
+
+fn encodeRuntimeValueForPreparedRef(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime schema_types: anytype,
+    comptime ref: program_plan.ValueRef,
+    prepared: anytype,
+    value: anytype,
+) anyerror!ExecutableValue {
+    if (comptime !typeMatchesRef(compiled_plan, schema_types, ref, @TypeOf(value))) return error.ProgramContractViolation;
+    return prepared.encode(value);
+}
+
 fn encodeRuntimeValue(
     comptime schema_types: anytype,
     scratch: anytype,
@@ -919,14 +1105,19 @@ fn InterpreterScratch(comptime after_stack_capacity: usize) type {
             self.locals.deinit(self.allocator);
         }
 
-        fn storeSchemaValue(self: *@This(), comptime T: type, schema_index: u16, value: T) std.mem.Allocator.Error!ExecutableValue {
+        fn reserveSchemaValueStorage(self: *@This(), comptime T: type) std.mem.Allocator.Error!*T {
             const typed = try self.allocator.create(T);
             errdefer self.allocator.destroy(typed);
-            typed.* = value;
             try self.owned_schema_values.append(self.allocator, .{
                 .ptr = typed,
                 .destroy = SchemaDestroyer(T).destroy,
             });
+            return typed;
+        }
+
+        fn storeSchemaValue(self: *@This(), comptime T: type, schema_index: u16, value: T) std.mem.Allocator.Error!ExecutableValue {
+            const typed = try self.reserveSchemaValueStorage(T);
+            typed.* = value;
             return .{ .schema = .{
                 .schema_index = schema_index,
                 .ptr = typed,
@@ -1082,28 +1273,46 @@ fn dispatchAuthored(
 ) anyerror!OperationDispatch {
     const resume_ref: program_plan.ValueRef = comptime .{ .codec = op.resume_codec, .schema_index = op.resume_schema_index };
     const payload_ref: program_plan.ValueRef = .{ .codec = op.payload_codec, .schema_index = op.payload_schema_index };
-    const dispatched = if (comptime op.payload_codec == .unit)
-        try authored.dispatch()
-    else
-        try authored.dispatch(try decodeTypedValue(compiled_plan, schema_types, payload_ref, payload));
     return switch (comptime op.mode) {
-        .abort => .{
-            .value = try encodeRuntimeValueForRef(compiled_plan, schema_types, terminal_ref, scratch, dispatched),
-            .resumes = false,
-        },
-        .transform => .{
-            .value = try encodeRuntimeValueForRef(compiled_plan, schema_types, resume_ref, scratch, dispatched),
-            .resumes = true,
-        },
-        .choice => switch (dispatched) {
-            .resume_with => |resume_value| .{
-                .value = try encodeRuntimeValueForRef(compiled_plan, schema_types, resume_ref, scratch, resume_value),
-                .resumes = true,
-            },
-            .return_now => |answer| .{
-                .value = try encodeRuntimeValueForRef(compiled_plan, schema_types, terminal_ref, scratch, answer),
+        .abort => blk: {
+            const output = try prepareRuntimeValueForRef(compiled_plan, schema_types, terminal_ref, scratch);
+            const dispatched = if (comptime op.payload_codec == .unit)
+                try authored.dispatch()
+            else
+                try authored.dispatch(try decodeTypedValue(compiled_plan, schema_types, payload_ref, payload));
+            break :blk .{
+                .value = try encodeRuntimeValueForPreparedRef(compiled_plan, schema_types, terminal_ref, output, dispatched),
                 .resumes = false,
-            },
+            };
+        },
+        .transform => blk: {
+            const output = try prepareRuntimeValueForRef(compiled_plan, schema_types, resume_ref, scratch);
+            const dispatched = if (comptime op.payload_codec == .unit)
+                try authored.dispatch()
+            else
+                try authored.dispatch(try decodeTypedValue(compiled_plan, schema_types, payload_ref, payload));
+            break :blk .{
+                .value = try encodeRuntimeValueForPreparedRef(compiled_plan, schema_types, resume_ref, output, dispatched),
+                .resumes = true,
+            };
+        },
+        .choice => blk: {
+            const resume_output = try prepareRuntimeValueForRef(compiled_plan, schema_types, resume_ref, scratch);
+            const terminal_output = try prepareRuntimeValueForRef(compiled_plan, schema_types, terminal_ref, scratch);
+            const dispatched = if (comptime op.payload_codec == .unit)
+                try authored.dispatch()
+            else
+                try authored.dispatch(try decodeTypedValue(compiled_plan, schema_types, payload_ref, payload));
+            break :blk switch (dispatched) {
+                .resume_with => |resume_value| .{
+                    .value = try encodeRuntimeValueForPreparedRef(compiled_plan, schema_types, resume_ref, resume_output, resume_value),
+                    .resumes = true,
+                },
+                .return_now => |answer| .{
+                    .value = try encodeRuntimeValueForPreparedRef(compiled_plan, schema_types, terminal_ref, terminal_output, answer),
+                    .resumes = false,
+                },
+            };
         },
     };
 }
@@ -1253,10 +1462,10 @@ fn applyAfterByIndexForRefExact(
             const authored = afterDispatchHandler(compiled_plan, op, handlers);
             if (comptime !afterDispatchAccepts(compiled_plan, schema_types, @TypeOf(authored), input_ref)) return error.ProgramContractViolation;
             const decoded = try decodeTypedValue(compiled_plan, schema_types, input_ref, value);
+            const output = try prepareRuntimeValueForRef(compiled_plan, schema_types, output_ref, scratch);
             const completed = try authored.afterDispatch(decoded);
-            const encoded = try encodeRuntimeValueForRef(compiled_plan, schema_types, output_ref, scratch, completed);
             return .{
-                .value = encoded,
+                .value = try encodeRuntimeValueForPreparedRef(compiled_plan, schema_types, output_ref, output, completed),
                 .ref = output_ref,
             };
         }
@@ -1282,11 +1491,12 @@ fn applyAfterByIndexForRefInferred(
             const authored = afterDispatchHandler(compiled_plan, op, handlers);
             if (comptime !afterDispatchAccepts(compiled_plan, schema_types, @TypeOf(authored), input_ref)) return error.ProgramContractViolation;
             const decoded = try decodeTypedValue(compiled_plan, schema_types, input_ref, value);
+            const Value = CallableReturnPayloadType(HandlerType(@TypeOf(authored)).afterDispatch);
+            var output = try prepareRuntimeValueForType(schema_types, scratch, Value);
             const completed = try authored.afterDispatch(decoded);
-            const encoded = try encodeRuntimeValueWithInferredRef(schema_types, scratch, completed);
             return .{
-                .value = encoded.value,
-                .ref = encoded.ref,
+                .value = output.value.encode(completed),
+                .ref = output.ref,
             };
         }
     }
@@ -1943,7 +2153,6 @@ fn executeFunctionWithFrameStack(
             if (comptime compiled_plan.instructions.len == 0) return error.ProgramContractViolation;
             const instruction_index = active.instruction_index;
             active.instruction_index += 1;
-            try consumeInterpreterStep(remaining_steps);
 
             const instruction = compiled_plan.instructions[instruction_index];
             const function = compiled_plan.functions[active.function_index];
@@ -2235,6 +2444,35 @@ fn encodeTypedTupleEntryArgs(
     }
 }
 
+const PublicProgramValueArgsKind = enum {
+    slice,
+    array_pointer,
+};
+
+fn publicProgramValueArgsKind(comptime Args: type) ?PublicProgramValueArgsKind {
+    if (Args == []const lowered_machine.ProgramValue or Args == []lowered_machine.ProgramValue) {
+        return .slice;
+    }
+    return switch (@typeInfo(Args)) {
+        .pointer => |pointer| switch (pointer.size) {
+            .slice => if (pointer.child == lowered_machine.ProgramValue) .slice else null,
+            .one => switch (@typeInfo(pointer.child)) {
+                .array => |array| if (array.child == lowered_machine.ProgramValue) .array_pointer else null,
+                else => null,
+            },
+            .many, .c => null,
+        },
+        else => null,
+    };
+}
+
+fn publicProgramValueArgsSlice(args: anytype, comptime kind: PublicProgramValueArgsKind) []const lowered_machine.ProgramValue {
+    return switch (kind) {
+        .slice => args,
+        .array_pointer => args[0..],
+    };
+}
+
 fn encodeEntryArgs(
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime schema_types: anytype,
@@ -2242,9 +2480,10 @@ fn encodeEntryArgs(
     out: []ExecutableValue,
     args: anytype,
 ) (std.mem.Allocator.Error || error{ProgramContractViolation})!void {
-    const Args = @TypeOf(args);
-    if (Args == []const lowered_machine.ProgramValue) {
-        return encodePublicEntryArgs(compiled_plan, out, args);
+    const public_args_kind = comptime publicProgramValueArgsKind(@TypeOf(args));
+    if (comptime public_args_kind != null) {
+        const public_args = publicProgramValueArgsSlice(args, public_args_kind.?);
+        return encodePublicEntryArgs(compiled_plan, out, public_args);
     }
     return encodeTypedTupleEntryArgs(compiled_plan, schema_types, scratch, out, args);
 }

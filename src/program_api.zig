@@ -52,7 +52,7 @@ fn ProgramPlanForBody(comptime Body: type) lowering_api.ProgramPlan {
         plan.validateWithNestedTargets(nested_with_targets) catch |err| {
             @compileError("Body.compiled_plan failed ProgramPlan.validate: " ++ @errorName(err));
         };
-        validateBodyValueSchemaTypes(plan, Body);
+        validateBodyValueSchemaTypes(plan, Body, nested_with_targets);
         const schema_types = BodyValueSchemaTypes(Body).values;
         lowering_api.validateTypedExecutablePlanSupportWithNestedTargets(plan, schema_types, nested_with_targets) catch |err| {
             @compileError("Body.compiled_plan is not supported by ability.program: " ++ @errorName(err) ++ "\n" ++
@@ -114,11 +114,15 @@ fn valueVariantPlansEqual(comptime actual: anytype, comptime expected: anytype) 
         actual.schema_index == expected.schema_index;
 }
 
-fn validateBodyValueSchemaTypes(comptime plan: lowering_api.ProgramPlan, comptime Body: type) void {
+fn validateBodyValueSchemaTypes(
+    comptime plan: lowering_api.ProgramPlan,
+    comptime Body: type,
+    comptime nested_with_targets: anytype,
+) void {
     const plan_schema_count = plan.value_schemas.len;
     if (comptime !hasDeclSafe(Body, "value_schema_types")) {
-        if (plan_schema_count != 0) {
-            @compileError("Body.value_schema_types is required when Body.compiled_plan contains product or sum value schemas");
+        if (lowering_api.executablePlanNeedsBodyValueSchemaTypes(plan, nested_with_targets)) {
+            @compileError("Body.value_schema_types is required when reachable Body.compiled_plan execution uses product or sum value schemas");
         }
         return;
     }
