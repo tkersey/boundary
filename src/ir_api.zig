@@ -248,7 +248,7 @@ pub const builder = struct {
                     .first_local = try checkedIndex(first_local),
                     .local_count = try checkedIndex(next_local - first_local),
                     .first_block = try checkedIndex(first_block),
-                    .entry_block = try checkedIndex(first_block + comptime usizeField(function_spec, "entry_block", 0)),
+                    .entry_block = try checkedIndex(comptime usizeField(function_spec, "entry_block", 0)),
                     .block_count = try checkedIndex(next_block - first_block),
                     .first_instruction = try checkedIndex(first_instruction),
                     .instruction_count = try checkedIndex(next_instruction - first_instruction),
@@ -928,8 +928,43 @@ test "layout builder globalizes function-local branch targets" {
     }) catch unreachable;
 
     try std.testing.expectEqual(@as(u16, 1), built_plan.functions[1].first_block);
-    try std.testing.expectEqual(@as(u16, 1), built_plan.functions[1].entry_block);
+    try std.testing.expectEqual(@as(u16, 0), built_plan.functions[1].entry_block);
     try std.testing.expectEqual(@as(u16, 2), built_plan.terminators[1].primary);
     try std.testing.expectEqual(@as(u16, 3), built_plan.terminators[1].secondary);
+    _ = helper;
+}
+
+test "layout builder keeps second function entry block function-relative" {
+    const std = @import("std");
+
+    const helper = comptime builder.function(0);
+    const root = comptime builder.function(1);
+    const built_plan = comptime builder.layout.finish(.{
+        .label = "layout.entry.relative",
+        .ir_hash = 13,
+        .entry = root,
+        .functions = .{
+            .{
+                .symbol_name = "helper",
+                .locals = .{},
+                .blocks = .{.{
+                    .instructions = .{},
+                    .terminator = program_plan.Terminator{ .kind = .return_unit },
+                }},
+            },
+            .{
+                .symbol_name = "run",
+                .locals = .{},
+                .entry_block = 0,
+                .blocks = .{.{
+                    .instructions = .{},
+                    .terminator = program_plan.Terminator{ .kind = .return_unit },
+                }},
+            },
+        },
+    }) catch unreachable;
+
+    try std.testing.expectEqual(@as(u16, 1), built_plan.functions[1].first_block);
+    try std.testing.expectEqual(@as(u16, 0), built_plan.functions[1].entry_block);
     _ = helper;
 }
