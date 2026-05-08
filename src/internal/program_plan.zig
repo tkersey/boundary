@@ -574,7 +574,7 @@ pub const ProgramPlan = struct {
                         const payload_ref = sumVariantRef(self, source_ref, instruction.aux) orelse
                             return error.InvalidInstructionCodec;
                         if (!hasPayload(payload_ref.codec)) return error.InvalidInstructionCodec;
-                        if (!functionLocalHasValueRef(self, function, instruction.dst, payload_ref)) {
+                        if (!functionLocalHasEquivalentValueRef(self, function, instruction.dst, payload_ref)) {
                             return error.InvalidInstructionLocalIndex;
                         }
                     },
@@ -1481,7 +1481,44 @@ fn addSchemaTypesForRegistry(
     comptime schema_types: anytype,
 ) CodecError!void {
     inline for (schema_types) |SchemaType| {
-        try addSchemaTypesForType(max_schema_types, types, count, SchemaType);
+        try addExplicitSchemaType(max_schema_types, types, count, SchemaType);
+    }
+}
+
+fn addExplicitSchemaType(
+    comptime max_schema_types: usize,
+    types: *[max_schema_types]type,
+    count: *usize,
+    comptime T: type,
+) CodecError!void {
+    switch (try codecForType(T)) {
+        .product => switch (@typeInfo(T)) {
+            .@"struct" => |info| {
+                types[count.*] = T;
+                count.* += 1;
+                inline for (info.fields) |field| try addSchemaTypesForType(max_schema_types, types, count, field.type);
+            },
+            else => return error.UnsupportedCodecType,
+        },
+        .sum => switch (@typeInfo(T)) {
+            .@"enum" => {
+                types[count.*] = T;
+                count.* += 1;
+            },
+            .@"union" => |info| {
+                if (info.tag_type == null) return error.UnsupportedCodecType;
+                types[count.*] = T;
+                count.* += 1;
+                inline for (info.fields) |field| try addSchemaTypesForType(max_schema_types, types, count, field.type);
+            },
+            .optional => |info| {
+                types[count.*] = T;
+                count.* += 1;
+                try addSchemaTypesForType(max_schema_types, types, count, info.child);
+            },
+            else => return error.UnsupportedCodecType,
+        },
+        else => {},
     }
 }
 
@@ -1835,6 +1872,66 @@ fn valueRefsEqual(lhs: ValueRef, rhs: ValueRef) bool {
     return lhs.codec == rhs.codec and lhs.schema_index == rhs.schema_index;
 }
 
+fn valueRefsEquivalent(self: ProgramPlan, lhs: ValueRef, rhs: ValueRef) bool {
+    if (valueRefsEqual(lhs, rhs)) return true;
+    if (lhs.codec != rhs.codec or !valueCodecNeedsSchema(lhs.codec)) return false;
+    const lhs_schema_index = lhs.schema_index orelse return false;
+    const rhs_schema_index = rhs.schema_index orelse return false;
+    return valueSchemasEquivalent(self, lhs_schema_index, rhs_schema_index, 0);
+}
+
+fn valueSchemaRefsEquivalent(self: ProgramPlan, lhs: ValueRef, rhs: ValueRef, depth: usize) bool {
+    if (valueRefsEqual(lhs, rhs)) return true;
+    if (lhs.codec != rhs.codec or !valueCodecNeedsSchema(lhs.codec)) return false;
+    const lhs_schema_index = lhs.schema_index orelse return false;
+    const rhs_schema_index = rhs.schema_index orelse return false;
+    return valueSchemasEquivalent(self, lhs_schema_index, rhs_schema_index, depth + 1);
+}
+
+fn valueSchemasEquivalent(self: ProgramPlan, lhs_index: u16, rhs_index: u16, depth: usize) bool {
+    if (lhs_index == rhs_index) return true;
+    if (depth > self.value_schemas.len) return false;
+    if (lhs_index >= self.value_schemas.len or rhs_index >= self.value_schemas.len) return false;
+    const lhs = self.value_schemas[lhs_index];
+    const rhs = self.value_schemas[rhs_index];
+    if (lhs.codec != rhs.codec or !std.mem.eql(u8, lhs.label, rhs.label)) return false;
+    switch (lhs.codec) {
+        .product => {
+            if (lhs.field_count != rhs.field_count) return false;
+            const lhs_end = rangeEnd(lhs.first_field, lhs.field_count) orelse return false;
+            const rhs_end = rangeEnd(rhs.first_field, rhs.field_count) orelse return false;
+            if (lhs_end > self.value_fields.len or rhs_end > self.value_fields.len) return false;
+            for (self.value_fields[lhs.first_field..lhs_end], self.value_fields[rhs.first_field..rhs_end]) |lhs_field, rhs_field| {
+                if (!std.mem.eql(u8, lhs_field.name, rhs_field.name)) return false;
+                if (!valueSchemaRefsEquivalent(
+                    self,
+                    .{ .codec = lhs_field.codec, .schema_index = lhs_field.schema_index },
+                    .{ .codec = rhs_field.codec, .schema_index = rhs_field.schema_index },
+                    depth,
+                )) return false;
+            }
+            return true;
+        },
+        .sum => {
+            if (lhs.variant_count != rhs.variant_count) return false;
+            const lhs_end = rangeEnd(lhs.first_variant, lhs.variant_count) orelse return false;
+            const rhs_end = rangeEnd(rhs.first_variant, rhs.variant_count) orelse return false;
+            if (lhs_end > self.value_variants.len or rhs_end > self.value_variants.len) return false;
+            for (self.value_variants[lhs.first_variant..lhs_end], self.value_variants[rhs.first_variant..rhs_end]) |lhs_variant, rhs_variant| {
+                if (!std.mem.eql(u8, lhs_variant.name, rhs_variant.name)) return false;
+                if (!valueSchemaRefsEquivalent(
+                    self,
+                    .{ .codec = lhs_variant.codec, .schema_index = lhs_variant.schema_index },
+                    .{ .codec = rhs_variant.codec, .schema_index = rhs_variant.schema_index },
+                    depth,
+                )) return false;
+            }
+            return true;
+        },
+        else => return false,
+    }
+}
+
 fn codecSupportedByAuthoredScalarRunner(codec: ValueCodec) bool {
     return switch (codec) {
         .bool, .i32, .string, .unit, .usize => true,
@@ -2169,6 +2266,11 @@ fn functionLocalHasCodec(self: ProgramPlan, function: FunctionPlan, local_id: u1
 fn functionLocalHasValueRef(self: ProgramPlan, function: FunctionPlan, local_id: u16, expected: ValueRef) bool {
     const actual = functionLocalValueRef(self, function, local_id) orelse return false;
     return valueRefsEqual(actual, expected);
+}
+
+fn functionLocalHasEquivalentValueRef(self: ProgramPlan, function: FunctionPlan, local_id: u16, expected: ValueRef) bool {
+    const actual = functionLocalValueRef(self, function, local_id) orelse return false;
+    return valueRefsEquivalent(self, actual, expected);
 }
 
 fn conditionInstructionKind(kind: InstructionKind) bool {
@@ -4624,6 +4726,59 @@ test "planFromOpenRowProgram registers explicit input-only structured schema ref
     try std.testing.expectEqual(InstructionKind.sum_variant_is, effect_plan.instructions[0].kind);
     try plan.validate();
     try effect_plan.validate();
+}
+
+test "planFromOpenRowProgram preserves duplicate explicit schema declarations" {
+    comptime {
+        @setEvalBranchQuota(20_000);
+    }
+    const Item = struct {
+        value: i32,
+    };
+    const Payload = ?Item;
+    const row = comptime effect_ir.rowFromSpec(.{ .empty = .{} });
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/duplicate_explicit_schema_refs.zig",
+        .symbol_name = "root",
+    };
+    const lowered = comptime program_frontend.LoweredOpenRowProgram{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = root_symbol,
+            .row = row,
+            .parameter_refs = &.{.{ .codec = .sum, .schema_index = 0 }},
+            .ValueType = i32,
+        }},
+        .call_edges = &.{},
+        .function_bodies = &.{.{
+            .local_refs = &.{
+                .{ .codec = .sum, .schema_index = 0 },
+                .{ .codec = .product, .schema_index = 2 },
+                .{ .codec = .i32 },
+            },
+            .call_arg_locals = &.{},
+            .entry_block = 0,
+            .blocks = &.{.{
+                .instructions = &.{
+                    .{ .kind = .sum_extract_payload, .dst = 1, .operand = 0, .aux = 1 },
+                    .{ .kind = .const_i32, .dst = 2, .operand = 42 },
+                    .{ .kind = .return_value, .operand = 2 },
+                },
+                .terminator = .{ .kind = .return_value },
+            }},
+        }},
+        .SchemaTypes = &.{ Payload, Item },
+    };
+
+    const plan = comptime try planFromOpenRowProgram("duplicate-explicit-schema-refs", lowered);
+    try std.testing.expectEqual(@as(usize, 3), plan.value_schemas.len);
+    try std.testing.expectEqual(ValueCodec.sum, plan.value_schemas[0].codec);
+    try std.testing.expectEqual(ValueCodec.product, plan.value_schemas[1].codec);
+    try std.testing.expectEqual(ValueCodec.product, plan.value_schemas[2].codec);
+    try std.testing.expectEqual(@as(?u16, 1), plan.value_variants[1].schema_index);
+    try std.testing.expectEqual(ValueCodec.product, plan.locals[1].codec);
+    try std.testing.expectEqual(@as(?u16, 2), plan.locals[1].schema_index);
+    try plan.validate();
 }
 
 test "planFromProgram row-only synthesis uses structured parameter refs" {
