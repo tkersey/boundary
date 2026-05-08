@@ -45,6 +45,10 @@ pub const ValueVariantPlan = inner.ValueVariantPlan;
 pub const codecForType = inner.codecForType;
 /// Re-exported value-schema derivation helper.
 pub const ValueSchemaForType = inner.ValueSchemaForType;
+/// Re-exported flat value-schema registry helper.
+pub const ValueSchemaRegistryForTypes = inner.ValueSchemaRegistryForTypes;
+/// Re-exported instruction aux codec decoder for executable diagnostics.
+pub const valueCodecFromInstructionAux = inner.valueCodecFromInstructionAux;
 /// Re-exported product-field count helper.
 pub const fieldCountForType = inner.fieldCountForType;
 /// Re-exported sum-variant count helper.
@@ -67,6 +71,8 @@ pub const enrichPlanWithBindingSchemas = inner.enrichPlanWithBindingSchemas;
 pub const EntryExecutionAnalysis = inner.EntryExecutionAnalysis;
 /// Re-exported entry execution reachability analysis.
 pub const entryExecutionAnalysis = inner.entryExecutionAnalysis;
+/// Re-exported entry execution reachability analysis with resolver-backed nested targets.
+pub const entryExecutionAnalysisWithNestedTargets = inner.entryExecutionAnalysisWithNestedTargets;
 /// Re-exported exact binding-schema metadata enrichment.
 pub const enrichPlanWithBindingSchemasExact = inner.enrichPlanWithBindingSchemasExact;
 /// Re-exported legacy plan upgrader.

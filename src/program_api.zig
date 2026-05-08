@@ -48,15 +48,122 @@ fn ProgramPlanForBody(comptime Body: type) lowering_api.ProgramPlan {
     }
     comptime {
         @setEvalBranchQuota(100_000);
-        plan.validate() catch |err| {
+        const nested_with_targets = BodyNestedWithTargets(Body).values;
+        plan.validateWithNestedTargets(nested_with_targets) catch |err| {
             @compileError("Body.compiled_plan failed ProgramPlan.validate: " ++ @errorName(err));
         };
-        lowering_api.validateExecutablePlanSupport(plan) catch |err| {
-            @compileError("Body.compiled_plan is not supported by ability.program: " ++ @errorName(err));
+        validateBodyValueSchemaTypes(plan, Body, nested_with_targets);
+        const schema_types = BodyValueSchemaTypes(Body).values;
+        lowering_api.validateTypedExecutablePlanSupportWithNestedTargets(plan, schema_types, nested_with_targets) catch |err| {
+            @compileError("Body.compiled_plan is not supported by ability.program: " ++ @errorName(err) ++ "\n" ++
+                lowering_api.executableCapabilitySummary(plan, schema_types, nested_with_targets));
         };
         validatePlanReturnErrors(plan, BodyErrorSet(Body));
     }
     return plan;
+}
+
+fn BodyValueSchemaTypes(comptime Body: type) type {
+    if (comptime hasDeclSafe(Body, "value_schema_types")) {
+        return struct {
+            /// Exact Zig type tuple matching ProgramPlan product and sum schema tables.
+            pub const values = Body.value_schema_types;
+        };
+    }
+    return struct {
+        /// Empty schema registry for scalar-only plans.
+        pub const values = .{};
+    };
+}
+
+fn BodyNestedWithTargets(comptime Body: type) type {
+    if (comptime hasDeclSafe(Body, "nested_with_targets")) {
+        return struct {
+            /// Exact metadata-to-function resolver rows for executable nested lexical-with instructions.
+            pub const values = Body.nested_with_targets;
+        };
+    }
+    return struct {
+        /// No nested lexical-with rows are executable unless the body opts in with targets.
+        pub const values = .{};
+    };
+}
+
+fn schemaIndexLabel(comptime index: usize) []const u8 {
+    return std.fmt.comptimePrint("{d}", .{index});
+}
+
+fn valueSchemaPlansEqual(comptime actual: anytype, comptime expected: anytype) bool {
+    return std.mem.eql(u8, actual.label, expected.label) and
+        actual.codec == expected.codec and
+        actual.first_field == expected.first_field and
+        actual.field_count == expected.field_count and
+        actual.first_variant == expected.first_variant and
+        actual.variant_count == expected.variant_count;
+}
+
+fn valueFieldPlansEqual(comptime actual: anytype, comptime expected: anytype) bool {
+    return std.mem.eql(u8, actual.name, expected.name) and
+        actual.codec == expected.codec and
+        actual.schema_index == expected.schema_index;
+}
+
+fn valueVariantPlansEqual(comptime actual: anytype, comptime expected: anytype) bool {
+    return std.mem.eql(u8, actual.name, expected.name) and
+        actual.codec == expected.codec and
+        actual.schema_index == expected.schema_index;
+}
+
+fn validateBodyValueSchemaTypes(
+    comptime plan: lowering_api.ProgramPlan,
+    comptime Body: type,
+    comptime nested_with_targets: anytype,
+) void {
+    const plan_schema_count = plan.value_schemas.len;
+    if (comptime !hasDeclSafe(Body, "value_schema_types")) {
+        if (lowering_api.executablePlanNeedsBodyValueSchemaTypes(plan, nested_with_targets)) {
+            @compileError("Body.value_schema_types is required when reachable Body.compiled_plan execution uses product or sum value schemas");
+        }
+        return;
+    }
+
+    const schema_types = Body.value_schema_types;
+    if (schema_types.len != plan_schema_count) {
+        @compileError(std.fmt.comptimePrint(
+            "Body.value_schema_types length mismatch: expected {d}, found {d}",
+            .{ plan_schema_count, schema_types.len },
+        ));
+    }
+
+    const registry = lowering_api.ValueSchemaRegistryForTypes(schema_types);
+    if (registry.value_fields.len != plan.value_fields.len) {
+        @compileError(std.fmt.comptimePrint(
+            "Body.value_schema_types field table length mismatch: expected {d}, found {d}",
+            .{ plan.value_fields.len, registry.value_fields.len },
+        ));
+    }
+    if (registry.value_variants.len != plan.value_variants.len) {
+        @compileError(std.fmt.comptimePrint(
+            "Body.value_schema_types variant table length mismatch: expected {d}, found {d}",
+            .{ plan.value_variants.len, registry.value_variants.len },
+        ));
+    }
+
+    inline for (registry.value_schemas, 0..) |expected, index| {
+        if (!valueSchemaPlansEqual(plan.value_schemas[index], expected)) {
+            @compileError("Body.value_schema_types does not match Body.compiled_plan.value_schemas[" ++ schemaIndexLabel(index) ++ "]");
+        }
+    }
+    inline for (registry.value_fields, 0..) |expected, index| {
+        if (!valueFieldPlansEqual(plan.value_fields[index], expected)) {
+            @compileError("Body.value_schema_types does not match Body.compiled_plan.value_fields[" ++ schemaIndexLabel(index) ++ "]");
+        }
+    }
+    inline for (registry.value_variants, 0..) |expected, index| {
+        if (!valueVariantPlansEqual(plan.value_variants[index], expected)) {
+            @compileError("Body.value_schema_types does not match Body.compiled_plan.value_variants[" ++ schemaIndexLabel(index) ++ "]");
+        }
+    }
 }
 
 fn BodyErrorSet(comptime Body: type) type {
@@ -89,22 +196,85 @@ fn validatePlanReturnErrors(comptime plan: lowering_api.ProgramPlan, comptime Er
     }
 }
 
-fn ProgramValueTypeForCodec(comptime codec: lowering_api.ValueCodec) type {
-    return switch (codec) {
+fn ProgramValueTypeForRef(
+    comptime plan: lowering_api.ProgramPlan,
+    comptime schema_types: anytype,
+    comptime ref: lowering_api.ValueRef,
+) type {
+    _ = plan;
+    return switch (ref.codec) {
         .unit => void,
         .bool => bool,
         .i32 => i32,
-        .product => @compileError("product ProgramPlan results require schema-specific ability.program decoding"),
+        .product => schema_types[ref.schema_index orelse @compileError("product ProgramPlan result is missing a schema index")],
         .usize => usize,
         .string => []const u8,
-        .string_list => @compileError("string-list ProgramPlan results require interpreter value support"),
-        .sum => @compileError("sum ProgramPlan results require schema-specific ability.program decoding"),
+        .string_list => []const []const u8,
+        .sum => schema_types[ref.schema_index orelse @compileError("sum ProgramPlan result is missing a schema index")],
     };
 }
 
 fn ProgramErrorSet(comptime Body: type) type {
     if (comptime hasDeclSafe(Body, "Error")) return lowered_machine.ResetError(Body.Error);
     return lowered_machine.ResetError(error{});
+}
+
+fn ProgramOutputsType(comptime Body: type) type {
+    if (comptime hasDeclSafe(Body, "Outputs")) return Body.Outputs;
+    return void;
+}
+
+fn collectBodyOutputs(
+    comptime Body: type,
+    comptime Outputs: type,
+    allocator: std.mem.Allocator,
+    handlers: anytype,
+) anyerror!Outputs {
+    if (comptime hasDeclSafe(Body, "collectOutputs")) {
+        return try Body.collectOutputs(allocator, handlers);
+    }
+    if (Outputs != void) @compileError("Body.Outputs requires Body.collectOutputs");
+    return {};
+}
+
+const DeinitResultMode = enum {
+    none,
+    value_and_outputs,
+    value_only,
+};
+
+fn bodyDeinitResultMode(comptime Body: type, comptime Value: type, comptime Outputs: type) DeinitResultMode {
+    if (comptime !hasDeclSafe(Body, "deinitResult")) return .none;
+    const DeinitFn = @TypeOf(Body.deinitResult);
+    if (DeinitFn == fn (std.mem.Allocator, Value) void) return .value_only;
+    if (DeinitFn == fn (std.mem.Allocator, Value, Outputs) void) {
+        if (Outputs != void) {
+            @compileError("Body.deinitResult with Body.Outputs must have type fn (std.mem.Allocator, value) void; release outputs separately with Body.deinitOutputs");
+        }
+        return .value_and_outputs;
+    }
+    @compileError("Body.deinitResult must have type fn (std.mem.Allocator, value) void");
+}
+
+fn DeinitBodyResultArgs(comptime Value: type, comptime Outputs: type) type {
+    return struct {
+        allocator: std.mem.Allocator,
+        value: Value,
+        outputs: ?Outputs,
+    };
+}
+
+fn deinitBodyResult(
+    comptime Body: type,
+    comptime Value: type,
+    comptime Outputs: type,
+    args: DeinitBodyResultArgs(Value, Outputs),
+) void {
+    switch (comptime bodyDeinitResultMode(Body, Value, Outputs)) {
+        .none => {},
+        .value_only => Body.deinitResult(args.allocator, args.value),
+        .value_and_outputs => Body.deinitResult(args.allocator, args.value, args.outputs orelse {}),
+    }
 }
 
 fn errorValueInSet(comptime ErrorSet: type, err: anyerror) bool {
@@ -135,8 +305,10 @@ pub fn program(
 ) type {
     if (label.len == 0) @compileError("ability.program label must be non-empty");
     const body_compiled_plan = ProgramPlanForBody(Body);
-    const Value = ProgramValueTypeForCodec(lowering_api.executableResultCodecForPlan(body_compiled_plan));
-    const Outputs = void;
+    const body_value_schema_types = BodyValueSchemaTypes(Body).values;
+    const body_nested_with_targets = BodyNestedWithTargets(Body).values;
+    const Value = ProgramValueTypeForRef(body_compiled_plan, body_value_schema_types, lowering_api.executableResultRefForPlan(body_compiled_plan));
+    const Outputs = ProgramOutputsType(Body);
 
     return struct {
         /// Runtime-owned executable plan for this public program.
@@ -152,17 +324,24 @@ pub fn program(
 
             /// Release owned result resources declared by the program body.
             pub fn deinit(self: *@This()) void {
-                if (comptime hasDeclSafe(Body, "deinitResult")) {
-                    const DeinitFn = @TypeOf(Body.deinitResult);
-                    if (DeinitFn != fn (std.mem.Allocator, Value, Outputs) void) {
-                        @compileError("Body.deinitResult must have type fn (std.mem.Allocator, value, outputs) void");
+                deinitBodyResult(Body, Value, Outputs, .{
+                    .allocator = self.allocator,
+                    .value = self.value,
+                    .outputs = self.outputs,
+                });
+                if (comptime hasDeclSafe(Body, "deinitOutputs")) {
+                    const DeinitOutputsFn = @TypeOf(Body.deinitOutputs);
+                    if (DeinitOutputsFn != fn (std.mem.Allocator, Outputs) void) {
+                        @compileError("Body.deinitOutputs must have type fn (std.mem.Allocator, outputs) void");
                     }
-                    Body.deinitResult(self.allocator, self.value, self.outputs);
+                    Body.deinitOutputs(self.allocator, self.outputs);
                 }
             }
         };
 
         /// Execute the compiled ProgramPlan against one caller-owned runtime.
+        /// Bodies may provide scalar ProgramValue args, typed tuple args, schema types,
+        /// nested-with targets, output collection, and explicit deinit hooks.
         pub fn run(runtime: *lowered_machine.Runtime, handlers: HandlersType) Error!Result {
             var mutable_handlers = handlers;
             lowered_machine.beginExecution(runtime) catch |err| return mapProgramRunError(Error, err);
@@ -170,15 +349,34 @@ pub fn program(
             const args = if (comptime hasDeclSafe(Body, "encodeArgs"))
                 Body.encodeArgs(mutable_handlers)
             else
-                &.{};
+                @as([]const lowered_machine.ProgramValue, &.{});
             const raw = if (comptime @typeInfo(HandlersType) == .pointer)
-                lowering_api.runExecutablePlanWithArgsForErrorSetInRuntimeExecution(BodyErrorSet(Body), runtime, compiled_plan, mutable_handlers, args) catch |err| return mapProgramRunError(Error, err)
+                lowering_api.runExecutablePlanWithTypedArgsForErrorSetAndNestedTargetsInRuntimeExecution(BodyErrorSet(Body), runtime, compiled_plan, body_value_schema_types, body_nested_with_targets, mutable_handlers, args) catch |err| return mapProgramRunError(Error, err)
             else
-                lowering_api.runExecutablePlanWithArgsForErrorSetInRuntimeExecution(BodyErrorSet(Body), runtime, compiled_plan, &mutable_handlers, args) catch |err| return mapProgramRunError(Error, err);
+                lowering_api.runExecutablePlanWithTypedArgsForErrorSetAndNestedTargetsInRuntimeExecution(BodyErrorSet(Body), runtime, compiled_plan, body_value_schema_types, body_nested_with_targets, &mutable_handlers, args) catch |err| return mapProgramRunError(Error, err);
+            const allocator = lowered_machine.runtimeAllocator(runtime);
+            const outputs = if (comptime @typeInfo(HandlersType) == .pointer)
+                collectBodyOutputs(Body, Outputs, allocator, mutable_handlers) catch |err| {
+                    deinitBodyResult(Body, Value, Outputs, .{
+                        .allocator = allocator,
+                        .value = raw.value,
+                        .outputs = null,
+                    });
+                    return mapProgramRunError(Error, err);
+                }
+            else
+                collectBodyOutputs(Body, Outputs, allocator, &mutable_handlers) catch |err| {
+                    deinitBodyResult(Body, Value, Outputs, .{
+                        .allocator = allocator,
+                        .value = raw.value,
+                        .outputs = null,
+                    });
+                    return mapProgramRunError(Error, err);
+                };
             return .{
-                .allocator = lowered_machine.runtimeAllocator(runtime),
+                .allocator = allocator,
                 .value = raw.value,
-                .outputs = {},
+                .outputs = outputs,
             };
         }
     };
