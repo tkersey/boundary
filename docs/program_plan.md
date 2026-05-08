@@ -156,10 +156,44 @@ plan-native `acquire` and `release` operations with `resource_bracket` metadata.
 The plan explicitly releases typed resources in LIFO order before normal return,
 exception-style abort, and optional return-now control transfer.
 
-## Higher-level builder prototype
+## Layout builder
 
-Raw `ability.ir.plan.*` tables remain available. For common typed examples,
-`ability.ir.builder.typed` provides constructors that still return the same
+Raw `ability.ir.plan.*` tables remain available as the low-level escape hatch.
+Use them when a test needs exact table control, when reproducing a validation
+failure, or when deliberately asserting individual `first_*` and `*_count`
+values.
+
+For ordinary authored plans, prefer `ability.ir.builder.layout`. The layout
+builder accepts nested function specs with local specs, block specs,
+instruction lists, and terminators, then computes the flattened table offsets
+for the existing `ability.ir.ProgramPlan`:
+
+- function `first_local`, `local_count`, `first_block`, `entry_block`,
+  `block_count`, `first_instruction`, and `instruction_count`
+- block `first_instruction`, `instruction_count`, and `terminator_index`
+- function-local branch and jump targets into global block table indexes
+
+Requirement, operation, output, schema, field, and variant tables are still
+ordinary ProgramPlan rows. The first version keeps requirement/op/output spans
+explicit, while removing manual local/block/instruction/terminator bookkeeping.
+
+`ability.ir.builder.layout.finish` and `finishWithNestedTargets` validate
+through the same ProgramPlan validator and return the same
+`ability.ir.ProgramPlan` shape as `ability.ir.builder.finish`. The layout
+builder is a comptime authoring layer; use it from `Body.compiled_plan` or
+other comptime plan constants.
+
+The layout builder is not a parser, compiler, VM, Artifact surface, source
+language, value codec, effect authoring API, or second IR. Nothing survives past
+construction except the validated `ProgramPlan`.
+
+`Program.contract` is the public proof surface for generated plans. Tests should
+assert contract facts such as labels, result refs, entry parameter refs, value
+schemas, fields, variants, requirements, ops, payload/resume refs, after flags,
+nested-with targets, and outputs instead of depending on mutable table access.
+
+For common typed examples, `ability.ir.builder.typed` remains available and now
+builds through the layout layer while still returning the same
 `ability.ir.ProgramPlan`:
 
 - `scalarConstI32`
@@ -170,8 +204,6 @@ Raw `ability.ir.plan.*` tables remain available. For common typed examples,
 
 These helpers cover scalar demos, product results, optional or enum-like
 variant branches, tagged-union `i32` payload extraction, and output declarations.
-They are a convenience layer over ProgramPlan, not a parser, compiler, or second
-IR.
 
 ## Custom effect authoring direction
 
