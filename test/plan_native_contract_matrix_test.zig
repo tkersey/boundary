@@ -93,7 +93,7 @@ fn optionalPlan() ability.ir.ProgramPlan {
     const requirements = [_]ability.ir.plan.Requirement{optional_plan.requirement(0)};
     const ops = [_]ability.ir.plan.Op{optional_plan.requestOp(0, 0, .present)};
     const variants = optional_plan.variants(i32);
-    const schemas = [_]ability.ir.ValueSchemaPlan{optional_plan.schema(i32, 0)};
+    const schemas = [_]ability.ir.ValueSchemaPlan{optional_plan.schema(i32, 0, 0)};
 
     return mustPlan(ability.ir.builder.layout.finish(.{
         .label = "matrix-plan-native-optional",
@@ -110,6 +110,82 @@ fn optionalPlan() ability.ir.ProgramPlan {
             .requirements = layout.span(0, 1),
             .locals = .{
                 optional_plan.local(0),
+                .{ .codec = .bool },
+                .{ .codec = .i32 },
+                .{ .codec = .i32 },
+            },
+            .blocks = .{
+                .{
+                    .instructions = .{
+                        mustInstruction(optional_plan.callRequest(root, resumed, ability.ir.builder.op(root, 0))),
+                        mustInstruction(optional_plan.isSome(root, is_some, resumed)),
+                    },
+                    .terminator = ability.ir.plan.Terminator{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                },
+                .{
+                    .instructions = .{
+                        mustInstruction(optional_plan.extractSome(root, extracted, resumed)),
+                        mustInstruction(ability.ir.builder.returnValue(root, extracted)),
+                    },
+                    .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                },
+                .{
+                    .instructions = .{
+                        .{ .kind = .const_i32, .dst = fallback.index, .operand = 0 },
+                        mustInstruction(ability.ir.builder.returnValue(root, fallback)),
+                    },
+                    .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                },
+            },
+        }},
+    }));
+}
+
+const ProductThenOptionalInput = struct {
+    amount: i32,
+};
+
+fn productThenOptionalPlan() ability.ir.ProgramPlan {
+    const layout = ability.ir.builder.layout;
+    const root = comptime ability.ir.builder.function(0);
+    const resumed = comptime ability.ir.builder.local(root, 1);
+    const is_some = comptime ability.ir.builder.local(root, 2);
+    const extracted = comptime ability.ir.builder.local(root, 3);
+    const fallback = comptime ability.ir.builder.local(root, 4);
+    const fields = [_]ability.ir.ValueFieldPlan{
+        ability.ir.value.field("amount", i32),
+    };
+    const requirements = [_]ability.ir.plan.Requirement{optional_plan.requirement(0)};
+    const ops = [_]ability.ir.plan.Op{optional_plan.requestOp(0, 1, .present)};
+    const variants = optional_plan.variants(i32);
+    const schemas = [_]ability.ir.ValueSchemaPlan{
+        .{
+            .label = @typeName(ProductThenOptionalInput),
+            .codec = .product,
+            .first_field = 0,
+            .field_count = @intCast(fields.len),
+        },
+        optional_plan.schema(i32, @intCast(fields.len), 0),
+    };
+
+    return mustPlan(ability.ir.builder.layout.finish(.{
+        .label = "matrix-product-then-optional",
+        .ir_hash = 9010,
+        .entry = root,
+        .requirements = &requirements,
+        .ops = &ops,
+        .value_schemas = &schemas,
+        .value_fields = &fields,
+        .value_variants = &variants,
+        .functions = .{.{
+            .symbol_name = "run",
+            .value_ref = ability.ir.ValueRef{ .codec = .i32 },
+            .result_ref = ability.ir.ValueRef{ .codec = .i32 },
+            .parameter_count = 1,
+            .requirements = layout.span(0, 1),
+            .locals = .{
+                .{ .codec = .product, .schema_index = 0 },
+                optional_plan.local(1),
                 .{ .codec = .bool },
                 .{ .codec = .i32 },
                 .{ .codec = .i32 },
@@ -268,6 +344,47 @@ test "plan-native contract conformance matrix optional" {
     try expectRef(Program.contract.value_variants[1].ref, .{ .codec = .i32 });
     try expectNoNestedTargetsOrReturnErrors(Program.contract);
     try expectExecutable(Program.contract);
+}
+
+test "optional helper schema preserves field offsets after product schemas" {
+    const Body = struct {
+        pub const value_schema_types = .{ ProductThenOptionalInput, OptionalOutcome };
+        pub const compiled_plan = productThenOptionalPlan();
+
+        pub fn encodeArgs(_: OptionalHandlers) @TypeOf(.{ProductThenOptionalInput{ .amount = 7 }}) {
+            return .{ProductThenOptionalInput{ .amount = 7 }};
+        }
+    };
+    const Program = ability.program("matrix-product-then-optional", OptionalHandlers, Body);
+
+    try expectRef(Program.contract.entry_parameters[0].ref, .{ .codec = .product, .schema_index = 0 });
+    try expectOp(
+        Program.contract,
+        0,
+        "optional",
+        "request",
+        .choice,
+        .{ .codec = .unit },
+        .{ .codec = .sum, .schema_index = 1 },
+        true,
+    );
+    try std.testing.expectEqual(@as(usize, 2), Program.contract.value_schemas.len);
+    try std.testing.expectEqualStrings(@typeName(ProductThenOptionalInput), Program.contract.value_schemas[0].label);
+    try std.testing.expectEqual(ability.ir.ValueCodec.product, Program.contract.value_schemas[0].codec);
+    try std.testing.expectEqual(@as(u16, 0), Program.contract.value_schemas[0].first_field);
+    try std.testing.expectEqual(@as(u16, 1), Program.contract.value_schemas[0].field_count);
+    try std.testing.expectEqualStrings(@typeName(OptionalOutcome), Program.contract.value_schemas[1].label);
+    try std.testing.expectEqual(ability.ir.ValueCodec.sum, Program.contract.value_schemas[1].codec);
+    try std.testing.expectEqual(@as(u16, 1), Program.contract.value_schemas[1].first_field);
+    try std.testing.expectEqual(@as(u16, 0), Program.contract.value_schemas[1].first_variant);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.value_fields.len);
+    try std.testing.expectEqual(@as(usize, 2), Program.contract.value_variants.len);
+
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var result = try Program.run(&runtime, .{ .request = .{} });
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 41), result.value);
 }
 
 const StateReaderHandlers = struct {

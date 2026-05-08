@@ -57,7 +57,7 @@ fn optionalPlan() ability.ir.ProgramPlan {
     const requirements = [_]ability.ir.plan.Requirement{optional_plan.requirement(0)};
     const ops = [_]ability.ir.plan.Op{optional_plan.requestOp(0, 0, .present)};
     const variants = optional_plan.variants(i32);
-    const schemas = [_]ability.ir.ValueSchemaPlan{optional_plan.schema(i32, 0)};
+    const schemas = [_]ability.ir.ValueSchemaPlan{optional_plan.schema(i32, 0, 0)};
 
     return mustPlan(ability.ir.builder.layout.finish(.{
         .label = "plan-native-optional",

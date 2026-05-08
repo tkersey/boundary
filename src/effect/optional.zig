@@ -283,11 +283,12 @@ pub const plan = struct {
         };
     }
 
-    /// Build one optional sum schema row at a caller-owned variant-table offset.
-    pub fn schema(comptime ResumeType: type, first_variant: u16) plan_ir.ValueSchemaPlan {
+    /// Build one optional sum schema row at caller-owned field and variant-table offsets.
+    pub fn schema(comptime ResumeType: type, first_field: u16, first_variant: u16) plan_ir.ValueSchemaPlan {
         return .{
             .label = @typeName(Outcome(ResumeType)),
             .codec = .sum,
+            .first_field = first_field,
             .first_variant = first_variant,
             .variant_count = 2,
         };
@@ -363,9 +364,10 @@ test "optional plan helpers build canonical rows" {
     try std.testing.expectEqual(plan_ir.ValueCodec.product, nested_variants[plan.some_variant_ordinal].codec);
     try std.testing.expectEqual(@as(?u16, 7), nested_variants[plan.some_variant_ordinal].schema_index);
 
-    const schema = plan.schema(i32, 4);
+    const schema = plan.schema(i32, 2, 4);
     try std.testing.expectEqualStrings(@typeName(plan.Outcome(i32)), schema.label);
     try std.testing.expectEqual(plan_ir.ValueCodec.sum, schema.codec);
+    try std.testing.expectEqual(@as(u16, 2), schema.first_field);
     try std.testing.expectEqual(@as(u16, 4), schema.first_variant);
     try std.testing.expectEqual(@as(u16, 2), schema.variant_count);
 

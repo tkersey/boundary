@@ -136,8 +136,9 @@ extracts the `some` payload with `sum_extract_payload`, and leaves the
 compatibility `ability.effect.optional.handle` path intact.
 `ability.effect.optional.plan` is the reusable plan-native helper namespace for
 this shape. It supplies the optional outcome convention, requirement/op rows,
-schema and variant rows, and sum-match instructions; ordinary authored plans
-still own their layout-builder control flow.
+schema rows with caller-owned field/variant offsets, variant rows, and sum-match
+instructions; ordinary authored plans still own their layout-builder control
+flow.
 
 `examples/plan_native_state_reader.zig` demonstrates state and reader as
 plan-native transform operations. The state requirement carries `state_cell`
