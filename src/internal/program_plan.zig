@@ -230,7 +230,7 @@ pub const BlockPlan = struct {
 /// Runtime-owned serializable executable plan for lowered or explicit IR programs.
 pub const ProgramPlan = struct {
     /// Stable schema version for JSON-serialized runtime plans.
-    pub const current_schema_version: u32 = 9;
+    pub const current_schema_version: u32 = 10;
 
     schema_version: u32 = current_schema_version,
     label: []const u8,
@@ -2231,6 +2231,16 @@ pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan
     }
 
     if (plan.schema_version == 8) {
+        plan.schema_version = ProgramPlan.current_schema_version;
+        return;
+    }
+
+    if (plan.schema_version == 9) {
+        for (plan.instructions) |instruction| {
+            if (instruction.kind == .const_i32 and instruction.string_literal.len != 0) {
+                return error.UnsupportedSchemaVersion;
+            }
+        }
         plan.schema_version = ProgramPlan.current_schema_version;
         return;
     }
@@ -5658,6 +5668,82 @@ test "program_plan_builder.fromValidatedPlan preserves schema validation boundar
     };
 
     try std.testing.expectError(error.UnsupportedSchemaVersion, program_plan_builder.fromValidatedPlan(plan));
+}
+
+test "upgradeLegacyProgramPlan accepts schema-9 operand-only const_i32 plans" {
+    var plan = ProgramPlan{
+        .schema_version = 9,
+        .label = "legacy.schema9.const_i32_operand",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_i32, .dst = 0, .operand = 7 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    try upgradeLegacyProgramPlan(std.testing.allocator, &plan);
+    try std.testing.expectEqual(ProgramPlan.current_schema_version, plan.schema_version);
+    try plan.validate();
+}
+
+test "upgradeLegacyProgramPlan rejects schema-9 const_i32 string literals" {
+    var plan = ProgramPlan{
+        .schema_version = 9,
+        .label = "legacy.schema9.const_i32_string_literal",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_i32, .dst = 0, .string_literal = "-1" },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    try std.testing.expectError(error.UnsupportedSchemaVersion, upgradeLegacyProgramPlan(std.testing.allocator, &plan));
 }
 
 test "ProgramPlan.validate rejects call_op payload locals outside the owning function locals" {
