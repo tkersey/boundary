@@ -3542,6 +3542,245 @@ fn errorOnlyHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
+fn unreachableHelperReturnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const value = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{ .kind = .const_i32, .dst = value.index, .operand = 5 },
+        ability.ir.builder.returnValue(root, value) catch unreachable,
+        .{ .kind = .return_error, .string_literal = "Rejected" },
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .i32,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "unreachable_error_helper",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 0,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 1,
+        },
+    };
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .return_unit },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 52,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn postTerminalReturnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const value = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{ .kind = .const_i32, .dst = value.index, .operand = 6 },
+        ability.ir.builder.returnValue(root, value) catch unreachable,
+        .{ .kind = .return_error, .string_literal = "Rejected" },
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 2,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .return_unit },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 53,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn duplicateReachableReturnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const condition = ability.ir.builder.local(root, 0);
+    const value = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{ .kind = .const_i32, .dst = value.index, .operand = 0 },
+        .{ .kind = .compare_eq_zero, .dst = condition.index, .operand = value.index },
+        .{ .kind = .return_error, .string_literal = "Rejected" },
+        .{ .kind = .return_error, .string_literal = "Rejected" },
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .unit,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 3,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 1 },
+        .{ .first_instruction = 3, .instruction_count = 1, .terminator_index = 2 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+        .{ .kind = .return_unit },
+        .{ .kind = .return_unit },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 54,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .bool }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn nestedReturnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const nested = ability.ir.builder.function(1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{
+            .kind = .call_nested_with,
+            .aux = @intFromEnum(ability.ir.ValueCodec.unit),
+            .string_literal = nested_with_metadata,
+        },
+        .{ .kind = .return_error, .string_literal = "Rejected" },
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        },
+        .{
+            .symbol_name = "nested_error",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 1,
+            .instruction_count = 1,
+        },
+    };
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_unit },
+    };
+    const targets = .{ability.ir.NestedWithTarget{
+        .metadata = nested_with_metadata,
+        .function_index = nested.index,
+    }};
+
+    return ability.ir.builder.finishWithNestedTargets(.{
+        .label = label,
+        .ir_hash = 55,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }, targets) catch unreachable;
+}
+
 fn entryMixedNormalAndTerminalResultCodecPlan(comptime label: []const u8) !ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const condition = ability.ir.builder.local(root, 0);
@@ -4496,23 +4735,23 @@ test "ProgramPlan validation enforces exact typed sum instruction refs" {
         .{ .codec = .bool },
         .{ .codec = .i32 },
     };
-    try std.testing.expectError(error.InvalidInstructionCodec, validateSingleSumInstruction(
+    try std.testing.expectError(error.InvalidSumSourceRef, validateSingleSumInstruction(
         .{ .kind = .sum_variant_is, .dst = 1, .operand = 2, .aux = 1 },
         valid_sum_locals,
     ));
-    try std.testing.expectError(error.InvalidInstructionLocalIndex, validateSingleSumInstruction(
+    try std.testing.expectError(error.InvalidSumVariantDestination, validateSingleSumInstruction(
         .{ .kind = .sum_variant_is, .dst = 2, .operand = 0, .aux = 1 },
         valid_sum_locals,
     ));
-    try std.testing.expectError(error.InvalidInstructionCodec, validateSingleSumInstruction(
+    try std.testing.expectError(error.InvalidSumVariantOrdinal, validateSingleSumInstruction(
         .{ .kind = .sum_variant_is, .dst = 1, .operand = 0, .aux = 2 },
         valid_sum_locals,
     ));
-    try std.testing.expectError(error.InvalidInstructionCodec, validateSingleSumInstruction(
+    try std.testing.expectError(error.InvalidSumPayloadVariant, validateSingleSumInstruction(
         .{ .kind = .sum_extract_payload, .dst = 2, .operand = 0, .aux = 0 },
         valid_sum_locals,
     ));
-    try std.testing.expectError(error.InvalidInstructionLocalIndex, validateSingleSumInstruction(
+    try std.testing.expectError(error.InvalidSumPayloadDestination, validateSingleSumInstruction(
         .{ .kind = .sum_extract_payload, .dst = 1, .operand = 0, .aux = 1 },
         valid_sum_locals,
     ));
@@ -5041,6 +5280,85 @@ test "ability.program deinitializes result value when output collection fails" {
     try std.testing.expect(CleanupState.deinit_called);
 }
 
+test "ability.program deinitializes outputs without result cleanup hook" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CleanupState = struct {
+        var outputs_deinit_called = false;
+    };
+    const EmptyHandlers = struct {};
+    const OutputBody = struct {
+        pub const Outputs = []i32;
+        pub const compiled_plan = outputMetadataPlan("output-only-cleanup");
+
+        pub fn collectOutputs(allocator: std.mem.Allocator, _: *EmptyHandlers) !Outputs {
+            const outputs = try allocator.alloc(i32, 1);
+            outputs[0] = 7;
+            return outputs;
+        }
+
+        pub fn deinitOutputs(allocator: std.mem.Allocator, outputs: Outputs) void {
+            CleanupState.outputs_deinit_called = true;
+            allocator.free(outputs);
+        }
+    };
+    const Program = ability.program("output-only-cleanup", EmptyHandlers, OutputBody);
+    CleanupState.outputs_deinit_called = false;
+    var result = try Program.run(&runtime, .{});
+    try std.testing.expectEqual(@as(i32, 7), result.outputs[0]);
+    try std.testing.expect(!CleanupState.outputs_deinit_called);
+    result.deinit();
+    try std.testing.expect(CleanupState.outputs_deinit_called);
+}
+
+test "ability.program deinitializes result and outputs independently" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        amount: i32,
+    };
+    const CleanupState = struct {
+        var result_deinit_called = false;
+        var outputs_deinit_called = false;
+    };
+    const EmptyHandlers = struct {};
+    const CleanupBody = struct {
+        pub const Outputs = []i32;
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = productIdentityPlan(Payload, "result-and-output-cleanup");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{Payload{ .amount = 13 }}) {
+            return .{Payload{ .amount = 13 }};
+        }
+
+        pub fn collectOutputs(allocator: std.mem.Allocator, _: *EmptyHandlers) !Outputs {
+            const outputs = try allocator.alloc(i32, 1);
+            outputs[0] = 21;
+            return outputs;
+        }
+
+        pub fn deinitResult(_: std.mem.Allocator, value: Payload) void {
+            std.debug.assert(value.amount == 13);
+            CleanupState.result_deinit_called = true;
+        }
+
+        pub fn deinitOutputs(allocator: std.mem.Allocator, outputs: Outputs) void {
+            CleanupState.outputs_deinit_called = true;
+            allocator.free(outputs);
+        }
+    };
+    const Program = ability.program("result-and-output-cleanup", EmptyHandlers, CleanupBody);
+    CleanupState.result_deinit_called = false;
+    CleanupState.outputs_deinit_called = false;
+    var result = try Program.run(&runtime, .{});
+    try std.testing.expectEqual(@as(i32, 21), result.outputs[0]);
+    result.deinit();
+    try std.testing.expect(CleanupState.result_deinit_called);
+    try std.testing.expect(CleanupState.outputs_deinit_called);
+}
+
 test "ability.program enters runtime execution before encoding entry args" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -5509,6 +5827,50 @@ test "ability.program surfaces declared ProgramPlan return_error values" {
     try std.testing.expectError(error.Rejected, Program.run(&runtime, .{}));
 }
 
+test "ability.program omits unreachable helper return_error values" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const ErrorBody = struct {
+        pub const compiled_plan = unreachableHelperReturnErrorPlan("unreachable-helper-return-error");
+    };
+    const Program = ability.program("unreachable-helper-return-error", struct {}, ErrorBody);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.return_errors.len);
+
+    var result = try Program.run(&runtime, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 5), result.value);
+}
+
+test "ability.program omits post-terminal return_error values" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const ErrorBody = struct {
+        pub const compiled_plan = postTerminalReturnErrorPlan("post-terminal-return-error");
+    };
+    const Program = ability.program("post-terminal-return-error", struct {}, ErrorBody);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.return_errors.len);
+
+    var result = try Program.run(&runtime, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 6), result.value);
+}
+
+test "ability.program exposes unique reachable return_error values" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const ErrorBody = struct {
+        pub const Error = error{Rejected};
+        pub const compiled_plan = duplicateReachableReturnErrorPlan("duplicate-reachable-return-error");
+    };
+    const Program = ability.program("duplicate-reachable-return-error", struct {}, ErrorBody);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.return_errors.len);
+    try std.testing.expectEqualStrings("Rejected", Program.contract.return_errors[0]);
+    try std.testing.expectError(error.Rejected, Program.run(&runtime, .{}));
+}
+
 test "ability.program allows anyerror ProgramPlan return_error values" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -5530,6 +5892,26 @@ test "ability.program propagates error-only helper without result-codec match" {
         pub const compiled_plan = errorOnlyHelperPlan("error-only-helper");
     };
     const Program = ability.program("error-only-helper", struct {}, ErrorBody);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.return_errors.len);
+    try std.testing.expectEqualStrings("Rejected", Program.contract.return_errors[0]);
+    try std.testing.expectError(error.Rejected, Program.run(&runtime, .{}));
+}
+
+test "ability.program propagates reachable nested-with return_error" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const ErrorBody = struct {
+        pub const Error = error{Rejected};
+        pub const compiled_plan = nestedReturnErrorPlan("nested-return-error");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+    };
+    const Program = ability.program("nested-return-error", struct {}, ErrorBody);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.return_errors.len);
+    try std.testing.expectEqualStrings("Rejected", Program.contract.return_errors[0]);
     try std.testing.expectError(error.Rejected, Program.run(&runtime, .{}));
 }
 

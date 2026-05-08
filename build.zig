@@ -140,6 +140,17 @@ fn addTestArtifact(
     test_step.dependOn(&addRunArtifactWithArgs(b, tests, test_args.passthrough).step);
 }
 
+fn addCompileFailArtifact(
+    b: *std.Build,
+    compile_fail_step: *std.Build.Step,
+    root_module: *std.Build.Module,
+    expected_error: []const u8,
+) void {
+    const tests = b.addTest(.{ .root_module = root_module });
+    tests.expect_errors = .{ .contains = expected_error };
+    compile_fail_step.dependOn(&tests.step);
+}
+
 fn addCoreModules(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -332,6 +343,51 @@ pub fn build(b: *std.Build) void {
     public_optional_tests_mod.addImport("ability", ability);
     const public_optional_tests = b.addTest(.{ .root_module = public_optional_tests_mod, .filters = test_args.filters });
     test_step.dependOn(&addRunArtifactWithArgs(b, public_optional_tests, test_args.passthrough).step);
+
+    const compile_fail_step = b.step("compile-fail", "Check expected public ProgramPlan compile diagnostics.");
+    test_step.dependOn(compile_fail_step);
+    const compile_fail_specs = [_]struct {
+        path: []const u8,
+        expected_error: []const u8,
+    }{
+        .{
+            .path = "test/compile_fail/missing_reachable_return_error_decl.zig",
+            .expected_error = "Body.compiled_plan reachable return_error is not declared in Body.Error: Rejected",
+        },
+        .{
+            .path = "test/compile_fail/invalid_result_cleanup_with_outputs.zig",
+            .expected_error = "Body.deinitResult with Body.Outputs must have type fn (std.mem.Allocator, value) void; release outputs separately with Body.deinitOutputs",
+        },
+        .{
+            .path = "test/compile_fail/value_schema_variant_mismatch.zig",
+            .expected_error = "Body.value_schema_types does not match Body.compiled_plan.value_variants[1]",
+        },
+        .{
+            .path = "test/compile_fail/invalid_sum_extract_destination.zig",
+            .expected_error = "Body.compiled_plan failed ProgramPlan.validate: InvalidSumPayloadDestination",
+        },
+        .{
+            .path = "test/compile_fail/encode_args_tuple_field_mismatch.zig",
+            .expected_error = "expected i32, found bool",
+        },
+        .{
+            .path = "test/compile_fail/missing_output_collector.zig",
+            .expected_error = "Body.Outputs requires Body.collectOutputs",
+        },
+        .{
+            .path = "test/compile_fail/invalid_output_cleanup_hook.zig",
+            .expected_error = "Body.deinitOutputs must have type fn (std.mem.Allocator, outputs) void",
+        },
+    };
+    inline for (compile_fail_specs) |spec| {
+        const compile_fail_mod = b.createModule(.{
+            .root_source_file = b.path(spec.path),
+            .target = target,
+            .optimize = optimize,
+        });
+        compile_fail_mod.addImport("ability", ability);
+        addCompileFailArtifact(b, compile_fail_step, compile_fail_mod, spec.expected_error);
+    }
 
     const examples = [_]struct {
         name: []const u8,

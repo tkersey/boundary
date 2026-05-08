@@ -1,127 +1,167 @@
-Iteration: 7
+Iteration: 8
 
-# Typed Sum Matching and Contract Projection Plan
+# Full ProgramPlan Convergence Campaign
 
 ## Round Delta
-- Converts the completed `$grill-me` answers into a release-impacting architecture wave, not the prior narrow audit task list.
-- Locks the executable shape: all sum schemas get tag-test branching plus payload extraction, mirrored through `ProgramPlan`, `effect_ir`, public builder helpers, interpreter, contract projection, docs, and tests.
-- Adds a proof spine: focused witness tests first, then full local gates.
+- Upgraded the prior campaign plan from roadmap-level sequencing to an implementation-ready branch contract.
+- Added an internal conformance harness as the compounding proof surface for built-in migrations.
+- Made typed ownership semantics explicit as a cross-cutting gate instead of letting it disappear between contract closure and writer/resource work.
 
 ## Summary
-Goal: make typed sum values executable beyond pass-through by adding exact sum matching to the schema-rich executable subset. Chosen path: add two wire-shaped instructions, `.sum_variant_is` and `.sum_extract_payload`, with schema-local variant ordinals; mirror them in `effect_ir`; execute them in both interpreter paths; and expose declaration-level schema metadata in `Program.contract`. First wave is core `ProgramPlan` + interpreter + public builder, proven by direct `ability.program` witnesses. Done means optional, enum, and tagged-union sum matches execute or fail closed, `Program.contract` reflects schema declarations without leaking plan tables, README documents the boundary, and `zig build`, `zig build test --summary none`, and `zig build lint -- --max-warnings 0` pass.
+Converge `ability` around `ProgramPlan` as the single semantic execution kernel while preserving the small public root. The chosen path is a dependency-ordered campaign: first close the typed executable contract, then make plan authoring and examples usable, then migrate built-in effects onto plan-native execution in increasing lifecycle-risk order. The first wave is Branches 1-3; the campaign is complete when all built-ins have plan-native examples/tests or a documented design gate, compatibility APIs remain green, and the release hardening branch proves packaging, lint, docs, and proof coverage.
+
+Completion requires: `ability.program(label, Handlers, Body)` remains the public front door; `ProgramValue` remains scalar-only; `ability.ir` owns the builder and raw plan escape hatch; `Program.contract` remains a read-only projection; no public ArtifactV1, VM, compile, parser, or generated custom effect surface returns.
+
+## Iteration Change Log
+- iteration=5; focus=baseline; round_decision=continue; delta_kind=scope_harden; evidence=prior plan covered 11 branches but not explicit ownership track; what_we_did=made typed ownership a cross-cutting gate; change=ownership tests/docs now land across Branches 1,2,6,9,11; sections_touched=Summary, Tests/Acceptance, Implementation Brief
+- iteration=6; focus=architecture; round_decision=continue; delta_kind=feature_add; evidence=built-in parity would otherwise repeat bespoke tests; what_we_did=added internal conformance harness; change=contract/execution parity traces become reusable across Branches 4-9; sections_touched=Data Flow, Decision Log, Requirement-to-Test Traceability
+- iteration=7; focus=operability; round_decision=continue; delta_kind=none; evidence=branch order, proof gates, rollback triggers, and non-goals are aligned; what_we_did=pressed rollout and abort criteria; change=no material delta; sections_touched=Rollout/Monitoring, Rollback/Abort Criteria
+- iteration=8; focus=risk; round_decision=close; delta_kind=none; evidence=adversarial pass found no blocking ambiguity; what_we_did=verified traceability for every original ambition track; change=no material delta; sections_touched=Requirement-to-Test Traceability, Contract Signals
+
+## Rewrite Justification
+The prior artifact was directionally correct but still too high-level for implementation. Harm if kept: Branches 4-9 would each rediscover parity strategy, typed ownership would be implicit, and the builder surface would remain underspecified. Rewriting is beneficial because the campaign now has concrete gates, internal proof infrastructure, and branch-level acceptance criteria.
 
 ## Non-Goals/Out of Scope
-- Do not replace `ProgramValue`; it remains the scalar public carrier.
-- Do not expose full `functions`, `blocks`, `instructions`, VM internals, or Artifact-style host maps through `Program.contract`.
-- Do not add a legacy plan upgrade path; bump `ProgramPlan.current_schema_version` only.
-- Do not add a compile-fail harness in this wave.
-- Do not broaden to every fixture producer beyond public builder plus effect-ir/open-row lowerer paths needed for real integration proof.
+- No new public root exports.
+- No public ArtifactV1, VM, compile, source parser, or legacy capability-map surfaces.
+- No widening of `ProgramValue`.
+- No removal of compatibility APIs before plan-native examples and parity tests exist.
+- No public custom effect authoring in the next few branches.
+- No source-like syntax or compiler layer.
+- No global registry for nested-with targets.
+
+## Scope Change Log
+- scope_change=full_campaign; reason=user asked for the full ambition; approved_by=user
+- scope_change=add_internal_conformance_harness; reason=reduces repeated parity work across built-in migrations; approved_by=engineering-default
+- scope_change=typed_ownership_cross_cutting_gate; reason=original ambition includes ownership semantics but near-term branch list did not give it a standalone branch; approved_by=engineering-default
 
 ## Interfaces/Types/APIs Impacted
-- `ProgramPlan`: bump `current_schema_version` from `8` to `9`; add `InstructionKind.sum_variant_is` and `InstructionKind.sum_extract_payload`.
-- Instruction wire semantics: `sum_variant_is`: `dst` is bool local, `operand` is sum local, `aux` is schema-local variant ordinal. `sum_extract_payload`: `dst` is payload local, `operand` is sum local, `aux` is schema-local variant ordinal; valid only for non-unit variants.
-- `effect_ir`: mirror both instruction tags and add exact parameter/local refs for structured locals, preserving legacy scalar `parameter_codecs` and `local_codecs` as compatibility input.
-- Public builder: add `ability.ir.builder.sumVariantIs(caller, dst_bool, source_sum, variant_ordinal)` and `ability.ir.builder.sumExtractPayload(caller, dst_payload, source_sum, variant_ordinal)`.
-- `Program.contract`: add `schemas`, `fields`, `variants`, `entry_parameters`, `nested_with_targets`, and unique `return_error_names`; preserve negative assertions that `functions`, `instructions`, `ArtifactV1`, and `VM` are absent.
-- README: document sum matching, variant ordinal convention, runtime wrong-variant behavior, and contract projection limits.
+- `src/root.zig`: remains limited to `effect`, `ir`, `program`, `Runtime`.
+- `ability.ir`: expands builder ergonomics under the existing namespace; raw `ability.ir.plan.*` tables stay available.
+- `ability.program`: strengthens private/internal validation of body hooks and diagnostics; public call shape stays unchanged.
+- `Program.contract`: may gain projection data only for already-validated facts; it must not expose mutable plan tables or become an execution authority.
+- `ability.effect.*`: compatibility APIs stay; plan-native paths are added as examples/internal lowering before any public migration.
+- `effect_schema`: remains the source metadata vocabulary for state, reader, writer, optional, exception, and resource migrations.
+- `test/` and `examples/`: gain reusable conformance fixtures and public-API examples.
 
 ## Data Flow
-1. A `Body.value_schema_types` entry supplies exact Zig type identity for a sum schema.
-2. Builder/lowerer emits locals with `.sum` refs and matching `schema_index`.
-3. `sum_variant_is` reads the runtime structured value, computes active schema-local variant ordinal using the Zig type behind the schema, writes bool, and updates the existing branch condition path.
-4. `branch_if` uses the bool condition without a new terminator kind.
-5. `sum_extract_payload` checks the active variant at runtime, writes the payload as scalar or structured value into `dst`, and returns `ProgramContractViolation` on wrong variant.
-6. `Program.contract` projects declarations from schema tables and public declarations, not control-flow tables.
+1. A body supplies `Body.compiled_plan` directly or through `ability.ir.builder`.
+2. `ability.program` validates the plan, nested-with targets, typed schema table, entry args, result/output hooks, cleanup hooks, reachable `return_error` literals, and executable capability support.
+3. Runtime execution uses interpreter-owned frames for entry, helpers, recursion, and nested-with targets.
+4. Structured values flow through ProgramPlan value refs and exact `Body.value_schema_types`; scalar public carriers remain `ProgramValue`.
+5. Built-in migrations lower effect semantics into ProgramPlan requirements, ops, payload/resume refs, sum branches, nested-with targets, and typed outputs.
+6. `Program.Result.value` and `Program.Result.outputs` are cleaned independently through explicit hooks.
+7. The internal conformance harness records contract metadata plus execution traces for raw plans, builder plans, and plan-native built-ins.
 
 ## Edge Cases/Failure Modes
-- Source local is not `.sum`: validation error.
-- Source local has missing or out-of-range schema index: validation error.
-- Variant ordinal exceeds `schema.variant_count`: validation error.
-- `sum_variant_is.dst` is not bool: validation error.
-- `sum_extract_payload` targets a unit variant: validation error.
-- `sum_extract_payload.dst` does not exactly match the variant ref: validation error.
-- Runtime value schema index differs from local ref: `ProgramContractViolation`.
-- Runtime active variant differs from requested payload variant: `ProgramContractViolation`.
-- Enum variants are matchable but not payload-extractable.
-- Optional ordinal convention is stable: `0 = none`, `1 = some`.
+- Reachable `return_error` missing from `Body.Error`: compile-time failure.
+- Unreachable helper or post-terminal `return_error`: ignored for `Body.Error` and omitted from `Program.contract`.
+- Schema table mismatch: diagnostic names schema, field, or variant table.
+- Sum extraction destination mismatch: plan validation reports a sum-specific destination failure.
+- Nested-with target missing or wrong: fail closed with metadata/function/result-codec diagnostic.
+- Output collection failure after result creation: result cleanup runs; output cleanup does not.
+- Writer output ownership: accumulator output must have explicit allocator ownership and cleanup.
+- Exception/resource terminal paths: after hooks and releases must follow compatibility semantics.
+- Resource release failure: preserve current error precedence before declaring parity.
 
 ## Tests/Acceptance
-- Add direct `ProgramPlan.validate` tests for invalid sum source, bool destination mismatch, variant ordinal out of range, unit payload extraction, and payload destination ref mismatch.
-- Add interpreter witnesses in `test/program_api_test.zig`: optional branch on `some`, enum branch on one case, tagged-union payload extraction returning payload.
-- Add wrong-variant runtime test expecting `error.ProgramContractViolation`.
-- Add effect-ir/lowerer tests proving mirrored tags lower to the same `ProgramPlan` instructions and schema refs.
-- Strengthen scalar preservation: existing scalar plans still run and contract metadata remains unchanged except for additive fields.
-- Strengthen contract projection tests for schemas/fields/variants/entry params/nested targets/return errors plus continued absence of plan tables.
-- Add capability ledger tests: supported sum-match plans have zero blockers; unsupported malformed sum-match shapes report capped blockers.
-- Add output cleanup failure-path test covering `collectOutputs` failure after result allocation and asserting result cleanup still runs.
-- Run `zig build`, `zig build test --summary none`, and `zig build lint -- --max-warnings 0`.
+Every branch must pass:
+
+```sh
+zig version
+zig fmt --check build.zig src examples test bench
+git diff --check
+zig build --summary all
+zig build test --summary all
+zig build lint -- --max-warnings 0
+```
+
+Branch-specific acceptance:
+- Branch 1: compile-fail fixtures for body hook mismatches; runtime tests for reachable/unreachable errors and cleanup failure paths.
+- Branch 2: examples for typed product/sum execution, sum matching, contract inspection, outputs, and cleanup.
+- Branch 3: builder-generated plans match raw plans in contract metadata and execution.
+- Branches 4-9: compatibility behavior stays green while plan-native examples/tests are added.
+- Branch 10: design artifact only; no public custom effect API exposure.
+- Branch 11: package/lint guard verifies `.zig` coverage under `src`, `examples`, `test`, and `bench`.
 
 ## Requirement-to-Test Traceability
-| requirement | acceptance check |
+| Requirement | Acceptance Check |
 |---|---|
-| all sum shapes executable | optional, enum, tagged-union witness tests |
-| payload extraction binds all payload types | tagged-union scalar payload and optional `some` payload tests |
-| wrong-variant extraction fails closed | runtime `ProgramContractViolation` test |
-| public builder supports new ops | builder helper materialization tests |
-| effect_ir/lowerer produces new ops | mirrored instruction lowering test |
-| contract is richer but not leaky | contract projection and `!@hasDecl` negative tests |
-| capability ledger remains an obligation surface | supported/unsupported ledger tests |
-| scalar behavior preserved | scalar run and scalar contract tests |
+| Typed contract closure | Branch 1 compile-fail and runtime contract tests |
+| Public docs/examples | Branch 2 examples plus README concision review |
+| Higher-level builder | Branch 3 raw-vs-builder contract parity tests |
+| Plan-native optional | Branch 4 resume, return-now, after-resume, terminal tests |
+| Plan-native state/reader | Branch 5 final-state output and borrowed reader environment tests |
+| Plan-native writer | Branch 6 empty/one/many tell plus cleanup failure tests |
+| Plan-native exception | Branch 8 scalar/product/sum throw-catch tests |
+| Plan-native resource | Branch 9 LIFO, terminal escape, release failure, typed resource stress tests |
+| Nested-with stabilization | Branch 7 nested-with matrix and contract projection tests |
+| Typed ownership semantics | Branches 1,2,6,9,11 cleanup docs/tests |
+| Custom effect authoring | Branch 10 schema-first design with explicit non-exposure |
+| Packaging/release discipline | Branch 11 lint/package guard and full proof commands |
 
 ## Rollout/Monitoring
-- Land as one branch wave with one public API note in README.
-- Monitor local breakage only through Zig compile/test/lint gates; no runtime service rollout exists.
-- Treat any downstream compile break on `effect_ir.InstructionKind` exhaustive switches as intentional API impact requiring same-branch updates.
+- Land as ordered, narrow PRs.
+- Do not start built-in migration PRs until Branches 1-3 are merged.
+- Each PR records full proof commands, focused lanes, changed public surface, and compatibility status.
+- The conformance harness becomes required for Branches 4-9 once introduced.
+- Monitor drift through contract metadata assertions, compatibility tests, and examples built through public APIs.
 
 ## Rollback/Abort Criteria
-- Abort if adding structured refs to `effect_ir` requires replacing the scalar compatibility API instead of adding an additive path.
-- Abort if `Program.contract` needs to expose instruction/function tables to prove sum matching.
-- Roll back the entire wave by reverting the schema-version bump, new op tags, builder helpers, interpreter cases, contract additions, README edits, and tests together.
-- Do not partially retain the wire bump without executable interpreter support.
+- Abort any branch that widens the public root or `ProgramValue`.
+- Abort a builder change if it creates a second IR instead of producing `ProgramPlan`.
+- Abort a built-in migration if compatibility behavior cannot be expressed in tests.
+- Abort resource migration if optional/exception terminal behavior is not already stable.
+- Revert a branch if full proof commands fail because of branch-owned changes and cannot be fixed narrowly.
+- Defer custom effect authoring if built-in plan-native lifecycle semantics remain incomplete.
 
 ## Assumptions/Defaults
-- assumption=Plan target is the same objective clarified by `$grill-me`; provenance=user reaffirmation; confidence=high; verification=compare final decisions against grill answers before editing.
-- assumption=Current date is 2026-05-08 for planning metadata only; provenance=system date; confidence=high; verification=no release-date behavior depends on it.
-- assumption=No legacy upgrade path is acceptable; provenance=user selected "bump only"; confidence=high; verification=test old schema still rejects as unsupported.
-- assumption=Full local gates are available; provenance=user selected full proof bar; confidence=medium; verification=run gates after implementation and report any environmental blocker.
+- assumption=latest_main_is_baseline; confidence=medium; verification_plan=refresh from latest `main` before implementation; date=2026-05-08
+- assumption=current_partial_branch1_diff_is_foundation; confidence=medium; verification_plan=review dirty diff and preserve only in-scope edits
+- assumption=branch_order_is_dependency_order; confidence=high; verification_plan=enforce Branches 1-3 before built-in migrations
+- assumption=examples_must_use_public_api; confidence=high; verification_plan=scan examples for forbidden surfaces
+- assumption=custom_authoring_is_design_only; confidence=high; verification_plan=assert no public `Define`/`ops` exposure in Branch 10
 
 ## Decision Log
-- D1: Treat this as a release-impacting implementation wave, not a doc-only audit.
-- D2: Add `.sum_variant_is` and `.sum_extract_payload` as the complete sum-match core.
-- D3: Use schema-local variant ordinals; optional ordinals are `none=0`, `some=1`.
-- D4: Wrong-variant payload extraction is runtime `ProgramContractViolation`.
-- D5: Mirror new ops through `effect_ir` and public builder helpers.
-- D6: Add additive exact structured parameter/local refs to `effect_ir` while preserving scalar compatibility fields.
-- D7: Expand `Program.contract` only as a declaration projection.
-- D8: Bump `ProgramPlan.current_schema_version`; do not write a migration.
-- D9: Prove with focused witnesses and full Zig gates.
+- D1: Execute as ordered branch campaign, not a megabranch.
+- D2: Treat Branches 1-3 as the foundation gate.
+- D3: Add an internal conformance harness for contract and execution parity.
+- D4: Migrate built-ins by increasing lifecycle risk: optional, state/reader, writer, nested-with, exception, resource.
+- D5: Keep typed ownership semantics cross-cutting across contract, docs, writer, resource, and release hardening.
+- D6: Add a higher-level builder under `ability.ir.builder` that only emits existing `ProgramPlan`.
+- D7: Keep compatibility APIs until parity examples and tests exist.
+- D8: Keep `Program.contract` projection-only.
+- D9: Make custom effect authoring a design branch, not public API exposure.
 
 ## Decision Impact Map
 | decision_id | impacted_sections | follow_up_action |
 |---|---|---|
-| D1 | Summary, Scope Change Log, Implementation Brief | execute as one branch wave |
-| D2 | Interfaces, Data Flow, Tests | implement validator and interpreter cases |
-| D3 | Data Flow, Edge Cases, README | document ordinal convention |
-| D4 | Edge Cases, Tests, Rollback | add runtime failure test |
-| D5 | Interfaces, Tests | update public re-exports and lowering |
-| D6 | Interfaces, Data Flow | add compatibility validation |
-| D7 | Interfaces, Tests | add contract view arrays and negative leak tests |
-| D8 | Rollback, Tests | assert old schema rejects |
-| D9 | Tests, Contract Signals | run full gates after edits |
+| D1 | Rollout, Implementation Brief | Keep PRs ordered and narrow |
+| D2 | Tests, Rollback | Block built-ins until typed contract/docs/builder land |
+| D3 | Data Flow, Tests | Build reusable parity fixtures before optional/state migrations |
+| D4 | Implementation Brief | Preserve migration order |
+| D5 | Tests, Docs | Add ownership checks across branches |
+| D6 | Interfaces | Extend builder without adding a compiler/parser |
+| D7 | Non-Goals, Rollback | Keep compatibility test lanes |
+| D8 | Interfaces | Prevent contract from becoming mutable execution state |
+| D9 | Branch 10 | Produce design only |
 
 ## Open Questions
-None.
+None. owner=engineering; due_date=n/a; default_action=execute in branch order.
 
 ## Stakeholder Signoff Matrix
-| product | engineering | operations | security |
-|---|---|---|---|
-| owner=user; status=scope locked by grill answers | owner=implementer; status=ready for implementation | owner=implementer; status=local gates only | owner=implementer; status=no new external I/O or auth surface |
+| stakeholder | owner | status |
+|---|---|---|
+| product | user | full ambition requested |
+| engineering | implementer | campaign decision-complete |
+| operations | implementer | proof gates defined |
+| security | reviewer | no new public execution surfaces planned |
 
 ## Adversarial Findings
-- lens=feasibility; type=risk; severity=high; section=Interfaces; decision=D6; status=mitigated_by_additive_refs; probability=medium; impact=high; trigger=effect_ir structured locals cannot be represented without schema refs.
-- lens=operability; type=risk; severity=medium; section=Rollback; decision=D8; status=mitigated_by_single_wave_revert; probability=low; impact=medium; trigger=schema version bump lands without interpreter support.
-- lens=risk; type=risk; severity=high; section=Program.contract; decision=D7; status=mitigated_by_negative_leak_tests; probability=medium; impact=high; trigger=contract exposes plan tables instead of declaration views.
-- lens=feasibility; type=preference; severity=low; section=Tests; decision=D9; status=accepted; probability=low; impact=low; trigger=compile-fail harness would add stronger negative proof but was explicitly out of scope.
+- lens=feasibility; type=risk; severity=medium; section=Implementation Brief; decision=D1; status=mitigated; probability=medium; impact=high; trigger=combining multiple built-ins in one branch
+- lens=operability; type=risk; severity=medium; section=Tests/Acceptance; decision=D3; status=mitigated; probability=medium; impact=medium; trigger=bespoke parity tests diverge between built-ins
+- lens=risk; type=risk; severity=high; section=Rollback/Abort Criteria; decision=D4; status=mitigated; probability=medium; impact=high; trigger=resource migration starts before terminal/abort behavior is proven
+- lens=architecture; type=preference; severity=low; section=Interfaces; decision=D6; status=accepted; probability=low; impact=low; trigger=builder API may need refinement after examples
 
 ## Convergence Evidence
 blocking_errors=0
@@ -129,7 +169,7 @@ material_risks_mitigated=3
 clean_rounds=2
 press_pass_clean=true
 new_errors=0
-press_sections_checked=Summary,Interfaces/Types/APIs Impacted,Tests/Acceptance,Implementation Brief
+sections_pressed=Summary, Interfaces, Tests/Acceptance, Rollback/Abort Criteria, Implementation Brief
 implementation_ready=true
 
 ## Contract Signals
@@ -140,16 +180,20 @@ material_risks_open=0
 clean_rounds=2
 press_pass_clean=true
 new_errors=0
-rewrite_ratio=0.00
+rewrite_ratio=0.82
 external_inputs_trusted=true
 improvement_exhausted=true
 stop_reason=none
 
 ## Implementation Brief
-1. step=core_wire; owner=implementer; success_criteria=`ProgramPlan.current_schema_version=9`, new instruction tags exist, hash/JSON/validation switches compile, old schema rejection remains.
-2. step=validation; owner=implementer; success_criteria=`ProgramPlan.validate` enforces source sum refs, bool dst, schema-local ordinal bounds, non-unit payload extraction, and exact payload dst refs.
-3. step=interpreter; owner=implementer; success_criteria=both interpreter loops execute `sum_variant_is` and `sum_extract_payload`; wrong-variant extraction returns `ProgramContractViolation`.
-4. step=public_builder_and_effect_ir; owner=implementer; success_criteria=builder helpers produce valid instructions; `effect_ir` mirrored tags and structured refs lower into exact ProgramPlan refs without breaking scalar callers.
-5. step=contract_projection; owner=implementer; success_criteria=`Program.contract` exposes schema/field/variant/entry/nested/return-error declarations and still hides full plan/VM internals.
-6. step=tests_and_docs; owner=implementer; success_criteria=README documents the public boundary; witness, ledger, scalar preservation, contract, and cleanup tests pass.
-7. step=full_gates; owner=implementer; success_criteria=`zig build`, `zig build test --summary none`, and `zig build lint -- --max-warnings 0` pass or any environmental blocker is reported with exact command output.
+1. step=Branch 1 typed contract closure; owner=engineering; success_criteria=Reachable errors, hook validation, diagnostics, cleanup, and contract projection are proven.
+2. step=Branch 2 docs and examples; owner=engineering; success_criteria=README stays concise; deeper docs/examples cover typed execution, sums, outputs, cleanup, nested-with, and contract.
+3. step=Branch 3 higher-level builder; owner=engineering; success_criteria=Builder covers scalar/product/sum branches and payload extraction; one example rewritten; raw-vs-builder parity passes.
+4. step=Branch 4 plan-native optional; owner=engineering; success_criteria=Optional workflow executes through `ability.program`; sum matching drives resume/return-now behavior; compatibility tests remain green.
+5. step=Branch 5 plan-native state and reader; owner=engineering; success_criteria=State final output appears in `Program.Result.outputs`; reader environment remains borrowed.
+6. step=Branch 6 plan-native writer; owner=engineering; success_criteria=Accumulator output ownership and cleanup failure behavior are explicit and tested.
+7. step=Branch 7 nested-with stabilization; owner=engineering; success_criteria=Full target matrix passes; metadata matching is documented; targets stay explicit.
+8. step=Branch 8 plan-native exception; owner=engineering; success_criteria=Throw/catch supports scalar, product, and sum payloads with correct terminal and after-hook behavior.
+9. step=Branch 9 plan-native resource; owner=engineering; success_criteria=LIFO release, release-before-outer-catch/return, error precedence, and typed resources pass stress tests.
+10. step=Branch 10 custom effect authoring design; owner=engineering; success_criteria=Schema-first design exists; no public custom effect API is exposed.
+11. step=Branch 11 release hardening; owner=engineering; success_criteria=Lint/package guards, file classification, roadmap docs, and full proof commands pass.

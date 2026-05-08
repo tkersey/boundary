@@ -564,18 +564,20 @@ pub const ProgramPlan = struct {
                     },
                     .sum_variant_is => {
                         const source_ref = functionLocalValueRef(self, function, instruction.operand) orelse
-                            return error.InvalidInstructionLocalIndex;
-                        if (sumVariantRef(self, source_ref, instruction.aux) == null) return error.InvalidInstructionCodec;
-                        if (!functionLocalHasCodec(self, function, instruction.dst, .bool)) return error.InvalidInstructionLocalIndex;
+                            return error.InvalidSumSourceRef;
+                        if (source_ref.codec != .sum) return error.InvalidSumSourceRef;
+                        if (sumVariantRef(self, source_ref, instruction.aux) == null) return error.InvalidSumVariantOrdinal;
+                        if (!functionLocalHasCodec(self, function, instruction.dst, .bool)) return error.InvalidSumVariantDestination;
                     },
                     .sum_extract_payload => {
                         const source_ref = functionLocalValueRef(self, function, instruction.operand) orelse
-                            return error.InvalidInstructionLocalIndex;
+                            return error.InvalidSumSourceRef;
+                        if (source_ref.codec != .sum) return error.InvalidSumSourceRef;
                         const payload_ref = sumVariantRef(self, source_ref, instruction.aux) orelse
-                            return error.InvalidInstructionCodec;
-                        if (!hasPayload(payload_ref.codec)) return error.InvalidInstructionCodec;
+                            return error.InvalidSumVariantOrdinal;
+                        if (!hasPayload(payload_ref.codec)) return error.InvalidSumPayloadVariant;
                         if (!functionLocalHasEquivalentValueRef(self, function, instruction.dst, payload_ref)) {
-                            return error.InvalidInstructionLocalIndex;
+                            return error.InvalidSumPayloadDestination;
                         }
                     },
                     .return_value => {
@@ -1076,6 +1078,11 @@ pub const ValidationError = error{
     InvalidFunctionRequirementSpan,
     InvalidFunctionResultCodec,
     InvalidInstructionLocalIndex,
+    InvalidSumPayloadDestination,
+    InvalidSumPayloadVariant,
+    InvalidSumSourceRef,
+    InvalidSumVariantDestination,
+    InvalidSumVariantOrdinal,
     InvalidAfterHookMode,
     InvalidOpRequirementIndex,
     InvalidOpRequirementOwnership,
@@ -3247,6 +3254,11 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
         error.InvalidFunctionResultCodec => "runtime plan generator produced a function with mixed completion result codecs",
         error.InvalidInstructionCodec => "runtime plan generator produced an instruction whose encoded codec is invalid",
         error.InvalidInstructionLocalIndex => "runtime plan generator produced an instruction with an out-of-range function-local reference",
+        error.InvalidSumPayloadDestination => "runtime plan generator produced a sum payload extraction whose destination does not match the variant payload",
+        error.InvalidSumPayloadVariant => "runtime plan generator produced a sum payload extraction for a unit variant",
+        error.InvalidSumSourceRef => "runtime plan generator produced a sum instruction whose source is not a sum value ref",
+        error.InvalidSumVariantDestination => "runtime plan generator produced a sum variant test whose destination is not bool",
+        error.InvalidSumVariantOrdinal => "runtime plan generator produced a sum instruction with an out-of-range variant ordinal",
         error.InvalidNestedWithMetadata => "runtime plan generator produced an incomplete nested lexical-with metadata packet",
         error.InvalidValueSchemaCodec => "runtime plan generator produced a mismatched value-schema codec",
         error.InvalidValueSchemaIndex => "runtime plan generator produced an invalid value-schema index",
