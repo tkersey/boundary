@@ -192,6 +192,8 @@ pub const InstructionKind = enum {
     return_error,
     return_value,
     sub_one,
+    sum_extract_payload,
+    sum_variant_is,
 };
 
 /// One serializable placeholder instruction in the runtime-owned executable plan.
@@ -228,7 +230,7 @@ pub const BlockPlan = struct {
 /// Runtime-owned serializable executable plan for lowered or explicit IR programs.
 pub const ProgramPlan = struct {
     /// Stable schema version for JSON-serialized runtime plans.
-    pub const current_schema_version: u32 = 8;
+    pub const current_schema_version: u32 = 9;
 
     schema_version: u32 = current_schema_version,
     label: []const u8,
@@ -560,6 +562,22 @@ pub const ProgramPlan = struct {
                             return error.InvalidInstructionLocalIndex;
                         }
                     },
+                    .sum_variant_is => {
+                        const source_ref = functionLocalValueRef(self, function, instruction.operand) orelse
+                            return error.InvalidInstructionLocalIndex;
+                        if (sumVariantRef(self, source_ref, instruction.aux) == null) return error.InvalidInstructionCodec;
+                        if (!functionLocalHasCodec(self, function, instruction.dst, .bool)) return error.InvalidInstructionLocalIndex;
+                    },
+                    .sum_extract_payload => {
+                        const source_ref = functionLocalValueRef(self, function, instruction.operand) orelse
+                            return error.InvalidInstructionLocalIndex;
+                        const payload_ref = sumVariantRef(self, source_ref, instruction.aux) orelse
+                            return error.InvalidInstructionCodec;
+                        if (!hasPayload(payload_ref.codec)) return error.InvalidInstructionCodec;
+                        if (!functionLocalHasEquivalentValueRef(self, function, instruction.dst, payload_ref)) {
+                            return error.InvalidInstructionLocalIndex;
+                        }
+                    },
                     .return_value => {
                         block_has_return_value = true;
                         if (!function_returns_value) return error.InvalidTerminatorInstruction;
@@ -579,7 +597,7 @@ pub const ProgramPlan = struct {
                         if (!isOwnedBlockTarget(function.first_block, block_end, terminator.primary)) return error.InvalidTerminatorTarget;
                         if (!isOwnedBlockTarget(function.first_block, block_end, terminator.secondary)) return error.InvalidTerminatorTarget;
                         if (instruction_end == block.first_instruction or
-                            self.instructions[instruction_end - 1].kind != .compare_eq_zero)
+                            !conditionInstructionKind(self.instructions[instruction_end - 1].kind))
                         {
                             return error.InvalidTerminatorInstruction;
                         }
@@ -924,6 +942,40 @@ pub const program_plan_builder = struct {
             .dst = if (dst) |local_ref| local_ref.index else std.math.maxInt(u16),
             .operand = op_ref.index,
             .aux = if (payload) |local_ref| local_ref.index else std.math.maxInt(u16),
+        };
+    }
+
+    /// Build a sum-tag predicate whose source and destination are owned by the caller.
+    pub fn sumVariantIs(
+        caller: FunctionRef,
+        dst: LocalRef,
+        source: LocalRef,
+        variant_ordinal: u16,
+    ) ValidationError!Instruction {
+        try expectLocalOwnedBy(caller, dst);
+        try expectLocalOwnedBy(caller, source);
+        return .{
+            .kind = .sum_variant_is,
+            .dst = dst.index,
+            .operand = source.index,
+            .aux = variant_ordinal,
+        };
+    }
+
+    /// Build a sum-payload extraction whose source and destination are owned by the caller.
+    pub fn sumExtractPayload(
+        caller: FunctionRef,
+        dst: LocalRef,
+        source: LocalRef,
+        variant_ordinal: u16,
+    ) ValidationError!Instruction {
+        try expectLocalOwnedBy(caller, dst);
+        try expectLocalOwnedBy(caller, source);
+        return .{
+            .kind = .sum_extract_payload,
+            .dst = dst.index,
+            .operand = source.index,
+            .aux = variant_ordinal,
         };
     }
 
@@ -1366,6 +1418,17 @@ fn countPotentialSchemaTypesForFunctions(comptime functions: anytype) CodecError
     return total;
 }
 
+fn countPotentialSchemaTypesForRegistry(comptime schema_types: anytype) CodecError!usize {
+    var total: usize = 0;
+    inline for (schema_types) |SchemaType| total += try countPotentialSchemaTypesForType(SchemaType);
+    return total;
+}
+
+fn countPotentialSchemaTypesForProgram(comptime program: anytype) CodecError!usize {
+    return try countPotentialSchemaTypesForRegistry(program.SchemaTypes) +
+        try countPotentialSchemaTypesForFunctions(program.functions);
+}
+
 fn addSchemaTypesForType(
     comptime max_schema_types: usize,
     types: *[max_schema_types]type,
@@ -1403,6 +1466,54 @@ fn addSchemaTypesForType(
                     types[count.*] = T;
                     count.* += 1;
                 }
+                try addSchemaTypesForType(max_schema_types, types, count, info.child);
+            },
+            else => return error.UnsupportedCodecType,
+        },
+        else => {},
+    }
+}
+
+fn addSchemaTypesForRegistry(
+    comptime max_schema_types: usize,
+    types: *[max_schema_types]type,
+    count: *usize,
+    comptime schema_types: anytype,
+) CodecError!void {
+    inline for (schema_types) |SchemaType| {
+        try addExplicitSchemaType(max_schema_types, types, count, SchemaType);
+    }
+}
+
+fn addExplicitSchemaType(
+    comptime max_schema_types: usize,
+    types: *[max_schema_types]type,
+    count: *usize,
+    comptime T: type,
+) CodecError!void {
+    switch (try codecForType(T)) {
+        .product => switch (@typeInfo(T)) {
+            .@"struct" => |info| {
+                types[count.*] = T;
+                count.* += 1;
+                inline for (info.fields) |field| try addSchemaTypesForType(max_schema_types, types, count, field.type);
+            },
+            else => return error.UnsupportedCodecType,
+        },
+        .sum => switch (@typeInfo(T)) {
+            .@"enum" => {
+                types[count.*] = T;
+                count.* += 1;
+            },
+            .@"union" => |info| {
+                if (info.tag_type == null) return error.UnsupportedCodecType;
+                types[count.*] = T;
+                count.* += 1;
+                inline for (info.fields) |field| try addSchemaTypesForType(max_schema_types, types, count, field.type);
+            },
+            .optional => |info| {
+                types[count.*] = T;
+                count.* += 1;
                 try addSchemaTypesForType(max_schema_types, types, count, info.child);
             },
             else => return error.UnsupportedCodecType,
@@ -1529,12 +1640,13 @@ fn buildFlatValueVariants(
     return variants;
 }
 
-fn ValueSchemaRegistryForFunctions(comptime functions: anytype) type {
-    const max_schema_types = countPotentialSchemaTypesForFunctions(functions) catch |err| unsupportedValueSchemaType(void, err);
+fn ValueSchemaRegistryForProgram(comptime program: anytype) type {
+    const max_schema_types = countPotentialSchemaTypesForProgram(program) catch |err| unsupportedValueSchemaType(void, err);
     const schema_types = comptime blk: {
         var max_types: [max_schema_types]type = undefined;
         var count: usize = 0;
-        for (functions) |function| {
+        addSchemaTypesForRegistry(max_schema_types, &max_types, &count, program.SchemaTypes) catch |err| unsupportedValueSchemaType(void, err);
+        for (program.functions) |function| {
             addSchemaTypesForType(max_schema_types, &max_types, &count, function.ValueType) catch |err| unsupportedValueSchemaType(function.ValueType, err);
             for (function.outputs) |output| {
                 addSchemaTypesForType(max_schema_types, &max_types, &count, output.OutputType) catch |err| unsupportedValueSchemaType(output.OutputType, err);
@@ -1760,6 +1872,66 @@ fn valueRefsEqual(lhs: ValueRef, rhs: ValueRef) bool {
     return lhs.codec == rhs.codec and lhs.schema_index == rhs.schema_index;
 }
 
+fn valueRefsEquivalent(self: ProgramPlan, lhs: ValueRef, rhs: ValueRef) bool {
+    if (valueRefsEqual(lhs, rhs)) return true;
+    if (lhs.codec != rhs.codec or !valueCodecNeedsSchema(lhs.codec)) return false;
+    const lhs_schema_index = lhs.schema_index orelse return false;
+    const rhs_schema_index = rhs.schema_index orelse return false;
+    return valueSchemasEquivalent(self, lhs_schema_index, rhs_schema_index, 0);
+}
+
+fn valueSchemaRefsEquivalent(self: ProgramPlan, lhs: ValueRef, rhs: ValueRef, depth: usize) bool {
+    if (valueRefsEqual(lhs, rhs)) return true;
+    if (lhs.codec != rhs.codec or !valueCodecNeedsSchema(lhs.codec)) return false;
+    const lhs_schema_index = lhs.schema_index orelse return false;
+    const rhs_schema_index = rhs.schema_index orelse return false;
+    return valueSchemasEquivalent(self, lhs_schema_index, rhs_schema_index, depth + 1);
+}
+
+fn valueSchemasEquivalent(self: ProgramPlan, lhs_index: u16, rhs_index: u16, depth: usize) bool {
+    if (lhs_index == rhs_index) return true;
+    if (depth > self.value_schemas.len) return false;
+    if (lhs_index >= self.value_schemas.len or rhs_index >= self.value_schemas.len) return false;
+    const lhs = self.value_schemas[lhs_index];
+    const rhs = self.value_schemas[rhs_index];
+    if (lhs.codec != rhs.codec or !std.mem.eql(u8, lhs.label, rhs.label)) return false;
+    switch (lhs.codec) {
+        .product => {
+            if (lhs.field_count != rhs.field_count) return false;
+            const lhs_end = rangeEnd(lhs.first_field, lhs.field_count) orelse return false;
+            const rhs_end = rangeEnd(rhs.first_field, rhs.field_count) orelse return false;
+            if (lhs_end > self.value_fields.len or rhs_end > self.value_fields.len) return false;
+            for (self.value_fields[lhs.first_field..lhs_end], self.value_fields[rhs.first_field..rhs_end]) |lhs_field, rhs_field| {
+                if (!std.mem.eql(u8, lhs_field.name, rhs_field.name)) return false;
+                if (!valueSchemaRefsEquivalent(
+                    self,
+                    .{ .codec = lhs_field.codec, .schema_index = lhs_field.schema_index },
+                    .{ .codec = rhs_field.codec, .schema_index = rhs_field.schema_index },
+                    depth,
+                )) return false;
+            }
+            return true;
+        },
+        .sum => {
+            if (lhs.variant_count != rhs.variant_count) return false;
+            const lhs_end = rangeEnd(lhs.first_variant, lhs.variant_count) orelse return false;
+            const rhs_end = rangeEnd(rhs.first_variant, rhs.variant_count) orelse return false;
+            if (lhs_end > self.value_variants.len or rhs_end > self.value_variants.len) return false;
+            for (self.value_variants[lhs.first_variant..lhs_end], self.value_variants[rhs.first_variant..rhs_end]) |lhs_variant, rhs_variant| {
+                if (!std.mem.eql(u8, lhs_variant.name, rhs_variant.name)) return false;
+                if (!valueSchemaRefsEquivalent(
+                    self,
+                    .{ .codec = lhs_variant.codec, .schema_index = lhs_variant.schema_index },
+                    .{ .codec = rhs_variant.codec, .schema_index = rhs_variant.schema_index },
+                    depth,
+                )) return false;
+            }
+            return true;
+        },
+        else => return false,
+    }
+}
+
 fn codecSupportedByAuthoredScalarRunner(codec: ValueCodec) bool {
     return switch (codec) {
         .bool, .i32, .string, .unit, .usize => true,
@@ -1892,6 +2064,11 @@ fn hashOptionalU16(hasher: *std.hash.Wyhash, value: ?u16) void {
     if (value) |unwrapped| hasher.update(std.mem.asBytes(&unwrapped));
 }
 
+fn hashEffectIrValueRef(hasher: *std.hash.Wyhash, ref: effect_ir.ValueRef) void {
+    hashBytes(hasher, @tagName(ref.codec));
+    hashOptionalU16(hasher, ref.schema_index);
+}
+
 fn codecFromEffectIrBody(codec: effect_ir.LocalCodec) ValueCodec {
     return switch (codec) {
         .bool => .bool,
@@ -1900,6 +2077,26 @@ fn codecFromEffectIrBody(codec: effect_ir.LocalCodec) ValueCodec {
         .string_list => .string_list,
         .unit => .unit,
         .usize => .usize,
+    };
+}
+
+fn codecFromEffectIrValueRef(codec: effect_ir.ValueCodec) ValueCodec {
+    return switch (codec) {
+        .bool => .bool,
+        .i32 => .i32,
+        .product => .product,
+        .string => .string,
+        .string_list => .string_list,
+        .sum => .sum,
+        .unit => .unit,
+        .usize => .usize,
+    };
+}
+
+fn valueRefFromEffectIr(ref: effect_ir.ValueRef) ValueRef {
+    return .{
+        .codec = codecFromEffectIrValueRef(ref.codec),
+        .schema_index = ref.schema_index,
     };
 }
 
@@ -1916,6 +2113,8 @@ fn instructionKindFromEffectIrBody(kind: effect_ir.InstructionKind) InstructionK
         .const_string => .const_string,
         .return_error => .return_error,
         .return_value => .return_value,
+        .sum_extract_payload => .sum_extract_payload,
+        .sum_variant_is => .sum_variant_is,
         .sub_one => .sub_one,
     };
 }
@@ -2020,6 +2219,11 @@ pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan
         return;
     }
 
+    if (plan.schema_version == 8) {
+        plan.schema_version = ProgramPlan.current_schema_version;
+        return;
+    }
+
     if (plan.schema_version != ProgramPlan.current_schema_version) return error.UnsupportedSchemaVersion;
 }
 
@@ -2062,6 +2266,31 @@ fn functionLocalHasCodec(self: ProgramPlan, function: FunctionPlan, local_id: u1
 fn functionLocalHasValueRef(self: ProgramPlan, function: FunctionPlan, local_id: u16, expected: ValueRef) bool {
     const actual = functionLocalValueRef(self, function, local_id) orelse return false;
     return valueRefsEqual(actual, expected);
+}
+
+fn functionLocalHasEquivalentValueRef(self: ProgramPlan, function: FunctionPlan, local_id: u16, expected: ValueRef) bool {
+    const actual = functionLocalValueRef(self, function, local_id) orelse return false;
+    return valueRefsEquivalent(self, actual, expected);
+}
+
+fn conditionInstructionKind(kind: InstructionKind) bool {
+    return kind == .compare_eq_zero or kind == .sum_variant_is;
+}
+
+fn sumVariantRef(self: ProgramPlan, source_ref: ValueRef, variant_ordinal: u16) ?ValueRef {
+    if (source_ref.codec != .sum) return null;
+    const schema_index = source_ref.schema_index orelse return null;
+    if (schema_index >= self.value_schemas.len) return null;
+    const schema = self.value_schemas[schema_index];
+    if (schema.codec != .sum) return null;
+    if (variant_ordinal >= schema.variant_count) return null;
+    const variant_index = @as(usize, schema.first_variant) + variant_ordinal;
+    if (variant_index >= self.value_variants.len) return null;
+    const variant = self.value_variants[variant_index];
+    return .{
+        .codec = variant.codec,
+        .schema_index = variant.schema_index,
+    };
 }
 
 fn terminalAbortInstruction(
@@ -2655,10 +2884,42 @@ fn validateFunctionBodyParameterPrefix(
     comptime function: effect_ir.Function,
     comptime body: effect_ir.FunctionBody,
 ) PlanError!void {
-    if (body.local_codecs.len < function.parameter_codecs.len) return error.InvalidProgramBodyShape;
-    for (function.parameter_codecs, 0..) |codec, parameter_index| {
-        if (body.local_codecs[parameter_index] != codec) return error.InvalidProgramBodyShape;
+    const parameter_count = effectIrFunctionParameterCount(function);
+    if (effectIrBodyLocalCount(body) < parameter_count) return error.InvalidProgramBodyShape;
+    for (0..parameter_count) |parameter_index| {
+        if (!valueRefsEqual(
+            effectIrFunctionParameterRef(function, parameter_index),
+            effectIrBodyLocalRef(body, parameter_index),
+        )) return error.InvalidProgramBodyShape;
     }
+}
+
+fn effectIrFunctionParameterCount(comptime function: effect_ir.Function) usize {
+    return if (function.parameter_refs.len != 0)
+        function.parameter_refs.len
+    else
+        function.parameter_codecs.len;
+}
+
+fn effectIrFunctionParameterRef(comptime function: effect_ir.Function, comptime parameter_index: usize) ValueRef {
+    return if (function.parameter_refs.len != 0)
+        valueRefFromEffectIr(function.parameter_refs[parameter_index])
+    else
+        .{ .codec = codecFromEffectIrBody(function.parameter_codecs[parameter_index]) };
+}
+
+fn effectIrBodyLocalCount(comptime body: effect_ir.FunctionBody) usize {
+    return if (body.local_refs.len != 0)
+        body.local_refs.len
+    else
+        body.local_codecs.len;
+}
+
+fn effectIrBodyLocalRef(comptime body: effect_ir.FunctionBody, comptime local_index: usize) ValueRef {
+    return if (body.local_refs.len != 0)
+        valueRefFromEffectIr(body.local_refs[local_index])
+    else
+        .{ .codec = codecFromEffectIrBody(body.local_codecs[local_index]) };
 }
 
 fn symbolIndex(comptime program: effect_ir.Program, comptime symbol: effect_ir.SymbolRef) ?u16 {
@@ -2670,7 +2931,7 @@ fn symbolIndex(comptime program: effect_ir.Program, comptime symbol: effect_ir.S
 
 fn countBodyLocals(comptime program: program_frontend.LoweredOpenRowProgram) usize {
     var total: usize = 0;
-    for (program.function_bodies) |body| total += body.local_codecs.len;
+    for (program.function_bodies) |body| total += effectIrBodyLocalCount(body);
     return total;
 }
 
@@ -3036,6 +3297,7 @@ fn rowOnlyFunctionSynthesis(
     comptime schema_types: anytype,
 ) PlanError!RowOnlyFunctionSynthesis {
     const function = program.functions[function_index];
+    const function_parameter_count = effectIrFunctionParameterCount(function);
     const function_value_ref: ?ValueRef = if (function.ValueType == void)
         null
     else
@@ -3051,11 +3313,15 @@ fn rowOnlyFunctionSynthesis(
 
         const callee_index = symbolIndex(program, edge.callee) orelse return error.UnknownSymbol;
         const callee = program.functions[callee_index];
-        if (callee.parameter_codecs.len > function.parameter_codecs.len) return error.InvalidProgramBodyShape;
-        for (callee.parameter_codecs, 0..) |codec, parameter_index| {
-            if (function.parameter_codecs[parameter_index] != codec) return error.InvalidProgramBodyShape;
+        const callee_parameter_count = effectIrFunctionParameterCount(callee);
+        if (callee_parameter_count > function_parameter_count) return error.InvalidProgramBodyShape;
+        for (0..callee_parameter_count) |parameter_index| {
+            if (!valueRefsEqual(
+                effectIrFunctionParameterRef(callee, parameter_index),
+                effectIrFunctionParameterRef(function, parameter_index),
+            )) return error.InvalidProgramBodyShape;
         }
-        forwarded_arg_count += callee.parameter_codecs.len;
+        forwarded_arg_count += callee_parameter_count;
 
         if (callee.ValueType == void) continue :call_edge_scan;
         value_returning_helper_count += 1;
@@ -3070,8 +3336,8 @@ fn rowOnlyFunctionSynthesis(
     const value_result_local: ?u16 = if (value_result_ref == null)
         null
     else
-        @intCast(function.parameter_codecs.len);
-    const local_count = function.parameter_codecs.len + @intFromBool(value_result_local != null);
+        @intCast(function_parameter_count);
+    const local_count = function_parameter_count + @intFromBool(value_result_local != null);
     const return_local: ?u16 = if (function_value_ref == null) blk: {
         break :blk null;
     } else if (value_result_local) |local_id| blk: {
@@ -3079,9 +3345,9 @@ fn rowOnlyFunctionSynthesis(
         if (!valueRefsEqual(value_result_ref.?, function_value_ref.?)) return error.InvalidProgramBodyShape;
         break :blk local_id;
     } else blk: {
-        if (function.parameter_codecs.len != 1) return error.InvalidProgramBodyShape;
+        if (function_parameter_count != 1) return error.InvalidProgramBodyShape;
         if (!valueRefsEqual(
-            .{ .codec = codecFromEffectIrBody(function.parameter_codecs[0]) },
+            effectIrFunctionParameterRef(function, 0),
             function_value_ref.?,
         )) {
             return error.InvalidProgramBodyShape;
@@ -3145,11 +3411,21 @@ pub fn irHashForProgram(comptime program: effect_ir.Program) PlanError!u64 {
 
     var hasher = std.hash.Wyhash.init(0);
     hasher.update(std.mem.asBytes(&program.entry_index));
+    if (program.SchemaTypes.len != 0) {
+        hashBytes(&hasher, "schema_types");
+        hasher.update(std.mem.asBytes(&program.SchemaTypes.len));
+        for (program.SchemaTypes) |SchemaType| hashBytes(&hasher, @typeName(SchemaType));
+    }
     for (program.functions) |function| {
         const digest = try effect_ir.rowDigest(function.row, function.outputs);
         hashBytes(&hasher, function.symbol.module_path);
         hashBytes(&hasher, function.symbol.symbol_name);
         for (function.parameter_codecs) |codec| hashBytes(&hasher, @tagName(codec));
+        if (function.parameter_refs.len != 0) {
+            hashBytes(&hasher, "parameter_refs");
+            hasher.update(std.mem.asBytes(&function.parameter_refs.len));
+            for (function.parameter_refs) |ref| hashEffectIrValueRef(&hasher, ref);
+        }
         hashBytes(&hasher, @typeName(function.ValueType));
         hasher.update(std.mem.asBytes(&digest.hash));
         hasher.update(std.mem.asBytes(&digest.requirement_count));
@@ -3164,6 +3440,11 @@ pub fn irHashForProgram(comptime program: effect_ir.Program) PlanError!u64 {
     }
     for (program.function_bodies) |body| {
         for (body.local_codecs) |codec| hashBytes(&hasher, @tagName(codec));
+        if (body.local_refs.len != 0) {
+            hashBytes(&hasher, "local_refs");
+            hasher.update(std.mem.asBytes(&body.local_refs.len));
+            for (body.local_refs) |ref| hashEffectIrValueRef(&hasher, ref);
+        }
         for (body.call_arg_locals) |local_id| hasher.update(std.mem.asBytes(&local_id));
         hasher.update(std.mem.asBytes(&body.entry_block));
         for (body.blocks) |block| {
@@ -3193,6 +3474,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
             .functions = program.functions,
             .call_edges = program.call_edges,
             .function_bodies = program.function_bodies,
+            .SchemaTypes = program.SchemaTypes,
         });
     }
 
@@ -3227,7 +3509,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         break :blk total;
     };
     const ir_hash = try irHashForProgram(program);
-    const value_schema_registry = ValueSchemaRegistryForFunctions(program.functions);
+    const value_schema_registry = ValueSchemaRegistryForProgram(program);
     const schema_types = value_schema_registry.registered_schema_types[0..];
     const local_total = try countRowOnlyLocals(program, schema_types);
     const call_arg_total = try countRowOnlyCallArgs(program, schema_types);
@@ -3246,7 +3528,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
                 .symbol_name = function.symbol.symbol_name,
                 .value_codec = value_ref.codec,
                 .value_schema_index = value_ref.schema_index,
-                .parameter_count = @intCast(function.parameter_codecs.len),
+                .parameter_count = @intCast(effectIrFunctionParameterCount(function)),
                 .first_requirement = requirement_index,
                 .requirement_count = @intCast(function.row.requirements.len),
                 .first_output = output_index,
@@ -3332,8 +3614,12 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         var buf: [local_total]LocalPlan = undefined;
         var local_index: usize = 0;
         for (program.functions, 0..) |function, function_index| {
-            for (function.parameter_codecs) |codec| {
-                buf[local_index] = .{ .codec = codecFromEffectIrBody(codec) };
+            for (0..effectIrFunctionParameterCount(function)) |parameter_index| {
+                const parameter_ref = effectIrFunctionParameterRef(function, parameter_index);
+                buf[local_index] = .{
+                    .codec = parameter_ref.codec,
+                    .schema_index = parameter_ref.schema_index,
+                };
                 local_index += 1;
             }
             const synthesis = try rowOnlyFunctionSynthesis(program, function_index, schema_types);
@@ -3356,7 +3642,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
                 if (!edge.caller.eql(function.symbol)) continue :call_arg_edge_scan;
                 const callee_index = symbolIndex(program, edge.callee) orelse return error.UnknownSymbol;
                 const callee = program.functions[callee_index];
-                for (callee.parameter_codecs, 0..) |_, parameter_index| {
+                for (0..effectIrFunctionParameterCount(callee)) |parameter_index| {
                     buf[call_arg_index] = @intCast(parameter_index);
                     call_arg_index += 1;
                 }
@@ -3416,7 +3702,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
                     ) catch |err| invalidGeneratedPlan(err);
                 }
                 instruction_index += 1;
-                call_arg_base += @intCast(callee.parameter_codecs.len);
+                call_arg_base += @intCast(effectIrFunctionParameterCount(callee));
             }
             if (synthesis.return_local) |return_local| {
                 buf[instruction_index] = program_plan_builder.returnValue(
@@ -3741,7 +4027,7 @@ pub fn planFromOpenRowProgram(
     const terminator_total = countBodyTerminators(program);
     const instruction_total = countBodyInstructions(program);
     const ir_hash = try irHashForProgram(summary_program);
-    const value_schema_registry = ValueSchemaRegistryForFunctions(program.functions);
+    const value_schema_registry = ValueSchemaRegistryForProgram(program);
     const schema_types = value_schema_registry.registered_schema_types[0..];
     const program_result_ref = try valueRefForTypeInRegistry(schema_types, program.functions[program.entry_index].ValueType);
     const result_codec_reachability = try loweredFunctionResultCodecReachability(program, schema_types);
@@ -3773,13 +4059,13 @@ pub fn planFromOpenRowProgram(
                     program_result_ref.schema_index
                 else
                     null,
-                .parameter_count = @intCast(function.parameter_codecs.len),
+                .parameter_count = @intCast(effectIrFunctionParameterCount(function)),
                 .first_requirement = requirement_index,
                 .requirement_count = @intCast(function.row.requirements.len),
                 .first_output = output_index,
                 .output_count = @intCast(function.outputs.len),
                 .first_local = local_index,
-                .local_count = @intCast(body.local_codecs.len),
+                .local_count = @intCast(effectIrBodyLocalCount(body)),
                 .first_block = block_index,
                 .entry_block = body.entry_block,
                 .block_count = @intCast(body.blocks.len),
@@ -3788,7 +4074,7 @@ pub fn planFromOpenRowProgram(
             };
             requirement_index += @intCast(function.row.requirements.len);
             output_index += @intCast(function.outputs.len);
-            local_index += @intCast(body.local_codecs.len);
+            local_index += @intCast(effectIrBodyLocalCount(body));
             block_index += @intCast(body.blocks.len);
             instruction_index += @intCast(instruction_count);
         }
@@ -3861,8 +4147,12 @@ pub fn planFromOpenRowProgram(
         var buf: [local_total]LocalPlan = undefined;
         var local_index: usize = 0;
         for (program.function_bodies) |body| {
-            for (body.local_codecs) |codec| {
-                buf[local_index] = .{ .codec = codecFromEffectIrBody(codec) };
+            for (0..effectIrBodyLocalCount(body)) |body_local_index| {
+                const local_ref = effectIrBodyLocalRef(body, body_local_index);
+                buf[local_index] = .{
+                    .codec = local_ref.codec,
+                    .schema_index = local_ref.schema_index,
+                };
                 local_index += 1;
             }
         }
@@ -3937,7 +4227,7 @@ pub fn planFromOpenRowProgram(
                         invalidGeneratedPlan(error.InvalidCallHelperTarget);
                     }
                     const target_parameter_count: u16 = if (instruction.kind == .call_helper)
-                        @intCast(program.functions[instruction.operand].parameter_codecs.len)
+                        @intCast(effectIrFunctionParameterCount(program.functions[instruction.operand]))
                     else
                         0;
                     const target_returns_value = instruction.kind == .call_helper and
@@ -3972,6 +4262,18 @@ pub fn planFromOpenRowProgram(
                         .return_value => program_plan_builder.returnValue(
                             caller_ref,
                             program_plan_builder.local(caller_ref, instruction.operand),
+                        ) catch |err| invalidGeneratedPlan(err),
+                        .sum_extract_payload => program_plan_builder.sumExtractPayload(
+                            caller_ref,
+                            program_plan_builder.local(caller_ref, instruction.dst),
+                            program_plan_builder.local(caller_ref, instruction.operand),
+                            instruction.aux,
+                        ) catch |err| invalidGeneratedPlan(err),
+                        .sum_variant_is => program_plan_builder.sumVariantIs(
+                            caller_ref,
+                            program_plan_builder.local(caller_ref, instruction.dst),
+                            program_plan_builder.local(caller_ref, instruction.operand),
+                            instruction.aux,
                         ) catch |err| invalidGeneratedPlan(err),
                         .add_const_i32, .add_i32, .call_nested_with, .compare_eq_zero, .const_i32, .const_string, .const_usize, .return_error, .sub_one => .{
                             .kind = instructionKindFromEffectIrBody(instruction.kind),
@@ -4318,6 +4620,268 @@ test "planFromOpenRowProgram drops destinations for unit-resume ops" {
     const plan = comptime try planFromOpenRowProgram("unit-resume", lowered);
     try std.testing.expectEqual(InstructionKind.call_op, plan.instructions[0].kind);
     try std.testing.expectEqual(std.math.maxInt(u16), plan.instructions[0].dst);
+}
+
+test "planFromOpenRowProgram lowers structured effect_ir value refs" {
+    const Payload = ?i32;
+    const row = comptime effect_ir.rowFromSpec(.{ .empty = .{} });
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/structured_refs.zig",
+        .symbol_name = "root",
+    };
+    const lowered = comptime program_frontend.LoweredOpenRowProgram{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = root_symbol,
+            .row = row,
+            .parameter_refs = &.{.{ .codec = .sum, .schema_index = 0 }},
+            .ValueType = Payload,
+        }},
+        .call_edges = &.{},
+        .function_bodies = &.{.{
+            .local_refs = &.{.{ .codec = .sum, .schema_index = 0 }},
+            .call_arg_locals = &.{},
+            .entry_block = 0,
+            .blocks = &.{.{
+                .instructions = &.{
+                    .{ .kind = .return_value, .operand = 0 },
+                },
+                .terminator = .{ .kind = .return_value },
+            }},
+        }},
+    };
+
+    const plan = comptime try planFromOpenRowProgram("structured-effect-ir-refs", lowered);
+    try std.testing.expectEqual(ValueCodec.sum, plan.locals[0].codec);
+    try std.testing.expectEqual(@as(?u16, 0), plan.locals[0].schema_index);
+    try std.testing.expectEqual(@as(u16, 1), plan.functions[0].parameter_count);
+    try std.testing.expectEqual(ValueCodec.sum, plan.functions[0].value_codec);
+    try std.testing.expectEqual(@as(?u16, 0), plan.functions[0].value_schema_index);
+}
+
+test "planFromOpenRowProgram registers explicit input-only structured schema refs" {
+    comptime {
+        @setEvalBranchQuota(20_000);
+    }
+    const Payload = ?i32;
+    const row = comptime effect_ir.rowFromSpec(.{ .empty = .{} });
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/input_only_structured_refs.zig",
+        .symbol_name = "root",
+    };
+    const lowered = comptime program_frontend.LoweredOpenRowProgram{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = root_symbol,
+            .row = row,
+            .parameter_refs = &.{.{ .codec = .sum, .schema_index = 0 }},
+            .ValueType = i32,
+        }},
+        .call_edges = &.{},
+        .function_bodies = &.{.{
+            .local_refs = &.{
+                .{ .codec = .sum, .schema_index = 0 },
+                .{ .codec = .bool },
+                .{ .codec = .i32 },
+            },
+            .call_arg_locals = &.{},
+            .entry_block = 0,
+            .blocks = &.{
+                .{
+                    .instructions = &.{.{ .kind = .sum_variant_is, .dst = 1, .operand = 0, .aux = 1 }},
+                    .terminator = .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                },
+                .{
+                    .instructions = &.{
+                        .{ .kind = .const_i32, .dst = 2, .operand = 1 },
+                        .{ .kind = .return_value, .operand = 2 },
+                    },
+                    .terminator = .{ .kind = .return_value },
+                },
+                .{
+                    .instructions = &.{
+                        .{ .kind = .const_i32, .dst = 2, .operand = 0 },
+                        .{ .kind = .return_value, .operand = 2 },
+                    },
+                    .terminator = .{ .kind = .return_value },
+                },
+            },
+        }},
+        .SchemaTypes = &.{Payload},
+    };
+
+    const plan = comptime try planFromOpenRowProgram("input-only-structured-refs", lowered);
+    const effect_plan = comptime try planFromProgram("input-only-structured-refs-effect", lowered.asEffectProgram());
+    try std.testing.expectEqual(@as(usize, 1), plan.value_schemas.len);
+    try std.testing.expectEqual(@as(usize, 1), effect_plan.value_schemas.len);
+    try std.testing.expectEqual(ValueCodec.sum, plan.value_schemas[0].codec);
+    try std.testing.expectEqual(ValueCodec.sum, effect_plan.value_schemas[0].codec);
+    try std.testing.expectEqual(@as(u16, 0), plan.value_schemas[0].first_variant);
+    try std.testing.expectEqual(@as(u16, 2), plan.value_schemas[0].variant_count);
+    try std.testing.expectEqual(ValueCodec.sum, plan.locals[0].codec);
+    try std.testing.expectEqual(ValueCodec.sum, effect_plan.locals[0].codec);
+    try std.testing.expectEqual(@as(?u16, 0), plan.locals[0].schema_index);
+    try std.testing.expectEqual(@as(?u16, 0), effect_plan.locals[0].schema_index);
+    try std.testing.expectEqual(InstructionKind.sum_variant_is, plan.instructions[0].kind);
+    try std.testing.expectEqual(InstructionKind.sum_variant_is, effect_plan.instructions[0].kind);
+    try plan.validate();
+    try effect_plan.validate();
+}
+
+test "planFromOpenRowProgram preserves duplicate explicit schema declarations" {
+    comptime {
+        @setEvalBranchQuota(20_000);
+    }
+    const Item = struct {
+        value: i32,
+    };
+    const Payload = ?Item;
+    const row = comptime effect_ir.rowFromSpec(.{ .empty = .{} });
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/duplicate_explicit_schema_refs.zig",
+        .symbol_name = "root",
+    };
+    const lowered = comptime program_frontend.LoweredOpenRowProgram{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = root_symbol,
+            .row = row,
+            .parameter_refs = &.{.{ .codec = .sum, .schema_index = 0 }},
+            .ValueType = i32,
+        }},
+        .call_edges = &.{},
+        .function_bodies = &.{.{
+            .local_refs = &.{
+                .{ .codec = .sum, .schema_index = 0 },
+                .{ .codec = .product, .schema_index = 2 },
+                .{ .codec = .i32 },
+            },
+            .call_arg_locals = &.{},
+            .entry_block = 0,
+            .blocks = &.{.{
+                .instructions = &.{
+                    .{ .kind = .sum_extract_payload, .dst = 1, .operand = 0, .aux = 1 },
+                    .{ .kind = .const_i32, .dst = 2, .operand = 42 },
+                    .{ .kind = .return_value, .operand = 2 },
+                },
+                .terminator = .{ .kind = .return_value },
+            }},
+        }},
+        .SchemaTypes = &.{ Payload, Item },
+    };
+
+    const plan = comptime try planFromOpenRowProgram("duplicate-explicit-schema-refs", lowered);
+    try std.testing.expectEqual(@as(usize, 3), plan.value_schemas.len);
+    try std.testing.expectEqual(ValueCodec.sum, plan.value_schemas[0].codec);
+    try std.testing.expectEqual(ValueCodec.product, plan.value_schemas[1].codec);
+    try std.testing.expectEqual(ValueCodec.product, plan.value_schemas[2].codec);
+    try std.testing.expectEqual(@as(?u16, 1), plan.value_variants[1].schema_index);
+    try std.testing.expectEqual(ValueCodec.product, plan.locals[1].codec);
+    try std.testing.expectEqual(@as(?u16, 2), plan.locals[1].schema_index);
+    try plan.validate();
+}
+
+test "planFromProgram row-only synthesis uses structured parameter refs" {
+    comptime {
+        @setEvalBranchQuota(20_000);
+    }
+    const Payload = ?i32;
+    const row = comptime effect_ir.rowFromSpec(.{ .empty = .{} });
+    const helper_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/row_only_structured_refs.zig",
+        .symbol_name = "helper",
+    };
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/row_only_structured_refs.zig",
+        .symbol_name = "root",
+    };
+    const program = comptime effect_ir.Program{
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol = root_symbol,
+                .row = row,
+                .parameter_refs = &.{.{ .codec = .sum, .schema_index = 0 }},
+                .ValueType = Payload,
+            },
+            .{
+                .symbol = helper_symbol,
+                .row = row,
+                .parameter_refs = &.{.{ .codec = .sum, .schema_index = 0 }},
+            },
+        },
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = helper_symbol,
+        }},
+    };
+
+    const plan = comptime try planFromProgram("row-only-structured-refs", program);
+    try std.testing.expectEqual(@as(u16, 1), plan.functions[0].parameter_count);
+    try std.testing.expectEqual(@as(u16, 1), plan.functions[0].local_count);
+    try std.testing.expectEqual(@as(u16, 1), plan.functions[1].parameter_count);
+    try std.testing.expectEqual(@as(u16, 1), plan.functions[1].local_count);
+    try std.testing.expectEqual(@as(usize, 2), plan.locals.len);
+    try std.testing.expectEqual(@as(usize, 1), plan.call_args.len);
+    try std.testing.expectEqual(@as(u16, 0), plan.call_args[0]);
+    try std.testing.expectEqual(ValueCodec.sum, plan.locals[0].codec);
+    try std.testing.expectEqual(@as(?u16, 0), plan.locals[0].schema_index);
+    try std.testing.expectEqual(ValueCodec.sum, plan.locals[1].codec);
+    try std.testing.expectEqual(@as(?u16, 0), plan.locals[1].schema_index);
+    try std.testing.expectEqual(@as(u16, 2), plan.functions[0].instruction_count);
+    try std.testing.expectEqual(InstructionKind.call_helper, plan.instructions[0].kind);
+    try std.testing.expectEqual(InstructionKind.return_value, plan.instructions[1].kind);
+    try plan.validate();
+}
+
+test "irHashForProgram includes structured effect_ir refs" {
+    const row = comptime effect_ir.rowFromSpec(.{ .empty = .{} });
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/hash_structured_refs.zig",
+        .symbol_name = "root",
+    };
+    const base_program = comptime effect_ir.Program{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = root_symbol,
+            .row = row,
+            .parameter_refs = &.{.{ .codec = .sum, .schema_index = 0 }},
+        }},
+        .call_edges = &.{},
+        .function_bodies = &.{.{
+            .local_refs = &.{.{ .codec = .sum, .schema_index = 0 }},
+            .call_arg_locals = &.{},
+            .entry_block = 0,
+            .blocks = &.{.{ .instructions = &.{}, .terminator = .{ .kind = .return_unit } }},
+        }},
+    };
+    const changed_parameter_ref = comptime effect_ir.Program{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = root_symbol,
+            .row = row,
+            .parameter_refs = &.{.{ .codec = .sum, .schema_index = 1 }},
+        }},
+        .call_edges = &.{},
+        .function_bodies = base_program.function_bodies,
+    };
+    const changed_local_ref = comptime effect_ir.Program{
+        .entry_index = 0,
+        .functions = base_program.functions,
+        .call_edges = &.{},
+        .function_bodies = &.{.{
+            .local_refs = &.{.{ .codec = .sum, .schema_index = 1 }},
+            .call_arg_locals = &.{},
+            .entry_block = 0,
+            .blocks = &.{.{ .instructions = &.{}, .terminator = .{ .kind = .return_unit } }},
+        }},
+    };
+
+    const base_hash = comptime try irHashForProgram(base_program);
+    const parameter_hash = comptime try irHashForProgram(changed_parameter_ref);
+    const local_hash = comptime try irHashForProgram(changed_local_ref);
+    try std.testing.expect(base_hash != parameter_hash);
+    try std.testing.expect(base_hash != local_hash);
 }
 
 test "ProgramPlan.validate rejects out-of-range helper targets" {

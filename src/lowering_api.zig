@@ -275,6 +275,7 @@ pub fn validateExecutablePlanSupport(comptime compiled_plan: program_plan.Progra
                         return error.UnsupportedLocalCodec;
                     }
                 },
+                .sum_variant_is, .sum_extract_payload => return error.UnsupportedLocalCodec,
                 .return_value => {
                     const owner = instructionOwnerFunction(compiled_plan, instruction_index) orelse return error.UnsupportedLocalCodec;
                     if (!instructionLocalHasExecutableScalarCodec(compiled_plan, owner, instruction.operand)) return error.UnsupportedLocalCodec;
@@ -396,6 +397,22 @@ pub fn validateTypedExecutablePlanSupportWithNestedTargets(
                         return error.UnsupportedLocalCodec;
                     }
                 },
+                .sum_variant_is => {
+                    const owner = instructionOwnerFunction(compiled_plan, instruction_index) orelse return error.UnsupportedLocalCodec;
+                    if (!instructionLocalHasExecutableTypedRef(compiled_plan, schema_types, owner, instruction.dst) or
+                        !instructionLocalHasExecutableTypedRef(compiled_plan, schema_types, owner, instruction.operand))
+                    {
+                        return error.UnsupportedLocalCodec;
+                    }
+                },
+                .sum_extract_payload => {
+                    const owner = instructionOwnerFunction(compiled_plan, instruction_index) orelse return error.UnsupportedLocalCodec;
+                    if (!instructionLocalHasExecutableTypedRef(compiled_plan, schema_types, owner, instruction.dst) or
+                        !instructionLocalHasExecutableTypedRef(compiled_plan, schema_types, owner, instruction.operand))
+                    {
+                        return error.UnsupportedLocalCodec;
+                    }
+                },
                 .return_value => {
                     const owner = instructionOwnerFunction(compiled_plan, instruction_index) orelse return error.UnsupportedLocalCodec;
                     if (!instructionLocalHasExecutableTypedRef(compiled_plan, schema_types, owner, instruction.operand)) return error.UnsupportedLocalCodec;
@@ -467,6 +484,11 @@ pub fn executablePlanNeedsBodyValueSchemaTypes(
                 .return_value => {
                     const local_ref = functionLocalRef(compiled_plan, owner, instruction.operand) orelse return false;
                     if (valueRefNeedsSchemaTypes(local_ref)) return true;
+                },
+                .sum_extract_payload, .sum_variant_is => {
+                    const source_ref = functionLocalRef(compiled_plan, owner, instruction.operand) orelse return false;
+                    const dst_ref = functionLocalRef(compiled_plan, owner, instruction.dst) orelse return false;
+                    if (valueRefNeedsSchemaTypes(source_ref) or valueRefNeedsSchemaTypes(dst_ref)) return true;
                 },
                 .add_const_i32, .add_i32, .compare_eq_zero, .const_i32, .const_string, .const_usize, .return_error, .sub_one => {},
             }
@@ -620,6 +642,30 @@ fn typeMatchesRef(
         .string_list => isStringListCarrier(T),
         else => T == ValueTypeForRef(compiled_plan, schema_types, ref),
     };
+}
+
+fn typeMatchesRuntimeRef(
+    comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
+    comptime T: type,
+) bool {
+    if (T == void) return ref.eql(.{ .codec = .unit });
+    if (T == bool) return ref.eql(.{ .codec = .bool });
+    if (T == i32) return ref.eql(.{ .codec = .i32 });
+    if (T == usize) return ref.eql(.{ .codec = .usize });
+    if (T == []const u8) return ref.eql(.{ .codec = .string });
+    if (comptime isStringListCarrier(T)) return ref.eql(.{ .codec = .string_list });
+    const structured_codec: program_plan.ValueCodec = switch (@typeInfo(T)) {
+        .@"struct" => .product,
+        .@"enum", .@"union", .optional => .sum,
+        else => return false,
+    };
+    if (ref.codec != structured_codec) return false;
+    const schema_index = ref.schema_index orelse return false;
+    inline for (schema_types, 0..) |SchemaType, index| {
+        if (schema_index == index) return SchemaType == T;
+    }
+    return false;
 }
 
 fn encodeScalarValue(value: anytype) ExecutableValue {
@@ -875,6 +921,24 @@ fn prepareRuntimeValueForType(
     };
 }
 
+fn encodeRuntimeValueForRuntimeRef(
+    comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
+    scratch: anytype,
+    value: anytype,
+) anyerror!ExecutableValue {
+    const Value = @TypeOf(value);
+    if (!typeMatchesRuntimeRef(schema_types, ref, Value)) return error.ProgramContractViolation;
+    if (comptime Value == void or Value == bool or Value == i32 or Value == usize or Value == []const u8 or isStringListCarrier(Value)) {
+        return encodeScalarValue(value);
+    }
+    return scratch.storeSchemaValue(
+        Value,
+        ref.schema_index orelse return error.ProgramContractViolation,
+        value,
+    );
+}
+
 fn encodeRuntimeValueForPreparedRef(
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime schema_types: anytype,
@@ -934,6 +998,102 @@ fn encodeRuntimeValueWithInferredRef(
             };
         },
     };
+}
+
+fn activeVariantOrdinalForTyped(
+    comptime T: type,
+    value: T,
+) error{ProgramContractViolation}!u16 {
+    return switch (@typeInfo(T)) {
+        .@"enum" => |enum_info| {
+            inline for (enum_info.fields, 0..) |field, field_index| {
+                if (value == @field(T, field.name)) return @intCast(field_index);
+            }
+            return error.ProgramContractViolation;
+        },
+        .@"union" => |union_info| {
+            const Tag = union_info.tag_type orelse return error.ProgramContractViolation;
+            const active = std.meta.activeTag(value);
+            inline for (union_info.fields, 0..) |field, field_index| {
+                if (active == @field(Tag, field.name)) return @intCast(field_index);
+            }
+            return error.ProgramContractViolation;
+        },
+        .optional => if (value == null) 0 else 1,
+        else => error.ProgramContractViolation,
+    };
+}
+
+fn activeVariantOrdinalForExecutable(
+    comptime schema_types: anytype,
+    value: ExecutableValue,
+) error{ProgramContractViolation}!u16 {
+    const schema = switch (value) {
+        .schema => |typed| typed,
+        else => return error.ProgramContractViolation,
+    };
+    inline for (schema_types, 0..) |SchemaType, schema_index| {
+        if (schema.schema_index == schema_index) {
+            const typed: *const SchemaType = @ptrCast(@alignCast(schema.ptr));
+            return activeVariantOrdinalForTyped(SchemaType, typed.*);
+        }
+    }
+    return error.ProgramContractViolation;
+}
+
+fn extractVariantPayloadForTyped(
+    comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
+    scratch: anytype,
+    comptime T: type,
+    value: T,
+    variant_ordinal: u16,
+) anyerror!RuntimeValueWithRef {
+    const active = try activeVariantOrdinalForTyped(T, value);
+    if (active != variant_ordinal) return error.ProgramContractViolation;
+    return switch (@typeInfo(T)) {
+        .@"union" => |union_info| {
+            inline for (union_info.fields, 0..) |field, field_index| {
+                if (variant_ordinal == field_index) {
+                    if (field.type == void) return error.ProgramContractViolation;
+                    return .{
+                        .value = try encodeRuntimeValueForRuntimeRef(schema_types, ref, scratch, @field(value, field.name)),
+                        .ref = ref,
+                    };
+                }
+            }
+            return error.ProgramContractViolation;
+        },
+        .optional => |optional_info| {
+            _ = optional_info;
+            if (variant_ordinal != 1) return error.ProgramContractViolation;
+            return .{
+                .value = try encodeRuntimeValueForRuntimeRef(schema_types, ref, scratch, value.?),
+                .ref = ref,
+            };
+        },
+        else => error.ProgramContractViolation,
+    };
+}
+
+fn extractVariantPayloadForExecutable(
+    comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
+    scratch: anytype,
+    value: ExecutableValue,
+    variant_ordinal: u16,
+) anyerror!RuntimeValueWithRef {
+    const schema = switch (value) {
+        .schema => |typed| typed,
+        else => return error.ProgramContractViolation,
+    };
+    inline for (schema_types, 0..) |SchemaType, schema_index| {
+        if (schema.schema_index == schema_index) {
+            const typed: *const SchemaType = @ptrCast(@alignCast(schema.ptr));
+            return extractVariantPayloadForTyped(schema_types, ref, scratch, SchemaType, typed.*, variant_ordinal);
+        }
+    }
+    return error.ProgramContractViolation;
 }
 
 fn encodeRuntimeValueForRef(
@@ -1811,6 +1971,17 @@ fn executeKnownFunction(
                     locals[instruction.dst] = .{ .bool = is_zero };
                     last_condition = is_zero;
                 },
+                .sum_variant_is => {
+                    const is_variant = (try activeVariantOrdinalForExecutable(schema_types, locals[instruction.operand])) == instruction.aux;
+                    locals[instruction.dst] = .{ .bool = is_variant };
+                    last_condition = is_variant;
+                },
+                .sum_extract_payload => {
+                    const dst_ref = functionLocalRef(compiled_plan, function, instruction.dst) orelse return error.ProgramContractViolation;
+                    const extracted = try extractVariantPayloadForExecutable(schema_types, dst_ref, scratch, locals[instruction.operand], instruction.aux);
+                    if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
+                    locals[instruction.dst] = extracted.value;
+                },
                 .const_i32 => locals[instruction.dst] = .{ .i32 = @intCast(instruction.operand) },
                 .const_string => locals[instruction.dst] = .{ .string = instruction.string_literal },
                 .const_usize => {
@@ -2264,6 +2435,17 @@ fn executeFunctionWithFrameStack(
                     };
                     locals[instruction.dst] = .{ .bool = is_zero };
                     active.last_condition = is_zero;
+                },
+                .sum_variant_is => {
+                    const is_variant = (try activeVariantOrdinalForExecutable(schema_types, locals[instruction.operand])) == instruction.aux;
+                    locals[instruction.dst] = .{ .bool = is_variant };
+                    active.last_condition = is_variant;
+                },
+                .sum_extract_payload => {
+                    const dst_ref = localRefForFunctionIndex(compiled_plan, active.function_index, instruction.dst) orelse return error.ProgramContractViolation;
+                    const extracted = try extractVariantPayloadForExecutable(schema_types, dst_ref, scratch, locals[instruction.operand], instruction.aux);
+                    if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
+                    locals[instruction.dst] = extracted.value;
                 },
                 .const_i32 => locals[instruction.dst] = .{ .i32 = @intCast(instruction.operand) },
                 .const_string => locals[instruction.dst] = .{ .string = instruction.string_literal },

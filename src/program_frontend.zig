@@ -63,6 +63,7 @@ pub const OpenRowProgram = struct {
     functions: []const effect_ir.Function,
     call_edges: []const effect_ir.CallEdge = &.{},
     function_bodies: []const FunctionBody = &.{},
+    SchemaTypes: []const type = &.{},
 };
 
 /// One lowered open-row program that owns its function storage.
@@ -71,6 +72,7 @@ pub const LoweredOpenRowProgram = struct {
     functions: []const effect_ir.Function,
     call_edges: []const effect_ir.CallEdge = &.{},
     function_bodies: []const FunctionBody = &.{},
+    SchemaTypes: []const type = &.{},
 
     /// Project the owned function storage back into the generic Effect IR view.
     pub fn asEffectProgram(self: *const @This()) effect_ir.Program {
@@ -79,6 +81,7 @@ pub const LoweredOpenRowProgram = struct {
             .functions = self.functions,
             .call_edges = self.call_edges,
             .function_bodies = self.function_bodies,
+            .SchemaTypes = self.SchemaTypes,
         };
     }
 };
@@ -375,6 +378,17 @@ fn cloneLocalCodecs(comptime codecs: []const helper_body_ir.LocalCodec) []const 
     };
 }
 
+fn cloneValueRefs(comptime refs: []const effect_ir.ValueRef) []const effect_ir.ValueRef {
+    return comptime blk: {
+        var buffer: [refs.len]effect_ir.ValueRef = undefined;
+        for (refs, 0..) |ref, index| {
+            buffer[index] = ref;
+        }
+        const exact = buffer;
+        break :blk exact[0..];
+    };
+}
+
 fn cloneLocalIds(comptime local_ids: []const helper_body_ir.LocalId) []const helper_body_ir.LocalId {
     return comptime blk: {
         var buffer: [local_ids.len]helper_body_ir.LocalId = undefined;
@@ -392,6 +406,7 @@ fn cloneFunctionBodies(comptime function_bodies: []const helper_body_ir.Function
         for (function_bodies, 0..) |body, index| {
             buffer[index] = .{
                 .local_codecs = cloneLocalCodecs(body.local_codecs),
+                .local_refs = cloneValueRefs(body.local_refs),
                 .call_arg_locals = cloneLocalIds(body.call_arg_locals),
                 .entry_block = body.entry_block,
                 .blocks = cloneBodyBlocks(body.blocks),
@@ -407,6 +422,7 @@ fn cloneFunction(comptime function: effect_ir.Function) effect_ir.Function {
         .symbol = cloneSymbolRef(function.symbol),
         .row = cloneRow(function.row),
         .parameter_codecs = cloneLocalCodecs(function.parameter_codecs),
+        .parameter_refs = cloneValueRefs(function.parameter_refs),
         .ValueType = function.ValueType,
         .outputs = cloneOutputSpecs(function.outputs),
     };
@@ -474,6 +490,7 @@ pub fn lowerOpenRow(comptime program: OpenRowProgram) effect_ir.NormalizeError!L
             &.{}
         else
             cloneFunctionBodies(program.function_bodies),
+        .SchemaTypes = program.SchemaTypes,
     };
 }
 

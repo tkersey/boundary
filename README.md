@@ -26,7 +26,10 @@ structured `product` and `sum` values when the body declares an exact
 stays the scalar public carrier; typed bodies may instead return a tuple from
 `Body.encodeArgs`, and the interpreter carries structured values through entry
 arguments, locals, helper calls, operation payloads, and results without widening
-`ProgramValue`.
+`ProgramValue`. Sum plans can branch on an exact variant ordinal with
+`sum_variant_is` and extract non-unit payloads with `sum_extract_payload`; both
+operations are validated against the plan's schema-local variant table and exact
+destination refs before execution.
 
 Helper calls run through an interpreter-owned frame stack. Recursive helper
 plans are bounded by the interpreter step budget rather than by host stack depth.
@@ -130,11 +133,13 @@ field types match the entry locals. Product and sum schemas require
 Each compiled program also exposes `Program.contract`, a read-only inspection
 view derived from the validated ProgramPlan. The contract reports the public
 program label, result codec and schema reference, typed result and output Zig
-types, output declarations, requirement and operation metadata, op payload and
-resume references, op modes, after-hook flags, nested-with target declaration
-state, and the executable capability-ledger summary. It is metadata for tests
-and callers that need to inspect what a program declares; it does not expose
-mutable ProgramPlan tables, Artifact or VM surfaces, or legacy capability maps.
+types, entry parameter refs, value schema/field/variant declarations, output
+declarations, requirement and operation metadata, op payload and resume
+references, op modes, after-hook flags, nested-with target declarations, unique
+`return_error` literals, and the executable capability-ledger summary. It is
+metadata for tests and callers that need to inspect what a program declares; it
+does not expose mutable ProgramPlan tables, Artifact or VM surfaces, or legacy
+capability maps.
 
 ## Effects
 

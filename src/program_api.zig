@@ -103,16 +103,24 @@ fn valueSchemaPlansEqual(comptime actual: anytype, comptime expected: anytype) b
         actual.variant_count == expected.variant_count;
 }
 
-fn valueFieldPlansEqual(comptime actual: anytype, comptime expected: anytype) bool {
-    return std.mem.eql(u8, actual.name, expected.name) and
-        actual.codec == expected.codec and
-        actual.schema_index == expected.schema_index;
+fn schemaRefsMatch(comptime schema_types: anytype, actual: ?u16, expected: ?u16) bool {
+    if (actual == expected) return true;
+    const actual_index = actual orelse return false;
+    const expected_index = expected orelse return false;
+    if (actual_index >= schema_types.len or expected_index >= schema_types.len) return false;
+    return schema_types[actual_index] == schema_types[expected_index];
 }
 
-fn valueVariantPlansEqual(comptime actual: anytype, comptime expected: anytype) bool {
+fn valueFieldPlansEqual(comptime schema_types: anytype, comptime actual: anytype, comptime expected: anytype) bool {
     return std.mem.eql(u8, actual.name, expected.name) and
         actual.codec == expected.codec and
-        actual.schema_index == expected.schema_index;
+        schemaRefsMatch(schema_types, actual.schema_index, expected.schema_index);
+}
+
+fn valueVariantPlansEqual(comptime schema_types: anytype, comptime actual: anytype, comptime expected: anytype) bool {
+    return std.mem.eql(u8, actual.name, expected.name) and
+        actual.codec == expected.codec and
+        schemaRefsMatch(schema_types, actual.schema_index, expected.schema_index);
 }
 
 fn validateBodyValueSchemaTypes(
@@ -156,12 +164,12 @@ fn validateBodyValueSchemaTypes(
         }
     }
     inline for (registry.value_fields, 0..) |expected, index| {
-        if (!valueFieldPlansEqual(plan.value_fields[index], expected)) {
+        if (!valueFieldPlansEqual(schema_types, plan.value_fields[index], expected)) {
             @compileError("Body.value_schema_types does not match Body.compiled_plan.value_fields[" ++ schemaIndexLabel(index) ++ "]");
         }
     }
     inline for (registry.value_variants, 0..) |expected, index| {
-        if (!valueVariantPlansEqual(plan.value_variants[index], expected)) {
+        if (!valueVariantPlansEqual(schema_types, plan.value_variants[index], expected)) {
             @compileError("Body.value_schema_types does not match Body.compiled_plan.value_variants[" ++ schemaIndexLabel(index) ++ "]");
         }
     }
@@ -226,6 +234,35 @@ const ContractOutputView = struct {
     schema_index: ?u16 = null,
 };
 
+const ContractValueSchemaView = struct {
+    label: []const u8,
+    codec: lowering_api.ValueCodec,
+    first_field: u16,
+    field_count: u16,
+    first_variant: u16,
+    variant_count: u16,
+};
+
+const ContractValueFieldView = struct {
+    name: []const u8,
+    ref: lowering_api.ValueRef,
+};
+
+const ContractValueVariantView = struct {
+    name: []const u8,
+    ref: lowering_api.ValueRef,
+};
+
+const ContractEntryParameterView = struct {
+    local_index: u16,
+    ref: lowering_api.ValueRef,
+};
+
+const ContractNestedWithTargetView = struct {
+    metadata: []const u8,
+    function_index: u16,
+};
+
 const ContractRequirementView = struct {
     label: []const u8,
     first_op: u16,
@@ -251,6 +288,67 @@ fn contractOutputs(comptime plan: lowering_api.ProgramPlan) [plan.outputs.len]Co
             .label = output.label,
             .codec = output.codec,
             .schema_index = output.schema_index,
+        };
+    }
+    return views;
+}
+
+fn contractValueSchemas(comptime plan: lowering_api.ProgramPlan) [plan.value_schemas.len]ContractValueSchemaView {
+    var views: [plan.value_schemas.len]ContractValueSchemaView = undefined;
+    for (plan.value_schemas, 0..) |schema, index| {
+        views[index] = .{
+            .label = schema.label,
+            .codec = schema.codec,
+            .first_field = schema.first_field,
+            .field_count = schema.field_count,
+            .first_variant = schema.first_variant,
+            .variant_count = schema.variant_count,
+        };
+    }
+    return views;
+}
+
+fn contractValueFields(comptime plan: lowering_api.ProgramPlan) [plan.value_fields.len]ContractValueFieldView {
+    var views: [plan.value_fields.len]ContractValueFieldView = undefined;
+    for (plan.value_fields, 0..) |field, index| {
+        views[index] = .{
+            .name = field.name,
+            .ref = .{ .codec = field.codec, .schema_index = field.schema_index },
+        };
+    }
+    return views;
+}
+
+fn contractValueVariants(comptime plan: lowering_api.ProgramPlan) [plan.value_variants.len]ContractValueVariantView {
+    var views: [plan.value_variants.len]ContractValueVariantView = undefined;
+    for (plan.value_variants, 0..) |variant, index| {
+        views[index] = .{
+            .name = variant.name,
+            .ref = .{ .codec = variant.codec, .schema_index = variant.schema_index },
+        };
+    }
+    return views;
+}
+
+fn contractEntryParameters(comptime plan: lowering_api.ProgramPlan) [plan.functions[plan.entry_index].parameter_count]ContractEntryParameterView {
+    const entry = plan.functions[plan.entry_index];
+    var views: [entry.parameter_count]ContractEntryParameterView = undefined;
+    for (0..entry.parameter_count) |parameter_index| {
+        const local = plan.locals[entry.first_local + parameter_index];
+        views[parameter_index] = .{
+            .local_index = @intCast(parameter_index),
+            .ref = .{ .codec = local.codec, .schema_index = local.schema_index },
+        };
+    }
+    return views;
+}
+
+fn contractNestedWithTargets(comptime nested_with_targets: anytype) [nested_with_targets.len]ContractNestedWithTargetView {
+    var views: [nested_with_targets.len]ContractNestedWithTargetView = undefined;
+    for (nested_with_targets, 0..) |target, index| {
+        views[index] = .{
+            .metadata = target.metadata,
+            .function_index = target.function_index,
         };
     }
     return views;
@@ -287,19 +385,56 @@ fn contractOps(comptime plan: lowering_api.ProgramPlan) [plan.ops.len]ContractOp
     return views;
 }
 
+fn contractReturnErrorSeen(comptime values: []const []const u8, comptime len: usize, comptime literal: []const u8) bool {
+    for (values[0..len]) |value| {
+        if (std.mem.eql(u8, value, literal)) return true;
+    }
+    return false;
+}
+
+fn contractReturnErrorCount(comptime plan: lowering_api.ProgramPlan) usize {
+    var values: [plan.instructions.len][]const u8 = undefined;
+    var count: usize = 0;
+    for (plan.instructions) |instruction| {
+        if (instruction.kind != .return_error) continue;
+        if (contractReturnErrorSeen(values[0..], count, instruction.string_literal)) continue;
+        values[count] = instruction.string_literal;
+        count += 1;
+    }
+    return count;
+}
+
+fn contractReturnErrors(comptime plan: lowering_api.ProgramPlan) [contractReturnErrorCount(plan)][]const u8 {
+    var views: [contractReturnErrorCount(plan)][]const u8 = undefined;
+    var count: usize = 0;
+    for (plan.instructions) |instruction| {
+        if (instruction.kind != .return_error) continue;
+        if (contractReturnErrorSeen(views[0..], count, instruction.string_literal)) continue;
+        views[count] = instruction.string_literal;
+        count += 1;
+    }
+    return views;
+}
+
 fn ProgramContractFor(
     comptime program_label: []const u8,
     comptime plan: lowering_api.ProgramPlan,
     comptime ResultValue: type,
     comptime OutputsValue: type,
     comptime schema_types: anytype,
-    comptime nested_with_targets: anytype,
+    comptime nested_targets: anytype,
 ) type {
     const contract_result_ref = lowering_api.executableResultRefForPlan(plan);
     const output_views = contractOutputs(plan);
+    const value_schema_views = contractValueSchemas(plan);
+    const value_field_views = contractValueFields(plan);
+    const value_variant_views = contractValueVariants(plan);
+    const entry_parameter_views = contractEntryParameters(plan);
+    const nested_with_target_views = contractNestedWithTargets(nested_targets);
     const requirement_views = contractRequirements(plan);
     const op_views = contractOps(plan);
-    const Ledger = lowering_api.ExecutableCapabilityLedgerForPlan(plan, schema_types, nested_with_targets);
+    const return_error_views = contractReturnErrors(plan);
+    const Ledger = lowering_api.ExecutableCapabilityLedgerForPlan(plan, schema_types, nested_targets);
     const first_blocker = if (Ledger.blockers.len == 0) null else Ledger.blockers[0];
 
     return struct {
@@ -319,12 +454,24 @@ fn ProgramContractFor(
         pub const has_typed_result_schema = contract_result_ref.schema_index != null;
         /// Output declarations visible to callers without exposing mutable plan tables.
         pub const outputs = &output_views;
+        /// Value schema declarations visible to callers without exposing mutable plan tables.
+        pub const value_schemas = &value_schema_views;
+        /// Product field declarations visible to callers without exposing mutable plan tables.
+        pub const value_fields = &value_field_views;
+        /// Sum variant declarations visible to callers without exposing mutable plan tables.
+        pub const value_variants = &value_variant_views;
+        /// Entry parameter declarations visible to callers without exposing mutable plan tables.
+        pub const entry_parameters = &entry_parameter_views;
+        /// Declared nested lexical-with resolver rows visible to callers.
+        pub const nested_with_targets = &nested_with_target_views;
         /// Requirement declarations visible to callers without exposing mutable plan tables.
         pub const requirements = &requirement_views;
         /// Operation declarations visible to callers without exposing mutable plan tables.
         pub const ops = &op_views;
+        /// Unique return_error literals declared by the compiled plan.
+        pub const return_errors = &return_error_views;
         /// Whether the body declared explicit nested lexical-with resolver rows.
-        pub const has_nested_with_targets = nested_with_targets.len != 0;
+        pub const has_nested_with_targets = nested_targets.len != 0;
         /// Executable support ledger summary for the validated plan.
         pub const executable = struct {
             /// Whether the validated ProgramPlan has no executable capability blockers.
@@ -336,7 +483,7 @@ fn ProgramContractFor(
             /// Whether executable ledger diagnostics were truncated at blocker_cap.
             pub const truncated = Ledger.truncated;
             /// Stable human-readable executable capability summary.
-            pub const summary = lowering_api.executableCapabilitySummary(plan, schema_types, nested_with_targets);
+            pub const summary = lowering_api.executableCapabilitySummary(plan, schema_types, nested_targets);
             /// First blocker tag, if the executable ledger is non-empty.
             pub const first_blocker_tag = if (first_blocker) |blocker| blocker.tag else null;
             /// First blocker function index, if the executable ledger is non-empty.

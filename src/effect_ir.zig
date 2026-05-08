@@ -227,6 +227,24 @@ pub const LocalCodec = enum {
     usize,
 };
 
+/// Serializable value codec admitted by structured helper-body refs.
+pub const ValueCodec = enum {
+    bool,
+    i32,
+    product,
+    string,
+    string_list,
+    sum,
+    unit,
+    usize,
+};
+
+/// Exact public helper-body value reference, including schema identity.
+pub const ValueRef = struct {
+    codec: ValueCodec,
+    schema_index: ?u16 = null,
+};
+
 /// Public helper-body instruction tags.
 pub const InstructionKind = enum {
     add_const_i32,
@@ -241,6 +259,8 @@ pub const InstructionKind = enum {
     return_error,
     return_value,
     sub_one,
+    sum_extract_payload,
+    sum_variant_is,
 };
 
 /// Public helper-body instruction.
@@ -276,6 +296,7 @@ pub const Block = struct {
 /// Public helper-body payload aligned to one function.
 pub const FunctionBody = struct {
     local_codecs: []const LocalCodec = &.{},
+    local_refs: []const ValueRef = &.{},
     call_arg_locals: []const LocalId = &.{},
     entry_block: BlockId = 0,
     blocks: []const Block = &.{},
@@ -297,6 +318,7 @@ pub const Function = struct {
     symbol: SymbolRef,
     row: Row,
     parameter_codecs: []const LocalCodec = &.{},
+    parameter_refs: []const ValueRef = &.{},
     ValueType: type = void,
     outputs: []const OutputSpec = &.{},
 };
@@ -307,6 +329,7 @@ pub const Program = struct {
     functions: []const Function,
     call_edges: []const CallEdge,
     function_bodies: []const FunctionBody = &.{},
+    SchemaTypes: []const type = &.{},
 };
 
 /// One strongly connected component over symbolic functions.
