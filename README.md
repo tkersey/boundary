@@ -152,6 +152,8 @@ See [docs/custom_effect_authoring.md](docs/custom_effect_authoring.md) for the
 schema-first custom effect authoring direction. Custom generated effects are not
 public yet; custom workflows should still lower to `ProgramPlan` and execute
 through `ability.program`.
+See [docs/release_hardening.md](docs/release_hardening.md) for package/lint
+coverage, file classification, and the built-in effects roadmap.
 
 ## Effects
 

@@ -1,4 +1,4 @@
-// zlinter-disable declaration_naming require_doc_comment no_inferred_error_unions
+// zlinter-disable declaration_naming field_naming field_ordering require_doc_comment no_inferred_error_unions
 const ability = @import("ability");
 const std = @import("std");
 

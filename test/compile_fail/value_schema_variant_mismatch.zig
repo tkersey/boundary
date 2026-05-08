@@ -1,3 +1,4 @@
+// zlinter-disable declaration_naming require_doc_comment
 const ability = @import("ability");
 
 const Payload = ?i32;

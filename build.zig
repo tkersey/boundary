@@ -151,6 +151,20 @@ fn addCompileFailArtifact(
     compile_fail_step.dependOn(&tests.step);
 }
 
+fn addZigPathCoverageGuard(b: *std.Build, lint_step: *std.Build.Step) void {
+    const guard = b.addSystemCommand(&.{
+        "sh",
+        "-c",
+        \\set -eu
+        \\tmp="${TMPDIR:-/tmp}/ability-zig-paths-$$"
+        \\trap 'rm -f "$tmp.actual" "$tmp.expected"' EXIT
+        \\find src examples test bench -type f -name '*.zig' | sort > "$tmp.actual"
+        \\grep -E '^(src|examples|test|bench)/.*\.zig$' repo_zig_paths.txt | sort > "$tmp.expected"
+        \\diff -u "$tmp.expected" "$tmp.actual"
+    });
+    lint_step.dependOn(&guard.step);
+}
+
 fn addCoreModules(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -499,80 +513,15 @@ pub fn build(b: *std.Build) void {
     }
 
     const lint_step = b.step("lint", "Lint source code.");
+    addZigPathCoverageGuard(b, lint_step);
     var builder = zlinter.builder(b, .{});
     builder.addPaths(.{
         .include = &.{
-            b.path("bench/abortive_effect_decompose_bench.zig"),
-            b.path("bench/algebraic_builder_decompose_bench.zig"),
-            b.path("bench/direct_first_suspend_bench.zig"),
-            b.path("bench/effect_family_matrix_bench.zig"),
-            b.path("bench/no_capture_bench.zig"),
-            b.path("bench/resource_effect_decompose_bench.zig"),
-            b.path("bench/state_effect_bench.zig"),
-            b.path("bench/writer_effect_decompose_bench.zig"),
-            b.path("bench/zprof_hotspots.zig"),
             b.path("build.zig"),
-            b.path("src/ability_shared.zig"),
-            b.path("src/algebraic.zig"),
-            b.path("src/bench_support.zig"),
-            b.path("src/decision_api.zig"),
-            b.path("src/effect/algebraic.zig"),
-            b.path("src/effect/choice.zig"),
-            b.path("src/effect/cleanup.zig"),
-            b.path("src/effect/define.zig"),
-            b.path("src/effect/exception.zig"),
-            b.path("src/effect/family.zig"),
-            b.path("src/effect/generated_family.zig"),
-            b.path("src/effect/optional.zig"),
-            b.path("src/effect/reader.zig"),
-            b.path("src/effect/resource.zig"),
-            b.path("src/effect/root.zig"),
-            b.path("src/effect/state.zig"),
-            b.path("src/effect/writer.zig"),
-            b.path("src/effect_ir.zig"),
-            b.path("src/effect_schema.zig"),
-            b.path("src/error_witness.zig"),
-            b.path("src/frontend.zig"),
-            b.path("src/helper_body_ir.zig"),
-            b.path("src/internal/algebraic_engine.zig"),
-            b.path("src/internal/helper_body_ir.zig"),
-            b.path("src/internal/kernel.zig"),
-            b.path("src/internal/lexical_bundle_schema.zig"),
-            b.path("src/internal/lexical_executable_bundle.zig"),
-            b.path("src/internal/lexical_support.zig"),
-            b.path("src/internal/program_plan.zig"),
-            b.path("src/internal/prompt_support.zig"),
-            b.path("src/internal/sealed_engine.zig"),
-            b.path("src/internal/synthetic_ability_root.zig"),
-            b.path("src/internal_kernel.zig"),
-            b.path("src/internal_program_plan.zig"),
-            b.path("src/interpreter.zig"),
-            b.path("src/ir_api.zig"),
-            b.path("src/lowered_machine.zig"),
-            b.path("src/lowering_api.zig"),
-            b.path("src/op_api.zig"),
-            b.path("src/open_row_runtime_support.zig"),
-            b.path("src/parity_kernel.zig"),
-            b.path("src/parity_machine.zig"),
-            b.path("src/parity_scenarios.zig"),
-            b.path("src/portable_core.zig"),
-            b.path("src/private_modules/helper_body_ir_build.zig"),
-            b.path("src/private_modules/internal_kernel_build.zig"),
-            b.path("src/private_modules/lowered_machine_build.zig"),
-            b.path("src/private_modules/program_frontend_build.zig"),
-            b.path("src/program_api.zig"),
-            b.path("src/program_frontend.zig"),
-            b.path("src/prompt_contract.zig"),
-            b.path("src/prompt_support_internal.zig"),
-            b.path("src/reference_eval.zig"),
-            b.path("src/reference_machine.zig"),
-            b.path("src/root.zig"),
-            b.path("src/runtime_contract_registry.zig"),
-            b.path("src/witnesses.zig"),
-            b.path("examples/state_basic.zig"),
-            b.path("examples/custom_approval_workflow.zig"),
-            b.path("test/program_api_test.zig"),
-            b.path("test/public_optional_bound_program_test.zig"),
+            b.path("src"),
+            b.path("examples"),
+            b.path("test"),
+            b.path("bench"),
         },
         .exclude = &.{},
     });

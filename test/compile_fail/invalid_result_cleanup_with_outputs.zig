@@ -1,3 +1,4 @@
+// zlinter-disable declaration_naming require_doc_comment no_empty_block no_inferred_error_unions no_swallow_error
 const ability = @import("ability");
 const std = @import("std");
 

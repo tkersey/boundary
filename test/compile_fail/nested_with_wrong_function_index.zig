@@ -1,3 +1,4 @@
+// zlinter-disable declaration_naming require_doc_comment no_swallow_error
 const ability = @import("ability");
 
 const nested_with_metadata = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi";
