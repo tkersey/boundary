@@ -2525,6 +2525,77 @@ fn outputMetadataPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
+fn writerAccumulatorPlan(comptime label: []const u8, comptime values: []const i32) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const instruction_count = values.len * 2;
+    const instructions = comptime blk: {
+        var buffer: [instruction_count]ability.ir.plan.Instruction = undefined;
+        for (values, 0..) |value, index| {
+            const payload = ability.ir.builder.local(root, @intCast(index));
+            buffer[index * 2] = .{ .kind = .const_i32, .dst = payload.index, .operand = @intCast(value) };
+            buffer[index * 2 + 1] = ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload) catch unreachable;
+        }
+        break :blk buffer;
+    };
+    const locals = comptime blk: {
+        var buffer: [values.len]ability.ir.plan.Local = undefined;
+        for (&buffer) |*local_plan| local_plan.* = .{ .codec = .i32 };
+        break :blk buffer;
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 1,
+        .first_local = 0,
+        .local_count = @intCast(values.len),
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{
+        .label = "writer",
+        .first_op = 0,
+        .op_count = 1,
+        .lifecycle_tag = .writer_accumulator,
+        .output_tag = .accumulator,
+    }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "tell",
+        .mode = .transform,
+        .payload_codec = .i32,
+        .resume_codec = .unit,
+    }};
+    const outputs = [_]ability.ir.plan.Output{.{
+        .label = "writer",
+        .codec = .i32,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 61,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &outputs,
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 test "ability.program exposes scalar ProgramPlan contract metadata" {
     const Body = struct {
         pub const compiled_plan = pureArithmeticPlan("contract-scalar-plan");
@@ -5492,6 +5563,127 @@ test "ability.program deinitializes result and outputs independently" {
     result.deinit();
     try std.testing.expect(CleanupState.result_deinit_called);
     try std.testing.expect(CleanupState.outputs_deinit_called);
+}
+
+test "ability.program materializes plan-native writer accumulator outputs" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const WriterHandlers = struct {
+        tell: struct {
+            values: *[8]i32,
+            count: *usize,
+
+            pub fn dispatch(self: *const @This(), value: i32) !void {
+                self.values[self.count.*] = value;
+                self.count.* += 1;
+            }
+        },
+    };
+    const CleanupState = struct {
+        var outputs_deinit_called = false;
+    };
+    const TestState = struct {
+        fn collect(allocator: std.mem.Allocator, handlers: *WriterHandlers) ![]i32 {
+            const outputs = try allocator.alloc(i32, handlers.tell.count.*);
+            @memcpy(outputs, handlers.tell.values[0..handlers.tell.count.*]);
+            return outputs;
+        }
+
+        fn deinit(allocator: std.mem.Allocator, outputs: []i32) void {
+            CleanupState.outputs_deinit_called = true;
+            allocator.free(outputs);
+        }
+    };
+    const EmptyBody = struct {
+        pub const Outputs = []i32;
+        pub const compiled_plan = writerAccumulatorPlan("writer-empty", &.{});
+
+        pub fn collectOutputs(allocator: std.mem.Allocator, handlers: *WriterHandlers) !Outputs {
+            return TestState.collect(allocator, handlers);
+        }
+
+        pub fn deinitOutputs(allocator: std.mem.Allocator, outputs: Outputs) void {
+            TestState.deinit(allocator, outputs);
+        }
+    };
+    const OneBody = struct {
+        pub const Outputs = []i32;
+        pub const compiled_plan = writerAccumulatorPlan("writer-one", &.{7});
+
+        pub fn collectOutputs(allocator: std.mem.Allocator, handlers: *WriterHandlers) !Outputs {
+            return TestState.collect(allocator, handlers);
+        }
+
+        pub fn deinitOutputs(allocator: std.mem.Allocator, outputs: Outputs) void {
+            TestState.deinit(allocator, outputs);
+        }
+    };
+    const ManyBody = struct {
+        pub const Outputs = []i32;
+        pub const compiled_plan = writerAccumulatorPlan("writer-many", &.{ 1, 2, 3 });
+
+        pub fn collectOutputs(allocator: std.mem.Allocator, handlers: *WriterHandlers) !Outputs {
+            return TestState.collect(allocator, handlers);
+        }
+
+        pub fn deinitOutputs(allocator: std.mem.Allocator, outputs: Outputs) void {
+            TestState.deinit(allocator, outputs);
+        }
+    };
+    const EmptyProgram = ability.program("writer-empty", WriterHandlers, EmptyBody);
+    const OneProgram = ability.program("writer-one", WriterHandlers, OneBody);
+    const ManyProgram = ability.program("writer-many", WriterHandlers, ManyBody);
+
+    var values = [_]i32{0} ** 8;
+    var count: usize = 0;
+    CleanupState.outputs_deinit_called = false;
+    var empty = try EmptyProgram.run(&runtime, .{ .tell = .{ .values = &values, .count = &count } });
+    try std.testing.expectEqual(@as(usize, 0), empty.outputs.len);
+    empty.deinit();
+    try std.testing.expect(CleanupState.outputs_deinit_called);
+
+    values = [_]i32{0} ** 8;
+    count = 0;
+    var one = try OneProgram.run(&runtime, .{ .tell = .{ .values = &values, .count = &count } });
+    defer one.deinit();
+    try std.testing.expectEqualSlices(i32, &.{7}, one.outputs);
+
+    values = [_]i32{0} ** 8;
+    count = 0;
+    var many = try ManyProgram.run(&runtime, .{ .tell = .{ .values = &values, .count = &count } });
+    defer many.deinit();
+    try std.testing.expectEqualSlices(i32, &.{ 1, 2, 3 }, many.outputs);
+    try std.testing.expectEqualStrings("writer", ManyProgram.contract.outputs[0].label);
+    try std.testing.expectEqual(@as(@TypeOf(ManyProgram.contract.requirements[0].lifecycle_tag), .writer_accumulator), ManyProgram.contract.requirements[0].lifecycle_tag);
+}
+
+test "ability.program preserves plan-native writer collection failure" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const WriterHandlers = struct {
+        tell: struct {
+            count: *usize,
+
+            pub fn dispatch(self: *const @This(), _: i32) !void {
+                self.count.* += 1;
+            }
+        },
+    };
+    const FailingBody = struct {
+        pub const Error = error{OutputFailed};
+        pub const Outputs = []i32;
+        pub const compiled_plan = writerAccumulatorPlan("writer-collection-failure", &.{9});
+
+        pub fn collectOutputs(_: std.mem.Allocator, _: *WriterHandlers) Error!Outputs {
+            return error.OutputFailed;
+        }
+    };
+    const Program = ability.program("writer-collection-failure", WriterHandlers, FailingBody);
+    var count: usize = 0;
+    try std.testing.expectError(error.OutputFailed, Program.run(&runtime, .{ .tell = .{ .count = &count } }));
+    try std.testing.expectEqual(@as(usize, 1), count);
 }
 
 test "ability.program enters runtime execution before encoding entry args" {

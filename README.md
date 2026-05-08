@@ -162,6 +162,8 @@ IR:
   a plan-native choice op with a typed sum resume value.
 - `examples/plan_native_state_reader.zig` demonstrates state and reader as
   plan-native transform ops with final state returned through outputs.
+- `examples/plan_native_writer.zig` demonstrates writer accumulation through
+  typed outputs and explicit output cleanup.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
   abort operations in one plan.
 
@@ -182,5 +184,6 @@ zig build run-state-basic
 zig build run-typed-program-plan
 zig build run-plan-native-optional
 zig build run-plan-native-state-reader
+zig build run-plan-native-writer
 zig build run-custom-approval-workflow
 ```

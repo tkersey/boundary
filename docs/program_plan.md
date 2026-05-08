@@ -132,6 +132,11 @@ metadata and a `final_state` output declaration. The reader requirement carries
 `reader_environment` metadata and borrows its environment through the handler,
 without a handler-owned side channel for the returned value.
 
+`examples/plan_native_writer.zig` demonstrates writer accumulation through a
+`writer_accumulator` requirement and a typed output declaration. The accumulator
+is materialized as `Program.Result.outputs` and released through
+`Body.deinitOutputs`.
+
 ## Higher-level builder prototype
 
 Raw `ability.ir.plan.*` tables remain available. For common typed examples,
