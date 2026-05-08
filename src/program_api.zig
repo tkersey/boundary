@@ -48,12 +48,12 @@ fn ProgramPlanForBody(comptime Body: type) lowering_api.ProgramPlan {
     }
     comptime {
         @setEvalBranchQuota(100_000);
-        plan.validate() catch |err| {
+        const nested_with_targets = BodyNestedWithTargets(Body).values;
+        plan.validateWithNestedTargets(nested_with_targets) catch |err| {
             @compileError("Body.compiled_plan failed ProgramPlan.validate: " ++ @errorName(err));
         };
         validateBodyValueSchemaTypes(plan, Body);
         const schema_types = BodyValueSchemaTypes(Body).values;
-        const nested_with_targets = BodyNestedWithTargets(Body).values;
         lowering_api.validateTypedExecutablePlanSupportWithNestedTargets(plan, schema_types, nested_with_targets) catch |err| {
             @compileError("Body.compiled_plan is not supported by ability.program: " ++ @errorName(err) ++ "\n" ++
                 lowering_api.executableCapabilitySummary(plan, schema_types, nested_with_targets));

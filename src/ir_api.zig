@@ -105,6 +105,8 @@ pub const builder = struct {
     pub const returnValue = inner.returnValue;
     /// Materialize and validate a ProgramPlan.
     pub const finish = inner.finish;
+    /// Materialize and validate a ProgramPlan with nested lexical-with resolver rows.
+    pub const finishWithNestedTargets = inner.finishWithNestedTargets;
     /// Validate an already assembled ProgramPlan through the builder.
     pub const fromValidatedPlan = inner.fromValidatedPlan;
 };

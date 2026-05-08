@@ -249,6 +249,11 @@ pub const ProgramPlan = struct {
 
     /// Validate that this runtime-owned plan is structurally self-contained.
     pub fn validate(self: @This()) ValidationError!void {
+        return self.validateWithNestedTargets(&.{});
+    }
+
+    /// Validate the plan using explicit resolver rows for nested lexical-with edges.
+    pub fn validateWithNestedTargets(self: @This(), comptime nested_with_targets: anytype) ValidationError!void {
         if (self.schema_version != current_schema_version) return error.UnsupportedSchemaVersion;
         if (self.label.len == 0) return error.EmptyLabel;
         if (self.functions.len == 0) return error.EmptyProgram;
@@ -351,12 +356,12 @@ pub const ProgramPlan = struct {
                 if (completion_reachability[function_index]) continue :function_completion_scan;
                 const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
                 @memset(executable_blocks[function.first_block..block_end], false);
-                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks, &.{});
+                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks, nested_with_targets);
                 executable_block_completion_scan: for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
                     const block_index = @as(usize, function.first_block) + relative_block_index;
                     if (!executable_blocks[block_index]) continue :executable_block_completion_scan;
                     const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
-                    if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, &completion_reachability, &.{})) continue :executable_block_completion_scan;
+                    if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, &completion_reachability, nested_with_targets)) continue :executable_block_completion_scan;
                     const terminator = self.terminators[block.terminator_index];
                     const block_completes = switch (terminator.kind) {
                         .return_unit, .return_value => true,
@@ -379,7 +384,7 @@ pub const ProgramPlan = struct {
                 if (terminal_reachability[function_index]) continue :function_terminal_scan;
                 const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
                 @memset(executable_blocks[function.first_block..block_end], false);
-                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks, &.{});
+                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks, nested_with_targets);
                 executable_block_terminal_scan: for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
                     const block_index = @as(usize, function.first_block) + relative_block_index;
                     if (!executable_blocks[block_index]) continue :executable_block_terminal_scan;
@@ -393,7 +398,7 @@ pub const ProgramPlan = struct {
                             .completion = &completion_reachability,
                             .terminal = &terminal_reachability,
                         },
-                        &.{},
+                        nested_with_targets,
                     )) {
                         terminal_reachability[function_index] = true;
                         changed = true;
@@ -409,7 +414,7 @@ pub const ProgramPlan = struct {
                 .{ .codec = result_codec, .schema_index = function.result_schema_index },
                 .{ .codec = function.value_codec, .schema_index = function.value_schema_index },
             )) continue;
-            const completion_codecs = try functionCompletionCodecReachability(self, function, &completion_reachability, &.{});
+            const completion_codecs = try functionCompletionCodecReachability(self, function, &completion_reachability, nested_with_targets);
             if (completion_codecs.value_codec and completion_codecs.result_codec) return error.InvalidFunctionResultCodec;
         }
 
@@ -419,7 +424,7 @@ pub const ProgramPlan = struct {
                 .{ .codec = entry_result_codec, .schema_index = entry.result_schema_index },
                 .{ .codec = entry.value_codec, .schema_index = entry.value_schema_index },
             )) {
-                const entry_completion_codecs = try functionCompletionCodecReachability(self, entry, &completion_reachability, &.{});
+                const entry_completion_codecs = try functionCompletionCodecReachability(self, entry, &completion_reachability, nested_with_targets);
                 if (entry_completion_codecs.value_codec) {
                     return error.InvalidFunctionResultCodec;
                 }
@@ -585,7 +590,7 @@ pub const ProgramPlan = struct {
                                     .completion = &completion_reachability,
                                     .terminal = &terminal_reachability,
                                 },
-                                &.{},
+                                nested_with_targets,
                             )) return error.InvalidTerminatorInstruction;
                         }
                     },
@@ -925,6 +930,11 @@ pub const program_plan_builder = struct {
 
     /// Materialize and validate the final ProgramPlan.
     pub fn finish(spec: FinishSpec) ValidationError!ProgramPlan {
+        return finishWithNestedTargets(spec, &.{});
+    }
+
+    /// Materialize and validate the final ProgramPlan with explicit nested-with resolver rows.
+    pub fn finishWithNestedTargets(spec: FinishSpec, comptime nested_with_targets: anytype) ValidationError!ProgramPlan {
         const plan: ProgramPlan = .{
             .schema_version = spec.schema_version,
             .label = spec.label,
@@ -943,7 +953,7 @@ pub const program_plan_builder = struct {
             .terminators = spec.terminators,
             .instructions = spec.instructions,
         };
-        try plan.validate();
+        try plan.validateWithNestedTargets(nested_with_targets);
         return plan;
     }
 
