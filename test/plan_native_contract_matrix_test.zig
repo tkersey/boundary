@@ -68,7 +68,8 @@ fn expectNoNestedTargetsOrReturnErrors(comptime Contract: type) !void {
     try std.testing.expectEqual(@as(usize, 0), Contract.return_errors.len);
 }
 
-const OptionalOutcome = ?i32;
+const optional_plan = ability.effect.optional.plan;
+const OptionalOutcome = optional_plan.Outcome(i32);
 
 const OptionalHandlers = struct {
     request: struct {
@@ -89,31 +90,10 @@ fn optionalPlan() ability.ir.ProgramPlan {
     const is_some = comptime ability.ir.builder.local(root, 1);
     const extracted = comptime ability.ir.builder.local(root, 2);
     const fallback = comptime ability.ir.builder.local(root, 3);
-    const requirements = [_]ability.ir.plan.Requirement{.{
-        .label = "optional",
-        .first_op = 0,
-        .op_count = 1,
-        .lifecycle_tag = .choice_policy,
-    }};
-    const ops = [_]ability.ir.plan.Op{.{
-        .requirement_index = 0,
-        .op_name = "request",
-        .mode = .choice,
-        .payload_codec = .unit,
-        .resume_codec = .sum,
-        .resume_schema_index = 0,
-        .has_after = true,
-    }};
-    const variants = [_]ability.ir.ValueVariantPlan{
-        ability.ir.value.unitVariant("none"),
-        ability.ir.value.variant("some", i32),
-    };
-    const schemas = [_]ability.ir.ValueSchemaPlan{.{
-        .label = @typeName(OptionalOutcome),
-        .codec = .sum,
-        .first_variant = 0,
-        .variant_count = @intCast(variants.len),
-    }};
+    const requirements = [_]ability.ir.plan.Requirement{optional_plan.requirement(0)};
+    const ops = [_]ability.ir.plan.Op{optional_plan.requestOp(0, 0, .present)};
+    const variants = optional_plan.variants(i32);
+    const schemas = [_]ability.ir.ValueSchemaPlan{optional_plan.schema(i32, 0)};
 
     return mustPlan(ability.ir.builder.layout.finish(.{
         .label = "matrix-plan-native-optional",
@@ -129,7 +109,7 @@ fn optionalPlan() ability.ir.ProgramPlan {
             .result_ref = ability.ir.ValueRef{ .codec = .i32 },
             .requirements = layout.span(0, 1),
             .locals = .{
-                .{ .codec = .sum, .schema_index = 0 },
+                optional_plan.local(0),
                 .{ .codec = .bool },
                 .{ .codec = .i32 },
                 .{ .codec = .i32 },
@@ -137,14 +117,14 @@ fn optionalPlan() ability.ir.ProgramPlan {
             .blocks = .{
                 .{
                     .instructions = .{
-                        mustInstruction(ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null)),
-                        mustInstruction(ability.ir.builder.sumVariantIs(root, is_some, resumed, 1)),
+                        mustInstruction(optional_plan.callRequest(root, resumed, ability.ir.builder.op(root, 0))),
+                        mustInstruction(optional_plan.isSome(root, is_some, resumed)),
                     },
                     .terminator = ability.ir.plan.Terminator{ .kind = .branch_if, .primary = 1, .secondary = 2 },
                 },
                 .{
                     .instructions = .{
-                        mustInstruction(ability.ir.builder.sumExtractPayload(root, extracted, resumed, 1)),
+                        mustInstruction(optional_plan.extractSome(root, extracted, resumed)),
                         mustInstruction(ability.ir.builder.returnValue(root, extracted)),
                     },
                     .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
