@@ -126,6 +126,12 @@ sum value or returns immediately. The plan branches with `sum_variant_is`,
 extracts the `some` payload with `sum_extract_payload`, and leaves the
 compatibility `ability.effect.optional.handle` path intact.
 
+`examples/plan_native_state_reader.zig` demonstrates state and reader as
+plan-native transform operations. The state requirement carries `state_cell`
+metadata and a `final_state` output declaration. The reader requirement carries
+`reader_environment` metadata and borrows its environment through the handler,
+without a handler-owned side channel for the returned value.
+
 ## Higher-level builder prototype
 
 Raw `ability.ir.plan.*` tables remain available. For common typed examples,
