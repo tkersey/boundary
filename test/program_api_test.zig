@@ -5623,6 +5623,75 @@ test "ability.ir.builder.typed sum branch and payload extraction match raw behav
     try std.testing.expectEqual(raw_extract.value, built_extract.value);
 }
 
+test "ability.ir.builder.typed preserves full i32 constant range" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const EmptyHandlers = struct {};
+    const NegativeBody = struct {
+        pub const compiled_plan = ability.ir.builder.typed.scalarConstI32("typed-negative-i32", -1);
+    };
+    const NegativeProgram = ability.program("typed-negative-i32", EmptyHandlers, NegativeBody);
+
+    var negative = try NegativeProgram.run(&runtime, .{});
+    defer negative.deinit();
+    try std.testing.expectEqual(@as(i32, -1), negative.value);
+
+    const OptionalPayload = ?i32;
+    const MatchedBody = struct {
+        const optional_variants = [_]ability.ir.ValueVariantPlan{
+            ability.ir.value.unitVariant("none"),
+            ability.ir.value.variant("some", i32),
+        };
+        pub const value_schema_types = .{OptionalPayload};
+        pub const compiled_plan = ability.ir.builder.typed.sumVariantI32Branch(
+            OptionalPayload,
+            .{
+                .label = "typed-wide-i32-branch-matched",
+                .variants = &optional_variants,
+                .variant_ordinal = 1,
+                .matched_value = std.math.maxInt(i32),
+                .fallback_value = std.math.minInt(i32),
+            },
+        );
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{@as(OptionalPayload, 9)}) {
+            return .{@as(OptionalPayload, 9)};
+        }
+    };
+    const FallbackBody = struct {
+        const optional_variants = [_]ability.ir.ValueVariantPlan{
+            ability.ir.value.unitVariant("none"),
+            ability.ir.value.variant("some", i32),
+        };
+        pub const value_schema_types = .{OptionalPayload};
+        pub const compiled_plan = ability.ir.builder.typed.sumVariantI32Branch(
+            OptionalPayload,
+            .{
+                .label = "typed-wide-i32-branch-fallback",
+                .variants = &optional_variants,
+                .variant_ordinal = 1,
+                .matched_value = std.math.maxInt(i32),
+                .fallback_value = std.math.minInt(i32),
+            },
+        );
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{@as(OptionalPayload, null)}) {
+            return .{@as(OptionalPayload, null)};
+        }
+    };
+    const MatchedProgram = ability.program("typed-wide-i32-branch-matched", EmptyHandlers, MatchedBody);
+    const FallbackProgram = ability.program("typed-wide-i32-branch-fallback", EmptyHandlers, FallbackBody);
+
+    var matched = try MatchedProgram.run(&runtime, .{});
+    defer matched.deinit();
+    try std.testing.expectEqual(@as(i32, std.math.maxInt(i32)), matched.value);
+
+    var fallback = try FallbackProgram.run(&runtime, .{});
+    defer fallback.deinit();
+    try std.testing.expectEqual(@as(i32, std.math.minInt(i32)), fallback.value);
+}
+
 test "ability.program preserves expected schema index for duplicate typed product entry args" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();

@@ -4,6 +4,7 @@ const effect_ir = @import("effect_ir");
 const internal_kernel = @import("internal_kernel");
 const lowering_api = @import("lowering_api");
 const program_plan = @import("internal_program_plan");
+const standard = @import("std");
 
 /// Preserve the prior effect_ir namespace while layering public compile helpers on top.
 pub const ControlMode = effect_ir.ControlMode;
@@ -128,6 +129,17 @@ pub const builder = struct {
             return result catch |err| @compileError("ability.ir.builder.typed produced invalid instruction: " ++ @errorName(err));
         }
 
+        fn constI32(dst: LocalRef, comptime literal: i32) program_plan.Instruction {
+            if (literal >= 0 and literal <= standard.math.maxInt(u16)) {
+                return .{ .kind = .const_i32, .dst = dst.index, .operand = @intCast(literal) };
+            }
+            return .{
+                .kind = .const_i32,
+                .dst = dst.index,
+                .string_literal = standard.fmt.comptimePrint("{d}", .{literal}),
+            };
+        }
+
         /// Options for a one-argument sum branch returning one of two `i32` constants.
         pub const SumVariantI32BranchSpec = struct {
             label: []const u8,
@@ -142,7 +154,7 @@ pub const builder = struct {
             const root = function(0);
             const result = local(root, 0);
             const instructions = [_]program_plan.Instruction{
-                .{ .kind = .const_i32, .dst = result.index, .operand = constant },
+                constI32(result, constant),
                 mustInstruction(returnValue(root, result)),
             };
             const functions = [_]program_plan.FunctionPlan{.{
@@ -252,9 +264,9 @@ pub const builder = struct {
             const result = local(root, 2);
             const instructions = [_]program_plan.Instruction{
                 mustInstruction(sumVariantIs(root, condition, payload, spec.variant_ordinal)),
-                .{ .kind = .const_i32, .dst = result.index, .operand = spec.matched_value },
+                constI32(result, spec.matched_value),
                 mustInstruction(returnValue(root, result)),
-                .{ .kind = .const_i32, .dst = result.index, .operand = spec.fallback_value },
+                constI32(result, spec.fallback_value),
                 mustInstruction(returnValue(root, result)),
             };
             const functions = [_]program_plan.FunctionPlan{.{
