@@ -140,9 +140,10 @@ capability maps.
 
 See [docs/program_plan.md](docs/program_plan.md) for typed product/sum bodies,
 tuple entry args, outputs, cleanup hooks, nested-with targets, and
-`Program.contract`. `examples/typed_program_plan.zig` runs product execution,
-sum matching, tagged-union payload extraction, output cleanup, and contract
-inspection through the public API.
+`Program.contract`. `ability.ir.builder.typed` provides a small higher-level
+builder prototype that still emits `ProgramPlan`. `examples/typed_program_plan.zig`
+runs product execution, sum matching, tagged-union payload extraction, output
+cleanup, and contract inspection through the public API.
 
 ## Effects
 

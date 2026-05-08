@@ -4757,6 +4757,141 @@ test "ProgramPlan validation enforces exact typed sum instruction refs" {
     ));
 }
 
+test "ability.ir.builder.typed product identity matches raw contract metadata" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        amount: i32,
+    };
+    const EmptyHandlers = struct {};
+    const RawBody = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = productIdentityPlan(Payload, "raw-builder-product");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{Payload{ .amount = 5 }}) {
+            return .{Payload{ .amount = 5 }};
+        }
+    };
+    const BuiltBody = struct {
+        const product_fields = [_]ability.ir.ValueFieldPlan{
+            ability.ir.value.field("amount", i32),
+        };
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = ability.ir.builder.typed.productIdentity(
+            Payload,
+            "typed-builder-product",
+            &product_fields,
+        );
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{Payload{ .amount = 5 }}) {
+            return .{Payload{ .amount = 5 }};
+        }
+    };
+    const RawProgram = ability.program("raw-builder-product", EmptyHandlers, RawBody);
+    const BuiltProgram = ability.program("typed-builder-product", EmptyHandlers, BuiltBody);
+
+    try std.testing.expectEqual(RawProgram.contract.result_ref.codec, BuiltProgram.contract.result_ref.codec);
+    try std.testing.expectEqual(RawProgram.contract.result_ref.schema_index, BuiltProgram.contract.result_ref.schema_index);
+    try std.testing.expectEqual(RawProgram.contract.entry_parameters.len, BuiltProgram.contract.entry_parameters.len);
+    try std.testing.expectEqual(RawProgram.contract.value_schemas.len, BuiltProgram.contract.value_schemas.len);
+    try std.testing.expectEqual(RawProgram.contract.value_fields.len, BuiltProgram.contract.value_fields.len);
+    try std.testing.expectEqualStrings(RawProgram.contract.value_fields[0].name, BuiltProgram.contract.value_fields[0].name);
+
+    var raw_result = try RawProgram.run(&runtime, .{});
+    defer raw_result.deinit();
+    var built_result = try BuiltProgram.run(&runtime, .{});
+    defer built_result.deinit();
+    try std.testing.expectEqual(raw_result.value.amount, built_result.value.amount);
+}
+
+test "ability.ir.builder.typed sum branch and payload extraction match raw behavior" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const OptionalPayload = ?i32;
+    const TaggedPayload = union(enum) {
+        none,
+        yes: i32,
+    };
+    const EmptyHandlers = struct {};
+    const RawBranchBody = struct {
+        pub const value_schema_types = .{OptionalPayload};
+        pub const compiled_plan = sumVariantBranchPlan(OptionalPayload, "raw-sum-branch");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{@as(OptionalPayload, 9)}) {
+            return .{@as(OptionalPayload, 9)};
+        }
+    };
+    const BuiltBranchBody = struct {
+        const optional_variants = [_]ability.ir.ValueVariantPlan{
+            ability.ir.value.unitVariant("none"),
+            ability.ir.value.variant("some", i32),
+        };
+        pub const value_schema_types = .{OptionalPayload};
+        pub const compiled_plan = ability.ir.builder.typed.sumVariantI32Branch(
+            OptionalPayload,
+            .{
+                .label = "typed-sum-branch",
+                .variants = &optional_variants,
+                .variant_ordinal = 1,
+                .matched_value = 11,
+                .fallback_value = 22,
+            },
+        );
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{@as(OptionalPayload, 9)}) {
+            return .{@as(OptionalPayload, 9)};
+        }
+    };
+    const RawExtractBody = struct {
+        pub const value_schema_types = .{TaggedPayload};
+        pub const compiled_plan = taggedUnionPayloadExtractionPlan(TaggedPayload, "raw-sum-extract");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{TaggedPayload{ .yes = 41 }}) {
+            return .{TaggedPayload{ .yes = 41 }};
+        }
+    };
+    const BuiltExtractBody = struct {
+        const tagged_variants = [_]ability.ir.ValueVariantPlan{
+            ability.ir.value.unitVariant("none"),
+            ability.ir.value.variant("yes", i32),
+        };
+        pub const value_schema_types = .{TaggedPayload};
+        pub const compiled_plan = ability.ir.builder.typed.sumExtractI32Payload(
+            TaggedPayload,
+            "typed-sum-extract",
+            &tagged_variants,
+            1,
+        );
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{TaggedPayload{ .yes = 41 }}) {
+            return .{TaggedPayload{ .yes = 41 }};
+        }
+    };
+    const RawBranchProgram = ability.program("raw-sum-branch", EmptyHandlers, RawBranchBody);
+    const BuiltBranchProgram = ability.program("typed-sum-branch", EmptyHandlers, BuiltBranchBody);
+    const RawExtractProgram = ability.program("raw-sum-extract", EmptyHandlers, RawExtractBody);
+    const BuiltExtractProgram = ability.program("typed-sum-extract", EmptyHandlers, BuiltExtractBody);
+
+    try std.testing.expectEqual(RawBranchProgram.contract.value_variants.len, BuiltBranchProgram.contract.value_variants.len);
+    try std.testing.expectEqualStrings(RawBranchProgram.contract.value_variants[1].name, BuiltBranchProgram.contract.value_variants[1].name);
+    try std.testing.expectEqual(RawExtractProgram.contract.value_variants.len, BuiltExtractProgram.contract.value_variants.len);
+    try std.testing.expectEqualStrings(RawExtractProgram.contract.value_variants[1].name, BuiltExtractProgram.contract.value_variants[1].name);
+
+    var raw_branch = try RawBranchProgram.run(&runtime, .{});
+    defer raw_branch.deinit();
+    var built_branch = try BuiltBranchProgram.run(&runtime, .{});
+    defer built_branch.deinit();
+    var raw_extract = try RawExtractProgram.run(&runtime, .{});
+    defer raw_extract.deinit();
+    var built_extract = try BuiltExtractProgram.run(&runtime, .{});
+    defer built_extract.deinit();
+
+    try std.testing.expectEqual(raw_branch.value, built_branch.value);
+    try std.testing.expectEqual(raw_extract.value, built_extract.value);
+}
+
 test "ability.program preserves expected schema index for duplicate typed product entry args" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();

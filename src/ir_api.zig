@@ -46,6 +46,8 @@ pub const ProgramPlan = program_plan.ProgramPlan;
 pub const ProgramValue = internal_kernel.ProgramValue;
 /// Runtime-owned value codec tag.
 pub const ValueCodec = program_plan.ValueCodec;
+/// Runtime-owned value reference.
+pub const ValueRef = program_plan.ValueRef;
 /// Explicit resolver entry for executable nested lexical-with rows.
 pub const NestedWithTarget = lowering_api.NestedWithTarget;
 /// Runtime-owned value schema descriptor.
@@ -115,6 +117,307 @@ pub const builder = struct {
     pub const finishWithNestedTargets = inner.finishWithNestedTargets;
     /// Validate an already assembled ProgramPlan through the builder.
     pub const fromValidatedPlan = inner.fromValidatedPlan;
+
+    /// Higher-level typed ProgramPlan constructors for common public examples.
+    pub const typed = struct {
+        fn mustPlan(result: program_plan.ValidationError!program_plan.ProgramPlan) program_plan.ProgramPlan {
+            return result catch |err| @compileError("ability.ir.builder.typed produced invalid ProgramPlan: " ++ @errorName(err));
+        }
+
+        fn mustInstruction(result: program_plan.ValidationError!program_plan.Instruction) program_plan.Instruction {
+            return result catch |err| @compileError("ability.ir.builder.typed produced invalid instruction: " ++ @errorName(err));
+        }
+
+        /// Options for a one-argument sum branch returning one of two `i32` constants.
+        pub const SumVariantI32BranchSpec = struct {
+            label: []const u8,
+            variants: []const program_plan.ValueVariantPlan,
+            variant_ordinal: u16,
+            matched_value: i32,
+            fallback_value: i32,
+        };
+
+        /// Build a scalar no-arg program that returns one `i32` constant.
+        pub fn scalarConstI32(comptime label: []const u8, comptime constant: i32) program_plan.ProgramPlan {
+            const root = function(0);
+            const result = local(root, 0);
+            const instructions = [_]program_plan.Instruction{
+                .{ .kind = .const_i32, .dst = result.index, .operand = constant },
+                mustInstruction(returnValue(root, result)),
+            };
+            const functions = [_]program_plan.FunctionPlan{.{
+                .symbol_name = "run",
+                .value_codec = .i32,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = @intCast(instructions.len),
+            }};
+            const blocks = [_]program_plan.BlockPlan{.{
+                .first_instruction = 0,
+                .instruction_count = @intCast(instructions.len),
+                .terminator_index = 0,
+            }};
+            const terminators = [_]program_plan.Terminator{.{ .kind = .return_value }};
+
+            return mustPlan(finish(.{
+                .label = label,
+                .ir_hash = 0x746270000001,
+                .entry = root,
+                .functions = &functions,
+                .requirements = &.{},
+                .ops = &.{},
+                .outputs = &.{},
+                .locals = &.{.{ .codec = .i32 }},
+                .blocks = &blocks,
+                .terminators = &terminators,
+                .instructions = &instructions,
+            }));
+        }
+
+        /// Build a one-argument product identity program.
+        pub fn productIdentity(
+            comptime Payload: type,
+            comptime label: []const u8,
+            comptime fields: []const program_plan.ValueFieldPlan,
+        ) program_plan.ProgramPlan {
+            const root = function(0);
+            const payload = local(root, 0);
+            const instructions = [_]program_plan.Instruction{
+                mustInstruction(returnValue(root, payload)),
+            };
+            const functions = [_]program_plan.FunctionPlan{.{
+                .symbol_name = "run",
+                .value_codec = .product,
+                .value_schema_index = 0,
+                .parameter_count = 1,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = @intCast(instructions.len),
+            }};
+            const value_schemas = [_]program_plan.ValueSchemaPlan{.{
+                .label = @typeName(Payload),
+                .codec = .product,
+                .first_field = 0,
+                .field_count = @intCast(fields.len),
+            }};
+            const blocks = [_]program_plan.BlockPlan{.{
+                .first_instruction = 0,
+                .instruction_count = @intCast(instructions.len),
+                .terminator_index = 0,
+            }};
+            const terminators = [_]program_plan.Terminator{.{ .kind = .return_value }};
+
+            return mustPlan(finish(.{
+                .label = label,
+                .ir_hash = 0x746270000002,
+                .entry = root,
+                .functions = &functions,
+                .requirements = &.{},
+                .ops = &.{},
+                .outputs = &.{},
+                .value_schemas = &value_schemas,
+                .value_fields = fields,
+                .value_variants = &.{},
+                .locals = &.{.{ .codec = .product, .schema_index = 0 }},
+                .blocks = &blocks,
+                .terminators = &terminators,
+                .instructions = &instructions,
+            }));
+        }
+
+        /// Build a one-argument sum program that returns one of two `i32` constants.
+        pub fn sumVariantI32Branch(
+            comptime Sum: type,
+            comptime spec: SumVariantI32BranchSpec,
+        ) program_plan.ProgramPlan {
+            const root = function(0);
+            const payload = local(root, 0);
+            const condition = local(root, 1);
+            const result = local(root, 2);
+            const instructions = [_]program_plan.Instruction{
+                mustInstruction(sumVariantIs(root, condition, payload, spec.variant_ordinal)),
+                .{ .kind = .const_i32, .dst = result.index, .operand = spec.matched_value },
+                mustInstruction(returnValue(root, result)),
+                .{ .kind = .const_i32, .dst = result.index, .operand = spec.fallback_value },
+                mustInstruction(returnValue(root, result)),
+            };
+            const functions = [_]program_plan.FunctionPlan{.{
+                .symbol_name = "run",
+                .value_codec = .i32,
+                .parameter_count = 1,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 3,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 3,
+                .first_instruction = 0,
+                .instruction_count = @intCast(instructions.len),
+            }};
+            const value_schemas = [_]program_plan.ValueSchemaPlan{.{
+                .label = @typeName(Sum),
+                .codec = .sum,
+                .first_variant = 0,
+                .variant_count = @intCast(spec.variants.len),
+            }};
+            const blocks = [_]program_plan.BlockPlan{
+                .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+                .{ .first_instruction = 1, .instruction_count = 2, .terminator_index = 1 },
+                .{ .first_instruction = 3, .instruction_count = 2, .terminator_index = 2 },
+            };
+            const terminators = [_]program_plan.Terminator{
+                .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                .{ .kind = .return_value },
+                .{ .kind = .return_value },
+            };
+
+            return mustPlan(finish(.{
+                .label = spec.label,
+                .ir_hash = 0x746270000003,
+                .entry = root,
+                .functions = &functions,
+                .requirements = &.{},
+                .ops = &.{},
+                .outputs = &.{},
+                .value_schemas = &value_schemas,
+                .value_fields = &.{},
+                .value_variants = spec.variants,
+                .locals = &.{
+                    .{ .codec = .sum, .schema_index = 0 },
+                    .{ .codec = .bool },
+                    .{ .codec = .i32 },
+                },
+                .blocks = &blocks,
+                .terminators = &terminators,
+                .instructions = &instructions,
+            }));
+        }
+
+        /// Build a one-argument sum program that extracts an `i32` payload variant.
+        pub fn sumExtractI32Payload(
+            comptime Sum: type,
+            comptime label: []const u8,
+            comptime variants: []const program_plan.ValueVariantPlan,
+            comptime variant_ordinal: u16,
+        ) program_plan.ProgramPlan {
+            const root = function(0);
+            const payload = local(root, 0);
+            const extracted = local(root, 1);
+            const instructions = [_]program_plan.Instruction{
+                mustInstruction(sumExtractPayload(root, extracted, payload, variant_ordinal)),
+                mustInstruction(returnValue(root, extracted)),
+            };
+            const functions = [_]program_plan.FunctionPlan{.{
+                .symbol_name = "run",
+                .value_codec = .i32,
+                .parameter_count = 1,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 2,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = @intCast(instructions.len),
+            }};
+            const value_schemas = [_]program_plan.ValueSchemaPlan{.{
+                .label = @typeName(Sum),
+                .codec = .sum,
+                .first_variant = 0,
+                .variant_count = @intCast(variants.len),
+            }};
+            const blocks = [_]program_plan.BlockPlan{.{
+                .first_instruction = 0,
+                .instruction_count = @intCast(instructions.len),
+                .terminator_index = 0,
+            }};
+            const terminators = [_]program_plan.Terminator{.{ .kind = .return_value }};
+
+            return mustPlan(finish(.{
+                .label = label,
+                .ir_hash = 0x746270000004,
+                .entry = root,
+                .functions = &functions,
+                .requirements = &.{},
+                .ops = &.{},
+                .outputs = &.{},
+                .value_schemas = &value_schemas,
+                .value_fields = &.{},
+                .value_variants = variants,
+                .locals = &.{
+                    .{ .codec = .sum, .schema_index = 0 },
+                    .{ .codec = .i32 },
+                },
+                .blocks = &blocks,
+                .terminators = &terminators,
+                .instructions = &instructions,
+            }));
+        }
+
+        /// Build a unit-returning plan that declares typed outputs for collection hooks.
+        pub fn unitWithOutputs(
+            comptime label: []const u8,
+            comptime outputs: []const program_plan.OutputPlan,
+        ) program_plan.ProgramPlan {
+            const root = function(0);
+            const functions = [_]program_plan.FunctionPlan{.{
+                .symbol_name = "run",
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = @intCast(outputs.len),
+                .first_local = 0,
+                .local_count = 0,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 0,
+            }};
+            const blocks = [_]program_plan.BlockPlan{.{
+                .first_instruction = 0,
+                .instruction_count = 0,
+                .terminator_index = 0,
+            }};
+            const terminators = [_]program_plan.Terminator{.{ .kind = .return_unit }};
+
+            return mustPlan(finish(.{
+                .label = label,
+                .ir_hash = 0x746270000005,
+                .entry = root,
+                .functions = &functions,
+                .requirements = &.{},
+                .ops = &.{},
+                .outputs = outputs,
+                .locals = &.{},
+                .blocks = &blocks,
+                .terminators = &terminators,
+                .instructions = &.{},
+            }));
+        }
+    };
 };
 
 /// Minimal public value-shape helpers for ProgramPlan schemas.

@@ -119,3 +119,20 @@ zig build run-typed-program-plan
 It demonstrates typed product execution, optional sum matching,
 tagged-union payload extraction, output collection and cleanup, and
 `Program.contract` inspection through the public API.
+
+## Higher-level builder prototype
+
+Raw `ability.ir.plan.*` tables remain available. For common typed examples,
+`ability.ir.builder.typed` provides constructors that still return the same
+`ability.ir.ProgramPlan`:
+
+- `scalarConstI32`
+- `productIdentity`
+- `sumVariantI32Branch`
+- `sumExtractI32Payload`
+- `unitWithOutputs`
+
+These helpers cover scalar demos, product results, optional or enum-like
+variant branches, tagged-union `i32` payload extraction, and output declarations.
+They are a convenience layer over ProgramPlan, not a parser, compiler, or second
+IR.
