@@ -1923,6 +1923,84 @@ fn duplicateSchemaAbortResultPlan(comptime Payload: type, comptime label: []cons
     }) catch unreachable;
 }
 
+fn duplicateSchemaPayloadPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .unit,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{
+        .label = "structured",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "payload",
+        .mode = .transform,
+        .payload_codec = .product,
+        .payload_schema_index = 1,
+        .resume_codec = .unit,
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+        .{
+            .label = @typeName(Payload),
+            .codec = .product,
+            .first_field = 0,
+            .field_count = 1,
+        },
+        .{
+            .label = @typeName(Payload),
+            .codec = .product,
+            .first_field = 1,
+            .field_count = 1,
+        },
+    };
+    const value_fields = [_]ability.ir.ValueFieldPlan{
+        .{ .name = "amount", .codec = .i32 },
+        .{ .name = "amount", .codec = .i32 },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 34,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &.{.{ .codec = .product, .schema_index = 1 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn duplicateSchemaAfterResultPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const resumed = ability.ir.builder.local(root, 0);
@@ -3511,6 +3589,45 @@ test "Program.Session yields transform request data and resumes to completion" {
     try std.testing.expectEqual(@as(usize, 0), runtime.core.active_reset_count);
 }
 
+test "Program.Session decodes string-list payloads as immutable views only" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const StringListPayloadHandlers = struct {
+        items: []const []const u8,
+    };
+    const StringListPayloadArgs = struct { []const []const u8 };
+    const Body = struct {
+        pub const compiled_plan = sessionStringListPayloadPlan("session-string-list-payload");
+
+        pub fn encodeArgs(handlers: StringListPayloadHandlers) StringListPayloadArgs {
+            return .{handlers.items};
+        }
+    };
+    const Program = ability.program("session-string-list-payload", StringListPayloadHandlers, Body);
+    var strings = [_][]const u8{ "left", "right" };
+    var session = try Program.Session.start(&runtime, .{ .items = strings[0..] });
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+    };
+    const payload = try request.payload([]const []const u8);
+    try std.testing.expectEqual(@as(usize, 2), payload.len);
+    try std.testing.expectEqualStrings("left", payload[0]);
+    try std.testing.expectEqualStrings("right", payload[1]);
+    try std.testing.expectError(error.ProgramContractViolation, request.payload([][]const u8));
+
+    try session.@"resume"(request, @as(i32, 55));
+    var result = switch (try session.next()) {
+        .done => |result| result,
+        .request => return error.UnexpectedRequest,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 55), result.value);
+}
+
 test "Program.Session yields choice request and resumes branch" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -4342,6 +4459,58 @@ fn sessionStringOpPlan(comptime mode: ability.ir.PlanControlMode, comptime label
         .ops = &ops,
         .outputs = &.{},
         .locals = &.{ .{ .codec = .string }, .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn sessionStringListPayloadPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const resumed = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .i32,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "string_list_payload",
+        .mode = .transform,
+        .payload_codec = .string_list,
+        .resume_codec = .i32,
+        .has_after = false,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 112,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string_list }, .{ .codec = .i32 } },
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,
@@ -5687,7 +5856,7 @@ test "Program.Session yields transform requests and preserves runtime busy lifec
     try std.testing.expectEqual(@as(i32, 41), result.value);
 }
 
-test "Program.Session rejects cross-thread next resume and returnNow before mutating core" {
+test "Program.Session rejects cross-thread and out-of-order close before mutating core" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
@@ -5714,6 +5883,14 @@ test "Program.Session rejects cross-thread next resume and returnNow before muta
 
         fn returnNow(session: *Program.Session, request: Program.Session.Request, err: *?anyerror) void {
             session.returnNow(request, @as(i32, 99)) catch |caught| {
+                err.* = caught;
+                return;
+            };
+            err.* = null;
+        }
+
+        fn deinitChecked(session: *Program.Session, err: *?anyerror) void {
+            session.deinitChecked() catch |caught| {
                 err.* = caught;
                 return;
             };
@@ -5780,6 +5957,126 @@ test "Program.Session rejects cross-thread next resume and returnNow before muta
     };
     defer return_result.deinit();
     try std.testing.expectEqual(@as(i32, 88), return_result.value);
+
+    var close_session = try Program.Session.start(&runtime, .{});
+    defer close_session.deinit();
+    var close_err: ?anyerror = null;
+    const close_thread = try std.Thread.spawn(.{}, Workers.deinitChecked, .{ &close_session, &close_err });
+    close_thread.join();
+    try Workers.expectCrossThread(close_err);
+    try std.testing.expectEqual(@as(usize, 1), runtime.core.active_reset_count);
+    const close_request = switch (try close_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+    };
+    try close_session.@"resume"(close_request, @as(i32, 14));
+    var close_result = switch (try close_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+    };
+    defer close_result.deinit();
+    try std.testing.expectEqual(@as(i32, 14), close_result.value);
+
+    var pending_next_session = try Program.Session.start(&runtime, .{});
+    defer pending_next_session.deinit();
+    const pending_next_request = switch (try pending_next_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+    };
+    try std.testing.expectError(error.ProgramContractViolation, pending_next_session.next());
+    try std.testing.expectEqual(@as(usize, 1), runtime.core.active_reset_count);
+    try pending_next_session.@"resume"(pending_next_request, @as(i32, 15));
+    var pending_next_result = switch (try pending_next_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+    };
+    defer pending_next_result.deinit();
+    try std.testing.expectEqual(@as(i32, 15), pending_next_result.value);
+
+    var first_owner_session = try Program.Session.start(&runtime, .{});
+    defer first_owner_session.deinit();
+    const first_owner_request = switch (try first_owner_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+    };
+    var second_owner_session = try Program.Session.start(&runtime, .{});
+    defer second_owner_session.deinit();
+    const second_owner_request = switch (try second_owner_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+    };
+
+    try std.testing.expectError(error.ProgramContractViolation, second_owner_session.@"resume"(first_owner_request, @as(i32, 18)));
+    try std.testing.expectEqual(@as(usize, 2), runtime.core.active_reset_count);
+    try second_owner_session.@"resume"(second_owner_request, @as(i32, 19));
+    var second_owner_result = switch (try second_owner_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+    };
+    defer second_owner_result.deinit();
+    try std.testing.expectEqual(@as(i32, 19), second_owner_result.value);
+    try std.testing.expectEqual(@as(usize, 1), runtime.core.active_reset_count);
+
+    try first_owner_session.@"resume"(first_owner_request, @as(i32, 18));
+    var first_owner_result = switch (try first_owner_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+    };
+    defer first_owner_result.deinit();
+    try std.testing.expectEqual(@as(i32, 18), first_owner_result.value);
+    try std.testing.expectEqual(@as(usize, 0), runtime.core.active_reset_count);
+
+    var outer_runtime = ability.Runtime.init(std.testing.allocator);
+    defer outer_runtime.deinit();
+    var inner_runtime = ability.Runtime.init(std.testing.allocator);
+    defer inner_runtime.deinit();
+
+    var outer_session = try Program.Session.start(&outer_runtime, .{});
+    defer outer_session.deinit();
+    var inner_session = try Program.Session.start(&inner_runtime, .{});
+    defer inner_session.deinit();
+
+    try std.testing.expectError(error.RuntimeBusy, outer_session.next());
+    try std.testing.expectError(error.RuntimeBusy, outer_session.deinitChecked());
+    try std.testing.expectEqual(@as(usize, 1), outer_runtime.core.active_reset_count);
+    try std.testing.expectEqual(@as(usize, 1), inner_runtime.core.active_reset_count);
+
+    inner_session.deinit();
+    try std.testing.expectEqual(@as(usize, 0), inner_runtime.core.active_reset_count);
+    const outer_request = switch (try outer_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+    };
+    try outer_session.@"resume"(outer_request, @as(i32, 16));
+    var outer_result = switch (try outer_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+    };
+    defer outer_result.deinit();
+    try std.testing.expectEqual(@as(i32, 16), outer_result.value);
+
+    var outer_pending_session = try Program.Session.start(&outer_runtime, .{});
+    defer outer_pending_session.deinit();
+    const outer_pending_request = switch (try outer_pending_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+    };
+    var inner_pending_session = try Program.Session.start(&inner_runtime, .{});
+    defer inner_pending_session.deinit();
+
+    try std.testing.expectError(error.RuntimeBusy, outer_pending_session.@"resume"(outer_pending_request, @as(i32, 17)));
+    try std.testing.expectError(error.RuntimeBusy, outer_pending_session.returnNow(outer_pending_request, @as(i32, 99)));
+    try std.testing.expectEqual(@as(usize, 1), outer_runtime.core.active_reset_count);
+    try std.testing.expectEqual(@as(usize, 1), inner_runtime.core.active_reset_count);
+
+    inner_pending_session.deinit();
+    try outer_pending_session.@"resume"(outer_pending_request, @as(i32, 17));
+    var outer_pending_result = switch (try outer_pending_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+    };
+    defer outer_pending_result.deinit();
+    try std.testing.expectEqual(@as(i32, 17), outer_pending_result.value);
 }
 
 test "Program.contract exposes session capability blockers" {
@@ -5864,6 +6161,80 @@ test "Program.Session yields abort payloads and rejects wrong typed resumes" {
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 77), result.value);
+}
+
+test "Program.Session decodes duplicate schema payloads by request ref" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        amount: i32,
+    };
+    const EmptyHandlers = struct {};
+    const Body = struct {
+        pub const value_schema_types = .{ Payload, Payload };
+        pub const compiled_plan = duplicateSchemaPayloadPlan(Payload, "session-duplicate-schema-payload");
+
+        pub fn encodeArgs(_: EmptyHandlers) struct { Payload } {
+            return .{.{ .amount = 123 }};
+        }
+    };
+    const Program = ability.program("session-duplicate-schema-payload", EmptyHandlers, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+    };
+    try std.testing.expectEqual(ability.ir.ValueCodec.product, request.payload_ref.codec);
+    try std.testing.expectEqual(@as(?u16, 1), request.payload_ref.schema_index);
+    const payload = try request.payload(Payload);
+    try std.testing.expectEqual(@as(i32, 123), payload.amount);
+
+    try session.@"resume"(request, {});
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+    };
+    defer result.deinit();
+}
+
+test "Program.Session deinit cleans completed unconsumed result" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        amount: i32,
+    };
+    const CleanupState = struct {
+        var result_deinit_called = false;
+    };
+    const Body = struct {
+        pub const value_schema_types = .{ Payload, Payload };
+        pub const compiled_plan = duplicateSchemaAbortResultPlan(Payload, "session-completed-result-cleanup");
+
+        pub fn deinitResult(_: std.mem.Allocator, value: Payload) void {
+            CleanupState.result_deinit_called = value.amount == 66;
+        }
+    };
+    const Program = ability.program("session-completed-result-cleanup", struct {}, Body);
+    CleanupState.result_deinit_called = false;
+    var session = try Program.Session.start(&runtime, .{});
+    var session_active = true;
+    defer if (session_active) session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+    };
+    try session.returnNow(request, Payload{ .amount = 66 });
+    try std.testing.expect(!CleanupState.result_deinit_called);
+    session.deinit();
+    session_active = false;
+
+    try std.testing.expect(CleanupState.result_deinit_called);
+    try std.testing.expectEqual(@as(usize, 0), runtime.core.active_reset_count);
 }
 
 test "Program.Session preserves helper and nested-with frames across yields" {

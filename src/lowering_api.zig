@@ -1141,17 +1141,18 @@ fn decodeRuntimeValueAs(
         .string => |typed| typed,
         else => error.ProgramContractViolation,
     };
-    if (comptime isStringListCarrier(T)) return switch (value) {
+    if (T == []const []const u8) return switch (value) {
         .string_list => |typed| typed,
         else => error.ProgramContractViolation,
     };
-    const schema_index = comptime schemaIndexForType(schema_types, T) orelse return error.ProgramContractViolation;
+    if (T == [][]const u8) return error.ProgramContractViolation;
+    const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
     const expected_codec: program_plan.ValueCodec = comptime switch (@typeInfo(T)) {
         .@"struct" => .product,
         .@"enum", .@"union", .optional => .sum,
         else => return error.ProgramContractViolation,
     };
-    if (ref.codec != expected_codec or ref.schema_index == null or ref.schema_index.? != schema_index) return error.ProgramContractViolation;
+    if (ref.codec != expected_codec) return error.ProgramContractViolation;
     return switch (value) {
         .schema => |schema| blk: {
             if (schema.schema_index != schema_index) return error.ProgramContractViolation;
@@ -2357,6 +2358,15 @@ const ActiveFrameStack = struct {
         return &self.inline_buffer[self.inline_len - 1];
     }
 
+    fn at(self: *const @This(), index: usize) ?ActiveInterpreterFrame {
+        if (self.usingHeap()) {
+            if (index >= self.heap_frames.items.len) return null;
+            return self.heap_frames.items[index];
+        }
+        if (index >= self.inline_len) return null;
+        return self.inline_buffer[index];
+    }
+
     fn len(self: @This()) usize {
         if (self.usingHeap()) return self.heap_frames.items.len;
         return self.inline_len;
@@ -2820,6 +2830,34 @@ fn returnFromSessionFrame(
     }
 }
 
+fn validateSessionTerminalPropagation(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    scratch: anytype,
+    frames: *const ActiveFrameStack,
+    terminal_value: ExecutableValue,
+) anyerror!void {
+    const frame_count = frames.len();
+    if (frame_count == 0) return error.ProgramContractViolation;
+
+    var returned = terminal_value;
+    var index = frame_count - 1;
+    while (index > 0) {
+        index -= 1;
+        const parent = frames.at(index) orelse return error.ProgramContractViolation;
+        const parent_function = compiled_plan.functions[parent.function_index];
+        returned = try completeSessionFunctionValueByIndex(
+            compiled_plan,
+            parent.function_index,
+            .{
+                .value = returned,
+                .initial_ref = program_plan.functionResultRef(parent_function),
+                .after_stack = scratch.frameAfterStack(parent.frame),
+                .kind = .terminal,
+            },
+        );
+    }
+}
+
 pub fn ExecutableSessionForPlan(
     comptime ErrorSet: type,
     comptime compiled_plan: program_plan.ProgramPlan,
@@ -2835,6 +2873,7 @@ pub fn ExecutableSessionForPlan(
         const Self = @This();
 
         const PendingRequest = struct {
+            session_id: usize,
             token: u64,
             function_index: usize,
             dst: u16,
@@ -2847,6 +2886,7 @@ pub fn ExecutableSessionForPlan(
         allocator: std.mem.Allocator,
         scratch: InterpreterScratch(0),
         frames: ActiveFrameStack,
+        session_id: usize,
         remaining_steps: usize = max_interpreter_steps,
         next_token: u64 = 1,
         pending: ?PendingRequest = null,
@@ -2854,6 +2894,7 @@ pub fn ExecutableSessionForPlan(
         done_consumed: bool = false,
 
         pub const Request = struct {
+            _session_id: usize,
             token: u64,
             requirement_index: u16,
             requirement_label: []const u8,
@@ -2877,6 +2918,16 @@ pub fn ExecutableSessionForPlan(
             done: RawResult,
         };
 
+        const session_id_source = struct {
+            var next: std.atomic.Value(usize) = std.atomic.Value(usize).init(1);
+        };
+
+        fn nextSessionId() usize {
+            var session_identifier = session_id_source.next.fetchAdd(1, .monotonic);
+            if (session_identifier == 0) session_identifier = session_id_source.next.fetchAdd(1, .monotonic);
+            return session_identifier;
+        }
+
         pub fn start(allocator: std.mem.Allocator, args: anytype) anyerror!Self {
             comptime validateTypedExecutablePlanSupportWithNestedTargets(compiled_plan, schema_types, nested_with_targets) catch |err|
                 @compileError("Program.Session.start failed executable support validation: " ++ @errorName(err));
@@ -2896,6 +2947,7 @@ pub fn ExecutableSessionForPlan(
                 .allocator = allocator,
                 .scratch = scratch,
                 .frames = frames,
+                .session_id = nextSessionId(),
             };
             scratch = .{ .allocator = allocator };
             frames = .{};
@@ -2916,6 +2968,10 @@ pub fn ExecutableSessionForPlan(
             self.scratch.deinit();
             self.pending = null;
             self.completed = null;
+        }
+
+        pub fn hasPendingRequest(self: *const Self) bool {
+            return self.pending != null;
         }
 
         pub fn next(self: *Self) anyerror!Step {
@@ -3146,6 +3202,7 @@ pub fn ExecutableSessionForPlan(
                     .kind = .terminal,
                 },
             );
+            try validateSessionTerminalPropagation(compiled_plan, &self.scratch, &self.frames, completed);
             const result = (try returnFromSessionFrame(compiled_plan, &self.scratch, &self.frames, .{ .value = completed, .terminal = true })) orelse
                 return error.ProgramContractViolation;
             self.completed = result;
@@ -3174,6 +3231,7 @@ pub fn ExecutableSessionForPlan(
                     const token = self.next_token;
                     self.next_token +%= 1;
                     self.pending = .{
+                        .session_id = self.session_id,
                         .token = token,
                         .function_index = function_index,
                         .dst = dst,
@@ -3183,6 +3241,7 @@ pub fn ExecutableSessionForPlan(
                         .result_ref = result_ref,
                     };
                     return .{
+                        ._session_id = self.session_id,
                         .token = token,
                         .requirement_index = op.requirement_index,
                         .requirement_label = requirement.label,
@@ -3203,7 +3262,8 @@ pub fn ExecutableSessionForPlan(
 
         fn checkedPending(self: *Self, request: Request) error{ProgramContractViolation}!PendingRequest {
             const pending = self.pending orelse return error.ProgramContractViolation;
-            if (pending.token != request.token or
+            if (pending.session_id != request._session_id or
+                pending.token != request.token or
                 pending.op_index != request.op_index or
                 pending.mode != request.mode or
                 !pending.resume_ref.eql(request.resume_ref) or
@@ -3221,6 +3281,14 @@ pub fn ExecutableSessionForPlan(
             return .{ .done = .{
                 .value = try decodeTypedValue(compiled_plan, schema_types, program_plan.functionResultRef(entry), result.value),
             } };
+        }
+
+        pub fn takeCompleted(self: *Self) anyerror!?RawResult {
+            if (self.completed == null) return null;
+            return switch (try self.consumeCompleted()) {
+                .done => |done| done,
+                .request => unreachable,
+            };
         }
     };
 }
@@ -4724,4 +4792,86 @@ test "Program.Session start failure owns moved scratch and frame buffers once" {
         error.ProgramContractViolation,
         Session.start(std.testing.allocator, bad_args[0..]),
     );
+}
+
+test "Program.Session terminal precheck preserves frames on caller result mismatch" {
+    const functions = [_]program_plan.FunctionPlan{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .result_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 0,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        },
+        .{
+            .symbol_name = "helper",
+            .value_codec = .unit,
+            .result_codec = .string,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 0,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        },
+    };
+    const plan = program_plan.ProgramPlan{
+        .label = "session-terminal-precheck",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .blocks = &.{},
+        .terminators = &.{},
+        .instructions = &.{},
+    };
+
+    var scratch = try InterpreterScratch(0).init(std.testing.allocator, 0, 0);
+    defer scratch.deinit();
+    var frames = try ActiveFrameStack.init(std.testing.allocator, 2);
+    defer frames.deinit(std.testing.allocator);
+    defer while (frames.len() != 0) {
+        const active = frames.pop().?;
+        scratch.popFrame(active.frame);
+    };
+
+    const root_frame = try scratch.pushFrame(0);
+    try frames.append(std.testing.allocator, .{
+        .function_index = 0,
+        .frame = root_frame,
+        .block_index = 0,
+        .instruction_index = 0,
+        .instruction_end = 0,
+    });
+    const helper_frame = try scratch.pushFrame(0);
+    try frames.append(std.testing.allocator, .{
+        .function_index = 1,
+        .frame = helper_frame,
+        .block_index = 0,
+        .instruction_index = 0,
+        .instruction_end = 0,
+    });
+
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        validateSessionTerminalPropagation(plan, &scratch, &frames, .{ .string = "terminal" }),
+    );
+    try std.testing.expectEqual(@as(usize, 2), frames.len());
 }

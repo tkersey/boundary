@@ -735,12 +735,19 @@ pub fn program(
 
             /// Close an unfinished session and release runtime ownership.
             pub fn deinit(self: *Session) void {
-                self.close();
+                self.deinitChecked() catch |err|
+                    std.debug.panic("runtime execution teardown misuse: {s}", .{@errorName(err)});
+            }
+
+            /// Close an unfinished session, returning an error on runtime ownership misuse.
+            pub fn deinitChecked(self: *Session) Error!void {
+                try self.closeChecked();
             }
 
             /// Advance until the next yielded request or terminal result.
             pub fn next(self: *Session) Error!Step {
                 try self.ensureActiveThread();
+                if (self.core.hasPendingRequest()) return error.ProgramContractViolation;
                 const core_step = self.core.next() catch |err| {
                     self.close();
                     return mapProgramRunError(Error, err);
@@ -778,13 +785,33 @@ pub fn program(
             fn ensureActiveThread(self: *Session) Error!void {
                 if (!self.active) return error.ProgramContractViolation;
                 self.runtime.ensureThread() catch |err| return mapProgramRunError(Error, err);
+                const active_runtime = lowered_machine.activeRuntime() orelse return error.RuntimeBusy;
+                if (active_runtime != self.runtime) return error.RuntimeBusy;
             }
 
             fn close(self: *Session) void {
+                self.closeChecked() catch |err|
+                    std.debug.panic("runtime execution teardown misuse: {s}", .{@errorName(err)});
+            }
+
+            fn closeChecked(self: *Session) Error!void {
                 if (!self.active) return;
-                self.core.deinit();
-                lowered_machine.endExecution(self.runtime);
+                try lowered_machine.endExecutionChecked(self.runtime);
                 self.active = false;
+                self.deinitCompletedResult();
+                self.core.deinit();
+            }
+
+            fn deinitCompletedResult(self: *Session) void {
+                const completed = self.core.takeCompleted() catch |err|
+                    std.debug.panic("completed session result decode failed during deinit: {s}", .{@errorName(err)});
+                if (completed) |raw| {
+                    deinitBodyResult(Body, Value, Outputs, .{
+                        .allocator = lowered_machine.runtimeAllocator(self.runtime),
+                        .value = raw.value,
+                        .outputs = null,
+                    });
+                }
             }
         };
     };
