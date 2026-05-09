@@ -1,45 +1,52 @@
-# Built-In Plan-Native State, Reader, and Writer Helpers
+# Defunctionalized Program Session Execution
 
 ## Summary
-Build reusable plan-native helper namespaces for state, reader, and writer by
-adding small `plan` namespaces inside the existing built-in effect modules,
-migrating the state/reader and writer plan-native examples to those helpers plus
-`ability.ir.builder.layout`, and proving helper-generated metadata through
-`Program.contract`.
+Add an additive `Program.Session` execution surface under
+`ability.program(...)` so a host can drive a validated `ProgramPlan` as an
+explicit, pausable interpreter. The existing synchronous `Program.run` path must
+remain unchanged. The session path yields effect operations as data, accepts
+typed host responses, preserves helper/nested-with interpreter frames, and
+returns the same result/output cleanup shape as `Program.run`.
 
-The helpers are construction conveniences only. They must emit ordinary
-`ProgramPlan` rows, refs, and instructions; delegate row metadata to
-`ability.ir.schema.LowerBinding`; keep offsets and schema refs caller-owned; and
-leave output materialization in `Body.collectOutputs` / `Body.deinitOutputs`.
+This branch is the first defunctionalized execution surface only. It must not
+add a VM, Artifact API, parser, compiler, async runtime, network/LLM integration,
+source-language API, public root export, or `ProgramValue` widening.
 
 ## Acceptance
-- `ability.effect.state.plan` exposes get/set ordinals, binding/rows helpers,
-  state refs/locals, get/set op refs, `callGet`, `callSet`, and final-state
-  output metadata helpers.
-- `ability.effect.reader.plan` exposes ask ordinal, binding/rows helpers,
-  environment refs/locals, ask op refs, and `callAsk`.
-- `ability.effect.writer.plan` exposes tell ordinal, binding/rows helpers, item
-  refs/locals, tell op refs, `callTell`, and accumulator output metadata helpers.
-- Structured product/sum state, environment, and item refs use caller-owned
-  explicit `schema_refs`; there is no hidden registry.
-- `examples/plan_native_state_reader.zig` and `examples/plan_native_writer.zig`
-  use the new helper namespaces and `ability.ir.builder.layout`.
-- `test/plan_native_contract_matrix_test.zig` proves helper-generated
-  state/reader/writer contract facts through `Program.contract`.
-- `docs/program_plan.md` and `docs/release_hardening.md` describe the new
-  helpers, output ownership, compatibility APIs, and deferred migrations.
+- `Program.Session.start(runtime, handlers)` begins a runtime-owned pausable
+  execution and `session.deinit()` releases unfinished session state.
+- `session.next()` yields `.request`, `.done`, or an execution error.
+- Requests expose requirement/op metadata, mode, payload/resume refs, payload
+  access via typed helpers, and whether the op declares an after hook.
+- `.transform` and `.choice` requests resume with values matching the op resume
+  ref; `.choice` also supports `returnNow` with a value matching the current
+  terminal result ref.
+- `.abort` requests complete terminally from a host-supplied result-ref value.
+- Helper calls and nested-with frames remain interpreter-owned; yielding inside
+  either resumes in the correct explicit frame.
+- Typed scalar/product/sum payload and resume values use the existing
+  `Body.value_schema_types`; `ProgramValue` remains scalar.
+- Wrong resume/result refs or incompatible typed values fail closed.
+- Output collection and cleanup match `Program.run`, including result cleanup if
+  output collection fails after a result is produced.
+- Reachable `has_after` plans fail closed for `Program.Session` with precise
+  `UnsupportedSessionAfterHook` compile-time wording.
+- `Program.contract.session` exposes minimal support/blocker metadata without
+  exposing mutable `ProgramPlan` internals.
+- `examples/agent_loop.zig` plus `zig build run-agent-loop` demonstrate a
+  deterministic host-driven agent loop using yielded operations as data.
+- README and `docs/program_plan.md` document synchronous run vs host-driven
+  session execution, non-goals, typed value handling, cleanup rules, and future
+  persistence direction.
 
 ## Non-Goals
-- No new ProgramPlan execution instructions or runtime behavior.
-- No value codecs or `ProgramValue` widening.
-- No public root export widening.
-- No exposure of `effect.Define`, `effect.ops`, or public generated custom
-  effects.
-- No exception/resource migration in this branch.
-- No Artifact, VM, compile, parser, compiler, or source-language APIs.
-- No hidden global schema registries.
-- No removal of compatibility APIs such as `state.handle`, `reader.handle`, or
-  `writer.handle`.
+- Do not remove or weaken `Program.run`.
+- Do not expose `effect.Define`, `effect.ops`, generated custom effects, a VM,
+  Artifact APIs, parser, compiler, source-language APIs, async runtime, network,
+  or LLM integration.
+- Do not widen the public root or `ability.ir.ProgramValue`.
+- Do not make session state serialization mandatory in this branch.
+- Do not implement defunctionalized after hooks in v1; fail closed instead.
 
 ## Proof
 ```sh
@@ -47,20 +54,20 @@ zig version
 zig fmt --check build.zig src examples test bench
 git diff --check
 zig build --summary all
-zig build run-plan-native-state-reader
-zig build run-plan-native-writer
+zig build run-agent-loop
 zig build test --summary all
-zig build test --summary none -- --test-filter "state"
-zig build test --summary none -- --test-filter "reader"
-zig build test --summary none -- --test-filter "writer"
-zig build test --summary none -- --test-filter "plan-native contract conformance"
+zig build test --summary none -- --test-filter "session"
+zig build test --summary none -- --test-filter "agent"
+zig build test --summary none -- --test-filter "program"
 zig build lint -- --max-warnings 0
 ```
 
 ## Implementation Brief
-1. step=add_state_reader_writer_plan_helpers; owner=implementer; success_criteria=`state.plan`, `reader.plan`, and `writer.plan` expose the required row/ref/local/op/call/output helpers and helper-local tests pass.
-2. step=migrate_state_reader_writer_examples; owner=implementer; success_criteria=state/reader and writer examples use helper rows/op refs/calls plus `ability.ir.builder.layout`, with stdout behavior preserved. (deps: st-4013)
-3. step=update_contract_matrix_for_helpers; owner=implementer; success_criteria=matrix proves helper-generated state/reader/writer metadata, structured refs, and writer output container ownership. (deps: st-4013)
-4. step=update_plan_helper_docs; owner=implementer; success_criteria=`docs/program_plan.md` and `docs/release_hardening.md` describe established helpers and deferred migrations. (deps: st-4014, st-4015)
-5. step=run_fixed_point_closure; owner=implementer; success_criteria=fixed-point review, one-change challenge, and all requested proof commands pass with no material findings. (deps: st-4014, st-4015, st-4016)
-6. step=ship_plan_helpers_pr; owner=implementer; success_criteria=validated branch is pushed and a PR is opened with helper surface, migrated example, contract fact, compatibility, and non-goal proof summary. (deps: st-4017)
+1. step=map_executor_and_value_surfaces; owner=implementer; success_criteria=entrypoints, interpreter frame model, typed value encode/decode, output cleanup, contract projection, examples, and tests are mapped with concrete file targets before edits.
+2. step=add_session_core_api; owner=implementer; success_criteria=`Program.Session` exposes start/next/resume/returnNow/deinit, yields transform/choice/abort request metadata and typed payload accessors, rejects after-hook plans, and leaves `Program.run` unchanged. (deps: map_executor_and_value_surfaces)
+3. step=preserve_frames_and_cleanup; owner=implementer; success_criteria=session execution preserves helper/nested-with frames, runtime busy lifecycle, terminal result/output cleanup, and fail-closed mismatch behavior. (deps: add_session_core_api)
+4. step=add_session_tests; owner=implementer; success_criteria=focused tests cover transform, choice resume, choice returnNow, abort, helper yield, nested-with yield, wrong ref/type rejection, output cleanup, result cleanup on output failure, and after-hook compile-fail. (deps: preserve_frames_and_cleanup)
+5. step=add_agent_loop_example; owner=implementer; success_criteria=`examples/agent_loop.zig` and `zig build run-agent-loop` demonstrate deterministic host-driven decide/tool/final looping through `Program.Session`. (deps: preserve_frames_and_cleanup)
+6. step=update_session_docs; owner=implementer; success_criteria=`README.md` and `docs/program_plan.md` explain defunctionalized session execution, cleanup, typed values, non-goals, and future snapshot/restore direction. (deps: add_session_core_api, add_agent_loop_example)
+7. step=run_fixed_point_review; owner=implementer; success_criteria=de novo review, one-change challenge, and remediation loop find no unresolved material soundness, invariant, hazard, complexity, or verification gaps. (deps: add_session_tests, add_agent_loop_example, update_session_docs)
+8. step=run_full_proof_and_ship; owner=implementer; success_criteria=all requested proof commands pass, branch is pushed, and `$ship` opens a PR with session API, yielded operation, typed value, after-hook limitation, agent example, `Program.run` preservation, and non-goal confirmations. (deps: run_fixed_point_review)
