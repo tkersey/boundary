@@ -30,6 +30,15 @@ pub const CapabilityBlocker = struct {
     codec: ValueCodec = .unit,
 };
 pub const SessionBlockerTag = enum {
+    helper_cycle,
+    nested_with_unresolved,
+    nested_with_target_has_parameters,
+    nested_with_result_codec,
+    result_codec,
+    parameter_codec,
+    payload_codec,
+    resume_codec,
+    local_codec,
     after_hook,
 };
 pub const SessionBlocker = struct {
@@ -37,6 +46,7 @@ pub const SessionBlocker = struct {
     function_index: u16 = std.math.maxInt(u16),
     instruction_index: u32 = std.math.maxInt(u32),
     op_index: u16 = std.math.maxInt(u16),
+    codec: ValueCodec = .unit,
 };
 pub const ExecutablePlanSupportError = error{
     UnsupportedHelperCycle,
@@ -64,6 +74,34 @@ fn appendCapabilityBlocker(
     }
     blockers[count.*] = blocker;
     count.* += 1;
+}
+
+fn appendSessionBlocker(
+    comptime blockers: *[max_capability_blockers]SessionBlocker,
+    comptime count: *usize,
+    comptime truncated: *bool,
+    comptime blocker: SessionBlocker,
+) void {
+    if (count.* == max_capability_blockers) {
+        truncated.* = true;
+        return;
+    }
+    blockers[count.*] = blocker;
+    count.* += 1;
+}
+
+fn sessionBlockerTagForCapability(comptime tag: CapabilityBlockerTag) SessionBlockerTag {
+    return switch (tag) {
+        .helper_cycle => .helper_cycle,
+        .nested_with_unresolved => .nested_with_unresolved,
+        .nested_with_target_has_parameters => .nested_with_target_has_parameters,
+        .nested_with_result_codec => .nested_with_result_codec,
+        .result_codec => .result_codec,
+        .parameter_codec => .parameter_codec,
+        .payload_codec => .payload_codec,
+        .resume_codec => .resume_codec,
+        .local_codec => .local_codec,
+    };
 }
 
 pub fn ExecutableCapabilityLedgerForPlan(
@@ -206,27 +244,52 @@ pub fn SessionCapabilityLedgerForPlan(
         var count: usize = 0;
         var truncated = false;
         const analysis = program_plan.entryExecutionAnalysisWithNestedTargets(compiled_plan, nested_with_targets) catch {
-            blockers[0] = .{ .tag = .after_hook };
-            break :blk .{ .items = blockers[0..1].*, .truncated = false };
+            appendSessionBlocker(&blockers, &count, &truncated, .{ .tag = .after_hook });
+            break :blk .{ .items = blockers[0..count].*, .truncated = truncated };
         };
         for (compiled_plan.instructions, 0..) |instruction, instruction_index| {
             if (!analysis.reachable_instructions[instruction_index] or instruction.kind != .call_op) continue;
             if (instruction.operand >= compiled_plan.ops.len) continue;
             const op = compiled_plan.ops[instruction.operand];
             if (!op.has_after) continue;
-            if (count == max_capability_blockers) {
-                truncated = true;
-                continue;
-            }
-            blockers[count] = .{
+            appendSessionBlocker(&blockers, &count, &truncated, .{
                 .tag = .after_hook,
                 .function_index = @intCast(instructionOwnerFunctionIndex(compiled_plan, instruction_index) orelse std.math.maxInt(u16)),
                 .instruction_index = @intCast(instruction_index),
                 .op_index = instruction.operand,
-            };
-            count += 1;
+            });
         }
         break :blk .{ .items = blockers[0..count].*, .truncated = truncated };
+    };
+    return struct {
+        pub const blockers = data.items;
+        pub const truncated = data.truncated;
+    };
+}
+
+pub fn TypedSessionCapabilityLedgerForPlan(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime schema_types: anytype,
+    comptime nested_with_targets: anytype,
+) type {
+    const data = comptime blk: {
+        var blockers: [max_capability_blockers]SessionBlocker = undefined;
+        var count: usize = 0;
+        var truncated = false;
+        const executable_ledger = ExecutableCapabilityLedgerForPlan(compiled_plan, schema_types, nested_with_targets);
+        for (executable_ledger.blockers) |blocker| {
+            appendSessionBlocker(&blockers, &count, &truncated, .{
+                .tag = sessionBlockerTagForCapability(blocker.tag),
+                .function_index = blocker.function_index,
+                .instruction_index = blocker.instruction_index,
+                .codec = blocker.codec,
+            });
+        }
+        const session_ledger = SessionCapabilityLedgerForPlan(compiled_plan, nested_with_targets);
+        for (session_ledger.blockers) |blocker| {
+            appendSessionBlocker(&blockers, &count, &truncated, blocker);
+        }
+        break :blk .{ .items = blockers[0..count].*, .truncated = truncated or executable_ledger.truncated or session_ledger.truncated };
     };
     return struct {
         pub const blockers = data.items;
@@ -239,6 +302,28 @@ pub fn sessionCapabilitySummary(
     comptime nested_with_targets: anytype,
 ) []const u8 {
     const ledger = SessionCapabilityLedgerForPlan(compiled_plan, nested_with_targets);
+    if (ledger.blockers.len == 0) return "session capability ledger: blockers=0 truncated=false";
+    const first = ledger.blockers[0];
+    return std.fmt.comptimePrint(
+        "session capability ledger: blockers={d} truncated={} cap={d} first_tag={s} first_function={d} first_instruction={d} first_op={d}",
+        .{
+            ledger.blockers.len,
+            ledger.truncated,
+            max_capability_blockers,
+            @tagName(first.tag),
+            first.function_index,
+            first.instruction_index,
+            first.op_index,
+        },
+    );
+}
+
+pub fn typedSessionCapabilitySummary(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime schema_types: anytype,
+    comptime nested_with_targets: anytype,
+) []const u8 {
+    const ledger = TypedSessionCapabilityLedgerForPlan(compiled_plan, schema_types, nested_with_targets);
     if (ledger.blockers.len == 0) return "session capability ledger: blockers=0 truncated=false";
     const first = ledger.blockers[0];
     return std.fmt.comptimePrint(
@@ -2812,6 +2897,8 @@ pub fn ExecutableSessionForPlan(
                 .scratch = scratch,
                 .frames = frames,
             };
+            scratch = .{ .allocator = allocator };
+            frames = .{};
             errdefer self.deinit();
 
             var entry_args: [entry.parameter_count]ExecutableValue = undefined;
@@ -4627,4 +4714,14 @@ test "ability.program executable support ignores post-terminal structured helper
     try validateExecutablePlanSupport(supportAbortBeforeStructuredHelperPlan());
     try validateExecutablePlanSupport(supportAbortBeforeStructuredSuccessorPlan());
     try validateExecutablePlanSupport(supportErrorBeforeStructuredHelperPlan());
+}
+
+test "Program.Session start failure owns moved scratch and frame buffers once" {
+    const Session = ExecutableSessionForPlan(error{}, supportParameterPlan(.i32), &.{}, &.{});
+    const bad_args = [_]lowered_machine.ProgramValue{.{ .bool = true }};
+
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        Session.start(std.testing.allocator, bad_args[0..]),
+    );
 }

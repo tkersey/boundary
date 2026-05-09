@@ -450,7 +450,7 @@ fn ProgramContractFor(
     const return_error_views = contractReturnErrors(plan, nested_targets);
     const Ledger = lowering_api.ExecutableCapabilityLedgerForPlan(plan, schema_types, nested_targets);
     const first_blocker: ?lowering_api.CapabilityBlocker = if (Ledger.blockers.len == 0) null else Ledger.blockers[0];
-    const SessionLedger = lowering_api.SessionCapabilityLedgerForPlan(plan, nested_targets);
+    const SessionLedger = lowering_api.TypedSessionCapabilityLedgerForPlan(plan, schema_types, nested_targets);
     const first_session_blocker: ?lowering_api.SessionBlocker = if (SessionLedger.blockers.len == 0) null else SessionLedger.blockers[0];
 
     return struct {
@@ -518,7 +518,7 @@ fn ProgramContractFor(
             /// Whether session ledger diagnostics were truncated at blocker_cap.
             pub const truncated = SessionLedger.truncated;
             /// Stable human-readable session capability summary.
-            pub const summary = lowering_api.sessionCapabilitySummary(plan, nested_targets);
+            pub const summary = lowering_api.typedSessionCapabilitySummary(plan, schema_types, nested_targets);
             /// First blocker tag, if the session ledger is non-empty.
             pub const first_blocker_tag: ?lowering_api.SessionBlockerTag = if (first_session_blocker) |blocker| blocker.tag else null;
             /// First blocker function index, if the session ledger is non-empty.
@@ -838,6 +838,79 @@ test "ability.program preserves bounded error set for bodies without user errors
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     try forwarder.run(&runtime);
+}
+
+test "Program.contract session support includes executable blockers" {
+    const program_plan = @import("internal_program_plan");
+    const root = program_plan.program_plan_builder.function(0);
+    const payload = program_plan.program_plan_builder.local(root, 0);
+    const instructions = [_]program_plan.Instruction{
+        program_plan.program_plan_builder.callOp(root, null, program_plan.program_plan_builder.op(root, 0), payload) catch unreachable,
+    };
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]program_plan.RequirementPlan{.{
+        .label = "structured",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]program_plan.OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "structured",
+        .mode = .transform,
+        .payload_codec = .product,
+        .payload_schema_index = 0,
+        .resume_codec = .unit,
+    }};
+    const value_schemas = [_]program_plan.ValueSchemaPlan{.{
+        .label = "Payload",
+        .codec = .product,
+        .first_field = 0,
+        .field_count = 1,
+    }};
+    const value_fields = [_]program_plan.ValueFieldPlan{.{ .name = "value", .codec = .i32 }};
+    const locals = [_]program_plan.LocalPlan{.{ .codec = .product, .schema_index = 0 }};
+    const blocks = [_]program_plan.BlockPlan{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_unit }};
+    const plan = program_plan.program_plan_builder.finish(.{
+        .label = "contract-session-executable-blocked",
+        .ir_hash = 2,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+
+    const contract = ProgramContractFor("contract-session-executable-blocked", plan, void, void, &.{}, &.{});
+    try std.testing.expect(!contract.executable.supported);
+    try std.testing.expectEqual(@as(usize, 1), contract.executable.blocker_count);
+    try std.testing.expect(!contract.session.supported);
+    try std.testing.expectEqual(@as(usize, 1), contract.session.blocker_count);
+    try std.testing.expectEqual(@as(?lowering_api.SessionBlockerTag, .payload_codec), contract.session.first_blocker_tag);
+    try std.testing.expectEqualStrings(
+        "session capability ledger: blockers=1 truncated=false cap=64 first_tag=payload_codec first_function=0 first_instruction=0 first_op=65535",
+        contract.session.summary,
+    );
 }
 
 test "ability.program executable support rejects nested-with plans" {
