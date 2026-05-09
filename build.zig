@@ -420,6 +420,10 @@ pub fn build(b: *std.Build) void {
             .path = "test/compile_fail/nested_with_result_codec_mismatch.zig",
             .expected_error = "UnsupportedResultCodec",
         },
+        .{
+            .path = "test/compile_fail/schema_lower_binding_product_ref.zig",
+            .expected_error = "needs an explicit ProgramPlan schema-index map; v1 supports scalar refs only",
+        },
     };
     inline for (compile_fail_specs) |spec| {
         const compile_fail_mod = b.createModule(.{

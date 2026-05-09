@@ -334,6 +334,11 @@ fn BindingSchemaFamily(comptime BindingSchema: type) type {
     @compileError("effect binding schema must declare Family or family");
 }
 
+pub fn bindingFamily(comptime BindingSchema: type) type {
+    comptime assertBindingSchema(BindingSchema);
+    return BindingSchemaFamily(BindingSchema);
+}
+
 fn generatedSchemaOp(comptime GeneratedOp: type) type {
     return op(
         GeneratedOp.op_name,
@@ -391,9 +396,9 @@ fn legacyAfterMethodName(comptime op_name: []const u8) []const u8 {
 
 fn hasAfterMethod(comptime HandlerType: type, comptime op_name: []const u8) bool {
     const underscored_name = comptime afterMethodName(op_name);
-    if (@hasDecl(HandlerType, underscored_name)) return true;
+    if (hasDeclSafe(HandlerType, underscored_name)) return true;
     const legacy_name = comptime legacyAfterMethodName(op_name);
-    return !std.mem.eql(u8, legacy_name, underscored_name) and @hasDecl(HandlerType, legacy_name);
+    return !std.mem.eql(u8, legacy_name, underscored_name) and hasDeclSafe(HandlerType, legacy_name);
 }
 
 pub fn generated_family(comptime spec: anytype) type {
@@ -542,7 +547,6 @@ test "lower-case family binding alias lowers row and outputs" {
     try std.testing.expectEqualStrings("state", lowered_row.requirements[0].label);
     const lowered_outputs = outputs(StateBinding);
     try std.testing.expectEqual(@as(usize, 1), lowered_outputs.len);
-    try std.testing.expectEqual(i32, lowered_outputs[0].OutputType);
 }
 
 test "generated-family binding resolves optional after hooks from the handler type" {

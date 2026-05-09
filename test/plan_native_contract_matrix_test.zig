@@ -417,6 +417,20 @@ fn stateReaderPlan() ability.ir.ProgramPlan {
         mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 1), next)),
         mustInstruction(ability.ir.builder.returnValue(root, next)),
     };
+    const StateRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("state", ability.effect.state.Schema(i32, error{}), void),
+        .{ .requirement_index = 0, .first_op = 0, .first_output = 0 },
+    );
+    const ReaderRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("reader", ability.effect.reader.Schema(i32, error{}), void),
+        .{ .requirement_index = 1, .first_op = StateRows.op_count, .first_output = StateRows.output_count },
+    );
+    const requirements = [_]ability.ir.plan.Requirement{
+        StateRows.requirement,
+        ReaderRows.requirement,
+    };
+    const ops = StateRows.ops ++ ReaderRows.ops;
+    const outputs = StateRows.outputs ++ ReaderRows.outputs;
     const functions = [_]ability.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
@@ -434,16 +448,6 @@ fn stateReaderPlan() ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{
-        .{ .label = "state", .first_op = 0, .op_count = 2, .lifecycle_tag = .state_cell, .output_tag = .final_state },
-        .{ .label = "reader", .first_op = 2, .op_count = 1, .lifecycle_tag = .reader_environment },
-    };
-    const ops = [_]ability.ir.plan.Op{
-        .{ .requirement_index = 0, .op_name = "get", .mode = .transform, .payload_codec = .unit, .resume_codec = .i32 },
-        .{ .requirement_index = 0, .op_name = "set", .mode = .transform, .payload_codec = .i32, .resume_codec = .unit },
-        .{ .requirement_index = 1, .op_name = "ask", .mode = .transform, .payload_codec = .unit, .resume_codec = .i32 },
-    };
-    const outputs = [_]ability.ir.plan.Output{.{ .label = "final_state", .codec = .i32 }};
     const blocks = [_]ability.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
@@ -488,7 +492,7 @@ test "plan-native contract conformance matrix state reader" {
     try expectOp(Program.contract, 2, "reader", "ask", .transform, .{ .codec = .unit }, .{ .codec = .i32 }, false);
     try expectRef(Program.contract.result_ref, .{ .codec = .i32 });
     try std.testing.expectEqual(@as(usize, 1), Program.contract.outputs.len);
-    try std.testing.expectEqualStrings("final_state", Program.contract.outputs[0].label);
+    try std.testing.expectEqualStrings("state", Program.contract.outputs[0].label);
     try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.outputs[0].codec);
     try std.testing.expectEqual(@as(?u16, null), Program.contract.outputs[0].schema_index);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.value_schemas.len);
@@ -516,6 +520,13 @@ fn writerPlan() ability.ir.ProgramPlan {
         .{ .kind = .const_i32, .dst = second.index, .operand = 8 },
         mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), second)),
     };
+    const WriterRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("writer", ability.effect.writer.Schema(i32, error{}), void),
+        .{ .requirement_index = 0, .first_op = 0, .first_output = 0 },
+    );
+    const requirements = [_]ability.ir.plan.Requirement{WriterRows.requirement};
+    const ops = WriterRows.ops;
+    const outputs = WriterRows.outputs;
     const functions = [_]ability.ir.plan.Function{.{
         .symbol_name = "run",
         .first_requirement = 0,
@@ -530,21 +541,6 @@ fn writerPlan() ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
-        .label = "writer",
-        .first_op = 0,
-        .op_count = 1,
-        .lifecycle_tag = .writer_accumulator,
-        .output_tag = .accumulator,
-    }};
-    const ops = [_]ability.ir.plan.Op{.{
-        .requirement_index = 0,
-        .op_name = "tell",
-        .mode = .transform,
-        .payload_codec = .i32,
-        .resume_codec = .unit,
-    }};
-    const outputs = [_]ability.ir.plan.Output{.{ .label = "writer", .codec = .i32 }};
     const blocks = [_]ability.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),

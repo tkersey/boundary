@@ -32,6 +32,13 @@ fn writerPlan() ability.ir.ProgramPlan {
         .{ .kind = .const_i32, .dst = second.index, .operand = 8 },
         mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), second)),
     };
+    const WriterRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("writer", ability.effect.writer.Schema(i32, error{}), void),
+        .{ .requirement_index = 0, .first_op = 0, .first_output = 0 },
+    );
+    const requirements = [_]ability.ir.plan.Requirement{WriterRows.requirement};
+    const ops = WriterRows.ops;
+    const outputs = WriterRows.outputs;
     const functions = [_]ability.ir.plan.Function{.{
         .symbol_name = "run",
         .first_requirement = 0,
@@ -45,24 +52,6 @@ fn writerPlan() ability.ir.ProgramPlan {
         .block_count = 1,
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
-    }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
-        .label = "writer",
-        .first_op = 0,
-        .op_count = 1,
-        .lifecycle_tag = .writer_accumulator,
-        .output_tag = .accumulator,
-    }};
-    const ops = [_]ability.ir.plan.Op{.{
-        .requirement_index = 0,
-        .op_name = "tell",
-        .mode = .transform,
-        .payload_codec = .i32,
-        .resume_codec = .unit,
-    }};
-    const outputs = [_]ability.ir.plan.Output{.{
-        .label = "writer",
-        .codec = .i32,
     }};
     const blocks = [_]ability.ir.plan.Block{.{
         .first_instruction = 0,

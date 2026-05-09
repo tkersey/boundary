@@ -46,6 +46,20 @@ fn stateReaderPlan() ability.ir.ProgramPlan {
         mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 1), next)),
         mustInstruction(ability.ir.builder.returnValue(root, next)),
     };
+    const StateRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("state", ability.effect.state.Schema(i32, error{}), void),
+        .{ .requirement_index = 0, .first_op = 0, .first_output = 0 },
+    );
+    const ReaderRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("reader", ability.effect.reader.Schema(i32, error{}), void),
+        .{ .requirement_index = 1, .first_op = StateRows.op_count, .first_output = StateRows.output_count },
+    );
+    const requirements = [_]ability.ir.plan.Requirement{
+        StateRows.requirement,
+        ReaderRows.requirement,
+    };
+    const ops = StateRows.ops ++ ReaderRows.ops;
+    const outputs = StateRows.outputs ++ ReaderRows.outputs;
     const functions = [_]ability.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
@@ -62,30 +76,6 @@ fn stateReaderPlan() ability.ir.ProgramPlan {
         .block_count = 1,
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
-    }};
-    const requirements = [_]ability.ir.plan.Requirement{
-        .{
-            .label = "state",
-            .first_op = 0,
-            .op_count = 2,
-            .lifecycle_tag = .state_cell,
-            .output_tag = .final_state,
-        },
-        .{
-            .label = "reader",
-            .first_op = 2,
-            .op_count = 1,
-            .lifecycle_tag = .reader_environment,
-        },
-    };
-    const ops = [_]ability.ir.plan.Op{
-        .{ .requirement_index = 0, .op_name = "get", .mode = .transform, .payload_codec = .unit, .resume_codec = .i32 },
-        .{ .requirement_index = 0, .op_name = "set", .mode = .transform, .payload_codec = .i32, .resume_codec = .unit },
-        .{ .requirement_index = 1, .op_name = "ask", .mode = .transform, .payload_codec = .unit, .resume_codec = .i32 },
-    };
-    const outputs = [_]ability.ir.plan.Output{.{
-        .label = "final_state",
-        .codec = .i32,
     }};
     const blocks = [_]ability.ir.plan.Block{.{
         .first_instruction = 0,

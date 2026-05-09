@@ -20,6 +20,13 @@ The public root remains:
 not public. Users who need a custom workflow today should build a ProgramPlan,
 provide handlers, and run it through `ability.program`.
 
+`ability.ir.schema.LowerBinding` is public-adjacent infrastructure for built-in
+schemas. It lowers an `effect_schema.Binding`-shaped type to ordinary
+ProgramPlan requirement, op, and output rows, and is the preferred route for
+built-in plan-native metadata. It is not a custom effect authoring API, does not
+expose `effect.Define`, and does not add parser, compiler, VM, Artifact, source
+language, value-codec, or execution semantics.
+
 `examples/custom_approval_workflow.zig` is the current public pattern. It
 declares a workflow requirement with transform, choice, and abort operations in
 the plan tables, then supplies ordinary Zig handlers at the `ability.program`
@@ -39,8 +46,14 @@ Custom effect authoring should be schema-first:
 
 The future authoring surface may add helpers under `ability.ir` for this
 schema-first shape, but it should still emit the existing ProgramPlan. It must
-not introduce a second IR, a source parser, a public VM, or a public compiler
-layer.
+not introduce a second IR, a source parser, a public VM, a public Artifact
+surface, or a public compiler layer.
+
+Current built-in schemas already prove the intended direction at a smaller
+scope: schema lowering owns requirement/op/output metadata, while
+`ability.ir.builder.layout` owns function, local, block, instruction, and
+terminator layout. Raw ProgramPlan rows remain available for exact-table tests
+and unsupported shapes.
 
 ## Required semantics
 
@@ -84,6 +97,12 @@ or test should be able to assert:
 
 This keeps custom authoring honest: if a helper cannot prove its output through
 the same contract projection as a raw ProgramPlan, it is not ready to be public.
+
+The current schema lowerer is scalar-first for payload, resume, and output refs.
+Structured product and sum refs need an explicit caller-provided ProgramPlan
+schema-index map before they become a public custom-authoring feature.
+Writer accumulator output rows use the accumulator item ref; the final collected
+slice remains owned by the program body `Outputs` contract.
 
 ## Approval workflow target
 
