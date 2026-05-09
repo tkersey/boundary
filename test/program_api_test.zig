@@ -192,6 +192,71 @@ fn choiceReturnNowPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
+fn twoAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const value = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, value, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.callOp(root, value, ability.ir.builder.op(root, 1), null) catch unreachable,
+        ability.ir.builder.returnValue(root, value) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .i32,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 2,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{
+        .{ .label = "first", .first_op = 0, .op_count = 1 },
+        .{ .label = "second", .first_op = 1, .op_count = 1 },
+    };
+    const ops = [_]ability.ir.plan.Op{
+        .{
+            .requirement_index = 0,
+            .op_name = "first",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .i32,
+            .has_after = true,
+        },
+        .{
+            .requirement_index = 1,
+            .op_name = "second",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .i32,
+            .has_after = true,
+        },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 12,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn sessionChoicePlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const resume_local = ability.ir.builder.local(root, 0);
@@ -3540,9 +3605,9 @@ test "ability.program exposes transform choice and abort op metadata" {
     try std.testing.expectEqual(ability.ir.ValueCodec.string, TransformProgram.contract.ops[0].payload_ref.codec);
     try std.testing.expectEqual(ability.ir.ValueCodec.i32, TransformProgram.contract.ops[0].resume_ref.codec);
     try std.testing.expect(TransformProgram.contract.ops[0].has_after);
-    try std.testing.expect(!TransformProgram.contract.session.supported);
-    try std.testing.expectEqual(@as(usize, 1), TransformProgram.contract.session.blocker_count);
-    try std.testing.expectEqual(@as(@TypeOf(TransformProgram.contract.session.first_blocker_tag), .after_hook), TransformProgram.contract.session.first_blocker_tag);
+    try std.testing.expect(TransformProgram.contract.session.supported);
+    try std.testing.expectEqual(@as(usize, 0), TransformProgram.contract.session.blocker_count);
+    try std.testing.expectEqual(@as(@TypeOf(TransformProgram.contract.session.first_blocker_tag), null), TransformProgram.contract.session.first_blocker_tag);
 
     try std.testing.expectEqual(@as(@TypeOf(ChoiceProgram.contract.ops[0].mode), .choice), ChoiceProgram.contract.ops[0].mode);
     try std.testing.expect(ChoiceProgram.contract.ops[0].has_after);
@@ -3568,6 +3633,7 @@ test "Program.Session yields transform request data and resumes to completion" {
     const request = switch (try session.next()) {
         .request => |request| request,
         .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     try std.testing.expectEqual(@as(u16, 0), request.requirement_index);
     try std.testing.expectEqualStrings("session", request.requirement_label);
@@ -3583,6 +3649,7 @@ test "Program.Session yields transform request data and resumes to completion" {
     var result = switch (try session.next()) {
         .done => |result| result,
         .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 41), result.value);
@@ -3612,6 +3679,7 @@ test "Program.Session decodes string-list payloads as immutable views only" {
     const request = switch (try session.next()) {
         .request => |request| request,
         .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     const payload = try request.payload([]const []const u8);
     try std.testing.expectEqual(@as(usize, 2), payload.len);
@@ -3623,6 +3691,7 @@ test "Program.Session decodes string-list payloads as immutable views only" {
     var result = switch (try session.next()) {
         .done => |result| result,
         .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 55), result.value);
@@ -3642,6 +3711,7 @@ test "Program.Session yields choice request and resumes branch" {
     const request = switch (try session.next()) {
         .request => |request| request,
         .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     try std.testing.expectEqual(@as(@TypeOf(request.mode), .choice), request.mode);
     try std.testing.expectEqualStrings("payload", try request.payload([]const u8));
@@ -3649,6 +3719,7 @@ test "Program.Session yields choice request and resumes branch" {
     var result = switch (try session.next()) {
         .done => |result| result,
         .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 42), result.value);
@@ -3668,11 +3739,13 @@ test "Program.Session yields choice request and return-now branch" {
     const request = switch (try session.next()) {
         .request => |request| request,
         .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     try session.returnNow(request, @as(i32, 77));
     var result = switch (try session.next()) {
         .done => |result| result,
         .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 77), result.value);
@@ -3692,12 +3765,14 @@ test "Program.Session yields abort request and completes terminally" {
     const request = switch (try session.next()) {
         .request => |request| request,
         .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     try std.testing.expectEqual(@as(@TypeOf(request.mode), .abort), request.mode);
     try session.returnNow(request, @as(i32, 55));
     var result = switch (try session.next()) {
         .done => |result| result,
         .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 55), result.value);
@@ -3717,6 +3792,7 @@ test "Program.Session yields from inside helper call and resumes caller frame" {
     const request = switch (try session.next()) {
         .request => |request| request,
         .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     try std.testing.expectEqualStrings("helper", request.requirement_label);
     try std.testing.expectEqualStrings("yield", request.op_name);
@@ -3724,6 +3800,7 @@ test "Program.Session yields from inside helper call and resumes caller frame" {
     var result = switch (try session.next()) {
         .done => |result| result,
         .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 41), result.value);
@@ -3747,6 +3824,7 @@ test "Program.Session yields from nested-with target and resumes enclosing frame
     const request = switch (try session.next()) {
         .request => |request| request,
         .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     try std.testing.expectEqualStrings("authored", request.requirement_label);
     var strings = [_][]const u8{ "left", "right" };
@@ -3754,6 +3832,7 @@ test "Program.Session yields from nested-with target and resumes enclosing frame
     var result = switch (try session.next()) {
         .done => |result| result,
         .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(usize, 2), result.value.len);
@@ -3775,6 +3854,7 @@ test "Program.Session rejects wrong resume type without consuming request" {
     const request = switch (try session.next()) {
         .request => |request| request,
         .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     try std.testing.expectError(error.ProgramContractViolation, session.@"resume"(request, true));
     try session.@"resume"(request, @as(i32, 6));
@@ -3782,6 +3862,7 @@ test "Program.Session rejects wrong resume type without consuming request" {
     var result = switch (try session.next()) {
         .done => |result| result,
         .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 6), result.value);
@@ -3810,12 +3891,14 @@ test "Program.Session supports typed product payload and resume values" {
     const request = switch (try session.next()) {
         .request => |request| request,
         .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     try std.testing.expectEqual(@as(i32, 3), (try request.payload(Payload)).amount);
     try session.@"resume"(request, Payload{ .amount = 9 });
     var result = switch (try session.next()) {
         .done => |result| result,
         .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 9), result.value.amount);
@@ -3842,12 +3925,14 @@ test "Program.Session supports typed sum payload and resume values" {
     const request = switch (try session.next()) {
         .request => |request| request,
         .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     try std.testing.expectEqual(@as(i32, 4), (try request.payload(Payload)).?);
     try session.@"resume"(request, @as(Payload, 8));
     var result = switch (try session.next()) {
         .done => |result| result,
         .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 8), result.value.?);
@@ -3877,6 +3962,7 @@ test "Program.Session structured request payloads survive session deinit" {
     const product_request = switch (try product_session.next()) {
         .request => |request| request,
         .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     product_session.deinit();
     product_session_active = false;
@@ -3900,6 +3986,7 @@ test "Program.Session structured request payloads survive session deinit" {
     const sum_request = switch (try sum_session.next()) {
         .request => |request| request,
         .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     sum_session.deinit();
     sum_session_active = false;
@@ -4781,6 +4868,73 @@ fn sessionSumTransformPlan(comptime Payload: type, comptime label: []const u8) a
     }) catch unreachable;
 }
 
+fn sumAfterResultPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const resumed = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .sum,
+        .value_schema_index = 0,
+        .result_codec = .sum,
+        .result_schema_index = 0,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "structured",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .sum,
+        .resume_schema_index = 0,
+        .has_after = true,
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(Payload),
+        .codec = .sum,
+        .first_variant = 0,
+        .variant_count = 2,
+    }};
+    const value_variants = [_]ability.ir.ValueVariantPlan{
+        .{ .name = "none", .codec = .unit },
+        .{ .name = "some", .codec = .i32 },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 105,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &.{},
+        .value_variants = &value_variants,
+        .locals = &.{.{ .codec = .sum, .schema_index = 0 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn helperAbortPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const helper = ability.ir.builder.function(1);
@@ -4928,6 +5082,84 @@ fn helperTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     return ability.ir.builder.finish(.{
         .label = label,
         .ir_hash = 15,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn helperAfterTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const helper = ability.ir.builder.function(1);
+    const root_value = ability.ir.builder.local(root, 0);
+    const helper_value = ability.ir.builder.local(helper, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
+        ability.ir.builder.returnValue(root, root_value) catch unreachable,
+        ability.ir.builder.callOp(helper, helper_value, ability.ir.builder.op(helper, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(helper, helper_value) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .i32,
+            .result_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "transform_helper",
+            .value_codec = .i32,
+            .result_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 1,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 2,
+        },
+    };
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "authored", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "helper_value",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+        .has_after = true,
+    }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 16,
         .entry = root,
         .functions = &functions,
         .requirements = &requirements,
@@ -5894,6 +6126,7 @@ test "Program.Session yields transform requests and preserves runtime busy lifec
     const request = switch (try session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     try std.testing.expectEqual(@as(@TypeOf(request.mode), .transform), request.mode);
     try std.testing.expectEqualStrings("source", request.requirement_label);
@@ -5904,6 +6137,7 @@ test "Program.Session yields transform requests and preserves runtime busy lifec
     var result = switch (try session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 41), result.value);
@@ -5966,11 +6200,13 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     const next_request = switch (try next_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     try next_session.@"resume"(next_request, @as(i32, 10));
     var next_result = switch (try next_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer next_result.deinit();
     try std.testing.expectEqual(@as(i32, 10), next_result.value);
@@ -5980,6 +6216,7 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     const resume_request = switch (try resume_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     var resume_err: ?anyerror = null;
     const resume_thread = try std.Thread.spawn(.{}, Workers.@"resume", .{ &resume_session, resume_request, &resume_err });
@@ -5989,6 +6226,7 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     var resume_result = switch (try resume_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer resume_result.deinit();
     try std.testing.expectEqual(@as(i32, 12), resume_result.value);
@@ -5998,6 +6236,7 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     const return_request = switch (try return_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     var return_err: ?anyerror = null;
     const return_thread = try std.Thread.spawn(.{}, Workers.returnNow, .{ &return_session, return_request, &return_err });
@@ -6007,6 +6246,7 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     var return_result = switch (try return_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer return_result.deinit();
     try std.testing.expectEqual(@as(i32, 88), return_result.value);
@@ -6021,11 +6261,13 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     const close_request = switch (try close_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     try close_session.@"resume"(close_request, @as(i32, 14));
     var close_result = switch (try close_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer close_result.deinit();
     try std.testing.expectEqual(@as(i32, 14), close_result.value);
@@ -6035,6 +6277,7 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     const pending_next_request = switch (try pending_next_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     try std.testing.expectError(error.ProgramContractViolation, pending_next_session.next());
     try std.testing.expectEqual(@as(usize, 1), runtime.core.active_reset_count);
@@ -6042,6 +6285,7 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     var pending_next_result = switch (try pending_next_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer pending_next_result.deinit();
     try std.testing.expectEqual(@as(i32, 15), pending_next_result.value);
@@ -6051,12 +6295,14 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     const first_owner_request = switch (try first_owner_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     var second_owner_session = try Program.Session.start(&runtime, .{});
     defer second_owner_session.deinit();
     const second_owner_request = switch (try second_owner_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
 
     try std.testing.expectError(error.ProgramContractViolation, second_owner_session.@"resume"(first_owner_request, @as(i32, 18)));
@@ -6065,6 +6311,7 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     var second_owner_result = switch (try second_owner_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer second_owner_result.deinit();
     try std.testing.expectEqual(@as(i32, 19), second_owner_result.value);
@@ -6074,6 +6321,7 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     var first_owner_result = switch (try first_owner_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer first_owner_result.deinit();
     try std.testing.expectEqual(@as(i32, 18), first_owner_result.value);
@@ -6099,11 +6347,13 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     const outer_request = switch (try outer_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     try outer_session.@"resume"(outer_request, @as(i32, 16));
     var outer_result = switch (try outer_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer outer_result.deinit();
     try std.testing.expectEqual(@as(i32, 16), outer_result.value);
@@ -6113,6 +6363,7 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     const outer_pending_request = switch (try outer_pending_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     var inner_pending_session = try Program.Session.start(&inner_runtime, .{});
     defer inner_pending_session.deinit();
@@ -6127,21 +6378,443 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     var outer_pending_result = switch (try outer_pending_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer outer_pending_result.deinit();
     try std.testing.expectEqual(@as(i32, 17), outer_pending_result.value);
 }
 
-test "Program.contract exposes session capability blockers" {
+test "Program.contract treats reachable after hooks as session-supported" {
     const Body = struct {
-        pub const compiled_plan = compiledTransformPlan("session-after-hook-blocker");
+        pub const compiled_plan = compiledTransformPlan("session-after-hook-supported");
     };
-    const Program = ability.program("session-after-hook-blocker", struct {}, Body);
+    const Program = ability.program("session-after-hook-supported", struct {}, Body);
 
-    try std.testing.expect(!Program.contract.session.supported);
-    try std.testing.expectEqual(@as(usize, 1), Program.contract.session.blocker_count);
-    try std.testing.expectEqual(@as(@TypeOf(Program.contract.session.first_blocker_tag.?), .after_hook), Program.contract.session.first_blocker_tag.?);
-    try std.testing.expect(std.mem.find(u8, Program.contract.session.summary, "after_hook") != null);
+    try std.testing.expect(Program.contract.session.supported);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.session.blocker_count);
+    try std.testing.expectEqual(@as(@TypeOf(Program.contract.session.first_blocker_tag), null), Program.contract.session.first_blocker_tag);
+    try std.testing.expect(std.mem.find(u8, Program.contract.session.summary, "blockers=0") != null);
+}
+
+test "Program.Session supports transform after hook" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = compiledTransformPlan("session-transform-after");
+    };
+    const Program = ability.program("session-transform-after", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expect(request.has_after);
+    try session.@"resume"(request, @as(i32, 10));
+
+    const after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(@as(u16, 0), after.requirement_index);
+    try std.testing.expectEqualStrings("authored", after.requirement_label);
+    try std.testing.expectEqual(@as(u16, 0), after.op_index);
+    try std.testing.expectEqualStrings("dispatch", after.op_name);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, after.value_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, after.output_ref.codec);
+    try std.testing.expectEqual(@as(i32, 10), try after.value(i32));
+    try session.resumeAfter(after, @as(i32, 15));
+
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 15), result.value);
+}
+
+test "Program.Session supports choice after hook on resumed path and skips return-now path" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = choiceReturnNowPlan("session-choice-after");
+    };
+    const Program = ability.program("session-choice-after", struct {}, Body);
+
+    var resume_session = try Program.Session.start(&runtime, .{});
+    defer resume_session.deinit();
+    const resume_request = switch (try resume_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqual(@as(@TypeOf(resume_request.mode), .choice), resume_request.mode);
+    try resume_session.@"resume"(resume_request, @as(i32, 21));
+    const after = switch (try resume_session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(@as(i32, 21), try after.value(i32));
+    try resume_session.resumeAfter(after, @as(i32, 22));
+    var resumed = switch (try resume_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer resumed.deinit();
+    try std.testing.expectEqual(@as(i32, 22), resumed.value);
+
+    var return_session = try Program.Session.start(&runtime, .{});
+    defer return_session.deinit();
+    const return_request = switch (try return_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try return_session.returnNow(return_request, @as(i32, 99));
+    var returned = switch (try return_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer returned.deinit();
+    try std.testing.expectEqual(@as(i32, 99), returned.value);
+}
+
+test "Program.Session yields multiple after hooks in reverse order" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = twoAfterPlan("session-two-after");
+    };
+    const Program = ability.program("session-two-after", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const first = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqualStrings("first", first.requirement_label);
+    try session.@"resume"(first, @as(i32, 10));
+    const second = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqualStrings("second", second.requirement_label);
+    try session.@"resume"(second, @as(i32, 20));
+
+    const second_after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqualStrings("second", second_after.requirement_label);
+    try std.testing.expectEqual(@as(i32, 20), try second_after.value(i32));
+    try session.resumeAfter(second_after, @as(i32, 21));
+    const first_after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqualStrings("first", first_after.requirement_label);
+    try std.testing.expectEqual(@as(i32, 21), try first_after.value(i32));
+    try session.resumeAfter(first_after, @as(i32, 22));
+
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 22), result.value);
+}
+
+test "Program.Session yields heterogeneous stacked after output refs" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const StackedHandlers = struct {
+        outer: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 1;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: bool) ![]const u8 {
+                try std.testing.expect(value);
+                return "outer:true";
+            }
+        },
+        inner: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 7;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: i32) !bool {
+                try std.testing.expectEqual(@as(i32, 7), value);
+                return true;
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = stackedAfterPlan("session-stacked-after-heterogeneous");
+    };
+    const Program = ability.program("session-stacked-after-heterogeneous", StackedHandlers, Body);
+    var session = try Program.Session.start(&runtime, .{ .outer = .{}, .inner = .{} });
+    defer session.deinit();
+
+    const outer_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqualStrings("outer", outer_request.op_name);
+    try session.@"resume"(outer_request, @as(i32, 1));
+
+    const inner_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqualStrings("inner", inner_request.op_name);
+    try session.@"resume"(inner_request, @as(i32, 7));
+
+    const inner_after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqualStrings("inner", inner_after.op_name);
+    try std.testing.expectEqual(@as(@TypeOf(inner_after.value_ref.codec), .i32), inner_after.value_ref.codec);
+    try std.testing.expectEqual(@as(@TypeOf(inner_after.output_ref.codec), .bool), inner_after.output_ref.codec);
+    try std.testing.expectEqual(@as(i32, 7), try inner_after.value(i32));
+    try session.resumeAfter(inner_after, true);
+
+    const outer_after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqualStrings("outer", outer_after.op_name);
+    try std.testing.expectEqual(@as(@TypeOf(outer_after.value_ref.codec), .bool), outer_after.value_ref.codec);
+    try std.testing.expectEqual(@as(@TypeOf(outer_after.output_ref.codec), .string), outer_after.output_ref.codec);
+    try std.testing.expect(try outer_after.value(bool));
+    try session.resumeAfter(outer_after, @as([]const u8, "outer:true"));
+
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqualStrings("outer:true", result.value);
+}
+
+test "Program.Session after hook inside helper resumes caller" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = helperAfterTransformPlan("session-helper-after");
+    };
+    const Program = ability.program("session-helper-after", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqualStrings("helper_value", request.op_name);
+    try session.@"resume"(request, @as(i32, 64));
+    const after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(@as(i32, 64), try after.value(i32));
+    try session.resumeAfter(after, @as(i32, 65));
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 65), result.value);
+}
+
+test "Program.Session supports nested-with after completion" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = resolvedNestedWithAfterCompletionPlan("session-nested-with-after-completion");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+    };
+    const Program = ability.program("session-nested-with-after-completion", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.@"resume"(request, @as(i32, 7));
+    const after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, after.value_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, after.output_ref.codec);
+    try std.testing.expectEqual(@as(i32, 7), try after.value(i32));
+    try session.resumeAfter(after, @as([]const u8, "nested=7"));
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqualStrings("nested=7", result.value);
+}
+
+test "Program.Session after hook supports product and sum values" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        amount: i32,
+    };
+    const ProductBody = struct {
+        pub const value_schema_types = .{ Payload, Payload };
+        pub const compiled_plan = duplicateSchemaAfterResultPlan(Payload, "session-product-after");
+    };
+    const ProductProgram = ability.program("session-product-after", struct {}, ProductBody);
+    var product_session = try ProductProgram.Session.start(&runtime, .{});
+    defer product_session.deinit();
+    const product_request = switch (try product_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try product_session.@"resume"(product_request, Payload{ .amount = 7 });
+    const product_after = switch (try product_session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(@as(i32, 7), (try product_after.value(Payload)).amount);
+    try product_session.resumeAfter(product_after, Payload{ .amount = 8 });
+    var product_result = switch (try product_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer product_result.deinit();
+    try std.testing.expectEqual(@as(i32, 8), product_result.value.amount);
+
+    const SumPayload = ?i32;
+    const SumBody = struct {
+        pub const value_schema_types = .{SumPayload};
+        pub const compiled_plan = sumAfterResultPlan(SumPayload, "session-sum-after");
+    };
+    const SumProgram = ability.program("session-sum-after", struct {}, SumBody);
+    var sum_session = try SumProgram.Session.start(&runtime, .{});
+    defer sum_session.deinit();
+    const sum_request = switch (try sum_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try sum_session.@"resume"(sum_request, @as(SumPayload, 5));
+    const sum_after = switch (try sum_session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(@as(i32, 5), (try sum_after.value(SumPayload)).?);
+    try sum_session.resumeAfter(sum_after, @as(SumPayload, 6));
+    var sum_result = switch (try sum_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer sum_result.deinit();
+    try std.testing.expectEqual(@as(i32, 6), sum_result.value.?);
+}
+
+test "Program.Session rejects wrong typed and stale after resumes" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = compiledTransformPlan("session-after-misuse");
+    };
+    const Program = ability.program("session-after-misuse", struct {}, Body);
+
+    var first_session = try Program.Session.start(&runtime, .{});
+    defer first_session.deinit();
+    const first_request = switch (try first_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try first_session.@"resume"(first_request, @as(i32, 30));
+    const first_after = switch (try first_session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectError(error.ProgramContractViolation, first_session.resumeAfter(first_after, true));
+
+    var second_session = try Program.Session.start(&runtime, .{});
+    defer second_session.deinit();
+    const second_request = switch (try second_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try second_session.@"resume"(second_request, @as(i32, 40));
+    const second_after = switch (try second_session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectError(error.ProgramContractViolation, second_session.resumeAfter(first_after, @as(i32, 31)));
+    try second_session.resumeAfter(second_after, @as(i32, 41));
+    var second_result = switch (try second_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer second_result.deinit();
+    try std.testing.expectEqual(@as(i32, 41), second_result.value);
+
+    try first_session.resumeAfter(first_after, @as(i32, 31));
+    try std.testing.expectError(error.ProgramContractViolation, first_session.resumeAfter(first_after, @as(i32, 32)));
+    var first_result = switch (try first_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer first_result.deinit();
+    try std.testing.expectEqual(@as(i32, 31), first_result.value);
+    try std.testing.expectError(error.ProgramContractViolation, first_session.next());
 }
 
 test "Program.Session supports choice resume and returnNow" {
@@ -6158,12 +6831,14 @@ test "Program.Session supports choice resume and returnNow" {
     const resume_request = switch (try resume_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     try std.testing.expectEqual(@as(@TypeOf(resume_request.mode), .choice), resume_request.mode);
     try resume_session.@"resume"(resume_request, @as(i32, 12));
     var resumed = switch (try resume_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer resumed.deinit();
     try std.testing.expectEqual(@as(i32, 12), resumed.value);
@@ -6173,11 +6848,13 @@ test "Program.Session supports choice resume and returnNow" {
     const return_request = switch (try return_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     try return_session.returnNow(return_request, @as(i32, 99));
     var returned = switch (try return_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer returned.deinit();
     try std.testing.expectEqual(@as(i32, 99), returned.value);
@@ -6197,6 +6874,7 @@ test "Program.Session yields abort payloads and rejects wrong typed resumes" {
     const wrong_request = switch (try wrong_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     try std.testing.expectEqual(@as(i32, 40), try wrong_request.payload(i32));
     try std.testing.expectError(error.ProgramContractViolation, wrong_session.@"resume"(wrong_request, true));
@@ -6206,11 +6884,13 @@ test "Program.Session yields abort payloads and rejects wrong typed resumes" {
     const request = switch (try return_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     try return_session.returnNow(request, @as(i32, 77));
     var result = switch (try return_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 77), result.value);
@@ -6239,6 +6919,7 @@ test "Program.Session decodes duplicate schema payloads by request ref" {
     const request = switch (try session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     try std.testing.expectEqual(ability.ir.ValueCodec.product, request.payload_ref.codec);
     try std.testing.expectEqual(@as(?u16, 1), request.payload_ref.schema_index);
@@ -6249,6 +6930,7 @@ test "Program.Session decodes duplicate schema payloads by request ref" {
     var result = switch (try session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer result.deinit();
 }
@@ -6280,6 +6962,7 @@ test "Program.Session deinit cleans completed unconsumed result" {
     const request = switch (try session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     try session.returnNow(request, Payload{ .amount = 66 });
     try std.testing.expect(!CleanupState.result_deinit_called);
@@ -6303,12 +6986,14 @@ test "Program.Session preserves helper and nested-with frames across yields" {
     const helper_request = switch (try helper_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     try std.testing.expectEqualStrings("helper_value", helper_request.op_name);
     try helper_session.@"resume"(helper_request, @as(i32, 64));
     var helper_result = switch (try helper_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer helper_result.deinit();
     try std.testing.expectEqual(@as(i32, 64), helper_result.value);
@@ -6326,12 +7011,14 @@ test "Program.Session preserves helper and nested-with frames across yields" {
     const nested_request = switch (try nested_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
     };
     var strings = [_][]const u8{ "alpha", "beta" };
     try nested_session.@"resume"(nested_request, @as([]const []const u8, strings[0..]));
     var nested_result = switch (try nested_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer nested_result.deinit();
     try std.testing.expectEqual(@as(usize, 2), nested_result.value.len);
@@ -6366,6 +7053,7 @@ test "Program.Session materializes outputs and cleans result when output collect
     var output_result = switch (try output_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
     };
     defer output_result.deinit();
     try std.testing.expectEqual(@as(i32, 91), output_result.outputs[0]);

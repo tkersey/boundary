@@ -409,10 +409,6 @@ pub fn build(b: *std.Build) void {
             .expected_error = "Body.deinitOutputs must have type fn (std.mem.Allocator, outputs) void",
         },
         .{
-            .path = "test/compile_fail/session_after_hook_unsupported.zig",
-            .expected_error = "UnsupportedSessionAfterHook",
-        },
-        .{
             .path = "test/compile_fail/missing_nested_with_target.zig",
             .expected_error = "UnsupportedNestedWith",
         },

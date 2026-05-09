@@ -120,23 +120,35 @@ block, instruction, Artifact, VM, compiler, parser, or capability-map surfaces.
 ## Program.Session
 
 `Program.Session` runs the same validated `Body.compiled_plan` as a caller-owned
-request loop. It is for plans that do not use after hooks. `Session.start`
-begins runtime execution, `next()` either yields a request or returns the final
+request loop. `Session.start` begins runtime execution, `next()` yields either
+an operation request, an after-continuation request, or the final
 `Program.Result`, and `deinit()` closes any still-active runtime scope.
 
-A request carries stable requirement/op metadata, payload, resume ref, result
-ref, control mode, and after-hook flag. `request.payload(T)` decodes the typed
-payload only when `T` matches the plan ref. The host resumes transform and
-choice requests with `session.@"resume"(request, value)`, or completes choice
-and abort requests through `session.returnNow(request, value)`. The value type
-must match the request's resume or terminal result ref.
+An operation request carries stable requirement/op metadata, payload, resume
+ref, result ref, control mode, and after-hook flag. `request.payload(T)` decodes
+the typed payload only when `T` matches the plan ref. The host resumes transform
+and choice requests with `session.@"resume"(request, value)`, or completes
+choice and abort requests through `session.returnNow(request, value)`. The value
+type must match the request's resume or terminal result ref.
+
+When normal completion reaches pending after hooks, session execution yields
+after-continuation requests as data rather than calling synchronous
+`afterDispatch`. An after request carries the original requirement index and
+label, original op index and name, the current value ref and typed value through
+`after.value(T)`, the expected transformed output ref, and request identity for
+the active session/token. The host resumes that continuation with
+`session.resumeAfter(after, transformed_value)`. Multiple pending after hooks
+yield in the same reverse unwind order that `Program.run` applies.
+
+Return-now choice paths and abort terminal paths preserve the terminal behavior:
+they bypass pending after continuations when the synchronous semantics bypass
+them. Abort operations still cannot declare after hooks under the existing plan
+validation rules.
 
 Session execution preserves interpreter frames across helper calls and nested
 lexical-with targets. Final result and output materialization use the same
 `Body.collectOutputs`, `Body.deinitOutputs`, and `Body.deinitResult` ownership
-hooks as `Program.run`. Plans with reachable after hooks fail closed for
-`Program.Session.start`; `Program.run` remains the dispatch surface for those
-plans.
+hooks as `Program.run`.
 
 ## Defunctionalized execution and agent loops
 
@@ -146,12 +158,13 @@ and yields request data with requirement/op metadata, payload and resume refs,
 the operation mode, and typed payload access through `request.payload(T)`.
 
 The host owns external work. It can resume transform and choice requests with a
-value matching the resume ref, or complete choice and abort requests with a
-value matching the current terminal result ref. `ProgramValue` remains scalar;
-typed product and sum values use the existing `Body.value_schema_types` registry
-that `Program.run` already uses for executable plans. The final value, outputs,
-and cleanup hooks follow the same `Program.Result` rules as synchronous
-execution.
+value matching the resume ref, complete choice and abort requests with a value
+matching the current terminal result ref, or resume after continuations with a
+typed transformed value matching the after output ref. `ProgramValue` remains
+scalar; typed product and sum values use the existing `Body.value_schema_types`
+registry that `Program.run` already uses for executable plans. The final value,
+outputs, and cleanup hooks follow the same `Program.Result` rules as
+synchronous execution.
 
 The session surface does not add an async runtime, parser, compiler, VM,
 Artifact API, source-language API, network client, LLM client, public generated

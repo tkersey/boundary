@@ -113,11 +113,12 @@ pub fn main() !void {
 ```
 
 The label must be non-empty. `Program.Result` exposes `value`, `outputs`, and
-`deinit()`. `Program.Session` exposes the same plan as a host-driven loop for
-plans without after hooks: `Session.start` begins runtime ownership, `next()`
-yields typed requests with requirement/op metadata and payload access, and
-`@"resume"`/`returnNow` feed typed values back into the interpreter before a
-final `Result` is collected. String results in `Program.Result.value` should be
+`deinit()`. `Program.Session` exposes the same plan as a host-driven loop:
+`Session.start` begins runtime ownership, `next()` yields typed operation
+requests or after-continuation requests with requirement/op metadata and typed
+value access, and `@"resume"`, `returnNow`, or `resumeAfter` feed typed values
+back into the interpreter before a final `Result` is collected. String results
+in `Program.Result.value` should be
 treated as borrowed unless the body documents and implements ownership cleanup
 through `Body.deinitResult(allocator, value)`. The value cleanup hook is
 independent of output cleanup, so it can run even when output collection fails.
@@ -169,16 +170,21 @@ validated `Body.compiled_plan` until the result and outputs are ready.
 
 `Program.Session` is the defunctionalized, host-driven path. `next()` yields the
 next effect operation as request data instead of dispatching to a Zig handler.
-The host performs external work, then resumes the interpreter with a typed value
-or returns now from a choice/abort request. The continuation is explicit
-interpreter frame state stored in the session, not a captured Zig closure.
+When normal completion reaches pending after hooks, `next()` yields
+after-continuation request data in reverse unwind order. The host performs
+external work, then resumes an operation with a typed value, returns now from a
+choice/abort request, or resumes an after continuation with the typed
+transformed value. Return-now and abort terminal paths bypass after
+continuations, matching `Program.run`. The continuation is explicit interpreter
+frame state stored in the session, not a captured Zig closure.
 
 This is the foundation for agentic loops. The library does not bundle an async
 runtime, parser, compiler, VM, Artifact API, source language, network client, or
 LLM integration. `ProgramValue` remains the scalar public carrier; typed product
 and sum payloads and resumes use the existing `Body.value_schema_types` schema
-registry. Result, output, and cleanup rules are the same `Program.Result` rules
-used by `Program.run`. Full session snapshot/restore is a future direction.
+registry, including after-continuation values. Result, output, and cleanup
+rules are the same `Program.Result` rules used by `Program.run`. Full session
+snapshot/restore is a future direction.
 
 ## Effects
 

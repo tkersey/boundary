@@ -691,13 +691,14 @@ pub fn program(
             return finishResult(allocator, &mutable_handlers, raw.value);
         }
 
-        /// Host-driven session execution for plans without after hooks.
+        /// Host-driven session execution for plans with defunctionalized operation and after-continuation requests.
         pub const Session = struct {
             const Core = lowering_api.ExecutableSessionForPlan(
                 BodyErrorSet(Body),
                 body_compiled_plan,
                 body_value_schema_types,
                 body_nested_with_targets,
+                HandlersType,
             );
 
             runtime: *lowered_machine.Runtime,
@@ -707,8 +708,11 @@ pub fn program(
 
             /// Defunctionalized effect operation request yielded by `next`.
             pub const Request = Core.Request;
-            /// One session step: either a terminal result or a yielded request.
+            /// Defunctionalized after-continuation request yielded by `next`.
+            pub const AfterRequest = Core.AfterRequest;
+            /// One session step: either a terminal result, yielded operation request, or yielded after continuation.
             pub const Step = union(enum) {
+                after: AfterRequest,
                 done: Result,
                 request: Request,
             };
@@ -754,6 +758,7 @@ pub fn program(
                 };
                 return switch (core_step) {
                     .request => |request| .{ .request = request },
+                    .after => |after| .{ .after = after },
                     .done => |raw| done: {
                         const allocator = lowered_machine.runtimeAllocator(self.runtime);
                         const result = if (comptime @typeInfo(HandlersType) == .pointer)
@@ -774,6 +779,12 @@ pub fn program(
             pub fn @"resume"(self: *Session, request: Request, value: anytype) Error!void {
                 try self.ensureActiveThread();
                 self.core.@"resume"(request, value) catch |err| return mapProgramRunError(Error, err);
+            }
+
+            /// Resume a yielded after-continuation request with the transformed value.
+            pub fn resumeAfter(self: *Session, request: AfterRequest, value: anytype) Error!void {
+                try self.ensureActiveThread();
+                self.core.resumeAfter(request, value) catch |err| return mapProgramRunError(Error, err);
             }
 
             /// Complete a yielded choice or abort request with a terminal value.
