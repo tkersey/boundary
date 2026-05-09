@@ -73,6 +73,7 @@ pub const Runtime = struct {
     pub fn deinitChecked(self: *Runtime) RuntimeError!void {
         try self.ensureThread();
         if (self.core.active_reset_count != 0) return error.RuntimeBusy;
+        if (self.core.live_session_count != 0) return error.RuntimeBusy;
         self.core.state = .destroyed;
         self.core.deinit();
         portable_core.compatFrameDeinitIfIdle();
@@ -88,6 +89,19 @@ pub const Runtime = struct {
 /// Return the allocator owned by the host runtime.
 pub fn runtimeAllocator(runtime: *const Runtime) std.mem.Allocator {
     return runtime.core.allocator;
+}
+
+/// Record one live host-driven session retaining runtime-owned continuation state.
+pub fn registerLiveSession(runtime: *Runtime) RuntimeError!void {
+    try runtime.ensureThread();
+    runtime.core.live_session_count = std.math.add(usize, runtime.core.live_session_count, 1) catch return error.RuntimeBusy;
+}
+
+/// Release one live host-driven session.
+pub fn unregisterLiveSession(runtime: *Runtime) RuntimeError!void {
+    try runtime.ensureThread();
+    if (runtime.core.live_session_count == 0) return error.RuntimeBusy;
+    runtime.core.live_session_count -= 1;
 }
 
 const ActiveRuntimeOverflowEntry = struct {

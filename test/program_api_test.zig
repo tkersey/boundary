@@ -5,6 +5,14 @@ const std = @import("std");
 
 const interpreter_step_budget = 10_000;
 
+fn expectRuntimeParked(runtime: *const ability.Runtime) !void {
+    try std.testing.expectEqual(@as(usize, 0), runtime.core.active_reset_count);
+}
+
+fn expectLiveSessions(runtime: *const ability.Runtime, expected: usize) !void {
+    try std.testing.expectEqual(expected, runtime.core.live_session_count);
+}
+
 const CountingAllocator = struct {
     child: std.mem.Allocator,
     alloc_calls: usize = 0,
@@ -3606,6 +3614,8 @@ test "ability.program exposes transform choice and abort op metadata" {
     try std.testing.expectEqual(ability.ir.ValueCodec.i32, TransformProgram.contract.ops[0].resume_ref.codec);
     try std.testing.expect(TransformProgram.contract.ops[0].has_after);
     try std.testing.expect(TransformProgram.contract.session.supported);
+    try std.testing.expect(TransformProgram.contract.session.parks_runtime);
+    try std.testing.expect(TransformProgram.contract.session.requires_runtime_lifetime);
     try std.testing.expectEqual(@as(usize, 0), TransformProgram.contract.session.blocker_count);
     try std.testing.expectEqual(@as(@TypeOf(TransformProgram.contract.session.first_blocker_tag), null), TransformProgram.contract.session.first_blocker_tag);
 
@@ -3628,13 +3638,16 @@ test "Program.Session yields transform request data and resumes to completion" {
     const Program = ability.program("session-transform-request", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
-    try std.testing.expectEqual(@as(usize, 1), runtime.core.active_reset_count);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
 
     const request = switch (try session.next()) {
         .request => |request| request,
         .done => return error.UnexpectedDone,
         .after => return error.UnexpectedAfter,
     };
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
     try std.testing.expectEqual(@as(u16, 0), request.requirement_index);
     try std.testing.expectEqualStrings("session", request.requirement_label);
     try std.testing.expectEqual(@as(u16, 0), request.op_index);
@@ -3646,6 +3659,8 @@ test "Program.Session yields transform request data and resumes to completion" {
     try std.testing.expect(!request.has_after);
 
     try session.@"resume"(request, @as(i32, 41));
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
     var result = switch (try session.next()) {
         .done => |result| result,
         .request => return error.UnexpectedRequest,
@@ -3653,7 +3668,8 @@ test "Program.Session yields transform request data and resumes to completion" {
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 41), result.value);
-    try std.testing.expectEqual(@as(usize, 0), runtime.core.active_reset_count);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 0);
 }
 
 test "Program.Session decodes string-list payloads as immutable views only" {
@@ -3857,8 +3873,12 @@ test "Program.Session rejects wrong resume type without consuming request" {
         .after => return error.UnexpectedAfter,
     };
     try std.testing.expectError(error.ProgramContractViolation, session.@"resume"(request, true));
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
     try session.@"resume"(request, @as(i32, 6));
     try std.testing.expectError(error.ProgramContractViolation, session.@"resume"(request, @as(i32, 7)));
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
     var result = switch (try session.next()) {
         .done => |result| result,
         .request => return error.UnexpectedRequest,
@@ -3866,6 +3886,8 @@ test "Program.Session rejects wrong resume type without consuming request" {
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 6), result.value);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 0);
 }
 
 test "Program.Session supports typed product payload and resume values" {
@@ -6109,7 +6131,7 @@ test "ability.program executes a builder-backed ProgramPlan" {
     try std.testing.expectEqual(@as(i32, 12), second.value);
 }
 
-test "Program.Session yields transform requests and preserves runtime busy lifecycle" {
+test "Program.Session yields transform requests and parks runtime while live" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
@@ -6121,6 +6143,8 @@ test "Program.Session yields transform requests and preserves runtime busy lifec
 
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
     try std.testing.expectError(error.RuntimeBusy, runtime.deinitChecked());
 
     const request = switch (try session.next()) {
@@ -6128,12 +6152,17 @@ test "Program.Session yields transform requests and preserves runtime busy lifec
         .done => return error.ExpectedRequest,
         .after => return error.UnexpectedAfter,
     };
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
+    try std.testing.expectError(error.RuntimeBusy, runtime.deinitChecked());
     try std.testing.expectEqual(@as(@TypeOf(request.mode), .transform), request.mode);
     try std.testing.expectEqualStrings("source", request.requirement_label);
     try std.testing.expectEqualStrings("source", request.op_name);
     try request.payload(void);
 
     try session.@"resume"(request, @as(i32, 40));
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
     var result = switch (try session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
@@ -6141,6 +6170,115 @@ test "Program.Session yields transform requests and preserves runtime busy lifec
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 41), result.value);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 0);
+}
+
+test "Program.Session parked request interleaves Program.run on same runtime" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const ParkedBody = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "session-parked-interleave-run");
+    };
+    const ParkedProgram = ability.program("session-parked-interleave-run", struct {}, ParkedBody);
+    var session = try ParkedProgram.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
+
+    const PureBody = struct {
+        pub const compiled_plan = pureArithmeticPlan("session-parked-interleave-run-pure");
+    };
+    const PureProgram = ability.program("session-parked-interleave-run-pure", struct {}, PureBody);
+    var other = try PureProgram.run(&runtime, .{});
+    defer other.deinit();
+    try std.testing.expectEqual(@as(i32, 7), other.value);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
+
+    try session.@"resume"(request, @as(i32, 23));
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 23), result.value);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 0);
+}
+
+test "Program.Session parked request interleaves another session on same runtime" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const FirstBody = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "session-parked-interleave-first");
+    };
+    const SecondBody = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "session-parked-interleave-second");
+    };
+    const FirstProgram = ability.program("session-parked-interleave-first", struct {}, FirstBody);
+    const SecondProgram = ability.program("session-parked-interleave-second", struct {}, SecondBody);
+
+    var first_session = try FirstProgram.Session.start(&runtime, .{});
+    defer first_session.deinit();
+    const first_request = switch (try first_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
+
+    var second_session = try SecondProgram.Session.start(&runtime, .{});
+    defer second_session.deinit();
+    const second_request = switch (try second_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 2);
+
+    try second_session.@"resume"(second_request, @as(i32, 44));
+    var second_result = switch (try second_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer second_result.deinit();
+    try std.testing.expectEqual(@as(i32, 44), second_result.value);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
+
+    try first_session.@"resume"(first_request, @as(i32, 33));
+    var first_result = switch (try first_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer first_result.deinit();
+    try std.testing.expectEqual(@as(i32, 33), first_result.value);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 0);
+}
+
+test "Program.Session rejects destroyed runtime before parking lifecycle starts" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    try runtime.deinitChecked();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "session-destroyed-runtime");
+    };
+    const Program = ability.program("session-destroyed-runtime", struct {}, Body);
+    try std.testing.expectError(error.RuntimeDestroyed, Program.Session.start(&runtime, .{}));
 }
 
 test "Program.Session rejects cross-thread and out-of-order close before mutating core" {
@@ -6196,7 +6334,8 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     const next_thread = try std.Thread.spawn(.{}, Workers.next, .{ &next_session, &next_err });
     next_thread.join();
     try Workers.expectCrossThread(next_err);
-    try std.testing.expectEqual(@as(usize, 1), runtime.core.active_reset_count);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
     const next_request = switch (try next_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
@@ -6257,7 +6396,8 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     const close_thread = try std.Thread.spawn(.{}, Workers.deinitChecked, .{ &close_session, &close_err });
     close_thread.join();
     try Workers.expectCrossThread(close_err);
-    try std.testing.expectEqual(@as(usize, 1), runtime.core.active_reset_count);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
     const close_request = switch (try close_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
@@ -6280,7 +6420,8 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
         .after => return error.UnexpectedAfter,
     };
     try std.testing.expectError(error.ProgramContractViolation, pending_next_session.next());
-    try std.testing.expectEqual(@as(usize, 1), runtime.core.active_reset_count);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
     try pending_next_session.@"resume"(pending_next_request, @as(i32, 15));
     var pending_next_result = switch (try pending_next_session.next()) {
         .done => |done| done,
@@ -6306,7 +6447,8 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     };
 
     try std.testing.expectError(error.ProgramContractViolation, second_owner_session.@"resume"(first_owner_request, @as(i32, 18)));
-    try std.testing.expectEqual(@as(usize, 2), runtime.core.active_reset_count);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 2);
     try second_owner_session.@"resume"(second_owner_request, @as(i32, 19));
     var second_owner_result = switch (try second_owner_session.next()) {
         .done => |done| done,
@@ -6315,7 +6457,8 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     };
     defer second_owner_result.deinit();
     try std.testing.expectEqual(@as(i32, 19), second_owner_result.value);
-    try std.testing.expectEqual(@as(usize, 1), runtime.core.active_reset_count);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
 
     try first_owner_session.@"resume"(first_owner_request, @as(i32, 18));
     var first_owner_result = switch (try first_owner_session.next()) {
@@ -6325,7 +6468,8 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     };
     defer first_owner_result.deinit();
     try std.testing.expectEqual(@as(i32, 18), first_owner_result.value);
-    try std.testing.expectEqual(@as(usize, 0), runtime.core.active_reset_count);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 0);
 
     var outer_runtime = ability.Runtime.init(std.testing.allocator);
     defer outer_runtime.deinit();
@@ -6337,18 +6481,23 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     var inner_session = try Program.Session.start(&inner_runtime, .{});
     defer inner_session.deinit();
 
-    try std.testing.expectError(error.RuntimeBusy, outer_session.next());
-    try std.testing.expectError(error.RuntimeBusy, outer_session.deinitChecked());
-    try std.testing.expectEqual(@as(usize, 1), outer_runtime.core.active_reset_count);
-    try std.testing.expectEqual(@as(usize, 1), inner_runtime.core.active_reset_count);
-
-    inner_session.deinit();
-    try std.testing.expectEqual(@as(usize, 0), inner_runtime.core.active_reset_count);
     const outer_request = switch (try outer_session.next()) {
         .request => |request| request,
         .done => return error.ExpectedRequest,
         .after => return error.UnexpectedAfter,
     };
+    try expectRuntimeParked(&outer_runtime);
+    try expectLiveSessions(&outer_runtime, 1);
+    try expectRuntimeParked(&inner_runtime);
+    try expectLiveSessions(&inner_runtime, 1);
+
+    const inner_request = switch (try inner_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try expectRuntimeParked(&outer_runtime);
+    try expectRuntimeParked(&inner_runtime);
     try outer_session.@"resume"(outer_request, @as(i32, 16));
     var outer_result = switch (try outer_session.next()) {
         .done => |done| done,
@@ -6357,6 +6506,20 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     };
     defer outer_result.deinit();
     try std.testing.expectEqual(@as(i32, 16), outer_result.value);
+    try expectRuntimeParked(&outer_runtime);
+    try expectLiveSessions(&outer_runtime, 0);
+    try expectLiveSessions(&inner_runtime, 1);
+
+    try inner_session.@"resume"(inner_request, @as(i32, 20));
+    var inner_result = switch (try inner_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer inner_result.deinit();
+    try std.testing.expectEqual(@as(i32, 20), inner_result.value);
+    try expectRuntimeParked(&inner_runtime);
+    try expectLiveSessions(&inner_runtime, 0);
 
     var outer_pending_session = try Program.Session.start(&outer_runtime, .{});
     defer outer_pending_session.deinit();
@@ -6368,12 +6531,11 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     var inner_pending_session = try Program.Session.start(&inner_runtime, .{});
     defer inner_pending_session.deinit();
 
-    try std.testing.expectError(error.RuntimeBusy, outer_pending_session.@"resume"(outer_pending_request, @as(i32, 17)));
-    try std.testing.expectError(error.RuntimeBusy, outer_pending_session.returnNow(outer_pending_request, @as(i32, 99)));
-    try std.testing.expectEqual(@as(usize, 1), outer_runtime.core.active_reset_count);
-    try std.testing.expectEqual(@as(usize, 1), inner_runtime.core.active_reset_count);
+    try expectRuntimeParked(&outer_runtime);
+    try expectLiveSessions(&outer_runtime, 1);
+    try expectRuntimeParked(&inner_runtime);
+    try expectLiveSessions(&inner_runtime, 1);
 
-    inner_pending_session.deinit();
     try outer_pending_session.@"resume"(outer_pending_request, @as(i32, 17));
     var outer_pending_result = switch (try outer_pending_session.next()) {
         .done => |done| done,
@@ -6382,6 +6544,9 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     };
     defer outer_pending_result.deinit();
     try std.testing.expectEqual(@as(i32, 17), outer_pending_result.value);
+    try expectLiveSessions(&outer_runtime, 0);
+    try inner_pending_session.deinitChecked();
+    try expectLiveSessions(&inner_runtime, 0);
 }
 
 test "Program.contract treats reachable after hooks as session-supported" {
@@ -6396,7 +6561,7 @@ test "Program.contract treats reachable after hooks as session-supported" {
     try std.testing.expect(std.mem.find(u8, Program.contract.session.summary, "blockers=0") != null);
 }
 
-test "Program.Session supports transform after hook" {
+test "Program.Session parks runtime on transform after hook" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
@@ -6412,14 +6577,20 @@ test "Program.Session supports transform after hook" {
         .done => return error.ExpectedRequest,
         .after => return error.UnexpectedAfter,
     };
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
     try std.testing.expect(request.has_after);
     try session.@"resume"(request, @as(i32, 10));
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
 
     const after = switch (try session.next()) {
         .after => |after| after,
         .request => return error.ExpectedAfter,
         .done => return error.ExpectedAfter,
     };
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
     try std.testing.expectEqual(@as(u16, 0), after.requirement_index);
     try std.testing.expectEqualStrings("authored", after.requirement_label);
     try std.testing.expectEqual(@as(u16, 0), after.op_index);
@@ -6428,6 +6599,8 @@ test "Program.Session supports transform after hook" {
     try std.testing.expectEqual(ability.ir.ValueCodec.i32, after.output_ref.codec);
     try std.testing.expectEqual(@as(i32, 10), try after.value(i32));
     try session.resumeAfter(after, @as(i32, 15));
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
 
     var result = switch (try session.next()) {
         .done => |done| done,
@@ -6436,6 +6609,8 @@ test "Program.Session supports transform after hook" {
     };
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 15), result.value);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 0);
 }
 
 test "Program.Session supports choice after hook on resumed path and skips return-now path" {
@@ -6781,6 +6956,8 @@ test "Program.Session rejects wrong typed and stale after resumes" {
         .done => return error.ExpectedAfter,
     };
     try std.testing.expectError(error.ProgramContractViolation, first_session.resumeAfter(first_after, true));
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
 
     var second_session = try Program.Session.start(&runtime, .{});
     defer second_session.deinit();
@@ -6796,6 +6973,8 @@ test "Program.Session rejects wrong typed and stale after resumes" {
         .done => return error.ExpectedAfter,
     };
     try std.testing.expectError(error.ProgramContractViolation, second_session.resumeAfter(first_after, @as(i32, 31)));
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 2);
     try second_session.resumeAfter(second_after, @as(i32, 41));
     var second_result = switch (try second_session.next()) {
         .done => |done| done,
@@ -6804,9 +6983,13 @@ test "Program.Session rejects wrong typed and stale after resumes" {
     };
     defer second_result.deinit();
     try std.testing.expectEqual(@as(i32, 41), second_result.value);
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
 
     try first_session.resumeAfter(first_after, @as(i32, 31));
     try std.testing.expectError(error.ProgramContractViolation, first_session.resumeAfter(first_after, @as(i32, 32)));
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 1);
     var first_result = switch (try first_session.next()) {
         .done => |done| done,
         .request => return error.ExpectedDone,
@@ -6815,6 +6998,8 @@ test "Program.Session rejects wrong typed and stale after resumes" {
     defer first_result.deinit();
     try std.testing.expectEqual(@as(i32, 31), first_result.value);
     try std.testing.expectError(error.ProgramContractViolation, first_session.next());
+    try expectRuntimeParked(&runtime);
+    try expectLiveSessions(&runtime, 0);
 }
 
 test "Program.Session supports choice resume and returnNow" {
