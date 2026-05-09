@@ -8,6 +8,7 @@ bench/resource_effect_decompose_bench.zig
 bench/state_effect_bench.zig
 bench/writer_effect_decompose_bench.zig
 bench/zprof_hotspots.zig
+examples/agent_loop.zig
 examples/custom_approval_workflow.zig
 examples/plan_native_exception.zig
 examples/plan_native_optional.zig
@@ -86,6 +87,7 @@ test/compile_fail/schema_lower_binding_product_ref.zig
 test/compile_fail/schema_refs_duplicate_type.zig
 test/compile_fail/schema_refs_scalar_entry.zig
 test/compile_fail/schema_refs_unsupported_type.zig
+test/compile_fail/session_after_hook_unsupported.zig
 test/compile_fail/value_schema_variant_mismatch.zig
 test/plan_native_contract_matrix_test.zig
 test/program_api_test.zig

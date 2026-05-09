@@ -112,10 +112,53 @@ validated body and plan contract. It includes:
 - requirements, operations, payload refs, resume refs, modes, and after flags
 - nested-with target declarations
 - unique reachable `return_error` literals
-- executable capability-ledger metadata
+- executable and session capability-ledger metadata
 
 `Program.contract` is inspection metadata. It does not expose mutable function,
 block, instruction, Artifact, VM, compiler, parser, or capability-map surfaces.
+
+## Program.Session
+
+`Program.Session` runs the same validated `Body.compiled_plan` as a caller-owned
+request loop. It is for plans that do not use after hooks. `Session.start`
+begins runtime execution, `next()` either yields a request or returns the final
+`Program.Result`, and `deinit()` closes any still-active runtime scope.
+
+A request carries stable requirement/op metadata, payload, resume ref, result
+ref, control mode, and after-hook flag. `request.payload(T)` decodes the typed
+payload only when `T` matches the plan ref. The host resumes transform and
+choice requests with `session.@"resume"(request, value)`, or completes choice
+and abort requests through `session.returnNow(request, value)`. The value type
+must match the request's resume or terminal result ref.
+
+Session execution preserves interpreter frames across helper calls and nested
+lexical-with targets. Final result and output materialization use the same
+`Body.collectOutputs`, `Body.deinitOutputs`, and `Body.deinitResult` ownership
+hooks as `Program.run`. Plans with reachable after hooks fail closed for
+`Program.Session.start`; `Program.run` remains the dispatch surface for those
+plans.
+
+## Defunctionalized execution and agent loops
+
+`Program.Session` is a defunctionalized execution surface for host-driven loops.
+The interpreter reaches an effect operation, stores its explicit frame state,
+and yields request data with requirement/op metadata, payload and resume refs,
+the operation mode, and typed payload access through `request.payload(T)`.
+
+The host owns external work. It can resume transform and choice requests with a
+value matching the resume ref, or complete choice and abort requests with a
+value matching the current terminal result ref. `ProgramValue` remains scalar;
+typed product and sum values use the existing `Body.value_schema_types` registry
+that `Program.run` already uses for executable plans. The final value, outputs,
+and cleanup hooks follow the same `Program.Result` rules as synchronous
+execution.
+
+The session surface does not add an async runtime, parser, compiler, VM,
+Artifact API, source-language API, network client, LLM client, public generated
+custom effect API, or public root export. Full snapshot/restore for durable
+session persistence is intentionally left for a later branch, but the current
+state is already first-order interpreter data rather than a closure
+continuation.
 
 ## Effect schema row lowering
 
@@ -264,6 +307,12 @@ returns the terminal result.
 plan-native `acquire` and `release` operations with `resource_bracket` metadata.
 The plan explicitly releases typed resources in LIFO order before normal return,
 exception-style abort, and optional return-now control transfer.
+
+`examples/agent_loop.zig` demonstrates `Program.Session` as a host-driven
+request loop. The plan yields a `decide` operation, the host resumes it with a
+typed sum action, a `tool` action causes the plan to yield a tool operation, and
+the returned observation is carried by the same ProgramPlan interpreter until a
+`final` action returns the answer.
 
 ## Layout builder
 

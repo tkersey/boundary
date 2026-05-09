@@ -113,11 +113,15 @@ pub fn main() !void {
 ```
 
 The label must be non-empty. `Program.Result` exposes `value`, `outputs`, and
-`deinit()`. String results in `Program.Result.value` should be treated as
-borrowed unless the body documents and implements ownership cleanup through
-`Body.deinitResult(allocator, value)`. The value cleanup hook is independent of
-output cleanup, so it can run even when output collection fails. Bodies that
-declare `Outputs` must implement
+`deinit()`. `Program.Session` exposes the same plan as a host-driven loop for
+plans without after hooks: `Session.start` begins runtime ownership, `next()`
+yields typed requests with requirement/op metadata and payload access, and
+`@"resume"`/`returnNow` feed typed values back into the interpreter before a
+final `Result` is collected. String results in `Program.Result.value` should be
+treated as borrowed unless the body documents and implements ownership cleanup
+through `Body.deinitResult(allocator, value)`. The value cleanup hook is
+independent of output cleanup, so it can run even when output collection fails.
+Bodies that declare `Outputs` must implement
 `Body.collectOutputs(allocator, handlers)` and can release those values with
 `Body.deinitOutputs`.
 
@@ -133,10 +137,10 @@ program label, result codec and schema reference, typed result and output Zig
 types, entry parameter refs, value schema/field/variant declarations, output
 declarations, requirement and operation metadata, op payload and resume
 references, op modes, after-hook flags, nested-with target declarations, unique
-`return_error` literals, and the executable capability-ledger summary. It is
-metadata for tests and callers that need to inspect what a program declares; it
-does not expose mutable ProgramPlan tables, Artifact or VM surfaces, or legacy
-capability maps.
+`return_error` literals, and the executable and session capability-ledger
+summaries. It is metadata for tests and callers that need to inspect what a
+program declares; it does not expose mutable ProgramPlan tables, Artifact or VM
+surfaces, or legacy capability maps.
 
 See [docs/program_plan.md](docs/program_plan.md) for typed product/sum bodies,
 tuple entry args, outputs, cleanup hooks, nested-with targets, and
@@ -158,6 +162,24 @@ through `ability.program`.
 See [docs/release_hardening.md](docs/release_hardening.md) for package/lint
 coverage, file classification, and the built-in effects roadmap.
 
+## Defunctionalized execution and agent loops
+
+`Program.run` is the synchronous handler-dispatch path. It keeps executing the
+validated `Body.compiled_plan` until the result and outputs are ready.
+
+`Program.Session` is the defunctionalized, host-driven path. `next()` yields the
+next effect operation as request data instead of dispatching to a Zig handler.
+The host performs external work, then resumes the interpreter with a typed value
+or returns now from a choice/abort request. The continuation is explicit
+interpreter frame state stored in the session, not a captured Zig closure.
+
+This is the foundation for agentic loops. The library does not bundle an async
+runtime, parser, compiler, VM, Artifact API, source language, network client, or
+LLM integration. `ProgramValue` remains the scalar public carrier; typed product
+and sum payloads and resumes use the existing `Body.value_schema_types` schema
+registry. Result, output, and cleanup rules are the same `Program.Result` rules
+used by `Program.run`. Full session snapshot/restore is a future direction.
+
 ## Effects
 
 Effect families remain under `ability.effect`. Built-in and custom bound
@@ -178,6 +200,9 @@ IR:
   plan-native transform ops with final state returned through outputs.
 - `examples/plan_native_writer.zig` demonstrates writer accumulation through
   typed outputs and explicit output cleanup.
+- `examples/agent_loop.zig` demonstrates a host-driven `Program.Session` loop
+  where yielded decide/tool operations are data and the host supplies a typed
+  sum action plus tool observations without handler dispatch.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
   abort operations in one plan without exposing a custom effect API.
 
@@ -199,5 +224,6 @@ zig build run-typed-program-plan
 zig build run-plan-native-optional
 zig build run-plan-native-state-reader
 zig build run-plan-native-writer
+zig build run-agent-loop
 zig build run-custom-approval-workflow
 ```

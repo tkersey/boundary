@@ -449,7 +449,9 @@ fn ProgramContractFor(
     const op_views = contractOps(plan);
     const return_error_views = contractReturnErrors(plan, nested_targets);
     const Ledger = lowering_api.ExecutableCapabilityLedgerForPlan(plan, schema_types, nested_targets);
-    const first_blocker = if (Ledger.blockers.len == 0) null else Ledger.blockers[0];
+    const first_blocker: ?lowering_api.CapabilityBlocker = if (Ledger.blockers.len == 0) null else Ledger.blockers[0];
+    const SessionLedger = lowering_api.TypedSessionCapabilityLedgerForPlan(plan, schema_types, nested_targets);
+    const first_session_blocker: ?lowering_api.SessionBlocker = if (SessionLedger.blockers.len == 0) null else SessionLedger.blockers[0];
 
     return struct {
         /// Public program label passed to ability.program.
@@ -499,11 +501,32 @@ fn ProgramContractFor(
             /// Stable human-readable executable capability summary.
             pub const summary = lowering_api.executableCapabilitySummary(plan, schema_types, nested_targets);
             /// First blocker tag, if the executable ledger is non-empty.
-            pub const first_blocker_tag = if (first_blocker) |blocker| blocker.tag else null;
+            pub const first_blocker_tag: ?lowering_api.CapabilityBlockerTag = if (first_blocker) |blocker| blocker.tag else null;
             /// First blocker function index, if the executable ledger is non-empty.
-            pub const first_blocker_function = if (first_blocker) |blocker| blocker.function_index else null;
+            pub const first_blocker_function: ?u16 = if (first_blocker) |blocker| blocker.function_index else null;
             /// First blocker instruction index, if the executable ledger is non-empty.
-            pub const first_blocker_instruction = if (first_blocker) |blocker| blocker.instruction_index else null;
+            pub const first_blocker_instruction: ?u32 = if (first_blocker) |blocker| blocker.instruction_index else null;
+        };
+        /// Session-execution support summary for the validated plan.
+        pub const session = struct {
+            /// Whether Program.Session can start for this plan.
+            pub const supported = SessionLedger.blockers.len == 0;
+            /// Number of retained blockers for session execution.
+            pub const blocker_count = SessionLedger.blockers.len;
+            /// Maximum blocker records retained by the session ledger.
+            pub const blocker_cap = lowering_api.max_capability_blockers;
+            /// Whether session ledger diagnostics were truncated at blocker_cap.
+            pub const truncated = SessionLedger.truncated;
+            /// Stable human-readable session capability summary.
+            pub const summary = lowering_api.typedSessionCapabilitySummary(plan, schema_types, nested_targets);
+            /// First blocker tag, if the session ledger is non-empty.
+            pub const first_blocker_tag: ?lowering_api.SessionBlockerTag = if (first_session_blocker) |blocker| blocker.tag else null;
+            /// First blocker function index, if the session ledger is non-empty.
+            pub const first_blocker_function: ?u16 = if (first_session_blocker) |blocker| blocker.function_index else null;
+            /// First blocker instruction index, if the session ledger is non-empty.
+            pub const first_blocker_instruction: ?u32 = if (first_session_blocker) |blocker| blocker.instruction_index else null;
+            /// First blocker op index, if the session ledger is non-empty.
+            pub const first_blocker_op: ?u16 = if (first_session_blocker) |blocker| blocker.op_index else null;
         };
     };
 }
@@ -630,6 +653,22 @@ pub fn program(
             }
         };
 
+        fn finishResult(allocator: std.mem.Allocator, handlers: anytype, value: Value) Error!Result {
+            const outputs = collectBodyOutputs(Body, Outputs, allocator, handlers) catch |err| {
+                deinitBodyResult(Body, Value, Outputs, .{
+                    .allocator = allocator,
+                    .value = value,
+                    .outputs = null,
+                });
+                return mapProgramRunError(Error, err);
+            };
+            return .{
+                .allocator = allocator,
+                .value = value,
+                .outputs = outputs,
+            };
+        }
+
         /// Execute the compiled ProgramPlan against one caller-owned runtime.
         /// Bodies may provide scalar ProgramValue args, typed tuple args, schema types,
         /// nested-with targets, output collection, and explicit deinit hooks.
@@ -646,30 +685,135 @@ pub fn program(
             else
                 lowering_api.runExecutablePlanWithTypedArgsForErrorSetAndNestedTargetsInRuntimeExecution(BodyErrorSet(Body), runtime, compiled_plan, body_value_schema_types, body_nested_with_targets, &mutable_handlers, args) catch |err| return mapProgramRunError(Error, err);
             const allocator = lowered_machine.runtimeAllocator(runtime);
-            const outputs = if (comptime @typeInfo(HandlersType) == .pointer)
-                collectBodyOutputs(Body, Outputs, allocator, mutable_handlers) catch |err| {
-                    deinitBodyResult(Body, Value, Outputs, .{
-                        .allocator = allocator,
-                        .value = raw.value,
-                        .outputs = null,
-                    });
-                    return mapProgramRunError(Error, err);
-                }
-            else
-                collectBodyOutputs(Body, Outputs, allocator, &mutable_handlers) catch |err| {
-                    deinitBodyResult(Body, Value, Outputs, .{
-                        .allocator = allocator,
-                        .value = raw.value,
-                        .outputs = null,
-                    });
+            if (comptime @typeInfo(HandlersType) == .pointer) {
+                return finishResult(allocator, mutable_handlers, raw.value);
+            }
+            return finishResult(allocator, &mutable_handlers, raw.value);
+        }
+
+        /// Host-driven session execution for plans without after hooks.
+        pub const Session = struct {
+            const Core = lowering_api.ExecutableSessionForPlan(
+                BodyErrorSet(Body),
+                body_compiled_plan,
+                body_value_schema_types,
+                body_nested_with_targets,
+            );
+
+            runtime: *lowered_machine.Runtime,
+            handlers: HandlersType,
+            core: Core,
+            active: bool = true,
+
+            /// Defunctionalized effect operation request yielded by `next`.
+            pub const Request = Core.Request;
+            /// One session step: either a terminal result or a yielded request.
+            pub const Step = union(enum) {
+                done: Result,
+                request: Request,
+            };
+
+            /// Start a host-driven execution session and enter runtime ownership.
+            pub fn start(runtime: *lowered_machine.Runtime, handlers: HandlersType) Error!Session {
+                const mutable_handlers = handlers;
+                lowered_machine.beginExecution(runtime) catch |err| return mapProgramRunError(Error, err);
+                var runtime_active = true;
+                errdefer if (runtime_active) lowered_machine.endExecution(runtime);
+
+                const args = if (comptime hasDeclSafe(Body, "encodeArgs"))
+                    Body.encodeArgs(mutable_handlers)
+                else
+                    @as([]const lowered_machine.ProgramValue, &.{});
+                const core = Core.start(lowered_machine.runtimeAllocator(runtime), args) catch |err| return mapProgramRunError(Error, err);
+                runtime_active = false;
+                return .{
+                    .runtime = runtime,
+                    .handlers = mutable_handlers,
+                    .core = core,
+                };
+            }
+
+            /// Close an unfinished session and release runtime ownership.
+            pub fn deinit(self: *Session) void {
+                self.deinitChecked() catch |err|
+                    std.debug.panic("runtime execution teardown misuse: {s}", .{@errorName(err)});
+            }
+
+            /// Close an unfinished session, returning an error on runtime ownership misuse.
+            pub fn deinitChecked(self: *Session) Error!void {
+                try self.closeChecked();
+            }
+
+            /// Advance until the next yielded request or terminal result.
+            pub fn next(self: *Session) Error!Step {
+                try self.ensureActiveThread();
+                if (self.core.hasPendingRequest()) return error.ProgramContractViolation;
+                const core_step = self.core.next() catch |err| {
+                    self.close();
                     return mapProgramRunError(Error, err);
                 };
-            return .{
-                .allocator = allocator,
-                .value = raw.value,
-                .outputs = outputs,
-            };
-        }
+                return switch (core_step) {
+                    .request => |request| .{ .request = request },
+                    .done => |raw| done: {
+                        const allocator = lowered_machine.runtimeAllocator(self.runtime);
+                        const result = if (comptime @typeInfo(HandlersType) == .pointer)
+                            finishResult(allocator, self.handlers, raw.value)
+                        else
+                            finishResult(allocator, &self.handlers, raw.value);
+                        const finished = result catch |err| {
+                            self.close();
+                            return err;
+                        };
+                        self.close();
+                        break :done .{ .done = finished };
+                    },
+                };
+            }
+
+            /// Resume a yielded transform or choice request with a typed value.
+            pub fn @"resume"(self: *Session, request: Request, value: anytype) Error!void {
+                try self.ensureActiveThread();
+                self.core.@"resume"(request, value) catch |err| return mapProgramRunError(Error, err);
+            }
+
+            /// Complete a yielded choice or abort request with a terminal value.
+            pub fn returnNow(self: *Session, request: Request, value: anytype) Error!void {
+                try self.ensureActiveThread();
+                self.core.returnNow(request, value) catch |err| return mapProgramRunError(Error, err);
+            }
+
+            fn ensureActiveThread(self: *Session) Error!void {
+                if (!self.active) return error.ProgramContractViolation;
+                self.runtime.ensureThread() catch |err| return mapProgramRunError(Error, err);
+                const active_runtime = lowered_machine.activeRuntime() orelse return error.RuntimeBusy;
+                if (active_runtime != self.runtime) return error.RuntimeBusy;
+            }
+
+            fn close(self: *Session) void {
+                self.closeChecked() catch |err|
+                    std.debug.panic("runtime execution teardown misuse: {s}", .{@errorName(err)});
+            }
+
+            fn closeChecked(self: *Session) Error!void {
+                if (!self.active) return;
+                try lowered_machine.endExecutionChecked(self.runtime);
+                self.active = false;
+                self.deinitCompletedResult();
+                self.core.deinit();
+            }
+
+            fn deinitCompletedResult(self: *Session) void {
+                const completed = self.core.takeCompleted() catch |err|
+                    std.debug.panic("completed session result decode failed during deinit: {s}", .{@errorName(err)});
+                if (completed) |raw| {
+                    deinitBodyResult(Body, Value, Outputs, .{
+                        .allocator = lowered_machine.runtimeAllocator(self.runtime),
+                        .value = raw.value,
+                        .outputs = null,
+                    });
+                }
+            }
+        };
     };
 }
 
@@ -726,6 +870,79 @@ test "ability.program preserves bounded error set for bodies without user errors
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     try forwarder.run(&runtime);
+}
+
+test "Program.contract session support includes executable blockers" {
+    const program_plan = @import("internal_program_plan");
+    const root = program_plan.program_plan_builder.function(0);
+    const payload = program_plan.program_plan_builder.local(root, 0);
+    const instructions = [_]program_plan.Instruction{
+        program_plan.program_plan_builder.callOp(root, null, program_plan.program_plan_builder.op(root, 0), payload) catch unreachable,
+    };
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]program_plan.RequirementPlan{.{
+        .label = "structured",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]program_plan.OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "structured",
+        .mode = .transform,
+        .payload_codec = .product,
+        .payload_schema_index = 0,
+        .resume_codec = .unit,
+    }};
+    const value_schemas = [_]program_plan.ValueSchemaPlan{.{
+        .label = "Payload",
+        .codec = .product,
+        .first_field = 0,
+        .field_count = 1,
+    }};
+    const value_fields = [_]program_plan.ValueFieldPlan{.{ .name = "value", .codec = .i32 }};
+    const locals = [_]program_plan.LocalPlan{.{ .codec = .product, .schema_index = 0 }};
+    const blocks = [_]program_plan.BlockPlan{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_unit }};
+    const plan = program_plan.program_plan_builder.finish(.{
+        .label = "contract-session-executable-blocked",
+        .ir_hash = 2,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+
+    const contract = ProgramContractFor("contract-session-executable-blocked", plan, void, void, &.{}, &.{});
+    try std.testing.expect(!contract.executable.supported);
+    try std.testing.expectEqual(@as(usize, 1), contract.executable.blocker_count);
+    try std.testing.expect(!contract.session.supported);
+    try std.testing.expectEqual(@as(usize, 1), contract.session.blocker_count);
+    try std.testing.expectEqual(@as(?lowering_api.SessionBlockerTag, .payload_codec), contract.session.first_blocker_tag);
+    try std.testing.expectEqualStrings(
+        "session capability ledger: blockers=1 truncated=false cap=64 first_tag=payload_codec first_function=0 first_instruction=0 first_op=65535",
+        contract.session.summary,
+    );
 }
 
 test "ability.program executable support rejects nested-with plans" {

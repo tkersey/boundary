@@ -409,6 +409,10 @@ pub fn build(b: *std.Build) void {
             .expected_error = "Body.deinitOutputs must have type fn (std.mem.Allocator, outputs) void",
         },
         .{
+            .path = "test/compile_fail/session_after_hook_unsupported.zig",
+            .expected_error = "UnsupportedSessionAfterHook",
+        },
+        .{
             .path = "test/compile_fail/missing_nested_with_target.zig",
             .expected_error = "UnsupportedNestedWith",
         },
@@ -461,6 +465,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "ability-plan-native-exception", .path = "examples/plan_native_exception.zig", .step = "run-plan-native-exception", .desc = "Run the plan-native exception example." },
         .{ .name = "ability-plan-native-resource", .path = "examples/plan_native_resource.zig", .step = "run-plan-native-resource", .desc = "Run the plan-native resource example." },
         .{ .name = "ability-custom-approval-workflow", .path = "examples/custom_approval_workflow.zig", .step = "run-custom-approval-workflow", .desc = "Run the custom approval workflow example." },
+        .{ .name = "ability-agent-loop", .path = "examples/agent_loop.zig", .step = "run-agent-loop", .desc = "Run the host-driven Program.Session agent loop example." },
     };
     inline for (examples) |example| {
         const exe_mod = b.createModule(.{
