@@ -740,7 +740,7 @@ pub fn program(
 
             /// Advance until the next yielded request or terminal result.
             pub fn next(self: *Session) Error!Step {
-                if (!self.active) return error.ProgramContractViolation;
+                try self.ensureActiveThread();
                 const core_step = self.core.next() catch |err| {
                     self.close();
                     return mapProgramRunError(Error, err);
@@ -765,14 +765,19 @@ pub fn program(
 
             /// Resume a yielded transform or choice request with a typed value.
             pub fn @"resume"(self: *Session, request: Request, value: anytype) Error!void {
-                if (!self.active) return error.ProgramContractViolation;
+                try self.ensureActiveThread();
                 self.core.@"resume"(request, value) catch |err| return mapProgramRunError(Error, err);
             }
 
             /// Complete a yielded choice or abort request with a terminal value.
             pub fn returnNow(self: *Session, request: Request, value: anytype) Error!void {
-                if (!self.active) return error.ProgramContractViolation;
+                try self.ensureActiveThread();
                 self.core.returnNow(request, value) catch |err| return mapProgramRunError(Error, err);
+            }
+
+            fn ensureActiveThread(self: *Session) Error!void {
+                if (!self.active) return error.ProgramContractViolation;
+                self.runtime.ensureThread() catch |err| return mapProgramRunError(Error, err);
             }
 
             fn close(self: *Session) void {

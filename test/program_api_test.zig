@@ -5687,6 +5687,101 @@ test "Program.Session yields transform requests and preserves runtime busy lifec
     try std.testing.expectEqual(@as(i32, 41), result.value);
 }
 
+test "Program.Session rejects cross-thread next resume and returnNow before mutating core" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionChoicePlan("session-cross-thread-affinity");
+    };
+    const Program = ability.program("session-cross-thread-affinity", struct {}, Body);
+    const Workers = struct {
+        fn next(session: *Program.Session, err: *?anyerror) void {
+            _ = session.next() catch |caught| {
+                err.* = caught;
+                return;
+            };
+            err.* = null;
+        }
+
+        fn @"resume"(session: *Program.Session, request: Program.Session.Request, err: *?anyerror) void {
+            session.@"resume"(request, @as(i32, 13)) catch |caught| {
+                err.* = caught;
+                return;
+            };
+            err.* = null;
+        }
+
+        fn returnNow(session: *Program.Session, request: Program.Session.Request, err: *?anyerror) void {
+            session.returnNow(request, @as(i32, 99)) catch |caught| {
+                err.* = caught;
+                return;
+            };
+            err.* = null;
+        }
+
+        fn expectCrossThread(err: ?anyerror) !void {
+            const caught = err orelse return error.ExpectedCrossThread;
+            try std.testing.expect(caught == error.CrossThread);
+        }
+    };
+
+    var next_session = try Program.Session.start(&runtime, .{});
+    defer next_session.deinit();
+    var next_err: ?anyerror = null;
+    const next_thread = try std.Thread.spawn(.{}, Workers.next, .{ &next_session, &next_err });
+    next_thread.join();
+    try Workers.expectCrossThread(next_err);
+    try std.testing.expectEqual(@as(usize, 1), runtime.core.active_reset_count);
+    const next_request = switch (try next_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+    };
+    try next_session.@"resume"(next_request, @as(i32, 10));
+    var next_result = switch (try next_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+    };
+    defer next_result.deinit();
+    try std.testing.expectEqual(@as(i32, 10), next_result.value);
+
+    var resume_session = try Program.Session.start(&runtime, .{});
+    defer resume_session.deinit();
+    const resume_request = switch (try resume_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+    };
+    var resume_err: ?anyerror = null;
+    const resume_thread = try std.Thread.spawn(.{}, Workers.@"resume", .{ &resume_session, resume_request, &resume_err });
+    resume_thread.join();
+    try Workers.expectCrossThread(resume_err);
+    try resume_session.@"resume"(resume_request, @as(i32, 12));
+    var resume_result = switch (try resume_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+    };
+    defer resume_result.deinit();
+    try std.testing.expectEqual(@as(i32, 12), resume_result.value);
+
+    var return_session = try Program.Session.start(&runtime, .{});
+    defer return_session.deinit();
+    const return_request = switch (try return_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+    };
+    var return_err: ?anyerror = null;
+    const return_thread = try std.Thread.spawn(.{}, Workers.returnNow, .{ &return_session, return_request, &return_err });
+    return_thread.join();
+    try Workers.expectCrossThread(return_err);
+    try return_session.returnNow(return_request, @as(i32, 88));
+    var return_result = switch (try return_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+    };
+    defer return_result.deinit();
+    try std.testing.expectEqual(@as(i32, 88), return_result.value);
+}
+
 test "Program.contract exposes session capability blockers" {
     const Body = struct {
         pub const compiled_plan = compiledTransformPlan("session-after-hook-blocker");
