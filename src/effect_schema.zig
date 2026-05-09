@@ -217,6 +217,7 @@ pub fn resource_bracket(comptime ResourceType: type, comptime ErrorSetType: type
         ManagerType,
         .{
             transform("acquire", void, ResourceType),
+            transform("release", ResourceType, void),
         },
     );
 }

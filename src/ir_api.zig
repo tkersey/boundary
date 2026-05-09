@@ -1,4 +1,5 @@
 // zlinter-disable declaration_naming - retained compatibility aliases intentionally preserve the prior public IR vocabulary.
+// zlinter-disable field_naming function_naming - public schema helpers intentionally use value-like names and type-valued fields.
 // zlinter-disable no_undefined - the layout builder fills fixed comptime table buffers before validation observes them.
 // zlinter-disable require_doc_comment - this compatibility module re-exports documented declarations from the underlying namespaces.
 const effect_ir = @import("effect_ir");
@@ -645,11 +646,39 @@ pub const value = struct {
 
 /// Schema-first helpers that lower effect binding metadata into ProgramPlan rows.
 pub const schema = struct {
+    /// Build one explicit ProgramPlan schema-index map entry.
+    pub fn ref(comptime T: type, comptime schema_index: u16) type {
+        return struct {
+            pub const Type = T;
+            pub const index: u16 = schema_index;
+        };
+    }
+
+    /// Caller-provided schema-index map used by `LowerBinding`.
+    pub fn SchemaRefs(comptime entries: anytype) type {
+        comptime validateSchemaRefs(entries);
+        return struct {
+            pub fn valueRef(comptime T: type) ?program_plan.ValueRef {
+                const codec = comptime program_plan.codecForType(T) catch return null;
+                inline for (entries) |entry| {
+                    if (entry.Type == T) {
+                        return .{
+                            .codec = codec,
+                            .schema_index = entry.index,
+                        };
+                    }
+                }
+                return null;
+            }
+        };
+    }
+
     /// Caller-owned offsets for one binding's ProgramPlan rows.
     pub const BindingOffsets = struct {
         requirement_index: u16,
         first_op: u16,
         first_output: u16 = 0,
+        schema_refs: type = SchemaRefs(.{}),
     };
 
     /// Build a schema binding type without exposing `effect_schema` at the root.
@@ -674,8 +703,19 @@ pub const schema = struct {
         const FamilySchema = comptime effect_schema.bindingFamily(BindingSchema);
         const requirement_schema = row.requirements[0];
         const lowered_output_count: usize = comptime if (FamilySchema.output == .none) 0 else 1;
-        const lowered_ops = comptime lowerOps(BindingSchema, FamilySchema, requirement_schema.ops, offsets.requirement_index);
-        const lowered_outputs = comptime lowerOutputs(BindingSchema, FamilySchema, lowered_output_count);
+        const lowered_ops = comptime lowerOps(
+            BindingSchema,
+            FamilySchema,
+            requirement_schema.ops,
+            offsets.requirement_index,
+            offsets.schema_refs,
+        );
+        const lowered_outputs = comptime lowerOutputs(
+            BindingSchema,
+            FamilySchema,
+            lowered_output_count,
+            offsets.schema_refs,
+        );
 
         return struct {
             pub const requirement_index: u16 = offsets.requirement_index;
@@ -699,11 +739,12 @@ pub const schema = struct {
         comptime FamilySchema: type,
         comptime op_specs: []const effect_ir.OpSpec,
         comptime requirement_index: u16,
+        comptime schema_refs: type,
     ) [op_specs.len]program_plan.OpPlan {
         var ops: [op_specs.len]program_plan.OpPlan = undefined;
         inline for (op_specs, 0..) |op_spec, index| {
-            const payload_ref = comptime scalarRefForType(op_spec.PayloadType, "payload");
-            const resume_ref = comptime scalarRefForType(op_spec.ResumeType, "resume");
+            const payload_ref = comptime refForType(op_spec.PayloadType, "payload", schema_refs);
+            const resume_ref = comptime refForType(op_spec.ResumeType, "resume", schema_refs);
             ops[index] = .{
                 .requirement_index = requirement_index,
                 .op_name = op_spec.op_name,
@@ -743,12 +784,14 @@ pub const schema = struct {
         comptime BindingSchema: type,
         comptime FamilySchema: type,
         comptime output_count: usize,
+        comptime schema_refs: type,
     ) [output_count]program_plan.OutputPlan {
         if (output_count == 0) return .{};
+        const ref_value = outputRef(BindingSchema, FamilySchema, schema_refs);
         return .{.{
             .label = outputLabel(BindingSchema, FamilySchema),
-            .codec = outputRef(BindingSchema, FamilySchema).codec,
-            .schema_index = outputRef(BindingSchema, FamilySchema).schema_index,
+            .codec = ref_value.codec,
+            .schema_index = ref_value.schema_index,
         }};
     }
 
@@ -781,11 +824,15 @@ pub const schema = struct {
         };
     }
 
-    fn outputRef(comptime BindingSchema: type, comptime FamilySchema: type) program_plan.ValueRef {
+    fn outputRef(
+        comptime BindingSchema: type,
+        comptime FamilySchema: type,
+        comptime schema_refs: type,
+    ) program_plan.ValueRef {
         return switch (FamilySchema.output) {
             .none => @compileError("schema output ref requested for binding without output metadata"),
-            .final_state => scalarRefForType(FamilySchema.Output, "output"),
-            .accumulator => scalarRefForType(FamilySchema.Item, "output"),
+            .final_state => refForType(FamilySchema.Output, "output", schema_refs),
+            .accumulator => refForType(FamilySchema.Item, "output", schema_refs),
             .custom_finalizer => @compileError(standard.fmt.comptimePrint(
                 "schema.LowerBinding does not support custom_finalizer output for '{s}' yet",
                 .{BindingSchema.requirement_label},
@@ -793,18 +840,49 @@ pub const schema = struct {
         };
     }
 
-    fn scalarRefForType(comptime T: type, comptime role: []const u8) program_plan.ValueRef {
+    fn refForType(
+        comptime T: type,
+        comptime role: []const u8,
+        comptime schema_refs: type,
+    ) program_plan.ValueRef {
         const codec = comptime program_plan.codecForType(T) catch |err| @compileError(standard.fmt.comptimePrint(
             "schema.LowerBinding unsupported {s} type '{s}': {s}",
             .{ role, @typeName(T), @errorName(err) },
         ));
         return switch (codec) {
-            .product, .sum => @compileError(standard.fmt.comptimePrint(
-                "schema.LowerBinding {s} type '{s}' needs an explicit ProgramPlan schema-index map; v1 supports scalar refs only",
+            .product, .sum => schema_refs.valueRef(T) orelse @compileError(standard.fmt.comptimePrint(
+                "schema.LowerBinding requires a schema ref for product/sum {s} type '{s}'",
                 .{ role, @typeName(T) },
             )),
             else => .{ .codec = codec },
         };
+    }
+
+    fn validateSchemaRefs(comptime entries: anytype) void {
+        inline for (entries, 0..) |entry, index| {
+            if (!@hasDecl(entry, "Type") or !@hasDecl(entry, "index")) {
+                @compileError("schema.SchemaRefs entries must be built with schema.ref(T, schema_index)");
+            }
+            const codec = comptime program_plan.codecForType(entry.Type) catch |err| @compileError(standard.fmt.comptimePrint(
+                "schema.SchemaRefs unsupported type '{s}': {s}",
+                .{ @typeName(entry.Type), @errorName(err) },
+            ));
+            switch (codec) {
+                .product, .sum => {},
+                else => @compileError(standard.fmt.comptimePrint(
+                    "schema.SchemaRefs entry type '{s}' is scalar and must not carry a schema index",
+                    .{@typeName(entry.Type)},
+                )),
+            }
+            inline for (entries, 0..) |prior, prior_index| {
+                if (prior_index < index and prior.Type == entry.Type) {
+                    @compileError(standard.fmt.comptimePrint(
+                        "schema.SchemaRefs has duplicate entry for type '{s}'",
+                        .{@typeName(entry.Type)},
+                    ));
+                }
+            }
+        }
     }
 };
 
@@ -1012,6 +1090,132 @@ test "schema lowerer lowers writer binding to ProgramPlan rows" {
     // ProgramPlan output rows describe accumulator item refs; Body.Outputs owns
     // the final collection shape.
     try standard.testing.expectEqual(program_plan.ValueCodec.i32, Rows.outputs[0].codec);
+}
+
+test "schema lowerer maps product refs through explicit schema refs" {
+    const ProductPayload = struct {
+        amount: i32,
+    };
+    const Rows = schema.LowerBinding(
+        schema.Binding("state", effect_schema.state_cell(ProductPayload, error{}), void),
+        .{
+            .requirement_index = 0,
+            .first_op = 0,
+            .first_output = 0,
+            .schema_refs = schema.SchemaRefs(.{
+                schema.ref(ProductPayload, 3),
+            }),
+        },
+    );
+
+    try standard.testing.expectEqual(program_plan.ValueCodec.unit, Rows.ops[0].payload_codec);
+    try standard.testing.expectEqual(@as(?u16, null), Rows.ops[0].payload_schema_index);
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, Rows.ops[0].resume_codec);
+    try standard.testing.expectEqual(@as(?u16, 3), Rows.ops[0].resume_schema_index);
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, Rows.ops[1].payload_codec);
+    try standard.testing.expectEqual(@as(?u16, 3), Rows.ops[1].payload_schema_index);
+    try standard.testing.expectEqual(program_plan.ValueCodec.unit, Rows.ops[1].resume_codec);
+    try standard.testing.expectEqual(@as(?u16, null), Rows.ops[1].resume_schema_index);
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, Rows.outputs[0].codec);
+    try standard.testing.expectEqual(@as(?u16, 3), Rows.outputs[0].schema_index);
+}
+
+test "schema lowerer leaves nested schema indexes caller owned" {
+    const InnerPayload = struct {
+        amount: i32,
+    };
+    const OuterPayload = struct {
+        inner: InnerPayload,
+    };
+    const Rows = schema.LowerBinding(
+        schema.Binding("exception", effect_schema.abort_catch(OuterPayload, error{}, void), void),
+        .{
+            .requirement_index = 0,
+            .first_op = 0,
+            .schema_refs = schema.SchemaRefs(.{
+                schema.ref(OuterPayload, 1),
+            }),
+        },
+    );
+    const fields = [_]program_plan.ValueFieldPlan{
+        value.nestedField("inner", InnerPayload, 0),
+    };
+
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, Rows.ops[0].payload_codec);
+    try standard.testing.expectEqual(@as(?u16, 1), Rows.ops[0].payload_schema_index);
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, fields[0].codec);
+    try standard.testing.expectEqual(@as(?u16, 0), fields[0].schema_index);
+}
+
+test "schema lowerer maps sum and abort payload refs through explicit schema refs" {
+    const OptionalPayload = ?i32;
+    const OptionalRows = schema.LowerBinding(
+        schema.Binding("optional", effect_schema.choice_policy(OptionalPayload, error{}, void), void),
+        .{
+            .requirement_index = 0,
+            .first_op = 0,
+            .schema_refs = schema.SchemaRefs(.{
+                schema.ref(OptionalPayload, 1),
+            }),
+        },
+    );
+    try standard.testing.expectEqualStrings("request", OptionalRows.ops[0].op_name);
+    try standard.testing.expectEqual(program_plan.ValueCodec.unit, OptionalRows.ops[0].payload_codec);
+    try standard.testing.expectEqual(program_plan.ValueCodec.sum, OptionalRows.ops[0].resume_codec);
+    try standard.testing.expectEqual(@as(?u16, 1), OptionalRows.ops[0].resume_schema_index);
+
+    const ProductPayload = struct {
+        amount: i32,
+    };
+    const ExceptionRows = schema.LowerBinding(
+        schema.Binding("exception", effect_schema.abort_catch(ProductPayload, error{}, void), void),
+        .{
+            .requirement_index = 0,
+            .first_op = 0,
+            .schema_refs = schema.SchemaRefs(.{
+                schema.ref(ProductPayload, 4),
+            }),
+        },
+    );
+    try standard.testing.expectEqualStrings("throw", ExceptionRows.ops[0].op_name);
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, ExceptionRows.ops[0].payload_codec);
+    try standard.testing.expectEqual(@as(?u16, 4), ExceptionRows.ops[0].payload_schema_index);
+    try standard.testing.expectEqual(program_plan.ValueCodec.unit, ExceptionRows.ops[0].resume_codec);
+    try standard.testing.expectEqual(@as(?u16, null), ExceptionRows.ops[0].resume_schema_index);
+}
+
+test "schema lowerer emits resource acquire and release structured refs" {
+    const Resource = struct {
+        id: i32,
+    };
+    const Rows = schema.LowerBinding(
+        schema.Binding("resource", effect_schema.resource_bracket(Resource, error{}, void), void),
+        .{
+            .requirement_index = 0,
+            .first_op = 0,
+            .schema_refs = schema.SchemaRefs(.{
+                schema.ref(Resource, 2),
+            }),
+        },
+    );
+
+    try standard.testing.expectEqualStrings("resource", Rows.requirement.label);
+    try standard.testing.expectEqual(@as(u16, 2), Rows.op_count);
+    try standard.testing.expectEqual(@as(u16, 0), Rows.output_count);
+
+    try standard.testing.expectEqualStrings("acquire", Rows.ops[0].op_name);
+    try standard.testing.expectEqual(program_plan.ControlMode.transform, Rows.ops[0].mode);
+    try standard.testing.expectEqual(program_plan.ValueCodec.unit, Rows.ops[0].payload_codec);
+    try standard.testing.expectEqual(@as(?u16, null), Rows.ops[0].payload_schema_index);
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, Rows.ops[0].resume_codec);
+    try standard.testing.expectEqual(@as(?u16, 2), Rows.ops[0].resume_schema_index);
+
+    try standard.testing.expectEqualStrings("release", Rows.ops[1].op_name);
+    try standard.testing.expectEqual(program_plan.ControlMode.transform, Rows.ops[1].mode);
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, Rows.ops[1].payload_codec);
+    try standard.testing.expectEqual(@as(?u16, 2), Rows.ops[1].payload_schema_index);
+    try standard.testing.expectEqual(program_plan.ValueCodec.unit, Rows.ops[1].resume_codec);
+    try standard.testing.expectEqual(@as(?u16, null), Rows.ops[1].resume_schema_index);
 }
 
 test "raw ProgramPlan row construction remains available" {

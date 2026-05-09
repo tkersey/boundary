@@ -23,6 +23,12 @@ fn scalarExceptionPlan() ability.ir.ProgramPlan {
         .{ .kind = .const_i32, .dst = payload.index, .operand = 40 },
         mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload)),
     };
+    const ExceptionRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("exception", ability.effect.exception.Schema(i32, error{}, void), void),
+        .{ .requirement_index = 0, .first_op = 0 },
+    );
+    const requirements = [_]ability.ir.plan.Requirement{ExceptionRows.requirement};
+    const ops = ExceptionRows.ops;
     const functions = [_]ability.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
@@ -38,19 +44,6 @@ fn scalarExceptionPlan() ability.ir.ProgramPlan {
         .block_count = 1,
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
-    }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
-        .label = "exception",
-        .first_op = 0,
-        .op_count = 1,
-        .lifecycle_tag = .abort_catch,
-    }};
-    const ops = [_]ability.ir.plan.Op{.{
-        .requirement_index = 0,
-        .op_name = "throw",
-        .mode = .abort,
-        .payload_codec = .i32,
-        .resume_codec = .unit,
     }};
     const blocks = [_]ability.ir.plan.Block{.{
         .first_instruction = 0,
@@ -80,6 +73,18 @@ fn productExceptionPlan() ability.ir.ProgramPlan {
     const instructions = [_]ability.ir.plan.Instruction{
         mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload)),
     };
+    const ExceptionRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("exception", ability.effect.exception.Schema(ProductPayload, error{}, void), void),
+        .{
+            .requirement_index = 0,
+            .first_op = 0,
+            .schema_refs = ability.ir.schema.SchemaRefs(.{
+                ability.ir.schema.ref(ProductPayload, 0),
+            }),
+        },
+    );
+    const requirements = [_]ability.ir.plan.Requirement{ExceptionRows.requirement};
+    const ops = ExceptionRows.ops;
     const functions = [_]ability.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
@@ -97,20 +102,6 @@ fn productExceptionPlan() ability.ir.ProgramPlan {
         .block_count = 1,
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
-    }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
-        .label = "exception",
-        .first_op = 0,
-        .op_count = 1,
-        .lifecycle_tag = .abort_catch,
-    }};
-    const ops = [_]ability.ir.plan.Op{.{
-        .requirement_index = 0,
-        .op_name = "throw",
-        .mode = .abort,
-        .payload_codec = .product,
-        .payload_schema_index = 0,
-        .resume_codec = .unit,
     }};
     const schemas = [_]ability.ir.ValueSchemaPlan{.{
         .label = @typeName(ProductPayload),
@@ -153,6 +144,18 @@ fn sumExceptionPlan() ability.ir.ProgramPlan {
     const instructions = [_]ability.ir.plan.Instruction{
         mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload)),
     };
+    const ExceptionRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("exception", ability.effect.exception.Schema(OptionalPayload, error{}, void), void),
+        .{
+            .requirement_index = 0,
+            .first_op = 0,
+            .schema_refs = ability.ir.schema.SchemaRefs(.{
+                ability.ir.schema.ref(OptionalPayload, 0),
+            }),
+        },
+    );
+    const requirements = [_]ability.ir.plan.Requirement{ExceptionRows.requirement};
+    const ops = ExceptionRows.ops;
     const functions = [_]ability.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
@@ -169,20 +172,6 @@ fn sumExceptionPlan() ability.ir.ProgramPlan {
         .block_count = 1,
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
-    }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
-        .label = "exception",
-        .first_op = 0,
-        .op_count = 1,
-        .lifecycle_tag = .abort_catch,
-    }};
-    const ops = [_]ability.ir.plan.Op{.{
-        .requirement_index = 0,
-        .op_name = "throw",
-        .mode = .abort,
-        .payload_codec = .sum,
-        .payload_schema_index = 0,
-        .resume_codec = .unit,
     }};
     const variants = [_]ability.ir.ValueVariantPlan{
         ability.ir.value.unitVariant("none"),

@@ -143,10 +143,32 @@ Offsets remain caller-controlled. The lowerer does not allocate from a hidden
 registry, reorder tables, or decide the surrounding ProgramPlan layout. This
 keeps it composable with raw rows and with the layout builder.
 
-The first version supports scalar payload, resume, and output refs. Structured
-product and sum refs require an explicit ProgramPlan schema-index map before
-they can be lowered safely, so those schemas remain a future extension point
-rather than an implicit global lookup.
+Scalar payload, resume, and output refs lower without extra metadata. Product
+and sum refs require a caller-owned, local schema-index map so the lowerer can
+emit the same ordinary ProgramPlan refs a raw row would contain:
+
+```zig
+const schema_refs = ability.ir.schema.SchemaRefs(.{
+    ability.ir.schema.ref(ProductPayload, 0),
+    ability.ir.schema.ref(OptionalPayload, 1),
+});
+
+const ExceptionRows = ability.ir.schema.LowerBinding(
+    ability.ir.schema.Binding(
+        "exception",
+        ability.effect.exception.Schema(ProductPayload, error{}, void),
+        void,
+    ),
+    .{ .requirement_index = 0, .first_op = 0, .schema_refs = schema_refs },
+);
+```
+
+The map is explicit and comptime-only. It rejects scalar entries and duplicate
+Zig types, and a missing product/sum payload, resume, or output type fails at
+compile time. The indexes are the caller's existing `value_schemas` table
+indexes; nested product/sum schema rows still reference whatever caller-owned
+schema indexes those rows declare. No hidden registry or global schema discovery
+exists.
 
 Writer accumulator schemas distinguish the final handler output from the
 ProgramPlan output row. The schema final output is the collected `[]Item`; the
@@ -243,10 +265,10 @@ schemas, fields, variants, requirements, ops, payload/resume refs, after flags,
 nested-with targets, and outputs instead of depending on mutable table access.
 
 `ability.ir.schema.LowerBinding` is the preferred row-metadata route for
-built-in plan-native helpers. Future built-ins should share that schema path
-instead of adding bespoke requirement/op/output row generators. Optional-shaped
-helpers may still provide control-flow conveniences, but the common metadata
-should come from schemas when the schema can describe it.
+built-in plan-native helpers. Built-ins should share that schema path instead
+of adding bespoke requirement/op/output row generators. Optional-shaped helpers
+may still provide control-flow conveniences, but the common metadata should
+come from schemas when the schema can describe it.
 
 This is not custom effect authoring yet. It does not expose `effect.Define`,
 `effect.ops`, public generated custom effects, a parser, compiler, VM,
