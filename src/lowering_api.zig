@@ -39,7 +39,6 @@ pub const SessionBlockerTag = enum {
     payload_codec,
     resume_codec,
     local_codec,
-    after_hook,
 };
 pub const SessionBlocker = struct {
     tag: SessionBlockerTag,
@@ -59,7 +58,7 @@ pub const ExecutablePlanSupportError = error{
     UnsupportedLocalCodec,
 };
 pub const SessionPlanSupportError = error{
-    UnsupportedSessionAfterHook,
+    UnsupportedSessionPlan,
 };
 
 fn appendCapabilityBlocker(
@@ -243,22 +242,10 @@ pub fn SessionCapabilityLedgerForPlan(
         var blockers: [max_capability_blockers]SessionBlocker = undefined;
         var count: usize = 0;
         var truncated = false;
-        const analysis = program_plan.entryExecutionAnalysisWithNestedTargets(compiled_plan, nested_with_targets) catch {
-            appendSessionBlocker(&blockers, &count, &truncated, .{ .tag = .after_hook });
+        _ = program_plan.entryExecutionAnalysisWithNestedTargets(compiled_plan, nested_with_targets) catch {
+            appendSessionBlocker(&blockers, &count, &truncated, .{ .tag = .local_codec });
             break :blk .{ .items = blockers[0..count].*, .truncated = truncated };
         };
-        for (compiled_plan.instructions, 0..) |instruction, instruction_index| {
-            if (!analysis.reachable_instructions[instruction_index] or instruction.kind != .call_op) continue;
-            if (instruction.operand >= compiled_plan.ops.len) continue;
-            const op = compiled_plan.ops[instruction.operand];
-            if (!op.has_after) continue;
-            appendSessionBlocker(&blockers, &count, &truncated, .{
-                .tag = .after_hook,
-                .function_index = @intCast(instructionOwnerFunctionIndex(compiled_plan, instruction_index) orelse std.math.maxInt(u16)),
-                .instruction_index = @intCast(instruction_index),
-                .op_index = instruction.operand,
-            });
-        }
         break :blk .{ .items = blockers[0..count].*, .truncated = truncated };
     };
     return struct {
@@ -346,7 +333,7 @@ pub fn validateSessionPlanSupportWithNestedTargets(
 ) SessionPlanSupportError!void {
     comptime {
         const ledger = SessionCapabilityLedgerForPlan(compiled_plan, nested_with_targets);
-        if (ledger.blockers.len != 0) return error.UnsupportedSessionAfterHook;
+        if (ledger.blockers.len != 0) return error.UnsupportedSessionPlan;
     }
 }
 
@@ -356,7 +343,7 @@ pub fn validateTypedSessionExecutablePlanSupportWithNestedTargets(
     comptime nested_with_targets: anytype,
 ) ExecutablePlanSupportError!void {
     try validateTypedExecutablePlanSupportWithNestedTargets(compiled_plan, schema_types, nested_with_targets);
-    validateSessionPlanSupportWithNestedTargets(compiled_plan, nested_with_targets) catch return error.UnsupportedAfterHook;
+    validateSessionPlanSupportWithNestedTargets(compiled_plan, nested_with_targets) catch return error.UnsupportedLocalCodec;
 }
 
 pub fn executableResultCodecForType(comptime T: type) program_plan.CodecError!program_plan.ValueCodec {
@@ -1850,6 +1837,54 @@ fn afterDispatchHandler(
         @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, or authored fallback");
 }
 
+fn AfterDispatchHandlerType(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime op: program_plan.OpPlan,
+    comptime HandlersPtr: type,
+) type {
+    const requirement = comptime compiled_plan.requirements[op.requirement_index];
+    const HandlerSet = HandlerSetType(HandlersPtr);
+    return if (comptime @hasField(HandlerSet, requirement.label) and
+        @hasDecl(HandlerType(@FieldType(HandlerSet, requirement.label)), "dispatch"))
+        HandlerType(@FieldType(HandlerSet, requirement.label))
+    else if (comptime @hasField(HandlerSet, requirement.label) and
+        @hasField(HandlerSetType(@FieldType(HandlerSet, requirement.label)), op.op_name))
+        HandlerType(@FieldType(HandlerSetType(@FieldType(HandlerSet, requirement.label)), op.op_name))
+    else if (comptime @hasField(HandlerSet, requirement.label) and
+        @hasField(HandlerSetType(@FieldType(HandlerSet, requirement.label)), "authored"))
+        HandlerType(@FieldType(HandlerSetType(@FieldType(HandlerSet, requirement.label)), "authored"))
+    else if (comptime @hasField(HandlerSet, op.op_name) and opNameIsUnique(compiled_plan, op.op_name))
+        HandlerType(@FieldType(HandlerSet, op.op_name))
+    else if (comptime @hasField(HandlerSet, "authored") and opNameIsUnique(compiled_plan, op.op_name))
+        HandlerType(@FieldType(HandlerSet, "authored"))
+    else
+        @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, or authored fallback");
+}
+
+fn hasAfterDispatchHandlerType(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime op: program_plan.OpPlan,
+    comptime HandlersPtr: type,
+) bool {
+    const requirement = comptime compiled_plan.requirements[op.requirement_index];
+    const HandlerSet = HandlerSetType(HandlersPtr);
+    return if (comptime @hasField(HandlerSet, requirement.label) and
+        @hasDecl(HandlerType(@FieldType(HandlerSet, requirement.label)), "dispatch"))
+        @hasDecl(HandlerType(@FieldType(HandlerSet, requirement.label)), "afterDispatch")
+    else if (comptime @hasField(HandlerSet, requirement.label) and
+        @hasField(HandlerSetType(@FieldType(HandlerSet, requirement.label)), op.op_name))
+        @hasDecl(HandlerType(@FieldType(HandlerSetType(@FieldType(HandlerSet, requirement.label)), op.op_name)), "afterDispatch")
+    else if (comptime @hasField(HandlerSet, requirement.label) and
+        @hasField(HandlerSetType(@FieldType(HandlerSet, requirement.label)), "authored"))
+        @hasDecl(HandlerType(@FieldType(HandlerSetType(@FieldType(HandlerSet, requirement.label)), "authored")), "afterDispatch")
+    else if (comptime @hasField(HandlerSet, op.op_name) and opNameIsUnique(compiled_plan, op.op_name))
+        @hasDecl(HandlerType(@FieldType(HandlerSet, op.op_name)), "afterDispatch")
+    else if (comptime @hasField(HandlerSet, "authored") and opNameIsUnique(compiled_plan, op.op_name))
+        @hasDecl(HandlerType(@FieldType(HandlerSet, "authored")), "afterDispatch")
+    else
+        false;
+}
+
 // zlinter-disable max_positional_args - after dispatch preserves explicit input/output refs while keeping the op, plan, handlers, and scratch state visible.
 fn applyAfterByIndexForRefExact(
     comptime input_ref: program_plan.ValueRef,
@@ -2021,6 +2056,80 @@ fn applyAfterByIndex(
         value,
         current_ref,
     );
+}
+
+fn sessionAfterOutputRefByIndex(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime schema_types: anytype,
+    comptime HandlersType: type,
+    op_index: u16,
+    current_ref: program_plan.ValueRef,
+    remaining: usize,
+    final_ref: program_plan.ValueRef,
+) anyerror!program_plan.ValueRef {
+    if (remaining == 1) return final_ref;
+    return switch (current_ref.codec) {
+        .unit => sessionIntermediateAfterOutputRefByIndexForRef(.{ .codec = .unit }, compiled_plan, schema_types, HandlersType, op_index, final_ref),
+        .bool => sessionIntermediateAfterOutputRefByIndexForRef(.{ .codec = .bool }, compiled_plan, schema_types, HandlersType, op_index, final_ref),
+        .i32 => sessionIntermediateAfterOutputRefByIndexForRef(.{ .codec = .i32 }, compiled_plan, schema_types, HandlersType, op_index, final_ref),
+        .usize => sessionIntermediateAfterOutputRefByIndexForRef(.{ .codec = .usize }, compiled_plan, schema_types, HandlersType, op_index, final_ref),
+        .string => sessionIntermediateAfterOutputRefByIndexForRef(.{ .codec = .string }, compiled_plan, schema_types, HandlersType, op_index, final_ref),
+        .string_list => sessionIntermediateAfterOutputRefByIndexForRef(.{ .codec = .string_list }, compiled_plan, schema_types, HandlersType, op_index, final_ref),
+        .product => {
+            inline for (schema_types, 0..) |_, schema_index| {
+                if (current_ref.schema_index == @as(u16, @intCast(schema_index))) {
+                    return sessionIntermediateAfterOutputRefByIndexForRef(
+                        .{ .codec = .product, .schema_index = @intCast(schema_index) },
+                        compiled_plan,
+                        schema_types,
+                        HandlersType,
+                        op_index,
+                        final_ref,
+                    );
+                }
+            }
+            return error.ProgramContractViolation;
+        },
+        .sum => {
+            inline for (schema_types, 0..) |_, schema_index| {
+                if (current_ref.schema_index == @as(u16, @intCast(schema_index))) {
+                    return sessionIntermediateAfterOutputRefByIndexForRef(
+                        .{ .codec = .sum, .schema_index = @intCast(schema_index) },
+                        compiled_plan,
+                        schema_types,
+                        HandlersType,
+                        op_index,
+                        final_ref,
+                    );
+                }
+            }
+            return error.ProgramContractViolation;
+        },
+    };
+}
+
+fn sessionIntermediateAfterOutputRefByIndexForRef(
+    comptime input_ref: program_plan.ValueRef,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime schema_types: anytype,
+    comptime HandlersType: type,
+    op_index: u16,
+    final_ref: program_plan.ValueRef,
+) anyerror!program_plan.ValueRef {
+    inline for (compiled_plan.ops, 0..) |op, index| {
+        if (op_index == index) {
+            if (!op.has_after) return error.ProgramContractViolation;
+            if (comptime !hasAfterDispatchHandlerType(compiled_plan, op, HandlersType)) {
+                if (input_ref.eql(final_ref)) return final_ref;
+                return error.ProgramContractViolation;
+            }
+            const Authored = AfterDispatchHandlerType(compiled_plan, op, HandlersType);
+            if (comptime !afterDispatchAccepts(compiled_plan, schema_types, Authored, input_ref)) return error.ProgramContractViolation;
+            const Value = CallableReturnPayloadType(Authored.afterDispatch);
+            return runtimeValueRefForType(schema_types, Value) orelse error.ProgramContractViolation;
+        }
+    }
+    return error.ProgramContractViolation;
 }
 
 fn completeFunctionValue(
@@ -2782,13 +2891,13 @@ fn completeSessionFunctionValue(
     completion: CompletionValue,
 ) anyerror!ExecutableValue {
     const function = comptime compiled_plan.functions[function_index];
-    if (completion.after_stack.len != 0) return error.ProgramContractViolation;
+    if (completion.kind == .normal and completion.after_stack.len != 0) return error.ProgramContractViolation;
     const result_ref = comptime program_plan.functionResultRef(function);
     const value_ref: program_plan.ValueRef = comptime .{
         .codec = function.value_codec,
         .schema_index = function.value_schema_index,
     };
-    const final_ref = if (completion.kind == .terminal) result_ref else value_ref;
+    const final_ref = if (completion.kind == .terminal or completion.initial_ref.eql(result_ref)) result_ref else value_ref;
     if (!valueMatchesRef(final_ref, completion.value)) return error.ProgramContractViolation;
     return completion.value;
 }
@@ -2879,11 +2988,13 @@ pub fn ExecutableSessionForPlan(
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime schema_types: anytype,
     comptime nested_with_targets: anytype,
+    comptime HandlersType: type,
 ) type {
     const entry = compiled_plan.functions[compiled_plan.entry_index];
     const analysis = comptime program_plan.entryExecutionAnalysisWithNestedTargets(compiled_plan, nested_with_targets) catch |err|
         @compileError("validated ProgramPlan entry analysis failed: " ++ @errorName(err));
     const RawResult = TypedRunResultTypeForPlan(compiled_plan, schema_types);
+    const session_after_stack_capacity = if (analysis.reachable_after_count == 0) 0 else max_interpreter_steps;
 
     return struct {
         const Self = @This();
@@ -2899,6 +3010,31 @@ pub fn ExecutableSessionForPlan(
             mode: program_plan.ControlMode,
             resume_ref: program_plan.ValueRef,
             result_ref: program_plan.ValueRef,
+            has_after: bool,
+        };
+
+        const PendingAfter = struct {
+            session_id: usize,
+            token: u64,
+            function_index: usize,
+            op_index: u16,
+            value_ref: program_plan.ValueRef,
+            output_ref: program_plan.ValueRef,
+            result_ref: program_plan.ValueRef,
+            remaining: usize,
+        };
+
+        const Pending = union(enum) {
+            after: PendingAfter,
+            op: PendingRequest,
+        };
+
+        const AfterUnwind = struct {
+            function_index: usize,
+            value: ExecutableValue,
+            current_ref: program_plan.ValueRef,
+            final_ref: program_plan.ValueRef,
+            remaining: usize,
         };
 
         const RequestPayload = union(enum) {
@@ -2912,12 +3048,13 @@ pub fn ExecutableSessionForPlan(
         };
 
         allocator: std.mem.Allocator,
-        scratch: InterpreterScratch(0),
+        scratch: InterpreterScratch(session_after_stack_capacity),
         frames: ActiveFrameStack,
         session_id: usize,
         remaining_steps: usize = max_interpreter_steps,
         next_token: u64 = 1,
-        pending: ?PendingRequest = null,
+        pending: ?Pending = null,
+        unwinding_after: ?AfterUnwind = null,
         completed: ?ExecutionResult = null,
         done_consumed: bool = false,
 
@@ -3007,9 +3144,95 @@ pub fn ExecutableSessionForPlan(
             }
         };
 
+        pub const AfterRequest = struct {
+            _session_id: usize,
+            token: u64,
+            requirement_index: u16,
+            requirement_label: []const u8,
+            op_index: u16,
+            op_name: []const u8,
+            value_ref: program_plan.ValueRef,
+            has_value: bool,
+            output_ref: program_plan.ValueRef,
+            result_ref: program_plan.ValueRef,
+            _remaining: usize,
+            _value: RequestPayload,
+            _value_storage: [request_payload_storage_size]u8 align(request_payload_storage_align) = undefined,
+
+            pub fn value(self: @This(), comptime T: type) error{ProgramContractViolation}!T {
+                if (!typeMatchesRuntimeRef(schema_types, self.value_ref, T)) return error.ProgramContractViolation;
+                if (T == void) return switch (self._value) {
+                    .none => {},
+                    else => error.ProgramContractViolation,
+                };
+                if (T == bool) return switch (self._value) {
+                    .bool => |typed| typed,
+                    else => error.ProgramContractViolation,
+                };
+                if (T == i32) return switch (self._value) {
+                    .i32 => |typed| typed,
+                    else => error.ProgramContractViolation,
+                };
+                if (T == usize) return switch (self._value) {
+                    .usize => |typed| typed,
+                    else => error.ProgramContractViolation,
+                };
+                if (T == []const u8) return switch (self._value) {
+                    .string => |typed| typed,
+                    else => error.ProgramContractViolation,
+                };
+                if (T == []const []const u8) return switch (self._value) {
+                    .string_list => |typed| typed,
+                    else => error.ProgramContractViolation,
+                };
+                if (T == [][]const u8) return error.ProgramContractViolation;
+
+                const schema_index = self.value_ref.schema_index orelse return error.ProgramContractViolation;
+                const expected_codec: program_plan.ValueCodec = comptime switch (@typeInfo(T)) {
+                    .@"struct" => .product,
+                    .@"enum", .@"union", .optional => .sum,
+                    else => return error.ProgramContractViolation,
+                };
+                if (self.value_ref.codec != expected_codec) return error.ProgramContractViolation;
+                return switch (self._value) {
+                    .schema_index => |actual_index| blk: {
+                        if (actual_index != schema_index) return error.ProgramContractViolation;
+                        const typed: *const T = @ptrCast(@alignCast(&self._value_storage));
+                        break :blk typed.*;
+                    },
+                    else => error.ProgramContractViolation,
+                };
+            }
+
+            fn setValue(self: *@This(), current_value: ExecutableValue) error{ProgramContractViolation}!void {
+                self._value = switch (current_value) {
+                    .none => .none,
+                    .bool => |typed| .{ .bool = typed },
+                    .i32 => |typed| .{ .i32 = typed },
+                    .usize => |typed| .{ .usize = typed },
+                    .string => |typed| .{ .string = typed },
+                    .string_list => |typed| .{ .string_list = typed },
+                    .schema => |schema| try self.storeStructuredValue(schema),
+                };
+            }
+
+            fn storeStructuredValue(self: *@This(), schema: SchemaValue) error{ProgramContractViolation}!RequestPayload {
+                inline for (schema_types, 0..) |SchemaType, schema_index| {
+                    if (schema.schema_index == @as(u16, @intCast(schema_index))) {
+                        const source: *const SchemaType = @ptrCast(@alignCast(schema.ptr));
+                        const destination: *SchemaType = @ptrCast(@alignCast(&self._value_storage));
+                        destination.* = source.*;
+                        return .{ .schema_index = schema.schema_index };
+                    }
+                }
+                return error.ProgramContractViolation;
+            }
+        };
+
         pub const Step = union(enum) {
-            request: Request,
+            after: AfterRequest,
             done: RawResult,
+            request: Request,
         };
 
         const session_id_source = struct {
@@ -3027,7 +3250,7 @@ pub fn ExecutableSessionForPlan(
                 @compileError("Program.Session.start failed executable support validation: " ++ @errorName(err));
             comptime validateSessionPlanSupportWithNestedTargets(compiled_plan, nested_with_targets) catch |err|
                 @compileError("Program.Session.start unsupported: " ++ @errorName(err));
-            var scratch = try InterpreterScratch(0).init(
+            var scratch = try InterpreterScratch(session_after_stack_capacity).init(
                 allocator,
                 analysis.max_active_local_slots,
                 analysis.max_active_call_arg_slots,
@@ -3061,6 +3284,7 @@ pub fn ExecutableSessionForPlan(
             self.frames.deinit(self.allocator);
             self.scratch.deinit();
             self.pending = null;
+            self.unwinding_after = null;
             self.completed = null;
         }
 
@@ -3070,11 +3294,18 @@ pub fn ExecutableSessionForPlan(
 
         pub fn next(self: *Self) anyerror!Step {
             if (self.pending != null) return error.ProgramContractViolation;
+            if (self.unwinding_after != null) {
+                if (try self.continueAfterUnwind()) |step| return step;
+            }
             if (self.completed != null) return self.consumeCompleted();
             if (self.done_consumed) return error.ProgramContractViolation;
 
             while (self.frames.len() != 0) {
                 try consumeInterpreterStep(&self.remaining_steps);
+                if (self.unwinding_after != null) {
+                    if (try self.continueAfterUnwind()) |step| return step;
+                    continue;
+                }
                 const active = self.frames.top();
                 if (active.waiting_helper_dst != null) return error.ProgramContractViolation;
 
@@ -3145,7 +3376,6 @@ pub fn ExecutableSessionForPlan(
                             if (comptime compiled_plan.ops.len == 0) return error.ProgramContractViolation;
                             if (instruction.operand >= compiled_plan.ops.len) return error.ProgramContractViolation;
                             const op = compiled_plan.ops[instruction.operand];
-                            if (op.has_after) return error.ProgramContractViolation;
                             const payload_ref: program_plan.ValueRef = .{
                                 .codec = op.payload_codec,
                                 .schema_index = op.payload_schema_index,
@@ -3223,36 +3453,22 @@ pub fn ExecutableSessionForPlan(
                         active.instruction_end = bounds.end;
                     },
                     .return_unit => {
-                        const completed = try completeSessionFunctionValueByIndex(
-                            compiled_plan,
-                            active.function_index,
-                            .{
-                                .value = if (function.value_codec == .unit) .none else active.last_return,
-                                .initial_ref = .{ .codec = function.value_codec, .schema_index = function.value_schema_index },
-                                .after_stack = self.scratch.frameAfterStack(active.frame),
-                                .kind = .normal,
-                            },
-                        );
-                        if (try returnFromSessionFrame(compiled_plan, &self.scratch, &self.frames, .{ .value = completed, .terminal = false })) |result| {
-                            self.completed = result;
-                            return self.consumeCompleted();
-                        }
+                        const completion: CompletionValue = .{
+                            .value = if (function.value_codec == .unit) .none else active.last_return,
+                            .initial_ref = .{ .codec = function.value_codec, .schema_index = function.value_schema_index },
+                            .after_stack = self.scratch.frameAfterStack(active.frame),
+                            .kind = .normal,
+                        };
+                        if (try self.beginOrCompleteSessionReturn(active.function_index, completion)) |step| return step;
                     },
                     .return_value => {
-                        const completed = try completeSessionFunctionValueByIndex(
-                            compiled_plan,
-                            active.function_index,
-                            .{
-                                .value = active.last_return,
-                                .initial_ref = .{ .codec = function.value_codec, .schema_index = function.value_schema_index },
-                                .after_stack = self.scratch.frameAfterStack(active.frame),
-                                .kind = .normal,
-                            },
-                        );
-                        if (try returnFromSessionFrame(compiled_plan, &self.scratch, &self.frames, .{ .value = completed, .terminal = false })) |result| {
-                            self.completed = result;
-                            return self.consumeCompleted();
-                        }
+                        const completion: CompletionValue = .{
+                            .value = active.last_return,
+                            .initial_ref = .{ .codec = function.value_codec, .schema_index = function.value_schema_index },
+                            .after_stack = self.scratch.frameAfterStack(active.frame),
+                            .kind = .normal,
+                        };
+                        if (try self.beginOrCompleteSessionReturn(active.function_index, completion)) |step| return step;
                     },
                 }
             }
@@ -3268,6 +3484,7 @@ pub fn ExecutableSessionForPlan(
             const active = self.frames.top();
             if (active.function_index != pending.function_index or active.waiting_helper_dst != null) return error.ProgramContractViolation;
             var locals = self.scratch.frameLocals(active.frame);
+            if (pending.has_after) try self.scratch.pushAfter(pending.op_index);
             if (pending.resume_ref.codec == .unit) {
                 active.last_return = encoded;
             } else if (pending.dst != std.math.maxInt(u16)) {
@@ -3275,6 +3492,25 @@ pub fn ExecutableSessionForPlan(
             } else {
                 active.last_return = encoded;
             }
+            self.pending = null;
+        }
+
+        pub fn resumeAfter(self: *Self, request: AfterRequest, value: anytype) anyerror!void {
+            const pending = try self.checkedPendingAfter(request);
+            const encoded = try encodeRuntimeValueForRuntimeRef(schema_types, pending.output_ref, &self.scratch, value);
+            if (!valueMatchesRef(pending.output_ref, encoded)) return error.ProgramContractViolation;
+            if (self.unwinding_after) |*unwind| {
+                if (unwind.function_index != pending.function_index or
+                    unwind.remaining != pending.remaining or
+                    !unwind.current_ref.eql(pending.value_ref) or
+                    !unwind.final_ref.eql(pending.result_ref))
+                {
+                    return error.ProgramContractViolation;
+                }
+                unwind.value = encoded;
+                unwind.current_ref = pending.output_ref;
+                unwind.remaining -= 1;
+            } else return error.ProgramContractViolation;
             self.pending = null;
         }
 
@@ -3303,6 +3539,89 @@ pub fn ExecutableSessionForPlan(
             self.pending = null;
         }
 
+        fn beginOrCompleteSessionReturn(
+            self: *Self,
+            function_index: usize,
+            completion: CompletionValue,
+        ) anyerror!?Step {
+            if (completion.kind == .normal and completion.after_stack.len != 0) {
+                const function = compiled_plan.functions[function_index];
+                self.unwinding_after = .{
+                    .function_index = function_index,
+                    .value = completion.value,
+                    .current_ref = completion.initial_ref,
+                    .final_ref = program_plan.functionResultRef(function),
+                    .remaining = completion.after_stack.len,
+                };
+                return self.continueAfterUnwind();
+            }
+
+            const completed = try completeSessionFunctionValueByIndex(
+                compiled_plan,
+                function_index,
+                completion,
+            );
+            if (try returnFromSessionFrame(compiled_plan, &self.scratch, &self.frames, .{ .value = completed, .terminal = false })) |result| {
+                self.completed = result;
+                return @as(?Step, try self.consumeCompleted());
+            }
+            return null;
+        }
+
+        fn continueAfterUnwind(self: *Self) anyerror!?Step {
+            const unwind = self.unwinding_after orelse return null;
+            if (self.frames.len() == 0) return error.ProgramContractViolation;
+            const active = self.frames.top();
+            if (active.function_index != unwind.function_index or active.waiting_helper_dst != null) return error.ProgramContractViolation;
+
+            if (unwind.remaining == 0) {
+                return self.completeUnwoundFunction(unwind);
+            }
+
+            const after_stack = self.scratch.frameAfterStack(active.frame);
+            if (unwind.remaining > after_stack.len) return error.ProgramContractViolation;
+            const after_index = unwind.remaining - 1;
+            const op_index = after_stack[after_index];
+            const output_ref = try sessionAfterOutputRefByIndex(
+                compiled_plan,
+                schema_types,
+                HandlersType,
+                op_index,
+                unwind.current_ref,
+                unwind.remaining,
+                unwind.final_ref,
+            );
+            const request = try self.makeAfterRequest(
+                unwind.function_index,
+                op_index,
+                unwind.current_ref,
+                output_ref,
+                unwind.final_ref,
+                unwind.remaining,
+                unwind.value,
+            );
+            return .{ .after = request };
+        }
+
+        fn completeUnwoundFunction(self: *Self, unwind: AfterUnwind) anyerror!?Step {
+            self.unwinding_after = null;
+            const completed = try completeSessionFunctionValueByIndex(
+                compiled_plan,
+                unwind.function_index,
+                .{
+                    .value = unwind.value,
+                    .initial_ref = unwind.final_ref,
+                    .after_stack = &.{},
+                    .kind = .normal,
+                },
+            );
+            if (try returnFromSessionFrame(compiled_plan, &self.scratch, &self.frames, .{ .value = completed, .terminal = false })) |result| {
+                self.completed = result;
+                return @as(?Step, try self.consumeCompleted());
+            }
+            return null;
+        }
+
         fn makeRequest(
             self: *Self,
             function_index: usize,
@@ -3324,7 +3643,7 @@ pub fn ExecutableSessionForPlan(
                     };
                     const token = self.next_token;
                     self.next_token +%= 1;
-                    self.pending = .{
+                    self.pending = .{ .op = .{
                         .session_id = self.session_id,
                         .token = token,
                         .function_index = function_index,
@@ -3333,7 +3652,8 @@ pub fn ExecutableSessionForPlan(
                         .mode = op.mode,
                         .resume_ref = resume_ref,
                         .result_ref = result_ref,
-                    };
+                        .has_after = op.has_after,
+                    } };
                     var request: Request = .{
                         ._session_id = self.session_id,
                         .token = token,
@@ -3356,13 +3676,82 @@ pub fn ExecutableSessionForPlan(
             unreachable;
         }
 
+        fn makeAfterRequest(
+            self: *Self,
+            function_index: usize,
+            op_index: u16,
+            value_ref: program_plan.ValueRef,
+            output_ref: program_plan.ValueRef,
+            result_ref: program_plan.ValueRef,
+            remaining: usize,
+            value: ExecutableValue,
+        ) error{ProgramContractViolation}!AfterRequest {
+            inline for (compiled_plan.ops, 0..) |op, index| {
+                if (op_index == index) {
+                    if (!op.has_after) return error.ProgramContractViolation;
+                    if (!valueMatchesRef(value_ref, value)) return error.ProgramContractViolation;
+                    const requirement = compiled_plan.requirements[op.requirement_index];
+                    const token = self.next_token;
+                    self.next_token +%= 1;
+                    self.pending = .{ .after = .{
+                        .session_id = self.session_id,
+                        .token = token,
+                        .function_index = function_index,
+                        .op_index = op_index,
+                        .value_ref = value_ref,
+                        .output_ref = output_ref,
+                        .result_ref = result_ref,
+                        .remaining = remaining,
+                    } };
+                    var request: AfterRequest = .{
+                        ._session_id = self.session_id,
+                        .token = token,
+                        .requirement_index = op.requirement_index,
+                        .requirement_label = requirement.label,
+                        .op_index = op_index,
+                        .op_name = op.op_name,
+                        .value_ref = value_ref,
+                        .has_value = value_ref.codec != .unit,
+                        .output_ref = output_ref,
+                        .result_ref = result_ref,
+                        ._remaining = remaining,
+                        ._value = .none,
+                    };
+                    try request.setValue(value);
+                    return request;
+                }
+            }
+            return error.ProgramContractViolation;
+        }
+
         fn checkedPending(self: *Self, request: Request) error{ProgramContractViolation}!PendingRequest {
-            const pending = self.pending orelse return error.ProgramContractViolation;
+            const pending = switch (self.pending orelse return error.ProgramContractViolation) {
+                .op => |pending_op| pending_op,
+                .after => return error.ProgramContractViolation,
+            };
             if (pending.session_id != request._session_id or
                 pending.token != request.token or
                 pending.op_index != request.op_index or
                 pending.mode != request.mode or
                 !pending.resume_ref.eql(request.resume_ref) or
+                !pending.result_ref.eql(request.result_ref))
+            {
+                return error.ProgramContractViolation;
+            }
+            return pending;
+        }
+
+        fn checkedPendingAfter(self: *Self, request: AfterRequest) error{ProgramContractViolation}!PendingAfter {
+            const pending = switch (self.pending orelse return error.ProgramContractViolation) {
+                .op => return error.ProgramContractViolation,
+                .after => |pending_after| pending_after,
+            };
+            if (pending.session_id != request._session_id or
+                pending.token != request.token or
+                pending.op_index != request.op_index or
+                pending.remaining != request._remaining or
+                !pending.value_ref.eql(request.value_ref) or
+                !pending.output_ref.eql(request.output_ref) or
                 !pending.result_ref.eql(request.result_ref))
             {
                 return error.ProgramContractViolation;
@@ -3384,6 +3773,7 @@ pub fn ExecutableSessionForPlan(
             return switch (try self.consumeCompleted()) {
                 .done => |done| done,
                 .request => unreachable,
+                .after => unreachable,
             };
         }
     };
@@ -4881,7 +5271,7 @@ test "ability.program executable support ignores post-terminal structured helper
 }
 
 test "Program.Session start failure owns moved scratch and frame buffers once" {
-    const Session = ExecutableSessionForPlan(error{}, supportParameterPlan(.i32), &.{}, &.{});
+    const Session = ExecutableSessionForPlan(error{}, supportParameterPlan(.i32), &.{}, &.{}, struct {});
     const bad_args = [_]lowered_machine.ProgramValue{.{ .bool = true }};
 
     try std.testing.expectError(

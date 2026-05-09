@@ -145,6 +145,7 @@ pub fn run(writer: anytype) !void {
 
     while (true) {
         switch (try session.next()) {
+            .after => return error.UnexpectedAfter,
             .request => |request| {
                 if (std.mem.eql(u8, request.op_name, "decide")) {
                     const observation = try request.payload([]const u8);
