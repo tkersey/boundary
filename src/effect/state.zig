@@ -3,6 +3,7 @@ const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
 const lexical_with = @import("../internal/lexical_support.zig");
 const lowered_machine = @import("lowered_machine");
+const plan_ir = @import("../ir_api.zig");
 const ability = lowered_machine;
 const std = @import("std");
 
@@ -138,6 +139,192 @@ pub fn handleWithErrorSet(
     AnswerType,
 ) {
     return try algebraic.handleStateWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
+}
+
+/// Plan-native ProgramPlan construction helpers for the built-in state family.
+pub const plan = struct {
+    /// Canonical operation ordinal for `state.get`.
+    pub const get_op_ordinal: u16 = 0;
+    /// Canonical operation ordinal for `state.set`.
+    pub const set_op_ordinal: u16 = 1;
+
+    /// Build the canonical state binding schema for one requirement label.
+    pub fn Binding(comptime label: [:0]const u8, comptime StateType: type, comptime ErrorSetType: type) type {
+        return plan_ir.schema.Binding(label, Schema(StateType, ErrorSetType), void);
+    }
+
+    /// Lower the canonical state binding to ordinary ProgramPlan rows.
+    pub fn Rows(
+        comptime label: [:0]const u8,
+        comptime StateType: type,
+        comptime ErrorSetType: type,
+        comptime offsets: plan_ir.schema.BindingOffsets,
+    ) type {
+        return plan_ir.schema.LowerBinding(Binding(label, StateType, ErrorSetType), offsets);
+    }
+
+    /// Build a scalar state value reference.
+    pub fn stateRef(comptime StateType: type) plan_ir.ValueRef {
+        return scalarRef(StateType);
+    }
+
+    /// Build a structured state value reference at a caller-owned schema index.
+    pub fn stateRefFromSchema(comptime StateType: type, schema_index: u16) plan_ir.ValueRef {
+        return structuredRef(StateType, schema_index);
+    }
+
+    /// Build a scalar state local descriptor.
+    pub fn stateLocal(comptime StateType: type) plan_ir.plan.Local {
+        const ref = stateRef(StateType);
+        return .{ .codec = ref.codec, .schema_index = ref.schema_index };
+    }
+
+    /// Build a structured state local descriptor at a caller-owned schema index.
+    pub fn stateLocalFromSchema(comptime StateType: type, schema_index: u16) plan_ir.plan.Local {
+        const ref = stateRefFromSchema(StateType, schema_index);
+        return .{ .codec = ref.codec, .schema_index = ref.schema_index };
+    }
+
+    /// Build the canonical `get` operation reference from a caller-owned op offset.
+    pub fn getOp(function_ref: plan_ir.builder.FunctionRef, first_op: u16) plan_ir.builder.OpRef {
+        return plan_ir.builder.op(function_ref, first_op + get_op_ordinal);
+    }
+
+    /// Build the canonical `set` operation reference from a caller-owned op offset.
+    pub fn setOp(function_ref: plan_ir.builder.FunctionRef, first_op: u16) plan_ir.builder.OpRef {
+        return plan_ir.builder.op(function_ref, first_op + set_op_ordinal);
+    }
+
+    /// Build a state `get` call instruction.
+    pub fn callGet(
+        function_ref: plan_ir.builder.FunctionRef,
+        dst_local: plan_ir.builder.LocalRef,
+        op_ref: plan_ir.builder.OpRef,
+    ) anyerror!plan_ir.plan.Instruction {
+        return plan_ir.builder.callOp(function_ref, dst_local, op_ref, null);
+    }
+
+    /// Build a state `set` call instruction.
+    pub fn callSet(
+        function_ref: plan_ir.builder.FunctionRef,
+        payload_local: plan_ir.builder.LocalRef,
+        op_ref: plan_ir.builder.OpRef,
+    ) anyerror!plan_ir.plan.Instruction {
+        return plan_ir.builder.callOp(function_ref, null, op_ref, payload_local);
+    }
+
+    /// Build the canonical final-state output row through schema lowering.
+    pub fn finalStateOutput(
+        comptime label: [:0]const u8,
+        comptime StateType: type,
+        comptime ErrorSetType: type,
+        comptime schema_refs: type,
+    ) plan_ir.plan.Output {
+        const lowered_rows = Rows(label, StateType, ErrorSetType, .{
+            .requirement_index = 0,
+            .first_op = 0,
+            .first_output = 0,
+            .schema_refs = schema_refs,
+        });
+        return lowered_rows.outputs[0];
+    }
+
+    fn scalarRef(comptime StateType: type) plan_ir.ValueRef {
+        const codec = comptime plan_ir.value.codecForType(StateType) catch @compileError("unsupported state type");
+        return switch (codec) {
+            .product, .sum => @compileError("use state.plan.stateRefFromSchema for structured state types"),
+            else => .{ .codec = codec },
+        };
+    }
+
+    fn structuredRef(comptime StateType: type, schema_index: u16) plan_ir.ValueRef {
+        const codec = comptime plan_ir.value.codecForType(StateType) catch @compileError("unsupported state type");
+        return switch (codec) {
+            .product, .sum => .{ .codec = codec, .schema_index = schema_index },
+            else => @compileError("use state.plan.stateRef for scalar state types"),
+        };
+    }
+};
+
+test "state plan helpers build canonical rows" {
+    const lowered_rows = plan.Rows("state", i32, error{}, .{
+        .requirement_index = 2,
+        .first_op = 5,
+        .first_output = 7,
+    });
+
+    try std.testing.expectEqual(@as(u16, 2), lowered_rows.requirement_index);
+    try std.testing.expectEqual(@as(u16, 7), lowered_rows.first_output);
+    try std.testing.expectEqualStrings("state", lowered_rows.requirement.label);
+    try std.testing.expectEqual(@as(u16, 5), lowered_rows.requirement.first_op);
+    try std.testing.expectEqual(@as(u16, 2), lowered_rows.requirement.op_count);
+    try std.testing.expectEqual(@as(@TypeOf(lowered_rows.requirement.lifecycle_tag), .state_cell), lowered_rows.requirement.lifecycle_tag);
+    try std.testing.expectEqual(@as(@TypeOf(lowered_rows.requirement.output_tag), .final_state), lowered_rows.requirement.output_tag);
+    try std.testing.expectEqualStrings("get", lowered_rows.ops[plan.get_op_ordinal].op_name);
+    try std.testing.expectEqual(plan_ir.PlanControlMode.transform, lowered_rows.ops[plan.get_op_ordinal].mode);
+    try std.testing.expectEqual(plan_ir.ValueCodec.unit, lowered_rows.ops[plan.get_op_ordinal].payload_codec);
+    try std.testing.expectEqual(plan_ir.ValueCodec.i32, lowered_rows.ops[plan.get_op_ordinal].resume_codec);
+    try std.testing.expectEqualStrings("set", lowered_rows.ops[plan.set_op_ordinal].op_name);
+    try std.testing.expectEqual(plan_ir.PlanControlMode.transform, lowered_rows.ops[plan.set_op_ordinal].mode);
+    try std.testing.expectEqual(plan_ir.ValueCodec.i32, lowered_rows.ops[plan.set_op_ordinal].payload_codec);
+    try std.testing.expectEqual(plan_ir.ValueCodec.unit, lowered_rows.ops[plan.set_op_ordinal].resume_codec);
+    try std.testing.expectEqualStrings("state", lowered_rows.outputs[0].label);
+    try std.testing.expectEqual(plan_ir.ValueCodec.i32, lowered_rows.outputs[0].codec);
+
+    const ref = plan.stateRef(i32);
+    try std.testing.expectEqual(plan_ir.ValueCodec.i32, ref.codec);
+    try std.testing.expectEqual(@as(?u16, null), ref.schema_index);
+    const local = plan.stateLocal(i32);
+    try std.testing.expectEqual(plan_ir.ValueCodec.i32, local.codec);
+    try std.testing.expectEqual(@as(?u16, null), local.schema_index);
+}
+
+test "state plan helpers build call instructions" {
+    const root = plan_ir.builder.function(0);
+    const state_local = plan_ir.builder.local(root, 3);
+    const get_instruction = try plan.callGet(root, state_local, plan.getOp(root, 8));
+    try std.testing.expectEqual(plan_ir.plan.InstructionKind.call_op, get_instruction.kind);
+    try std.testing.expectEqual(@as(u16, 3), get_instruction.dst);
+    try std.testing.expectEqual(@as(u16, 8), get_instruction.operand);
+    try std.testing.expectEqual(std.math.maxInt(u16), get_instruction.aux);
+
+    const set_instruction = try plan.callSet(root, state_local, plan.setOp(root, 8));
+    try std.testing.expectEqual(plan_ir.plan.InstructionKind.call_op, set_instruction.kind);
+    try std.testing.expectEqual(std.math.maxInt(u16), set_instruction.dst);
+    try std.testing.expectEqual(@as(u16, 9), set_instruction.operand);
+    try std.testing.expectEqual(@as(u16, 3), set_instruction.aux);
+}
+
+test "state plan helpers support structured state schema refs" {
+    const ProductState = struct {
+        amount: i32,
+    };
+    const schema_refs = plan_ir.schema.SchemaRefs(.{plan_ir.schema.ref(ProductState, 4)});
+    const lowered_rows = plan.Rows("state", ProductState, error{}, .{
+        .requirement_index = 0,
+        .first_op = 0,
+        .first_output = 0,
+        .schema_refs = schema_refs,
+    });
+
+    try std.testing.expectEqual(plan_ir.ValueCodec.product, lowered_rows.ops[plan.get_op_ordinal].resume_codec);
+    try std.testing.expectEqual(@as(?u16, 4), lowered_rows.ops[plan.get_op_ordinal].resume_schema_index);
+    try std.testing.expectEqual(plan_ir.ValueCodec.product, lowered_rows.ops[plan.set_op_ordinal].payload_codec);
+    try std.testing.expectEqual(@as(?u16, 4), lowered_rows.ops[plan.set_op_ordinal].payload_schema_index);
+    try std.testing.expectEqual(plan_ir.ValueCodec.product, lowered_rows.outputs[0].codec);
+    try std.testing.expectEqual(@as(?u16, 4), lowered_rows.outputs[0].schema_index);
+
+    const ref = plan.stateRefFromSchema(ProductState, 4);
+    try std.testing.expectEqual(plan_ir.ValueCodec.product, ref.codec);
+    try std.testing.expectEqual(@as(?u16, 4), ref.schema_index);
+    const local = plan.stateLocalFromSchema(ProductState, 4);
+    try std.testing.expectEqual(plan_ir.ValueCodec.product, local.codec);
+    try std.testing.expectEqual(@as(?u16, 4), local.schema_index);
+
+    const output = plan.finalStateOutput("state", ProductState, error{}, schema_refs);
+    try std.testing.expectEqualStrings("state", output.label);
+    try std.testing.expectEqual(plan_ir.ValueCodec.product, output.codec);
+    try std.testing.expectEqual(@as(?u16, 4), output.schema_index);
 }
 
 test "state instance shell stays prompt-sized" {

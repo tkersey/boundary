@@ -179,6 +179,44 @@ For built-in plan-native helpers, schema lowering is preferred over hand-written
 per-built-in row generators. Raw `ability.ir.plan.*` rows remain available for
 tests that deliberately exercise table escape hatches or unsupported shapes.
 
+## Built-in plan helper namespaces
+
+`ability.effect.optional.plan`, `ability.effect.state.plan`,
+`ability.effect.reader.plan`, and `ability.effect.writer.plan` are reusable
+plan-native helper namespaces. They emit ordinary ProgramPlan rows, value refs,
+locals, op refs, and instruction helpers; they do not add a runtime, VM, parser,
+compiler, source language, Artifact surface, public root export, value codec, or
+custom-effect API.
+
+The state, reader, and writer helpers are transform/output built-ins backed by
+the shared schema lowerer:
+
+- `ability.effect.state.plan` exposes state-cell row lowering, scalar and
+  explicit-schema state refs/locals, `get` and `set` op refs, `callGet`,
+  `callSet`, and the canonical final-state output row shape. The caller owns the
+  requirement index, first op index, first output index, and any schema refs.
+- `ability.effect.reader.plan` exposes reader-environment row lowering, scalar
+  and explicit-schema environment refs/locals, the `ask` op ref, and `callAsk`.
+  Reader has no ProgramPlan output row.
+- `ability.effect.writer.plan` exposes writer-accumulator row lowering, scalar
+  and explicit-schema item refs/locals, the `tell` op ref, `callTell`, and the
+  canonical accumulator output row shape. The ProgramPlan output row records the
+  accumulator item ref.
+
+These helpers pair with `ability.ir.builder.layout` for ordinary plan authoring:
+the helpers produce requirement/op/output metadata and call instructions, while
+the layout builder computes function/local/block/instruction table offsets.
+Raw ProgramPlan rows remain available when exact table construction is the goal.
+Compatibility APIs such as `ability.effect.state.handle`,
+`ability.effect.reader.handle`, and `ability.effect.writer.handle` remain
+available.
+
+Output ownership stays with the body. `Body.collectOutputs` materializes the
+typed output value, and `Body.deinitOutputs` releases any memory owned by that
+value. Writer accumulator helpers therefore describe the item ref in the plan
+row, while the body still chooses the collected container shape, such as
+`[]Item`.
+
 ## Examples
 
 Run the typed ProgramPlan example with:
@@ -202,18 +240,20 @@ schema rows with caller-owned field/variant offsets, variant rows, and sum-match
 instructions; ordinary authored plans still own their layout-builder control
 flow.
 
-`examples/plan_native_state_reader.zig` demonstrates state and reader as
-plan-native transform operations. Its requirement, op, and output metadata come
-from schema lowering. The state schema contributes `state_cell` metadata and a
-binding-labeled final-state output declaration. The reader schema contributes
-`reader_environment` metadata and borrows its environment through the handler,
-without a handler-owned side channel for the returned value.
+`examples/plan_native_state_reader.zig` demonstrates state and reader through
+`ability.effect.state.plan`, `ability.effect.reader.plan`, and the layout
+builder. Its requirement, op, and output metadata come from schema lowering
+through those helper namespaces. The state schema contributes `state_cell`
+metadata and a binding-labeled final-state output declaration. The reader schema
+contributes `reader_environment` metadata and borrows its environment through
+the handler, without a handler-owned side channel for the returned value.
 
-`examples/plan_native_writer.zig` demonstrates writer accumulation through a
-schema-lowered `writer_accumulator` requirement and typed accumulator output.
-The ProgramPlan output row records the accumulator item codec, while
-`Body.Outputs` remains the collected slice materialized as `Program.Result.outputs`
-and released through `Body.deinitOutputs`.
+`examples/plan_native_writer.zig` demonstrates writer accumulation through
+`ability.effect.writer.plan` and the layout builder. The helper lowers the
+`writer_accumulator` requirement and accumulator output metadata. The ProgramPlan
+output row records the accumulator item codec, while `Body.Outputs` remains the
+collected slice materialized as `Program.Result.outputs` and released through
+`Body.deinitOutputs`.
 
 `examples/plan_native_exception.zig` demonstrates exception-like abort control
 flow as a plan-native `throw` operation. The requirement carries `abort_catch`
