@@ -773,6 +773,22 @@ const ExecutableValue = union(enum) {
     schema: SchemaValue,
 };
 
+fn maxSchemaValueSize(comptime schema_types: anytype) comptime_int {
+    var max_size: comptime_int = 0;
+    inline for (schema_types) |SchemaType| {
+        if (@sizeOf(SchemaType) > max_size) max_size = @sizeOf(SchemaType);
+    }
+    return max_size;
+}
+
+fn maxSchemaValueAlign(comptime schema_types: anytype) comptime_int {
+    var max_align: comptime_int = 1;
+    inline for (schema_types) |SchemaType| {
+        if (@alignOf(SchemaType) > max_align) max_align = @alignOf(SchemaType);
+    }
+    return max_align;
+}
+
 fn ValueTypeForCodec(comptime codec: program_plan.ValueCodec) type {
     return switch (codec) {
         .unit => void,
@@ -2871,6 +2887,8 @@ pub fn ExecutableSessionForPlan(
 
     return struct {
         const Self = @This();
+        const request_payload_storage_size = maxSchemaValueSize(schema_types);
+        const request_payload_storage_align = maxSchemaValueAlign(schema_types);
 
         const PendingRequest = struct {
             session_id: usize,
@@ -2881,6 +2899,16 @@ pub fn ExecutableSessionForPlan(
             mode: program_plan.ControlMode,
             resume_ref: program_plan.ValueRef,
             result_ref: program_plan.ValueRef,
+        };
+
+        const RequestPayload = union(enum) {
+            none,
+            bool: bool,
+            i32: i32,
+            usize: usize,
+            string: []const u8,
+            string_list: []const []const u8,
+            schema_index: u16,
         };
 
         allocator: std.mem.Allocator,
@@ -2906,10 +2934,76 @@ pub fn ExecutableSessionForPlan(
             resume_ref: program_plan.ValueRef,
             result_ref: program_plan.ValueRef,
             has_after: bool,
-            _payload: ExecutableValue,
+            _payload: RequestPayload,
+            _payload_storage: [request_payload_storage_size]u8 align(request_payload_storage_align) = undefined,
 
             pub fn payload(self: @This(), comptime T: type) error{ProgramContractViolation}!T {
-                return try decodeRuntimeValueAs(schema_types, self.payload_ref, self._payload, T);
+                if (!typeMatchesRuntimeRef(schema_types, self.payload_ref, T)) return error.ProgramContractViolation;
+                if (T == void) return switch (self._payload) {
+                    .none => {},
+                    else => error.ProgramContractViolation,
+                };
+                if (T == bool) return switch (self._payload) {
+                    .bool => |typed| typed,
+                    else => error.ProgramContractViolation,
+                };
+                if (T == i32) return switch (self._payload) {
+                    .i32 => |typed| typed,
+                    else => error.ProgramContractViolation,
+                };
+                if (T == usize) return switch (self._payload) {
+                    .usize => |typed| typed,
+                    else => error.ProgramContractViolation,
+                };
+                if (T == []const u8) return switch (self._payload) {
+                    .string => |typed| typed,
+                    else => error.ProgramContractViolation,
+                };
+                if (T == []const []const u8) return switch (self._payload) {
+                    .string_list => |typed| typed,
+                    else => error.ProgramContractViolation,
+                };
+                if (T == [][]const u8) return error.ProgramContractViolation;
+
+                const schema_index = self.payload_ref.schema_index orelse return error.ProgramContractViolation;
+                const expected_codec: program_plan.ValueCodec = comptime switch (@typeInfo(T)) {
+                    .@"struct" => .product,
+                    .@"enum", .@"union", .optional => .sum,
+                    else => return error.ProgramContractViolation,
+                };
+                if (self.payload_ref.codec != expected_codec) return error.ProgramContractViolation;
+                return switch (self._payload) {
+                    .schema_index => |actual_index| blk: {
+                        if (actual_index != schema_index) return error.ProgramContractViolation;
+                        const typed: *const T = @ptrCast(@alignCast(&self._payload_storage));
+                        break :blk typed.*;
+                    },
+                    else => error.ProgramContractViolation,
+                };
+            }
+
+            fn setPayload(self: *@This(), payload_value: ExecutableValue) error{ProgramContractViolation}!void {
+                self._payload = switch (payload_value) {
+                    .none => .none,
+                    .bool => |typed| .{ .bool = typed },
+                    .i32 => |typed| .{ .i32 = typed },
+                    .usize => |typed| .{ .usize = typed },
+                    .string => |typed| .{ .string = typed },
+                    .string_list => |typed| .{ .string_list = typed },
+                    .schema => |schema| try self.storeStructuredPayload(schema),
+                };
+            }
+
+            fn storeStructuredPayload(self: *@This(), schema: SchemaValue) error{ProgramContractViolation}!RequestPayload {
+                inline for (schema_types, 0..) |SchemaType, schema_index| {
+                    if (schema.schema_index == @as(u16, @intCast(schema_index))) {
+                        const source: *const SchemaType = @ptrCast(@alignCast(schema.ptr));
+                        const destination: *SchemaType = @ptrCast(@alignCast(&self._payload_storage));
+                        destination.* = source.*;
+                        return .{ .schema_index = schema.schema_index };
+                    }
+                }
+                return error.ProgramContractViolation;
             }
         };
 
@@ -3059,7 +3153,7 @@ pub fn ExecutableSessionForPlan(
                             const payload = if (op.payload_codec == .unit) .none else locals[instruction.aux];
                             if (!valueMatchesRef(payload_ref, payload)) return error.ProgramContractViolation;
                             const result_ref = program_plan.functionResultRef(function);
-                            const request = self.makeRequest(
+                            const request = try self.makeRequest(
                                 active.function_index,
                                 instruction.dst,
                                 instruction.operand,
@@ -3216,7 +3310,7 @@ pub fn ExecutableSessionForPlan(
             op_index: u16,
             result_ref: program_plan.ValueRef,
             payload: ExecutableValue,
-        ) Request {
+        ) error{ProgramContractViolation}!Request {
             inline for (compiled_plan.ops, 0..) |op, index| {
                 if (op_index == index) {
                     const requirement = compiled_plan.requirements[op.requirement_index];
@@ -3240,7 +3334,7 @@ pub fn ExecutableSessionForPlan(
                         .resume_ref = resume_ref,
                         .result_ref = result_ref,
                     };
-                    return .{
+                    var request: Request = .{
                         ._session_id = self.session_id,
                         .token = token,
                         .requirement_index = op.requirement_index,
@@ -3253,8 +3347,10 @@ pub fn ExecutableSessionForPlan(
                         .resume_ref = resume_ref,
                         .result_ref = result_ref,
                         .has_after = op.has_after,
-                        ._payload = payload,
+                        ._payload = .none,
                     };
+                    try request.setPayload(payload);
+                    return request;
                 }
             }
             unreachable;

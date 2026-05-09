@@ -3853,6 +3853,59 @@ test "Program.Session supports typed sum payload and resume values" {
     try std.testing.expectEqual(@as(i32, 8), result.value.?);
 }
 
+test "Program.Session structured request payloads survive session deinit" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const ProductPayload = struct {
+        amount: i32,
+    };
+    const ProductHandlers = struct {};
+    const ProductBody = struct {
+        pub const value_schema_types = .{ProductPayload};
+        pub const compiled_plan = sessionProductTransformPlan(ProductPayload, "session-stale-product-payload");
+
+        pub fn encodeArgs(_: ProductHandlers) @TypeOf(.{ProductPayload{ .amount = 13 }}) {
+            return .{ProductPayload{ .amount = 13 }};
+        }
+    };
+    const ProductProgram = ability.program("session-stale-product-payload", ProductHandlers, ProductBody);
+    var product_session = try ProductProgram.Session.start(&runtime, .{});
+    var product_session_active = true;
+    defer if (product_session_active) product_session.deinit();
+
+    const product_request = switch (try product_session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+    };
+    product_session.deinit();
+    product_session_active = false;
+    try std.testing.expectEqual(@as(i32, 13), (try product_request.payload(ProductPayload)).amount);
+
+    const SumPayload = ?i32;
+    const SumHandlers = struct {};
+    const SumBody = struct {
+        pub const value_schema_types = .{SumPayload};
+        pub const compiled_plan = sessionSumTransformPlan(SumPayload, "session-stale-sum-payload");
+
+        pub fn encodeArgs(_: SumHandlers) @TypeOf(.{@as(SumPayload, 21)}) {
+            return .{@as(SumPayload, 21)};
+        }
+    };
+    const SumProgram = ability.program("session-stale-sum-payload", SumHandlers, SumBody);
+    var sum_session = try SumProgram.Session.start(&runtime, .{});
+    var sum_session_active = true;
+    defer if (sum_session_active) sum_session.deinit();
+
+    const sum_request = switch (try sum_session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+    };
+    sum_session.deinit();
+    sum_session_active = false;
+    try std.testing.expectEqual(@as(i32, 21), (try sum_request.payload(SumPayload)).?);
+}
+
 fn pureArithmeticPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const value = ability.ir.builder.local(root, 0);
