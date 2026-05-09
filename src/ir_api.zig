@@ -2,6 +2,7 @@
 // zlinter-disable no_undefined - the layout builder fills fixed comptime table buffers before validation observes them.
 // zlinter-disable require_doc_comment - this compatibility module re-exports documented declarations from the underlying namespaces.
 const effect_ir = @import("effect_ir");
+const effect_schema = @import("effect_schema.zig");
 const internal_kernel = @import("internal_kernel");
 const lowering_api = @import("lowering_api");
 const program_plan = @import("internal_program_plan");
@@ -642,6 +643,148 @@ pub const value = struct {
     }
 };
 
+/// Schema-first helpers that lower effect binding metadata into ProgramPlan rows.
+pub const schema = struct {
+    /// Caller-owned offsets for one binding's ProgramPlan rows.
+    pub const BindingOffsets = struct {
+        requirement_index: u16,
+        first_op: u16,
+        first_output: u16 = 0,
+    };
+
+    /// Build a schema binding type without exposing `effect_schema` at the root.
+    pub fn Binding(
+        comptime label: [:0]const u8,
+        comptime FamilySchema: type,
+        comptime HandlerType: type,
+    ) type {
+        return effect_schema.Binding(label, FamilySchema, HandlerType);
+    }
+
+    /// Lower one effect binding schema to ordinary ProgramPlan requirement/op/output rows.
+    pub fn LowerBinding(
+        comptime BindingSchema: type,
+        comptime offsets: BindingOffsets,
+    ) type {
+        comptime effect_schema.assertBindingSchema(BindingSchema);
+        const row = comptime effect_schema.row(BindingSchema);
+        if (row.requirements.len != 1) {
+            @compileError("schema.LowerBinding expects exactly one requirement per effect binding");
+        }
+        const FamilySchema = comptime effect_schema.bindingFamily(BindingSchema);
+        const requirement_schema = row.requirements[0];
+        const lowered_output_count: usize = comptime if (FamilySchema.output == .none) 0 else 1;
+        const lowered_ops = comptime lowerOps(requirement_schema.ops, offsets.requirement_index);
+        const lowered_outputs = comptime lowerOutputs(BindingSchema, FamilySchema, lowered_output_count);
+
+        return struct {
+            pub const requirement_index: u16 = offsets.requirement_index;
+            pub const first_output: u16 = offsets.first_output;
+            pub const op_count: u16 = @intCast(lowered_ops.len);
+            pub const output_count: u16 = @intCast(lowered_outputs.len);
+            pub const requirement: program_plan.RequirementPlan = .{
+                .label = BindingSchema.requirement_label,
+                .first_op = offsets.first_op,
+                .op_count = @intCast(lowered_ops.len),
+                .lifecycle_tag = requirementLifecycleFromSchema(FamilySchema),
+                .output_tag = requirementOutputFromSchema(FamilySchema),
+            };
+            pub const ops = lowered_ops;
+            pub const outputs = lowered_outputs;
+        };
+    }
+
+    fn lowerOps(
+        comptime op_specs: []const effect_ir.OpSpec,
+        comptime requirement_index: u16,
+    ) [op_specs.len]program_plan.OpPlan {
+        var ops: [op_specs.len]program_plan.OpPlan = undefined;
+        for (op_specs, 0..) |op_spec, index| {
+            const payload_ref = comptime scalarRefForType(op_spec.PayloadType, "payload");
+            const resume_ref = comptime scalarRefForType(op_spec.ResumeType, "resume");
+            ops[index] = .{
+                .requirement_index = requirement_index,
+                .op_name = op_spec.op_name,
+                .mode = planControlMode(op_spec.mode),
+                .payload_codec = payload_ref.codec,
+                .payload_schema_index = payload_ref.schema_index,
+                .resume_codec = resume_ref.codec,
+                .resume_schema_index = resume_ref.schema_index,
+                .has_after = op_spec.has_after,
+            };
+        }
+        return ops;
+    }
+
+    fn lowerOutputs(
+        comptime BindingSchema: type,
+        comptime FamilySchema: type,
+        comptime output_count: usize,
+    ) [output_count]program_plan.OutputPlan {
+        if (output_count == 0) return .{};
+        return .{.{
+            .label = outputLabel(BindingSchema, FamilySchema),
+            .codec = outputRef(BindingSchema, FamilySchema).codec,
+            .schema_index = outputRef(BindingSchema, FamilySchema).schema_index,
+        }};
+    }
+
+    fn planControlMode(comptime mode: effect_ir.ControlMode) program_plan.ControlMode {
+        return switch (mode) {
+            .abort => .abort,
+            .choice => .choice,
+            .transform => .transform,
+        };
+    }
+
+    fn requirementLifecycleFromSchema(comptime FamilySchema: type) @TypeOf(@as(program_plan.RequirementPlan, undefined).lifecycle_tag) {
+        const LifecycleTag = @TypeOf(@as(program_plan.RequirementPlan, undefined).lifecycle_tag);
+        return standard.meta.stringToEnum(LifecycleTag, @tagName(FamilySchema.lifecycle_tag)) orelse
+            @compileError("effect schema lifecycle_tag must map to ProgramPlan RequirementLifecycleTag");
+    }
+
+    fn requirementOutputFromSchema(comptime FamilySchema: type) @TypeOf(@as(program_plan.RequirementPlan, undefined).output_tag) {
+        const OutputTag = @TypeOf(@as(program_plan.RequirementPlan, undefined).output_tag);
+        return standard.meta.stringToEnum(OutputTag, @tagName(FamilySchema.output)) orelse
+            @compileError("effect schema output tag must map to ProgramPlan RequirementOutputTag");
+    }
+
+    fn outputLabel(comptime BindingSchema: type, comptime FamilySchema: type) []const u8 {
+        return switch (FamilySchema.output) {
+            .none => @compileError("schema output label requested for binding without output metadata"),
+            .final_state => "final_state",
+            .accumulator => BindingSchema.requirement_label,
+            .custom_finalizer => @compileError("schema.LowerBinding does not support custom_finalizer outputs yet"),
+        };
+    }
+
+    fn outputRef(comptime BindingSchema: type, comptime FamilySchema: type) program_plan.ValueRef {
+        return switch (FamilySchema.output) {
+            .none => @compileError("schema output ref requested for binding without output metadata"),
+            .final_state => scalarRefForType(FamilySchema.Output, "output"),
+            .accumulator => scalarRefForType(FamilySchema.Item, "output"),
+            .custom_finalizer => @compileError(standard.fmt.comptimePrint(
+                "schema.LowerBinding does not support custom_finalizer output for '{s}' yet",
+                .{BindingSchema.requirement_label},
+            )),
+        };
+    }
+
+    fn scalarRefForType(comptime T: type, comptime role: []const u8) program_plan.ValueRef {
+        const codec = comptime program_plan.codecForType(T) catch |err| @compileError(standard.fmt.comptimePrint(
+            "schema.LowerBinding unsupported {s} type '{s}': {s}",
+            .{ role, @typeName(T), @errorName(err) },
+        ));
+        return switch (codec) {
+            .product, .sum => @compileError(standard.fmt.comptimePrint(
+                "schema.LowerBinding {s} type '{s}' needs an explicit ProgramPlan schema-index map; v1 supports scalar refs only",
+                .{ role, @typeName(T) },
+            )),
+            else => .{ .codec = codec },
+        };
+    }
+};
+
 test "compatibility IR module re-exports retained surface" {
     const std = @import("std");
 
@@ -649,10 +792,106 @@ test "compatibility IR module re-exports retained surface" {
     try std.testing.expect(@hasDecl(@This(), "rowDigest"));
     try std.testing.expect(@hasDecl(@This(), "builder"));
     try std.testing.expect(@hasDecl(@This(), "value"));
+    try std.testing.expect(@hasDecl(@This(), "schema"));
     try std.testing.expect(!@hasDecl(@This(), "compile"));
     try std.testing.expect(internal_kernel.ValueSchemaPlan == program_plan.ValueSchemaPlan);
     try std.testing.expect(internal_kernel.ValueFieldPlan == program_plan.ValueFieldPlan);
     try std.testing.expect(internal_kernel.ValueVariantPlan == program_plan.ValueVariantPlan);
+}
+
+test "schema lowerer lowers state binding to ProgramPlan rows" {
+    const StateBinding = schema.Binding("state", effect_schema.state_cell(i32, error{}), void);
+    const Rows = schema.LowerBinding(StateBinding, .{
+        .requirement_index = 2,
+        .first_op = 5,
+        .first_output = 7,
+    });
+
+    try standard.testing.expectEqual(@as(u16, 2), Rows.requirement_index);
+    try standard.testing.expectEqual(@as(u16, 7), Rows.first_output);
+    try standard.testing.expectEqualStrings("state", Rows.requirement.label);
+    try standard.testing.expectEqual(@as(u16, 5), Rows.requirement.first_op);
+    try standard.testing.expectEqual(@as(u16, 2), Rows.requirement.op_count);
+    try standard.testing.expectEqual(@as(@TypeOf(Rows.requirement.lifecycle_tag), .state_cell), Rows.requirement.lifecycle_tag);
+    try standard.testing.expectEqual(@as(@TypeOf(Rows.requirement.output_tag), .final_state), Rows.requirement.output_tag);
+    try standard.testing.expectEqualStrings("get", Rows.ops[0].op_name);
+    try standard.testing.expectEqual(program_plan.ValueCodec.unit, Rows.ops[0].payload_codec);
+    try standard.testing.expectEqual(program_plan.ValueCodec.i32, Rows.ops[0].resume_codec);
+    try standard.testing.expectEqualStrings("set", Rows.ops[1].op_name);
+    try standard.testing.expectEqual(program_plan.ValueCodec.i32, Rows.ops[1].payload_codec);
+    try standard.testing.expectEqual(program_plan.ValueCodec.unit, Rows.ops[1].resume_codec);
+    try standard.testing.expectEqualStrings("final_state", Rows.outputs[0].label);
+    try standard.testing.expectEqual(program_plan.ValueCodec.i32, Rows.outputs[0].codec);
+}
+
+test "schema lowerer lowers reader binding to ProgramPlan rows" {
+    const ReaderBinding = schema.Binding("reader", effect_schema.reader_environment(i32, error{}), void);
+    const Rows = schema.LowerBinding(ReaderBinding, .{
+        .requirement_index = 1,
+        .first_op = 3,
+    });
+
+    try standard.testing.expectEqualStrings("reader", Rows.requirement.label);
+    try standard.testing.expectEqual(@as(u16, 3), Rows.requirement.first_op);
+    try standard.testing.expectEqual(@as(u16, 1), Rows.requirement.op_count);
+    try standard.testing.expectEqual(@as(@TypeOf(Rows.requirement.lifecycle_tag), .reader_environment), Rows.requirement.lifecycle_tag);
+    try standard.testing.expectEqual(@as(@TypeOf(Rows.requirement.output_tag), .none), Rows.requirement.output_tag);
+    try standard.testing.expectEqual(@as(usize, 1), Rows.ops.len);
+    try standard.testing.expectEqual(@as(usize, 0), Rows.outputs.len);
+    try standard.testing.expectEqualStrings("ask", Rows.ops[0].op_name);
+    try standard.testing.expectEqual(program_plan.ValueCodec.unit, Rows.ops[0].payload_codec);
+    try standard.testing.expectEqual(program_plan.ValueCodec.i32, Rows.ops[0].resume_codec);
+}
+
+test "schema lowerer lowers writer binding to ProgramPlan rows" {
+    const WriterBinding = schema.Binding("writer", effect_schema.writer_accumulator(i32, error{}), void);
+    const schema_outputs = comptime effect_schema.outputs(WriterBinding);
+    const Rows = schema.LowerBinding(WriterBinding, .{
+        .requirement_index = 0,
+        .first_op = 0,
+        .first_output = 0,
+    });
+
+    try standard.testing.expectEqualStrings("writer", Rows.requirement.label);
+    try standard.testing.expectEqual(@as(u16, 1), Rows.requirement.op_count);
+    try standard.testing.expectEqual(@as(@TypeOf(Rows.requirement.lifecycle_tag), .writer_accumulator), Rows.requirement.lifecycle_tag);
+    try standard.testing.expectEqual(@as(@TypeOf(Rows.requirement.output_tag), .accumulator), Rows.requirement.output_tag);
+    try standard.testing.expectEqualStrings("tell", Rows.ops[0].op_name);
+    try standard.testing.expectEqual(program_plan.ValueCodec.i32, Rows.ops[0].payload_codec);
+    try standard.testing.expectEqual(program_plan.ValueCodec.unit, Rows.ops[0].resume_codec);
+    try standard.testing.expectEqual(@as(usize, 1), schema_outputs.len);
+    comptime {
+        if (schema_outputs[0].OutputType != []i32) {
+            @compileError("writer schema output should remain the collected accumulator slice");
+        }
+    }
+    try standard.testing.expectEqualStrings("writer", Rows.outputs[0].label);
+    // ProgramPlan output rows describe accumulator item refs; Body.Outputs owns
+    // the final collection shape.
+    try standard.testing.expectEqual(program_plan.ValueCodec.i32, Rows.outputs[0].codec);
+}
+
+test "raw ProgramPlan row construction remains available" {
+    const requirement = plan.Requirement{
+        .label = "raw",
+        .first_op = 4,
+        .op_count = 1,
+    };
+    const op = plan.Op{
+        .requirement_index = 0,
+        .op_name = "dispatch",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .unit,
+    };
+    const output = plan.Output{
+        .label = "raw-output",
+        .codec = .unit,
+    };
+
+    try standard.testing.expectEqualStrings("raw", requirement.label);
+    try standard.testing.expectEqualStrings("dispatch", op.op_name);
+    try standard.testing.expectEqualStrings("raw-output", output.label);
 }
 
 test "public builder materializes a ProgramPlan with product schema metadata" {

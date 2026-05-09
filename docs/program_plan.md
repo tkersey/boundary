@@ -117,6 +117,46 @@ validated body and plan contract. It includes:
 `Program.contract` is inspection metadata. It does not expose mutable function,
 block, instruction, Artifact, VM, compiler, parser, or capability-map surfaces.
 
+## Effect schema row lowering
+
+Built-in effect schemas can lower to ProgramPlan requirement, operation, and
+output rows through `ability.ir.schema.LowerBinding`. The caller supplies the
+binding type and the table offsets:
+
+```zig
+const StateRows = ability.ir.schema.LowerBinding(
+    ability.ir.schema.Binding("state", ability.effect.state.Schema(i32, error{}), void),
+    .{ .requirement_index = 0, .first_op = 0, .first_output = 0 },
+);
+```
+
+The returned comptime row bundle contains:
+
+- one `RequirementPlan` row with the binding label, op span, lifecycle tag, and
+  output tag derived from the schema
+- one `OpPlan` row per family operation with op name, control mode,
+  payload/resume codec, payload/resume schema index, and after-hook flag
+- zero or one `OutputPlan` row for schema-declared outputs such as state
+  `final_state` or writer accumulator outputs
+
+Offsets remain caller-controlled. The lowerer does not allocate from a hidden
+registry, reorder tables, or decide the surrounding ProgramPlan layout. This
+keeps it composable with raw rows and with the layout builder.
+
+The first version supports scalar payload, resume, and output refs. Structured
+product and sum refs require an explicit ProgramPlan schema-index map before
+they can be lowered safely, so those schemas remain a future extension point
+rather than an implicit global lookup.
+
+Writer accumulator schemas distinguish the final handler output from the
+ProgramPlan output row. The schema final output is the collected `[]Item`; the
+ProgramPlan `OutputPlan` row records the accumulator item ref, because the body
+`Outputs` type owns the collection shape and cleanup.
+
+For built-in plan-native helpers, schema lowering is preferred over hand-written
+per-built-in row generators. Raw `ability.ir.plan.*` rows remain available for
+tests that deliberately exercise table escape hatches or unsupported shapes.
+
 ## Examples
 
 Run the typed ProgramPlan example with:
@@ -141,15 +181,17 @@ instructions; ordinary authored plans still own their layout-builder control
 flow.
 
 `examples/plan_native_state_reader.zig` demonstrates state and reader as
-plan-native transform operations. The state requirement carries `state_cell`
-metadata and a `final_state` output declaration. The reader requirement carries
+plan-native transform operations. Its requirement, op, and output metadata come
+from schema lowering. The state schema contributes `state_cell` metadata and a
+`final_state` output declaration. The reader schema contributes
 `reader_environment` metadata and borrows its environment through the handler,
 without a handler-owned side channel for the returned value.
 
 `examples/plan_native_writer.zig` demonstrates writer accumulation through a
-`writer_accumulator` requirement and a typed output declaration. The accumulator
-is materialized as `Program.Result.outputs` and released through
-`Body.deinitOutputs`.
+schema-lowered `writer_accumulator` requirement and typed accumulator output.
+The ProgramPlan output row records the accumulator item codec, while
+`Body.Outputs` remains the collected slice materialized as `Program.Result.outputs`
+and released through `Body.deinitOutputs`.
 
 `examples/plan_native_exception.zig` demonstrates exception-like abort control
 flow as a plan-native `throw` operation. The requirement carries `abort_catch`
@@ -179,8 +221,11 @@ for the existing `ability.ir.ProgramPlan`:
 - function-local branch and jump targets into global block table indexes
 
 Requirement, operation, output, schema, field, and variant tables are still
-ordinary ProgramPlan rows. The first version keeps requirement/op/output spans
-explicit, while removing manual local/block/instruction/terminator bookkeeping.
+ordinary ProgramPlan rows. The layout builder handles table layout for
+functions, locals, blocks, instructions, and terminators. The schema lowerer
+handles requirement/op/output metadata when an effect binding schema exists.
+The first version keeps requirement/op/output spans explicit, while removing
+manual local/block/instruction/terminator bookkeeping.
 
 `ability.ir.builder.layout.finish` and `finishWithNestedTargets` validate
 through the same ProgramPlan validator and return the same
@@ -197,10 +242,17 @@ assert contract facts such as labels, result refs, entry parameter refs, value
 schemas, fields, variants, requirements, ops, payload/resume refs, after flags,
 nested-with targets, and outputs instead of depending on mutable table access.
 
-`ability.effect.optional.plan` is the first built-in plan-native helper
-prototype. Future built-ins can follow the same narrow pattern: reusable
-construction helpers that emit ordinary `ProgramPlan` rows and instructions,
-without adding execution semantics, a second runtime, or a new root API.
+`ability.ir.schema.LowerBinding` is the preferred row-metadata route for
+built-in plan-native helpers. Future built-ins should share that schema path
+instead of adding bespoke requirement/op/output row generators. Optional-shaped
+helpers may still provide control-flow conveniences, but the common metadata
+should come from schemas when the schema can describe it.
+
+This is not custom effect authoring yet. It does not expose `effect.Define`,
+`effect.ops`, public generated custom effects, a parser, compiler, VM,
+Artifact surface, source language, value codec, second IR, or new execution
+semantics. It only emits ordinary ProgramPlan row structs that can be inspected
+through `Program.contract`.
 
 For common typed examples, `ability.ir.builder.typed` remains available and now
 builds through the layout layer while still returning the same
