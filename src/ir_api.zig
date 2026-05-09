@@ -674,7 +674,7 @@ pub const schema = struct {
         const FamilySchema = comptime effect_schema.bindingFamily(BindingSchema);
         const requirement_schema = row.requirements[0];
         const lowered_output_count: usize = comptime if (FamilySchema.output == .none) 0 else 1;
-        const lowered_ops = comptime lowerOps(requirement_schema.ops, offsets.requirement_index);
+        const lowered_ops = comptime lowerOps(BindingSchema, FamilySchema, requirement_schema.ops, offsets.requirement_index);
         const lowered_outputs = comptime lowerOutputs(BindingSchema, FamilySchema, lowered_output_count);
 
         return struct {
@@ -695,11 +695,13 @@ pub const schema = struct {
     }
 
     fn lowerOps(
+        comptime BindingSchema: type,
+        comptime FamilySchema: type,
         comptime op_specs: []const effect_ir.OpSpec,
         comptime requirement_index: u16,
     ) [op_specs.len]program_plan.OpPlan {
         var ops: [op_specs.len]program_plan.OpPlan = undefined;
-        for (op_specs, 0..) |op_spec, index| {
+        inline for (op_specs, 0..) |op_spec, index| {
             const payload_ref = comptime scalarRefForType(op_spec.PayloadType, "payload");
             const resume_ref = comptime scalarRefForType(op_spec.ResumeType, "resume");
             ops[index] = .{
@@ -710,10 +712,31 @@ pub const schema = struct {
                 .payload_schema_index = payload_ref.schema_index,
                 .resume_codec = resume_ref.codec,
                 .resume_schema_index = resume_ref.schema_index,
-                .has_after = op_spec.has_after,
+                .has_after = programPlanHasAfter(BindingSchema, FamilySchema.ops[index], op_spec),
             };
         }
         return ops;
+    }
+
+    fn programPlanHasAfter(
+        comptime BindingSchema: type,
+        comptime OpSchema: type,
+        comptime op_spec: effect_ir.OpSpec,
+    ) bool {
+        if (op_spec.mode == .abort) return false;
+        // ProgramPlan execution invokes only afterDispatch; schema-style
+        // after{OpName} hooks remain effect_schema row metadata.
+        return switch (OpSchema.after) {
+            .none => false,
+            .binding_optional => hasDeclSafe(BindingSchema.Handler, "afterDispatch"),
+        };
+    }
+
+    fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
+        return switch (@typeInfo(T)) {
+            .@"struct", .@"union", .@"enum", .@"opaque" => @hasDecl(T, name),
+            else => false,
+        };
     }
 
     fn lowerOutputs(
@@ -752,7 +775,7 @@ pub const schema = struct {
     fn outputLabel(comptime BindingSchema: type, comptime FamilySchema: type) []const u8 {
         return switch (FamilySchema.output) {
             .none => @compileError("schema output label requested for binding without output metadata"),
-            .final_state => "final_state",
+            .final_state => BindingSchema.requirement_label,
             .accumulator => BindingSchema.requirement_label,
             .custom_finalizer => @compileError("schema.LowerBinding does not support custom_finalizer outputs yet"),
         };
@@ -820,8 +843,128 @@ test "schema lowerer lowers state binding to ProgramPlan rows" {
     try standard.testing.expectEqualStrings("set", Rows.ops[1].op_name);
     try standard.testing.expectEqual(program_plan.ValueCodec.i32, Rows.ops[1].payload_codec);
     try standard.testing.expectEqual(program_plan.ValueCodec.unit, Rows.ops[1].resume_codec);
-    try standard.testing.expectEqualStrings("final_state", Rows.outputs[0].label);
+    try standard.testing.expectEqualStrings("state", Rows.outputs[0].label);
     try standard.testing.expectEqual(program_plan.ValueCodec.i32, Rows.outputs[0].codec);
+}
+
+test "schema lowerer keeps final-state output labels binding-specific" {
+    const LeftRows = schema.LowerBinding(
+        schema.Binding("left_state", effect_schema.state_cell(i32, error{}), void),
+        .{ .requirement_index = 0, .first_op = 0, .first_output = 0 },
+    );
+    const RightRows = schema.LowerBinding(
+        schema.Binding("right_state", effect_schema.state_cell(i32, error{}), void),
+        .{
+            .requirement_index = 1,
+            .first_op = LeftRows.op_count,
+            .first_output = LeftRows.output_count,
+        },
+    );
+    const root = builder.function(0);
+    const requirements = [_]program_plan.RequirementPlan{
+        LeftRows.requirement,
+        RightRows.requirement,
+    };
+    const ops = LeftRows.ops ++ RightRows.ops;
+    const outputs = LeftRows.outputs ++ RightRows.outputs;
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "root",
+        .first_requirement = 0,
+        .requirement_count = @intCast(requirements.len),
+        .first_output = 0,
+        .output_count = @intCast(outputs.len),
+        .first_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 0,
+    }};
+    const blocks = [_]program_plan.BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = 0,
+        .terminator_index = 0,
+    }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_unit }};
+
+    const built_plan = try builder.finish(.{
+        .label = "schema.binding-specific-final-state-outputs",
+        .ir_hash = 2,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &outputs,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &.{},
+    });
+
+    try standard.testing.expectEqualStrings("left_state", built_plan.outputs[0].label);
+    try standard.testing.expectEqualStrings("right_state", built_plan.outputs[1].label);
+}
+
+test "schema lowerer maps binding-optional after hooks to ProgramPlan afterDispatch metadata" {
+    const OptionalNoAfterRows = schema.LowerBinding(
+        schema.Binding("optional", effect_schema.choice_policy(i32, error{}, void), void),
+        .{ .requirement_index = 0, .first_op = 0 },
+    );
+    try standard.testing.expectEqualStrings("request", OptionalNoAfterRows.ops[0].op_name);
+    try standard.testing.expect(!OptionalNoAfterRows.ops[0].has_after);
+
+    const OptionalAfterRows = schema.LowerBinding(
+        schema.Binding("optional", effect_schema.choice_policy(i32, error{}, void), struct {
+            pub fn afterDispatch(_: *const @This(), answer: i32) error{}!i32 {
+                return answer;
+            }
+        }),
+        .{ .requirement_index = 0, .first_op = 0 },
+    );
+    try standard.testing.expect(OptionalAfterRows.ops[0].has_after);
+
+    const OptionalSchemaAfterBinding = schema.Binding("optional", effect_schema.choice_policy(i32, error{}, void), struct {
+        pub fn afterRequest(_: *@This(), answer: i32) i32 {
+            return answer;
+        }
+    });
+    try standard.testing.expect(effect_schema.row(OptionalSchemaAfterBinding).requirements[0].ops[0].has_after);
+    const OptionalSchemaAfterRows = schema.LowerBinding(
+        OptionalSchemaAfterBinding,
+        .{ .requirement_index = 0, .first_op = 0 },
+    );
+    try standard.testing.expect(!OptionalSchemaAfterRows.ops[0].has_after);
+
+    const GeneratedFamily = effect_schema.generated_family(.{
+        .state_type = i32,
+        .ops = .{
+            struct {
+                pub const op_name: [:0]const u8 = "get";
+                pub const mode = enum { direct_return, resume_or_return, resume_then_transform }.resume_then_transform;
+                pub const Payload = void;
+                pub const Resume = i32;
+            },
+        },
+    });
+    const GeneratedRows = schema.LowerBinding(
+        schema.Binding("counter", GeneratedFamily, struct {
+            pub fn afterDispatch(_: *const @This(), answer: i32) error{}!i32 {
+                return answer + 1;
+            }
+        }),
+        .{ .requirement_index = 0, .first_op = 0 },
+    );
+    try standard.testing.expectEqualStrings("get", GeneratedRows.ops[0].op_name);
+    try standard.testing.expect(GeneratedRows.ops[0].has_after);
+
+    const GeneratedSchemaAfterBinding = schema.Binding("counter", GeneratedFamily, struct {
+        pub fn afterGet(_: *@This(), answer: i32) i32 {
+            return answer + 1;
+        }
+    });
+    try standard.testing.expect(effect_schema.row(GeneratedSchemaAfterBinding).requirements[0].ops[0].has_after);
+    const GeneratedSchemaAfterRows = schema.LowerBinding(
+        GeneratedSchemaAfterBinding,
+        .{ .requirement_index = 0, .first_op = 0 },
+    );
+    try standard.testing.expect(!GeneratedSchemaAfterRows.ops[0].has_after);
 }
 
 test "schema lowerer lowers reader binding to ProgramPlan rows" {

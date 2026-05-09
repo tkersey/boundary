@@ -492,7 +492,7 @@ test "plan-native contract conformance matrix state reader" {
     try expectOp(Program.contract, 2, "reader", "ask", .transform, .{ .codec = .unit }, .{ .codec = .i32 }, false);
     try expectRef(Program.contract.result_ref, .{ .codec = .i32 });
     try std.testing.expectEqual(@as(usize, 1), Program.contract.outputs.len);
-    try std.testing.expectEqualStrings("final_state", Program.contract.outputs[0].label);
+    try std.testing.expectEqualStrings("state", Program.contract.outputs[0].label);
     try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.outputs[0].codec);
     try std.testing.expectEqual(@as(?u16, null), Program.contract.outputs[0].schema_index);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.value_schemas.len);

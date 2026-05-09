@@ -137,7 +137,7 @@ The returned comptime row bundle contains:
 - one `OpPlan` row per family operation with op name, control mode,
   payload/resume codec, payload/resume schema index, and after-hook flag
 - zero or one `OutputPlan` row for schema-declared outputs such as state
-  `final_state` or writer accumulator outputs
+  final-state or writer accumulator outputs, labeled by the binding label
 
 Offsets remain caller-controlled. The lowerer does not allocate from a hidden
 registry, reorder tables, or decide the surrounding ProgramPlan layout. This
@@ -183,7 +183,7 @@ flow.
 `examples/plan_native_state_reader.zig` demonstrates state and reader as
 plan-native transform operations. Its requirement, op, and output metadata come
 from schema lowering. The state schema contributes `state_cell` metadata and a
-`final_state` output declaration. The reader schema contributes
+binding-labeled final-state output declaration. The reader schema contributes
 `reader_environment` metadata and borrows its environment through the handler,
 without a handler-owned side channel for the returned value.
 

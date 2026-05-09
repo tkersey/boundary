@@ -396,9 +396,9 @@ fn legacyAfterMethodName(comptime op_name: []const u8) []const u8 {
 
 fn hasAfterMethod(comptime HandlerType: type, comptime op_name: []const u8) bool {
     const underscored_name = comptime afterMethodName(op_name);
-    if (@hasDecl(HandlerType, underscored_name)) return true;
+    if (hasDeclSafe(HandlerType, underscored_name)) return true;
     const legacy_name = comptime legacyAfterMethodName(op_name);
-    return !std.mem.eql(u8, legacy_name, underscored_name) and @hasDecl(HandlerType, legacy_name);
+    return !std.mem.eql(u8, legacy_name, underscored_name) and hasDeclSafe(HandlerType, legacy_name);
 }
 
 pub fn generated_family(comptime spec: anytype) type {
