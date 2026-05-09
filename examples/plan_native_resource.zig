@@ -95,38 +95,40 @@ fn resourcePlan(comptime mode: ResourceMode) ability.ir.ProgramPlan {
         }
         break :blk buffer;
     };
+    const ResourceRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("resource", ability.effect.resource.Schema(Resource, error{ReleaseFailed}, void), void),
+        .{
+            .requirement_index = 0,
+            .first_op = 0,
+            .schema_refs = ability.ir.schema.SchemaRefs(.{
+                ability.ir.schema.ref(Resource, 0),
+            }),
+        },
+    );
+    const ExceptionRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("exception", ability.effect.exception.Schema(i32, error{}, void), void),
+        .{ .requirement_index = 1, .first_op = ResourceRows.op_count },
+    );
+    const OptionalRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("optional", ability.effect.optional.Schema(i32, error{}, void), void),
+        .{ .requirement_index = 1, .first_op = ResourceRows.op_count },
+    );
     const requirement_count: u16 = if (mode == .normal) 1 else 2;
     const requirements = switch (mode) {
-        .normal => [_]ability.ir.plan.Requirement{.{
-            .label = "resource",
-            .first_op = 0,
-            .op_count = 2,
-            .lifecycle_tag = .resource_bracket,
-        }},
+        .normal => [_]ability.ir.plan.Requirement{ResourceRows.requirement},
         .exception_escape => [_]ability.ir.plan.Requirement{
-            .{ .label = "resource", .first_op = 0, .op_count = 2, .lifecycle_tag = .resource_bracket },
-            .{ .label = "exception", .first_op = 2, .op_count = 1, .lifecycle_tag = .abort_catch },
+            ResourceRows.requirement,
+            ExceptionRows.requirement,
         },
         .optional_escape => [_]ability.ir.plan.Requirement{
-            .{ .label = "resource", .first_op = 0, .op_count = 2, .lifecycle_tag = .resource_bracket },
-            .{ .label = "optional", .first_op = 2, .op_count = 1, .lifecycle_tag = .choice_policy },
+            ResourceRows.requirement,
+            OptionalRows.requirement,
         },
     };
     const ops = switch (mode) {
-        .normal => [_]ability.ir.plan.Op{
-            .{ .requirement_index = 0, .op_name = "acquire", .mode = .transform, .payload_codec = .unit, .resume_codec = .product, .resume_schema_index = 0 },
-            .{ .requirement_index = 0, .op_name = "release", .mode = .transform, .payload_codec = .product, .payload_schema_index = 0, .resume_codec = .unit },
-        },
-        .exception_escape => [_]ability.ir.plan.Op{
-            .{ .requirement_index = 0, .op_name = "acquire", .mode = .transform, .payload_codec = .unit, .resume_codec = .product, .resume_schema_index = 0 },
-            .{ .requirement_index = 0, .op_name = "release", .mode = .transform, .payload_codec = .product, .payload_schema_index = 0, .resume_codec = .unit },
-            .{ .requirement_index = 1, .op_name = "throw", .mode = .abort, .payload_codec = .i32, .resume_codec = .unit },
-        },
-        .optional_escape => [_]ability.ir.plan.Op{
-            .{ .requirement_index = 0, .op_name = "acquire", .mode = .transform, .payload_codec = .unit, .resume_codec = .product, .resume_schema_index = 0 },
-            .{ .requirement_index = 0, .op_name = "release", .mode = .transform, .payload_codec = .product, .payload_schema_index = 0, .resume_codec = .unit },
-            .{ .requirement_index = 1, .op_name = "request", .mode = .choice, .payload_codec = .unit, .resume_codec = .i32 },
-        },
+        .normal => ResourceRows.ops,
+        .exception_escape => ResourceRows.ops ++ ExceptionRows.ops,
+        .optional_escape => ResourceRows.ops ++ OptionalRows.ops,
     };
     const schemas = [_]ability.ir.ValueSchemaPlan{.{
         .label = @typeName(Resource),

@@ -628,11 +628,16 @@ fn scalarExceptionPlan() ability.ir.ProgramPlan {
         .{ .kind = .const_i32, .dst = payload.index, .operand = 40 },
         mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload)),
     };
+    const ExceptionRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("exception", ability.effect.exception.Schema(i32, error{}, void), void),
+        .{ .requirement_index = 0, .first_op = 0 },
+    );
     return exceptionPlan(
+        ExceptionRows,
         "matrix-plan-native-exception-scalar",
         9004,
-        .i32,
-        null,
+        .{ .codec = .i32 },
+        0,
         &instructions,
         &.{.{ .codec = .i32 }},
         &.{},
@@ -647,6 +652,16 @@ fn productExceptionPlan() ability.ir.ProgramPlan {
     const instructions = [_]ability.ir.plan.Instruction{
         mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload)),
     };
+    const ExceptionRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("exception", ability.effect.exception.Schema(ProductPayload, error{}, void), void),
+        .{
+            .requirement_index = 0,
+            .first_op = 0,
+            .schema_refs = ability.ir.schema.SchemaRefs(.{
+                ability.ir.schema.ref(ProductPayload, 0),
+            }),
+        },
+    );
     const schemas = [_]ability.ir.ValueSchemaPlan{.{
         .label = @typeName(ProductPayload),
         .codec = .product,
@@ -655,10 +670,11 @@ fn productExceptionPlan() ability.ir.ProgramPlan {
     }};
     const fields = [_]ability.ir.ValueFieldPlan{.{ .name = "amount", .codec = .i32 }};
     return exceptionPlan(
+        ExceptionRows,
         "matrix-plan-native-exception-product",
         9005,
-        .product,
-        0,
+        .{ .codec = .product, .schema_index = 0 },
+        1,
         &instructions,
         &.{.{ .codec = .product, .schema_index = 0 }},
         &schemas,
@@ -673,6 +689,16 @@ fn sumExceptionPlan() ability.ir.ProgramPlan {
     const instructions = [_]ability.ir.plan.Instruction{
         mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload)),
     };
+    const ExceptionRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("exception", ability.effect.exception.Schema(OptionalPayload, error{}, void), void),
+        .{
+            .requirement_index = 0,
+            .first_op = 0,
+            .schema_refs = ability.ir.schema.SchemaRefs(.{
+                ability.ir.schema.ref(OptionalPayload, 0),
+            }),
+        },
+    );
     const variants = [_]ability.ir.ValueVariantPlan{
         ability.ir.value.unitVariant("none"),
         ability.ir.value.variant("some", i32),
@@ -684,10 +710,11 @@ fn sumExceptionPlan() ability.ir.ProgramPlan {
         .variant_count = @intCast(variants.len),
     }};
     return exceptionPlan(
+        ExceptionRows,
         "matrix-plan-native-exception-sum",
         9006,
-        .sum,
-        0,
+        .{ .codec = .i32 },
+        1,
         &instructions,
         &.{.{ .codec = .sum, .schema_index = 0 }},
         &schemas,
@@ -697,10 +724,11 @@ fn sumExceptionPlan() ability.ir.ProgramPlan {
 }
 
 fn exceptionPlan(
+    comptime ExceptionRows: type,
     comptime label: []const u8,
     comptime hash: u64,
-    comptime payload_codec: ability.ir.ValueCodec,
-    comptime payload_schema_index: ?u16,
+    comptime result_ref: ability.ir.ValueRef,
+    comptime parameter_count: u16,
     instructions: []const ability.ir.plan.Instruction,
     locals: []const ability.ir.plan.Local,
     schemas: []const ability.ir.ValueSchemaPlan,
@@ -708,20 +736,8 @@ fn exceptionPlan(
     variants: []const ability.ir.ValueVariantPlan,
 ) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
-    const requirements = [_]ability.ir.plan.Requirement{.{
-        .label = "exception",
-        .first_op = 0,
-        .op_count = 1,
-        .lifecycle_tag = .abort_catch,
-    }};
-    const ops = [_]ability.ir.plan.Op{.{
-        .requirement_index = 0,
-        .op_name = "throw",
-        .mode = .abort,
-        .payload_codec = payload_codec,
-        .payload_schema_index = payload_schema_index,
-        .resume_codec = .unit,
-    }};
+    const requirements = [_]ability.ir.plan.Requirement{ExceptionRows.requirement};
+    const ops = ExceptionRows.ops;
     const blocks = [_]ability.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
@@ -735,9 +751,9 @@ fn exceptionPlan(
         .functions = &.{.{
             .symbol_name = "run",
             .value_codec = .unit,
-            .result_codec = if (payload_codec == .sum) .i32 else payload_codec,
-            .result_schema_index = if (payload_codec == .sum) null else payload_schema_index,
-            .parameter_count = if (payload_schema_index) |_| 1 else 0,
+            .result_codec = result_ref.codec,
+            .result_schema_index = result_ref.schema_index,
+            .parameter_count = parameter_count,
             .first_requirement = 0,
             .requirement_count = 1,
             .first_output = 0,
@@ -880,37 +896,39 @@ fn resourcePlan(comptime mode: ResourceMode) ability.ir.ProgramPlan {
         }
         break :blk buffer;
     };
-    const requirements = switch (mode) {
-        .normal => [_]ability.ir.plan.Requirement{.{
-            .label = "resource",
+    const ResourceRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("resource", ability.effect.resource.Schema(Resource, error{}, void), void),
+        .{
+            .requirement_index = 0,
             .first_op = 0,
-            .op_count = 2,
-            .lifecycle_tag = .resource_bracket,
-        }},
+            .schema_refs = ability.ir.schema.SchemaRefs(.{
+                ability.ir.schema.ref(Resource, 0),
+            }),
+        },
+    );
+    const ExceptionRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("exception", ability.effect.exception.Schema(i32, error{}, void), void),
+        .{ .requirement_index = 1, .first_op = ResourceRows.op_count },
+    );
+    const OptionalRows = ability.ir.schema.LowerBinding(
+        ability.ir.schema.Binding("optional", ability.effect.optional.Schema(i32, error{}, void), void),
+        .{ .requirement_index = 1, .first_op = ResourceRows.op_count },
+    );
+    const requirements = switch (mode) {
+        .normal => [_]ability.ir.plan.Requirement{ResourceRows.requirement},
         .exception_escape => [_]ability.ir.plan.Requirement{
-            .{ .label = "resource", .first_op = 0, .op_count = 2, .lifecycle_tag = .resource_bracket },
-            .{ .label = "exception", .first_op = 2, .op_count = 1, .lifecycle_tag = .abort_catch },
+            ResourceRows.requirement,
+            ExceptionRows.requirement,
         },
         .optional_escape => [_]ability.ir.plan.Requirement{
-            .{ .label = "resource", .first_op = 0, .op_count = 2, .lifecycle_tag = .resource_bracket },
-            .{ .label = "optional", .first_op = 2, .op_count = 1, .lifecycle_tag = .choice_policy },
+            ResourceRows.requirement,
+            OptionalRows.requirement,
         },
     };
     const ops = switch (mode) {
-        .normal => [_]ability.ir.plan.Op{
-            .{ .requirement_index = 0, .op_name = "acquire", .mode = .transform, .payload_codec = .unit, .resume_codec = .product, .resume_schema_index = 0 },
-            .{ .requirement_index = 0, .op_name = "release", .mode = .transform, .payload_codec = .product, .payload_schema_index = 0, .resume_codec = .unit },
-        },
-        .exception_escape => [_]ability.ir.plan.Op{
-            .{ .requirement_index = 0, .op_name = "acquire", .mode = .transform, .payload_codec = .unit, .resume_codec = .product, .resume_schema_index = 0 },
-            .{ .requirement_index = 0, .op_name = "release", .mode = .transform, .payload_codec = .product, .payload_schema_index = 0, .resume_codec = .unit },
-            .{ .requirement_index = 1, .op_name = "throw", .mode = .abort, .payload_codec = .i32, .resume_codec = .unit },
-        },
-        .optional_escape => [_]ability.ir.plan.Op{
-            .{ .requirement_index = 0, .op_name = "acquire", .mode = .transform, .payload_codec = .unit, .resume_codec = .product, .resume_schema_index = 0 },
-            .{ .requirement_index = 0, .op_name = "release", .mode = .transform, .payload_codec = .product, .payload_schema_index = 0, .resume_codec = .unit },
-            .{ .requirement_index = 1, .op_name = "request", .mode = .choice, .payload_codec = .unit, .resume_codec = .i32 },
-        },
+        .normal => ResourceRows.ops,
+        .exception_escape => ResourceRows.ops ++ ExceptionRows.ops,
+        .optional_escape => ResourceRows.ops ++ OptionalRows.ops,
     };
     const schemas = [_]ability.ir.ValueSchemaPlan{.{
         .label = @typeName(Resource),

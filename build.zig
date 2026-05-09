@@ -422,7 +422,19 @@ pub fn build(b: *std.Build) void {
         },
         .{
             .path = "test/compile_fail/schema_lower_binding_product_ref.zig",
-            .expected_error = "needs an explicit ProgramPlan schema-index map; v1 supports scalar refs only",
+            .expected_error = "schema.LowerBinding requires a schema ref for product/sum resume type 'schema_lower_binding_product_ref.ProductPayload'",
+        },
+        .{
+            .path = "test/compile_fail/schema_refs_scalar_entry.zig",
+            .expected_error = "is scalar and must not carry a schema index",
+        },
+        .{
+            .path = "test/compile_fail/schema_refs_duplicate_type.zig",
+            .expected_error = "schema.SchemaRefs has duplicate entry for type 'schema_refs_duplicate_type.ProductPayload'",
+        },
+        .{
+            .path = "test/compile_fail/schema_refs_unsupported_type.zig",
+            .expected_error = "schema.SchemaRefs unsupported type '*const i32': UnsupportedCodecType",
         },
     };
     inline for (compile_fail_specs) |spec| {

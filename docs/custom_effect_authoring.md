@@ -55,6 +55,22 @@ scope: schema lowering owns requirement/op/output metadata, while
 terminator layout. Raw ProgramPlan rows remain available for exact-table tests
 and unsupported shapes.
 
+When a schema-lowered payload, resume, or output type is a product or sum, the
+author must pass the same explicit schema-ref map used by built-in plan-native
+metadata:
+
+```zig
+const schema_refs = ability.ir.schema.SchemaRefs(.{
+    ability.ir.schema.ref(ProductPayload, 0),
+    ability.ir.schema.ref(ResultChoice, 1),
+});
+```
+
+Scalar refs need no map entry. Product and sum refs fail closed unless their
+exact Zig type appears in the local map. The map points only at caller-owned
+`value_schemas` indexes; it is not a hidden registry and it does not reorder or
+create schema rows.
+
 ## Required semantics
 
 A custom effect description must lower to ordinary ProgramPlan facts:
@@ -98,9 +114,9 @@ or test should be able to assert:
 This keeps custom authoring honest: if a helper cannot prove its output through
 the same contract projection as a raw ProgramPlan, it is not ready to be public.
 
-The current schema lowerer is scalar-first for payload, resume, and output refs.
-Structured product and sum refs need an explicit caller-provided ProgramPlan
-schema-index map before they become a public custom-authoring feature.
+The current schema lowerer resolves scalar payload, resume, and output refs
+directly, and resolves structured product/sum refs through the caller-provided
+schema-index map above.
 Writer accumulator output rows use the accumulator item ref; the final collected
 slice remains owned by the program body `Outputs` contract.
 
