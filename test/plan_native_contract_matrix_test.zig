@@ -69,6 +69,9 @@ fn expectNoNestedTargetsOrReturnErrors(comptime Contract: type) !void {
 }
 
 const optional_plan = ability.effect.optional.plan;
+const reader_plan = ability.effect.reader.plan;
+const state_plan = ability.effect.state.plan;
+const writer_plan = ability.effect.writer.plan;
 const OptionalOutcome = optional_plan.Outcome(i32);
 
 const OptionalHandlers = struct {
@@ -406,67 +409,56 @@ const StateReaderHandlers = struct {
 };
 
 fn stateReaderPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const env = ability.ir.builder.local(root, 0);
-    const before = ability.ir.builder.local(root, 1);
-    const next = ability.ir.builder.local(root, 2);
-    const instructions = [_]ability.ir.plan.Instruction{
-        mustInstruction(ability.ir.builder.callOp(root, env, ability.ir.builder.op(root, 2), null)),
-        mustInstruction(ability.ir.builder.callOp(root, before, ability.ir.builder.op(root, 0), null)),
-        .{ .kind = .add_i32, .dst = next.index, .operand = before.index, .aux = env.index },
-        mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 1), next)),
-        mustInstruction(ability.ir.builder.returnValue(root, next)),
-    };
-    const StateRows = ability.ir.schema.LowerBinding(
-        ability.ir.schema.Binding("state", ability.effect.state.Schema(i32, error{}), void),
-        .{ .requirement_index = 0, .first_op = 0, .first_output = 0 },
-    );
-    const ReaderRows = ability.ir.schema.LowerBinding(
-        ability.ir.schema.Binding("reader", ability.effect.reader.Schema(i32, error{}), void),
-        .{ .requirement_index = 1, .first_op = StateRows.op_count, .first_output = StateRows.output_count },
-    );
+    const layout = ability.ir.builder.layout;
+    const root = comptime ability.ir.builder.function(0);
+    const env = comptime ability.ir.builder.local(root, 0);
+    const before = comptime ability.ir.builder.local(root, 1);
+    const next = comptime ability.ir.builder.local(root, 2);
+    const StateRows = state_plan.Rows("state", i32, error{}, .{
+        .requirement_index = 0,
+        .first_op = 0,
+        .first_output = 0,
+    });
+    const ReaderRows = reader_plan.Rows("reader", i32, error{}, .{
+        .requirement_index = 1,
+        .first_op = StateRows.op_count,
+        .first_output = StateRows.output_count,
+    });
     const requirements = [_]ability.ir.plan.Requirement{
         StateRows.requirement,
         ReaderRows.requirement,
     };
     const ops = StateRows.ops ++ ReaderRows.ops;
     const outputs = StateRows.outputs ++ ReaderRows.outputs;
-    const functions = [_]ability.ir.plan.Function{.{
-        .symbol_name = "run",
-        .value_codec = .i32,
-        .result_codec = .i32,
-        .parameter_count = 0,
-        .first_requirement = 0,
-        .requirement_count = 2,
-        .first_output = 0,
-        .output_count = 1,
-        .first_local = 0,
-        .local_count = 3,
-        .first_block = 0,
-        .entry_block = 0,
-        .block_count = 1,
-        .first_instruction = 0,
-        .instruction_count = @intCast(instructions.len),
-    }};
-    const blocks = [_]ability.ir.plan.Block{.{
-        .first_instruction = 0,
-        .instruction_count = @intCast(instructions.len),
-        .terminator_index = 0,
-    }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
-
-    return mustPlan(ability.ir.builder.finish(.{
+    return mustPlan(ability.ir.builder.layout.finish(.{
         .label = "matrix-plan-native-state-reader",
         .ir_hash = 9002,
         .entry = root,
-        .functions = &functions,
         .requirements = &requirements,
         .ops = &ops,
         .outputs = &outputs,
-        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 }, .{ .codec = .i32 } },
-        .blocks = &blocks,
-        .terminators = &terminators,
-        .instructions = &instructions,
+        .functions = .{.{
+            .symbol_name = "run",
+            .value_ref = ability.ir.ValueRef{ .codec = .i32 },
+            .result_ref = ability.ir.ValueRef{ .codec = .i32 },
+            .requirements = layout.span(0, 2),
+            .outputs = layout.span(0, 1),
+            .locals = .{
+                reader_plan.envLocal(i32),
+                state_plan.stateLocal(i32),
+                state_plan.stateLocal(i32),
+            },
+            .blocks = .{.{
+                .instructions = .{
+                    mustInstruction(reader_plan.callAsk(root, env, reader_plan.askOp(root, StateRows.op_count))),
+                    mustInstruction(state_plan.callGet(root, before, state_plan.getOp(root, 0))),
+                    .{ .kind = .add_i32, .dst = next.index, .operand = before.index, .aux = env.index },
+                    mustInstruction(state_plan.callSet(root, next, state_plan.setOp(root, 0))),
+                    mustInstruction(ability.ir.builder.returnValue(root, next)),
+                },
+                .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+            }},
+        }},
     }));
 }
 
@@ -511,55 +503,44 @@ const WriterHandlers = struct {
 };
 
 fn writerPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const first = ability.ir.builder.local(root, 0);
-    const second = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        .{ .kind = .const_i32, .dst = first.index, .operand = 4 },
-        mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), first)),
-        .{ .kind = .const_i32, .dst = second.index, .operand = 8 },
-        mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), second)),
-    };
-    const WriterRows = ability.ir.schema.LowerBinding(
-        ability.ir.schema.Binding("writer", ability.effect.writer.Schema(i32, error{}), void),
-        .{ .requirement_index = 0, .first_op = 0, .first_output = 0 },
-    );
+    const layout = ability.ir.builder.layout;
+    const root = comptime ability.ir.builder.function(0);
+    const first = comptime ability.ir.builder.local(root, 0);
+    const second = comptime ability.ir.builder.local(root, 1);
+    const WriterRows = writer_plan.Rows("writer", i32, error{}, .{
+        .requirement_index = 0,
+        .first_op = 0,
+        .first_output = 0,
+    });
     const requirements = [_]ability.ir.plan.Requirement{WriterRows.requirement};
     const ops = WriterRows.ops;
     const outputs = WriterRows.outputs;
-    const functions = [_]ability.ir.plan.Function{.{
-        .symbol_name = "run",
-        .first_requirement = 0,
-        .requirement_count = 1,
-        .first_output = 0,
-        .output_count = 1,
-        .first_local = 0,
-        .local_count = 2,
-        .first_block = 0,
-        .entry_block = 0,
-        .block_count = 1,
-        .first_instruction = 0,
-        .instruction_count = @intCast(instructions.len),
-    }};
-    const blocks = [_]ability.ir.plan.Block{.{
-        .first_instruction = 0,
-        .instruction_count = @intCast(instructions.len),
-        .terminator_index = 0,
-    }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return mustPlan(ability.ir.builder.finish(.{
+    return mustPlan(ability.ir.builder.layout.finish(.{
         .label = "matrix-plan-native-writer",
         .ir_hash = 9003,
         .entry = root,
-        .functions = &functions,
         .requirements = &requirements,
         .ops = &ops,
         .outputs = &outputs,
-        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 } },
-        .blocks = &blocks,
-        .terminators = &terminators,
-        .instructions = &instructions,
+        .functions = .{.{
+            .symbol_name = "run",
+            .requirements = layout.span(0, 1),
+            .outputs = layout.span(0, 1),
+            .locals = .{
+                writer_plan.itemLocal(i32),
+                writer_plan.itemLocal(i32),
+            },
+            .blocks = .{.{
+                .instructions = .{
+                    .{ .kind = .const_i32, .dst = first.index, .operand = 4 },
+                    mustInstruction(writer_plan.callTell(root, first, writer_plan.tellOp(root, 0))),
+                    .{ .kind = .const_i32, .dst = second.index, .operand = 8 },
+                    mustInstruction(writer_plan.callTell(root, second, writer_plan.tellOp(root, 0))),
+                },
+                .terminator = ability.ir.plan.Terminator{ .kind = .return_unit },
+            }},
+        }},
     }));
 }
 
@@ -581,12 +562,159 @@ test "plan-native contract conformance matrix writer" {
     try expectRequirement(Program.contract, 0, "writer", .writer_accumulator, .accumulator);
     try expectOp(Program.contract, 0, "writer", "tell", .transform, .{ .codec = .i32 }, .{ .codec = .unit }, false);
     try expectRef(Program.contract.result_ref, .{ .codec = .unit });
+    try std.testing.expectEqual([]i32, Program.contract.OutputsType);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.outputs.len);
     try std.testing.expectEqualStrings("writer", Program.contract.outputs[0].label);
     try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.outputs[0].codec);
     try std.testing.expectEqual(@as(?u16, null), Program.contract.outputs[0].schema_index);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.value_schemas.len);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.value_fields.len);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.value_variants.len);
+    try expectNoNestedTargetsOrReturnErrors(Program.contract);
+    try expectExecutable(Program.contract);
+}
+
+const StructuredEffectPayload = struct {
+    amount: i32,
+};
+
+const StructuredEffectOutputs = struct {
+    final_state: StructuredEffectPayload,
+    writer_items: []StructuredEffectPayload,
+};
+
+const StructuredEffectHandlers = struct {
+    get: struct {
+        pub fn dispatch(_: *const @This()) !StructuredEffectPayload {
+            return .{ .amount = 5 };
+        }
+    },
+    set: struct {
+        pub fn dispatch(_: *const @This(), _: StructuredEffectPayload) !void {
+            return {};
+        }
+    },
+    ask: struct {
+        pub fn dispatch(_: *const @This()) !StructuredEffectPayload {
+            return .{ .amount = 7 };
+        }
+    },
+    tell: struct {
+        pub fn dispatch(_: *const @This(), _: StructuredEffectPayload) !void {
+            return {};
+        }
+    },
+};
+
+fn structuredStateReaderWriterPlan() ability.ir.ProgramPlan {
+    const layout = ability.ir.builder.layout;
+    const root = comptime ability.ir.builder.function(0);
+    const current_state = comptime ability.ir.builder.local(root, 0);
+    const environment = comptime ability.ir.builder.local(root, 1);
+    const fields = [_]ability.ir.ValueFieldPlan{ability.ir.value.field("amount", i32)};
+    const schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(StructuredEffectPayload),
+        .codec = .product,
+        .first_field = 0,
+        .field_count = @intCast(fields.len),
+    }};
+    const schema_refs = ability.ir.schema.SchemaRefs(.{
+        ability.ir.schema.ref(StructuredEffectPayload, 0),
+    });
+    const StateRows = state_plan.Rows("state", StructuredEffectPayload, error{}, .{
+        .requirement_index = 0,
+        .first_op = 0,
+        .first_output = 0,
+        .schema_refs = schema_refs,
+    });
+    const ReaderRows = reader_plan.Rows("reader", StructuredEffectPayload, error{}, .{
+        .requirement_index = 1,
+        .first_op = StateRows.op_count,
+        .first_output = StateRows.output_count,
+        .schema_refs = schema_refs,
+    });
+    const WriterRows = writer_plan.Rows("writer", StructuredEffectPayload, error{}, .{
+        .requirement_index = 2,
+        .first_op = StateRows.op_count + ReaderRows.op_count,
+        .first_output = StateRows.output_count,
+        .schema_refs = schema_refs,
+    });
+    const requirements = [_]ability.ir.plan.Requirement{
+        StateRows.requirement,
+        ReaderRows.requirement,
+        WriterRows.requirement,
+    };
+    const ops = StateRows.ops ++ ReaderRows.ops ++ WriterRows.ops;
+    const outputs = StateRows.outputs ++ WriterRows.outputs;
+
+    return mustPlan(ability.ir.builder.layout.finish(.{
+        .label = "matrix-plan-native-structured-effects",
+        .ir_hash = 9011,
+        .entry = root,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &outputs,
+        .value_schemas = &schemas,
+        .value_fields = &fields,
+        .functions = .{.{
+            .symbol_name = "run",
+            .requirements = layout.span(0, 3),
+            .outputs = layout.span(0, 2),
+            .locals = .{
+                state_plan.stateLocalFromSchema(StructuredEffectPayload, 0),
+                reader_plan.envLocalFromSchema(StructuredEffectPayload, 0),
+            },
+            .blocks = .{.{
+                .instructions = .{
+                    mustInstruction(state_plan.callGet(root, current_state, state_plan.getOp(root, 0))),
+                    mustInstruction(reader_plan.callAsk(root, environment, reader_plan.askOp(root, StateRows.op_count))),
+                    mustInstruction(state_plan.callSet(root, current_state, state_plan.setOp(root, 0))),
+                    mustInstruction(writer_plan.callTell(root, environment, writer_plan.tellOp(root, StateRows.op_count + ReaderRows.op_count))),
+                },
+                .terminator = ability.ir.plan.Terminator{ .kind = .return_unit },
+            }},
+        }},
+    }));
+}
+
+test "plan-native contract conformance matrix structured state reader writer helpers" {
+    const Body = struct {
+        pub const value_schema_types = .{StructuredEffectPayload};
+        pub const Outputs = StructuredEffectOutputs;
+        pub const compiled_plan = structuredStateReaderWriterPlan();
+
+        pub fn collectOutputs(allocator: std.mem.Allocator, _: *StructuredEffectHandlers) !Outputs {
+            return .{
+                .final_state = .{ .amount = 0 },
+                .writer_items = try allocator.alloc(StructuredEffectPayload, 0),
+            };
+        }
+
+        pub fn deinitOutputs(allocator: std.mem.Allocator, outputs: Outputs) void {
+            allocator.free(outputs.writer_items);
+        }
+    };
+    const Program = ability.program("matrix-plan-native-structured-effects", StructuredEffectHandlers, Body);
+
+    try expectRequirement(Program.contract, 0, "state", .state_cell, .final_state);
+    try expectRequirement(Program.contract, 1, "reader", .reader_environment, .none);
+    try expectRequirement(Program.contract, 2, "writer", .writer_accumulator, .accumulator);
+    try expectOp(Program.contract, 0, "state", "get", .transform, .{ .codec = .unit }, .{ .codec = .product, .schema_index = 0 }, false);
+    try expectOp(Program.contract, 1, "state", "set", .transform, .{ .codec = .product, .schema_index = 0 }, .{ .codec = .unit }, false);
+    try expectOp(Program.contract, 2, "reader", "ask", .transform, .{ .codec = .unit }, .{ .codec = .product, .schema_index = 0 }, false);
+    try expectOp(Program.contract, 3, "writer", "tell", .transform, .{ .codec = .product, .schema_index = 0 }, .{ .codec = .unit }, false);
+    try std.testing.expectEqual(StructuredEffectOutputs, Program.contract.OutputsType);
+    try std.testing.expectEqual(@as(usize, 2), Program.contract.outputs.len);
+    try std.testing.expectEqualStrings("state", Program.contract.outputs[0].label);
+    try expectRef(Program.contract.outputs[0], .{ .codec = .product, .schema_index = 0 });
+    try std.testing.expectEqualStrings("writer", Program.contract.outputs[1].label);
+    try expectRef(Program.contract.outputs[1], .{ .codec = .product, .schema_index = 0 });
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.value_schemas.len);
+    try std.testing.expectEqualStrings(@typeName(StructuredEffectPayload), Program.contract.value_schemas[0].label);
+    try std.testing.expectEqual(ability.ir.ValueCodec.product, Program.contract.value_schemas[0].codec);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.value_fields.len);
+    try std.testing.expectEqualStrings("amount", Program.contract.value_fields[0].name);
+    try expectRef(Program.contract.value_fields[0].ref, .{ .codec = .i32 });
     try std.testing.expectEqual(@as(usize, 0), Program.contract.value_variants.len);
     try expectNoNestedTargetsOrReturnErrors(Program.contract);
     try expectExecutable(Program.contract);

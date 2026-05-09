@@ -2,6 +2,9 @@
 const ability = @import("ability");
 const std = @import("std");
 
+const reader_plan = ability.effect.reader.plan;
+const state_plan = ability.effect.state.plan;
+
 fn mustInstruction(result: anyerror!ability.ir.plan.Instruction) ability.ir.plan.Instruction {
     return result catch |err| std.debug.panic("invalid state/reader instruction: {s}", .{@errorName(err)});
 }
@@ -35,71 +38,56 @@ const StateReaderHandlers = struct {
 };
 
 fn stateReaderPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const env = ability.ir.builder.local(root, 0);
-    const before = ability.ir.builder.local(root, 1);
-    const next = ability.ir.builder.local(root, 2);
-    const instructions = [_]ability.ir.plan.Instruction{
-        mustInstruction(ability.ir.builder.callOp(root, env, ability.ir.builder.op(root, 2), null)),
-        mustInstruction(ability.ir.builder.callOp(root, before, ability.ir.builder.op(root, 0), null)),
-        .{ .kind = .add_i32, .dst = next.index, .operand = before.index, .aux = env.index },
-        mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 1), next)),
-        mustInstruction(ability.ir.builder.returnValue(root, next)),
-    };
-    const StateRows = ability.ir.schema.LowerBinding(
-        ability.ir.schema.Binding("state", ability.effect.state.Schema(i32, error{}), void),
-        .{ .requirement_index = 0, .first_op = 0, .first_output = 0 },
-    );
-    const ReaderRows = ability.ir.schema.LowerBinding(
-        ability.ir.schema.Binding("reader", ability.effect.reader.Schema(i32, error{}), void),
-        .{ .requirement_index = 1, .first_op = StateRows.op_count, .first_output = StateRows.output_count },
-    );
+    const layout = ability.ir.builder.layout;
+    const root = comptime ability.ir.builder.function(0);
+    const env = comptime ability.ir.builder.local(root, 0);
+    const before = comptime ability.ir.builder.local(root, 1);
+    const next = comptime ability.ir.builder.local(root, 2);
+    const StateRows = state_plan.Rows("state", i32, error{}, .{
+        .requirement_index = 0,
+        .first_op = 0,
+        .first_output = 0,
+    });
+    const ReaderRows = reader_plan.Rows("reader", i32, error{}, .{
+        .requirement_index = 1,
+        .first_op = StateRows.op_count,
+        .first_output = StateRows.output_count,
+    });
     const requirements = [_]ability.ir.plan.Requirement{
         StateRows.requirement,
         ReaderRows.requirement,
     };
     const ops = StateRows.ops ++ ReaderRows.ops;
     const outputs = StateRows.outputs ++ ReaderRows.outputs;
-    const functions = [_]ability.ir.plan.Function{.{
-        .symbol_name = "run",
-        .value_codec = .i32,
-        .result_codec = .i32,
-        .parameter_count = 0,
-        .first_requirement = 0,
-        .requirement_count = 2,
-        .first_output = 0,
-        .output_count = 1,
-        .first_local = 0,
-        .local_count = 3,
-        .first_block = 0,
-        .entry_block = 0,
-        .block_count = 1,
-        .first_instruction = 0,
-        .instruction_count = @intCast(instructions.len),
-    }};
-    const blocks = [_]ability.ir.plan.Block{.{
-        .first_instruction = 0,
-        .instruction_count = @intCast(instructions.len),
-        .terminator_index = 0,
-    }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
-
-    return mustPlan(ability.ir.builder.finish(.{
+    return mustPlan(ability.ir.builder.layout.finish(.{
         .label = "plan-native-state-reader",
         .ir_hash = 50,
         .entry = root,
-        .functions = &functions,
         .requirements = &requirements,
         .ops = &ops,
         .outputs = &outputs,
-        .locals = &.{
-            .{ .codec = .i32 },
-            .{ .codec = .i32 },
-            .{ .codec = .i32 },
-        },
-        .blocks = &blocks,
-        .terminators = &terminators,
-        .instructions = &instructions,
+        .functions = .{.{
+            .symbol_name = "run",
+            .value_ref = ability.ir.ValueRef{ .codec = .i32 },
+            .result_ref = ability.ir.ValueRef{ .codec = .i32 },
+            .requirements = layout.span(0, 2),
+            .outputs = layout.span(0, 1),
+            .locals = .{
+                reader_plan.envLocal(i32),
+                state_plan.stateLocal(i32),
+                state_plan.stateLocal(i32),
+            },
+            .blocks = .{.{
+                .instructions = .{
+                    mustInstruction(reader_plan.callAsk(root, env, reader_plan.askOp(root, StateRows.op_count))),
+                    mustInstruction(state_plan.callGet(root, before, state_plan.getOp(root, 0))),
+                    .{ .kind = .add_i32, .dst = next.index, .operand = before.index, .aux = env.index },
+                    mustInstruction(state_plan.callSet(root, next, state_plan.setOp(root, 0))),
+                    mustInstruction(ability.ir.builder.returnValue(root, next)),
+                },
+                .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+            }},
+        }},
     }));
 }
 

@@ -3,6 +3,7 @@ const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
 const lexical_with = @import("../internal/lexical_support.zig");
 const lowered_machine = @import("lowered_machine");
+const plan_ir = @import("../ir_api.zig");
 const ability = lowered_machine;
 const std = @import("std");
 
@@ -115,6 +116,137 @@ pub fn handleWithErrorSet(
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
     return try algebraic.handleReaderWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, environment, Body);
+}
+
+/// Plan-native ProgramPlan construction helpers for the built-in reader family.
+pub const plan = struct {
+    /// Canonical operation ordinal for `reader.ask`.
+    pub const ask_op_ordinal: u16 = 0;
+
+    /// Build the canonical reader binding schema for one requirement label.
+    pub fn Binding(comptime label: [:0]const u8, comptime EnvType: type, comptime ErrorSetType: type) type {
+        return plan_ir.schema.Binding(label, Schema(EnvType, ErrorSetType), void);
+    }
+
+    /// Lower the canonical reader binding to ordinary ProgramPlan rows.
+    pub fn Rows(
+        comptime label: [:0]const u8,
+        comptime EnvType: type,
+        comptime ErrorSetType: type,
+        comptime offsets: plan_ir.schema.BindingOffsets,
+    ) type {
+        return plan_ir.schema.LowerBinding(Binding(label, EnvType, ErrorSetType), offsets);
+    }
+
+    /// Build a scalar environment value reference.
+    pub fn envRef(comptime EnvType: type) plan_ir.ValueRef {
+        return scalarRef(EnvType);
+    }
+
+    /// Build a structured environment value reference at a caller-owned schema index.
+    pub fn envRefFromSchema(comptime EnvType: type, schema_index: u16) plan_ir.ValueRef {
+        return structuredRef(EnvType, schema_index);
+    }
+
+    /// Build a scalar environment local descriptor.
+    pub fn envLocal(comptime EnvType: type) plan_ir.plan.Local {
+        const ref = envRef(EnvType);
+        return .{ .codec = ref.codec, .schema_index = ref.schema_index };
+    }
+
+    /// Build a structured environment local descriptor at a caller-owned schema index.
+    pub fn envLocalFromSchema(comptime EnvType: type, schema_index: u16) plan_ir.plan.Local {
+        const ref = envRefFromSchema(EnvType, schema_index);
+        return .{ .codec = ref.codec, .schema_index = ref.schema_index };
+    }
+
+    /// Build the canonical `ask` operation reference from a caller-owned op offset.
+    pub fn askOp(function_ref: plan_ir.builder.FunctionRef, first_op: u16) plan_ir.builder.OpRef {
+        return plan_ir.builder.op(function_ref, first_op + ask_op_ordinal);
+    }
+
+    /// Build a reader `ask` call instruction.
+    pub fn callAsk(
+        function_ref: plan_ir.builder.FunctionRef,
+        dst_local: plan_ir.builder.LocalRef,
+        op_ref: plan_ir.builder.OpRef,
+    ) anyerror!plan_ir.plan.Instruction {
+        return plan_ir.builder.callOp(function_ref, dst_local, op_ref, null);
+    }
+
+    fn scalarRef(comptime EnvType: type) plan_ir.ValueRef {
+        const codec = comptime plan_ir.value.codecForType(EnvType) catch @compileError("unsupported reader environment type");
+        return switch (codec) {
+            .product, .sum => @compileError("use reader.plan.envRefFromSchema for structured environment types"),
+            else => .{ .codec = codec },
+        };
+    }
+
+    fn structuredRef(comptime EnvType: type, schema_index: u16) plan_ir.ValueRef {
+        const codec = comptime plan_ir.value.codecForType(EnvType) catch @compileError("unsupported reader environment type");
+        return switch (codec) {
+            .product, .sum => .{ .codec = codec, .schema_index = schema_index },
+            else => @compileError("use reader.plan.envRef for scalar environment types"),
+        };
+    }
+};
+
+test "reader plan helpers build canonical rows" {
+    const lowered_rows = plan.Rows("reader", i32, error{}, .{
+        .requirement_index = 3,
+        .first_op = 9,
+    });
+
+    try std.testing.expectEqual(@as(u16, 3), lowered_rows.requirement_index);
+    try std.testing.expectEqualStrings("reader", lowered_rows.requirement.label);
+    try std.testing.expectEqual(@as(u16, 9), lowered_rows.requirement.first_op);
+    try std.testing.expectEqual(@as(u16, 1), lowered_rows.requirement.op_count);
+    try std.testing.expectEqual(@as(@TypeOf(lowered_rows.requirement.lifecycle_tag), .reader_environment), lowered_rows.requirement.lifecycle_tag);
+    try std.testing.expectEqual(@as(@TypeOf(lowered_rows.requirement.output_tag), .none), lowered_rows.requirement.output_tag);
+    try std.testing.expectEqual(@as(usize, 0), lowered_rows.outputs.len);
+    try std.testing.expectEqualStrings("ask", lowered_rows.ops[plan.ask_op_ordinal].op_name);
+    try std.testing.expectEqual(plan_ir.PlanControlMode.transform, lowered_rows.ops[plan.ask_op_ordinal].mode);
+    try std.testing.expectEqual(plan_ir.ValueCodec.unit, lowered_rows.ops[plan.ask_op_ordinal].payload_codec);
+    try std.testing.expectEqual(plan_ir.ValueCodec.i32, lowered_rows.ops[plan.ask_op_ordinal].resume_codec);
+
+    const ref = plan.envRef(i32);
+    try std.testing.expectEqual(plan_ir.ValueCodec.i32, ref.codec);
+    try std.testing.expectEqual(@as(?u16, null), ref.schema_index);
+    const local = plan.envLocal(i32);
+    try std.testing.expectEqual(plan_ir.ValueCodec.i32, local.codec);
+    try std.testing.expectEqual(@as(?u16, null), local.schema_index);
+}
+
+test "reader plan helpers build call instructions" {
+    const root = plan_ir.builder.function(0);
+    const env_local = plan_ir.builder.local(root, 2);
+    const ask_instruction = try plan.callAsk(root, env_local, plan.askOp(root, 6));
+    try std.testing.expectEqual(plan_ir.plan.InstructionKind.call_op, ask_instruction.kind);
+    try std.testing.expectEqual(@as(u16, 2), ask_instruction.dst);
+    try std.testing.expectEqual(@as(u16, 6), ask_instruction.operand);
+    try std.testing.expectEqual(std.math.maxInt(u16), ask_instruction.aux);
+}
+
+test "reader plan helpers support structured environment schema refs" {
+    const Env = struct {
+        factor: i32,
+    };
+    const schema_refs = plan_ir.schema.SchemaRefs(.{plan_ir.schema.ref(Env, 6)});
+    const lowered_rows = plan.Rows("reader", Env, error{}, .{
+        .requirement_index = 0,
+        .first_op = 0,
+        .schema_refs = schema_refs,
+    });
+
+    try std.testing.expectEqual(plan_ir.ValueCodec.product, lowered_rows.ops[plan.ask_op_ordinal].resume_codec);
+    try std.testing.expectEqual(@as(?u16, 6), lowered_rows.ops[plan.ask_op_ordinal].resume_schema_index);
+
+    const ref = plan.envRefFromSchema(Env, 6);
+    try std.testing.expectEqual(plan_ir.ValueCodec.product, ref.codec);
+    try std.testing.expectEqual(@as(?u16, 6), ref.schema_index);
+    const local = plan.envLocalFromSchema(Env, 6);
+    try std.testing.expectEqual(plan_ir.ValueCodec.product, local.codec);
+    try std.testing.expectEqual(@as(?u16, 6), local.schema_index);
 }
 
 test "public reader handleWithErrorSet leaves caller provenance absent by default" {

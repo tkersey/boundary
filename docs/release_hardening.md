@@ -105,17 +105,17 @@ Built-ins stay under `ability.effect` until plan-native replacements have
 equivalent examples and tests. Compatibility APIs should remain available while
 the plan-native paths prove parity.
 
-Migration order:
+Migration state:
 
-1. Optional: typed sum choice/resume/return-now control flow.
-2. State and reader: transform operations with final state materialized through
-   outputs and reader environment borrowed from handlers.
-3. Writer: accumulator output ownership and cleanup.
-4. Exception: abort control flow with scalar, product, and sum payloads.
-5. Resource: lifecycle behavior, LIFO release, terminal escape, and release
-   failure precedence.
-6. Custom effect authoring: schema-first helpers that lower to ProgramPlan, once
-   built-in semantics have stabilized.
+1. Optional plan helpers are established under
+   `ability.effect.optional.plan`.
+2. State, reader, and writer plan helpers are established under
+   `ability.effect.state.plan`, `ability.effect.reader.plan`, and
+   `ability.effect.writer.plan`.
+3. Exception and resource are the next built-in migration targets for reusable
+   plan-native helper namespaces.
+4. Custom effect authoring remains later: schema-first helpers should lower to
+   ProgramPlan only after the built-in helper pattern has stabilized.
 
 Non-goals for release hardening:
 

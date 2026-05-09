@@ -2,6 +2,8 @@
 const ability = @import("ability");
 const std = @import("std");
 
+const writer_plan = ability.effect.writer.plan;
+
 fn mustInstruction(result: anyerror!ability.ir.plan.Instruction) ability.ir.plan.Instruction {
     return result catch |err| std.debug.panic("invalid writer instruction: {s}", .{@errorName(err)});
 }
@@ -23,55 +25,44 @@ const WriterHandlers = struct {
 };
 
 fn writerPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const first = ability.ir.builder.local(root, 0);
-    const second = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        .{ .kind = .const_i32, .dst = first.index, .operand = 4 },
-        mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), first)),
-        .{ .kind = .const_i32, .dst = second.index, .operand = 8 },
-        mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), second)),
-    };
-    const WriterRows = ability.ir.schema.LowerBinding(
-        ability.ir.schema.Binding("writer", ability.effect.writer.Schema(i32, error{}), void),
-        .{ .requirement_index = 0, .first_op = 0, .first_output = 0 },
-    );
+    const layout = ability.ir.builder.layout;
+    const root = comptime ability.ir.builder.function(0);
+    const first = comptime ability.ir.builder.local(root, 0);
+    const second = comptime ability.ir.builder.local(root, 1);
+    const WriterRows = writer_plan.Rows("writer", i32, error{}, .{
+        .requirement_index = 0,
+        .first_op = 0,
+        .first_output = 0,
+    });
     const requirements = [_]ability.ir.plan.Requirement{WriterRows.requirement};
     const ops = WriterRows.ops;
     const outputs = WriterRows.outputs;
-    const functions = [_]ability.ir.plan.Function{.{
-        .symbol_name = "run",
-        .first_requirement = 0,
-        .requirement_count = 1,
-        .first_output = 0,
-        .output_count = 1,
-        .first_local = 0,
-        .local_count = 2,
-        .first_block = 0,
-        .entry_block = 0,
-        .block_count = 1,
-        .first_instruction = 0,
-        .instruction_count = @intCast(instructions.len),
-    }};
-    const blocks = [_]ability.ir.plan.Block{.{
-        .first_instruction = 0,
-        .instruction_count = @intCast(instructions.len),
-        .terminator_index = 0,
-    }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return mustPlan(ability.ir.builder.finish(.{
+    return mustPlan(ability.ir.builder.layout.finish(.{
         .label = "plan-native-writer",
         .ir_hash = 60,
         .entry = root,
-        .functions = &functions,
         .requirements = &requirements,
         .ops = &ops,
         .outputs = &outputs,
-        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 } },
-        .blocks = &blocks,
-        .terminators = &terminators,
-        .instructions = &instructions,
+        .functions = .{.{
+            .symbol_name = "run",
+            .requirements = layout.span(0, 1),
+            .outputs = layout.span(0, 1),
+            .locals = .{
+                writer_plan.itemLocal(i32),
+                writer_plan.itemLocal(i32),
+            },
+            .blocks = .{.{
+                .instructions = .{
+                    .{ .kind = .const_i32, .dst = first.index, .operand = 4 },
+                    mustInstruction(writer_plan.callTell(root, first, writer_plan.tellOp(root, 0))),
+                    .{ .kind = .const_i32, .dst = second.index, .operand = 8 },
+                    mustInstruction(writer_plan.callTell(root, second, writer_plan.tellOp(root, 0))),
+                },
+                .terminator = ability.ir.plan.Terminator{ .kind = .return_unit },
+            }},
+        }},
     }));
 }
 
