@@ -1948,11 +1948,11 @@ fn afterDispatchReceiverMatches(comptime Authored: type, comptime Receiver: type
 fn afterDispatchHasRuntimeShape(comptime AuthoredPtr: type) bool {
     const Authored = HandlerType(AuthoredPtr);
     const after_dispatch_info = @typeInfo(@TypeOf(Authored.afterDispatch)).@"fn";
-    return after_dispatch_info.params.len == 2 and
-        after_dispatch_info.params[0].type != null and
-        after_dispatch_info.params[1].type != null and
+    if (after_dispatch_info.params.len != 2) return false;
+    const receiver = after_dispatch_info.params[0].type;
+    return after_dispatch_info.params[1].type != null and
         after_dispatch_info.return_type != null and
-        afterDispatchReceiverMatches(Authored, after_dispatch_info.params[0].type.?);
+        (receiver == null or afterDispatchReceiverMatches(Authored, receiver.?));
 }
 
 fn afterDispatchAccepts(

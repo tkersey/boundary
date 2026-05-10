@@ -4420,6 +4420,38 @@ test "Program.protocol does not publish static refs for non-method afterDispatch
     try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
 }
 
+test "Program.protocol accepts generic receiver afterDispatch" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const GenericAfterHandlers = struct {
+        handlerless: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 0;
+            }
+
+            pub fn afterDispatch(_: anytype, value: bool) !bool {
+                return value;
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = handlerlessAfterReturnBoolPlan("protocol-generic-after-dispatch-receiver");
+    };
+    const Program = ability.program("protocol-generic-after-dispatch-receiver", GenericAfterHandlers, Body);
+    const After = Program.protocol.afterSite("handlerless", "step", 0);
+
+    try std.testing.expect(After.has_static_input_ref);
+    try std.testing.expect(After.Input == bool);
+    try std.testing.expect(After.Output == bool);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.input_ref.?.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
+
+    var result = try Program.run(&runtime, .{ .handlerless = .{} });
+    defer result.deinit();
+    try std.testing.expect(result.value);
+}
+
 test "Program.protocol derives handlerless outer after input from inner output" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
