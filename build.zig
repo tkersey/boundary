@@ -340,6 +340,14 @@ pub fn build(b: *std.Build) void {
     synthetic_root_tests_mod.addImport("ability_shared", ability_shared);
     addTestArtifact(b, test_step, synthetic_root_tests_mod, test_args);
 
+    const agent_loop_tests_mod = b.createModule(.{
+        .root_source_file = b.path("examples/agent_loop.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    agent_loop_tests_mod.addImport("ability", ability);
+    addTestArtifact(b, test_step, agent_loop_tests_mod, test_args);
+
     const program_api_tests_mod = b.createModule(.{
         .root_source_file = b.path("test/program_api_test.zig"),
         .target = target,
