@@ -3491,6 +3491,9 @@ test "ability.program exposes scalar ProgramPlan contract metadata" {
     try std.testing.expectEqual(@as(usize, 0), Program.contract.executable.blocker_count);
     try std.testing.expectEqualStrings("capability ledger: blockers=0 truncated=false", Program.contract.executable.summary);
     try std.testing.expect(Program.contract.session.supported);
+    try std.testing.expect(Program.contract.session.trace_supported);
+    try std.testing.expect(Program.contract.session.value_fingerprint_supported);
+    try std.testing.expectEqual(@as(u32, 1), Program.contract.session.fingerprint_version);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.session.blocker_count);
     try std.testing.expectEqualStrings("session capability ledger: blockers=0 truncated=false", Program.contract.session.summary);
     try std.testing.expect(!@hasDecl(Program.contract, "functions"));
@@ -3616,6 +3619,9 @@ test "ability.program exposes transform choice and abort op metadata" {
     try std.testing.expect(TransformProgram.contract.session.supported);
     try std.testing.expect(TransformProgram.contract.session.parks_runtime);
     try std.testing.expect(TransformProgram.contract.session.requires_runtime_lifetime);
+    try std.testing.expect(TransformProgram.contract.session.trace_supported);
+    try std.testing.expect(TransformProgram.contract.session.value_fingerprint_supported);
+    try std.testing.expectEqual(@as(u32, 1), TransformProgram.contract.session.fingerprint_version);
     try std.testing.expectEqual(@as(usize, 0), TransformProgram.contract.session.blocker_count);
     try std.testing.expectEqual(@as(@TypeOf(TransformProgram.contract.session.first_blocker_tag), null), TransformProgram.contract.session.first_blocker_tag);
 
@@ -4621,6 +4627,57 @@ fn sessionStringOpPlan(comptime mode: ability.ir.PlanControlMode, comptime label
         .ops = &ops,
         .outputs = &.{},
         .locals = &.{ .{ .codec = .string }, .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn sessionStringPayloadPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const resumed = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .i32,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "string_payload",
+        .mode = .transform,
+        .payload_codec = .string,
+        .resume_codec = .i32,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 113,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string }, .{ .codec = .i32 } },
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,
@@ -7118,6 +7175,338 @@ test "Program.Session decodes duplicate schema payloads by request ref" {
         .after => return error.UnexpectedAfter,
     };
     defer result.deinit();
+}
+
+test "Program.Session trace operation metadata and replay fingerprint helpers" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "session-trace-operation");
+    };
+    const Program = ability.program("session-trace-operation", struct {}, Body);
+
+    var first_session = try Program.Session.start(&runtime, .{});
+    defer first_session.deinit();
+    const first_request = switch (try first_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try expectRuntimeParked(&runtime);
+    const first_trace = first_request.trace();
+    try std.testing.expectEqual(@as(u32, 1), first_trace.fingerprint_version);
+    try std.testing.expectEqualStrings("session-trace-operation", first_trace.program_label);
+    try std.testing.expectEqualStrings("session-trace-operation", first_trace.plan_label);
+    try std.testing.expectEqual(Program.compiled_plan.hash(), first_trace.plan_hash);
+    try std.testing.expectEqual(@as(usize, 0), first_trace.turn_index);
+    try std.testing.expectEqual(Program.Session.Trace.RequestKind.operation, first_trace.kind);
+    try std.testing.expectEqual(@as(u16, 0), first_trace.requirement_index);
+    try std.testing.expectEqualStrings("session", first_trace.requirement_label);
+    try std.testing.expectEqual(@as(u16, 0), first_trace.op_index);
+    try std.testing.expectEqualStrings("decide", first_trace.op_name);
+    try std.testing.expectEqual(ability.ir.PlanControlMode.transform, first_trace.mode);
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, first_trace.payload_ref.codec);
+    try std.testing.expect(first_trace.has_payload);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, first_trace.resume_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, first_trace.result_ref.codec);
+    try std.testing.expect(!first_trace.has_after);
+    try std.testing.expectEqual(first_request.fingerprint(), first_trace.fingerprint);
+    try std.testing.expect(first_trace.eql(first_request.fingerprint()));
+    try first_request.expectFingerprint(first_request.fingerprint());
+    try std.testing.expectError(error.TraceFingerprintMismatch, first_request.expectFingerprint(first_request.fingerprint() ^ 1));
+
+    const response_trace = try first_request.responseTrace(.@"resume", @as(i32, 41));
+    try std.testing.expectEqual(first_request.fingerprint(), response_trace.request_fingerprint);
+    try std.testing.expectEqual(Program.Session.Trace.ResponseKind.@"resume", response_trace.kind);
+    try expectRuntimeParked(&runtime);
+    try first_session.@"resume"(first_request, @as(i32, 41));
+    var first_result = switch (try first_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer first_result.deinit();
+    try std.testing.expectEqual(@as(i32, 41), first_result.value);
+
+    var second_session = try Program.Session.start(&runtime, .{});
+    defer second_session.deinit();
+    const second_request = switch (try second_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqual(first_request.fingerprint(), second_request.fingerprint());
+}
+
+test "Program.Session trace after metadata and current value fingerprint stability" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = compiledTransformPlan("session-trace-after");
+    };
+    const Program = ability.program("session-trace-after", struct {}, Body);
+
+    var first_session = try Program.Session.start(&runtime, .{});
+    defer first_session.deinit();
+    const first_request = switch (try first_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try first_session.@"resume"(first_request, @as(i32, 30));
+    const first_after = switch (try first_session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    const first_trace = first_after.trace();
+    try std.testing.expectEqual(Program.Session.Trace.RequestKind.after, first_trace.kind);
+    try std.testing.expectEqual(@as(usize, 1), first_trace.turn_index);
+    try std.testing.expectEqual(@as(u16, 0), first_trace.original_requirement_index);
+    try std.testing.expectEqualStrings("authored", first_trace.original_requirement_label);
+    try std.testing.expectEqual(@as(u16, 0), first_trace.original_op_index);
+    try std.testing.expectEqualStrings("dispatch", first_trace.original_op_name);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, first_trace.current_value_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, first_trace.expected_output_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, first_trace.result_ref.codec);
+    try std.testing.expectEqual(first_after.fingerprint(), first_trace.fingerprint);
+    try first_after.expectFingerprint(first_after.fingerprint());
+    try std.testing.expectError(error.TraceFingerprintMismatch, first_after.expectFingerprint(first_after.fingerprint() ^ 1));
+    const after_response_trace = try first_after.responseTrace(.resume_after, @as(i32, 42));
+    try std.testing.expectEqual(first_after.fingerprint(), after_response_trace.request_fingerprint);
+    try std.testing.expectEqual(Program.Session.Trace.ResponseKind.resume_after, after_response_trace.kind);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, after_response_trace.response_ref.codec);
+    try std.testing.expectError(error.ProgramContractViolation, first_after.responseTrace(.@"resume", @as(i32, 42)));
+
+    var second_session = try Program.Session.start(&runtime, .{});
+    defer second_session.deinit();
+    const second_request = switch (try second_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try second_session.@"resume"(second_request, @as(i32, 30));
+    const second_after = switch (try second_session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(first_after.fingerprint(), second_after.fingerprint());
+    try std.testing.expectEqual(first_trace.current_value_fingerprint, second_after.trace().current_value_fingerprint);
+
+    var third_session = try Program.Session.start(&runtime, .{});
+    defer third_session.deinit();
+    const third_request = switch (try third_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try third_session.@"resume"(third_request, @as(i32, 31));
+    const third_after = switch (try third_session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expect(first_after.fingerprint() != third_after.fingerprint());
+    try std.testing.expect(first_trace.current_value_fingerprint != third_after.trace().current_value_fingerprint);
+}
+
+test "Program.Session response fingerprint changes with response value and kind" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionChoicePlan("session-response-fingerprint");
+    };
+    const Program = ability.program("session-response-fingerprint", struct {}, Body);
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    const resume_12 = try request.responseTrace(.@"resume", @as(i32, 12));
+    const resume_13 = try request.responseTrace(.@"resume", @as(i32, 13));
+    const return_12 = try request.responseTrace(.return_now, @as(i32, 12));
+    try std.testing.expect(resume_12.fingerprint != resume_13.fingerprint);
+    try std.testing.expect(resume_12.response_value_fingerprint != resume_13.response_value_fingerprint);
+    try std.testing.expect(resume_12.fingerprint != return_12.fingerprint);
+    try std.testing.expectEqual(request.fingerprint(), return_12.request_fingerprint);
+}
+
+test "Program.Session string fingerprint uses contents not pointer identity" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const TraceStringHandlers = struct {
+        payload: []const u8,
+    };
+    const Body = struct {
+        pub const compiled_plan = sessionStringPayloadPlan("session-string-content-fingerprint");
+
+        pub fn encodeArgs(handlers: TraceStringHandlers) struct { []const u8 } {
+            return .{handlers.payload};
+        }
+    };
+    const Program = ability.program("session-string-content-fingerprint", TraceStringHandlers, Body);
+
+    var first_buffer = [_]u8{ 's', 'a', 'm', 'e' };
+    var first_session = try Program.Session.start(&runtime, .{ .payload = first_buffer[0..] });
+    defer first_session.deinit();
+    const first_request = switch (try first_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+
+    var second_buffer = [_]u8{ 's', 'a', 'm', 'e' };
+    var second_session = try Program.Session.start(&runtime, .{ .payload = second_buffer[0..] });
+    defer second_session.deinit();
+    const second_request = switch (try second_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expect(@intFromPtr(first_buffer[0..].ptr) != @intFromPtr(second_buffer[0..].ptr));
+    try std.testing.expectEqual(first_request.trace().payload_value_fingerprint, second_request.trace().payload_value_fingerprint);
+    try std.testing.expectEqual(first_request.fingerprint(), second_request.fingerprint());
+
+    var third_buffer = [_]u8{ 'd', 'i', 'f', 'f' };
+    var third_session = try Program.Session.start(&runtime, .{ .payload = third_buffer[0..] });
+    defer third_session.deinit();
+    const third_request = switch (try third_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expect(first_request.trace().payload_value_fingerprint != third_request.trace().payload_value_fingerprint);
+    try std.testing.expect(first_request.fingerprint() != third_request.fingerprint());
+}
+
+test "Program.Session product payload fingerprint is stable and field-sensitive" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        amount: i32,
+    };
+    const TraceProductHandlers = struct {
+        amount: i32,
+    };
+    const Body = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = sessionProductTransformPlan(Payload, "session-product-fingerprint");
+
+        pub fn encodeArgs(handlers: TraceProductHandlers) struct { Payload } {
+            return .{.{ .amount = handlers.amount }};
+        }
+    };
+    const Program = ability.program("session-product-fingerprint", TraceProductHandlers, Body);
+
+    var first_session = try Program.Session.start(&runtime, .{ .amount = 3 });
+    defer first_session.deinit();
+    const first_request = switch (try first_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    var second_session = try Program.Session.start(&runtime, .{ .amount = 3 });
+    defer second_session.deinit();
+    const second_request = switch (try second_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqual(first_request.trace().payload_value_fingerprint, second_request.trace().payload_value_fingerprint);
+    try std.testing.expectEqual(first_request.fingerprint(), second_request.fingerprint());
+
+    var third_session = try Program.Session.start(&runtime, .{ .amount = 4 });
+    defer third_session.deinit();
+    const third_request = switch (try third_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expect(first_request.trace().payload_value_fingerprint != third_request.trace().payload_value_fingerprint);
+    try std.testing.expect(first_request.fingerprint() != third_request.fingerprint());
+}
+
+test "Program.Session sum payload fingerprint is stable and variant-sensitive" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = ?i32;
+    const TraceSumHandlers = struct {
+        payload: Payload,
+    };
+    const Body = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = sessionSumTransformPlan(Payload, "session-sum-fingerprint");
+
+        pub fn encodeArgs(handlers: TraceSumHandlers) struct { Payload } {
+            return .{handlers.payload};
+        }
+    };
+    const Program = ability.program("session-sum-fingerprint", TraceSumHandlers, Body);
+
+    var first_session = try Program.Session.start(&runtime, .{ .payload = @as(Payload, 5) });
+    defer first_session.deinit();
+    const first_request = switch (try first_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    var second_session = try Program.Session.start(&runtime, .{ .payload = @as(Payload, 5) });
+    defer second_session.deinit();
+    const second_request = switch (try second_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqual(first_request.trace().payload_value_fingerprint, second_request.trace().payload_value_fingerprint);
+    try std.testing.expectEqual(first_request.fingerprint(), second_request.fingerprint());
+
+    var none_session = try Program.Session.start(&runtime, .{ .payload = @as(Payload, null) });
+    defer none_session.deinit();
+    const none_request = switch (try none_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expect(first_request.trace().payload_value_fingerprint != none_request.trace().payload_value_fingerprint);
+    try std.testing.expect(first_request.fingerprint() != none_request.fingerprint());
+}
+
+test "Program.Session helper-yield request fingerprint is stable across runs" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionHelperYieldPlan("session-helper-fingerprint");
+    };
+    const Program = ability.program("session-helper-fingerprint", struct {}, Body);
+
+    var first_session = try Program.Session.start(&runtime, .{});
+    defer first_session.deinit();
+    const first_request = switch (try first_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    var second_session = try Program.Session.start(&runtime, .{});
+    defer second_session.deinit();
+    const second_request = switch (try second_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqualStrings("helper", first_request.requirement_label);
+    try std.testing.expectEqualStrings("yield", first_request.op_name);
+    try std.testing.expectEqual(first_request.fingerprint(), second_request.fingerprint());
 }
 
 test "Program.Session deinit cleans completed unconsumed result" {
