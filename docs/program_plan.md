@@ -377,6 +377,63 @@ For built-in plan-native helpers, schema lowering is preferred over hand-written
 per-built-in row generators. Raw `ability.ir.plan.*` rows remain available for
 tests that deliberately exercise table escape hatches or unsupported shapes.
 
+## Custom Protocol Families
+
+Custom protocol families are schema-first authoring data under
+`ability.ir.schema.Protocol`. They lower through the same ProgramPlan row path
+as built-ins:
+
+```zig
+const Approval = ability.ir.schema.Protocol(.{
+    .label = "approval",
+    .ops = .{
+        ability.ir.schema.transform("exists", []const u8, i32),
+        ability.ir.schema.choiceAfter("request", []const u8, i32),
+        ability.ir.schema.abort("invalid", []const u8),
+    },
+});
+
+const ApprovalRows = Approval.Rows(Handlers, .{
+    .requirement_index = 0,
+    .first_op = 0,
+});
+```
+
+`ApprovalRows.requirement`, `ApprovalRows.ops`, and `ApprovalRows.outputs` are
+ordinary rows. The caller still owns requirement, op, output, and value-schema
+indexes. Product and sum payload, resume, and output refs use explicit
+`SchemaRefs`; scalar refs need no entries. There is no hidden registry or table
+reordering.
+
+After-enabled custom protocol rows publish `has_after` for the per-binding
+handler type's direct `dispatch`/`afterDispatch` pair, or for requirement-labeled
+handler shapes such as `.approval.request.afterDispatch` or
+`.approval.authored.afterDispatch`.
+Top-level op-name and top-level `authored` fallbacks can still be runtime
+conveniences when a full plan has globally unique op names, but row lowering
+cannot prove that global uniqueness in isolation; their presence also suppresses
+direct-handler inference for that op.
+
+The lowered row bundle also exposes op descriptors for instruction authoring:
+
+```zig
+const Request = ApprovalRows.op("request");
+try Request.call(root, decision_local, approval_request_local);
+```
+
+After compilation with `ability.program`, no custom runtime surface is needed.
+`Program.contract` exposes the custom requirement/op rows and session yield
+sites, and `Program.protocol` derives typed host-facing descriptors from those
+sites. Session hosts can use `matches`, `as`, typed payload/value views,
+`resumeTyped`, `returnNowTyped`, `resumeAfterTyped`, response traces, and
+coverage helpers exactly as they do for raw ProgramPlans.
+
+`examples/custom_approval_workflow.zig` is the reference custom protocol
+example. It defines a `workflow` family with transform, choice, and abort
+operations, authors the control flow with ProgramPlan builder helpers, runs
+synchronously through `Program.run`, and demonstrates the host-driven
+`Program.Session` path through `Program.protocol`.
+
 ## Built-in plan helper namespaces
 
 `ability.effect.optional.plan`, `ability.effect.state.plan`,
@@ -537,12 +594,12 @@ builds through the layout layer while still returning the same
 These helpers cover scalar demos, product results, optional or enum-like
 variant branches, tagged-union `i32` payload extraction, and output declarations.
 
-## Custom effect authoring direction
+## Custom effect authoring
 
-Custom effect authoring is not public yet. The intended direction is
-schema-first and plan-native: custom descriptions should lower to the same
-ProgramPlan requirement, op, value schema, output, nested-with, and contract
-metadata used by built-in prototypes.
+Minimal schema-first custom protocol-family authoring is available under
+`ability.ir.schema.Protocol`. It is plan-native: custom descriptions lower to
+the same ProgramPlan requirement, op, value schema, output, nested-with, and
+contract metadata used by built-in prototypes.
 
 See [custom_effect_authoring.md](custom_effect_authoring.md) for the design
 boundary and non-goals.

@@ -1,5 +1,6 @@
 // zlinter-disable declaration_naming no_inferred_error_unions no_swallow_error require_doc_comment
 const ability = @import("ability");
+const custom_approval = @import("custom_approval_workflow");
 const plan_native_resource = @import("plan_native_resource");
 const std = @import("std");
 
@@ -4366,6 +4367,47 @@ test "Program.protocol binds handlerless after sites to unwound value refs" {
     try std.testing.expect(!result.value);
 }
 
+test "Program.protocol direct handler after metadata matches runtime fallback" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const DirectHandlers = struct {
+        dispatches: *usize,
+        afters: *usize,
+
+        pub fn dispatch(self: *const @This()) !i32 {
+            self.dispatches.* += 1;
+            return 0;
+        }
+
+        pub fn afterDispatch(self: *const @This(), value: bool) !bool {
+            self.afters.* += 1;
+            return !value;
+        }
+    };
+    const Body = struct {
+        pub const compiled_plan = handlerlessAfterReturnBoolPlan("protocol-direct-handler-after");
+    };
+    const Program = ability.program("protocol-direct-handler-after", DirectHandlers, Body);
+    const Operation = Program.protocol.operationSite("handlerless", "step", 0);
+    const After = Program.protocol.afterSite("handlerless", "step", 0);
+
+    try std.testing.expect(Operation.has_after);
+    try std.testing.expect(After.has_static_input_ref);
+    try std.testing.expect(After.Input == bool);
+    try std.testing.expect(After.Output == bool);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.input_ref.?.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
+
+    var dispatches: usize = 0;
+    var afters: usize = 0;
+    var result = try Program.run(&runtime, .{ .dispatches = &dispatches, .afters = &afters });
+    defer result.deinit();
+    try std.testing.expect(!result.value);
+    try std.testing.expectEqual(@as(usize, 1), dispatches);
+    try std.testing.expectEqual(@as(usize, 1), afters);
+}
+
 test "Program.protocol does not publish static refs for invalid afterDispatch arity" {
     const InvalidAfterHandlers = struct {
         handlerless: struct {
@@ -4693,6 +4735,158 @@ test "Program.protocol coverage helpers accept complete site sets" {
     comptime Program.protocol.assertOperationSitesCovered(.{ First, Second });
     comptime Program.protocol.assertAfterSitesCovered(.{ FirstAfter, SecondAfter });
     comptime Program.protocol.assertAllSitesCovered(.{ First, Second, FirstAfter, SecondAfter });
+}
+
+test "custom approval protocol family appears in contract and Program.protocol" {
+    const Program = custom_approval.WorkflowProgram;
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.requirements.len);
+    try std.testing.expectEqualStrings("workflow", Program.contract.requirements[0].label);
+    try std.testing.expectEqual(@as(@TypeOf(Program.contract.requirements[0].lifecycle_tag), .generated_family), Program.contract.requirements[0].lifecycle_tag);
+    try std.testing.expectEqual(@as(@TypeOf(Program.contract.requirements[0].output_tag), .none), Program.contract.requirements[0].output_tag);
+
+    try std.testing.expectEqual(@as(usize, 3), Program.contract.ops.len);
+    try std.testing.expectEqualStrings("exists", Program.contract.ops[0].op_name);
+    try std.testing.expectEqualStrings("workflow", Program.contract.ops[0].requirement_label);
+    try std.testing.expectEqual(@as(@TypeOf(Program.contract.ops[0].mode), .transform), Program.contract.ops[0].mode);
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, Program.contract.ops[0].payload_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.ops[0].resume_ref.codec);
+    try std.testing.expect(!Program.contract.ops[0].has_after);
+
+    try std.testing.expectEqualStrings("request", Program.contract.ops[1].op_name);
+    try std.testing.expectEqual(@as(@TypeOf(Program.contract.ops[1].mode), .choice), Program.contract.ops[1].mode);
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, Program.contract.ops[1].payload_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.ops[1].resume_ref.codec);
+    try std.testing.expect(Program.contract.ops[1].has_after);
+
+    try std.testing.expectEqualStrings("invalid", Program.contract.ops[2].op_name);
+    try std.testing.expectEqual(@as(@TypeOf(Program.contract.ops[2].mode), .abort), Program.contract.ops[2].mode);
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, Program.contract.ops[2].payload_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.unit, Program.contract.ops[2].resume_ref.codec);
+    try std.testing.expect(!Program.contract.ops[2].has_after);
+
+    try std.testing.expectEqual(@as(usize, 4), Program.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.session.after_sites.len);
+    const ExistsInitial = Program.protocol.operationSite("workflow", "exists", 0);
+    const Request = Program.protocol.operationSite("workflow", "request", 0);
+    const Invalid = Program.protocol.operationSite("workflow", "invalid", 0);
+    const ExistsPublish = Program.protocol.operationSite("workflow", "exists", 1);
+    const RequestAfter = Program.protocol.afterSite("workflow", "request", 0);
+
+    try std.testing.expect(ExistsInitial.Payload == []const u8);
+    try std.testing.expect(ExistsInitial.Resume == i32);
+    try std.testing.expectEqual(@as(@TypeOf(ExistsInitial.op_mode), .transform), ExistsInitial.op_mode);
+    try std.testing.expect(Request.Payload == []const u8);
+    try std.testing.expect(Request.Resume == i32);
+    try std.testing.expect(Request.Result == []const u8);
+    try std.testing.expectEqual(@as(@TypeOf(Request.op_mode), .choice), Request.op_mode);
+    try std.testing.expect(Request.has_after);
+    try std.testing.expect(Invalid.Payload == []const u8);
+    try std.testing.expect(Invalid.Resume == void);
+    try std.testing.expect(Invalid.Result == []const u8);
+    try std.testing.expectEqual(@as(@TypeOf(Invalid.op_mode), .abort), Invalid.op_mode);
+    try std.testing.expect(ExistsInitial.fingerprint != ExistsPublish.fingerprint);
+    try std.testing.expect(RequestAfter.Input == []const u8);
+    try std.testing.expect(RequestAfter.Output == []const u8);
+    try std.testing.expect(RequestAfter.Result == []const u8);
+
+    comptime {
+        Program.protocol.assertOperationSitesCovered(.{ ExistsInitial, Request, Invalid, ExistsPublish });
+        Program.protocol.assertAfterSitesCovered(.{RequestAfter});
+        Program.protocol.assertAllSitesCovered(.{ ExistsInitial, Request, Invalid, ExistsPublish, RequestAfter });
+    }
+}
+
+test "custom approval dynamic requests bind to matching protocol descriptors" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Program = custom_approval.WorkflowProgram;
+    const ExistsInitial = Program.protocol.operationSite("workflow", "exists", 0);
+    const Request = Program.protocol.operationSite("workflow", "request", 0);
+    const Invalid = Program.protocol.operationSite("workflow", "invalid", 0);
+    const ExistsPublish = Program.protocol.operationSite("workflow", "exists", 1);
+    var session = try Program.Session.start(&runtime, .{
+        .workflow = .{
+            .exists = .{ .exists_value = true },
+            .request = .{ .branch = .approve },
+            .invalid = .{},
+        },
+    });
+    defer session.deinit();
+
+    const exists_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expect(exists_request.matches(ExistsInitial));
+    try std.testing.expect(!exists_request.matches(ExistsPublish));
+    try std.testing.expect(!exists_request.matches(Invalid));
+    try std.testing.expectError(error.ProgramContractViolation, exists_request.as(ExistsPublish));
+    const typed_exists = try exists_request.as(ExistsInitial);
+    try std.testing.expectEqualStrings("request-7", try typed_exists.payload());
+    try session.resumeTyped(typed_exists, @as(ExistsInitial.Resume, 1));
+
+    const request = switch (try session.next()) {
+        .request => |actual| actual,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expect(request.matches(Request));
+    try std.testing.expect(!request.matches(Invalid));
+    try std.testing.expectError(error.ProgramContractViolation, request.as(Invalid));
+    try session.returnNowTyped(try request.as(Request), @as(Request.Result, "denied"));
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqualStrings("denied", result.value);
+}
+
+test "custom approval workflow keeps synchronous and session behavior" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const approved = try custom_approval.runApprove(&runtime);
+    try std.testing.expectEqualStrings("published:approved", approved.value);
+    try std.testing.expectEqual(@as(usize, 2), approved.transcript.lookups);
+    try std.testing.expectEqual(@as(usize, 1), approved.transcript.choices);
+    try std.testing.expectEqual(@as(usize, 1), approved.transcript.continuations);
+    try std.testing.expectEqual(@as(usize, 0), approved.transcript.aborts);
+
+    const denied = try custom_approval.runDeny(&runtime);
+    try std.testing.expectEqualStrings("denied", denied.value);
+    try std.testing.expectEqual(@as(usize, 1), denied.transcript.lookups);
+    try std.testing.expectEqual(@as(usize, 1), denied.transcript.choices);
+    try std.testing.expectEqual(@as(usize, 0), denied.transcript.continuations);
+    try std.testing.expectEqual(@as(usize, 0), denied.transcript.aborts);
+
+    const invalid = try custom_approval.runInvalid(&runtime);
+    try std.testing.expectEqualStrings("invalid:missing", invalid.value);
+    try std.testing.expectEqual(@as(usize, 1), invalid.transcript.lookups);
+    try std.testing.expectEqual(@as(usize, 0), invalid.transcript.choices);
+    try std.testing.expectEqual(@as(usize, 0), invalid.transcript.continuations);
+    try std.testing.expectEqual(@as(usize, 1), invalid.transcript.aborts);
+
+    const session_approved = try custom_approval.runApproveSession(&runtime);
+    try std.testing.expectEqualStrings("published:approved", session_approved.value);
+    try std.testing.expectEqual(@as(usize, 4), session_approved.trace_entries);
+    try std.testing.expect(session_approved.deterministic_replay);
+    try std.testing.expectEqual(@as(usize, 2), session_approved.transcript.lookups);
+    try std.testing.expectEqual(@as(usize, 1), session_approved.transcript.choices);
+    try std.testing.expectEqual(@as(usize, 1), session_approved.transcript.continuations);
+    try std.testing.expectEqual(@as(usize, 0), session_approved.transcript.aborts);
+
+    const session_invalid = try custom_approval.runInvalidSession(&runtime);
+    try std.testing.expectEqualStrings("invalid:missing", session_invalid.value);
+    try std.testing.expectEqual(@as(usize, 2), session_invalid.trace_entries);
+    try std.testing.expect(session_invalid.deterministic_replay);
+    try std.testing.expectEqual(@as(usize, 1), session_invalid.transcript.lookups);
+    try std.testing.expectEqual(@as(usize, 0), session_invalid.transcript.choices);
+    try std.testing.expectEqual(@as(usize, 0), session_invalid.transcript.continuations);
+    try std.testing.expectEqual(@as(usize, 1), session_invalid.transcript.aborts);
 }
 
 test "Program.protocol descriptor lookup distinguishes duplicate, helper, and nested-with sites" {
