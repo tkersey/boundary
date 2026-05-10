@@ -3905,8 +3905,6 @@ test "Program.contract.session after sites map dynamic after traces to source op
     try std.testing.expectEqual(operation_site.instruction_index, after_site.source_instruction_index);
     try std.testing.expectEqual(operation_site.requirement_index, after_site.original_requirement_index);
     try std.testing.expectEqual(operation_site.op_index, after_site.original_op_index);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, after_site.current_value_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, after_site.expected_output_ref.codec);
     try std.testing.expectEqual(ability.ir.ValueCodec.i32, after_site.result_ref.codec);
 
     var session = try Program.Session.start(&runtime, .{});
@@ -7486,6 +7484,15 @@ test "Program.Session yields heterogeneous stacked after output refs" {
         pub const compiled_plan = stackedAfterPlan("session-stacked-after-heterogeneous");
     };
     const Program = ability.program("session-stacked-after-heterogeneous", StackedHandlers, Body);
+    const StaticAfterSite = @TypeOf(Program.contract.session.after_sites[0]);
+    try std.testing.expectEqual(@as(usize, 2), Program.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(usize, 2), Program.contract.session.after_sites.len);
+    try std.testing.expect(!@hasField(StaticAfterSite, "current_value_ref"));
+    try std.testing.expect(!@hasField(StaticAfterSite, "expected_output_ref"));
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.session.after_sites[0].source_operation_site_index);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.session.after_sites[1].source_operation_site_index);
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, Program.contract.session.after_sites[0].result_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, Program.contract.session.after_sites[1].result_ref.codec);
     var session = try Program.Session.start(&runtime, .{ .outer = .{}, .inner = .{} });
     defer session.deinit();
 
@@ -7511,8 +7518,11 @@ test "Program.Session yields heterogeneous stacked after output refs" {
         .done => return error.ExpectedAfter,
     };
     try std.testing.expectEqualStrings("inner", inner_after.op_name);
+    try std.testing.expectEqual(Program.contract.session.after_sites[1].fingerprint, inner_after.trace().after_site_fingerprint);
     try std.testing.expectEqual(@as(@TypeOf(inner_after.value_ref.codec), .i32), inner_after.value_ref.codec);
     try std.testing.expectEqual(@as(@TypeOf(inner_after.output_ref.codec), .bool), inner_after.output_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, inner_after.trace().current_value_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, inner_after.trace().expected_output_ref.codec);
     try std.testing.expectEqual(@as(i32, 7), try inner_after.value(i32));
     try session.resumeAfter(inner_after, true);
 
@@ -7522,8 +7532,11 @@ test "Program.Session yields heterogeneous stacked after output refs" {
         .done => return error.ExpectedAfter,
     };
     try std.testing.expectEqualStrings("outer", outer_after.op_name);
+    try std.testing.expectEqual(Program.contract.session.after_sites[0].fingerprint, outer_after.trace().after_site_fingerprint);
     try std.testing.expectEqual(@as(@TypeOf(outer_after.value_ref.codec), .bool), outer_after.value_ref.codec);
     try std.testing.expectEqual(@as(@TypeOf(outer_after.output_ref.codec), .string), outer_after.output_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, outer_after.trace().current_value_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, outer_after.trace().expected_output_ref.codec);
     try std.testing.expect(try outer_after.value(bool));
     try session.resumeAfter(outer_after, @as([]const u8, "outer:true"));
 

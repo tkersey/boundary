@@ -783,8 +783,7 @@ pub const SessionAfterYieldSite = struct {
     original_requirement_label: []const u8,
     original_op_index: u16,
     original_op_name: []const u8,
-    current_value_ref: program_plan.ValueRef,
-    expected_output_ref: program_plan.ValueRef,
+    // Dynamic current/output refs depend on the concrete after stack and are exposed by AfterRequest.trace().
     result_ref: program_plan.ValueRef,
 };
 
@@ -897,8 +896,6 @@ fn sessionAfterSiteFingerprint(
     sessionSiteHashBytes(&hasher, site.original_requirement_label);
     sessionSiteHashU16(&hasher, site.original_op_index);
     sessionSiteHashBytes(&hasher, site.original_op_name);
-    sessionSiteHashValueRef(&hasher, site.current_value_ref);
-    sessionSiteHashValueRef(&hasher, site.expected_output_ref);
     sessionSiteHashValueRef(&hasher, site.result_ref);
     return hasher.final();
 }
@@ -1013,8 +1010,6 @@ pub fn sessionAfterYieldSitesForPlan(
             .original_requirement_label = operation_site.requirement_label,
             .original_op_index = operation_site.op_index,
             .original_op_name = operation_site.op_name,
-            .current_value_ref = operation_site.resume_ref,
-            .expected_output_ref = operation_site.result_ref,
             .result_ref = operation_site.result_ref,
         };
         site.fingerprint = sessionAfterSiteFingerprint(compiled_plan, site);
