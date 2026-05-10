@@ -80,13 +80,13 @@ The row bundle contains:
 
 These are ordinary ProgramPlan rows. Offsets stay caller-owned. There is no
 hidden schema registry, no row reordering, and no automatic value-schema table.
-After-enabled protocol rows infer ProgramPlan `has_after` metadata only from
-the same requirement-labeled handler shapes that can be resolved before a full
-plan exists, such as `.approval.request.afterDispatch` or
-`.approval.authored.afterDispatch`. Top-level op-name and top-level `authored`
-fallbacks remain runtime conveniences for globally unique op names, but row
-lowering cannot prove plan-global uniqueness and therefore does not publish
-after metadata from those fallbacks.
+After-enabled protocol rows infer ProgramPlan `has_after` metadata from the
+per-binding handler type's direct `afterDispatch`, or from requirement-labeled
+handler shapes that can be resolved before a full plan exists, such as
+`.approval.request.afterDispatch` or `.approval.authored.afterDispatch`.
+Top-level op-name and top-level `authored` fallbacks remain runtime conveniences
+for globally unique op names, but row lowering cannot prove plan-global
+uniqueness and therefore does not publish after metadata from those fallbacks.
 
 Scalar payload, resume, and output refs lower without schema refs. Product and
 sum refs require explicit caller-owned indexes:

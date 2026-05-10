@@ -984,6 +984,10 @@ pub const schema = struct {
         return hasDeclSafe(authoredHandlerType(fieldType(HandlerType, field_name)), "afterDispatch");
     }
 
+    fn handlerHasAfterDispatch(comptime HandlerType: type) bool {
+        return hasDeclSafe(authoredHandlerType(HandlerType), "afterDispatch");
+    }
+
     fn nestedFieldHasAfterDispatch(
         comptime HandlerType: type,
         comptime parent_field_name: []const u8,
@@ -1014,7 +1018,7 @@ pub const schema = struct {
                 return fieldHasAfterDispatch(RequirementType, "authored");
             }
         }
-        return false;
+        return handlerHasAfterDispatch(HandlerType);
     }
 
     fn lowerOutputs(
@@ -1344,13 +1348,13 @@ test "schema lowerer maps binding-optional after hooks to ProgramPlan afterDispa
 
     const OptionalAfterRows = schema.LowerBinding(
         schema.Binding("optional", effect_schema.choice_policy(i32, error{}, void), struct {
-            optional: struct {
-                request: struct {
-                    pub fn afterDispatch(_: *const @This(), answer: i32) error{}!i32 {
-                        return answer;
-                    }
-                },
-            },
+            pub fn dispatch(_: *const @This(), _: void) error{}!i32 {
+                return 1;
+            }
+
+            pub fn afterDispatch(_: *const @This(), answer: i32) error{}!i32 {
+                return answer;
+            }
         }),
         .{ .requirement_index = 0, .first_op = 0 },
     );
