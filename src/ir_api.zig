@@ -985,7 +985,8 @@ pub const schema = struct {
     }
 
     fn handlerHasAfterDispatch(comptime HandlerType: type) bool {
-        return hasDeclSafe(authoredHandlerType(HandlerType), "afterDispatch");
+        const AuthoredType = authoredHandlerType(HandlerType);
+        return hasDeclSafe(AuthoredType, "dispatch") and hasDeclSafe(AuthoredType, "afterDispatch");
     }
 
     fn nestedFieldHasAfterDispatch(
@@ -1508,14 +1509,24 @@ test "schema Protocol mirrors runtime handler lookup for after metadata" {
     }, .{ .requirement_index = 0, .first_op = 0 });
     try standard.testing.expect(NestedAuthoredRows.ops[0].has_after);
 
-    const TopLevelAuthoredRows = Workflow.Rows(struct {
+    const TopLevelFallbackRows = Workflow.Rows(struct {
+        pub fn afterDispatch(_: *const @This(), answer: []const u8) error{}![]const u8 {
+            return answer;
+        }
+
+        request: struct {
+            pub fn dispatch(_: *const @This(), _: []const u8) error{}!i32 {
+                return 1;
+            }
+        },
+
         authored: struct {
             pub fn afterDispatch(_: *const @This(), answer: []const u8) error{}![]const u8 {
                 return answer;
             }
         },
     }, .{ .requirement_index = 0, .first_op = 0 });
-    try standard.testing.expect(!TopLevelAuthoredRows.ops[0].has_after);
+    try standard.testing.expect(!TopLevelFallbackRows.ops[0].has_after);
 
     const RequirementHandlerWinsRows = Workflow.Rows(struct {
         workflow: struct {

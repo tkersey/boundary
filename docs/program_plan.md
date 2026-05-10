@@ -406,8 +406,9 @@ indexes. Product and sum payload, resume, and output refs use explicit
 reordering.
 
 After-enabled custom protocol rows publish `has_after` for the per-binding
-handler type's direct `afterDispatch`, or for requirement-labeled handler shapes
-such as `.approval.request.afterDispatch` or `.approval.authored.afterDispatch`.
+handler type's direct `dispatch`/`afterDispatch` pair, or for requirement-labeled
+handler shapes such as `.approval.request.afterDispatch` or
+`.approval.authored.afterDispatch`.
 Top-level op-name and top-level `authored` fallbacks can still be runtime
 conveniences when a full plan has globally unique op names, but row lowering
 cannot prove that global uniqueness in isolation.
