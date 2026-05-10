@@ -147,9 +147,14 @@ declarations, requirement and operation metadata, op payload and resume
 references, op modes, after-hook flags, nested-with target declarations, unique
 `return_error` literals, and the executable and session capability-ledger
 summaries. The session ledger advertises whether trace metadata and value
-fingerprints are supported and exposes the current fingerprint version. It is
-metadata for tests and callers that need to inspect what a
-program declares; it does not expose mutable ProgramPlan tables, Artifact or VM
+fingerprints are supported, exposes the current fingerprint version, and
+contains static `yield_sites` and `after_sites` catalogs for entry-reachable
+session yield points. Operation sites include stable site indexes and
+fingerprints, function/block/instruction coordinates, requirement/op metadata,
+payload/resume/result refs, mode, and host resume/return-now capabilities.
+After sites are tied to the source operation call site, not merely to the op
+row. It is metadata for tests and callers that need to inspect what a program
+declares; it does not expose mutable ProgramPlan tables, Artifact or VM
 surfaces, or legacy capability maps.
 
 See [docs/program_plan.md](docs/program_plan.md) for typed product/sum bodies,
@@ -192,14 +197,20 @@ or resumes an after continuation with the typed transformed value. Return-now an
 abort terminal paths bypass after continuations, matching `Program.run`.
 
 Each yielded request has a deterministic trace view. Operation traces include
-the program label, plan hash, session turn index, requirement and op identity,
-op mode, payload/resume/result refs, payload value fingerprint, after flag, and
-request fingerprint. After traces include the same program and turn context,
-the original requirement/op identity, current value ref and fingerprint,
-expected output ref, result ref, and request fingerprint. Fingerprints are
-stable across fresh deterministic runs when the plan, entry args, host
-responses, and execution path are the same; they change when the yielded op,
-visible value, response kind/value, or plan identity changes. Value
+the program label, plan hash, session turn index, static operation site index
+and fingerprint, function/block/instruction coordinates, requirement and op
+identity, op mode, payload/resume/result refs, payload value fingerprint, after
+flag, and request fingerprint. After traces include the same program and turn
+context, static after-site index and fingerprint, the source operation site
+index, source function/block/instruction coordinates, the original
+requirement/op identity, current value ref and fingerprint, expected output
+ref, result ref, and request fingerprint. Static site identity and dynamic turn
+identity are separate: a loop that yields from the same instruction reuses the
+same static site while each occurrence receives a different turn index.
+Fingerprints are stable across fresh deterministic runs when the plan, entry
+args, host responses, and execution path are the same; they change when the
+static site, yielded op, visible value, response kind/value, turn index, or plan
+identity changes. Value
 fingerprints hash supported typed values by contents and schema: unit, bool,
 i32, usize, strings by bytes, and product/sum values through
 `Body.value_schema_types`.
@@ -241,8 +252,9 @@ IR:
   typed outputs and explicit output cleanup.
 - `examples/agent_loop.zig` demonstrates a host-driven `Program.Session` loop
   where yielded decide/tool operations are data, the session parks between
-  turns, request/response fingerprints are printed, and a second run verifies
-  the recorded request fingerprints before replaying the same typed responses.
+  turns, site-aware request metadata plus request/response fingerprints are
+  printed, and a second run verifies the recorded request fingerprints before
+  replaying the same typed responses.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
   abort operations in one plan without exposing a custom effect API.
 

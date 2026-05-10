@@ -3493,7 +3493,9 @@ test "ability.program exposes scalar ProgramPlan contract metadata" {
     try std.testing.expect(Program.contract.session.supported);
     try std.testing.expect(Program.contract.session.trace_supported);
     try std.testing.expect(Program.contract.session.value_fingerprint_supported);
-    try std.testing.expectEqual(@as(u32, 1), Program.contract.session.fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 2), Program.contract.session.fingerprint_version);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.session.after_sites.len);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.session.blocker_count);
     try std.testing.expectEqualStrings("session capability ledger: blockers=0 truncated=false", Program.contract.session.summary);
     try std.testing.expect(!@hasDecl(Program.contract, "functions"));
@@ -3621,7 +3623,34 @@ test "ability.program exposes transform choice and abort op metadata" {
     try std.testing.expect(TransformProgram.contract.session.requires_runtime_lifetime);
     try std.testing.expect(TransformProgram.contract.session.trace_supported);
     try std.testing.expect(TransformProgram.contract.session.value_fingerprint_supported);
-    try std.testing.expectEqual(@as(u32, 1), TransformProgram.contract.session.fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 2), TransformProgram.contract.session.fingerprint_version);
+    try std.testing.expectEqual(@as(usize, 1), TransformProgram.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(usize, 1), TransformProgram.contract.session.after_sites.len);
+    try std.testing.expectEqual(@as(usize, 0), TransformProgram.contract.session.yield_sites[0].index);
+    try std.testing.expect(TransformProgram.contract.session.yield_sites[0].fingerprint != 0);
+    try std.testing.expectEqual(@as(usize, 0), TransformProgram.contract.session.yield_sites[0].function_index);
+    try std.testing.expectEqualStrings("run", TransformProgram.contract.session.yield_sites[0].function_symbol_name);
+    try std.testing.expectEqual(@as(usize, 0), TransformProgram.contract.session.yield_sites[0].block_index);
+    try std.testing.expectEqual(@as(usize, 1), TransformProgram.contract.session.yield_sites[0].instruction_index);
+    try std.testing.expectEqual(@as(u16, 0), TransformProgram.contract.session.yield_sites[0].requirement_index);
+    try std.testing.expectEqualStrings("matrix", TransformProgram.contract.session.yield_sites[0].requirement_label);
+    try std.testing.expectEqual(@as(u16, 0), TransformProgram.contract.session.yield_sites[0].op_index);
+    try std.testing.expectEqualStrings("authored", TransformProgram.contract.session.yield_sites[0].op_name);
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, TransformProgram.contract.session.yield_sites[0].payload_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, TransformProgram.contract.session.yield_sites[0].resume_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, TransformProgram.contract.session.yield_sites[0].result_ref.codec);
+    try std.testing.expect(TransformProgram.contract.session.yield_sites[0].has_after);
+    try std.testing.expect(TransformProgram.contract.session.yield_sites[0].host_may_resume);
+    try std.testing.expect(!TransformProgram.contract.session.yield_sites[0].host_may_return_now);
+    try std.testing.expect(TransformProgram.contract.session.yield_sites[0].can_yield_after);
+    try std.testing.expectEqual(@as(usize, 0), TransformProgram.contract.session.after_sites[0].index);
+    try std.testing.expect(TransformProgram.contract.session.after_sites[0].fingerprint != 0);
+    try std.testing.expectEqual(@as(usize, 0), TransformProgram.contract.session.after_sites[0].source_operation_site_index);
+    try std.testing.expectEqual(TransformProgram.contract.session.yield_sites[0].fingerprint, TransformProgram.contract.session.after_sites[0].source_operation_site_fingerprint);
+    try std.testing.expectEqual(@as(usize, 0), TransformProgram.contract.session.after_sites[0].source_function_index);
+    try std.testing.expectEqual(@as(usize, 0), TransformProgram.contract.session.after_sites[0].source_block_index);
+    try std.testing.expectEqual(@as(usize, 1), TransformProgram.contract.session.after_sites[0].source_instruction_index);
+    try std.testing.expectEqual(@as(u16, 0), TransformProgram.contract.session.after_sites[0].original_op_index);
     try std.testing.expectEqual(@as(usize, 0), TransformProgram.contract.session.blocker_count);
     try std.testing.expectEqual(@as(@TypeOf(TransformProgram.contract.session.first_blocker_tag), null), TransformProgram.contract.session.first_blocker_tag);
 
@@ -3632,6 +3661,287 @@ test "ability.program exposes transform choice and abort op metadata" {
     try std.testing.expectEqual(ability.ir.ValueCodec.unit, AbortProgram.contract.ops[0].resume_ref.codec);
     try std.testing.expect(!AbortProgram.contract.ops[0].has_after);
     try std.testing.expect(AbortProgram.contract.session.supported);
+}
+
+test "Program.contract.session exposes transform operation yield site and request trace maps to it" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "session-site-transform");
+    };
+    const Program = ability.program("session-site-transform", struct {}, Body);
+
+    try std.testing.expectEqual(@as(u32, 2), Program.contract.session.fingerprint_version);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.session.after_sites.len);
+    const site = Program.contract.session.yield_sites[0];
+    try std.testing.expectEqual(@as(usize, 0), site.index);
+    try std.testing.expect(site.fingerprint != 0);
+    try std.testing.expectEqual(@as(usize, 0), site.function_index);
+    try std.testing.expectEqualStrings("run", site.function_symbol_name);
+    try std.testing.expectEqual(@as(usize, 0), site.block_index);
+    try std.testing.expectEqual(@as(usize, 1), site.instruction_index);
+    try std.testing.expectEqual(@as(u16, 0), site.requirement_index);
+    try std.testing.expectEqualStrings("session", site.requirement_label);
+    try std.testing.expectEqual(@as(u16, 0), site.op_index);
+    try std.testing.expectEqualStrings("decide", site.op_name);
+    try std.testing.expectEqual(@as(@TypeOf(site.op_mode), .transform), site.op_mode);
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, site.payload_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, site.resume_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, site.result_ref.codec);
+    try std.testing.expect(!site.has_after);
+    try std.testing.expect(site.host_may_resume);
+    try std.testing.expect(!site.host_may_return_now);
+    try std.testing.expect(!site.can_yield_after);
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    const trace = request.trace();
+    try std.testing.expectEqual(site.index, trace.operation_site_index);
+    try std.testing.expectEqual(site.fingerprint, trace.operation_site_fingerprint);
+    try std.testing.expectEqual(site.function_index, trace.function_index);
+    try std.testing.expectEqual(site.block_index, trace.block_index);
+    try std.testing.expectEqual(site.instruction_index, trace.instruction_index);
+    try std.testing.expectEqual(site.requirement_index, trace.requirement_index);
+    try std.testing.expectEqual(site.op_index, trace.op_index);
+}
+
+test "Program.Session request fingerprint disambiguates same op from different call sites" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = repeatedCallSiteSameOpPlan("session-site-same-op", false);
+    };
+    const Program = ability.program("session-site-same-op", struct {}, Body);
+    try std.testing.expectEqual(@as(usize, 2), Program.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(u16, 0), Program.contract.session.yield_sites[0].op_index);
+    try std.testing.expectEqual(@as(u16, 0), Program.contract.session.yield_sites[1].op_index);
+    try std.testing.expect(Program.contract.session.yield_sites[0].fingerprint != Program.contract.session.yield_sites[1].fingerprint);
+
+    var first_session = try Program.Session.start(&runtime, .{});
+    defer first_session.deinit();
+    const first_request = switch (try first_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try first_session.@"resume"(first_request, @as(i32, 10));
+    const second_request = switch (try first_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqual(@as(usize, 0), first_request.trace().operation_site_index);
+    try std.testing.expectEqual(@as(usize, 1), second_request.trace().operation_site_index);
+    try std.testing.expectEqual(first_request.trace().payload_value_fingerprint, second_request.trace().payload_value_fingerprint);
+    try std.testing.expect(first_request.fingerprint() != second_request.fingerprint());
+    try first_session.@"resume"(second_request, @as(i32, 11));
+    var result = switch (try first_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+
+    var replay_session = try Program.Session.start(&runtime, .{});
+    defer replay_session.deinit();
+    const replay_first = switch (try replay_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try replay_session.@"resume"(replay_first, @as(i32, 10));
+    const replay_second = switch (try replay_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqual(first_request.fingerprint(), replay_first.fingerprint());
+    try std.testing.expectEqual(second_request.fingerprint(), replay_second.fingerprint());
+}
+
+test "Program.Session request fingerprint changes for different sites at same turn" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const BranchHandlers = struct {
+        choose_right: bool,
+    };
+    const Body = struct {
+        pub const compiled_plan = branchedSameOpCallSitePlan("session-site-same-turn");
+
+        pub fn encodeArgs(handlers: BranchHandlers) struct { bool } {
+            return .{handlers.choose_right};
+        }
+    };
+    const Program = ability.program("session-site-same-turn", BranchHandlers, Body);
+    try std.testing.expectEqual(@as(usize, 2), Program.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(u16, 0), Program.contract.session.yield_sites[0].op_index);
+    try std.testing.expectEqual(@as(u16, 0), Program.contract.session.yield_sites[1].op_index);
+
+    var left_session = try Program.Session.start(&runtime, .{ .choose_right = false });
+    defer left_session.deinit();
+    const left_request = switch (try left_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+
+    var right_session = try Program.Session.start(&runtime, .{ .choose_right = true });
+    defer right_session.deinit();
+    const right_request = switch (try right_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+
+    try std.testing.expectEqual(@as(usize, 0), left_request.trace().turn_index);
+    try std.testing.expectEqual(@as(usize, 0), right_request.trace().turn_index);
+    try std.testing.expectEqual(@as(u16, 0), left_request.trace().op_index);
+    try std.testing.expectEqual(@as(u16, 0), right_request.trace().op_index);
+    try std.testing.expectEqual(left_request.trace().payload_value_fingerprint, right_request.trace().payload_value_fingerprint);
+    try std.testing.expect(left_request.trace().operation_site_index != right_request.trace().operation_site_index);
+    try std.testing.expect(left_request.trace().operation_site_fingerprint != right_request.trace().operation_site_fingerprint);
+    try std.testing.expect(left_request.fingerprint() != right_request.fingerprint());
+}
+
+test "Program.Session looped operation reuses static site and advances turns" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = loopedOperationSitePlan("session-site-loop");
+    };
+    const Program = ability.program("session-site-loop", struct {}, Body);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.session.yield_sites.len);
+    const site = Program.contract.session.yield_sites[0];
+    try std.testing.expectEqual(@as(usize, 1), site.block_index);
+    try std.testing.expectEqual(@as(usize, 2), site.instruction_index);
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    var previous_fingerprint: u64 = 0;
+    for (0..3) |turn_index| {
+        const request = switch (try session.next()) {
+            .request => |request| request,
+            .done => return error.ExpectedRequest,
+            .after => return error.UnexpectedAfter,
+        };
+        const trace = request.trace();
+        try std.testing.expectEqual(site.index, trace.operation_site_index);
+        try std.testing.expectEqual(site.fingerprint, trace.operation_site_fingerprint);
+        try std.testing.expectEqual(turn_index, trace.turn_index);
+        if (turn_index != 0) try std.testing.expect(previous_fingerprint != trace.fingerprint);
+        previous_fingerprint = trace.fingerprint;
+        try session.@"resume"(request, @as(i32, @intCast(turn_index)));
+    }
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 2), result.value);
+}
+
+test "Program.contract.session site catalog follows helper nested-with and omits unreachable call_op" {
+    const HelperBody = struct {
+        pub const compiled_plan = sessionHelperYieldPlan("session-site-helper");
+    };
+    const HelperProgram = ability.program("session-site-helper", struct {}, HelperBody);
+    try std.testing.expectEqual(@as(usize, 1), HelperProgram.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(usize, 1), HelperProgram.contract.session.yield_sites[0].function_index);
+    try std.testing.expectEqualStrings("helper", HelperProgram.contract.session.yield_sites[0].function_symbol_name);
+    try std.testing.expectEqual(@as(usize, 1), HelperProgram.contract.session.yield_sites[0].block_index);
+    try std.testing.expectEqual(@as(usize, 3), HelperProgram.contract.session.yield_sites[0].instruction_index);
+
+    const NestedBody = struct {
+        pub const compiled_plan = resolvedNestedWithStringListPlan("session-site-nested");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+    };
+    const NestedProgram = ability.program("session-site-nested", struct {}, NestedBody);
+    try std.testing.expectEqual(@as(usize, 1), NestedProgram.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(usize, 1), NestedProgram.contract.session.yield_sites[0].function_index);
+    try std.testing.expectEqualStrings("nested", NestedProgram.contract.session.yield_sites[0].function_symbol_name);
+    try std.testing.expectEqual(@as(usize, 1), NestedProgram.contract.session.yield_sites[0].block_index);
+    try std.testing.expectEqual(@as(usize, 2), NestedProgram.contract.session.yield_sites[0].instruction_index);
+
+    const DeadBody = struct {
+        pub const compiled_plan = unreachableCallOpPlan("session-site-unreachable");
+    };
+    const DeadProgram = ability.program("session-site-unreachable", struct {}, DeadBody);
+    try std.testing.expectEqual(@as(usize, 1), DeadProgram.contract.ops.len);
+    try std.testing.expectEqual(@as(usize, 0), DeadProgram.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(usize, 0), DeadProgram.contract.session.after_sites.len);
+}
+
+test "Program.contract.session after sites map dynamic after traces to source operation sites" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = compiledTransformPlan("session-site-after");
+    };
+    const Program = ability.program("session-site-after", struct {}, Body);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.session.after_sites.len);
+    const operation_site = Program.contract.session.yield_sites[0];
+    const after_site = Program.contract.session.after_sites[0];
+    try std.testing.expectEqual(@as(usize, 0), after_site.index);
+    try std.testing.expect(after_site.fingerprint != 0);
+    try std.testing.expectEqual(operation_site.index, after_site.source_operation_site_index);
+    try std.testing.expectEqual(operation_site.function_index, after_site.source_function_index);
+    try std.testing.expectEqual(operation_site.block_index, after_site.source_block_index);
+    try std.testing.expectEqual(operation_site.instruction_index, after_site.source_instruction_index);
+    try std.testing.expectEqual(operation_site.requirement_index, after_site.original_requirement_index);
+    try std.testing.expectEqual(operation_site.op_index, after_site.original_op_index);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, after_site.current_value_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, after_site.expected_output_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, after_site.result_ref.codec);
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqual(operation_site.index, request.trace().operation_site_index);
+    try session.@"resume"(request, @as(i32, 30));
+    const after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    const trace = after.trace();
+    try std.testing.expectEqual(after_site.index, trace.after_site_index);
+    try std.testing.expectEqual(after_site.fingerprint, trace.after_site_fingerprint);
+    try std.testing.expectEqual(operation_site.index, trace.source_operation_site_index);
+    try std.testing.expectEqual(after_site.source_function_index, trace.function_index);
+    try std.testing.expectEqual(after_site.source_block_index, trace.block_index);
+    try std.testing.expectEqual(after_site.source_instruction_index, trace.instruction_index);
+
+    const RepeatedAfterBody = struct {
+        pub const compiled_plan = repeatedCallSiteSameOpPlan("session-site-after-same-op", true);
+    };
+    const RepeatedAfterProgram = ability.program("session-site-after-same-op", struct {}, RepeatedAfterBody);
+    try std.testing.expectEqual(@as(usize, 2), RepeatedAfterProgram.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(usize, 2), RepeatedAfterProgram.contract.session.after_sites.len);
+    try std.testing.expectEqual(@as(u16, 0), RepeatedAfterProgram.contract.session.after_sites[0].original_op_index);
+    try std.testing.expectEqual(@as(u16, 0), RepeatedAfterProgram.contract.session.after_sites[1].original_op_index);
+    try std.testing.expectEqual(@as(usize, 0), RepeatedAfterProgram.contract.session.after_sites[0].source_operation_site_index);
+    try std.testing.expectEqual(@as(usize, 1), RepeatedAfterProgram.contract.session.after_sites[1].source_operation_site_index);
+    try std.testing.expect(RepeatedAfterProgram.contract.session.after_sites[0].fingerprint != RepeatedAfterProgram.contract.session.after_sites[1].fingerprint);
 }
 
 test "Program.Session yields transform request data and resumes to completion" {
@@ -4633,6 +4943,271 @@ fn sessionStringOpPlan(comptime mode: ability.ir.PlanControlMode, comptime label
     }) catch unreachable;
 }
 
+fn repeatedCallSiteSameOpPlan(comptime label: []const u8, comptime has_after: bool) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const resumed = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{ .kind = .const_string, .dst = payload.index, .string_literal = "same" },
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .i32,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "same_op",
+        .mode = .transform,
+        .payload_codec = .string,
+        .resume_codec = .i32,
+        .has_after = has_after,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = if (has_after) 121 else 120,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn branchedSameOpCallSitePlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const choose_right = ability.ir.builder.local(root, 0);
+    const left_payload = ability.ir.builder.local(root, 1);
+    const right_payload = ability.ir.builder.local(root, 2);
+    const resumed = ability.ir.builder.local(root, 3);
+    const choose_left = ability.ir.builder.local(root, 4);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{ .kind = .compare_eq_zero, .dst = choose_left.index, .operand = choose_right.index },
+        .{ .kind = .const_string, .dst = left_payload.index, .string_literal = "same" },
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), left_payload) catch unreachable,
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+        .{ .kind = .const_string, .dst = right_payload.index, .string_literal = "same" },
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), right_payload) catch unreachable,
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .i32,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 5,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 3,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "same_op",
+        .mode = .transform,
+        .payload_codec = .string,
+        .resume_codec = .i32,
+    }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 3, .terminator_index = 1 },
+        .{ .first_instruction = 4, .instruction_count = 3, .terminator_index = 2 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 124,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .bool }, .{ .codec = .string }, .{ .codec = .string }, .{ .codec = .i32 }, .{ .codec = .bool } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn loopedOperationSitePlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const counter = ability.ir.builder.local(root, 0);
+    const payload = ability.ir.builder.local(root, 1);
+    const resumed = ability.ir.builder.local(root, 2);
+    const done = ability.ir.builder.local(root, 3);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{ .kind = .const_usize, .dst = counter.index, .string_literal = "3" },
+        .{ .kind = .const_string, .dst = payload.index, .string_literal = "loop" },
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
+        .{ .kind = .sub_one, .dst = counter.index, .operand = counter.index },
+        .{ .kind = .compare_eq_zero, .dst = done.index, .operand = counter.index },
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .i32,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 4,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 3,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "loop_op",
+        .mode = .transform,
+        .payload_codec = .string,
+        .resume_codec = .i32,
+    }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 3, .terminator_index = 1 },
+        .{ .first_instruction = 5, .instruction_count = 1, .terminator_index = 2 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .jump, .primary = 1 },
+        .{ .kind = .branch_if, .primary = 2, .secondary = 1 },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 122,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .usize }, .{ .codec = .string }, .{ .codec = .i32 }, .{ .codec = .bool } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn unreachableCallOpPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const helper = ability.ir.builder.function(1);
+    const root_value = ability.ir.builder.local(root, 0);
+    const helper_value = ability.ir.builder.local(helper, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{ .kind = .const_i32, .dst = root_value.index, .operand = 7 },
+        ability.ir.builder.returnValue(root, root_value) catch unreachable,
+        ability.ir.builder.callOp(helper, helper_value, ability.ir.builder.op(helper, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(helper, helper_value) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .i32,
+            .result_codec = .i32,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "dead_helper",
+            .value_codec = .i32,
+            .result_codec = .i32,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 1,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 2,
+        },
+    };
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "dead", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "dead_op",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+    }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 123,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn sessionStringPayloadPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const payload = ability.ir.builder.local(root, 0);
@@ -4808,6 +5383,115 @@ fn sessionHelperYieldPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .ops = &ops,
         .outputs = &.{},
         .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn sameOpTwoSiteAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const first = ability.ir.builder.local(root, 0);
+    const second = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, first, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.callOp(root, second, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(root, second) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .i32,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "same", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "dispatch",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+        .has_after = true,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 114,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn unreachableSessionSitePlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const value = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{ .kind = .const_i32, .dst = value.index, .operand = 7 },
+        ability.ir.builder.returnValue(root, value) catch unreachable,
+        ability.ir.builder.callOp(root, value, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(root, value) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .i32,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 2,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "dead", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "unreachable",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+    }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 115,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,
@@ -7195,12 +7879,17 @@ test "Program.Session trace operation metadata and replay fingerprint helpers" {
     };
     try expectRuntimeParked(&runtime);
     const first_trace = first_request.trace();
-    try std.testing.expectEqual(@as(u32, 1), first_trace.fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 2), first_trace.fingerprint_version);
     try std.testing.expectEqualStrings("session-trace-operation", first_trace.program_label);
     try std.testing.expectEqualStrings("session-trace-operation", first_trace.plan_label);
     try std.testing.expectEqual(Program.compiled_plan.hash(), first_trace.plan_hash);
     try std.testing.expectEqual(@as(usize, 0), first_trace.turn_index);
     try std.testing.expectEqual(Program.Session.Trace.RequestKind.operation, first_trace.kind);
+    try std.testing.expectEqual(@as(usize, 0), first_trace.operation_site_index);
+    try std.testing.expectEqual(Program.contract.session.yield_sites[0].fingerprint, first_trace.operation_site_fingerprint);
+    try std.testing.expectEqual(@as(usize, 0), first_trace.function_index);
+    try std.testing.expectEqual(@as(usize, 0), first_trace.block_index);
+    try std.testing.expectEqual(@as(usize, 1), first_trace.instruction_index);
     try std.testing.expectEqual(@as(u16, 0), first_trace.requirement_index);
     try std.testing.expectEqualStrings("session", first_trace.requirement_label);
     try std.testing.expectEqual(@as(u16, 0), first_trace.op_index);
@@ -7264,6 +7953,13 @@ test "Program.Session trace after metadata and current value fingerprint stabili
     const first_trace = first_after.trace();
     try std.testing.expectEqual(Program.Session.Trace.RequestKind.after, first_trace.kind);
     try std.testing.expectEqual(@as(usize, 1), first_trace.turn_index);
+    try std.testing.expectEqual(@as(usize, 0), first_trace.after_site_index);
+    try std.testing.expectEqual(Program.contract.session.after_sites[0].fingerprint, first_trace.after_site_fingerprint);
+    try std.testing.expectEqual(@as(usize, 0), first_trace.source_operation_site_index);
+    try std.testing.expectEqual(Program.contract.session.yield_sites[0].fingerprint, first_trace.source_operation_site_fingerprint);
+    try std.testing.expectEqual(@as(usize, 0), first_trace.function_index);
+    try std.testing.expectEqual(@as(usize, 0), first_trace.block_index);
+    try std.testing.expectEqual(@as(usize, 0), first_trace.instruction_index);
     try std.testing.expectEqual(@as(u16, 0), first_trace.original_requirement_index);
     try std.testing.expectEqualStrings("authored", first_trace.original_requirement_label);
     try std.testing.expectEqual(@as(u16, 0), first_trace.original_op_index);
@@ -7311,6 +8007,153 @@ test "Program.Session trace after metadata and current value fingerprint stabili
     };
     try std.testing.expect(first_after.fingerprint() != third_after.fingerprint());
     try std.testing.expect(first_trace.current_value_fingerprint != third_after.trace().current_value_fingerprint);
+}
+
+test "Program.Session site catalog omits unreachable call sites" {
+    const Body = struct {
+        pub const compiled_plan = unreachableSessionSitePlan("session-unreachable-site");
+    };
+    const Program = ability.program("session-unreachable-site", struct {}, Body);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.ops.len);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.session.after_sites.len);
+}
+
+test "Program.Session same op from different call sites has distinct site identity" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sameOpTwoSiteAfterPlan("session-same-op-two-sites");
+    };
+    const Program = ability.program("session-same-op-two-sites", struct {}, Body);
+    try std.testing.expectEqual(@as(usize, 2), Program.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(usize, 2), Program.contract.session.after_sites.len);
+    try std.testing.expectEqual(@as(u16, 0), Program.contract.session.yield_sites[0].op_index);
+    try std.testing.expectEqual(@as(u16, 0), Program.contract.session.yield_sites[1].op_index);
+    try std.testing.expectEqual(@as(usize, 0), Program.contract.session.yield_sites[0].instruction_index);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.session.yield_sites[1].instruction_index);
+    try std.testing.expect(Program.contract.session.yield_sites[0].fingerprint != Program.contract.session.yield_sites[1].fingerprint);
+    try std.testing.expectEqual(Program.contract.session.yield_sites[0].fingerprint, Program.contract.session.after_sites[0].source_operation_site_fingerprint);
+    try std.testing.expectEqual(Program.contract.session.yield_sites[1].fingerprint, Program.contract.session.after_sites[1].source_operation_site_fingerprint);
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const first_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    const first_trace = first_request.trace();
+    try std.testing.expectEqual(@as(usize, 0), first_trace.operation_site_index);
+    try std.testing.expectEqual(Program.contract.session.yield_sites[0].fingerprint, first_trace.operation_site_fingerprint);
+    try session.@"resume"(first_request, @as(i32, 10));
+
+    const second_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    const second_trace = second_request.trace();
+    try std.testing.expectEqual(@as(usize, 1), second_trace.operation_site_index);
+    try std.testing.expectEqual(Program.contract.session.yield_sites[1].fingerprint, second_trace.operation_site_fingerprint);
+    try std.testing.expect(first_request.fingerprint() != second_request.fingerprint());
+    try session.@"resume"(second_request, @as(i32, 20));
+
+    const first_after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(@as(usize, 1), first_after.trace().source_operation_site_index);
+    try std.testing.expectEqual(Program.contract.session.yield_sites[1].fingerprint, first_after.trace().source_operation_site_fingerprint);
+    try session.resumeAfter(first_after, @as(i32, 21));
+
+    const second_after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(@as(usize, 0), second_after.trace().source_operation_site_index);
+    try std.testing.expectEqual(Program.contract.session.yield_sites[0].fingerprint, second_after.trace().source_operation_site_fingerprint);
+    try session.resumeAfter(second_after, @as(i32, 11));
+}
+
+test "Program.Session looped operation keeps static site and changes turn" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = loopedAfterPlan("session-loop-site-turn");
+    };
+    const Program = ability.program("session-loop-site-turn", struct {}, Body);
+    try std.testing.expectEqual(@as(usize, 1), Program.contract.session.yield_sites.len);
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const first_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.@"resume"(first_request, @as(i32, 1));
+    const second_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqual(first_request.trace().operation_site_index, second_request.trace().operation_site_index);
+    try std.testing.expectEqual(first_request.trace().operation_site_fingerprint, second_request.trace().operation_site_fingerprint);
+    try std.testing.expectEqual(@as(usize, 0), first_request.trace().turn_index);
+    try std.testing.expectEqual(@as(usize, 1), second_request.trace().turn_index);
+    try std.testing.expect(first_request.fingerprint() != second_request.fingerprint());
+}
+
+test "Program.Session site coordinates include helper and nested-with target functions" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const HelperBody = struct {
+        pub const compiled_plan = sessionHelperYieldPlan("session-helper-site");
+    };
+    const HelperProgram = ability.program("session-helper-site", struct {}, HelperBody);
+    try std.testing.expectEqual(@as(usize, 1), HelperProgram.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(usize, 1), HelperProgram.contract.session.yield_sites[0].function_index);
+    try std.testing.expectEqualStrings("helper", HelperProgram.contract.session.yield_sites[0].function_symbol_name);
+    try std.testing.expectEqual(@as(usize, 1), HelperProgram.contract.session.yield_sites[0].block_index);
+    try std.testing.expectEqual(@as(usize, 3), HelperProgram.contract.session.yield_sites[0].instruction_index);
+    var helper_session = try HelperProgram.Session.start(&runtime, .{});
+    defer helper_session.deinit();
+    const helper_request = switch (try helper_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqual(@as(usize, 1), helper_request.trace().function_index);
+    try std.testing.expectEqual(@as(usize, 3), helper_request.trace().instruction_index);
+
+    const NestedBody = struct {
+        pub const compiled_plan = resolvedNestedWithStringListPlan("session-nested-site");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+    };
+    const NestedProgram = ability.program("session-nested-site", struct {}, NestedBody);
+    try std.testing.expectEqual(@as(usize, 1), NestedProgram.contract.session.yield_sites.len);
+    try std.testing.expectEqual(@as(usize, 1), NestedProgram.contract.session.yield_sites[0].function_index);
+    try std.testing.expectEqualStrings("nested", NestedProgram.contract.session.yield_sites[0].function_symbol_name);
+    try std.testing.expectEqual(@as(usize, 1), NestedProgram.contract.session.yield_sites[0].block_index);
+    try std.testing.expectEqual(@as(usize, 2), NestedProgram.contract.session.yield_sites[0].instruction_index);
+    var nested_session = try NestedProgram.Session.start(&runtime, .{});
+    defer nested_session.deinit();
+    const nested_request = switch (try nested_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqual(@as(usize, 1), nested_request.trace().function_index);
+    try std.testing.expectEqual(@as(usize, 2), nested_request.trace().instruction_index);
 }
 
 test "Program.Session response fingerprint changes with response value and kind" {
