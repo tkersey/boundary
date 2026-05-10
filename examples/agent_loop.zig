@@ -9,6 +9,7 @@ const Action = union(enum) {
 
 const AgentHandlers = struct {
     initial_remaining: usize,
+    initial_observation: []const u8,
 };
 
 const AgentSchemas = ability.ir.schema.Registry(.{Action});
@@ -50,6 +51,38 @@ const TraceMode = enum {
     replay,
 };
 
+const SessionEvent = enum {
+    model_prompted,
+    model_replied,
+    run_completed,
+    run_started,
+    tool_called,
+    tool_returned,
+};
+
+const TerminalStatus = enum {
+    completed,
+    running,
+};
+
+const RunRecord = struct {
+    event_count: usize = 0,
+    tool_calls: usize = 0,
+    last_status: TerminalStatus = .running,
+    last_note: []const u8 = "",
+};
+
+const InvokeOutcome = struct {
+    final_text: []const u8,
+    run_record: RunRecord,
+    recorded_response_count: usize,
+};
+
+const Scenario = enum {
+    fixture,
+    skeleton,
+};
+
 const RecordedResponse = struct {
     request_fingerprint: u64,
     response_fingerprint: u64,
@@ -78,6 +111,120 @@ const TraceRecording = struct {
         return self.responses[index];
     }
 };
+
+const fixture_dir = "zig-cache/ability-agent-loop-fixtures";
+const fixture_input_path = fixture_dir ++ "/input.txt";
+const fixture_output_path = fixture_dir ++ "/output.txt";
+const fixture_input_contents = "rewrite this file through the agent loop\n";
+const fixture_observation = "rewrite this file through the agent loop";
+const fixture_write_contents = "actuate updated the fixture";
+const fixture_read_command = "read:" ++ fixture_input_path;
+const fixture_write_command = "write:" ++ fixture_output_path ++ "=" ++ fixture_write_contents;
+
+fn recordEvent(record: *RunRecord, event: SessionEvent) void {
+    record.event_count += 1;
+    switch (event) {
+        .run_started => record.last_note = "session=started",
+        .model_prompted => record.last_note = "model=prompted",
+        .model_replied => record.last_note = "model=replied",
+        .tool_called => {
+            record.tool_calls += 1;
+            record.last_note = "tool=called";
+        },
+        .tool_returned => record.last_note = "tool=returned",
+        .run_completed => {
+            record.last_status = .completed;
+            record.last_note = "session=completed";
+        },
+    }
+}
+
+fn runRecordsEqual(a: RunRecord, b: RunRecord) bool {
+    return a.event_count == b.event_count and
+        a.tool_calls == b.tool_calls and
+        a.last_status == b.last_status and
+        std.mem.eql(u8, a.last_note, b.last_note);
+}
+
+fn initialObservation(scenario: Scenario) []const u8 {
+    return switch (scenario) {
+        .skeleton => "goal=invoke",
+        .fixture => "goal=fixture",
+    };
+}
+
+fn expectedFinalText(scenario: Scenario) []const u8 {
+    return switch (scenario) {
+        .skeleton => "final=actuate skeleton complete",
+        .fixture => "final=fixture updated",
+    };
+}
+
+fn expectedRecordedResponseCount(scenario: Scenario) usize {
+    return switch (scenario) {
+        .skeleton => 3,
+        .fixture => 5,
+    };
+}
+
+fn decideAction(scenario: Scenario, observation: []const u8) Action {
+    return switch (scenario) {
+        .skeleton => if (std.mem.eql(u8, observation, "goal=invoke"))
+            Action{ .tool = @as([]const u8, "actuate") }
+        else if (std.mem.eql(u8, observation, "actuate"))
+            Action{ .final = @as([]const u8, "final=actuate skeleton complete") }
+        else
+            Action{ .final = @as([]const u8, "final=unexpected-tool-output") },
+        .fixture => if (std.mem.eql(u8, observation, "goal=fixture"))
+            Action{ .tool = @as([]const u8, fixture_read_command) }
+        else if (std.mem.eql(u8, observation, fixture_observation))
+            Action{ .tool = @as([]const u8, fixture_write_command) }
+        else if (std.mem.eql(u8, observation, "write=ok"))
+            Action{ .final = @as([]const u8, "final=fixture updated") }
+        else
+            Action{ .final = @as([]const u8, "final=fixture update failed") },
+    };
+}
+
+fn prepareFixtureWorkspace() !void {
+    const io = std.Io.Threaded.global_single_threaded.io();
+    try std.Io.Dir.cwd().createDirPath(io, fixture_dir);
+    try std.Io.Dir.cwd().writeFile(io, .{
+        .sub_path = fixture_input_path,
+        .data = fixture_input_contents,
+    });
+    std.Io.Dir.cwd().deleteFile(io, fixture_output_path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+}
+
+fn callTool(allocator: std.mem.Allocator, scenario: Scenario, command: []const u8) ![]const u8 {
+    switch (scenario) {
+        .skeleton => return if (std.mem.eql(u8, command, "actuate")) "actuate" else "tool=unsupported",
+        .fixture => {
+            const io = std.Io.Threaded.global_single_threaded.io();
+            if (std.mem.startsWith(u8, command, "read:")) {
+                const path = command["read:".len..];
+                const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1024));
+                defer allocator.free(bytes);
+                const trimmed = std.mem.trim(u8, bytes, "\r\n");
+                if (!std.mem.eql(u8, trimmed, fixture_observation)) return error.UnexpectedFixtureInput;
+                return fixture_observation;
+            }
+            if (std.mem.startsWith(u8, command, "write:")) {
+                const payload = command["write:".len..];
+                const split = std.mem.findScalar(u8, payload, '=') orelse return "write=invalid";
+                try std.Io.Dir.cwd().writeFile(io, .{
+                    .sub_path = payload[0..split],
+                    .data = payload[split + 1 ..],
+                });
+                return "write=ok";
+            }
+            return "tool=unsupported";
+        },
+    }
+}
 
 const agent_loop_semantic_spec = blk: {
     const semantic = ability.ir.builder.semantic;
@@ -159,7 +306,7 @@ const AgentBody = struct {
     pub const compiled_plan = agent_loop_compiled.plan;
 
     pub fn encodeArgs(handlers: AgentHandlers) struct { usize, []const u8 } {
-        return .{ handlers.initial_remaining, @as([]const u8, "start") };
+        return .{ handlers.initial_remaining, handlers.initial_observation };
     }
 };
 
@@ -191,8 +338,14 @@ const HostBetweenTurnsBody = struct {
     pub const compiled_plan = host_between_turns_compiled.plan;
 };
 
-fn runSession(writer: anytype, mode: TraceMode, recording: *TraceRecording) ![]const u8 {
-    var runtime = ability.Runtime.init(std.heap.page_allocator);
+fn runSession(
+    writer: anytype,
+    allocator: std.mem.Allocator,
+    scenario: Scenario,
+    mode: TraceMode,
+    recording: *TraceRecording,
+) !InvokeOutcome {
+    var runtime = ability.Runtime.init(allocator);
     defer runtime.deinit();
 
     const Program = ability.program("agent-loop-session", AgentHandlers, AgentBody);
@@ -203,10 +356,15 @@ fn runSession(writer: anytype, mode: TraceMode, recording: *TraceRecording) ![]c
         Program.protocol.assertOperationSitesCovered(.{ Decide, Tool });
         Program.protocol.assertAfterSitesCovered(.{});
     }
-    var session = try Program.Session.start(&runtime, .{ .initial_remaining = 3 });
+    var session = try Program.Session.start(&runtime, .{
+        .initial_remaining = 3,
+        .initial_observation = initialObservation(scenario),
+    });
     defer session.deinit();
 
     var replay_index: usize = 0;
+    var run_record = RunRecord{};
+    recordEvent(&run_record, .run_started);
     const phase = @tagName(mode);
 
     while (true) {
@@ -234,10 +392,7 @@ fn runSession(writer: anytype, mode: TraceMode, recording: *TraceRecording) ![]c
                         .record => action: {
                             const observation: Decide.Payload = try typed_request.payload();
                             try writer.print("{s} decide observation={s}\n", .{ phase, observation });
-                            break :action if (std.mem.eql(u8, observation, "start"))
-                                Action{ .tool = @as([]const u8, "lookup") }
-                            else
-                                Action{ .final = @as([]const u8, "answer: lookup=42") };
+                            break :action decideAction(scenario, observation);
                         },
                         .replay => action: {
                             const recorded = try recording.at(replay_index);
@@ -260,6 +415,10 @@ fn runSession(writer: anytype, mode: TraceMode, recording: *TraceRecording) ![]c
                             if (response_trace.fingerprint != recorded.response_fingerprint) return error.TraceReplayResponseFingerprintMismatch;
                         },
                     }
+                    if (action == .tool) {
+                        recordEvent(&run_record, .model_prompted);
+                        recordEvent(&run_record, .model_replied);
+                    }
                     try writer.print("{s} response kind={s} response={x}\n", .{
                         phase,
                         @tagName(response_trace.kind),
@@ -273,7 +432,7 @@ fn runSession(writer: anytype, mode: TraceMode, recording: *TraceRecording) ![]c
                         .record => text: {
                             const tool_name: Tool.Payload = try typed_request.payload();
                             try writer.print("{s} tool name={s}\n", .{ phase, tool_name });
-                            break :text @as([]const u8, "lookup=42");
+                            break :text try callTool(allocator, scenario, tool_name);
                         },
                         .replay => text: {
                             const recorded = try recording.at(replay_index);
@@ -296,6 +455,8 @@ fn runSession(writer: anytype, mode: TraceMode, recording: *TraceRecording) ![]c
                             if (response_trace.fingerprint != recorded.response_fingerprint) return error.TraceReplayResponseFingerprintMismatch;
                         },
                     }
+                    recordEvent(&run_record, .tool_called);
+                    recordEvent(&run_record, .tool_returned);
                     try writer.print("{s} response kind={s} response={x}\n", .{
                         phase,
                         @tagName(response_trace.kind),
@@ -312,18 +473,53 @@ fn runSession(writer: anytype, mode: TraceMode, recording: *TraceRecording) ![]c
                 defer result.deinit();
                 try writer.print("{s} answer={s}\n", .{ phase, result.value });
                 if (mode == .replay and replay_index != recording.count) return error.TraceReplayUnusedResponse;
-                return result.value;
+                recordEvent(&run_record, .run_completed);
+                return .{
+                    .final_text = result.value,
+                    .run_record = run_record,
+                    .recorded_response_count = recording.count,
+                };
             },
         }
     }
 }
 
-pub fn run(writer: anytype) !void {
+fn runScenario(writer: anytype, allocator: std.mem.Allocator, scenario: Scenario) !InvokeOutcome {
+    if (scenario == .fixture) try prepareFixtureWorkspace();
+
     var recording: TraceRecording = .{};
-    const first_answer = try runSession(writer, .record, &recording);
-    const replay_answer = try runSession(writer, .replay, &recording);
-    if (!std.mem.eql(u8, first_answer, replay_answer)) return error.TraceReplayAnswerMismatch;
-    try writer.print("replay verified responses={d} answer={s}\n", .{ recording.count, replay_answer });
+    const record_outcome = try runSession(writer, allocator, scenario, .record, &recording);
+    const replay_outcome = try runSession(writer, allocator, scenario, .replay, &recording);
+    if (!std.mem.eql(u8, record_outcome.final_text, replay_outcome.final_text)) return error.TraceReplayAnswerMismatch;
+    if (!runRecordsEqual(record_outcome.run_record, replay_outcome.run_record)) return error.TraceReplayRunRecordMismatch;
+    if (!std.mem.eql(u8, record_outcome.final_text, expectedFinalText(scenario))) return error.UnexpectedFinalText;
+    if (recording.count != expectedRecordedResponseCount(scenario)) return error.UnexpectedTraceResponseCount;
+    if (replay_outcome.recorded_response_count != recording.count) return error.TraceReplayResponseCountMismatch;
+    return record_outcome;
+}
+
+pub fn run(writer: anytype) !void {
+    const allocator = std.heap.page_allocator;
+    const skeleton = try runScenario(writer, allocator, .skeleton);
+    try writer.print("skeleton final={s} events={d} tool_calls={d} responses={d}\n", .{
+        skeleton.final_text,
+        skeleton.run_record.event_count,
+        skeleton.run_record.tool_calls,
+        skeleton.recorded_response_count,
+    });
+
+    const fixture = try runScenario(writer, allocator, .fixture);
+    const io = std.Io.Threaded.global_single_threaded.io();
+    var output_buffer: [1024]u8 = undefined;
+    const bytes = try std.Io.Dir.cwd().readFile(io, fixture_output_path, &output_buffer);
+    try writer.print("fixture final={s} events={d} tool_calls={d} responses={d}\n", .{
+        fixture.final_text,
+        fixture.run_record.event_count,
+        fixture.run_record.tool_calls,
+        fixture.recorded_response_count,
+    });
+    try writer.print("fixture output={s} content={s}\n", .{ fixture_output_path, bytes });
+    try writer.print("replay verified skeleton=true fixture=true\n", .{});
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -332,4 +528,34 @@ pub fn main(init: std.process.Init) !void {
     const stdout = &stdout_writer.interface;
     try run(stdout);
     try stdout.flush();
+}
+
+test "agent loop skeleton scenario mirrors actuate skeleton coverage" {
+    var output = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer output.deinit();
+
+    const outcome = try runScenario(&output.writer, std.testing.allocator, .skeleton);
+    try std.testing.expectEqualStrings("final=actuate skeleton complete", outcome.final_text);
+    try std.testing.expectEqual(@as(usize, 6), outcome.run_record.event_count);
+    try std.testing.expectEqual(@as(usize, 1), outcome.run_record.tool_calls);
+    try std.testing.expectEqual(TerminalStatus.completed, outcome.run_record.last_status);
+    try std.testing.expectEqualStrings("session=completed", outcome.run_record.last_note);
+    try std.testing.expectEqual(@as(usize, 3), outcome.recorded_response_count);
+}
+
+test "agent loop fixture scenario mirrors actuate fixture coverage" {
+    var output = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer output.deinit();
+
+    const outcome = try runScenario(&output.writer, std.testing.allocator, .fixture);
+    try std.testing.expectEqualStrings("final=fixture updated", outcome.final_text);
+    try std.testing.expectEqual(@as(usize, 10), outcome.run_record.event_count);
+    try std.testing.expectEqual(@as(usize, 2), outcome.run_record.tool_calls);
+    try std.testing.expectEqual(TerminalStatus.completed, outcome.run_record.last_status);
+    try std.testing.expectEqual(@as(usize, 5), outcome.recorded_response_count);
+
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, fixture_output_path, std.testing.allocator, .limited(1024));
+    defer std.testing.allocator.free(bytes);
+    try std.testing.expectEqualStrings("actuate updated the fixture", bytes);
 }
