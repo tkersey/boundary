@@ -228,6 +228,12 @@ fn runSession(writer: anytype, mode: TraceMode, recording: *TraceRecording) ![]c
 
     const Program = ability.program("agent-loop-session", AgentHandlers, AgentBody);
     const HostBetweenTurns = ability.program("agent-loop-host-between-turns", struct {}, HostBetweenTurnsBody);
+    const Decide = Program.protocol.operationSite("agent", "decide", 0);
+    const Tool = Program.protocol.operationSite("tool", "call", 0);
+    comptime {
+        Program.protocol.assertOperationSitesCovered(.{ Decide, Tool });
+        Program.protocol.assertAfterSitesCovered(.{});
+    }
     var session = try Program.Session.start(&runtime, .{ .initial_remaining = 3 });
     defer session.deinit();
 
@@ -252,10 +258,11 @@ fn runSession(writer: anytype, mode: TraceMode, recording: *TraceRecording) ![]c
                 defer host_check.deinit();
                 try writer.print("{s} between_turns={s}\n", .{ phase, host_check.value });
 
-                if (std.mem.eql(u8, request.op_name, "decide")) {
+                if (request.matches(Decide)) {
+                    const typed_request = try request.as(Decide);
                     const action = switch (mode) {
                         .record => action: {
-                            const observation = try request.payload([]const u8);
+                            const observation: Decide.Payload = try typed_request.payload();
                             try writer.print("{s} decide observation={s}\n", .{ phase, observation });
                             break :action if (std.mem.eql(u8, observation, "start"))
                                 Action{ .tool = @as([]const u8, "lookup") }
@@ -271,7 +278,7 @@ fn runSession(writer: anytype, mode: TraceMode, recording: *TraceRecording) ![]c
                             };
                         },
                     };
-                    const response_trace = try request.responseTrace(.@"resume", action);
+                    const response_trace = try typed_request.responseTrace(.@"resume", action);
                     switch (mode) {
                         .record => try recording.append(.{
                             .request_fingerprint = trace.fingerprint,
@@ -289,11 +296,12 @@ fn runSession(writer: anytype, mode: TraceMode, recording: *TraceRecording) ![]c
                         response_trace.fingerprint,
                     });
                     replay_index += 1;
-                    try session.@"resume"(request, action);
-                } else if (std.mem.eql(u8, request.op_name, "call")) {
+                    try session.resumeTyped(typed_request, action);
+                } else if (request.matches(Tool)) {
+                    const typed_request = try request.as(Tool);
                     const text = switch (mode) {
                         .record => text: {
-                            const tool_name = try request.payload([]const u8);
+                            const tool_name: Tool.Payload = try typed_request.payload();
                             try writer.print("{s} tool name={s}\n", .{ phase, tool_name });
                             break :text @as([]const u8, "lookup=42");
                         },
@@ -306,7 +314,7 @@ fn runSession(writer: anytype, mode: TraceMode, recording: *TraceRecording) ![]c
                             };
                         },
                     };
-                    const response_trace = try request.responseTrace(.@"resume", text);
+                    const response_trace = try typed_request.responseTrace(.@"resume", text);
                     switch (mode) {
                         .record => try recording.append(.{
                             .request_fingerprint = trace.fingerprint,
@@ -324,7 +332,7 @@ fn runSession(writer: anytype, mode: TraceMode, recording: *TraceRecording) ![]c
                         response_trace.fingerprint,
                     });
                     replay_index += 1;
-                    try session.@"resume"(request, text);
+                    try session.resumeTyped(typed_request, text);
                 } else {
                     return error.UnknownAgentRequest;
                 }

@@ -7,6 +7,14 @@ pub const ProgramPlan = program_plan.ProgramPlan;
 pub const ValueCodec = program_plan.ValueCodec;
 pub const ValueRef = program_plan.ValueRef;
 pub const ValueSchemaRegistryForTypes = program_plan.ValueSchemaRegistryForTypes;
+
+fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
+    return switch (@typeInfo(T)) {
+        .@"struct", .@"union", .@"enum", .@"opaque" => @hasDecl(T, name),
+        else => false,
+    };
+}
+
 pub const NestedWithTarget = struct {
     metadata: []const u8,
     function_index: u16,
@@ -1305,6 +1313,12 @@ fn CallableReturnPayloadType(comptime callable: anytype) type {
     return ReturnPayloadType(@typeInfo(@TypeOf(callable)).@"fn".return_type.?);
 }
 
+fn CallableParamPayloadType(comptime callable: anytype, comptime param_index: usize) type {
+    const info = @typeInfo(@TypeOf(callable)).@"fn";
+    if (param_index >= info.params.len) @compileError("callable parameter index out of bounds");
+    return info.params[param_index].type orelse @compileError("callable parameter is missing a type");
+}
+
 fn runtimeTypeNeedsSchemaStorage(comptime schema_types: anytype, comptime T: type) bool {
     const ref = runtimeValueRefForType(schema_types, T) orelse return false;
     return structuredSchemaCodec(ref.codec);
@@ -2163,6 +2177,42 @@ fn hasAfterDispatchHandlerType(
         @hasDecl(HandlerType(@FieldType(HandlerSet, "authored")), "afterDispatch")
     else
         false;
+}
+
+/// Static input value ref accepted by the host-visible after site for one operation site.
+pub fn sessionAfterProtocolInputRefForOperationSite(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime schema_types: anytype,
+    comptime HandlersType: type,
+    comptime operation_site: SessionOperationYieldSite,
+) program_plan.ValueRef {
+    const op = compiled_plan.ops[operation_site.op_index];
+    if (!op.has_after) @compileError("Program.Session after protocol ref requested for operation without after continuation");
+    if (comptime hasAfterDispatchHandlerType(compiled_plan, op, HandlersType)) {
+        const Authored = AfterDispatchHandlerType(compiled_plan, op, HandlersType);
+        const Input = CallableParamPayloadType(Authored.afterDispatch, 1);
+        return runtimeValueRefForType(schema_types, Input) orelse
+            @compileError("afterDispatch input type is not representable by Program.Session protocol: " ++ @typeName(Input));
+    }
+    return operation_site.resume_ref;
+}
+
+/// Static output value ref produced by the host-visible after site for one operation site.
+pub fn sessionAfterProtocolOutputRefForOperationSite(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime schema_types: anytype,
+    comptime HandlersType: type,
+    comptime operation_site: SessionOperationYieldSite,
+) program_plan.ValueRef {
+    const op = compiled_plan.ops[operation_site.op_index];
+    if (!op.has_after) @compileError("Program.Session after protocol ref requested for operation without after continuation");
+    if (comptime hasAfterDispatchHandlerType(compiled_plan, op, HandlersType)) {
+        const Authored = AfterDispatchHandlerType(compiled_plan, op, HandlersType);
+        const Output = CallableReturnPayloadType(Authored.afterDispatch);
+        return runtimeValueRefForType(schema_types, Output) orelse
+            @compileError("afterDispatch output type is not representable by Program.Session protocol: " ++ @typeName(Output));
+    }
+    return operation_site.result_ref;
 }
 
 // zlinter-disable max_positional_args - after dispatch preserves explicit input/output refs while keeping the op, plan, handlers, and scratch state visible.
@@ -3510,6 +3560,24 @@ pub fn ExecutableSessionForPlan(
                 };
             }
 
+            pub fn matches(self: @This(), comptime Site: type) bool {
+                comptime requireOperationProtocolSite(Site);
+                return self.operation_site_index == Site.index and
+                    self.operation_site_fingerprint == Site.fingerprint and
+                    self.payload_ref.eql(Site.payload_ref) and
+                    self.resume_ref.eql(Site.resume_ref) and
+                    self.result_ref.eql(Site.result_ref);
+            }
+
+            pub fn expectSite(self: @This(), comptime Site: type) error{ProgramContractViolation}!void {
+                if (!self.matches(Site)) return error.ProgramContractViolation;
+            }
+
+            pub fn as(self: @This(), comptime Site: type) error{ProgramContractViolation}!TypedOperationRequest(@This(), Site) {
+                try self.expectSite(Site);
+                return .{ .request = self };
+            }
+
             pub fn trace(self: @This()) Trace.OperationRequest {
                 return .{
                     .program_label = program_label,
@@ -3558,6 +3626,16 @@ pub fn ExecutableSessionForPlan(
                 };
                 const value_fingerprint = try Self.fingerprintTypedValueForRef(response_ref, response_value);
                 return Self.responseTraceFor(self._fingerprint, kind, response_ref, value_fingerprint);
+            }
+
+            pub fn responseTraceFor(self: @This(), comptime Site: type, kind: Trace.ResponseKind, response_value: anytype) error{ProgramContractViolation}!Trace.Response {
+                try self.expectSite(Site);
+                switch (kind) {
+                    .@"resume" => if (!Site.may_resume) return error.ProgramContractViolation,
+                    .return_now => if (!Site.may_return_now) return error.ProgramContractViolation,
+                    .resume_after => return error.ProgramContractViolation,
+                }
+                return self.responseTrace(kind, response_value);
             }
 
             fn setPayload(self: *@This(), payload_value: ExecutableValue) error{ProgramContractViolation}!void {
@@ -3655,6 +3733,26 @@ pub fn ExecutableSessionForPlan(
                 };
             }
 
+            pub fn matches(self: @This(), comptime Site: type) bool {
+                comptime requireAfterProtocolSite(Site);
+                return self.after_site_index == Site.index and
+                    self.after_site_fingerprint == Site.fingerprint and
+                    self.source_operation_site_index == Site.source_operation_site_index and
+                    self.source_operation_site_fingerprint == Site.source_operation_site_fingerprint and
+                    self.value_ref.eql(Site.input_ref) and
+                    self.output_ref.eql(Site.output_ref) and
+                    self.result_ref.eql(Site.result_ref);
+            }
+
+            pub fn expectSite(self: @This(), comptime Site: type) error{ProgramContractViolation}!void {
+                if (!self.matches(Site)) return error.ProgramContractViolation;
+            }
+
+            pub fn as(self: @This(), comptime Site: type) error{ProgramContractViolation}!TypedAfterRequest(@This(), Site) {
+                try self.expectSite(Site);
+                return .{ .request = self };
+            }
+
             pub fn trace(self: @This()) Trace.AfterRequest {
                 return .{
                     .program_label = program_label,
@@ -3694,6 +3792,11 @@ pub fn ExecutableSessionForPlan(
                 return Self.responseTraceFor(self._fingerprint, kind, self.output_ref, value_fingerprint);
             }
 
+            pub fn responseTraceFor(self: @This(), comptime Site: type, response_value: anytype) error{ProgramContractViolation}!Trace.Response {
+                try self.expectSite(Site);
+                return self.responseTrace(.resume_after, response_value);
+            }
+
             fn setValue(self: *@This(), current_value: ExecutableValue) error{ProgramContractViolation}!void {
                 self._value = switch (current_value) {
                     .none => .none,
@@ -3718,6 +3821,68 @@ pub fn ExecutableSessionForPlan(
                 return error.ProgramContractViolation;
             }
         };
+
+        fn requireOperationProtocolSite(comptime Site: type) void {
+            if (!hasDeclSafe(Site, "kind") or Site.kind != .operation) {
+                @compileError("expected Program.protocol operation site descriptor");
+            }
+            if (!hasDeclSafe(Site, "owner_label") or
+                !std.mem.eql(u8, Site.owner_label, program_label) or
+                !hasDeclSafe(Site, "owner_plan_hash") or
+                Site.owner_plan_hash != plan_hash or
+                !hasDeclSafe(Site, "OwnerHandlers") or
+                Site.OwnerHandlers != HandlersType)
+            {
+                @compileError("Program.protocol descriptor belongs to another program");
+            }
+        }
+
+        fn requireAfterProtocolSite(comptime Site: type) void {
+            if (!hasDeclSafe(Site, "kind") or Site.kind != .after) {
+                @compileError("expected Program.protocol after site descriptor");
+            }
+            if (!hasDeclSafe(Site, "owner_label") or
+                !std.mem.eql(u8, Site.owner_label, program_label) or
+                !hasDeclSafe(Site, "owner_plan_hash") or
+                Site.owner_plan_hash != plan_hash or
+                !hasDeclSafe(Site, "OwnerHandlers") or
+                Site.OwnerHandlers != HandlersType)
+            {
+                @compileError("Program.protocol descriptor belongs to another program");
+            }
+        }
+
+        fn TypedOperationRequest(comptime RequestType: type, comptime Site: type) type {
+            comptime requireOperationProtocolSite(Site);
+            return struct {
+                pub const Descriptor = Site;
+                request: RequestType,
+
+                pub fn payload(self: @This()) error{ProgramContractViolation}!Site.Payload {
+                    return self.request.payload(Site.Payload);
+                }
+
+                pub fn responseTrace(self: @This(), kind: Trace.ResponseKind, response_value: anytype) error{ProgramContractViolation}!Trace.Response {
+                    return self.request.responseTraceFor(Site, kind, response_value);
+                }
+            };
+        }
+
+        fn TypedAfterRequest(comptime AfterRequestType: type, comptime Site: type) type {
+            comptime requireAfterProtocolSite(Site);
+            return struct {
+                pub const Descriptor = Site;
+                request: AfterRequestType,
+
+                pub fn value(self: @This()) error{ProgramContractViolation}!Site.Input {
+                    return self.request.value(Site.Input);
+                }
+
+                pub fn responseTrace(self: @This(), response_value: anytype) error{ProgramContractViolation}!Trace.Response {
+                    return self.request.responseTraceFor(Site, response_value);
+                }
+            };
+        }
 
         pub const Step = union(enum) {
             after: AfterRequest,

@@ -547,6 +547,228 @@ fn ProgramContractFor(
     };
 }
 
+// zlinter-disable require_doc_comment
+fn ProgramProtocolFor(
+    comptime program_label: []const u8,
+    comptime plan: lowering_api.ProgramPlan,
+    comptime schema_types: anytype,
+    comptime nested_targets: anytype,
+    comptime HandlersType: type,
+    comptime ProtocolOwner: type,
+) type {
+    const operation_sites = lowering_api.sessionOperationYieldSitesForPlan(plan, nested_targets);
+    const after_sites = lowering_api.sessionAfterYieldSitesForPlan(plan, nested_targets);
+    const plan_hash = plan.hash();
+
+    return struct {
+        pub const label = program_label;
+        pub const hash = plan_hash;
+        pub const operation_site_count = operation_sites.len;
+        pub const after_site_count = after_sites.len;
+        pub const operation_site_metadata = &operation_sites;
+        pub const after_site_metadata = &after_sites;
+
+        fn operationDescriptor(comptime site: lowering_api.SessionOperationYieldSite) type {
+            const PayloadType = ProgramValueTypeForRef(plan, schema_types, site.payload_ref);
+            const ResumeType = ProgramValueTypeForRef(plan, schema_types, site.resume_ref);
+            const ResultType = ProgramValueTypeForRef(plan, schema_types, site.result_ref);
+            return struct {
+                pub const kind = .operation;
+                pub const Owner = ProtocolOwner;
+                pub const owner_label = program_label;
+                pub const owner_plan_hash = plan_hash;
+                pub const OwnerHandlers = HandlersType;
+                pub const Payload = PayloadType;
+                pub const Resume = ResumeType;
+                pub const Result = ResultType;
+                pub const metadata = site;
+                pub const index = site.index;
+                pub const fingerprint = site.fingerprint;
+                pub const function_index = site.function_index;
+                pub const function_symbol_name = site.function_symbol_name;
+                pub const block_index = site.block_index;
+                pub const instruction_index = site.instruction_index;
+                pub const requirement_index = site.requirement_index;
+                pub const requirement_label = site.requirement_label;
+                pub const op_index = site.op_index;
+                pub const op_name = site.op_name;
+                pub const op_mode = site.op_mode;
+                pub const payload_ref = site.payload_ref;
+                pub const resume_ref = site.resume_ref;
+                pub const result_ref = site.result_ref;
+                pub const has_after = site.has_after;
+                pub const may_resume = site.host_may_resume;
+                pub const may_return_now = site.host_may_return_now;
+                pub const can_yield_after = site.can_yield_after;
+            };
+        }
+
+        fn afterDescriptor(comptime site: lowering_api.SessionAfterYieldSite) type {
+            const operation_site = operation_sites[site.source_operation_site_index];
+            const static_input_ref = lowering_api.sessionAfterProtocolInputRefForOperationSite(plan, schema_types, HandlersType, operation_site);
+            const static_output_ref = lowering_api.sessionAfterProtocolOutputRefForOperationSite(plan, schema_types, HandlersType, operation_site);
+            const InputType = ProgramValueTypeForRef(plan, schema_types, static_input_ref);
+            const OutputType = ProgramValueTypeForRef(plan, schema_types, static_output_ref);
+            const ResultType = ProgramValueTypeForRef(plan, schema_types, site.result_ref);
+            return struct {
+                pub const kind = .after;
+                pub const Owner = ProtocolOwner;
+                pub const owner_label = program_label;
+                pub const owner_plan_hash = plan_hash;
+                pub const OwnerHandlers = HandlersType;
+                pub const Input = InputType;
+                pub const Output = OutputType;
+                pub const Result = ResultType;
+                pub const metadata = site;
+                pub const index = site.index;
+                pub const fingerprint = site.fingerprint;
+                pub const source_operation_site_index = site.source_operation_site_index;
+                pub const source_operation_site_fingerprint = site.source_operation_site_fingerprint;
+                pub const source_function_index = site.source_function_index;
+                pub const source_block_index = site.source_block_index;
+                pub const source_instruction_index = site.source_instruction_index;
+                pub const original_requirement_index = site.original_requirement_index;
+                pub const original_requirement_label = site.original_requirement_label;
+                pub const original_op_index = site.original_op_index;
+                pub const original_op_name = site.original_op_name;
+                pub const input_ref = static_input_ref;
+                pub const current_value_ref = static_input_ref;
+                pub const output_ref = static_output_ref;
+                pub const result_ref = site.result_ref;
+            };
+        }
+
+        pub fn operationSite(
+            comptime requirement_label: []const u8,
+            comptime op_name: []const u8,
+            comptime occurrence_index: usize,
+        ) type {
+            comptime var occurrence: usize = 0;
+            inline for (operation_sites) |site| {
+                if (std.mem.eql(u8, site.requirement_label, requirement_label) and std.mem.eql(u8, site.op_name, op_name)) {
+                    if (occurrence == occurrence_index) return operationDescriptor(site);
+                    occurrence += 1;
+                }
+            }
+            @compileError("Program.protocol.operationSite could not find requested operation site");
+        }
+
+        pub fn afterSite(
+            comptime requirement_label: []const u8,
+            comptime op_name: []const u8,
+            comptime occurrence_index: usize,
+        ) type {
+            comptime var occurrence: usize = 0;
+            inline for (after_sites) |site| {
+                if (std.mem.eql(u8, site.original_requirement_label, requirement_label) and std.mem.eql(u8, site.original_op_name, op_name)) {
+                    if (occurrence == occurrence_index) return afterDescriptor(site);
+                    occurrence += 1;
+                }
+            }
+            @compileError("Program.protocol.afterSite could not find requested after site");
+        }
+
+        pub fn siteByIndex(comptime index: usize) type {
+            inline for (operation_sites) |site| {
+                if (site.index == index) return operationDescriptor(site);
+            }
+            @compileError("Program.protocol.siteByIndex could not find requested operation site");
+        }
+
+        pub fn afterSiteByIndex(comptime index: usize) type {
+            inline for (after_sites) |site| {
+                if (site.index == index) return afterDescriptor(site);
+            }
+            @compileError("Program.protocol.afterSiteByIndex could not find requested after site");
+        }
+
+        fn validateProtocolOwner(comptime Site: type) void {
+            if (!hasDeclSafe(Site, "Owner")) @compileError("Program.protocol coverage listed non-protocol site descriptor");
+            if (!hasDeclSafe(Site, "owner_label") or
+                !std.mem.eql(u8, Site.owner_label, program_label) or
+                !hasDeclSafe(Site, "owner_plan_hash") or
+                Site.owner_plan_hash != plan_hash or
+                !hasDeclSafe(Site, "OwnerHandlers") or
+                Site.OwnerHandlers != HandlersType)
+            {
+                @compileError("Program.protocol coverage descriptor belongs to another program");
+            }
+        }
+
+        fn validateOperationSite(comptime Site: type) void {
+            validateProtocolOwner(Site);
+            if (!hasDeclSafe(Site, "kind") or Site.kind != .operation) @compileError("Program.protocol coverage listed non-operation site");
+        }
+
+        fn validateAfterSite(comptime Site: type) void {
+            validateProtocolOwner(Site);
+            if (!hasDeclSafe(Site, "kind") or Site.kind != .after) @compileError("Program.protocol coverage listed non-after site");
+        }
+
+        pub fn assertOperationSitesCovered(comptime Sites: anytype) void {
+            var covered: [operation_sites.len]bool = [_]bool{false} ** operation_sites.len;
+            inline for (Sites) |Site| {
+                comptime validateOperationSite(Site);
+                if (Site.index >= operation_sites.len or operation_sites[Site.index].fingerprint != Site.fingerprint) {
+                    @compileError("Program.protocol coverage descriptor belongs to another program");
+                }
+                if (covered[Site.index]) @compileError("Program.protocol coverage listed duplicate operation site");
+                covered[Site.index] = true;
+            }
+            inline for (covered) |is_covered| {
+                if (!is_covered) @compileError("Program.protocol coverage omitted reachable operation site");
+            }
+        }
+
+        pub fn assertAfterSitesCovered(comptime Sites: anytype) void {
+            var covered: [after_sites.len]bool = [_]bool{false} ** after_sites.len;
+            inline for (Sites) |Site| {
+                comptime validateAfterSite(Site);
+                if (Site.index >= after_sites.len or after_sites[Site.index].fingerprint != Site.fingerprint) {
+                    @compileError("Program.protocol coverage descriptor belongs to another program");
+                }
+                if (covered[Site.index]) @compileError("Program.protocol coverage listed duplicate after site");
+                covered[Site.index] = true;
+            }
+            inline for (covered) |is_covered| {
+                if (!is_covered) @compileError("Program.protocol coverage omitted reachable after site");
+            }
+        }
+
+        pub fn assertAllSitesCovered(comptime Sites: anytype) void {
+            var operation_covered: [operation_sites.len]bool = [_]bool{false} ** operation_sites.len;
+            var after_covered: [after_sites.len]bool = [_]bool{false} ** after_sites.len;
+            inline for (Sites) |Site| {
+                comptime validateProtocolOwner(Site);
+                switch (Site.kind) {
+                    .operation => {
+                        if (Site.index >= operation_sites.len or operation_sites[Site.index].fingerprint != Site.fingerprint) {
+                            @compileError("Program.protocol coverage descriptor belongs to another program");
+                        }
+                        if (operation_covered[Site.index]) @compileError("Program.protocol coverage listed duplicate operation site");
+                        operation_covered[Site.index] = true;
+                    },
+                    .after => {
+                        if (Site.index >= after_sites.len or after_sites[Site.index].fingerprint != Site.fingerprint) {
+                            @compileError("Program.protocol coverage descriptor belongs to another program");
+                        }
+                        if (after_covered[Site.index]) @compileError("Program.protocol coverage listed duplicate after site");
+                        after_covered[Site.index] = true;
+                    },
+                    else => @compileError("Program.protocol coverage listed non-protocol site descriptor"),
+                }
+            }
+            inline for (operation_covered) |is_covered| {
+                if (!is_covered) @compileError("Program.protocol coverage omitted reachable operation site");
+            }
+            inline for (after_covered) |is_covered| {
+                if (!is_covered) @compileError("Program.protocol coverage omitted reachable after site");
+            }
+        }
+    };
+}
+// zlinter-enable require_doc_comment
+
 fn ProgramOutputsType(comptime Body: type) type {
     if (comptime hasDeclSafe(Body, "Outputs")) return Body.Outputs;
     return void;
@@ -637,12 +859,15 @@ pub fn program(
     const body_nested_with_targets = BodyNestedWithTargets(Body).values;
     const Value = ProgramValueTypeForRef(body_compiled_plan, body_value_schema_types, lowering_api.executableResultRefForPlan(body_compiled_plan));
     const Outputs = ProgramOutputsType(Body);
+    const protocol_owner = struct {};
 
     return struct {
         /// Runtime-owned executable plan for this public program.
         pub const compiled_plan = body_compiled_plan;
         /// Read-only projection of the compiled ProgramPlan contract.
         pub const contract = ProgramContractFor(label, body_compiled_plan, Value, Outputs, body_value_schema_types, body_nested_with_targets);
+        /// Typed defunctionalized protocol descriptors derived from Program.Session static sites.
+        pub const protocol = ProgramProtocolFor(label, body_compiled_plan, body_value_schema_types, body_nested_with_targets, HandlersType, protocol_owner);
         /// Public execution error for this program.
         pub const Error = ProgramErrorSet(Body);
 
@@ -833,6 +1058,13 @@ pub fn program(
                 self.lifecycle = .ready;
             }
 
+            /// Resume a typed operation request view with a value matching its static site descriptor.
+            pub fn resumeTyped(self: *Session, typed_request: anytype, value: anytype) Error!void {
+                const Site = @TypeOf(typed_request).Descriptor;
+                _ = typed_request.request.responseTraceFor(Site, .@"resume", value) catch |err| return mapProgramRunError(Error, err);
+                try self.@"resume"(typed_request.request, value);
+            }
+
             /// Resume a yielded after-continuation request with the transformed value.
             pub fn resumeAfter(self: *Session, request: AfterRequest, value: anytype) Error!void {
                 try self.enterRuntimeFrom(.parked_on_after);
@@ -845,6 +1077,13 @@ pub fn program(
                 self.lifecycle = .ready;
             }
 
+            /// Resume a typed after-continuation request view with a value matching its static site descriptor.
+            pub fn resumeAfterTyped(self: *Session, typed_request: anytype, value: anytype) Error!void {
+                const Site = @TypeOf(typed_request).Descriptor;
+                _ = typed_request.request.responseTraceFor(Site, value) catch |err| return mapProgramRunError(Error, err);
+                try self.resumeAfter(typed_request.request, value);
+            }
+
             /// Complete a yielded choice or abort request with a terminal value.
             pub fn returnNow(self: *Session, request: Request, value: anytype) Error!void {
                 try self.enterRuntimeFrom(.parked_on_request);
@@ -855,6 +1094,13 @@ pub fn program(
                     return mapProgramRunError(Error, err);
                 };
                 self.lifecycle = .ready;
+            }
+
+            /// Complete a typed choice or abort request view with a terminal value matching its static site descriptor.
+            pub fn returnNowTyped(self: *Session, typed_request: anytype, value: anytype) Error!void {
+                const Site = @TypeOf(typed_request).Descriptor;
+                _ = typed_request.request.responseTraceFor(Site, .return_now, value) catch |err| return mapProgramRunError(Error, err);
+                try self.returnNow(typed_request.request, value);
             }
 
             fn ensureRuntimeCanEnter(runtime: *lowered_machine.Runtime) Error!void {
