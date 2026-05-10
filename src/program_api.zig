@@ -1013,6 +1013,35 @@ pub fn program(
             pub const AfterRequest = Core.AfterRequest;
             /// Read-only request/response trace metadata and fingerprint views.
             pub const Trace = Core.Trace;
+            /// Read-only continuation capsule metadata.
+            pub const CapsuleMetadata = Core.CapsuleMetadata;
+            /// Parked continuation kind captured in a capsule.
+            pub const ParkedKind = Core.ParkedKind;
+            /// Capsule schema version for in-process parked continuation snapshots.
+            pub const capsule_version = Core.capsule_version;
+            /// Continuation fingerprint version for capsule fingerprints.
+            pub const continuation_fingerprint_version = Core.continuation_fingerprint_version;
+            /// Current parked request view without advancing the interpreter.
+            pub const Current = Core.Current;
+            /// First-class in-process snapshot of a parked continuation.
+            pub const Capsule = struct {
+                _core: Core.Capsule,
+
+                /// Release capsule-owned continuation values.
+                pub fn deinit(self: *@This()) void {
+                    self._core.deinit();
+                }
+
+                /// Return read-only capsule metadata.
+                pub fn metadata(self: *const @This()) CapsuleMetadata {
+                    return self._core.metadata();
+                }
+
+                /// Return the deterministic continuation fingerprint.
+                pub fn fingerprint(self: *const @This()) u64 {
+                    return self._core.fingerprint();
+                }
+            };
             /// One session step: either a terminal result, yielded operation request, or yielded after continuation.
             pub const Step = union(enum) {
                 after: AfterRequest,
@@ -1043,6 +1072,26 @@ pub fn program(
                 };
             }
 
+            /// Restore a fresh parked session from a reusable capsule for this program.
+            pub fn restore(runtime: *lowered_machine.Runtime, handlers: HandlersType, capsule: *const Capsule) Error!Session {
+                const mutable_handlers = handlers;
+                try ensureRuntimeCanEnter(runtime);
+                var core = Core.restore(lowered_machine.runtimeAllocator(runtime), &capsule._core) catch |err| return mapProgramRunError(Error, err);
+                errdefer core.deinit();
+                const lifecycle: Lifecycle = switch (core.current() catch |err| return mapProgramRunError(Error, err)) {
+                    .request => .parked_on_request,
+                    .after => .parked_on_after,
+                    .none => return error.ProgramContractViolation,
+                };
+                lowered_machine.registerLiveSession(runtime) catch |err| return mapProgramRunError(Error, err);
+                return .{
+                    .runtime = runtime,
+                    .handlers = mutable_handlers,
+                    .core = core,
+                    .lifecycle = lifecycle,
+                };
+            }
+
             /// Close an unfinished session and release runtime ownership.
             pub fn deinit(self: *Session) void {
                 self.deinitChecked() catch |err|
@@ -1058,6 +1107,28 @@ pub fn program(
                 }
                 try ensureRuntimeCanEnter(self.runtime);
                 try self.closeChecked(.deinitialized);
+            }
+
+            /// Capture the currently parked continuation as a reusable capsule.
+            pub fn capture(self: *Session, allocator: std.mem.Allocator) Error!Capsule {
+                try ensureRuntimeCanEnter(self.runtime);
+                switch (self.lifecycle) {
+                    .parked_on_after, .parked_on_request => {},
+                    .ready, .running, .done, .deinitialized => return error.ProgramContractViolation,
+                }
+                return .{
+                    ._core = self.core.capture(allocator) catch |err| return mapProgramRunError(Error, err),
+                };
+            }
+
+            /// Return the current parked request without advancing or entering runtime execution.
+            pub fn current(self: *Session) Error!Current {
+                try ensureRuntimeCanEnter(self.runtime);
+                return switch (self.lifecycle) {
+                    .ready, .done => .none,
+                    .parked_on_after, .parked_on_request => self.core.current() catch |err| return mapProgramRunError(Error, err),
+                    .running, .deinitialized => error.ProgramContractViolation,
+                };
             }
 
             /// Advance until the next yielded request or terminal result.

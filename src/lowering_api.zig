@@ -1801,6 +1801,8 @@ fn InterpreterScratch(comptime after_stack_capacity: usize) type {
         locals: std.ArrayList(ExecutableValue) = .empty,
         call_args: std.ArrayList(ExecutableValue) = .empty,
         owned_schema_values: std.ArrayList(OwnedSchemaValue) = .empty,
+        owned_strings: std.ArrayList([]u8) = .empty,
+        owned_string_lists: std.ArrayList([][]const u8) = .empty,
         after_stack: [after_stack_capacity]SessionAfterStackEntry = [_]SessionAfterStackEntry{.{ .op_index = 0 }} ** after_stack_capacity,
         after_stack_len: usize = 0,
 
@@ -1819,8 +1821,29 @@ fn InterpreterScratch(comptime after_stack_capacity: usize) type {
         fn deinit(self: *@This()) void {
             for (self.owned_schema_values.items) |owned| owned.destroy(self.allocator, owned.ptr);
             self.owned_schema_values.deinit(self.allocator);
+            for (self.owned_string_lists.items) |owned| self.allocator.free(owned);
+            self.owned_string_lists.deinit(self.allocator);
+            for (self.owned_strings.items) |owned| self.allocator.free(owned);
+            self.owned_strings.deinit(self.allocator);
             self.call_args.deinit(self.allocator);
             self.locals.deinit(self.allocator);
+        }
+
+        fn storeOwnedString(self: *@This(), value: []const u8) std.mem.Allocator.Error![]const u8 {
+            const owned = try self.allocator.dupe(u8, value);
+            errdefer self.allocator.free(owned);
+            try self.owned_strings.append(self.allocator, owned);
+            return owned;
+        }
+
+        fn storeOwnedStringList(self: *@This(), value: []const []const u8) std.mem.Allocator.Error![]const []const u8 {
+            const owned = try self.allocator.alloc([]const u8, value.len);
+            errdefer self.allocator.free(owned);
+            for (value, 0..) |item, index| {
+                owned[index] = try self.storeOwnedString(item);
+            }
+            try self.owned_string_lists.append(self.allocator, owned);
+            return owned;
         }
 
         fn reserveSchemaValueStorage(self: *@This(), comptime T: type) std.mem.Allocator.Error!*T {
@@ -3423,6 +3446,11 @@ pub fn ExecutableSessionForPlan(
             op_index: u16,
             operation_site_index: usize,
             operation_site_fingerprint: u64,
+            turn_index: usize,
+            payload_ref: program_plan.ValueRef,
+            payload: ExecutableValue,
+            payload_value_fingerprint: u64,
+            request_fingerprint: u64,
             mode: program_plan.ControlMode,
             resume_ref: program_plan.ValueRef,
             result_ref: program_plan.ValueRef,
@@ -3441,6 +3469,10 @@ pub fn ExecutableSessionForPlan(
             after_site_fingerprint: u64,
             source_operation_site_index: usize,
             source_operation_site_fingerprint: u64,
+            turn_index: usize,
+            value: ExecutableValue,
+            value_fingerprint: u64,
+            request_fingerprint: u64,
             value_ref: program_plan.ValueRef,
             output_ref: program_plan.ValueRef,
             result_ref: program_plan.ValueRef,
@@ -3994,6 +4026,66 @@ pub fn ExecutableSessionForPlan(
             request: Request,
         };
 
+        // zlinter-disable declaration_naming - these public constants mirror the metadata field names.
+        pub const capsule_version: u32 = 1;
+        pub const continuation_fingerprint_version: u32 = 1;
+        // zlinter-enable declaration_naming
+
+        pub const ParkedKind = enum {
+            after,
+            operation,
+        };
+
+        pub const Current = union(enum) {
+            none,
+            after: AfterRequest,
+            request: Request,
+        };
+
+        pub const CapsuleMetadata = struct {
+            version: u32 = capsule_version,
+            continuation_fingerprint_version: u32 = Self.continuation_fingerprint_version,
+            program_label: []const u8 = program_label,
+            plan_label: []const u8 = compiled_plan.label,
+            plan_hash: u64 = plan_hash,
+            trace_fingerprint_version: u32 = trace_fingerprint_version,
+            parked_kind: ParkedKind,
+            current_turn_index: usize,
+            current_request_fingerprint: u64,
+            current_operation_site_index: ?usize = null,
+            current_after_site_index: ?usize = null,
+            source_operation_site_index: ?usize = null,
+            result_ref: program_plan.ValueRef,
+            frame_count: usize,
+            pending_after_count: usize,
+            function_index: ?usize = null,
+            block_index: ?usize = null,
+            instruction_index: ?usize = null,
+            owns_copied_values: bool = true,
+            reusable: bool = true,
+            continuation_fingerprint: u64,
+        };
+
+        pub const Capsule = struct {
+            core: Self,
+            metadata_value: CapsuleMetadata,
+            deinitialized: bool = false,
+
+            pub fn deinit(self: *@This()) void {
+                if (self.deinitialized) return;
+                self.core.deinit();
+                self.deinitialized = true;
+            }
+
+            pub fn metadata(self: *const @This()) CapsuleMetadata {
+                return self.metadata_value;
+            }
+
+            pub fn fingerprint(self: *const @This()) u64 {
+                return self.metadata_value.continuation_fingerprint;
+            }
+        };
+
         fn operationSiteForInstruction(instruction_index: usize) ?SessionOperationYieldSite {
             inline for (operation_yield_sites) |site| {
                 if (site.instruction_index == instruction_index) return site;
@@ -4401,6 +4493,171 @@ pub fn ExecutableSessionForPlan(
             };
         }
 
+        fn runtimeRefForExecutableValue(value: ExecutableValue) error{ProgramContractViolation}!program_plan.ValueRef {
+            return switch (value) {
+                .none => .{ .codec = .unit },
+                .bool => .{ .codec = .bool },
+                .i32 => .{ .codec = .i32 },
+                .usize => .{ .codec = .usize },
+                .string => .{ .codec = .string },
+                .string_list => .{ .codec = .string_list },
+                .schema => |schema| blk: {
+                    if (schema.schema_index >= compiled_plan.value_schemas.len) return error.ProgramContractViolation;
+                    const value_schema = compiled_plan.value_schemas[schema.schema_index];
+                    if (value_schema.codec != .product and value_schema.codec != .sum) return error.ProgramContractViolation;
+                    break :blk .{
+                        .codec = value_schema.codec,
+                        .schema_index = schema.schema_index,
+                    };
+                },
+            };
+        }
+
+        fn traceHashExecutableValueIdentity(hasher: *std.hash.Wyhash, value: ExecutableValue) error{ProgramContractViolation}!void {
+            const ref = try runtimeRefForExecutableValue(value);
+            traceHashValueRef(hasher, ref);
+            traceHashU64(hasher, try fingerprintExecutableValueForRef(ref, value));
+        }
+
+        fn cloneTypedRuntimeValueForRef(
+            ref: program_plan.ValueRef,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            value: anytype,
+        ) anyerror!@TypeOf(value) {
+            const ValueT = @TypeOf(value);
+            if (!typeMatchesRuntimeRef(schema_types, ref, ValueT)) return error.ProgramContractViolation;
+            if (ValueT == void or ValueT == bool or ValueT == i32 or ValueT == usize) return value;
+            if (ValueT == []const u8) return try scratch.storeOwnedString(value);
+            if (comptime isStringListCarrier(ValueT)) return try scratch.storeOwnedStringList(value);
+            const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
+            inline for (schema_types, 0..) |SchemaType, index| {
+                if (schema_index == index) {
+                    if (SchemaType != ValueT) return error.ProgramContractViolation;
+                    const schema = compiled_plan.value_schemas[index];
+                    if (schema.codec != ref.codec) return error.ProgramContractViolation;
+                    return switch (schema.codec) {
+                        .product => cloneProductTypedValue(index, ValueT, scratch, value),
+                        .sum => cloneSumTypedValue(index, ValueT, scratch, value),
+                        else => error.ProgramContractViolation,
+                    };
+                }
+            }
+            return error.ProgramContractViolation;
+        }
+
+        fn cloneProductTypedValue(
+            comptime schema_index: usize,
+            comptime T: type,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            value: T,
+        ) anyerror!T {
+            const schema = compiled_plan.value_schemas[schema_index];
+            if (schema.codec != .product) return error.ProgramContractViolation;
+            const fields = std.meta.fields(T);
+            if (fields.len != schema.field_count) return error.ProgramContractViolation;
+            var cloned: T = undefined;
+            inline for (0..schema.field_count) |field_offset| {
+                const field = compiled_plan.value_fields[@as(usize, schema.first_field) + field_offset];
+                const field_ref: program_plan.ValueRef = .{
+                    .codec = field.codec,
+                    .schema_index = field.schema_index,
+                };
+                @field(cloned, field.name) = try cloneTypedRuntimeValueForRef(
+                    field_ref,
+                    scratch,
+                    @field(value, field.name),
+                );
+            }
+            return cloned;
+        }
+
+        fn cloneSumTypedValue(
+            comptime schema_index: usize,
+            comptime T: type,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            value: T,
+        ) anyerror!T {
+            const schema = compiled_plan.value_schemas[schema_index];
+            if (schema.codec != .sum) return error.ProgramContractViolation;
+            const active = try activeVariantOrdinalForTyped(T, value);
+            if (active >= schema.variant_count) return error.ProgramContractViolation;
+            return switch (@typeInfo(T)) {
+                .@"enum" => value,
+                .optional => |optional_info| blk: {
+                    _ = optional_info;
+                    if (active == 0) break :blk null;
+                    const variant = compiled_plan.value_variants[@as(usize, schema.first_variant) + active];
+                    const variant_ref: program_plan.ValueRef = .{
+                        .codec = variant.codec,
+                        .schema_index = variant.schema_index,
+                    };
+                    break :blk try cloneTypedRuntimeValueForRef(variant_ref, scratch, value.?);
+                },
+                .@"union" => |union_info| blk: {
+                    const Tag = union_info.tag_type orelse return error.ProgramContractViolation;
+                    const active_tag = std.meta.activeTag(value);
+                    inline for (union_info.fields, 0..) |field, field_index| {
+                        if (active == field_index and active_tag == @field(Tag, field.name)) {
+                            if (field.type == void) break :blk @unionInit(T, field.name, {});
+                            const variant = compiled_plan.value_variants[@as(usize, schema.first_variant) + field_index];
+                            const variant_ref: program_plan.ValueRef = .{
+                                .codec = variant.codec,
+                                .schema_index = variant.schema_index,
+                            };
+                            break :blk @unionInit(
+                                T,
+                                field.name,
+                                try cloneTypedRuntimeValueForRef(variant_ref, scratch, @field(value, field.name)),
+                            );
+                        }
+                    }
+                    return error.ProgramContractViolation;
+                },
+                else => error.ProgramContractViolation,
+            };
+        }
+
+        fn cloneExecutableValueForRef(
+            ref: program_plan.ValueRef,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            value: ExecutableValue,
+        ) anyerror!ExecutableValue {
+            if (!valueMatchesRef(ref, value)) return error.ProgramContractViolation;
+            return switch (ref.codec) {
+                .unit => .none,
+                .bool => .{ .bool = try decodeArg(.bool, value) },
+                .i32 => .{ .i32 = try decodeArg(.i32, value) },
+                .usize => .{ .usize = try decodeArg(.usize, value) },
+                .string => .{ .string = try scratch.storeOwnedString(try decodeArg(.string, value)) },
+                .string_list => .{ .string_list = try scratch.storeOwnedStringList(try decodeArg(.string_list, value)) },
+                .product, .sum => switch (value) {
+                    .schema => |schema| blk: {
+                        const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
+                        if (schema.schema_index != schema_index) return error.ProgramContractViolation;
+                        inline for (schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                const typed: *const SchemaType = @ptrCast(@alignCast(schema.ptr));
+                                const cloned = try cloneTypedRuntimeValueForRef(ref, scratch, typed.*);
+                                break :blk try scratch.storeSchemaValue(SchemaType, schema.schema_index, cloned);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                    else => return error.ProgramContractViolation,
+                },
+            };
+        }
+
+        fn cloneExecutableValueByIdentity(
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            value: ExecutableValue,
+        ) anyerror!ExecutableValue {
+            return switch (value) {
+                .none => .none,
+                else => cloneExecutableValueForRef(try runtimeRefForExecutableValue(value), scratch, value),
+            };
+        }
+
         const session_id_source = struct {
             var next: std.atomic.Value(usize) = std.atomic.Value(usize).init(1);
         };
@@ -4456,6 +4713,35 @@ pub fn ExecutableSessionForPlan(
 
         pub fn hasPendingRequest(self: *const Self) bool {
             return self.pending != null;
+        }
+
+        pub fn current(self: *Self) error{ProgramContractViolation}!Current {
+            return switch (self.pending orelse return .none) {
+                .op => |pending| .{ .request = try self.requestFromPending(pending) },
+                .after => |pending| .{ .after = try self.afterFromPending(pending) },
+            };
+        }
+
+        pub fn capture(self: *Self, allocator: std.mem.Allocator) anyerror!Capsule {
+            var metadata_value = try self.capsuleMetadata();
+            metadata_value.continuation_fingerprint = try self.continuationFingerprint();
+            var core = try self.cloneState(allocator);
+            errdefer core.deinit();
+            return .{
+                .core = core,
+                .metadata_value = metadata_value,
+            };
+        }
+
+        pub fn restore(allocator: std.mem.Allocator, capsule: *const Capsule) anyerror!Self {
+            if (capsule.deinitialized) return error.ProgramContractViolation;
+            try validateCapsuleMetadata(capsule.metadata_value);
+            var core = try capsule.core.cloneState(allocator);
+            errdefer core.deinit();
+            try core.validateCapsuleShape(capsule.metadata_value);
+            try core.retokenizePending();
+            try core.validateCapsuleShape(capsule.metadata_value);
+            return core;
         }
 
         pub fn next(self: *Self) anyerror!Step {
@@ -4864,6 +5150,11 @@ pub fn ExecutableSessionForPlan(
                         .op_index = op_index,
                         .operation_site_index = operation_site.index,
                         .operation_site_fingerprint = operation_site.fingerprint,
+                        .turn_index = turn_index,
+                        .payload_ref = payload_ref,
+                        .payload = payload,
+                        .payload_value_fingerprint = payload_fingerprint,
+                        .request_fingerprint = request_fingerprint,
                         .mode = op.mode,
                         .resume_ref = resume_ref,
                         .result_ref = result_ref,
@@ -4957,6 +5248,10 @@ pub fn ExecutableSessionForPlan(
                         .after_site_fingerprint = after_site.fingerprint,
                         .source_operation_site_index = after_site.source_operation_site_index,
                         .source_operation_site_fingerprint = after_site.source_operation_site_fingerprint,
+                        .turn_index = turn_index,
+                        .value = value,
+                        .value_fingerprint = value_fingerprint,
+                        .request_fingerprint = request_fingerprint,
                         .value_ref = value_ref,
                         .output_ref = output_ref,
                         .result_ref = result_ref,
@@ -5057,6 +5352,438 @@ pub fn ExecutableSessionForPlan(
                 .request => unreachable,
                 .after => unreachable,
             };
+        }
+
+        fn clonePending(
+            self: *const Self,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            pending: Pending,
+        ) anyerror!Pending {
+            _ = self;
+            return switch (pending) {
+                .op => |op| blk: {
+                    var cloned = op;
+                    cloned.payload = try cloneExecutableValueForRef(op.payload_ref, scratch, op.payload);
+                    break :blk .{ .op = cloned };
+                },
+                .after => |after| blk: {
+                    var cloned = after;
+                    cloned.value = try cloneExecutableValueForRef(after.value_ref, scratch, after.value);
+                    break :blk .{ .after = cloned };
+                },
+            };
+        }
+
+        fn cloneScratch(self: *const Self, allocator: std.mem.Allocator) anyerror!InterpreterScratch(session_after_stack_capacity) {
+            var scratch = try InterpreterScratch(session_after_stack_capacity).init(
+                allocator,
+                self.scratch.locals.items.len,
+                self.scratch.call_args.items.len,
+            );
+            errdefer scratch.deinit();
+
+            try scratch.locals.resize(allocator, self.scratch.locals.items.len);
+            for (self.scratch.locals.items, 0..) |value, index| {
+                scratch.locals.items[index] = try cloneExecutableValueByIdentity(&scratch, value);
+            }
+
+            try scratch.call_args.resize(allocator, self.scratch.call_args.items.len);
+            for (self.scratch.call_args.items, 0..) |value, index| {
+                scratch.call_args.items[index] = try cloneExecutableValueByIdentity(&scratch, value);
+            }
+
+            scratch.after_stack = self.scratch.after_stack;
+            scratch.after_stack_len = self.scratch.after_stack_len;
+            return scratch;
+        }
+
+        fn cloneFrames(self: *const Self, allocator: std.mem.Allocator) anyerror!ActiveFrameStack {
+            var frames = try ActiveFrameStack.init(allocator, self.frames.len());
+            errdefer frames.deinit(allocator);
+            var index: usize = 0;
+            while (index < self.frames.len()) : (index += 1) {
+                try frames.append(allocator, self.frames.at(index) orelse return error.ProgramContractViolation);
+            }
+            return frames;
+        }
+
+        fn cloneState(self: *const Self, allocator: std.mem.Allocator) anyerror!Self {
+            var scratch = try self.cloneScratch(allocator);
+            errdefer scratch.deinit();
+            var frames = try self.cloneFrames(allocator);
+            errdefer frames.deinit(allocator);
+
+            var core: Self = .{
+                .allocator = allocator,
+                .scratch = scratch,
+                .frames = frames,
+                .session_id = self.session_id,
+                .remaining_steps = self.remaining_steps,
+                .next_token = self.next_token,
+                .next_turn_index = self.next_turn_index,
+                .done_consumed = self.done_consumed,
+            };
+            scratch = .{ .allocator = allocator };
+            frames = .{};
+            errdefer core.deinit();
+
+            if (self.pending) |pending| {
+                core.pending = try self.clonePending(&core.scratch, pending);
+            }
+
+            if (self.unwinding_after) |unwind| {
+                core.unwinding_after = .{
+                    .function_index = unwind.function_index,
+                    .value = try cloneExecutableValueForRef(unwind.current_ref, &core.scratch, unwind.value),
+                    .current_ref = unwind.current_ref,
+                    .final_ref = unwind.final_ref,
+                    .remaining = unwind.remaining,
+                };
+            }
+            if (self.completed) |completed| {
+                core.completed = .{
+                    .value = try cloneExecutableValueForRef(program_plan.functionResultRef(entry), &core.scratch, completed.value),
+                    .terminal = completed.terminal,
+                };
+            }
+
+            return core;
+        }
+
+        fn retokenizePending(self: *Self) error{ProgramContractViolation}!void {
+            const token = self.next_token;
+            self.next_token +%= 1;
+            self.session_id = nextSessionId();
+            if (self.pending) |*pending_union| {
+                switch (pending_union.*) {
+                    .op => |*pending| {
+                        pending.session_id = self.session_id;
+                        pending.token = token;
+                    },
+                    .after => |*pending| {
+                        pending.session_id = self.session_id;
+                        pending.token = token;
+                    },
+                }
+            } else {
+                return error.ProgramContractViolation;
+            }
+        }
+
+        fn activeLocalSliceConst(self: *const Self, frame: InterpreterFrame) error{ProgramContractViolation}![]const ExecutableValue {
+            const end = frame.locals_start + frame.locals_len;
+            if (end > self.scratch.locals.items.len) return error.ProgramContractViolation;
+            return self.scratch.locals.items[frame.locals_start..end];
+        }
+
+        fn requestPayloadForPending(self: *Self, pending: PendingRequest) error{ProgramContractViolation}!ExecutableValue {
+            _ = self;
+            if (pending.payload_ref.codec == .unit) return .none;
+            if (!valueMatchesRef(pending.payload_ref, pending.payload)) return error.ProgramContractViolation;
+            return pending.payload;
+        }
+
+        fn requestFromPending(self: *Self, pending: PendingRequest) error{ProgramContractViolation}!Request {
+            inline for (compiled_plan.ops, 0..) |op, index| {
+                if (pending.op_index == index) {
+                    if (pending.payload_ref.codec != op.payload_codec or pending.payload_ref.schema_index != op.payload_schema_index) {
+                        return error.ProgramContractViolation;
+                    }
+                    if (pending.operation_site_index >= operation_yield_sites.len) return error.ProgramContractViolation;
+                    const operation_site = operation_yield_sites[pending.operation_site_index];
+                    if (operation_site.index != pending.operation_site_index or
+                        operation_site.fingerprint != pending.operation_site_fingerprint)
+                    {
+                        return error.ProgramContractViolation;
+                    }
+                    const requirement = compiled_plan.requirements[op.requirement_index];
+                    const payload = try self.requestPayloadForPending(pending);
+                    var request: Request = .{
+                        ._session_id = pending.session_id,
+                        .token = pending.token,
+                        .operation_site_index = pending.operation_site_index,
+                        .operation_site_fingerprint = pending.operation_site_fingerprint,
+                        .semantic_label = operation_site.semantic_label,
+                        .function_index = pending.function_index,
+                        .block_index = pending.block_index,
+                        .instruction_index = pending.instruction_index,
+                        .requirement_index = op.requirement_index,
+                        .requirement_label = requirement.label,
+                        .op_index = pending.op_index,
+                        .op_name = op.op_name,
+                        .mode = pending.mode,
+                        .payload_ref = pending.payload_ref,
+                        .has_payload = pending.payload_ref.codec != .unit,
+                        .resume_ref = pending.resume_ref,
+                        .result_ref = pending.result_ref,
+                        .has_after = pending.has_after,
+                        ._payload = .none,
+                        ._turn_index = pending.turn_index,
+                        ._payload_value_fingerprint = pending.payload_value_fingerprint,
+                        ._fingerprint = pending.request_fingerprint,
+                    };
+                    try request.setPayload(payload);
+                    return request;
+                }
+            }
+            return error.ProgramContractViolation;
+        }
+
+        fn afterFromPending(self: *Self, pending: PendingAfter) error{ProgramContractViolation}!AfterRequest {
+            const unwind = self.unwinding_after orelse return error.ProgramContractViolation;
+            if (unwind.function_index != pending.function_index or
+                unwind.remaining != pending.remaining or
+                !unwind.current_ref.eql(pending.value_ref) or
+                !unwind.final_ref.eql(pending.result_ref))
+            {
+                return error.ProgramContractViolation;
+            }
+            inline for (compiled_plan.ops, 0..) |op, index| {
+                if (pending.op_index == index) {
+                    if (!op.has_after) return error.ProgramContractViolation;
+                    if (pending.after_site_index >= after_yield_sites.len) return error.ProgramContractViolation;
+                    const after_site = after_yield_sites[pending.after_site_index];
+                    if (after_site.index != pending.after_site_index or
+                        after_site.fingerprint != pending.after_site_fingerprint or
+                        after_site.source_operation_site_index != pending.source_operation_site_index or
+                        after_site.source_operation_site_fingerprint != pending.source_operation_site_fingerprint)
+                    {
+                        return error.ProgramContractViolation;
+                    }
+                    const requirement = compiled_plan.requirements[op.requirement_index];
+                    var request: AfterRequest = .{
+                        ._session_id = pending.session_id,
+                        .token = pending.token,
+                        .after_site_index = pending.after_site_index,
+                        .after_site_fingerprint = pending.after_site_fingerprint,
+                        .semantic_label = after_site.semantic_label,
+                        .source_operation_site_index = pending.source_operation_site_index,
+                        .source_operation_site_fingerprint = pending.source_operation_site_fingerprint,
+                        .function_index = pending.function_index,
+                        .block_index = pending.block_index,
+                        .instruction_index = pending.instruction_index,
+                        .requirement_index = op.requirement_index,
+                        .requirement_label = requirement.label,
+                        .op_index = pending.op_index,
+                        .op_name = op.op_name,
+                        .value_ref = pending.value_ref,
+                        .has_value = pending.value_ref.codec != .unit,
+                        .output_ref = pending.output_ref,
+                        .result_ref = pending.result_ref,
+                        ._remaining = pending.remaining,
+                        ._value = .none,
+                        ._turn_index = pending.turn_index,
+                        ._value_fingerprint = pending.value_fingerprint,
+                        ._fingerprint = pending.request_fingerprint,
+                    };
+                    if (!valueMatchesRef(pending.value_ref, pending.value)) return error.ProgramContractViolation;
+                    try request.setValue(pending.value);
+                    return request;
+                }
+            }
+            return error.ProgramContractViolation;
+        }
+
+        fn capsuleMetadata(self: *const Self) error{ProgramContractViolation}!CapsuleMetadata {
+            const frame_count = self.frames.len();
+            return switch (self.pending orelse return error.ProgramContractViolation) {
+                .op => |pending| .{
+                    .parked_kind = .operation,
+                    .current_turn_index = pending.turn_index,
+                    .current_request_fingerprint = pending.request_fingerprint,
+                    .current_operation_site_index = pending.operation_site_index,
+                    .result_ref = pending.result_ref,
+                    .frame_count = frame_count,
+                    .pending_after_count = self.scratch.after_stack_len,
+                    .function_index = pending.function_index,
+                    .block_index = pending.block_index,
+                    .instruction_index = pending.instruction_index,
+                    .continuation_fingerprint = 0,
+                },
+                .after => |pending| .{
+                    .parked_kind = .after,
+                    .current_turn_index = pending.turn_index,
+                    .current_request_fingerprint = pending.request_fingerprint,
+                    .current_after_site_index = pending.after_site_index,
+                    .source_operation_site_index = pending.source_operation_site_index,
+                    .result_ref = pending.result_ref,
+                    .frame_count = frame_count,
+                    .pending_after_count = self.scratch.after_stack_len,
+                    .function_index = pending.function_index,
+                    .block_index = pending.block_index,
+                    .instruction_index = pending.instruction_index,
+                    .continuation_fingerprint = 0,
+                },
+            };
+        }
+
+        fn validateCapsuleMetadata(metadata: CapsuleMetadata) error{ProgramContractViolation}!void {
+            if (metadata.version != capsule_version) return error.ProgramContractViolation;
+            if (metadata.continuation_fingerprint_version != continuation_fingerprint_version) return error.ProgramContractViolation;
+            if (metadata.trace_fingerprint_version != trace_fingerprint_version) return error.ProgramContractViolation;
+            if (!std.mem.eql(u8, metadata.program_label, program_label)) return error.ProgramContractViolation;
+            if (!std.mem.eql(u8, metadata.plan_label, compiled_plan.label)) return error.ProgramContractViolation;
+            if (metadata.plan_hash != plan_hash) return error.ProgramContractViolation;
+            if (!metadata.owns_copied_values or !metadata.reusable) return error.ProgramContractViolation;
+        }
+
+        fn validateCapsuleShape(self: *Self, metadata: CapsuleMetadata) error{ProgramContractViolation}!void {
+            try validateCapsuleMetadata(metadata);
+            var actual = try self.capsuleMetadata();
+            actual.continuation_fingerprint = try self.continuationFingerprint();
+            if (actual.parked_kind != metadata.parked_kind or
+                actual.current_turn_index != metadata.current_turn_index or
+                actual.current_request_fingerprint != metadata.current_request_fingerprint or
+                actual.current_operation_site_index != metadata.current_operation_site_index or
+                actual.current_after_site_index != metadata.current_after_site_index or
+                actual.source_operation_site_index != metadata.source_operation_site_index or
+                !actual.result_ref.eql(metadata.result_ref) or
+                actual.frame_count != metadata.frame_count or
+                actual.pending_after_count != metadata.pending_after_count or
+                actual.function_index != metadata.function_index or
+                actual.block_index != metadata.block_index or
+                actual.instruction_index != metadata.instruction_index or
+                actual.continuation_fingerprint != metadata.continuation_fingerprint)
+            {
+                return error.ProgramContractViolation;
+            }
+        }
+
+        fn traceHashMaybeExecutableValueForRef(
+            hasher: *std.hash.Wyhash,
+            ref: program_plan.ValueRef,
+            value: ExecutableValue,
+        ) error{ProgramContractViolation}!void {
+            traceHashValueRef(hasher, ref);
+            if (!valueMatchesRef(ref, value)) {
+                switch (value) {
+                    .none => {
+                        const value_present = false;
+                        traceHashBool(hasher, value_present);
+                        return;
+                    },
+                    else => return error.ProgramContractViolation,
+                }
+            }
+            const value_present = true;
+            traceHashBool(hasher, value_present);
+            traceHashU64(hasher, try fingerprintExecutableValueForRef(ref, value));
+        }
+
+        fn traceHashFrame(hasher: *std.hash.Wyhash, self: *const Self, frame: ActiveInterpreterFrame) error{ProgramContractViolation}!void {
+            traceHashUsize(hasher, frame.function_index);
+            traceHashUsize(hasher, frame.block_index);
+            traceHashUsize(hasher, frame.instruction_index);
+            traceHashUsize(hasher, frame.instruction_end);
+            traceHashBool(hasher, frame.last_condition);
+            traceHashOptionalU16(hasher, frame.waiting_helper_dst);
+            traceHashExecutableValueIdentity(hasher, frame.last_return) catch |err| switch (err) {
+                error.ProgramContractViolation => {
+                    traceHashValueRef(hasher, .{ .codec = .unit });
+                    const value_present = false;
+                    traceHashBool(hasher, value_present);
+                },
+            };
+
+            const locals = try self.activeLocalSliceConst(frame.frame);
+            traceHashUsize(hasher, locals.len);
+            for (locals, 0..) |value, local_index| {
+                const local_ref = localRefForFunctionIndex(compiled_plan, frame.function_index, @intCast(local_index)) orelse
+                    return error.ProgramContractViolation;
+                traceHashUsize(hasher, local_index);
+                try traceHashMaybeExecutableValueForRef(hasher, local_ref, value);
+            }
+
+            const after_stack = self.scratch.after_stack[frame.frame.after_start..self.scratch.after_stack_len];
+            traceHashUsize(hasher, after_stack.len);
+            for (after_stack) |after_entry| {
+                traceHashU16(hasher, after_entry.op_index);
+                traceHashU16(hasher, after_entry.operation_site_index);
+                traceHashU16(hasher, after_entry.after_site_index);
+            }
+        }
+
+        fn traceHashPending(hasher: *std.hash.Wyhash, pending: Pending) void {
+            switch (pending) {
+                .op => |op| {
+                    traceHashBytes(hasher, "operation");
+                    traceHashUsize(hasher, op.turn_index);
+                    traceHashU64(hasher, op.request_fingerprint);
+                    traceHashUsize(hasher, op.function_index);
+                    traceHashUsize(hasher, op.block_index);
+                    traceHashUsize(hasher, op.instruction_index);
+                    traceHashU16(hasher, op.dst);
+                    traceHashU16(hasher, op.op_index);
+                    traceHashUsize(hasher, op.operation_site_index);
+                    traceHashU64(hasher, op.operation_site_fingerprint);
+                    traceHashMode(hasher, op.mode);
+                    traceHashValueRef(hasher, op.payload_ref);
+                    traceHashU64(hasher, op.payload_value_fingerprint);
+                    traceHashValueRef(hasher, op.resume_ref);
+                    traceHashValueRef(hasher, op.result_ref);
+                    traceHashBool(hasher, op.has_after);
+                    traceHashU16(hasher, op.after_stack_entry.op_index);
+                    traceHashU16(hasher, op.after_stack_entry.operation_site_index);
+                    traceHashU16(hasher, op.after_stack_entry.after_site_index);
+                },
+                .after => |after| {
+                    traceHashBytes(hasher, "after");
+                    traceHashUsize(hasher, after.turn_index);
+                    traceHashU64(hasher, after.request_fingerprint);
+                    traceHashUsize(hasher, after.function_index);
+                    traceHashUsize(hasher, after.block_index);
+                    traceHashUsize(hasher, after.instruction_index);
+                    traceHashU16(hasher, after.op_index);
+                    traceHashUsize(hasher, after.after_site_index);
+                    traceHashU64(hasher, after.after_site_fingerprint);
+                    traceHashUsize(hasher, after.source_operation_site_index);
+                    traceHashU64(hasher, after.source_operation_site_fingerprint);
+                    traceHashValueRef(hasher, after.value_ref);
+                    traceHashU64(hasher, after.value_fingerprint);
+                    traceHashValueRef(hasher, after.output_ref);
+                    traceHashValueRef(hasher, after.result_ref);
+                    traceHashUsize(hasher, after.remaining);
+                },
+            }
+        }
+
+        fn continuationFingerprint(self: *const Self) error{ProgramContractViolation}!u64 {
+            const pending = self.pending orelse return error.ProgramContractViolation;
+            var hasher = std.hash.Wyhash.init(0);
+            traceHashBytes(&hasher, "ability.session.continuation");
+            traceHashU32(&hasher, capsule_version);
+            traceHashU32(&hasher, continuation_fingerprint_version);
+            traceHashBytes(&hasher, program_label);
+            traceHashBytes(&hasher, compiled_plan.label);
+            traceHashU64(&hasher, plan_hash);
+            traceHashUsize(&hasher, self.next_turn_index);
+            traceHashUsize(&hasher, self.remaining_steps);
+            traceHashBool(&hasher, self.done_consumed);
+            traceHashPending(&hasher, pending);
+
+            traceHashUsize(&hasher, self.frames.len());
+            var frame_index: usize = 0;
+            while (frame_index < self.frames.len()) : (frame_index += 1) {
+                traceHashUsize(&hasher, frame_index);
+                try traceHashFrame(&hasher, self, self.frames.at(frame_index) orelse return error.ProgramContractViolation);
+            }
+
+            traceHashUsize(&hasher, self.scratch.after_stack_len);
+            for (self.scratch.after_stack[0..self.scratch.after_stack_len]) |after_entry| {
+                traceHashU16(&hasher, after_entry.op_index);
+                traceHashU16(&hasher, after_entry.operation_site_index);
+                traceHashU16(&hasher, after_entry.after_site_index);
+            }
+
+            traceHashBool(&hasher, self.unwinding_after != null);
+            if (self.unwinding_after) |unwind| {
+                traceHashUsize(&hasher, unwind.function_index);
+                traceHashValueRef(&hasher, unwind.current_ref);
+                traceHashValueRef(&hasher, unwind.final_ref);
+                traceHashUsize(&hasher, unwind.remaining);
+                traceHashU64(&hasher, try fingerprintExecutableValueForRef(unwind.current_ref, unwind.value));
+            }
+            return hasher.final();
         }
     };
 }

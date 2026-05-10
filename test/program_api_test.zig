@@ -5008,6 +5008,144 @@ test "Program.Session decodes string-list payloads as immutable views only" {
     try std.testing.expectEqual(@as(i32, 55), result.value);
 }
 
+test "Program.Session capsule captures current request and restores reusable branches" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "session-capsule-request-branching");
+    };
+    const Program = ability.program("session-capsule-request-branching", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    switch (try session.current()) {
+        .none => {},
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    }
+
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    const current_request = switch (try session.current()) {
+        .request => |current| current,
+        .after => return error.UnexpectedAfter,
+        .none => return error.UnexpectedDone,
+    };
+    try std.testing.expectEqual(request.fingerprint(), current_request.fingerprint());
+    try std.testing.expectEqualStrings("payload", try current_request.payload([]const u8));
+
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    const metadata = capsule.metadata();
+    try std.testing.expectEqual(Program.Session.capsule_version, metadata.version);
+    try std.testing.expectEqual(Program.Session.continuation_fingerprint_version, metadata.continuation_fingerprint_version);
+    try std.testing.expectEqual(Program.Session.ParkedKind.operation, metadata.parked_kind);
+    try std.testing.expectEqual(request.fingerprint(), metadata.current_request_fingerprint);
+    try std.testing.expectEqual(@as(?usize, request.operation_site_index), metadata.current_operation_site_index);
+    try std.testing.expectEqual(@as(?usize, null), metadata.current_after_site_index);
+    try std.testing.expect(metadata.owns_copied_values);
+    try std.testing.expect(metadata.reusable);
+    try std.testing.expectEqual(capsule.fingerprint(), metadata.continuation_fingerprint);
+
+    try session.returnNow(request, @as(i32, 7));
+    var original_result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer original_result.deinit();
+    try std.testing.expectEqual(@as(i32, 7), original_result.value);
+
+    var resumed_branch = try Program.Session.restore(&runtime, .{}, &capsule);
+    defer resumed_branch.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, resumed_branch.@"resume"(request, @as(i32, 9)));
+    const resumed_request = switch (try resumed_branch.current()) {
+        .request => |current| current,
+        .after => return error.UnexpectedAfter,
+        .none => return error.UnexpectedDone,
+    };
+    try std.testing.expectEqual(request.fingerprint(), resumed_request.fingerprint());
+    var recaptured = try resumed_branch.capture(std.testing.allocator);
+    defer recaptured.deinit();
+    try std.testing.expectEqual(capsule.fingerprint(), recaptured.fingerprint());
+    try resumed_branch.@"resume"(resumed_request, @as(i32, 42));
+    var resumed_result = switch (try resumed_branch.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer resumed_result.deinit();
+    try std.testing.expectEqual(@as(i32, 42), resumed_result.value);
+
+    var return_branch = try Program.Session.restore(&runtime, .{}, &capsule);
+    defer return_branch.deinit();
+    const return_request = switch (try return_branch.current()) {
+        .request => |current| current,
+        .after => return error.UnexpectedAfter,
+        .none => return error.UnexpectedDone,
+    };
+    try std.testing.expectEqual(request.fingerprint(), return_request.fingerprint());
+    try return_branch.returnNow(return_request, @as(i32, 99));
+    var return_result = switch (try return_branch.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer return_result.deinit();
+    try std.testing.expectEqual(@as(i32, 99), return_result.value);
+}
+
+test "Program.Session capsule rejects invalid lifecycle and destroyed runtime restore" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "session-capsule-lifecycle-rejects");
+    };
+    const Program = ability.program("session-capsule-lifecycle-rejects", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    try std.testing.expectError(error.ProgramContractViolation, session.capture(std.testing.allocator));
+
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    try session.returnNow(request, @as(i32, 7));
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 7), result.value);
+    try std.testing.expectError(error.ProgramContractViolation, session.capture(std.testing.allocator));
+
+    capsule.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.restore(&runtime, .{}, &capsule));
+
+    var second = try Program.Session.start(&runtime, .{});
+    defer second.deinit();
+    _ = switch (try second.next()) {
+        .request => |second_request| second_request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var live_capsule = try second.capture(std.testing.allocator);
+    defer live_capsule.deinit();
+
+    var destroyed_runtime = ability.Runtime.init(std.testing.allocator);
+    try destroyed_runtime.deinitChecked();
+    try std.testing.expectError(error.RuntimeDestroyed, Program.Session.restore(&destroyed_runtime, .{}, &live_capsule));
+}
+
 test "Program.Session yields choice request and resumes branch" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -5255,6 +5393,171 @@ test "Program.Session supports typed sum payload and resume values" {
     try std.testing.expectEqual(@as(i32, 8), result.value.?);
 }
 
+test "Program.Session capsule restores typed product and sum payloads" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const ProductPayload = struct {
+        amount: i32,
+    };
+    const EmptyHandlers = struct {};
+    const ProductBody = struct {
+        pub const value_schema_types = .{ProductPayload};
+        pub const compiled_plan = sessionProductTransformPlan(ProductPayload, "session-capsule-product-owned");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{ProductPayload{ .amount = 13 }}) {
+            return .{ProductPayload{ .amount = 13 }};
+        }
+    };
+    const ProductProgram = ability.program("session-capsule-product-owned", EmptyHandlers, ProductBody);
+    var product_session = try ProductProgram.Session.start(&runtime, .{});
+    var product_session_live = true;
+    defer if (product_session_live) product_session.deinit();
+    const product_request = switch (try product_session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var product_capsule = try product_session.capture(std.testing.allocator);
+    defer product_capsule.deinit();
+    product_session.deinit();
+    product_session_live = false;
+
+    var product_restored = try ProductProgram.Session.restore(&runtime, .{}, &product_capsule);
+    defer product_restored.deinit();
+    const product_current = switch (try product_restored.current()) {
+        .request => |current| current,
+        .after => return error.UnexpectedAfter,
+        .none => return error.UnexpectedDone,
+    };
+    try std.testing.expectEqual(product_request.fingerprint(), product_current.fingerprint());
+    try std.testing.expectEqual(@as(i32, 13), (try product_current.payload(ProductPayload)).amount);
+    try product_restored.@"resume"(product_current, ProductPayload{ .amount = 34 });
+    var product_result = switch (try product_restored.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer product_result.deinit();
+    try std.testing.expectEqual(@as(i32, 34), product_result.value.amount);
+
+    const SumPayload = ?i32;
+    const SumBody = struct {
+        pub const value_schema_types = .{SumPayload};
+        pub const compiled_plan = sessionSumTransformPlan(SumPayload, "session-capsule-sum-owned");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{@as(SumPayload, 21)}) {
+            return .{@as(SumPayload, 21)};
+        }
+    };
+    const SumProgram = ability.program("session-capsule-sum-owned", EmptyHandlers, SumBody);
+    var sum_session = try SumProgram.Session.start(&runtime, .{});
+    var sum_session_live = true;
+    defer if (sum_session_live) sum_session.deinit();
+    const sum_request = switch (try sum_session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var sum_capsule = try sum_session.capture(std.testing.allocator);
+    defer sum_capsule.deinit();
+    sum_session.deinit();
+    sum_session_live = false;
+
+    var sum_restored = try SumProgram.Session.restore(&runtime, .{}, &sum_capsule);
+    defer sum_restored.deinit();
+    const sum_current = switch (try sum_restored.current()) {
+        .request => |current| current,
+        .after => return error.UnexpectedAfter,
+        .none => return error.UnexpectedDone,
+    };
+    try std.testing.expectEqual(sum_request.fingerprint(), sum_current.fingerprint());
+    try std.testing.expectEqual(@as(i32, 21), (try sum_current.payload(SumPayload)).?);
+    try sum_restored.@"resume"(sum_current, @as(SumPayload, 55));
+    var sum_result = switch (try sum_restored.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer sum_result.deinit();
+    try std.testing.expectEqual(@as(i32, 55), sum_result.value.?);
+}
+
+test "Program.Session capsule deep copies nested sum product string payloads" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Details = struct {
+        name: []const u8,
+    };
+    const Decision = union(enum) {
+        denied: []const u8,
+        details: Details,
+    };
+    const NestedHandlers = struct {
+        decision: Decision,
+    };
+    const Schemas = ability.ir.schema.Registry(.{ Details, Decision });
+    const NestedProtocol = ability.ir.schema.Protocol(.{
+        .label = "nested",
+        .ops = .{
+            ability.ir.schema.transform("round_trip", Decision, Decision),
+        },
+    });
+    const NestedRows = NestedProtocol.Rows(NestedHandlers, .{
+        .requirement_index = 0,
+        .first_op = 0,
+        .schema_refs = Schemas.schema_refs,
+    });
+    const Body = struct {
+        pub const value_schema_types = Schemas.value_schema_types;
+        pub const compiled_plan = nestedCapsuleSemanticPlan(Decision, Schemas, NestedRows);
+
+        pub fn encodeArgs(handlers: NestedHandlers) struct { Decision } {
+            return .{handlers.decision};
+        }
+    };
+    const Program = ability.program("session-capsule-nested-owned", NestedHandlers, Body);
+
+    var name = [_]u8{ 'a', 'l', 'p', 'h', 'a' };
+    var session = try Program.Session.start(&runtime, .{ .decision = .{ .details = .{ .name = name[0..] } } });
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+
+    @memcpy(name[0..], "omega");
+
+    var restored = try Program.Session.restore(&runtime, .{ .decision = .{ .denied = "ignored" } }, &capsule);
+    defer restored.deinit();
+    const restored_request = switch (try restored.current()) {
+        .request => |current| current,
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    };
+    try std.testing.expectEqual(request.fingerprint(), restored_request.fingerprint());
+    const restored_payload = try restored_request.payload(Decision);
+    switch (restored_payload) {
+        .details => |details| try std.testing.expectEqualStrings("alpha", details.name),
+        .denied => return error.UnexpectedPayload,
+    }
+    try restored.@"resume"(restored_request, Decision{ .denied = "done" });
+    var restored_result = switch (try restored.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer restored_result.deinit();
+    switch (restored_result.value) {
+        .denied => |value| try std.testing.expectEqualStrings("done", value),
+        .details => return error.UnexpectedPayload,
+    }
+}
+
 test "Program.Session structured request payloads survive session deinit" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -5308,6 +5611,230 @@ test "Program.Session structured request payloads survive session deinit" {
     sum_session.deinit();
     sum_session_active = false;
     try std.testing.expectEqual(@as(i32, 21), (try sum_request.payload(SumPayload)).?);
+}
+
+test "Program.Session captures operation capsules as reusable copied branches" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const StringListPayloadHandlers = struct {
+        items: []const []const u8,
+    };
+    const StringListPayloadArgs = struct { []const []const u8 };
+    const Body = struct {
+        pub const compiled_plan = sessionStringListPayloadPlan("session-capsule-operation");
+
+        pub fn encodeArgs(handlers: StringListPayloadHandlers) StringListPayloadArgs {
+            return .{handlers.items};
+        }
+    };
+    const Program = ability.program("session-capsule-operation", StringListPayloadHandlers, Body);
+    const Operation = Program.protocol.operationSite("session", "string_list_payload", 0);
+
+    var left = [_]u8{ 'l', 'e', 'f', 't' };
+    var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
+    var strings = [_][]const u8{ left[0..], right[0..] };
+    var session = try Program.Session.start(&runtime, .{ .items = strings[0..] });
+    defer session.deinit();
+
+    switch (try session.current()) {
+        .none => {},
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    }
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    const current_request = switch (try session.current()) {
+        .request => |current| current,
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    };
+    try std.testing.expectEqual(request.trace().fingerprint, current_request.trace().fingerprint);
+
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    const metadata = capsule.metadata();
+    try std.testing.expectEqual(Program.Session.capsule_version, metadata.version);
+    try std.testing.expectEqual(Program.Session.continuation_fingerprint_version, metadata.continuation_fingerprint_version);
+    try std.testing.expectEqual(Program.Session.ParkedKind.operation, metadata.parked_kind);
+    try std.testing.expectEqual(request.trace().fingerprint, metadata.current_request_fingerprint);
+    try std.testing.expectEqual(@as(?usize, request.operation_site_index), metadata.current_operation_site_index);
+    try std.testing.expectEqual(@as(?usize, null), metadata.current_after_site_index);
+    try std.testing.expect(metadata.owns_copied_values);
+    try std.testing.expect(metadata.reusable);
+    try std.testing.expectEqual(capsule.fingerprint(), metadata.continuation_fingerprint);
+
+    @memcpy(left[0..], "wxyz");
+    @memcpy(right[0..], "omega");
+
+    var restored = try Program.Session.restore(&runtime, .{ .items = strings[0..] }, &capsule);
+    defer restored.deinit();
+    try expectLiveSessions(&runtime, 2);
+    const restored_request = switch (try restored.current()) {
+        .request => |current| current,
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    };
+    const restored_typed = try restored_request.as(Operation);
+    const restored_payload = try restored_typed.payload();
+    try std.testing.expectEqual(@as(usize, 2), restored_payload.len);
+    try std.testing.expectEqualStrings("left", restored_payload[0]);
+    try std.testing.expectEqualStrings("right", restored_payload[1]);
+    try std.testing.expectError(error.ProgramContractViolation, restored.resumeTyped(try request.as(Operation), @as(i32, 71)));
+    try restored.resumeTyped(restored_typed, @as(i32, 61));
+    var restored_result = switch (try restored.next()) {
+        .done => |result| result,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer restored_result.deinit();
+    try std.testing.expectEqual(@as(i32, 61), restored_result.value);
+    try expectLiveSessions(&runtime, 1);
+
+    var restored_again = try Program.Session.restore(&runtime, .{ .items = strings[0..] }, &capsule);
+    defer restored_again.deinit();
+    const restored_again_request = switch (try restored_again.current()) {
+        .request => |current| current,
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    };
+    try restored_again.resumeTyped(try restored_again_request.as(Operation), @as(i32, 72));
+    var restored_again_result = switch (try restored_again.next()) {
+        .done => |result| result,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer restored_again_result.deinit();
+    try std.testing.expectEqual(@as(i32, 72), restored_again_result.value);
+    try expectLiveSessions(&runtime, 1);
+
+    try session.resumeTyped(try request.as(Operation), @as(i32, 55));
+    var original_result = switch (try session.next()) {
+        .done => |result| result,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer original_result.deinit();
+    try std.testing.expectEqual(@as(i32, 55), original_result.value);
+    try expectLiveSessions(&runtime, 0);
+}
+
+test "Program.Session captures after-continuation capsules with typed current views" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = compiledTransformPlan("session-capsule-after");
+    };
+    const Program = ability.program("session-capsule-after", struct {}, Body);
+    const Operation = Program.protocol.operationSite("authored", "dispatch", 0);
+    const After = Program.protocol.afterSite("authored", "dispatch", 0);
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.resumeTyped(try request.as(Operation), @as(Operation.Resume, 10));
+    const after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    const current_after = switch (try session.current()) {
+        .after => |current| current,
+        .request => return error.UnexpectedRequest,
+        .none => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(after.trace().fingerprint, current_after.trace().fingerprint);
+
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    const metadata = capsule.metadata();
+    try std.testing.expectEqual(Program.Session.capsule_version, metadata.version);
+    try std.testing.expectEqual(Program.Session.continuation_fingerprint_version, metadata.continuation_fingerprint_version);
+    try std.testing.expectEqual(Program.Session.ParkedKind.after, metadata.parked_kind);
+    try std.testing.expectEqual(after.trace().fingerprint, metadata.current_request_fingerprint);
+    try std.testing.expectEqual(@as(?usize, after.after_site_index), metadata.current_after_site_index);
+    try std.testing.expectEqual(@as(?usize, after.source_operation_site_index), metadata.source_operation_site_index);
+    try std.testing.expect(metadata.owns_copied_values);
+    try std.testing.expect(metadata.reusable);
+    try std.testing.expectEqual(capsule.fingerprint(), metadata.continuation_fingerprint);
+
+    var restored = try Program.Session.restore(&runtime, .{}, &capsule);
+    defer restored.deinit();
+    try expectLiveSessions(&runtime, 2);
+    const restored_after = switch (try restored.current()) {
+        .after => |current| current,
+        .request => return error.UnexpectedRequest,
+        .none => return error.ExpectedAfter,
+    };
+    const restored_typed_after = try restored_after.as(After);
+    try std.testing.expectEqual(@as(i32, 10), try restored_typed_after.value(i32));
+    try std.testing.expectError(error.ProgramContractViolation, restored.resumeAfterTyped(try after.as(After), @as(i32, 31)));
+    try restored.resumeAfterTyped(restored_typed_after, @as(i32, 21));
+    var restored_result = switch (try restored.next()) {
+        .done => |result| result,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer restored_result.deinit();
+    try std.testing.expectEqual(@as(i32, 21), restored_result.value);
+    try expectLiveSessions(&runtime, 1);
+
+    try session.resumeAfterTyped(try after.as(After), @as(i32, 15));
+    var original_result = switch (try session.next()) {
+        .done => |result| result,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer original_result.deinit();
+    try std.testing.expectEqual(@as(i32, 15), original_result.value);
+    try expectLiveSessions(&runtime, 0);
+}
+
+fn nestedCapsuleSemanticPlan(
+    comptime Decision: type,
+    comptime Schemas: type,
+    comptime NestedRows: type,
+) ability.ir.ProgramPlan {
+    const semantic = ability.ir.builder.semantic;
+    const RoundTrip = NestedRows.op("round_trip");
+    return (semantic.finish(.{
+        .label = "session-capsule-nested-owned",
+        .ir_hash = 0x63617073756c6502,
+        .entry = "run",
+        .schemas = Schemas,
+        .requirements = &.{NestedRows.requirement},
+        .ops = &NestedRows.ops,
+        .functions = .{.{
+            .symbol_name = "run",
+            .requirements = semantic.span(0, 1),
+            .params = .{
+                semantic.param("decision", Decision),
+            },
+            .locals = .{
+                semantic.local("resumed", Decision),
+            },
+            .result = Decision,
+            .blocks = .{.{
+                .name = "entry",
+                .instructions = .{
+                    semantic.call(RoundTrip, .{
+                        .dst = "resumed",
+                        .payload = "decision",
+                        .label = "nested.round_trip",
+                    }),
+                },
+                .terminator = semantic.returnValue("resumed"),
+            }},
+        }},
+    }) catch unreachable).plan;
 }
 
 fn pureArithmeticPlan(comptime label: []const u8) ability.ir.ProgramPlan {
