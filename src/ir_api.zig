@@ -984,7 +984,8 @@ pub const schema = struct {
         return hasDeclSafe(authoredHandlerType(fieldType(HandlerType, field_name)), "afterDispatch");
     }
 
-    fn handlerHasAfterDispatch(comptime HandlerType: type) bool {
+    fn handlerHasAfterDispatch(comptime HandlerType: type, comptime op_name: []const u8) bool {
+        if (hasFieldSafe(HandlerType, op_name) or hasFieldSafe(HandlerType, "authored")) return false;
         const AuthoredType = authoredHandlerType(HandlerType);
         return hasDeclSafe(AuthoredType, "dispatch") and hasDeclSafe(AuthoredType, "afterDispatch");
     }
@@ -1019,7 +1020,7 @@ pub const schema = struct {
                 return fieldHasAfterDispatch(RequirementType, "authored");
             }
         }
-        return handlerHasAfterDispatch(HandlerType);
+        return handlerHasAfterDispatch(HandlerType, op_name);
     }
 
     fn lowerOutputs(
@@ -1510,6 +1511,10 @@ test "schema Protocol mirrors runtime handler lookup for after metadata" {
     try standard.testing.expect(NestedAuthoredRows.ops[0].has_after);
 
     const TopLevelFallbackRows = Workflow.Rows(struct {
+        pub fn dispatch(_: *const @This(), _: []const u8) error{}!i32 {
+            return 1;
+        }
+
         pub fn afterDispatch(_: *const @This(), answer: []const u8) error{}![]const u8 {
             return answer;
         }

@@ -411,7 +411,8 @@ handler shapes such as `.approval.request.afterDispatch` or
 `.approval.authored.afterDispatch`.
 Top-level op-name and top-level `authored` fallbacks can still be runtime
 conveniences when a full plan has globally unique op names, but row lowering
-cannot prove that global uniqueness in isolation.
+cannot prove that global uniqueness in isolation; their presence also suppresses
+direct-handler inference for that op.
 
 The lowered row bundle also exposes op descriptors for instruction authoring:
 

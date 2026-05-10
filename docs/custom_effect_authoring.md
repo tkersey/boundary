@@ -87,7 +87,8 @@ exists, such as `.approval.request.afterDispatch` or
 `.approval.authored.afterDispatch`.
 Top-level op-name and top-level `authored` fallbacks remain runtime conveniences
 for globally unique op names, but row lowering cannot prove plan-global
-uniqueness and therefore does not publish after metadata from those fallbacks.
+uniqueness and therefore does not publish after metadata from those fallbacks;
+their presence also suppresses direct-handler inference for that op.
 
 Scalar payload, resume, and output refs lower without schema refs. Product and
 sum refs require explicit caller-owned indexes:
