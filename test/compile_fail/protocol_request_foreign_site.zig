@@ -53,8 +53,12 @@ fn plan(comptime label: []const u8) ability.ir.ProgramPlan {
 const Body = struct {
     pub const compiled_plan = plan("protocol-request-foreign");
 };
-const Program = ability.program("protocol-request-foreign-a", struct {}, Body);
-const ForeignProgram = ability.program("protocol-request-foreign-b", struct {}, Body);
+const ForeignBody = struct {
+    pub const compiled_plan = plan("protocol-request-foreign");
+};
+const Handlers = struct {};
+const Program = ability.program("protocol-request-foreign", Handlers, Body);
+const ForeignProgram = ability.program("protocol-request-foreign", Handlers, ForeignBody);
 const ForeignSite = ForeignProgram.protocol.operationSite("protocol", "step", 0);
 
 comptime {

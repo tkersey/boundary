@@ -54,10 +54,11 @@ const Body = struct {
     pub const compiled_plan = plan("protocol-coverage-foreign", 4);
 };
 const ForeignBody = struct {
-    pub const compiled_plan = plan("protocol-coverage-foreign-other", 5);
+    pub const compiled_plan = plan("protocol-coverage-foreign", 4);
 };
-const Program = ability.program("protocol-coverage-foreign", struct {}, Body);
-const ForeignProgram = ability.program("protocol-coverage-foreign-other", struct {}, ForeignBody);
+const Handlers = struct {};
+const Program = ability.program("protocol-coverage-foreign", Handlers, Body);
+const ForeignProgram = ability.program("protocol-coverage-foreign", Handlers, ForeignBody);
 const ForeignSite = ForeignProgram.protocol.operationSite("protocol", "step", 0);
 
 comptime {

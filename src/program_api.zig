@@ -607,16 +607,45 @@ fn ProgramProtocolFor(
             const operation_site = operation_sites[site.source_operation_site_index];
             const static_input_ref = lowering_api.sessionAfterProtocolInputRefForOperationSite(plan, schema_types, HandlersType, operation_site);
             const static_output_ref = lowering_api.sessionAfterProtocolOutputRefForOperationSite(plan, schema_types, HandlersType, operation_site);
-            const InputType = ProgramValueTypeForRef(plan, schema_types, static_input_ref);
             const OutputType = ProgramValueTypeForRef(plan, schema_types, static_output_ref);
             const ResultType = ProgramValueTypeForRef(plan, schema_types, site.result_ref);
+            if (static_input_ref) |static_ref| {
+                const InputType = ProgramValueTypeForRef(plan, schema_types, static_ref);
+                return struct {
+                    pub const kind = .after;
+                    pub const Owner = ProtocolOwner;
+                    pub const owner_label = program_label;
+                    pub const owner_plan_hash = plan_hash;
+                    pub const OwnerHandlers = HandlersType;
+                    pub const has_static_input_ref = true;
+                    pub const Input = InputType;
+                    pub const Output = OutputType;
+                    pub const Result = ResultType;
+                    pub const metadata = site;
+                    pub const index = site.index;
+                    pub const fingerprint = site.fingerprint;
+                    pub const source_operation_site_index = site.source_operation_site_index;
+                    pub const source_operation_site_fingerprint = site.source_operation_site_fingerprint;
+                    pub const source_function_index = site.source_function_index;
+                    pub const source_block_index = site.source_block_index;
+                    pub const source_instruction_index = site.source_instruction_index;
+                    pub const original_requirement_index = site.original_requirement_index;
+                    pub const original_requirement_label = site.original_requirement_label;
+                    pub const original_op_index = site.original_op_index;
+                    pub const original_op_name = site.original_op_name;
+                    pub const input_ref: ?lowering_api.ValueRef = static_ref;
+                    pub const current_value_ref: ?lowering_api.ValueRef = static_ref;
+                    pub const output_ref = static_output_ref;
+                    pub const result_ref = site.result_ref;
+                };
+            }
             return struct {
                 pub const kind = .after;
                 pub const Owner = ProtocolOwner;
                 pub const owner_label = program_label;
                 pub const owner_plan_hash = plan_hash;
                 pub const OwnerHandlers = HandlersType;
-                pub const Input = InputType;
+                pub const has_static_input_ref = false;
                 pub const Output = OutputType;
                 pub const Result = ResultType;
                 pub const metadata = site;
@@ -631,8 +660,8 @@ fn ProgramProtocolFor(
                 pub const original_requirement_label = site.original_requirement_label;
                 pub const original_op_index = site.original_op_index;
                 pub const original_op_name = site.original_op_name;
-                pub const input_ref = static_input_ref;
-                pub const current_value_ref = static_input_ref;
+                pub const input_ref: ?lowering_api.ValueRef = null;
+                pub const current_value_ref: ?lowering_api.ValueRef = null;
                 pub const output_ref = static_output_ref;
                 pub const result_ref = site.result_ref;
             };
@@ -689,7 +718,8 @@ fn ProgramProtocolFor(
                 !hasDeclSafe(Site, "owner_plan_hash") or
                 Site.owner_plan_hash != plan_hash or
                 !hasDeclSafe(Site, "OwnerHandlers") or
-                Site.OwnerHandlers != HandlersType)
+                Site.OwnerHandlers != HandlersType or
+                Site.Owner != ProtocolOwner)
             {
                 @compileError("Program.protocol coverage descriptor belongs to another program");
             }
@@ -859,7 +889,6 @@ pub fn program(
     const body_nested_with_targets = BodyNestedWithTargets(Body).values;
     const Value = ProgramValueTypeForRef(body_compiled_plan, body_value_schema_types, lowering_api.executableResultRefForPlan(body_compiled_plan));
     const Outputs = ProgramOutputsType(Body);
-    const protocol_owner = struct {};
 
     return struct {
         /// Runtime-owned executable plan for this public program.
@@ -867,7 +896,7 @@ pub fn program(
         /// Read-only projection of the compiled ProgramPlan contract.
         pub const contract = ProgramContractFor(label, body_compiled_plan, Value, Outputs, body_value_schema_types, body_nested_with_targets);
         /// Typed defunctionalized protocol descriptors derived from Program.Session static sites.
-        pub const protocol = ProgramProtocolFor(label, body_compiled_plan, body_value_schema_types, body_nested_with_targets, HandlersType, protocol_owner);
+        pub const protocol = ProgramProtocolFor(label, body_compiled_plan, body_value_schema_types, body_nested_with_targets, HandlersType, Body);
         /// Public execution error for this program.
         pub const Error = ProgramErrorSet(Body);
 
@@ -941,6 +970,7 @@ pub fn program(
                 body_value_schema_types,
                 body_nested_with_targets,
                 HandlersType,
+                Body,
             );
 
             runtime: *lowered_machine.Runtime,
@@ -1077,7 +1107,7 @@ pub fn program(
                 self.lifecycle = .ready;
             }
 
-            /// Resume a typed after-continuation request view with a value matching its static site descriptor.
+            /// Resume a typed after-continuation request view with a value matching the live request output ref.
             pub fn resumeAfterTyped(self: *Session, typed_request: anytype, value: anytype) Error!void {
                 const Site = @TypeOf(typed_request).Descriptor;
                 _ = typed_request.request.responseTraceFor(Site, value) catch |err| return mapProgramRunError(Error, err);

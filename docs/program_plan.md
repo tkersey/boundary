@@ -152,13 +152,15 @@ function/block/instruction coordinates, requirement/op identity, op mode,
 payload/resume/result refs, `has_after`, `may_resume`, and `may_return_now`.
 
 After descriptors are looked up with `afterSite(requirement_label, op_name,
-occurrence_index)` or `afterSiteByIndex(index)`. They expose `Input`, `Output`,
-and `Result` type aliases plus the after-site index and fingerprint, source
-operation site index and fingerprint, source function/block/instruction
-coordinates, original requirement/op identity, and input/output/result refs.
-When a handler type declares `afterDispatch`, the descriptor's input and output
-types are derived from that handler signature; otherwise they follow the static
-session refs.
+occurrence_index)` or `afterSiteByIndex(index)`. They expose `Output` and
+`Result` type aliases plus the after-site index and fingerprint, source operation
+site index and fingerprint, source function/block/instruction coordinates,
+original requirement/op identity, and output/result refs. When a handler type
+declares `afterDispatch`, the descriptor also exposes `Input`, a static
+`input_ref`, and derives input/output types from that handler signature.
+Handlerless after descriptors set `has_static_input_ref = false` and
+`input_ref = null`; their current input ref is a property of the live after
+request's concrete unwind stack.
 
 Dynamic requests can be checked against a descriptor before host code decodes or
 responds:
@@ -174,12 +176,18 @@ if (request.matches(Decide)) {
 }
 ```
 
-The check first proves the descriptor belongs to the same program, then compares
-the dynamic request's static site index, site fingerprint, and expected refs
-with the descriptor. After requests use the same pattern:
-`after.as(AfterSite)`, `typed_after.value()` as `AfterSite.Input`,
-`after.responseTraceFor(AfterSite, value)`, and
-`session.resumeAfterTyped(typed_after, value)` as `AfterSite.Output`.
+The check first proves the descriptor belongs to the same program. Operation
+requests then compare static site identity and payload/resume/result refs. After
+requests compare static site identity and result ref, plus the current input ref
+when the descriptor has one. The expected output ref is carried by the live after
+request because final and stack-dependent continuations can require a different
+output than the descriptor's handler-derived `Output` alias. Handler-owned after
+requests use `after.as(AfterSite)` and `typed_after.value()` as
+`AfterSite.Input`. Handlerless after requests use `typed_after.value(T)` after
+checking the live request's `value_ref`. Both forms use
+`after.responseTraceFor(AfterSite, value)` and
+`session.resumeAfterTyped(typed_after, value)` with a value matching the live
+request output ref.
 
 Coverage helpers are optional comptime witnesses. `assertOperationSitesCovered`,
 `assertAfterSitesCovered`, and `assertAllSitesCovered` fail when a reachable

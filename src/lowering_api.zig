@@ -1937,6 +1937,14 @@ fn HandlerType(comptime HandlerPtr: type) type {
     };
 }
 
+fn afterDispatchHasRuntimeShape(comptime AuthoredPtr: type) bool {
+    const Authored = HandlerType(AuthoredPtr);
+    const after_dispatch_info = @typeInfo(@TypeOf(Authored.afterDispatch)).@"fn";
+    return after_dispatch_info.params.len == 2 and
+        after_dispatch_info.params[1].type != null and
+        after_dispatch_info.return_type != null;
+}
+
 fn afterDispatchAccepts(
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime schema_types: anytype,
@@ -1944,9 +1952,9 @@ fn afterDispatchAccepts(
     comptime input_ref: program_plan.ValueRef,
 ) bool {
     const Authored = HandlerType(AuthoredPtr);
+    if (!afterDispatchHasRuntimeShape(Authored)) return false;
     const after_dispatch_info = @typeInfo(@TypeOf(Authored.afterDispatch)).@"fn";
-    if (after_dispatch_info.params.len != 2) return false;
-    const ValueParamType = after_dispatch_info.params[1].type orelse return false;
+    const ValueParamType = after_dispatch_info.params[1].type.?;
     return typeMatchesRef(compiled_plan, schema_types, input_ref, ValueParamType);
 }
 
@@ -2185,16 +2193,17 @@ pub fn sessionAfterProtocolInputRefForOperationSite(
     comptime schema_types: anytype,
     comptime HandlersType: type,
     comptime operation_site: SessionOperationYieldSite,
-) program_plan.ValueRef {
+) ?program_plan.ValueRef {
     const op = compiled_plan.ops[operation_site.op_index];
     if (!op.has_after) @compileError("Program.Session after protocol ref requested for operation without after continuation");
     if (comptime hasAfterDispatchHandlerType(compiled_plan, op, HandlersType)) {
         const Authored = AfterDispatchHandlerType(compiled_plan, op, HandlersType);
+        if (comptime !afterDispatchHasRuntimeShape(Authored)) return null;
         const Input = CallableParamPayloadType(Authored.afterDispatch, 1);
         return runtimeValueRefForType(schema_types, Input) orelse
             @compileError("afterDispatch input type is not representable by Program.Session protocol: " ++ @typeName(Input));
     }
-    return operation_site.resume_ref;
+    return null;
 }
 
 /// Static output value ref produced by the host-visible after site for one operation site.
@@ -2208,6 +2217,7 @@ pub fn sessionAfterProtocolOutputRefForOperationSite(
     if (!op.has_after) @compileError("Program.Session after protocol ref requested for operation without after continuation");
     if (comptime hasAfterDispatchHandlerType(compiled_plan, op, HandlersType)) {
         const Authored = AfterDispatchHandlerType(compiled_plan, op, HandlersType);
+        if (comptime !afterDispatchHasRuntimeShape(Authored)) return operation_site.result_ref;
         const Output = CallableReturnPayloadType(Authored.afterDispatch);
         return runtimeValueRefForType(schema_types, Output) orelse
             @compileError("afterDispatch output type is not representable by Program.Session protocol: " ++ @typeName(Output));
@@ -3318,6 +3328,7 @@ pub fn ExecutableSessionForPlan(
     comptime schema_types: anytype,
     comptime nested_with_targets: anytype,
     comptime HandlersType: type,
+    comptime ProtocolOwner: type,
 ) type {
     const entry = compiled_plan.functions[compiled_plan.entry_index];
     const analysis = comptime program_plan.entryExecutionAnalysisWithNestedTargets(compiled_plan, nested_with_targets) catch |err|
@@ -3735,12 +3746,12 @@ pub fn ExecutableSessionForPlan(
 
             pub fn matches(self: @This(), comptime Site: type) bool {
                 comptime requireAfterProtocolSite(Site);
+                const input_matches = if (comptime Site.has_static_input_ref) self.value_ref.eql(Site.input_ref.?) else true;
                 return self.after_site_index == Site.index and
                     self.after_site_fingerprint == Site.fingerprint and
                     self.source_operation_site_index == Site.source_operation_site_index and
                     self.source_operation_site_fingerprint == Site.source_operation_site_fingerprint and
-                    self.value_ref.eql(Site.input_ref) and
-                    self.output_ref.eql(Site.output_ref) and
+                    input_matches and
                     self.result_ref.eql(Site.result_ref);
             }
 
@@ -3831,7 +3842,9 @@ pub fn ExecutableSessionForPlan(
                 !hasDeclSafe(Site, "owner_plan_hash") or
                 Site.owner_plan_hash != plan_hash or
                 !hasDeclSafe(Site, "OwnerHandlers") or
-                Site.OwnerHandlers != HandlersType)
+                Site.OwnerHandlers != HandlersType or
+                !hasDeclSafe(Site, "Owner") or
+                Site.Owner != ProtocolOwner)
             {
                 @compileError("Program.protocol descriptor belongs to another program");
             }
@@ -3846,7 +3859,9 @@ pub fn ExecutableSessionForPlan(
                 !hasDeclSafe(Site, "owner_plan_hash") or
                 Site.owner_plan_hash != plan_hash or
                 !hasDeclSafe(Site, "OwnerHandlers") or
-                Site.OwnerHandlers != HandlersType)
+                Site.OwnerHandlers != HandlersType or
+                !hasDeclSafe(Site, "Owner") or
+                Site.Owner != ProtocolOwner)
             {
                 @compileError("Program.protocol descriptor belongs to another program");
             }
@@ -3870,12 +3885,26 @@ pub fn ExecutableSessionForPlan(
 
         fn TypedAfterRequest(comptime AfterRequestType: type, comptime Site: type) type {
             comptime requireAfterProtocolSite(Site);
+            if (comptime Site.has_static_input_ref) {
+                return struct {
+                    pub const Descriptor = Site;
+                    request: AfterRequestType,
+
+                    pub fn value(self: @This()) error{ProgramContractViolation}!Site.Input {
+                        return self.request.value(Site.Input);
+                    }
+
+                    pub fn responseTrace(self: @This(), response_value: anytype) error{ProgramContractViolation}!Trace.Response {
+                        return self.request.responseTraceFor(Site, response_value);
+                    }
+                };
+            }
             return struct {
                 pub const Descriptor = Site;
                 request: AfterRequestType,
 
-                pub fn value(self: @This()) error{ProgramContractViolation}!Site.Input {
-                    return self.request.value(Site.Input);
+                pub fn value(self: @This(), comptime T: type) error{ProgramContractViolation}!T {
+                    return self.request.value(T);
                 }
 
                 pub fn responseTrace(self: @This(), response_value: anytype) error{ProgramContractViolation}!Trace.Response {
@@ -6447,7 +6476,8 @@ test "ability.program executable support ignores post-terminal structured helper
 }
 
 test "Program.Session start failure owns moved scratch and frame buffers once" {
-    const Session = ExecutableSessionForPlan(error{}, "support-parameter", supportParameterPlan(.i32), &.{}, &.{}, struct {});
+    const owner = struct {};
+    const Session = ExecutableSessionForPlan(error{}, "support-parameter", supportParameterPlan(.i32), &.{}, &.{}, struct {}, owner);
     const bad_args = [_]lowered_machine.ProgramValue{.{ .bool = true }};
 
     try std.testing.expectError(

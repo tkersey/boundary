@@ -165,11 +165,17 @@ occurrence_index)` and `siteByIndex(index)` return static operation site
 descriptors with `Payload`, `Resume`, and `Result` Zig type aliases plus the
 site index, fingerprint, source coordinates, requirement/op identity, mode,
 refs, after flag, and resume/return-now capabilities. `afterSite(...)` and
-`afterSiteByIndex(index)` return after descriptors with `Input`, `Output`, and
-`Result` aliases plus the source operation site identity and refs. A host can
-check a dynamic request with `request.as(Site)` or `after.as(AfterSite)`, decode
-through the descriptor-owned type, compute site-aware response traces, and use
-`session.resumeTyped`, `session.returnNowTyped`, or `session.resumeAfterTyped`.
+`afterSiteByIndex(index)` return after descriptors with `Output` and `Result`
+aliases plus the source operation site identity and refs. Handler-owned after
+descriptors also expose `Input` and a static `input_ref`; handlerless after
+descriptors set `has_static_input_ref = false` because their current value ref is
+defined by the concrete after stack. A host can check a dynamic request with
+`request.as(Site)` or `after.as(AfterSite)`, decode through the descriptor-owned
+payload or static/dynamic current-value type, compute site-aware response traces,
+and use `session.resumeTyped`, `session.returnNowTyped`, or
+`session.resumeAfterTyped`. After response traces and typed after resume validate
+the live request's expected output ref, which can differ from the descriptor
+output ref for stack-dependent final continuations.
 Coverage helpers such as `assertOperationSitesCovered`, `assertAfterSitesCovered`,
 and `assertAllSitesCovered` fail at comptime for omitted reachable sites,
 duplicate descriptors, or descriptors from another program.
@@ -235,10 +241,12 @@ i32, usize, strings by bytes, and product/sum values through
 `Program.protocol` lets hosts avoid string-dispatching those records. The host
 can bind `const Decide = Program.protocol.operationSite("agent", "decide", 0);`,
 check `request.matches(Decide)` or `try request.as(Decide)`, decode
-`Decide.Payload`, and resume with `Decide.Resume`. After requests use the same
-shape with `AfterSite.Input` and `AfterSite.Output`. The dynamic check first
-proves the descriptor belongs to the same program, then compares the request's
-static site index, fingerprint, and expected refs before any site-aware response
+`Decide.Payload`, and resume with `Decide.Resume`. Handler-owned after requests
+decode `AfterSite.Input`; handlerless after requests decode with
+`typed_after.value(T)` after inspecting the live request value ref. Their
+response value is checked against the live request output ref. The dynamic check
+first proves the descriptor belongs to the same program, then compares static
+site identity plus the relevant request refs before any site-aware response
 trace or typed resume helper is used.
 
 Trace fingerprints are audit/replay witnesses, not request tokens. Request
