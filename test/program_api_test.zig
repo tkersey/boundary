@@ -4367,6 +4367,47 @@ test "Program.protocol binds handlerless after sites to unwound value refs" {
     try std.testing.expect(!result.value);
 }
 
+test "Program.protocol direct handler after metadata matches runtime fallback" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const DirectHandlers = struct {
+        dispatches: *usize,
+        afters: *usize,
+
+        pub fn dispatch(self: *const @This()) !i32 {
+            self.dispatches.* += 1;
+            return 0;
+        }
+
+        pub fn afterDispatch(self: *const @This(), value: bool) !bool {
+            self.afters.* += 1;
+            return !value;
+        }
+    };
+    const Body = struct {
+        pub const compiled_plan = handlerlessAfterReturnBoolPlan("protocol-direct-handler-after");
+    };
+    const Program = ability.program("protocol-direct-handler-after", DirectHandlers, Body);
+    const Operation = Program.protocol.operationSite("handlerless", "step", 0);
+    const After = Program.protocol.afterSite("handlerless", "step", 0);
+
+    try std.testing.expect(Operation.has_after);
+    try std.testing.expect(After.has_static_input_ref);
+    try std.testing.expect(After.Input == bool);
+    try std.testing.expect(After.Output == bool);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.input_ref.?.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
+
+    var dispatches: usize = 0;
+    var afters: usize = 0;
+    var result = try Program.run(&runtime, .{ .dispatches = &dispatches, .afters = &afters });
+    defer result.deinit();
+    try std.testing.expect(!result.value);
+    try std.testing.expectEqual(@as(usize, 1), dispatches);
+    try std.testing.expectEqual(@as(usize, 1), afters);
+}
+
 test "Program.protocol does not publish static refs for invalid afterDispatch arity" {
     const InvalidAfterHandlers = struct {
         handlerless: struct {

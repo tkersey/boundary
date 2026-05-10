@@ -2053,8 +2053,10 @@ fn callOpByIndex(
                 handlerFieldPtr(handlers, op.op_name)
             else if (comptime @hasField(HandlerSet, "authored") and opNameIsUnique(compiled_plan, op.op_name))
                 handlerFieldPtr(handlers, "authored")
+            else if (comptime @hasDecl(HandlerSet, "dispatch"))
+                handlers
             else
-                @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, or authored fallback");
+                @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, direct handler, or authored fallback");
             const result = try dispatchAuthored(compiled_plan, schema_types, op, terminal_ref, authored, payload, scratch);
             if (result.resumes and !valueMatchesRef(.{
                 .codec = op.resume_codec,
@@ -2122,8 +2124,10 @@ fn afterDispatchHandler(
         handlerFieldPtr(handlers, op.op_name)
     else if (comptime @hasField(HandlerSet, "authored") and opNameIsUnique(compiled_plan, op.op_name))
         handlerFieldPtr(handlers, "authored")
+    else if (comptime @hasDecl(HandlerSet, "dispatch"))
+        handlers
     else
-        @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, or authored fallback");
+        @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, direct handler, or authored fallback");
     break :blk authored;
 }) {
     const requirement = comptime compiled_plan.requirements[op.requirement_index];
@@ -2145,8 +2149,10 @@ fn afterDispatchHandler(
         handlerFieldPtr(handlers, op.op_name)
     else if (comptime @hasField(HandlerSet, "authored") and opNameIsUnique(compiled_plan, op.op_name))
         handlerFieldPtr(handlers, "authored")
+    else if (comptime @hasDecl(HandlerSet, "dispatch"))
+        handlers
     else
-        @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, or authored fallback");
+        @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, direct handler, or authored fallback");
 }
 
 fn AfterDispatchHandlerType(
@@ -2169,8 +2175,10 @@ fn AfterDispatchHandlerType(
         HandlerType(@FieldType(HandlerSet, op.op_name))
     else if (comptime @hasField(HandlerSet, "authored") and opNameIsUnique(compiled_plan, op.op_name))
         HandlerType(@FieldType(HandlerSet, "authored"))
+    else if (comptime @hasDecl(HandlerSet, "dispatch"))
+        HandlerSet
     else
-        @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, or authored fallback");
+        @compileError("ProgramPlan op has no unambiguous handler field, requirement handler, direct handler, or authored fallback");
 }
 
 fn hasAfterDispatchHandlerType(
@@ -2193,6 +2201,8 @@ fn hasAfterDispatchHandlerType(
         @hasDecl(HandlerType(@FieldType(HandlerSet, op.op_name)), "afterDispatch")
     else if (comptime @hasField(HandlerSet, "authored") and opNameIsUnique(compiled_plan, op.op_name))
         @hasDecl(HandlerType(@FieldType(HandlerSet, "authored")), "afterDispatch")
+    else if (comptime @hasDecl(HandlerSet, "dispatch"))
+        @hasDecl(HandlerSet, "afterDispatch")
     else
         false;
 }
