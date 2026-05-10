@@ -90,6 +90,19 @@ fn BodyNestedWithTargets(comptime Body: type) type {
     };
 }
 
+fn BodySiteMetadata(comptime Body: type) type {
+    if (comptime hasDeclSafe(Body, "site_metadata")) {
+        return struct {
+            /// Optional display/debug labels for lowered semantic operation sites.
+            pub const values = Body.site_metadata;
+        };
+    }
+    return struct {
+        /// Raw ProgramPlan construction has no semantic site labels by default.
+        pub const values = .{};
+    };
+}
+
 fn schemaIndexLabel(comptime index: usize) []const u8 {
     return std.fmt.comptimePrint("{d}", .{index});
 }
@@ -437,6 +450,7 @@ fn ProgramContractFor(
     comptime OutputsValue: type,
     comptime schema_types: anytype,
     comptime nested_targets: anytype,
+    comptime site_metadata: anytype,
 ) type {
     const contract_result_ref = lowering_api.executableResultRefForPlan(plan);
     const output_views = contractOutputs(plan);
@@ -448,8 +462,8 @@ fn ProgramContractFor(
     const requirement_views = contractRequirements(plan);
     const op_views = contractOps(plan);
     const return_error_views = contractReturnErrors(plan, nested_targets);
-    const session_yield_site_views = lowering_api.sessionOperationYieldSitesForPlan(plan, nested_targets);
-    const session_after_site_views = lowering_api.sessionAfterYieldSitesForPlan(plan, nested_targets);
+    const session_yield_site_views = lowering_api.sessionOperationYieldSitesForPlanWithMetadata(plan, nested_targets, site_metadata);
+    const session_after_site_views = lowering_api.sessionAfterYieldSitesForPlanWithMetadata(plan, nested_targets, site_metadata);
     const Ledger = lowering_api.ExecutableCapabilityLedgerForPlan(plan, schema_types, nested_targets);
     const first_blocker: ?lowering_api.CapabilityBlocker = if (Ledger.blockers.len == 0) null else Ledger.blockers[0];
     const SessionLedger = lowering_api.TypedSessionCapabilityLedgerForPlan(plan, schema_types, nested_targets);
@@ -555,9 +569,10 @@ fn ProgramProtocolFor(
     comptime nested_targets: anytype,
     comptime HandlersType: type,
     comptime ProtocolOwner: type,
+    comptime site_metadata: anytype,
 ) type {
-    const operation_sites = lowering_api.sessionOperationYieldSitesForPlan(plan, nested_targets);
-    const after_sites = lowering_api.sessionAfterYieldSitesForPlan(plan, nested_targets);
+    const operation_sites = lowering_api.sessionOperationYieldSitesForPlanWithMetadata(plan, nested_targets, site_metadata);
+    const after_sites = lowering_api.sessionAfterYieldSitesForPlanWithMetadata(plan, nested_targets, site_metadata);
     const plan_hash = plan.hash();
 
     return struct {
@@ -584,6 +599,7 @@ fn ProgramProtocolFor(
                 pub const metadata = site;
                 pub const index = site.index;
                 pub const fingerprint = site.fingerprint;
+                pub const semantic_label = site.semantic_label;
                 pub const function_index = site.function_index;
                 pub const function_symbol_name = site.function_symbol_name;
                 pub const block_index = site.block_index;
@@ -624,6 +640,7 @@ fn ProgramProtocolFor(
                     pub const metadata = site;
                     pub const index = site.index;
                     pub const fingerprint = site.fingerprint;
+                    pub const semantic_label = site.semantic_label;
                     pub const source_operation_site_index = site.source_operation_site_index;
                     pub const source_operation_site_fingerprint = site.source_operation_site_fingerprint;
                     pub const source_function_index = site.source_function_index;
@@ -651,6 +668,7 @@ fn ProgramProtocolFor(
                 pub const metadata = site;
                 pub const index = site.index;
                 pub const fingerprint = site.fingerprint;
+                pub const semantic_label = site.semantic_label;
                 pub const source_operation_site_index = site.source_operation_site_index;
                 pub const source_operation_site_fingerprint = site.source_operation_site_fingerprint;
                 pub const source_function_index = site.source_function_index;
@@ -887,6 +905,7 @@ pub fn program(
     const body_compiled_plan = ProgramPlanForBody(Body);
     const body_value_schema_types = BodyValueSchemaTypes(Body).values;
     const body_nested_with_targets = BodyNestedWithTargets(Body).values;
+    const body_site_metadata = BodySiteMetadata(Body).values;
     const Value = ProgramValueTypeForRef(body_compiled_plan, body_value_schema_types, lowering_api.executableResultRefForPlan(body_compiled_plan));
     const Outputs = ProgramOutputsType(Body);
 
@@ -894,9 +913,9 @@ pub fn program(
         /// Runtime-owned executable plan for this public program.
         pub const compiled_plan = body_compiled_plan;
         /// Read-only projection of the compiled ProgramPlan contract.
-        pub const contract = ProgramContractFor(label, body_compiled_plan, Value, Outputs, body_value_schema_types, body_nested_with_targets);
+        pub const contract = ProgramContractFor(label, body_compiled_plan, Value, Outputs, body_value_schema_types, body_nested_with_targets, body_site_metadata);
         /// Typed defunctionalized protocol descriptors derived from Program.Session static sites.
-        pub const protocol = ProgramProtocolFor(label, body_compiled_plan, body_value_schema_types, body_nested_with_targets, HandlersType, Body);
+        pub const protocol = ProgramProtocolFor(label, body_compiled_plan, body_value_schema_types, body_nested_with_targets, HandlersType, Body, body_site_metadata);
         /// Public execution error for this program.
         pub const Error = ProgramErrorSet(Body);
 
@@ -1304,7 +1323,7 @@ test "Program.contract session support includes executable blockers" {
         .instructions = &instructions,
     }) catch unreachable;
 
-    const contract = ProgramContractFor("contract-session-executable-blocked", plan, void, void, &.{}, &.{});
+    const contract = ProgramContractFor("contract-session-executable-blocked", plan, void, void, &.{}, &.{}, .{});
     try std.testing.expect(!contract.executable.supported);
     try std.testing.expectEqual(@as(usize, 1), contract.executable.blocker_count);
     try std.testing.expect(!contract.session.supported);

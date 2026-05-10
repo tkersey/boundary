@@ -376,6 +376,690 @@ pub const builder = struct {
         }
     };
 
+    /// Semantic/compositional ProgramPlan authoring layer.
+    pub const semantic = struct {
+        const SemanticInstructionKind = enum {
+            add_i32,
+            call,
+            compare_eq_zero,
+            const_i32,
+            const_string,
+            const_usize,
+            sub_one,
+            sum_extract_payload,
+            sum_variant_is,
+        };
+
+        const SemanticTerminatorKind = enum {
+            branch_if,
+            jump,
+            return_error,
+            return_unit,
+            return_value,
+        };
+
+        /// Semantic label attached to one lowered call_op instruction.
+        pub const SiteMetadata = struct {
+            instruction_index: usize,
+            label: []const u8,
+        };
+
+        /// Build a compact span descriptor for function-local requirements or outputs.
+        pub const span = layout.span;
+
+        const LocalKind = enum {
+            ordinary,
+            parameter,
+        };
+
+        fn LocalSpec(comptime T: type, comptime kind: LocalKind) type {
+            return struct {
+                pub const Type = T;
+                pub const is_param = kind == .parameter;
+                name: []const u8,
+            };
+        }
+
+        fn RefLocalSpec(comptime kind: LocalKind) type {
+            return struct {
+                pub const is_param = kind == .parameter;
+                name: []const u8,
+                ref: program_plan.ValueRef,
+            };
+        }
+
+        /// Declare a function parameter local by Zig type.
+        pub fn param(comptime name: []const u8, comptime T: type) LocalSpec(T, .parameter) {
+            return .{ .name = name };
+        }
+
+        /// Declare an ordinary function local by Zig type.
+        pub fn local(comptime name: []const u8, comptime T: type) LocalSpec(T, .ordinary) {
+            return .{ .name = name };
+        }
+
+        /// Declare a function parameter local by explicit ProgramPlan value ref.
+        pub fn paramRef(comptime name: []const u8, comptime ref_value: program_plan.ValueRef) RefLocalSpec(.parameter) {
+            return .{ .name = name, .ref = ref_value };
+        }
+
+        /// Declare an ordinary function local by explicit ProgramPlan value ref.
+        pub fn localRef(comptime name: []const u8, comptime ref_value: program_plan.ValueRef) RefLocalSpec(.ordinary) {
+            return .{ .name = name, .ref = ref_value };
+        }
+
+        fn NamedInstruction(comptime kind: SemanticInstructionKind) type {
+            return struct {
+                pub const semantic_kind = kind;
+                dst: []const u8 = "",
+                operand: []const u8 = "",
+                aux_name: []const u8 = "",
+                aux: u16 = 0,
+                string_literal: []const u8 = "",
+            };
+        }
+
+        fn CallInstruction(comptime OpDescriptor: type) type {
+            return struct {
+                pub const semantic_kind = SemanticInstructionKind.call;
+                pub const Op = OpDescriptor;
+                dst: ?[]const u8 = null,
+                payload: ?[]const u8 = null,
+                label: ?[]const u8 = null,
+            };
+        }
+
+        fn TerminatorSpec(comptime kind: SemanticTerminatorKind) type {
+            return struct {
+                pub const semantic_terminator_kind = kind;
+                condition: []const u8 = "",
+                target: []const u8 = "",
+                then_target: []const u8 = "",
+                else_target: []const u8 = "",
+                value: []const u8 = "",
+                error_name: []const u8 = "",
+            };
+        }
+
+        /// Emit a string literal into a string local.
+        pub fn constString(comptime dst: []const u8, comptime literal: []const u8) NamedInstruction(.const_string) {
+            return .{ .dst = dst, .string_literal = literal };
+        }
+
+        /// Emit an i32 literal into an i32 local.
+        pub fn constI32(comptime dst: []const u8, comptime literal: i32) NamedInstruction(.const_i32) {
+            return .{ .dst = dst, .string_literal = standard.fmt.comptimePrint("{d}", .{literal}) };
+        }
+
+        /// Emit a usize literal into a usize local.
+        pub fn constUsize(comptime dst: []const u8, comptime literal: usize) NamedInstruction(.const_usize) {
+            return .{ .dst = dst, .string_literal = standard.fmt.comptimePrint("{d}", .{literal}) };
+        }
+
+        /// Add two i32 locals.
+        pub fn addI32(comptime dst: []const u8, comptime lhs: []const u8, comptime rhs: []const u8) NamedInstruction(.add_i32) {
+            return .{ .dst = dst, .operand = lhs, .aux_name = rhs };
+        }
+
+        /// Subtract one from an i32 or usize local.
+        pub fn subOne(comptime dst: []const u8, comptime operand: []const u8) NamedInstruction(.sub_one) {
+            return .{ .dst = dst, .operand = operand };
+        }
+
+        /// Compare a bool/i32/usize local against false/zero and write a bool local.
+        pub fn compareEqZero(comptime dst: []const u8, comptime operand: []const u8) NamedInstruction(.compare_eq_zero) {
+            return .{ .dst = dst, .operand = operand };
+        }
+
+        /// Test whether a sum local is the requested variant ordinal.
+        pub fn sumVariantIs(comptime dst: []const u8, comptime source: []const u8, comptime variant_ordinal: u16) NamedInstruction(.sum_variant_is) {
+            return .{ .dst = dst, .operand = source, .aux = variant_ordinal };
+        }
+
+        /// Extract a sum variant payload into a payload-typed local.
+        pub fn sumExtractPayload(comptime dst: []const u8, comptime source: []const u8, comptime variant_ordinal: u16) NamedInstruction(.sum_extract_payload) {
+            return .{ .dst = dst, .operand = source, .aux = variant_ordinal };
+        }
+
+        /// Call a schema.Protocol row operation descriptor.
+        pub fn call(comptime OpDescriptor: type, comptime args: anytype) CallInstruction(OpDescriptor) {
+            if (@hasField(@TypeOf(args), "label") and args.label.len == 0) {
+                @compileError("semantic builder protocol call label must be non-empty");
+            }
+            return .{
+                .dst = optionalStringField(args, "dst"),
+                .payload = optionalStringField(args, "payload"),
+                .label = optionalStringField(args, "label"),
+            };
+        }
+
+        /// Jump to a named block.
+        pub fn jump(comptime target: []const u8) TerminatorSpec(.jump) {
+            return .{ .target = target };
+        }
+
+        /// Branch to named blocks using the last condition-producing instruction.
+        pub fn branchIf(comptime condition: []const u8, comptime targets: anytype) TerminatorSpec(.branch_if) {
+            return .{
+                .condition = condition,
+                .then_target = requiredStringField(targets, "then"),
+                .else_target = requiredStringField(targets, "else"),
+            };
+        }
+
+        /// Return a named local value.
+        pub fn returnValue(comptime value_name: []const u8) TerminatorSpec(.return_value) {
+            return .{ .value = value_name };
+        }
+
+        /// Return unit.
+        pub fn returnUnit() TerminatorSpec(.return_unit) {
+            return .{};
+        }
+
+        /// Return a Body.Error literal.
+        pub fn returnError(comptime error_name: []const u8) TerminatorSpec(.return_error) {
+            return .{ .error_name = error_name };
+        }
+
+        fn Compiled(comptime spec: anytype) type {
+            return struct {
+                plan: program_plan.ProgramPlan,
+                site_metadata: [countSiteLabels(spec)]SiteMetadata,
+            };
+        }
+
+        /// Lower semantic functions, locals, blocks, and calls into one validated ProgramPlan.
+        pub fn finish(comptime spec: anytype) program_plan.ValidationError!Compiled(spec) {
+            const Static = Storage(spec);
+            return .{ .plan = Static.plan, .site_metadata = Static.site_metadata };
+        }
+
+        fn TableSet(comptime spec: anytype) type {
+            return struct {
+                functions: [spec.functions.len]program_plan.FunctionPlan,
+                locals: [countLocals(spec)]program_plan.LocalPlan,
+                blocks: [countBlocks(spec)]program_plan.BlockPlan,
+                terminators: [countBlocks(spec)]program_plan.Terminator,
+                instructions: [countInstructions(spec)]program_plan.Instruction,
+                site_metadata: [countSiteLabels(spec)]SiteMetadata,
+            };
+        }
+
+        fn Storage(comptime spec: anytype) type {
+            const tables = comptime finishImpl(spec) catch |err|
+                @compileError("semantic builder produced invalid table layout: " ++ @errorName(err));
+            return struct {
+                pub const functions = tables.functions;
+                pub const locals = tables.locals;
+                pub const blocks = tables.blocks;
+                pub const terminators = tables.terminators;
+                pub const instructions = tables.instructions;
+                pub const site_metadata = tables.site_metadata;
+                pub const plan = inner.finish(.{
+                    .schema_version = layout.u32Field(spec, "schema_version", program_plan.ProgramPlan.current_schema_version),
+                    .label = spec.label,
+                    .ir_hash = spec.ir_hash,
+                    .entry = entryFunctionRef(spec),
+                    .functions = &functions,
+                    .requirements = layout.tableField(program_plan.RequirementPlan, spec, "requirements"),
+                    .ops = layout.tableField(program_plan.OpPlan, spec, "ops"),
+                    .outputs = layout.tableField(program_plan.OutputPlan, spec, "outputs"),
+                    .value_schemas = valueSchemaTable(spec),
+                    .value_fields = valueFieldTable(spec),
+                    .value_variants = valueVariantTable(spec),
+                    .locals = &locals,
+                    .call_args = layout.tableField(u16, spec, "call_args"),
+                    .blocks = &blocks,
+                    .terminators = &terminators,
+                    .instructions = &instructions,
+                }) catch |err| @compileError("semantic builder produced invalid ProgramPlan: " ++ @errorName(err));
+            };
+        }
+
+        fn optionalStringField(comptime source: anytype, comptime field_name: []const u8) ?[]const u8 {
+            if (@hasField(@TypeOf(source), field_name)) return @field(source, field_name);
+            return null;
+        }
+
+        fn rejectExplicitSchemaTableWithRegistry(comptime spec: anytype, comptime field_name: []const u8) void {
+            if (comptime hasField(spec, "schemas")) {
+                if (comptime hasField(spec, field_name)) {
+                    @compileError("semantic builder derives " ++ field_name ++ " from schemas; omit the explicit table");
+                }
+            }
+        }
+
+        fn valueSchemaTable(comptime spec: anytype) []const program_plan.ValueSchemaPlan {
+            rejectExplicitSchemaTableWithRegistry(spec, "value_schemas");
+            if (comptime hasField(spec, "schemas")) return &spec.schemas.value_schemas;
+            return layout.tableField(program_plan.ValueSchemaPlan, spec, "value_schemas");
+        }
+
+        fn valueFieldTable(comptime spec: anytype) []const program_plan.ValueFieldPlan {
+            rejectExplicitSchemaTableWithRegistry(spec, "value_fields");
+            if (comptime hasField(spec, "schemas")) return &spec.schemas.value_fields;
+            return layout.tableField(program_plan.ValueFieldPlan, spec, "value_fields");
+        }
+
+        fn valueVariantTable(comptime spec: anytype) []const program_plan.ValueVariantPlan {
+            rejectExplicitSchemaTableWithRegistry(spec, "value_variants");
+            if (comptime hasField(spec, "schemas")) return &spec.schemas.value_variants;
+            return layout.tableField(program_plan.ValueVariantPlan, spec, "value_variants");
+        }
+
+        fn requiredStringField(comptime source: anytype, comptime field_name: []const u8) []const u8 {
+            if (!@hasField(@TypeOf(source), field_name)) @compileError("semantic builder missing field '" ++ field_name ++ "'");
+            return @field(source, field_name);
+        }
+
+        fn hasField(comptime source: anytype, comptime field_name: []const u8) bool {
+            return @hasField(@TypeOf(source), field_name);
+        }
+
+        fn valueRefForType(comptime spec: anytype, comptime T: type) program_plan.ValueRef {
+            const codec = comptime program_plan.codecForType(T) catch |err| @compileError(standard.fmt.comptimePrint(
+                "semantic builder unsupported value type '{s}': {s}",
+                .{ @typeName(T), @errorName(err) },
+            ));
+            return switch (codec) {
+                .product, .sum => {
+                    if (comptime hasField(spec, "schemas")) {
+                        return spec.schemas.valueRef(T) orelse @compileError(standard.fmt.comptimePrint(
+                            "semantic builder requires schema.Registry entry for structured type '{s}'",
+                            .{@typeName(T)},
+                        ));
+                    }
+                    @compileError(standard.fmt.comptimePrint(
+                        "semantic builder requires schema.Registry for structured type '{s}'",
+                        .{@typeName(T)},
+                    ));
+                },
+                else => .{ .codec = codec },
+            };
+        }
+
+        fn valueRefFromLocalSpec(comptime spec: anytype, comptime local_spec: anytype) program_plan.ValueRef {
+            const LocalSpecType = @TypeOf(local_spec);
+            if (@hasField(LocalSpecType, "ref")) return local_spec.ref;
+            return valueRefForType(spec, LocalSpecType.Type);
+        }
+
+        fn valueRefFromTypeField(comptime spec: anytype, comptime T: type) program_plan.ValueRef {
+            return valueRefForType(spec, T);
+        }
+
+        fn functionValueRef(comptime spec: anytype, comptime function_spec: anytype) program_plan.ValueRef {
+            if (comptime hasField(function_spec, "value_ref")) return function_spec.value_ref;
+            if (comptime hasField(function_spec, "value")) return valueRefFromTypeField(spec, function_spec.value);
+            if (comptime hasField(function_spec, "result_ref")) return function_spec.result_ref;
+            if (comptime hasField(function_spec, "result")) return valueRefFromTypeField(spec, function_spec.result);
+            return .{ .codec = .unit };
+        }
+
+        fn functionResultRef(comptime spec: anytype, comptime function_spec: anytype) ?program_plan.ValueRef {
+            if (comptime hasField(function_spec, "result_ref")) return function_spec.result_ref;
+            if (comptime hasField(function_spec, "result")) return valueRefFromTypeField(spec, function_spec.result);
+            return null;
+        }
+
+        const LocalInfo = struct {
+            index: u16,
+            ref: program_plan.ValueRef,
+        };
+
+        fn refsEqual(lhs: program_plan.ValueRef, rhs: program_plan.ValueRef) bool {
+            return lhs.codec == rhs.codec and lhs.schema_index == rhs.schema_index;
+        }
+
+        fn expectRef(comptime actual: program_plan.ValueRef, comptime expected: program_plan.ValueRef, comptime message: []const u8) void {
+            if (!refsEqual(actual, expected)) @compileError(message);
+        }
+
+        fn localInfo(comptime spec: anytype, comptime function_spec: anytype, comptime name: []const u8) LocalInfo {
+            comptime var next: u16 = 0;
+            inline for (function_spec.params) |param_spec| {
+                if (standard.mem.eql(u8, param_spec.name, name)) {
+                    return .{ .index = next, .ref = valueRefFromLocalSpec(spec, param_spec) };
+                }
+                next += 1;
+            }
+            inline for (function_spec.locals) |local_spec| {
+                if (standard.mem.eql(u8, local_spec.name, name)) {
+                    return .{ .index = next, .ref = valueRefFromLocalSpec(spec, local_spec) };
+                }
+                next += 1;
+            }
+            @compileError("semantic builder local not found: " ++ name);
+        }
+
+        fn validateLocalNames(comptime function_spec: anytype) void {
+            inline for (function_spec.params, 0..) |lhs, lhs_index| {
+                inline for (function_spec.params, 0..) |rhs, rhs_index| {
+                    if (rhs_index > lhs_index and standard.mem.eql(u8, lhs.name, rhs.name)) {
+                        @compileError("semantic builder duplicate local name: " ++ lhs.name);
+                    }
+                }
+                inline for (function_spec.locals) |rhs| {
+                    if (standard.mem.eql(u8, lhs.name, rhs.name)) {
+                        @compileError("semantic builder duplicate local name: " ++ lhs.name);
+                    }
+                }
+            }
+            inline for (function_spec.locals, 0..) |lhs, lhs_index| {
+                inline for (function_spec.locals, 0..) |rhs, rhs_index| {
+                    if (rhs_index > lhs_index and standard.mem.eql(u8, lhs.name, rhs.name)) {
+                        @compileError("semantic builder duplicate local name: " ++ lhs.name);
+                    }
+                }
+            }
+        }
+
+        fn blockIndex(comptime function_spec: anytype, comptime name: []const u8) u16 {
+            inline for (function_spec.blocks, 0..) |block_spec, index| {
+                if (standard.mem.eql(u8, block_spec.name, name)) return @intCast(index);
+            }
+            @compileError("semantic builder block not found: " ++ name);
+        }
+
+        fn validateBlockNames(comptime function_spec: anytype) void {
+            inline for (function_spec.blocks, 0..) |lhs, lhs_index| {
+                inline for (function_spec.blocks, 0..) |rhs, rhs_index| {
+                    if (rhs_index > lhs_index and standard.mem.eql(u8, lhs.name, rhs.name)) {
+                        @compileError("semantic builder duplicate block name: " ++ lhs.name);
+                    }
+                }
+            }
+        }
+
+        fn entryFunctionRef(comptime spec: anytype) FunctionRef {
+            if (comptime hasField(spec, "entry")) {
+                inline for (spec.functions, 0..) |function_spec, index| {
+                    if (standard.mem.eql(u8, function_spec.symbol_name, spec.entry)) return inner.function(@intCast(index));
+                }
+                @compileError("semantic builder entry function not found: " ++ spec.entry);
+            }
+            return inner.function(0);
+        }
+
+        fn countLocals(comptime spec: anytype) usize {
+            var count: usize = 0;
+            inline for (spec.functions) |function_spec| count += function_spec.params.len + function_spec.locals.len;
+            return count;
+        }
+
+        fn countBlocks(comptime spec: anytype) usize {
+            var count: usize = 0;
+            inline for (spec.functions) |function_spec| count += function_spec.blocks.len;
+            return count;
+        }
+
+        fn terminatorInstructionCount(comptime terminator: anytype) usize {
+            return switch (@TypeOf(terminator).semantic_terminator_kind) {
+                .return_error, .return_value => 1,
+                .branch_if, .jump, .return_unit => 0,
+            };
+        }
+
+        fn countInstructions(comptime spec: anytype) usize {
+            var count: usize = 0;
+            inline for (spec.functions) |function_spec| {
+                inline for (function_spec.blocks) |block_spec| {
+                    count += block_spec.instructions.len + terminatorInstructionCount(block_spec.terminator);
+                }
+            }
+            return count;
+        }
+
+        fn countSiteLabels(comptime spec: anytype) usize {
+            var count: usize = 0;
+            inline for (spec.functions) |function_spec| {
+                inline for (function_spec.blocks) |block_spec| {
+                    inline for (block_spec.instructions) |instruction| {
+                        if (@TypeOf(instruction).semantic_kind == .call and instruction.label != null) count += 1;
+                    }
+                }
+            }
+            return count;
+        }
+
+        fn validateBranchCondition(
+            comptime block_spec: anytype,
+            comptime terminator: anytype,
+        ) void {
+            if (block_spec.instructions.len == 0) {
+                @compileError("semantic builder branch_if requires a preceding condition instruction");
+            }
+            const last = block_spec.instructions[block_spec.instructions.len - 1];
+            switch (@TypeOf(last).semantic_kind) {
+                .compare_eq_zero, .sum_variant_is => {
+                    if (!standard.mem.eql(u8, last.dst, terminator.condition)) {
+                        @compileError("semantic builder branch_if condition must name the last condition instruction destination");
+                    }
+                },
+                else => @compileError("semantic builder branch_if requires compareEqZero or sumVariantIs immediately before it"),
+            }
+        }
+
+        fn emitInstruction(
+            comptime spec: anytype,
+            comptime function_spec: anytype,
+            function_ref: FunctionRef,
+            comptime instruction: anytype,
+        ) program_plan.Instruction {
+            switch (@TypeOf(instruction).semantic_kind) {
+                .const_string => {
+                    const dst = localInfo(spec, function_spec, instruction.dst);
+                    expectRef(dst.ref, .{ .codec = .string }, "semantic builder constString destination must be string");
+                    return .{ .kind = .const_string, .dst = dst.index, .string_literal = instruction.string_literal };
+                },
+                .const_i32 => {
+                    const dst = localInfo(spec, function_spec, instruction.dst);
+                    expectRef(dst.ref, .{ .codec = .i32 }, "semantic builder constI32 destination must be i32");
+                    return .{ .kind = .const_i32, .dst = dst.index, .string_literal = instruction.string_literal };
+                },
+                .const_usize => {
+                    const dst = localInfo(spec, function_spec, instruction.dst);
+                    expectRef(dst.ref, .{ .codec = .usize }, "semantic builder constUsize destination must be usize");
+                    return .{ .kind = .const_usize, .dst = dst.index, .string_literal = instruction.string_literal };
+                },
+                .add_i32 => {
+                    const dst = localInfo(spec, function_spec, instruction.dst);
+                    const lhs = localInfo(spec, function_spec, instruction.operand);
+                    const rhs = localInfo(spec, function_spec, instruction.aux_name);
+                    expectRef(dst.ref, .{ .codec = .i32 }, "semantic builder addI32 destination must be i32");
+                    expectRef(lhs.ref, .{ .codec = .i32 }, "semantic builder addI32 lhs must be i32");
+                    expectRef(rhs.ref, .{ .codec = .i32 }, "semantic builder addI32 rhs must be i32");
+                    return .{ .kind = .add_i32, .dst = dst.index, .operand = lhs.index, .aux = rhs.index };
+                },
+                .sub_one => {
+                    const dst = localInfo(spec, function_spec, instruction.dst);
+                    const operand = localInfo(spec, function_spec, instruction.operand);
+                    if (operand.ref.codec != .i32 and operand.ref.codec != .usize) @compileError("semantic builder subOne operand must be i32 or usize");
+                    expectRef(dst.ref, operand.ref, "semantic builder subOne destination must match operand type");
+                    return .{ .kind = .sub_one, .dst = dst.index, .operand = operand.index };
+                },
+                .compare_eq_zero => {
+                    const dst = localInfo(spec, function_spec, instruction.dst);
+                    const operand = localInfo(spec, function_spec, instruction.operand);
+                    expectRef(dst.ref, .{ .codec = .bool }, "semantic builder compareEqZero destination must be bool");
+                    if (operand.ref.codec != .bool and operand.ref.codec != .i32 and operand.ref.codec != .usize) {
+                        @compileError("semantic builder compareEqZero operand must be bool, i32, or usize");
+                    }
+                    return .{ .kind = .compare_eq_zero, .dst = dst.index, .operand = operand.index };
+                },
+                .sum_variant_is => {
+                    const dst = localInfo(spec, function_spec, instruction.dst);
+                    const source = localInfo(spec, function_spec, instruction.operand);
+                    expectRef(dst.ref, .{ .codec = .bool }, "semantic builder sumVariantIs destination must be bool");
+                    if (source.ref.codec != .sum) @compileError("semantic builder sumVariantIs source must be sum");
+                    return .{ .kind = .sum_variant_is, .dst = dst.index, .operand = source.index, .aux = instruction.aux };
+                },
+                .sum_extract_payload => {
+                    const dst = localInfo(spec, function_spec, instruction.dst);
+                    const source = localInfo(spec, function_spec, instruction.operand);
+                    if (source.ref.codec != .sum) @compileError("semantic builder sumExtractPayload source must be sum");
+                    return .{ .kind = .sum_extract_payload, .dst = dst.index, .operand = source.index, .aux = instruction.aux };
+                },
+                .call => {
+                    const Op = @TypeOf(instruction).Op;
+                    const payload_local: ?LocalRef = if (instruction.payload) |payload_name| blk: {
+                        const info = localInfo(spec, function_spec, payload_name);
+                        expectRef(info.ref, Op.payload_ref, "semantic builder protocol call payload type mismatch");
+                        break :blk inner.local(function_ref, info.index);
+                    } else null;
+                    if (instruction.payload == null and Op.payload_ref.codec != .unit) {
+                        @compileError("semantic builder protocol call payload is required");
+                    }
+                    if (instruction.payload != null and Op.payload_ref.codec == .unit) {
+                        @compileError("semantic builder protocol call payload must be omitted for unit payload");
+                    }
+
+                    const dst_local: ?LocalRef = if (instruction.dst) |dst_name| blk: {
+                        const info = localInfo(spec, function_spec, dst_name);
+                        expectRef(info.ref, Op.resume_ref, "semantic builder protocol call destination/resume type mismatch");
+                        break :blk inner.local(function_ref, info.index);
+                    } else null;
+                    if (instruction.dst == null and Op.resume_ref.codec != .unit) {
+                        @compileError("semantic builder protocol call destination is required for non-unit resume");
+                    }
+                    if (instruction.dst != null and Op.resume_ref.codec == .unit) {
+                        @compileError("semantic builder protocol call destination must be omitted for unit resume");
+                    }
+
+                    return Op.call(function_ref, dst_local, payload_local) catch |err|
+                        @compileError("semantic builder protocol call produced invalid instruction: " ++ @errorName(err));
+                },
+            }
+        }
+
+        fn finishImpl(comptime spec: anytype) program_plan.ValidationError!TableSet(spec) {
+            const local_count = countLocals(spec);
+            const block_count = countBlocks(spec);
+            const instruction_count = countInstructions(spec);
+            const site_label_count = countSiteLabels(spec);
+
+            var functions: [spec.functions.len]program_plan.FunctionPlan = undefined;
+            var locals: [local_count]program_plan.LocalPlan = undefined;
+            var blocks: [block_count]program_plan.BlockPlan = undefined;
+            var terminators: [block_count]program_plan.Terminator = undefined;
+            var instructions: [instruction_count]program_plan.Instruction = undefined;
+            var site_metadata: [site_label_count]SiteMetadata = undefined;
+
+            var next_local: usize = 0;
+            var next_block: usize = 0;
+            var next_instruction: usize = 0;
+            var next_site_label: usize = 0;
+
+            inline for (spec.functions, 0..) |function_spec, function_index| {
+                comptime validateLocalNames(function_spec);
+                comptime validateBlockNames(function_spec);
+                const function_ref = inner.function(@intCast(function_index));
+                const first_local = next_local;
+                inline for (function_spec.params) |param_spec| {
+                    const ref_value = comptime valueRefFromLocalSpec(spec, param_spec);
+                    locals[next_local] = .{ .codec = ref_value.codec, .schema_index = ref_value.schema_index };
+                    next_local += 1;
+                }
+                inline for (function_spec.locals) |local_spec| {
+                    const ref_value = comptime valueRefFromLocalSpec(spec, local_spec);
+                    locals[next_local] = .{ .codec = ref_value.codec, .schema_index = ref_value.schema_index };
+                    next_local += 1;
+                }
+
+                const first_block = next_block;
+                const first_instruction = next_instruction;
+                inline for (function_spec.blocks) |block_spec| {
+                    const block_first_instruction = next_instruction;
+                    inline for (block_spec.instructions) |instruction| {
+                        instructions[next_instruction] = comptime emitInstruction(spec, function_spec, function_ref, instruction);
+                        if (@TypeOf(instruction).semantic_kind == .call) {
+                            if (instruction.label) |label| {
+                                site_metadata[next_site_label] = .{
+                                    .instruction_index = next_instruction,
+                                    .label = label,
+                                };
+                                next_site_label += 1;
+                            }
+                        }
+                        next_instruction += 1;
+                    }
+
+                    const terminator_kind = @TypeOf(block_spec.terminator).semantic_terminator_kind;
+                    if (terminator_kind == .branch_if) comptime validateBranchCondition(block_spec, block_spec.terminator);
+                    switch (terminator_kind) {
+                        .return_value => {
+                            const info = comptime localInfo(spec, function_spec, block_spec.terminator.value);
+                            const value_ref = comptime functionValueRef(spec, function_spec);
+                            expectRef(info.ref, value_ref, "semantic builder returnValue local type must match function value type");
+                            instructions[next_instruction] = comptime inner.returnValue(function_ref, inner.local(function_ref, info.index)) catch |err|
+                                @compileError("semantic builder returnValue produced invalid instruction: " ++ @errorName(err));
+                            next_instruction += 1;
+                            terminators[next_block] = .{ .kind = .return_value };
+                        },
+                        .return_error => {
+                            if (block_spec.terminator.error_name.len == 0) @compileError("semantic builder returnError requires a non-empty error name");
+                            instructions[next_instruction] = .{ .kind = .return_error, .string_literal = block_spec.terminator.error_name };
+                            next_instruction += 1;
+                            terminators[next_block] = .{ .kind = .return_unit };
+                        },
+                        .return_unit => terminators[next_block] = .{ .kind = .return_unit },
+                        .jump => terminators[next_block] = .{
+                            .kind = .jump,
+                            .primary = try layout.checkedIndex(first_block + comptime blockIndex(function_spec, block_spec.terminator.target)),
+                        },
+                        .branch_if => terminators[next_block] = .{
+                            .kind = .branch_if,
+                            .primary = try layout.checkedIndex(first_block + comptime blockIndex(function_spec, block_spec.terminator.then_target)),
+                            .secondary = try layout.checkedIndex(first_block + comptime blockIndex(function_spec, block_spec.terminator.else_target)),
+                        },
+                    }
+
+                    blocks[next_block] = .{
+                        .first_instruction = try layout.checkedIndex(block_first_instruction),
+                        .instruction_count = try layout.checkedIndex(next_instruction - block_first_instruction),
+                        .terminator_index = try layout.checkedIndex(next_block),
+                    };
+                    next_block += 1;
+                }
+
+                const value_ref = comptime functionValueRef(spec, function_spec);
+                const result_ref = comptime functionResultRef(spec, function_spec);
+                const requirement_span = if (comptime hasField(function_spec, "requirements")) function_spec.requirements else layout.Span{};
+                const output_span = if (comptime hasField(function_spec, "outputs")) function_spec.outputs else layout.Span{};
+                const entry_block = if (comptime hasField(function_spec, "entry_block")) comptime blockIndex(function_spec, function_spec.entry_block) else 0;
+                functions[function_index] = .{
+                    .symbol_name = function_spec.symbol_name,
+                    .value_codec = value_ref.codec,
+                    .value_schema_index = value_ref.schema_index,
+                    .result_codec = if (result_ref) |ref| ref.codec else null,
+                    .result_schema_index = if (result_ref) |ref| ref.schema_index else null,
+                    .parameter_count = try layout.checkedIndex(function_spec.params.len),
+                    .first_requirement = requirement_span.first,
+                    .requirement_count = requirement_span.count,
+                    .first_output = output_span.first,
+                    .output_count = output_span.count,
+                    .first_local = try layout.checkedIndex(first_local),
+                    .local_count = try layout.checkedIndex(next_local - first_local),
+                    .first_block = try layout.checkedIndex(first_block),
+                    .entry_block = try layout.checkedIndex(entry_block),
+                    .block_count = try layout.checkedIndex(next_block - first_block),
+                    .first_instruction = try layout.checkedIndex(first_instruction),
+                    .instruction_count = try layout.checkedIndex(next_instruction - first_instruction),
+                };
+            }
+
+            return .{
+                .functions = functions,
+                .locals = locals,
+                .blocks = blocks,
+                .terminators = terminators,
+                .instructions = instructions,
+                .site_metadata = site_metadata,
+            };
+        }
+    };
+
     /// Higher-level typed ProgramPlan constructors for common public examples.
     pub const typed = struct {
         fn mustPlan(result: program_plan.ValidationError!program_plan.ProgramPlan) program_plan.ProgramPlan {
@@ -669,6 +1353,34 @@ pub const schema = struct {
                     }
                 }
                 return null;
+            }
+        };
+    }
+
+    /// Derive ProgramPlan value schema tables and schema refs from an explicit
+    /// tuple of Zig scalar/product/sum types.
+    pub fn Registry(comptime entries: anytype) type {
+        comptime validateRegistryEntries(entries);
+        const schema_types = comptime registryStructuredTypes(entries);
+        const registry = program_plan.ValueSchemaRegistryForTypes(schema_types[0..]);
+        const ref_entries = comptime registrySchemaRefs(schema_types[0..]);
+        const Refs = SchemaRefs(ref_entries);
+
+        return struct {
+            pub const value_schema_types = schema_types;
+            pub const registered_schema_types = schema_types;
+            pub const value_schemas = registry.value_schemas;
+            pub const value_fields = registry.value_fields;
+            pub const value_variants = registry.value_variants;
+            pub const schema_refs_type = Refs;
+            pub const schema_refs = Refs;
+
+            pub fn valueRef(comptime T: type) ?program_plan.ValueRef {
+                const codec = comptime program_plan.codecForType(T) catch return null;
+                return switch (codec) {
+                    .product, .sum => Refs.valueRef(T),
+                    else => .{ .codec = codec },
+                };
             }
         };
     }
@@ -1126,6 +1838,119 @@ pub const schema = struct {
                 }
             }
         }
+    }
+
+    fn validateRegistryEntries(comptime entries: anytype) void {
+        inline for (entries, 0..) |Entry, index| {
+            const codec = comptime program_plan.codecForType(Entry) catch |err| @compileError(standard.fmt.comptimePrint(
+                "schema.Registry unsupported type '{s}': {s}",
+                .{ @typeName(Entry), @errorName(err) },
+            ));
+            switch (codec) {
+                .product, .sum => inline for (entries, 0..) |Prior, prior_index| {
+                    if (prior_index < index and Prior == Entry) {
+                        @compileError(standard.fmt.comptimePrint(
+                            "schema.Registry has duplicate structured type '{s}'",
+                            .{@typeName(Entry)},
+                        ));
+                    }
+                },
+                else => {},
+            }
+            validateRegistryNestedRefs(entries, Entry);
+        }
+    }
+
+    fn registryContainsStructuredType(comptime entries: anytype, comptime T: type) bool {
+        inline for (entries) |Entry| {
+            if (Entry == T) return true;
+        }
+        return false;
+    }
+
+    fn validateRegistryNestedType(
+        comptime entries: anytype,
+        comptime Owner: type,
+        comptime Child: type,
+    ) void {
+        const codec = comptime program_plan.codecForType(Child) catch |err| @compileError(standard.fmt.comptimePrint(
+            "schema.Registry unsupported nested type '{s}' referenced by '{s}': {s}",
+            .{ @typeName(Child), @typeName(Owner), @errorName(err) },
+        ));
+        switch (codec) {
+            .product, .sum => if (!registryContainsStructuredType(entries, Child)) {
+                @compileError(standard.fmt.comptimePrint(
+                    "schema.Registry missing nested structured type '{s}' referenced by '{s}'",
+                    .{ @typeName(Child), @typeName(Owner) },
+                ));
+            },
+            else => {},
+        }
+    }
+
+    fn validateRegistryNestedRefs(comptime entries: anytype, comptime Entry: type) void {
+        const codec = comptime program_plan.codecForType(Entry) catch |err| @compileError(standard.fmt.comptimePrint(
+            "schema.Registry unsupported type '{s}': {s}",
+            .{ @typeName(Entry), @errorName(err) },
+        ));
+        switch (codec) {
+            .product => switch (@typeInfo(Entry)) {
+                .@"struct" => |info| inline for (info.fields) |field| {
+                    validateRegistryNestedType(entries, Entry, field.type);
+                },
+                else => {},
+            },
+            .sum => switch (@typeInfo(Entry)) {
+                .@"union" => |info| inline for (info.fields) |field| {
+                    validateRegistryNestedType(entries, Entry, field.type);
+                },
+                .optional => |info| validateRegistryNestedType(entries, Entry, info.child),
+                else => {},
+            },
+            else => {},
+        }
+    }
+
+    fn registryStructuredCount(comptime entries: anytype) usize {
+        var count: usize = 0;
+        inline for (entries) |Entry| {
+            const codec = comptime program_plan.codecForType(Entry) catch |err| @compileError(standard.fmt.comptimePrint(
+                "schema.Registry unsupported type '{s}': {s}",
+                .{ @typeName(Entry), @errorName(err) },
+            ));
+            switch (codec) {
+                .product, .sum => count += 1,
+                else => {},
+            }
+        }
+        return count;
+    }
+
+    fn registryStructuredTypes(comptime entries: anytype) [registryStructuredCount(entries)]type {
+        var types: [registryStructuredCount(entries)]type = undefined;
+        var next: usize = 0;
+        inline for (entries) |Entry| {
+            const codec = comptime program_plan.codecForType(Entry) catch |err| @compileError(standard.fmt.comptimePrint(
+                "schema.Registry unsupported type '{s}': {s}",
+                .{ @typeName(Entry), @errorName(err) },
+            ));
+            switch (codec) {
+                .product, .sum => {
+                    types[next] = Entry;
+                    next += 1;
+                },
+                else => {},
+            }
+        }
+        return types;
+    }
+
+    fn registrySchemaRefs(comptime schema_types: anytype) [schema_types.len]type {
+        var refs: [schema_types.len]type = undefined;
+        inline for (schema_types, 0..) |SchemaType, index| {
+            refs[index] = schema.ref(SchemaType, @intCast(index));
+        }
+        return refs;
     }
 
     fn validateProtocolSpec(comptime spec: anytype) void {
@@ -1683,6 +2508,316 @@ test "schema lowerer lowers writer binding to ProgramPlan rows" {
     // ProgramPlan output rows describe accumulator item refs; Body.Outputs owns
     // the final collection shape.
     try standard.testing.expectEqual(program_plan.ValueCodec.i32, Rows.outputs[0].codec);
+}
+
+test "schema Registry emits product value schemas and refs" {
+    const ProductPayload = struct {
+        id: []const u8,
+        amount: i32,
+    };
+    const Schemas = schema.Registry(.{ ProductPayload, i32, []const u8 });
+
+    try standard.testing.expectEqual(@as(usize, 1), Schemas.value_schema_types.len);
+    try standard.testing.expect(Schemas.value_schema_types[0] == ProductPayload);
+    try standard.testing.expectEqual(@as(usize, 1), Schemas.value_schemas.len);
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, Schemas.value_schemas[0].codec);
+    try standard.testing.expectEqual(@as(u16, 0), Schemas.value_schemas[0].first_field);
+    try standard.testing.expectEqual(@as(u16, 2), Schemas.value_schemas[0].field_count);
+    try standard.testing.expectEqualStrings("id", Schemas.value_fields[0].name);
+    try standard.testing.expectEqual(program_plan.ValueCodec.string, Schemas.value_fields[0].codec);
+    try standard.testing.expectEqualStrings("amount", Schemas.value_fields[1].name);
+    try standard.testing.expectEqual(program_plan.ValueCodec.i32, Schemas.value_fields[1].codec);
+    try standard.testing.expectEqual(program_plan.ValueRef{ .codec = .product, .schema_index = 0 }, Schemas.valueRef(ProductPayload).?);
+    try standard.testing.expectEqual(program_plan.ValueRef{ .codec = .i32 }, Schemas.valueRef(i32).?);
+}
+
+test "schema Registry emits sum value variants from tuple order" {
+    const LookupResult = union(enum) {
+        found: []const u8,
+        missing: void,
+    };
+    const ProductPayload = struct {
+        result: LookupResult,
+    };
+    const Schemas = schema.Registry(.{ LookupResult, ProductPayload });
+
+    try standard.testing.expectEqual(@as(usize, 2), Schemas.value_schema_types.len);
+    try standard.testing.expect(Schemas.value_schema_types[0] == LookupResult);
+    try standard.testing.expect(Schemas.value_schema_types[1] == ProductPayload);
+    try standard.testing.expectEqual(program_plan.ValueCodec.sum, Schemas.value_schemas[0].codec);
+    try standard.testing.expectEqual(@as(u16, 0), Schemas.value_schemas[0].first_variant);
+    try standard.testing.expectEqual(@as(u16, 2), Schemas.value_schemas[0].variant_count);
+    try standard.testing.expectEqualStrings("found", Schemas.value_variants[0].name);
+    try standard.testing.expectEqual(program_plan.ValueCodec.string, Schemas.value_variants[0].codec);
+    try standard.testing.expectEqualStrings("missing", Schemas.value_variants[1].name);
+    try standard.testing.expectEqual(program_plan.ValueCodec.unit, Schemas.value_variants[1].codec);
+    try standard.testing.expectEqualStrings("result", Schemas.value_fields[0].name);
+    try standard.testing.expectEqual(program_plan.ValueCodec.sum, Schemas.value_fields[0].codec);
+    try standard.testing.expectEqual(@as(?u16, 0), Schemas.value_fields[0].schema_index);
+}
+
+test "schema Registry refs are accepted by Protocol.Rows" {
+    const RequestPayload = struct {
+        id: []const u8,
+    };
+    const Decision = union(enum) {
+        approved: []const u8,
+        denied: void,
+    };
+    const Schemas = schema.Registry(.{ RequestPayload, Decision });
+    const Protocol = schema.Protocol(.{
+        .label = "registry.protocol",
+        .ops = .{
+            schema.transform("ask", RequestPayload, Decision),
+        },
+    });
+    const Rows = Protocol.Rows(struct {}, .{
+        .requirement_index = 0,
+        .first_op = 0,
+        .schema_refs = Schemas.schema_refs,
+    });
+
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, Rows.ops[0].payload_codec);
+    try standard.testing.expectEqual(@as(?u16, 0), Rows.ops[0].payload_schema_index);
+    try standard.testing.expectEqual(program_plan.ValueCodec.sum, Rows.ops[0].resume_codec);
+    try standard.testing.expectEqual(@as(?u16, 1), Rows.ops[0].resume_schema_index);
+}
+
+test "semantic builder emits valid scalar plan and computes spans" {
+    const compiled = comptime builder.semantic.finish(.{
+        .label = "semantic.scalar",
+        .ir_hash = 0x5151,
+        .entry = "run",
+        .functions = .{.{
+            .symbol_name = "run",
+            .params = .{},
+            .locals = .{
+                builder.semantic.local("result", i32),
+            },
+            .result = i32,
+            .blocks = .{.{
+                .name = "entry",
+                .instructions = .{
+                    builder.semantic.constI32("result", 42),
+                },
+                .terminator = builder.semantic.returnValue("result"),
+            }},
+        }},
+    }) catch |err| @compileError("semantic scalar plan failed: " ++ @errorName(err));
+
+    try standard.testing.expectEqual(@as(usize, 1), compiled.plan.functions.len);
+    try standard.testing.expectEqual(@as(u16, 0), compiled.plan.functions[0].first_local);
+    try standard.testing.expectEqual(@as(u16, 1), compiled.plan.functions[0].local_count);
+    try standard.testing.expectEqual(@as(u16, 0), compiled.plan.functions[0].first_block);
+    try standard.testing.expectEqual(@as(u16, 1), compiled.plan.functions[0].block_count);
+    try standard.testing.expectEqual(@as(u16, 0), compiled.plan.functions[0].first_instruction);
+    try standard.testing.expectEqual(@as(u16, 2), compiled.plan.functions[0].instruction_count);
+    try standard.testing.expectEqual(program_plan.InstructionKind.const_i32, compiled.plan.instructions[0].kind);
+    try standard.testing.expectEqual(program_plan.InstructionKind.return_value, compiled.plan.instructions[1].kind);
+}
+
+test "semantic builder emits valid product identity plan" {
+    const Payload = struct {
+        amount: i32,
+    };
+    const Schemas = schema.Registry(.{Payload});
+    const compiled = comptime builder.semantic.finish(.{
+        .label = "semantic.product",
+        .ir_hash = 0x5152,
+        .entry = "run",
+        .schemas = Schemas,
+        .functions = .{.{
+            .symbol_name = "run",
+            .params = .{
+                builder.semantic.param("payload", Payload),
+            },
+            .locals = .{},
+            .result = Payload,
+            .blocks = .{.{
+                .name = "entry",
+                .instructions = .{},
+                .terminator = builder.semantic.returnValue("payload"),
+            }},
+        }},
+    }) catch |err| @compileError("semantic product plan failed: " ++ @errorName(err));
+
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, compiled.plan.functions[0].value_codec);
+    try standard.testing.expectEqual(@as(?u16, 0), compiled.plan.functions[0].value_schema_index);
+    try standard.testing.expectEqual(@as(u16, 1), compiled.plan.functions[0].parameter_count);
+    try standard.testing.expectEqual(@as(usize, 1), compiled.plan.value_schemas.len);
+}
+
+test "semantic builder emits valid sum branch plan" {
+    const Decision = union(enum) {
+        approved: []const u8,
+        denied: void,
+    };
+    const Schemas = schema.Registry(.{Decision});
+    const compiled = comptime builder.semantic.finish(.{
+        .label = "semantic.sum",
+        .ir_hash = 0x5153,
+        .entry = "run",
+        .schemas = Schemas,
+        .functions = .{.{
+            .symbol_name = "run",
+            .params = .{
+                builder.semantic.param("decision", Decision),
+            },
+            .locals = .{
+                builder.semantic.local("is_approved", bool),
+                builder.semantic.local("answer", []const u8),
+            },
+            .result = []const u8,
+            .blocks = .{
+                .{
+                    .name = "entry",
+                    .instructions = .{
+                        builder.semantic.sumVariantIs("is_approved", "decision", 0),
+                    },
+                    .terminator = builder.semantic.branchIf("is_approved", .{ .then = "approved", .@"else" = "denied" }),
+                },
+                .{
+                    .name = "approved",
+                    .instructions = .{
+                        builder.semantic.sumExtractPayload("answer", "decision", 0),
+                    },
+                    .terminator = builder.semantic.returnValue("answer"),
+                },
+                .{
+                    .name = "denied",
+                    .instructions = .{
+                        builder.semantic.constString("answer", "denied"),
+                    },
+                    .terminator = builder.semantic.returnValue("answer"),
+                },
+            },
+        }},
+    }) catch |err| @compileError("semantic sum plan failed: " ++ @errorName(err));
+
+    try standard.testing.expectEqual(@as(usize, 3), compiled.plan.blocks.len);
+    try standard.testing.expectEqual(program_plan.TerminatorKind.branch_if, compiled.plan.terminators[0].kind);
+    try standard.testing.expectEqual(@as(u16, 1), compiled.plan.terminators[0].primary);
+    try standard.testing.expectEqual(@as(u16, 2), compiled.plan.terminators[0].secondary);
+}
+
+test "semantic builder emits protocol transform call with site label" {
+    const Protocol = schema.Protocol(.{
+        .label = "semantic.protocol.transform",
+        .ops = .{
+            schema.transform("exists", []const u8, i32),
+        },
+    });
+    const Rows = Protocol.Rows(struct {}, .{ .requirement_index = 0, .first_op = 0 });
+    const Exists = Rows.op("exists");
+    const compiled = comptime builder.semantic.finish(.{
+        .label = "semantic.protocol.transform.plan",
+        .ir_hash = 0x5154,
+        .entry = "run",
+        .requirements = &.{Rows.requirement},
+        .ops = &Rows.ops,
+        .functions = .{.{
+            .symbol_name = "run",
+            .requirements = builder.semantic.span(0, 1),
+            .params = .{},
+            .locals = .{
+                builder.semantic.local("payload", []const u8),
+                builder.semantic.local("exists", i32),
+            },
+            .result = i32,
+            .blocks = .{.{
+                .name = "entry",
+                .instructions = .{
+                    builder.semantic.constString("payload", "request-7"),
+                    builder.semantic.call(Exists, .{ .dst = "exists", .payload = "payload", .label = "semantic.exists" }),
+                },
+                .terminator = builder.semantic.returnValue("exists"),
+            }},
+        }},
+    }) catch |err| @compileError("semantic protocol transform plan failed: " ++ @errorName(err));
+
+    try standard.testing.expectEqual(program_plan.InstructionKind.call_op, compiled.plan.instructions[1].kind);
+    try standard.testing.expectEqual(@as(u16, 0), compiled.plan.instructions[1].operand);
+    try standard.testing.expectEqual(@as(usize, 1), compiled.site_metadata.len);
+    try standard.testing.expectEqual(@as(usize, 1), compiled.site_metadata[0].instruction_index);
+    try standard.testing.expectEqualStrings("semantic.exists", compiled.site_metadata[0].label);
+}
+
+test "semantic builder emits protocol choice call" {
+    const Protocol = schema.Protocol(.{
+        .label = "semantic.protocol.choice",
+        .ops = .{
+            schema.choice("request", []const u8, i32),
+        },
+    });
+    const Rows = Protocol.Rows(struct {}, .{ .requirement_index = 0, .first_op = 0 });
+    const Request = Rows.op("request");
+    const compiled = comptime builder.semantic.finish(.{
+        .label = "semantic.protocol.choice.plan",
+        .ir_hash = 0x5155,
+        .entry = "run",
+        .requirements = &.{Rows.requirement},
+        .ops = &Rows.ops,
+        .functions = .{.{
+            .symbol_name = "run",
+            .requirements = builder.semantic.span(0, 1),
+            .params = .{},
+            .locals = .{
+                builder.semantic.local("payload", []const u8),
+                builder.semantic.local("answer", i32),
+            },
+            .result = i32,
+            .blocks = .{.{
+                .name = "entry",
+                .instructions = .{
+                    builder.semantic.constString("payload", "request-7"),
+                    builder.semantic.call(Request, .{ .dst = "answer", .payload = "payload" }),
+                },
+                .terminator = builder.semantic.returnValue("answer"),
+            }},
+        }},
+    }) catch |err| @compileError("semantic protocol choice plan failed: " ++ @errorName(err));
+
+    try standard.testing.expectEqual(program_plan.ControlMode.choice, compiled.plan.ops[0].mode);
+    try standard.testing.expectEqual(program_plan.InstructionKind.call_op, compiled.plan.instructions[1].kind);
+}
+
+test "semantic builder emits protocol abort call" {
+    const Protocol = schema.Protocol(.{
+        .label = "semantic.protocol.abort",
+        .ops = .{
+            schema.abort("invalid", []const u8),
+        },
+    });
+    const Rows = Protocol.Rows(struct {}, .{ .requirement_index = 0, .first_op = 0 });
+    const Invalid = Rows.op("invalid");
+    const compiled = comptime builder.semantic.finish(.{
+        .label = "semantic.protocol.abort.plan",
+        .ir_hash = 0x5156,
+        .entry = "run",
+        .requirements = &.{Rows.requirement},
+        .ops = &Rows.ops,
+        .functions = .{.{
+            .symbol_name = "run",
+            .requirements = builder.semantic.span(0, 1),
+            .params = .{},
+            .locals = .{
+                builder.semantic.local("payload", []const u8),
+            },
+            .result = []const u8,
+            .blocks = .{.{
+                .name = "entry",
+                .instructions = .{
+                    builder.semantic.constString("payload", "missing"),
+                    builder.semantic.call(Invalid, .{ .payload = "payload", .label = "semantic.invalid" }),
+                },
+                .terminator = builder.semantic.returnValue("payload"),
+            }},
+        }},
+    }) catch |err| @compileError("semantic protocol abort plan failed: " ++ @errorName(err));
+
+    try standard.testing.expectEqual(program_plan.ControlMode.abort, compiled.plan.ops[0].mode);
+    try standard.testing.expectEqual(@as(u16, standard.math.maxInt(u16)), compiled.plan.instructions[1].dst);
+    try standard.testing.expectEqualStrings("semantic.invalid", compiled.site_metadata[0].label);
 }
 
 test "schema lowerer maps product refs through explicit schema refs" {

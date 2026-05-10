@@ -98,6 +98,15 @@ test/compile_fail/schema_protocol_missing_sum_ref.zig
 test/compile_fail/schema_refs_duplicate_type.zig
 test/compile_fail/schema_refs_scalar_entry.zig
 test/compile_fail/schema_refs_unsupported_type.zig
+test/compile_fail/schema_registry_duplicate_structured_type.zig
+test/compile_fail/schema_registry_missing_nested_ref.zig
+test/compile_fail/schema_registry_unsupported_type.zig
+test/compile_fail/semantic_empty_site_label.zig
+test/compile_fail/semantic_invalid_branch_target.zig
+test/compile_fail/semantic_local_type_mismatch.zig
+test/compile_fail/semantic_protocol_payload_mismatch.zig
+test/compile_fail/semantic_protocol_resume_mismatch.zig
+test/compile_fail/semantic_schema_registry_duplicate_tables.zig
 test/compile_fail/value_schema_variant_mismatch.zig
 test/plan_native_contract_matrix_test.zig
 test/program_api_test.zig

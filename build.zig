@@ -444,6 +444,18 @@ pub fn build(b: *std.Build) void {
             .expected_error = "schema.SchemaRefs unsupported type '*const i32': UnsupportedCodecType",
         },
         .{
+            .path = "test/compile_fail/schema_registry_duplicate_structured_type.zig",
+            .expected_error = "schema.Registry has duplicate structured type 'schema_registry_duplicate_structured_type.ProductPayload'",
+        },
+        .{
+            .path = "test/compile_fail/schema_registry_missing_nested_ref.zig",
+            .expected_error = "schema.Registry missing nested structured type 'schema_registry_missing_nested_ref.InnerPayload' referenced by 'schema_registry_missing_nested_ref.OuterPayload'",
+        },
+        .{
+            .path = "test/compile_fail/schema_registry_unsupported_type.zig",
+            .expected_error = "schema.Registry unsupported type '*const i32': UnsupportedCodecType",
+        },
+        .{
             .path = "test/compile_fail/schema_protocol_empty_label.zig",
             .expected_error = "schema.Protocol requires a non-empty label",
         },
@@ -462,6 +474,30 @@ pub fn build(b: *std.Build) void {
         .{
             .path = "test/compile_fail/schema_protocol_missing_sum_ref.zig",
             .expected_error = "schema.LowerBinding requires a schema ref for product/sum resume type 'schema_protocol_missing_sum_ref.Decision'",
+        },
+        .{
+            .path = "test/compile_fail/semantic_protocol_payload_mismatch.zig",
+            .expected_error = "semantic builder protocol call payload type mismatch",
+        },
+        .{
+            .path = "test/compile_fail/semantic_protocol_resume_mismatch.zig",
+            .expected_error = "semantic builder protocol call destination/resume type mismatch",
+        },
+        .{
+            .path = "test/compile_fail/semantic_invalid_branch_target.zig",
+            .expected_error = "semantic builder block not found: missing",
+        },
+        .{
+            .path = "test/compile_fail/semantic_local_type_mismatch.zig",
+            .expected_error = "semantic builder constString destination must be string",
+        },
+        .{
+            .path = "test/compile_fail/semantic_empty_site_label.zig",
+            .expected_error = "semantic builder protocol call label must be non-empty",
+        },
+        .{
+            .path = "test/compile_fail/semantic_schema_registry_duplicate_tables.zig",
+            .expected_error = "semantic builder derives value_schemas from schemas; omit the explicit table",
         },
         .{
             .path = "test/compile_fail/custom_protocol_coverage_omitted_operation.zig",

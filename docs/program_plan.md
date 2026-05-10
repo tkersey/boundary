@@ -101,6 +101,93 @@ the whole program when their terminal result ref matches the caller's result ref
 including typed product and sum results declared through `Body.value_schema_types`.
 There is no global target discovery.
 
+## Semantic Program Authoring
+
+`ability.ir.builder.semantic` is the preferred authoring layer for ordinary
+custom protocol programs. It is a construction helper, not a source language:
+`finish(spec)` lowers typed functions, parameters, locals, named blocks,
+terminators, and protocol calls into the existing `ability.ir.ProgramPlan`.
+After construction, execution, validation, contracts, sessions, protocol
+descriptors, traces, and fingerprints all observe the same ordinary plan kernel.
+
+The semantic builder sits above raw `ability.ir.plan.*` rows,
+`ability.ir.builder.layout`, and schema protocol row descriptors. Authors can
+declare locals by Zig type and call protocol descriptors directly:
+
+```zig
+const Schemas = ability.ir.schema.Registry(.{ Request, Decision });
+const Rows = Workflow.Rows(Handlers, .{
+    .requirement_index = 0,
+    .first_op = 0,
+    .schema_refs = Schemas.schema_refs,
+});
+const RequestOp = Rows.op("request");
+
+const compiled = ability.ir.builder.semantic.finish(.{
+    .label = "approval",
+    .ir_hash = 11,
+    .entry = "run",
+    .schemas = Schemas,
+    .requirements = &.{Rows.requirement},
+    .ops = &Rows.ops,
+    .functions = .{.{
+        .symbol_name = "run",
+        .requirements = ability.ir.builder.semantic.span(0, 1),
+        .params = .{},
+        .locals = .{
+            ability.ir.builder.semantic.local("payload", Request),
+            ability.ir.builder.semantic.local("decision", Decision),
+        },
+        .result = Decision,
+        .blocks = .{.{
+            .name = "entry",
+            .instructions = .{
+                ability.ir.builder.semantic.call(RequestOp, .{
+                    .dst = "decision",
+                    .payload = "payload",
+                    .label = "approval.request",
+                }),
+            },
+            .terminator = ability.ir.builder.semantic.returnValue("decision"),
+        }},
+    }},
+}) catch |err| @compileError("invalid semantic plan: " ++ @errorName(err));
+```
+
+`schema.Registry(.{ ... })` derives `value_schemas`, `value_fields`,
+`value_variants`, `schema_refs`, and `value_schema_types` from Zig types. Scalar
+types need no schema row. Product and sum indexes are deterministic from the
+registry tuple order, and nested product/sum refs must be present in the same
+caller-owned registry. Unsupported types and duplicate structured entries fail
+closed at comptime. When a semantic spec provides `.schemas = Schemas`, the
+builder takes the value-schema tables from that registry; callers should not
+repeat those tables separately.
+
+Semantic instructions cover the current public plan-native control-flow shapes:
+string, i32, and usize constants; `add_i32`; `sub_one`; zero comparison;
+sum-variant matching; sum payload extraction; protocol calls through
+`Protocol.Rows(...).op(name)` descriptors; jumps; branches; value/unit/error
+returns. Named blocks are resolved to table indexes by the builder, so ordinary
+authors do not compute `first_local`, `local_count`, `first_block`,
+`block_count`, `first_instruction`, `instruction_count`, or terminator target
+indexes.
+
+Protocol calls can carry optional semantic labels such as
+`approval.request` or `agent.tool`. Labels are debug/display metadata. When a
+body exposes `Body.site_metadata = compiled.site_metadata`, those labels appear
+on static session yield/after sites, `Program.protocol` descriptors, dynamic
+request traces, and after-request traces. They are not durable ids, are not
+source-code locations, and do not participate in plan, site, request, response,
+or value fingerprints; the trace fingerprint version remains the existing
+version unless the hashed contents change.
+
+Raw ProgramPlan construction remains available for kernel tests, unsupported
+instructions, exact table-shape assertions, and advanced escape-hatch work.
+`ability.ir.builder.layout` is still useful when the caller wants nested
+function/block specs but already owns raw instruction rows. New custom effect
+programs should start with `schema.Protocol`, `schema.Registry`, and the
+semantic builder.
+
 ## Program.contract
 
 Every compiled program exposes `Program.contract`, a read-only projection of the
@@ -125,6 +212,8 @@ whether the host may resume or return now. After sites are generated per
 reachable after-enabled call site and point back to the source operation site.
 Two instructions that call the same op therefore have distinct site indexes and
 fingerprints.
+When `Body.site_metadata` is present, operation and after sites also expose an
+optional semantic label for display and debugging.
 
 `Program.contract` is inspection metadata. It does not expose mutable function,
 block, instruction, Artifact, VM, compiler, parser, or capability-map surfaces.
@@ -149,7 +238,8 @@ requirement label and op name. `siteByIndex(index)` is available when the stable
 site index is already known. Each operation descriptor exposes `Payload`,
 `Resume`, and `Result` type aliases, plus the site index, site fingerprint,
 function/block/instruction coordinates, requirement/op identity, op mode,
-payload/resume/result refs, `has_after`, `may_resume`, and `may_return_now`.
+payload/resume/result refs, `has_after`, `may_resume`, `may_return_now`, and
+optional `semantic_label` metadata.
 
 After descriptors are looked up with `afterSite(requirement_label, op_name,
 occurrence_index)` or `afterSiteByIndex(index)`. They expose `Output` and
@@ -215,9 +305,9 @@ type must match the request's resume or terminal result ref.
 label and hash, monotonically increasing session turn index, request kind,
 static operation site index and fingerprint, function/block/instruction
 coordinates, requirement index and label, op index and name, op mode,
-payload/resume/result refs, payload value fingerprint, after flag, fingerprint
-version, and stable request fingerprint. `request.fingerprint()` returns the
-same request
+payload/resume/result refs, payload value fingerprint, after flag, optional
+semantic site label, fingerprint version, and stable request fingerprint.
+`request.fingerprint()` returns the same request
 fingerprint directly, and `request.expectFingerprint(expected)` returns a
 precise mismatch error without mutating the session.
 
@@ -234,8 +324,8 @@ yield in the same reverse unwind order that `Program.run` applies.
 and hash, session turn index, request kind, static after-site index and
 fingerprint, source operation site index, source function/block/instruction
 coordinates, original requirement index and label, original op index and name,
-current value ref and fingerprint, expected output ref, result ref, fingerprint
-version, and stable request fingerprint.
+current value ref and fingerprint, expected output ref, result ref, optional
+semantic site label, fingerprint version, and stable request fingerprint.
 `after.fingerprint()` and `after.expectFingerprint(expected)` provide the same
 direct replay witness helpers as operation requests.
 
@@ -367,6 +457,8 @@ compile time. The indexes are the caller's existing `value_schemas` table
 indexes; nested product/sum schema rows still reference whatever caller-owned
 schema indexes those rows declare. No hidden registry or global schema discovery
 exists.
+For new authored programs, `ability.ir.schema.Registry(.{ ... })` is the usual
+way to derive those schema tables and `schema_refs` together.
 
 Writer accumulator schemas distinguish the final handler output from the
 ProgramPlan output row. The schema final output is the collected `[]Item`; the
@@ -402,8 +494,9 @@ const ApprovalRows = Approval.Rows(Handlers, .{
 `ApprovalRows.requirement`, `ApprovalRows.ops`, and `ApprovalRows.outputs` are
 ordinary rows. The caller still owns requirement, op, output, and value-schema
 indexes. Product and sum payload, resume, and output refs use explicit
-`SchemaRefs`; scalar refs need no entries. There is no hidden registry or table
-reordering.
+`SchemaRefs`; scalar refs need no entries. `schema.Registry(.{ ... })` can
+derive the matching value-schema tables and schema refs in one deterministic
+place. There is no hidden registry or table reordering.
 
 After-enabled custom protocol rows publish `has_after` for the per-binding
 handler type's direct `dispatch`/`afterDispatch` pair, or for requirement-labeled
@@ -414,11 +507,16 @@ conveniences when a full plan has globally unique op names, but row lowering
 cannot prove that global uniqueness in isolation; their presence also suppresses
 direct-handler inference for that op.
 
-The lowered row bundle also exposes op descriptors for instruction authoring:
+The lowered row bundle also exposes op descriptors for semantic instruction
+authoring:
 
 ```zig
 const Request = ApprovalRows.op("request");
-try Request.call(root, decision_local, approval_request_local);
+ability.ir.builder.semantic.call(Request, .{
+    .dst = "decision",
+    .payload = "approval_request",
+    .label = "approval.request",
+});
 ```
 
 After compilation with `ability.program`, no custom runtime surface is needed.
@@ -430,9 +528,10 @@ coverage helpers exactly as they do for raw ProgramPlans.
 
 `examples/custom_approval_workflow.zig` is the reference custom protocol
 example. It defines a `workflow` family with transform, choice, and abort
-operations, authors the control flow with ProgramPlan builder helpers, runs
-synchronously through `Program.run`, and demonstrates the host-driven
-`Program.Session` path through `Program.protocol`.
+operations, derives schema tables with `schema.Registry`, authors control flow
+with `builder.semantic`, runs synchronously through `Program.run`, and
+demonstrates the host-driven `Program.Session` path through `Program.protocol`
+with deterministic trace replay.
 
 ## Built-in plan helper namespaces
 
@@ -537,8 +636,8 @@ Use them when a test needs exact table control, when reproducing a validation
 failure, or when deliberately asserting individual `first_*` and `*_count`
 values.
 
-For ordinary authored plans, prefer `ability.ir.builder.layout`. The layout
-builder accepts nested function specs with local specs, block specs,
+`ability.ir.builder.layout` is the lower construction layer under semantic
+authoring. It accepts nested function specs with local specs, block specs,
 instruction lists, and terminators, then computes the flattened table offsets
 for the existing `ability.ir.ProgramPlan`:
 
@@ -549,10 +648,10 @@ for the existing `ability.ir.ProgramPlan`:
 
 Requirement, operation, output, schema, field, and variant tables are still
 ordinary ProgramPlan rows. The layout builder handles table layout for
-functions, locals, blocks, instructions, and terminators. The schema lowerer
+functions, locals, blocks, instructions, and terminators. The semantic builder
+adds typed local/result declarations, descriptor-backed protocol calls, named
+block targets, and optional site labels above this layer. The schema lowerer
 handles requirement/op/output metadata when an effect binding schema exists.
-The first version keeps requirement/op/output spans explicit, while removing
-manual local/block/instruction/terminator bookkeeping.
 
 `ability.ir.builder.layout.finish` and `finishWithNestedTargets` validate
 through the same ProgramPlan validator and return the same
@@ -561,8 +660,10 @@ builder is a comptime authoring layer; use it from `Body.compiled_plan` or
 other comptime plan constants.
 
 The layout builder is not a parser, compiler, VM, Artifact surface, source
-language, value codec, effect authoring API, or second IR. Nothing survives past
-construction except the validated `ProgramPlan`.
+language, value codec, or second IR. Nothing survives past construction except
+the validated `ProgramPlan`. Use it directly when you need raw instruction rows
+or exact lower-level shape control; use `ability.ir.builder.semantic` for
+ordinary custom protocol programs.
 
 `Program.contract` is the public proof surface for generated plans. Tests should
 assert contract facts such as labels, result refs, entry parameter refs, value
@@ -575,11 +676,10 @@ of adding bespoke requirement/op/output row generators. Optional-shaped helpers
 may still provide control-flow conveniences, but the common metadata should
 come from schemas when the schema can describe it.
 
-This is not custom effect authoring yet. It does not expose `effect.Define`,
-`effect.ops`, public generated custom effects, a parser, compiler, VM,
-Artifact surface, source language, value codec, second IR, or new execution
-semantics. It only emits ordinary ProgramPlan row structs that can be inspected
-through `Program.contract`.
+None of these builders exposes `effect.Define`, `effect.ops`, public generated
+custom effects, a parser, compiler, VM, Artifact surface, source language,
+value codec, second IR, or new execution semantics. They only emit ordinary
+ProgramPlan row structs that can be inspected through `Program.contract`.
 
 For common typed examples, `ability.ir.builder.typed` remains available and now
 builds through the layout layer while still returning the same

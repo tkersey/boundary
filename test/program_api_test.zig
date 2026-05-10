@@ -8972,8 +8972,16 @@ test "Program.Session trace operation metadata and replay fingerprint helpers" {
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "session-trace-operation");
+        pub const site_metadata = .{.{
+            .instruction_index = 1,
+            .label = "trace.operation.decide",
+        }};
     };
     const Program = ability.program("session-trace-operation", struct {}, Body);
+    const UnlabeledProgram = ability.program("session-trace-operation", struct {}, struct {
+        pub const compiled_plan = Body.compiled_plan;
+    });
+    const DecideSite = Program.protocol.operationSite("session", "decide", 0);
 
     var first_session = try Program.Session.start(&runtime, .{});
     defer first_session.deinit();
@@ -8992,6 +9000,10 @@ test "Program.Session trace operation metadata and replay fingerprint helpers" {
     try std.testing.expectEqual(Program.Session.Trace.RequestKind.operation, first_trace.kind);
     try std.testing.expectEqual(@as(usize, 0), first_trace.operation_site_index);
     try std.testing.expectEqual(Program.contract.session.yield_sites[0].fingerprint, first_trace.operation_site_fingerprint);
+    try std.testing.expectEqual(Program.contract.session.yield_sites[0].fingerprint, UnlabeledProgram.contract.session.yield_sites[0].fingerprint);
+    try std.testing.expectEqualStrings("trace.operation.decide", Program.contract.session.yield_sites[0].semantic_label.?);
+    try std.testing.expectEqualStrings("trace.operation.decide", DecideSite.semantic_label.?);
+    try std.testing.expectEqualStrings("trace.operation.decide", first_trace.semantic_label.?);
     try std.testing.expectEqual(@as(usize, 0), first_trace.function_index);
     try std.testing.expectEqual(@as(usize, 0), first_trace.block_index);
     try std.testing.expectEqual(@as(usize, 1), first_trace.instruction_index);
@@ -9039,8 +9051,15 @@ test "Program.Session trace after metadata and current value fingerprint stabili
 
     const Body = struct {
         pub const compiled_plan = compiledTransformPlan("session-trace-after");
+        pub const site_metadata = .{.{
+            .instruction_index = 0,
+            .label = "trace.after.dispatch",
+        }};
     };
     const Program = ability.program("session-trace-after", struct {}, Body);
+    const UnlabeledProgram = ability.program("session-trace-after", struct {}, struct {
+        pub const compiled_plan = Body.compiled_plan;
+    });
 
     var first_session = try Program.Session.start(&runtime, .{});
     defer first_session.deinit();
@@ -9060,6 +9079,10 @@ test "Program.Session trace after metadata and current value fingerprint stabili
     try std.testing.expectEqual(@as(usize, 1), first_trace.turn_index);
     try std.testing.expectEqual(@as(usize, 0), first_trace.after_site_index);
     try std.testing.expectEqual(Program.contract.session.after_sites[0].fingerprint, first_trace.after_site_fingerprint);
+    try std.testing.expectEqual(Program.contract.session.after_sites[0].fingerprint, UnlabeledProgram.contract.session.after_sites[0].fingerprint);
+    try std.testing.expectEqualStrings("trace.after.dispatch", Program.contract.session.yield_sites[0].semantic_label.?);
+    try std.testing.expectEqualStrings("trace.after.dispatch", Program.contract.session.after_sites[0].semantic_label.?);
+    try std.testing.expectEqualStrings("trace.after.dispatch", first_trace.semantic_label.?);
     try std.testing.expectEqual(@as(usize, 0), first_trace.source_operation_site_index);
     try std.testing.expectEqual(Program.contract.session.yield_sites[0].fingerprint, first_trace.source_operation_site_fingerprint);
     try std.testing.expectEqual(@as(usize, 0), first_trace.function_index);

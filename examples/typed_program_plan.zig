@@ -13,84 +13,44 @@ const Tagged = union(enum) {
     yes: i32,
 };
 
-const item_fields = [_]ability.ir.ValueFieldPlan{
-    ability.ir.value.field("amount", i32),
-};
-
-const optional_variants = [_]ability.ir.ValueVariantPlan{
-    ability.ir.value.unitVariant("none"),
-    ability.ir.value.variant("some", i32),
-};
-
-const tagged_variants = [_]ability.ir.ValueVariantPlan{
-    ability.ir.value.unitVariant("none"),
-    ability.ir.value.variant("yes", i32),
-};
+const ProductSchemas = ability.ir.schema.Registry(.{Item});
+const OptionalSchemas = ability.ir.schema.Registry(.{?i32});
+const TaggedSchemas = ability.ir.schema.Registry(.{Tagged});
 
 const writer_outputs = [_]ability.ir.plan.Output{.{
     .label = "writer",
     .codec = .i32,
 }};
 
-fn mustInstruction(result: anyerror!ability.ir.plan.Instruction) ability.ir.plan.Instruction {
-    return result catch |err| std.debug.panic("invalid typed ProgramPlan example instruction: {s}", .{@errorName(err)});
-}
-
-fn mustPlan(result: anyerror!ability.ir.ProgramPlan) ability.ir.ProgramPlan {
-    return result catch |err| std.debug.panic("invalid typed ProgramPlan example plan: {s}", .{@errorName(err)});
-}
-
-fn constI32(dst: ability.ir.builder.LocalRef, comptime literal: i32) ability.ir.plan.Instruction {
-    if (literal >= 0 and literal <= std.math.maxInt(u16)) {
-        return .{ .kind = .const_i32, .dst = dst.index, .operand = @intCast(literal) };
-    }
-    return .{
-        .kind = .const_i32,
-        .dst = dst.index,
-        .string_literal = std.fmt.comptimePrint("{d}", .{literal}),
-    };
-}
-
 fn productIdentityPlan(
     comptime Payload: type,
     comptime label: []const u8,
-    comptime fields: []const ability.ir.ValueFieldPlan,
+    comptime Schemas: type,
 ) ability.ir.ProgramPlan {
-    const root = comptime ability.ir.builder.function(0);
-    const payload = comptime ability.ir.builder.local(root, 0);
-    const schemas = [_]ability.ir.ValueSchemaPlan{.{
-        .label = @typeName(Payload),
-        .codec = .product,
-        .first_field = 0,
-        .field_count = @intCast(fields.len),
-    }};
-
-    return mustPlan(ability.ir.builder.layout.finish(.{
+    const semantic = ability.ir.builder.semantic;
+    return (semantic.finish(.{
         .label = label,
         .ir_hash = 0x746270000002,
-        .entry = root,
-        .value_schemas = &schemas,
-        .value_fields = fields,
+        .entry = "run",
+        .schemas = Schemas,
         .functions = .{.{
             .symbol_name = "run",
-            .value_ref = ability.ir.ValueRef{ .codec = .product, .schema_index = 0 },
-            .parameter_count = 1,
-            .locals = .{
-                .{ .codec = .product, .schema_index = 0 },
+            .params = .{
+                semantic.param("payload", Payload),
             },
+            .locals = .{},
+            .result = Payload,
             .blocks = .{.{
-                .instructions = .{
-                    mustInstruction(ability.ir.builder.returnValue(root, payload)),
-                },
-                .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                .name = "entry",
+                .instructions = .{},
+                .terminator = semantic.returnValue("payload"),
             }},
         }},
-    }));
+    }) catch |err| @compileError("invalid semantic product ProgramPlan example: " ++ @errorName(err))).plan;
 }
 
 const SumVariantI32BranchSpec = struct {
     label: []const u8,
-    variants: []const ability.ir.ValueVariantPlan,
     variant_ordinal: u16,
     matched_value: i32,
     fallback_value: i32,
@@ -98,130 +58,114 @@ const SumVariantI32BranchSpec = struct {
 
 fn sumVariantI32BranchPlan(
     comptime Sum: type,
+    comptime Schemas: type,
     comptime spec: SumVariantI32BranchSpec,
 ) ability.ir.ProgramPlan {
-    const root = comptime ability.ir.builder.function(0);
-    const payload = comptime ability.ir.builder.local(root, 0);
-    const condition = comptime ability.ir.builder.local(root, 1);
-    const result = comptime ability.ir.builder.local(root, 2);
-    const schemas = [_]ability.ir.ValueSchemaPlan{.{
-        .label = @typeName(Sum),
-        .codec = .sum,
-        .first_variant = 0,
-        .variant_count = @intCast(spec.variants.len),
-    }};
-
-    return mustPlan(ability.ir.builder.layout.finish(.{
+    const semantic = ability.ir.builder.semantic;
+    return (semantic.finish(.{
         .label = spec.label,
         .ir_hash = 0x746270000003,
-        .entry = root,
-        .value_schemas = &schemas,
-        .value_variants = spec.variants,
+        .entry = "run",
+        .schemas = Schemas,
         .functions = .{.{
             .symbol_name = "run",
-            .value_ref = ability.ir.ValueRef{ .codec = .i32 },
-            .parameter_count = 1,
-            .locals = .{
-                .{ .codec = .sum, .schema_index = 0 },
-                .{ .codec = .bool },
-                .{ .codec = .i32 },
+            .params = .{
+                semantic.param("payload", Sum),
             },
+            .locals = .{
+                semantic.local("condition", bool),
+                semantic.local("result", i32),
+            },
+            .result = i32,
             .blocks = .{
                 .{
+                    .name = "entry",
                     .instructions = .{
-                        mustInstruction(ability.ir.builder.sumVariantIs(root, condition, payload, spec.variant_ordinal)),
+                        semantic.sumVariantIs("condition", "payload", spec.variant_ordinal),
                     },
-                    .terminator = ability.ir.plan.Terminator{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                    .terminator = semantic.branchIf("condition", .{ .then = "matched", .@"else" = "fallback" }),
                 },
                 .{
+                    .name = "matched",
                     .instructions = .{
-                        constI32(result, spec.matched_value),
-                        mustInstruction(ability.ir.builder.returnValue(root, result)),
+                        semantic.constI32("result", spec.matched_value),
                     },
-                    .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                    .terminator = semantic.returnValue("result"),
                 },
                 .{
+                    .name = "fallback",
                     .instructions = .{
-                        constI32(result, spec.fallback_value),
-                        mustInstruction(ability.ir.builder.returnValue(root, result)),
+                        semantic.constI32("result", spec.fallback_value),
                     },
-                    .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                    .terminator = semantic.returnValue("result"),
                 },
             },
         }},
-    }));
+    }) catch |err| @compileError("invalid semantic sum branch ProgramPlan example: " ++ @errorName(err))).plan;
 }
 
 fn sumExtractI32PayloadPlan(
     comptime Sum: type,
     comptime label: []const u8,
-    comptime variants: []const ability.ir.ValueVariantPlan,
+    comptime Schemas: type,
     comptime variant_ordinal: u16,
 ) ability.ir.ProgramPlan {
-    const root = comptime ability.ir.builder.function(0);
-    const payload = comptime ability.ir.builder.local(root, 0);
-    const extracted = comptime ability.ir.builder.local(root, 1);
-    const schemas = [_]ability.ir.ValueSchemaPlan{.{
-        .label = @typeName(Sum),
-        .codec = .sum,
-        .first_variant = 0,
-        .variant_count = @intCast(variants.len),
-    }};
-
-    return mustPlan(ability.ir.builder.layout.finish(.{
+    const semantic = ability.ir.builder.semantic;
+    return (semantic.finish(.{
         .label = label,
         .ir_hash = 0x746270000004,
-        .entry = root,
-        .value_schemas = &schemas,
-        .value_variants = variants,
+        .entry = "run",
+        .schemas = Schemas,
         .functions = .{.{
             .symbol_name = "run",
-            .value_ref = ability.ir.ValueRef{ .codec = .i32 },
-            .parameter_count = 1,
-            .locals = .{
-                .{ .codec = .sum, .schema_index = 0 },
-                .{ .codec = .i32 },
+            .params = .{
+                semantic.param("payload", Sum),
             },
+            .locals = .{
+                semantic.local("extracted", i32),
+            },
+            .result = i32,
             .blocks = .{.{
+                .name = "entry",
                 .instructions = .{
-                    mustInstruction(ability.ir.builder.sumExtractPayload(root, extracted, payload, variant_ordinal)),
-                    mustInstruction(ability.ir.builder.returnValue(root, extracted)),
+                    semantic.sumExtractPayload("extracted", "payload", variant_ordinal),
                 },
-                .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                .terminator = semantic.returnValue("extracted"),
             }},
         }},
-    }));
+    }) catch |err| @compileError("invalid semantic sum extract ProgramPlan example: " ++ @errorName(err))).plan;
 }
 
 fn unitWithOutputsPlan(
     comptime label: []const u8,
     comptime outputs: []const ability.ir.plan.Output,
 ) ability.ir.ProgramPlan {
-    const root = comptime ability.ir.builder.function(0);
-
-    return mustPlan(ability.ir.builder.layout.finish(.{
+    const semantic = ability.ir.builder.semantic;
+    return (semantic.finish(.{
         .label = label,
         .ir_hash = 0x746270000005,
-        .entry = root,
+        .entry = "run",
         .outputs = outputs,
         .functions = .{.{
             .symbol_name = "run",
-            .outputs = ability.ir.builder.layout.span(0, outputs.len),
+            .params = .{},
             .locals = .{},
+            .outputs = semantic.span(0, outputs.len),
             .blocks = .{.{
+                .name = "entry",
                 .instructions = .{},
-                .terminator = ability.ir.plan.Terminator{ .kind = .return_unit },
+                .terminator = semantic.returnUnit(),
             }},
         }},
-    }));
+    }) catch |err| @compileError("invalid semantic output ProgramPlan example: " ++ @errorName(err))).plan;
 }
 
 const ProductBody = struct {
-    pub const value_schema_types = .{Item};
+    pub const value_schema_types = ProductSchemas.value_schema_types;
     pub const compiled_plan = productIdentityPlan(
         Item,
         "typed-product-example",
-        &item_fields,
+        ProductSchemas,
     );
 
     pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{Item{ .amount = 42 }}) {
@@ -230,12 +174,12 @@ const ProductBody = struct {
 };
 
 const SomeBody = struct {
-    pub const value_schema_types = .{?i32};
+    pub const value_schema_types = OptionalSchemas.value_schema_types;
     pub const compiled_plan = sumVariantI32BranchPlan(
         ?i32,
+        OptionalSchemas,
         .{
             .label = "typed-sum-some-example",
-            .variants = &optional_variants,
             .variant_ordinal = 1,
             .matched_value = 1,
             .fallback_value = 0,
@@ -248,12 +192,12 @@ const SomeBody = struct {
 };
 
 const NoneBody = struct {
-    pub const value_schema_types = .{?i32};
+    pub const value_schema_types = OptionalSchemas.value_schema_types;
     pub const compiled_plan = sumVariantI32BranchPlan(
         ?i32,
+        OptionalSchemas,
         .{
             .label = "typed-sum-none-example",
-            .variants = &optional_variants,
             .variant_ordinal = 1,
             .matched_value = 1,
             .fallback_value = 0,
@@ -266,11 +210,11 @@ const NoneBody = struct {
 };
 
 const TaggedBody = struct {
-    pub const value_schema_types = .{Tagged};
+    pub const value_schema_types = TaggedSchemas.value_schema_types;
     pub const compiled_plan = sumExtractI32PayloadPlan(
         Tagged,
         "tagged-payload-example",
-        &tagged_variants,
+        TaggedSchemas,
         1,
     );
 

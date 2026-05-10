@@ -2,14 +2,6 @@
 const ability = @import("ability");
 const std = @import("std");
 
-fn mustInstruction(result: anyerror!ability.ir.plan.Instruction) ability.ir.plan.Instruction {
-    return result catch |err| std.debug.panic("invalid custom-approval instruction: {s}", .{@errorName(err)});
-}
-
-fn mustPlan(result: anyerror!ability.ir.ProgramPlan) ability.ir.ProgramPlan {
-    return result catch |err| std.debug.panic("invalid custom-approval plan: {s}", .{@errorName(err)});
-}
-
 pub const Transcript = struct {
     lookups: usize = 0,
     choices: usize = 0,
@@ -94,91 +86,81 @@ pub const WorkflowProtocol = ability.ir.schema.Protocol(.{
     },
 });
 
+pub const WorkflowSchemas = ability.ir.schema.Registry(.{ []const u8, i32 });
+
 pub const WorkflowRows = WorkflowProtocol.Rows(WorkflowHandlers, .{
     .requirement_index = 0,
     .first_op = 0,
+    .schema_refs = WorkflowSchemas.schema_refs,
 });
 
-fn workflowPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
+const workflow_semantic_spec = blk: {
+    const semantic = ability.ir.builder.semantic;
     const Exists = WorkflowRows.op("exists");
     const Request = WorkflowRows.op("request");
     const Invalid = WorkflowRows.op("invalid");
-    const request_payload = ability.ir.builder.local(root, 0);
-    const exists_value = ability.ir.builder.local(root, 1);
-    const approval_resume = ability.ir.builder.local(root, 2);
-    const publish_payload = ability.ir.builder.local(root, 3);
-    const final_value = ability.ir.builder.local(root, 4);
-    const invalid_payload = ability.ir.builder.local(root, 5);
-    const missing_value = ability.ir.builder.local(root, 6);
-    const instructions = [_]ability.ir.plan.Instruction{
-        .{ .kind = .const_string, .dst = request_payload.index, .string_literal = "request-7" },
-        mustInstruction(Exists.call(root, exists_value, request_payload)),
-        .{ .kind = .compare_eq_zero, .dst = missing_value.index, .operand = exists_value.index },
-        .{ .kind = .const_string, .dst = invalid_payload.index, .string_literal = "missing" },
-        mustInstruction(Invalid.call(root, null, invalid_payload)),
-        mustInstruction(ability.ir.builder.returnValue(root, invalid_payload)),
-        mustInstruction(Request.call(root, approval_resume, request_payload)),
-        .{ .kind = .const_string, .dst = publish_payload.index, .string_literal = "publish-7" },
-        mustInstruction(Exists.call(root, exists_value, publish_payload)),
-        .{ .kind = .const_string, .dst = final_value.index, .string_literal = "published:approved" },
-        mustInstruction(ability.ir.builder.returnValue(root, final_value)),
-    };
-    const functions = [_]ability.ir.plan.Function{.{
-        .symbol_name = "run",
-        .value_codec = .string,
-        .result_codec = .string,
-        .parameter_count = 0,
-        .first_requirement = 0,
-        .requirement_count = 1,
-        .first_output = 0,
-        .output_count = 0,
-        .first_local = 0,
-        .local_count = 7,
-        .first_block = 0,
-        .entry_block = 0,
-        .block_count = 3,
-        .first_instruction = 0,
-        .instruction_count = @intCast(instructions.len),
-    }};
-    const requirements = [_]ability.ir.plan.Requirement{WorkflowRows.requirement};
-    const ops = WorkflowRows.ops;
-    const blocks = [_]ability.ir.plan.Block{
-        .{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 },
-        .{ .first_instruction = 3, .instruction_count = 3, .terminator_index = 1 },
-        .{ .first_instruction = 6, .instruction_count = 5, .terminator_index = 2 },
-    };
-    const terminators = [_]ability.ir.plan.Terminator{
-        .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
-        .{ .kind = .return_value },
-        .{ .kind = .return_value },
-    };
 
-    return mustPlan(ability.ir.builder.finish(.{
+    break :blk .{
         .label = "custom-approval",
         .ir_hash = 11,
-        .entry = root,
-        .functions = &functions,
-        .requirements = &requirements,
-        .ops = &ops,
-        .outputs = &.{},
-        .locals = &.{
-            .{ .codec = .string },
-            .{ .codec = .i32 },
-            .{ .codec = .i32 },
-            .{ .codec = .string },
-            .{ .codec = .string },
-            .{ .codec = .string },
-            .{ .codec = .bool },
-        },
-        .blocks = &blocks,
-        .terminators = &terminators,
-        .instructions = &instructions,
-    }));
-}
+        .entry = "run",
+        .schemas = WorkflowSchemas,
+        .requirements = &.{WorkflowRows.requirement},
+        .ops = &WorkflowRows.ops,
+        .functions = .{.{
+            .symbol_name = "run",
+            .requirements = semantic.span(0, 1),
+            .params = .{},
+            .locals = .{
+                semantic.local("request_payload", []const u8),
+                semantic.local("exists_value", i32),
+                semantic.local("approval_resume", i32),
+                semantic.local("publish_payload", []const u8),
+                semantic.local("final_value", []const u8),
+                semantic.local("invalid_payload", []const u8),
+                semantic.local("missing_value", bool),
+            },
+            .result = []const u8,
+            .blocks = .{
+                .{
+                    .name = "entry",
+                    .instructions = .{
+                        semantic.constString("request_payload", "request-7"),
+                        semantic.call(Exists, .{ .dst = "exists_value", .payload = "request_payload", .label = "approval.exists.initial" }),
+                        semantic.compareEqZero("missing_value", "exists_value"),
+                    },
+                    .terminator = semantic.branchIf("missing_value", .{ .then = "invalid", .@"else" = "request" }),
+                },
+                .{
+                    .name = "invalid",
+                    .instructions = .{
+                        semantic.constString("invalid_payload", "missing"),
+                        semantic.call(Invalid, .{ .payload = "invalid_payload", .label = "approval.invalid" }),
+                    },
+                    .terminator = semantic.returnValue("invalid_payload"),
+                },
+                .{
+                    .name = "request",
+                    .instructions = .{
+                        semantic.call(Request, .{ .dst = "approval_resume", .payload = "request_payload", .label = "approval.request" }),
+                        semantic.constString("publish_payload", "publish-7"),
+                        semantic.call(Exists, .{ .dst = "exists_value", .payload = "publish_payload", .label = "approval.exists.publish" }),
+                        semantic.constString("final_value", "published:approved"),
+                    },
+                    .terminator = semantic.returnValue("final_value"),
+                },
+            },
+        }},
+    };
+};
+
+const workflow_compiled = ability.ir.builder.semantic.finish(workflow_semantic_spec) catch |err|
+    @compileError("invalid custom-approval semantic plan: " ++ @errorName(err));
 
 pub const WorkflowBody = struct {
-    pub const compiled_plan = workflowPlan();
+    pub const value_schema_types = WorkflowSchemas.value_schema_types;
+    pub const site_metadata = workflow_compiled.site_metadata;
+    pub const compiled_plan = workflow_compiled.plan;
 };
 
 pub const WorkflowProgram = ability.program("custom-approval", WorkflowHandlers, WorkflowBody);
