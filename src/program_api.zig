@@ -515,6 +515,12 @@ fn ProgramContractFor(
             pub const parks_runtime = true;
             /// Whether the owning Runtime must outlive all live sessions.
             pub const requires_runtime_lifetime = true;
+            /// Whether yielded session requests expose deterministic trace metadata.
+            pub const trace_supported = true;
+            /// Stable fingerprint algorithm version mixed into all session trace hashes.
+            pub const fingerprint_version = lowering_api.trace_fingerprint_version;
+            /// Whether typed Program.Session values can be fingerprinted for trace/audit metadata.
+            pub const value_fingerprint_supported = true;
             /// Number of retained blockers for session execution.
             pub const blocker_count = SessionLedger.blockers.len;
             /// Maximum blocker records retained by the session ledger.
@@ -699,6 +705,7 @@ pub fn program(
         pub const Session = struct {
             const Core = lowering_api.ExecutableSessionForPlan(
                 BodyErrorSet(Body),
+                label,
                 body_compiled_plan,
                 body_value_schema_types,
                 body_nested_with_targets,
@@ -724,6 +731,8 @@ pub fn program(
             pub const Request = Core.Request;
             /// Defunctionalized after-continuation request yielded by `next`.
             pub const AfterRequest = Core.AfterRequest;
+            /// Read-only request/response trace metadata and fingerprint views.
+            pub const Trace = Core.Trace;
             /// One session step: either a terminal result, yielded operation request, or yielded after continuation.
             pub const Step = union(enum) {
                 after: AfterRequest,

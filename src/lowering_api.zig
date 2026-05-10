@@ -745,6 +745,9 @@ pub fn authoredBoundProgramPlan(
 
 const max_interpreter_steps = 10_000;
 
+/// Stable version tag mixed into Program.Session trace fingerprints.
+pub const trace_fingerprint_version: u32 = 1;
+
 const SchemaValue = struct {
     schema_index: u16,
     ptr: *const anyopaque,
@@ -2985,6 +2988,7 @@ fn validateSessionTerminalPropagation(
 
 pub fn ExecutableSessionForPlan(
     comptime ErrorSet: type,
+    comptime program_label: []const u8,
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime schema_types: anytype,
     comptime nested_with_targets: anytype,
@@ -2995,6 +2999,7 @@ pub fn ExecutableSessionForPlan(
         @compileError("validated ProgramPlan entry analysis failed: " ++ @errorName(err));
     const RawResult = TypedRunResultTypeForPlan(compiled_plan, schema_types);
     const session_after_stack_capacity = if (analysis.reachable_after_count == 0) 0 else max_interpreter_steps;
+    const plan_hash = compiled_plan.hash();
 
     return struct {
         const Self = @This();
@@ -3047,12 +3052,90 @@ pub fn ExecutableSessionForPlan(
             schema_index: u16,
         };
 
+        // zlinter-disable declaration_naming - Program.Session.Trace is the documented host-facing trace namespace.
+        pub const Trace = struct {
+            pub const fingerprint_version = trace_fingerprint_version;
+
+            pub const RequestKind = enum {
+                after,
+                operation,
+            };
+
+            pub const ResponseKind = enum {
+                @"resume",
+                return_now,
+                resume_after,
+            };
+
+            pub const FingerprintError = error{
+                TraceFingerprintMismatch,
+            };
+
+            pub const OperationRequest = struct {
+                fingerprint_version: u32 = trace_fingerprint_version,
+                program_label: []const u8,
+                plan_label: []const u8,
+                plan_hash: u64,
+                turn_index: usize,
+                kind: RequestKind = .operation,
+                requirement_index: u16,
+                requirement_label: []const u8,
+                op_index: u16,
+                op_name: []const u8,
+                mode: program_plan.ControlMode,
+                payload_ref: program_plan.ValueRef,
+                has_payload: bool,
+                payload_value_fingerprint: u64,
+                resume_ref: program_plan.ValueRef,
+                result_ref: program_plan.ValueRef,
+                has_after: bool,
+                fingerprint: u64,
+
+                pub fn eql(self: @This(), expected: u64) bool {
+                    return self.fingerprint == expected;
+                }
+            };
+
+            pub const AfterRequest = struct {
+                fingerprint_version: u32 = trace_fingerprint_version,
+                program_label: []const u8,
+                plan_label: []const u8,
+                plan_hash: u64,
+                turn_index: usize,
+                kind: RequestKind = .after,
+                original_requirement_index: u16,
+                original_requirement_label: []const u8,
+                original_op_index: u16,
+                original_op_name: []const u8,
+                current_value_ref: program_plan.ValueRef,
+                current_value_fingerprint: u64,
+                expected_output_ref: program_plan.ValueRef,
+                result_ref: program_plan.ValueRef,
+                fingerprint: u64,
+
+                pub fn eql(self: @This(), expected: u64) bool {
+                    return self.fingerprint == expected;
+                }
+            };
+
+            pub const Response = struct {
+                fingerprint_version: u32 = trace_fingerprint_version,
+                request_fingerprint: u64,
+                kind: ResponseKind,
+                response_ref: program_plan.ValueRef,
+                response_value_fingerprint: u64,
+                fingerprint: u64,
+            };
+        };
+        // zlinter-enable declaration_naming
+
         allocator: std.mem.Allocator,
         scratch: InterpreterScratch(session_after_stack_capacity),
         frames: ActiveFrameStack,
         session_id: usize,
         remaining_steps: usize = max_interpreter_steps,
         next_token: u64 = 1,
+        next_turn_index: usize = 0,
         pending: ?Pending = null,
         unwinding_after: ?AfterUnwind = null,
         completed: ?ExecutionResult = null,
@@ -3073,6 +3156,9 @@ pub fn ExecutableSessionForPlan(
             has_after: bool,
             _payload: RequestPayload,
             _payload_storage: [request_payload_storage_size]u8 align(request_payload_storage_align) = undefined,
+            _turn_index: usize,
+            _payload_value_fingerprint: u64,
+            _fingerprint: u64,
 
             pub fn payload(self: @This(), comptime T: type) error{ProgramContractViolation}!T {
                 if (!typeMatchesRuntimeRef(schema_types, self.payload_ref, T)) return error.ProgramContractViolation;
@@ -3119,6 +3205,51 @@ pub fn ExecutableSessionForPlan(
                 };
             }
 
+            pub fn trace(self: @This()) Trace.OperationRequest {
+                return .{
+                    .program_label = program_label,
+                    .plan_label = compiled_plan.label,
+                    .plan_hash = plan_hash,
+                    .turn_index = self._turn_index,
+                    .requirement_index = self.requirement_index,
+                    .requirement_label = self.requirement_label,
+                    .op_index = self.op_index,
+                    .op_name = self.op_name,
+                    .mode = self.mode,
+                    .payload_ref = self.payload_ref,
+                    .has_payload = self.has_payload,
+                    .payload_value_fingerprint = self._payload_value_fingerprint,
+                    .resume_ref = self.resume_ref,
+                    .result_ref = self.result_ref,
+                    .has_after = self.has_after,
+                    .fingerprint = self._fingerprint,
+                };
+            }
+
+            pub fn fingerprint(self: @This()) u64 {
+                return self._fingerprint;
+            }
+
+            pub fn expectFingerprint(self: @This(), expected: u64) Trace.FingerprintError!void {
+                if (self._fingerprint != expected) return error.TraceFingerprintMismatch;
+            }
+
+            pub fn responseTrace(self: @This(), kind: Trace.ResponseKind, response_value: anytype) error{ProgramContractViolation}!Trace.Response {
+                const response_ref = switch (kind) {
+                    .@"resume" => blk: {
+                        if (self.mode == .abort) return error.ProgramContractViolation;
+                        break :blk self.resume_ref;
+                    },
+                    .return_now => blk: {
+                        if (self.mode == .transform) return error.ProgramContractViolation;
+                        break :blk self.result_ref;
+                    },
+                    .resume_after => return error.ProgramContractViolation,
+                };
+                const value_fingerprint = try Self.fingerprintTypedValueForRef(response_ref, response_value);
+                return Self.responseTraceFor(self._fingerprint, kind, response_ref, value_fingerprint);
+            }
+
             fn setPayload(self: *@This(), payload_value: ExecutableValue) error{ProgramContractViolation}!void {
                 self._payload = switch (payload_value) {
                     .none => .none,
@@ -3158,6 +3289,9 @@ pub fn ExecutableSessionForPlan(
             _remaining: usize,
             _value: RequestPayload,
             _value_storage: [request_payload_storage_size]u8 align(request_payload_storage_align) = undefined,
+            _turn_index: usize,
+            _value_fingerprint: u64,
+            _fingerprint: u64,
 
             pub fn value(self: @This(), comptime T: type) error{ProgramContractViolation}!T {
                 if (!typeMatchesRuntimeRef(schema_types, self.value_ref, T)) return error.ProgramContractViolation;
@@ -3204,6 +3338,38 @@ pub fn ExecutableSessionForPlan(
                 };
             }
 
+            pub fn trace(self: @This()) Trace.AfterRequest {
+                return .{
+                    .program_label = program_label,
+                    .plan_label = compiled_plan.label,
+                    .plan_hash = plan_hash,
+                    .turn_index = self._turn_index,
+                    .original_requirement_index = self.requirement_index,
+                    .original_requirement_label = self.requirement_label,
+                    .original_op_index = self.op_index,
+                    .original_op_name = self.op_name,
+                    .current_value_ref = self.value_ref,
+                    .current_value_fingerprint = self._value_fingerprint,
+                    .expected_output_ref = self.output_ref,
+                    .result_ref = self.result_ref,
+                    .fingerprint = self._fingerprint,
+                };
+            }
+
+            pub fn fingerprint(self: @This()) u64 {
+                return self._fingerprint;
+            }
+
+            pub fn expectFingerprint(self: @This(), expected: u64) Trace.FingerprintError!void {
+                if (self._fingerprint != expected) return error.TraceFingerprintMismatch;
+            }
+
+            pub fn responseTrace(self: @This(), kind: Trace.ResponseKind, response_value: anytype) error{ProgramContractViolation}!Trace.Response {
+                if (kind != .resume_after) return error.ProgramContractViolation;
+                const value_fingerprint = try Self.fingerprintTypedValueForRef(self.output_ref, response_value);
+                return Self.responseTraceFor(self._fingerprint, kind, self.output_ref, value_fingerprint);
+            }
+
             fn setValue(self: *@This(), current_value: ExecutableValue) error{ProgramContractViolation}!void {
                 self._value = switch (current_value) {
                     .none => .none,
@@ -3234,6 +3400,375 @@ pub fn ExecutableSessionForPlan(
             done: RawResult,
             request: Request,
         };
+
+        fn nextTurnIndex(self: *Self) usize {
+            const turn_index = self.next_turn_index;
+            self.next_turn_index += 1;
+            return turn_index;
+        }
+
+        fn traceHashBytes(hasher: *std.hash.Wyhash, value: []const u8) void {
+            traceHashUsize(hasher, value.len);
+            hasher.update(value);
+        }
+
+        fn traceHashBool(hasher: *std.hash.Wyhash, value: bool) void {
+            hasher.update(&[_]u8{@intFromBool(value)});
+        }
+
+        fn traceHashU8(hasher: *std.hash.Wyhash, value: u8) void {
+            hasher.update(&[_]u8{value});
+        }
+
+        fn traceHashU16(hasher: *std.hash.Wyhash, value: u16) void {
+            var bytes: [2]u8 = undefined;
+            std.mem.writeInt(u16, &bytes, value, .little);
+            hasher.update(&bytes);
+        }
+
+        fn traceHashU32(hasher: *std.hash.Wyhash, value: u32) void {
+            var bytes: [4]u8 = undefined;
+            std.mem.writeInt(u32, &bytes, value, .little);
+            hasher.update(&bytes);
+        }
+
+        fn traceHashI32(hasher: *std.hash.Wyhash, value: i32) void {
+            traceHashU32(hasher, @bitCast(value));
+        }
+
+        fn traceHashU64(hasher: *std.hash.Wyhash, value: u64) void {
+            var bytes: [8]u8 = undefined;
+            std.mem.writeInt(u64, &bytes, value, .little);
+            hasher.update(&bytes);
+        }
+
+        fn traceHashUsize(hasher: *std.hash.Wyhash, value: usize) void {
+            traceHashU64(hasher, @intCast(value));
+        }
+
+        fn traceHashOptionalU16(hasher: *std.hash.Wyhash, value: ?u16) void {
+            traceHashBool(hasher, value != null);
+            if (value) |actual| traceHashU16(hasher, actual);
+        }
+
+        fn traceHashCodec(hasher: *std.hash.Wyhash, codec: program_plan.ValueCodec) void {
+            traceHashU8(hasher, @intFromEnum(codec));
+        }
+
+        fn traceHashMode(hasher: *std.hash.Wyhash, mode: program_plan.ControlMode) void {
+            traceHashBytes(hasher, @tagName(mode));
+        }
+
+        fn traceHashRequestKind(hasher: *std.hash.Wyhash, kind: Trace.RequestKind) void {
+            traceHashBytes(hasher, @tagName(kind));
+        }
+
+        fn traceHashResponseKind(hasher: *std.hash.Wyhash, kind: Trace.ResponseKind) void {
+            traceHashBytes(hasher, @tagName(kind));
+        }
+
+        fn traceHashValueRef(hasher: *std.hash.Wyhash, ref: program_plan.ValueRef) void {
+            traceHashCodec(hasher, ref.codec);
+            traceHashOptionalU16(hasher, ref.schema_index);
+        }
+
+        fn traceHashCommonRequestPrefix(hasher: *std.hash.Wyhash, turn_index: usize, kind: Trace.RequestKind) void {
+            traceHashBytes(hasher, "ability.session.request");
+            traceHashU32(hasher, trace_fingerprint_version);
+            traceHashBytes(hasher, program_label);
+            traceHashBytes(hasher, compiled_plan.label);
+            traceHashU64(hasher, plan_hash);
+            traceHashUsize(hasher, turn_index);
+            traceHashRequestKind(hasher, kind);
+        }
+
+        fn operationRequestFingerprint(
+            turn_index: usize,
+            requirement_index: u16,
+            requirement_label: []const u8,
+            op_index: u16,
+            op_name: []const u8,
+            mode: program_plan.ControlMode,
+            payload_ref: program_plan.ValueRef,
+            payload_fingerprint: u64,
+            resume_ref: program_plan.ValueRef,
+            result_ref: program_plan.ValueRef,
+            has_after: bool,
+        ) u64 {
+            var hasher = std.hash.Wyhash.init(0);
+            traceHashCommonRequestPrefix(&hasher, turn_index, .operation);
+            traceHashU16(&hasher, requirement_index);
+            traceHashBytes(&hasher, requirement_label);
+            traceHashU16(&hasher, op_index);
+            traceHashBytes(&hasher, op_name);
+            traceHashMode(&hasher, mode);
+            traceHashValueRef(&hasher, payload_ref);
+            traceHashU64(&hasher, payload_fingerprint);
+            traceHashValueRef(&hasher, resume_ref);
+            traceHashValueRef(&hasher, result_ref);
+            traceHashBool(&hasher, has_after);
+            return hasher.final();
+        }
+
+        fn afterRequestFingerprint(
+            turn_index: usize,
+            requirement_index: u16,
+            requirement_label: []const u8,
+            op_index: u16,
+            op_name: []const u8,
+            value_ref: program_plan.ValueRef,
+            value_fingerprint: u64,
+            output_ref: program_plan.ValueRef,
+            result_ref: program_plan.ValueRef,
+        ) u64 {
+            var hasher = std.hash.Wyhash.init(0);
+            traceHashCommonRequestPrefix(&hasher, turn_index, .after);
+            traceHashU16(&hasher, requirement_index);
+            traceHashBytes(&hasher, requirement_label);
+            traceHashU16(&hasher, op_index);
+            traceHashBytes(&hasher, op_name);
+            traceHashValueRef(&hasher, value_ref);
+            traceHashU64(&hasher, value_fingerprint);
+            traceHashValueRef(&hasher, output_ref);
+            traceHashValueRef(&hasher, result_ref);
+            return hasher.final();
+        }
+
+        fn responseTraceFor(
+            request_fingerprint: u64,
+            kind: Trace.ResponseKind,
+            response_ref: program_plan.ValueRef,
+            response_value_fingerprint: u64,
+        ) Trace.Response {
+            var hasher = std.hash.Wyhash.init(0);
+            traceHashBytes(&hasher, "ability.session.response");
+            traceHashU32(&hasher, trace_fingerprint_version);
+            traceHashU64(&hasher, request_fingerprint);
+            traceHashResponseKind(&hasher, kind);
+            traceHashValueRef(&hasher, response_ref);
+            traceHashU64(&hasher, response_value_fingerprint);
+            return .{
+                .request_fingerprint = request_fingerprint,
+                .kind = kind,
+                .response_ref = response_ref,
+                .response_value_fingerprint = response_value_fingerprint,
+                .fingerprint = hasher.final(),
+            };
+        }
+
+        fn fingerprintTypedValueForRef(ref: program_plan.ValueRef, value: anytype) error{ProgramContractViolation}!u64 {
+            if (!typeMatchesRuntimeRef(schema_types, ref, @TypeOf(value))) return error.ProgramContractViolation;
+            var hasher = std.hash.Wyhash.init(0);
+            traceHashBytes(&hasher, "ability.session.value");
+            traceHashU32(&hasher, trace_fingerprint_version);
+            traceHashValueRef(&hasher, ref);
+            try traceHashTypedValuePayload(&hasher, ref, value);
+            return hasher.final();
+        }
+
+        fn fingerprintExecutableValueForRef(ref: program_plan.ValueRef, value: ExecutableValue) error{ProgramContractViolation}!u64 {
+            if (!valueMatchesRef(ref, value)) return error.ProgramContractViolation;
+            var hasher = std.hash.Wyhash.init(0);
+            traceHashBytes(&hasher, "ability.session.value");
+            traceHashU32(&hasher, trace_fingerprint_version);
+            traceHashValueRef(&hasher, ref);
+            try traceHashExecutableValuePayload(&hasher, ref, value);
+            return hasher.final();
+        }
+
+        fn traceHashExecutableValuePayload(
+            hasher: *std.hash.Wyhash,
+            ref: program_plan.ValueRef,
+            value: ExecutableValue,
+        ) error{ProgramContractViolation}!void {
+            switch (ref.codec) {
+                .unit => switch (value) {
+                    .none => {},
+                    else => return error.ProgramContractViolation,
+                },
+                .bool => switch (value) {
+                    .bool => |typed| traceHashBool(hasher, typed),
+                    else => return error.ProgramContractViolation,
+                },
+                .i32 => switch (value) {
+                    .i32 => |typed| traceHashI32(hasher, typed),
+                    else => return error.ProgramContractViolation,
+                },
+                .usize => switch (value) {
+                    .usize => |typed| traceHashUsize(hasher, typed),
+                    else => return error.ProgramContractViolation,
+                },
+                .string => switch (value) {
+                    .string => |typed| traceHashBytes(hasher, typed),
+                    else => return error.ProgramContractViolation,
+                },
+                .string_list => switch (value) {
+                    .string_list => |typed| {
+                        traceHashUsize(hasher, typed.len);
+                        for (typed) |item| traceHashBytes(hasher, item);
+                    },
+                    else => return error.ProgramContractViolation,
+                },
+                .product, .sum => switch (value) {
+                    .schema => |schema| {
+                        const expected_schema_index = ref.schema_index orelse return error.ProgramContractViolation;
+                        if (schema.schema_index != expected_schema_index) {
+                            return error.ProgramContractViolation;
+                        }
+                        inline for (schema_types, 0..) |SchemaType, schema_index| {
+                            if (schema.schema_index == schema_index) {
+                                const typed: *const SchemaType = @ptrCast(@alignCast(schema.ptr));
+                                return traceHashStructuredTypedValuePayload(hasher, ref, SchemaType, typed.*);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                    else => return error.ProgramContractViolation,
+                },
+            }
+        }
+
+        fn traceHashTypedValuePayload(
+            hasher: *std.hash.Wyhash,
+            ref: program_plan.ValueRef,
+            value: anytype,
+        ) error{ProgramContractViolation}!void {
+            if (!typeMatchesRuntimeRef(schema_types, ref, @TypeOf(value))) return error.ProgramContractViolation;
+            if (comptime isStringListCarrier(@TypeOf(value))) {
+                if (!ref.eql(.{ .codec = .string_list })) return error.ProgramContractViolation;
+                traceHashUsize(hasher, value.len);
+                for (value) |item| traceHashBytes(hasher, item);
+                return;
+            }
+            switch (@TypeOf(value)) {
+                void => {
+                    if (!ref.eql(.{ .codec = .unit })) return error.ProgramContractViolation;
+                },
+                bool => {
+                    if (!ref.eql(.{ .codec = .bool })) return error.ProgramContractViolation;
+                    traceHashBool(hasher, value);
+                },
+                i32 => {
+                    if (!ref.eql(.{ .codec = .i32 })) return error.ProgramContractViolation;
+                    traceHashI32(hasher, value);
+                },
+                usize => {
+                    if (!ref.eql(.{ .codec = .usize })) return error.ProgramContractViolation;
+                    traceHashUsize(hasher, value);
+                },
+                []const u8 => {
+                    if (!ref.eql(.{ .codec = .string })) return error.ProgramContractViolation;
+                    traceHashBytes(hasher, value);
+                },
+                else => try traceHashStructuredTypedValuePayload(hasher, ref, @TypeOf(value), value),
+            }
+        }
+
+        fn traceHashStructuredTypedValuePayload(
+            hasher: *std.hash.Wyhash,
+            ref: program_plan.ValueRef,
+            comptime T: type,
+            value: T,
+        ) error{ProgramContractViolation}!void {
+            const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
+            inline for (schema_types, 0..) |SchemaType, index| {
+                if (schema_index == index) {
+                    if (SchemaType != T) return error.ProgramContractViolation;
+                    const schema = compiled_plan.value_schemas[index];
+                    if (schema.codec != ref.codec) return error.ProgramContractViolation;
+                    traceHashU16(hasher, @intCast(index));
+                    traceHashBytes(hasher, schema.label);
+                    traceHashCodec(hasher, schema.codec);
+                    return switch (schema.codec) {
+                        .product => traceHashProductValuePayload(hasher, index, T, value),
+                        .sum => traceHashSumValuePayload(hasher, index, T, value),
+                        else => error.ProgramContractViolation,
+                    };
+                }
+            }
+            return error.ProgramContractViolation;
+        }
+
+        fn traceHashProductValuePayload(
+            hasher: *std.hash.Wyhash,
+            comptime schema_index: usize,
+            comptime T: type,
+            value: T,
+        ) error{ProgramContractViolation}!void {
+            const schema = compiled_plan.value_schemas[schema_index];
+            if (schema.codec != .product) return error.ProgramContractViolation;
+            const fields = std.meta.fields(T);
+            if (fields.len != schema.field_count) return error.ProgramContractViolation;
+            traceHashU16(hasher, schema.first_field);
+            traceHashU16(hasher, schema.field_count);
+            inline for (0..schema.field_count) |field_offset| {
+                const field = compiled_plan.value_fields[@as(usize, schema.first_field) + field_offset];
+                const field_ref: program_plan.ValueRef = .{
+                    .codec = field.codec,
+                    .schema_index = field.schema_index,
+                };
+                traceHashU16(hasher, @intCast(field_offset));
+                traceHashBytes(hasher, field.name);
+                traceHashValueRef(hasher, field_ref);
+                const field_fingerprint = try fingerprintTypedValueForRef(field_ref, @field(value, field.name));
+                traceHashU64(hasher, field_fingerprint);
+            }
+        }
+
+        fn traceHashSumValuePayload(
+            hasher: *std.hash.Wyhash,
+            comptime schema_index: usize,
+            comptime T: type,
+            value: T,
+        ) error{ProgramContractViolation}!void {
+            const schema = compiled_plan.value_schemas[schema_index];
+            if (schema.codec != .sum) return error.ProgramContractViolation;
+            const active = try activeVariantOrdinalForTyped(T, value);
+            if (active >= schema.variant_count) return error.ProgramContractViolation;
+            traceHashU16(hasher, schema.first_variant);
+            traceHashU16(hasher, schema.variant_count);
+            traceHashU16(hasher, active);
+            inline for (0..schema.variant_count) |variant_offset| {
+                if (active == variant_offset) {
+                    const variant = compiled_plan.value_variants[@as(usize, schema.first_variant) + variant_offset];
+                    const variant_ref: program_plan.ValueRef = .{
+                        .codec = variant.codec,
+                        .schema_index = variant.schema_index,
+                    };
+                    traceHashBytes(hasher, variant.name);
+                    traceHashValueRef(hasher, variant_ref);
+                    const payload_fingerprint = try sumVariantPayloadFingerprint(variant_offset, variant_ref, T, value);
+                    traceHashU64(hasher, payload_fingerprint);
+                    return;
+                }
+            }
+            return error.ProgramContractViolation;
+        }
+
+        fn sumVariantPayloadFingerprint(
+            comptime variant_offset: usize,
+            variant_ref: program_plan.ValueRef,
+            comptime T: type,
+            value: T,
+        ) error{ProgramContractViolation}!u64 {
+            return switch (@typeInfo(T)) {
+                .@"enum" => fingerprintTypedValueForRef(variant_ref, {}),
+                .optional => if (variant_offset == 0)
+                    fingerprintTypedValueForRef(variant_ref, {})
+                else
+                    fingerprintTypedValueForRef(variant_ref, value.?),
+                .@"union" => |union_info| blk: {
+                    inline for (union_info.fields, 0..) |field, field_index| {
+                        if (variant_offset == field_index) {
+                            if (field.type == void) break :blk fingerprintTypedValueForRef(variant_ref, {});
+                            break :blk fingerprintTypedValueForRef(variant_ref, @field(value, field.name));
+                        }
+                    }
+                    return error.ProgramContractViolation;
+                },
+                else => error.ProgramContractViolation,
+            };
+        }
 
         const session_id_source = struct {
             var next: std.atomic.Value(usize) = std.atomic.Value(usize).init(1);
@@ -3641,6 +4176,21 @@ pub fn ExecutableSessionForPlan(
                         .codec = op.payload_codec,
                         .schema_index = op.payload_schema_index,
                     };
+                    const turn_index = self.nextTurnIndex();
+                    const payload_fingerprint = try Self.fingerprintExecutableValueForRef(payload_ref, payload);
+                    const request_fingerprint = Self.operationRequestFingerprint(
+                        turn_index,
+                        op.requirement_index,
+                        requirement.label,
+                        op_index,
+                        op.op_name,
+                        op.mode,
+                        payload_ref,
+                        payload_fingerprint,
+                        resume_ref,
+                        result_ref,
+                        op.has_after,
+                    );
                     const token = self.next_token;
                     self.next_token +%= 1;
                     self.pending = .{ .op = .{
@@ -3668,6 +4218,9 @@ pub fn ExecutableSessionForPlan(
                         .result_ref = result_ref,
                         .has_after = op.has_after,
                         ._payload = .none,
+                        ._turn_index = turn_index,
+                        ._payload_value_fingerprint = payload_fingerprint,
+                        ._fingerprint = request_fingerprint,
                     };
                     try request.setPayload(payload);
                     return request;
@@ -3691,6 +4244,19 @@ pub fn ExecutableSessionForPlan(
                     if (!op.has_after) return error.ProgramContractViolation;
                     if (!valueMatchesRef(value_ref, value)) return error.ProgramContractViolation;
                     const requirement = compiled_plan.requirements[op.requirement_index];
+                    const turn_index = self.nextTurnIndex();
+                    const value_fingerprint = try Self.fingerprintExecutableValueForRef(value_ref, value);
+                    const request_fingerprint = Self.afterRequestFingerprint(
+                        turn_index,
+                        op.requirement_index,
+                        requirement.label,
+                        op_index,
+                        op.op_name,
+                        value_ref,
+                        value_fingerprint,
+                        output_ref,
+                        result_ref,
+                    );
                     const token = self.next_token;
                     self.next_token +%= 1;
                     self.pending = .{ .after = .{
@@ -3716,6 +4282,9 @@ pub fn ExecutableSessionForPlan(
                         .result_ref = result_ref,
                         ._remaining = remaining,
                         ._value = .none,
+                        ._turn_index = turn_index,
+                        ._value_fingerprint = value_fingerprint,
+                        ._fingerprint = request_fingerprint,
                     };
                     try request.setValue(value);
                     return request;
@@ -5271,7 +5840,7 @@ test "ability.program executable support ignores post-terminal structured helper
 }
 
 test "Program.Session start failure owns moved scratch and frame buffers once" {
-    const Session = ExecutableSessionForPlan(error{}, supportParameterPlan(.i32), &.{}, &.{}, struct {});
+    const Session = ExecutableSessionForPlan(error{}, "support-parameter", supportParameterPlan(.i32), &.{}, &.{}, struct {});
     const bad_args = [_]lowered_machine.ProgramValue{.{ .bool = true }};
 
     try std.testing.expectError(

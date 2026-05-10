@@ -114,6 +114,10 @@ validated body and plan contract. It includes:
 - unique reachable `return_error` literals
 - executable and session capability-ledger metadata
 
+The session ledger includes trace capability flags and the stable fingerprint
+version for hosts that want to gate replay/audit behavior from contract
+metadata.
+
 `Program.contract` is inspection metadata. It does not expose mutable function,
 block, instruction, Artifact, VM, compiler, parser, or capability-map surfaces.
 
@@ -132,6 +136,14 @@ and choice requests with `session.@"resume"(request, value)`, or completes
 choice and abort requests through `session.returnNow(request, value)`. The value
 type must match the request's resume or terminal result ref.
 
+`request.trace()` returns a read-only operation trace view: program label, plan
+label and hash, monotonically increasing session turn index, request kind,
+requirement index and label, op index and name, op mode, payload/resume/result
+refs, payload value fingerprint, after flag, fingerprint version, and stable
+request fingerprint. `request.fingerprint()` returns the same request
+fingerprint directly, and `request.expectFingerprint(expected)` returns a
+precise mismatch error without mutating the session.
+
 When normal completion reaches pending after hooks, session execution yields
 after-continuation requests as data rather than calling synchronous
 `afterDispatch`. An after request carries the original requirement index and
@@ -140,6 +152,13 @@ label, original op index and name, the current value ref and typed value through
 the active session/token. The host resumes that continuation with
 `session.resumeAfter(after, transformed_value)`. Multiple pending after hooks
 yield in the same reverse unwind order that `Program.run` applies.
+
+`after.trace()` returns the after-request trace view: program label, plan label
+and hash, session turn index, request kind, original requirement index and
+label, original op index and name, current value ref and fingerprint, expected
+output ref, result ref, fingerprint version, and stable request fingerprint.
+`after.fingerprint()` and `after.expectFingerprint(expected)` provide the same
+direct replay witness helpers as operation requests.
 
 Return-now choice paths and abort terminal paths preserve the terminal behavior:
 they bypass pending after continuations when the synchronous semantics bypass
@@ -159,6 +178,25 @@ exists. A parked session can resume later only on the same runtime and owning
 thread. Because active execution is not held while parked, host code can run
 other programs or other sessions on that runtime between turns.
 
+Operation and after requests expose `responseTrace(kind, value)` helpers. The
+response trace records the matching request fingerprint, response kind,
+response ref, response value fingerprint, fingerprint version, and a stable
+response fingerprint. Response fingerprints distinguish `resume`, `return_now`,
+and `resume_after`, and change when the response value changes.
+
+Value fingerprints hash the typed value visible to the host. Scalar support
+covers unit, bool, i32, usize, and string contents rather than string pointer
+identity. Product and sum support is schema-guided through
+`Body.value_schema_types`: product hashing includes the schema identity, field
+names, field refs, and field value fingerprints; sum hashing includes schema
+identity, variant name/ordinal/ref, and payload fingerprint. Unsupported trace
+hashing boundaries fail closed instead of inventing unstable ids.
+
+Trace metadata is a replay-verification substrate. A host can record the next
+request fingerprint, rerun a fresh deterministic session, call
+`expectFingerprint` on the yielded request, and only then supply a previously
+recorded response. The library does not own or serialize trace events.
+
 ## Defunctionalized execution and agent loops
 
 `Program.Session` is a defunctionalized execution surface for host-driven loops.
@@ -166,6 +204,15 @@ The interpreter reaches an effect operation or after-continuation boundary,
 stores its explicit frame state, parks runtime execution, and yields request data
 with requirement/op metadata, payload and resume refs, the operation mode, and
 typed payload access through `request.payload(T)` or `after.value(T)`.
+
+The same request data exposes deterministic trace and fingerprint metadata for
+audit-friendly loops. Request fingerprints include plan identity, session turn,
+requirement/op identity, relevant refs, and payload/current value fingerprints.
+Response fingerprints include the matching request fingerprint, response kind,
+response ref, and typed response value fingerprint. These fingerprints are
+stable across fresh deterministic runs with the same plan, entry args, host
+responses, and execution path, and are intentionally separate from in-process
+request tokens.
 
 The host owns external work. It can resume transform and choice requests with a
 value matching the resume ref, complete choice and abort requests with a value
@@ -179,9 +226,10 @@ synchronous execution.
 The session surface does not add an async runtime, parser, compiler, VM,
 Artifact API, source-language API, network client, LLM client, public generated
 custom effect API, or public root export. Full snapshot/restore for durable
-session persistence is intentionally left for a later branch, but the current
-state is already first-order interpreter data rather than a closure
-continuation.
+session persistence is intentionally left for a later branch. Trace metadata is
+not a snapshot/restore mechanism and is not a serialization format; hosts own
+persistence and external orchestration. `ProgramValue` remains scalar, and no
+new value codecs are added.
 
 ## Effect schema row lowering
 
@@ -335,7 +383,10 @@ exception-style abort, and optional return-now control transfer.
 request loop. The plan yields a `decide` operation, the host resumes it with a
 typed sum action, a `tool` action causes the plan to yield a tool operation, and
 the returned observation is carried by the same ProgramPlan interpreter until a
-`final` action returns the answer.
+`final` action returns the answer. The example records request and response
+fingerprints during the first run, then starts a fresh session, verifies each
+recorded request fingerprint, replays the recorded typed response, and reaches
+the same final answer without any network or LLM integration.
 
 ## Layout builder
 

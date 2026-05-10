@@ -1,57 +1,62 @@
-# Program.Session After Continuations Execution Plan
+# Program.Session Trace And Fingerprint Execution Plan
 
 ## Summary
-Add defunctionalized after-continuation support to `Program.Session` under
-`ability.program(...)`. The existing synchronous `Program.run` path remains
-unchanged. Session execution should yield operation requests and, on normal
-completion with pending after hooks, yield after-continuation requests as
-explicit data. Hosts resume operation requests with op resume values and resume
-after requests with typed transformed values.
+Add deterministic audit and replay-verification metadata to
+`Program.Session` without changing `Program.run` or adding durable
+snapshot/restore. Session operation requests and after-continuation requests
+should expose read-only trace views, stable request fingerprints, and response
+trace helpers that hosts can record across fresh deterministic runs.
 
-This branch extends the existing pausable session executor. It must not add a
-VM, Artifact API, parser, compiler, async runtime, network/LLM integration,
-source-language API, public root export, public generated custom effects, or
-`ProgramValue` widening.
+The branch must stay additive: no VM, Artifact API, parser, compiler,
+source-language API, async runtime, network/LLM integration, public root
+widening, `ProgramValue` widening, new value codecs, cross-thread resume, or
+request-token serialization.
 
 ## Acceptance
-- `Program.Session.Step` exposes `.request`, `.after`, and `.done`.
-- `Program.Session.AfterRequest` exposes requirement index/label, op index/name,
-  current value ref, expected output ref, typed value access, and request
-  identity.
-- `session.@"resume"(request, value)` remains op-request only.
-- `session.resumeAfter(after_request, value)` is after-request only.
-- `session.returnNow(request, value)` remains choice/abort terminal completion.
-- Transform ops with `has_after=true` yield op request, resume normally, then
-  yield after request during normal unwinding, and complete with the transformed
-  after value.
-- Choice ops with `has_after=true` record after continuations only on resumed
-  paths; `returnNow` paths preserve current terminal behavior and skip after
-  continuations when `Program.run` does.
-- Multiple after continuations yield in the same reverse order as `Program.run`.
-- Helper calls preserve frame behavior when after hooks unwind during helper
-  completion and resume into the caller.
-- Nested-with after hooks are supported if feasible; otherwise the remaining
-  unsupported shape has a precise blocker, contract coverage, and docs.
-- Scalar, product, and sum after values use existing `Body.value_schema_types`
-  machinery; `ProgramValue` remains scalar.
-- `Program.contract.session` no longer reports a blanket `after_hook` blocker
-  for supported after plans.
-- Wrong type, stale request, wrong session, wrong API kind, pending `next`, and
-  post-done interaction fail cleanly.
-- Result/output cleanup obligations match `Program.run`.
-- `examples/agent_loop.zig` remains deterministic and network-free; update it
-  for after continuations only if clarity improves.
-- README and `docs/program_plan.md` document operation requests, after requests,
-  host after resumption, reverse ordering, terminal bypass behavior, and
-  non-goals.
+- Operation requests expose trace metadata for program label, plan hash, turn,
+  request kind, requirement/op identity, mode, payload/resume/result refs,
+  payload value fingerprint, after flag, and stable request fingerprint.
+- After requests expose equivalent trace metadata for original op identity,
+  current value ref/fingerprint, expected output ref, result ref, and stable
+  request fingerprint.
+- Trace views are read-only metadata and do not expose mutable interpreter
+  internals.
+- Response trace helpers expose matching request fingerprint, response kind,
+  response ref, response value fingerprint, and stable response fingerprint for
+  resume, return_now, and resume_after responses.
+- Request fingerprints are deterministic across fresh runs when plan, entry
+  args, host responses, and execution path match.
+- Request fingerprints change when yielded op, payload/current value, or plan
+  label/hash changes.
+- Response fingerprints change when response kind or response value changes.
+- Value fingerprinting covers unit, bool, i32, usize, string contents,
+  string-list contents where currently executable, product values, and sum
+  values through `Body.value_schema_types`.
+- Product hashing includes schema identity, field names, field refs, and field
+  value fingerprints.
+- Sum hashing includes schema identity, variant name/ordinal/ref, and payload
+  fingerprint when present.
+- Replay helpers let a host assert that the next yielded request matches a
+  previously recorded fingerprint and fail cleanly on mismatch.
+- `examples/agent_loop.zig` still demonstrates deterministic decide/tool/final
+  execution and now prints request/response trace fingerprints plus a compact
+  replay verification pass.
+- `Program.contract.session` adds only useful trace capability flags.
+- README and `docs/program_plan.md` document trace/fingerprint semantics,
+  request tokens versus durable fingerprints, response audit metadata, replay
+  verification, host-owned persistence, and non-goals.
 
 ## Non-Goals
 - Do not change `Program.run` semantics.
-- Do not expose `effect.Define`, `effect.ops`, generated custom effects, a VM,
-  Artifact APIs, parser, compiler, source-language APIs, async runtime, network,
-  or LLM integration.
-- Do not widen the public root or `ability.ir.ProgramValue`.
-- Do not add session snapshot/restore or durable persistence in this branch.
+- Do not change request or after execution semantics.
+- Do not expose `effect.Define`, `effect.ops`, public generated custom effects,
+  a VM, Artifact APIs, parser/compiler/source-language APIs, async runtime,
+  network/LLM integration, or a widened public root.
+- Do not widen `ProgramValue` or add new value codecs.
+- Do not add durable session snapshot/restore.
+- Do not add cross-thread session resume.
+- Do not make request tokens serializable.
+- Do not require a particular trace serialization format.
 
 ## Proof
 ```sh
@@ -62,20 +67,20 @@ zig build --summary all
 zig build run-agent-loop
 zig build test --summary all
 zig build test --summary none -- --test-filter "session"
-zig build test --summary none -- --test-filter "after"
+zig build test --summary none -- --test-filter "trace"
+zig build test --summary none -- --test-filter "fingerprint"
+zig build test --summary none -- --test-filter "replay"
 zig build test --summary none -- --test-filter "agent"
-zig build test --summary none -- --test-filter "program"
 zig build lint -- --max-warnings 0
 ```
 
 ## Implementation Brief
-1. step=baseline_guard; owner=implementer; success_criteria=confirm latest `main`, run focused current session/agent smoke, import this plan into `$st`, and note obsolete after-hook blocker tests.
-2. step=session_core_state; owner=implementer; success_criteria=`ExecutableSessionForPlan` has tagged pending op/after state, nonzero after-stack capacity when needed, and pausable normal-completion after unwinding. (deps: baseline_guard)
-3. step=after_request_api; owner=implementer; success_criteria=`Program.Session` exposes `.after`, `AfterRequest.value(T)`, and `resumeAfter`, with kind/session/token/ref validation and op API separation. (deps: session_core_state)
-4. step=after_unwind_semantics; owner=implementer; success_criteria=transform/choice resumed paths yield after continuations in reverse order, while returnNow and abort terminal paths bypass after continuations. (deps: after_request_api)
-5. step=helper_nested_with; owner=implementer; success_criteria=helper-after and nested-with-after behavior is supported with tests, or any nested-with residual has a precise blocker, contract coverage, and docs. (deps: after_unwind_semantics)
-6. step=contract_and_cleanup; owner=implementer; success_criteria=session contract removes blanket `after_hook` blocker for supported after plans, obsolete compile-fail coverage is removed or narrowed, and result/output cleanup tests pass after host-driven after continuations. (deps: after_unwind_semantics, helper_nested_with)
-7. step=session_after_tests; owner=implementer; success_criteria=focused tests cover transform after, choice after resumed path, choice returnNow bypass, reverse order, helper after, nested-with after or precise blocker, product after, sum after, wrong typed after resume, stale/mismatched identity, and Program.run parity. (deps: contract_and_cleanup)
-8. step=docs_and_optional_example; owner=implementer; success_criteria=README and `docs/program_plan.md` document the new session after surface and non-goals; `agent_loop` is updated only if the deterministic main loop remains clearer. (deps: session_after_tests)
-9. step=fixed_point_review; owner=implementer; success_criteria=de novo review, one-change challenge, and remediation loop find no unresolved material soundness, invariant, hazard, complexity, or verification gaps. (deps: docs_and_optional_example)
-10. step=full_proof_and_ship; owner=implementer; success_criteria=all proof commands pass, branch is pushed, and `$ship` opens a PR with concise proof and non-goal confirmations. (deps: fixed_point_review)
+1. step=baseline_and_surface_map; owner=implementer; success_criteria=confirm latest main, import this trace plan into `$st`, map current Program.Session request/after structs, typed value storage, plan hash access, agent_loop, docs, and relevant tests.
+2. step=request_after_trace_api; owner=implementer; success_criteria=`Program.Session` request and after values expose read-only trace/fingerprint APIs with deterministic turn indexes, program label, plan hash, op/requirement metadata, refs, and value fingerprints. (deps: baseline_and_surface_map)
+3. step=response_trace_and_replay_api; owner=implementer; success_criteria=request/after response trace helpers compute response kind/ref/value/request fingerprints, validate response kind/ref/type boundaries, and replay helpers accept matching and reject mismatched request fingerprints. (deps: request_after_trace_api)
+4. step=value_fingerprint_structured; owner=implementer; success_criteria=value fingerprinting supports unit, bool, i32, usize, string contents, string-list contents where executable, product values, and sum values through `Body.value_schema_types` with schema-guided field/variant sensitivity and fail-closed unsupported boundaries. (deps: response_trace_and_replay_api)
+5. step=trace_tests; owner=implementer; success_criteria=focused tests cover op trace metadata, after trace metadata, stable request fingerprints, payload/current changes, response value/kind changes, string content hashing, product and sum sensitivity, helper-yield stability, replay accept/reject, and parked runtime balance. (deps: value_fingerprint_structured)
+6. step=agent_loop_trace_replay; owner=implementer; success_criteria=`examples/agent_loop.zig` prints deterministic request/response trace metadata and demonstrates a first-run record plus second-run replay verification without network/LLM APIs. (deps: trace_tests)
+7. step=contract_and_docs; owner=implementer; success_criteria=`Program.contract.session`, README, and `docs/program_plan.md` document trace capability flags, stable request/response fingerprints, request tokens as in-process guards, host-owned persistence, no serialization format, no snapshot/restore, and unchanged non-goals. (deps: agent_loop_trace_replay)
+8. step=fixed_point_review; owner=implementer; success_criteria=de novo fixed-point review and one-change challenge find no unresolved material soundness, invariant, hazard, complexity, or verification gaps. (deps: contract_and_docs)
+9. step=full_proof_and_ship; owner=implementer; success_criteria=all requested proof commands pass, branch is pushed, and `$ship` opens a PR summarizing trace views, request/response fingerprint contents, value fingerprinting, replay verification, agent_loop demo, request-token boundary, and non-goals. (deps: fixed_point_review)

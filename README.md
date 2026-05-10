@@ -120,6 +120,11 @@ and typed value access, and `@"resume"`, `returnNow`, or `resumeAfter` feed type
 values back into the interpreter before a final `Result` is collected. Yielded
 requests park the session: runtime active execution is not held while control is
 back with the host, but the owning `Runtime` must outlive every live session.
+Yielded requests also expose read-only trace metadata through `trace()` and a
+stable request fingerprint through `fingerprint()`. Hosts can compute matching
+response metadata with `responseTrace(...)` before resuming the session, and can
+use `expectFingerprint(...)` to fail cleanly when replay reaches a different
+request boundary.
 String results in `Program.Result.value` should be
 treated as borrowed unless the body documents and implements ownership cleanup
 through `Body.deinitResult(allocator, value)`. The value cleanup hook is
@@ -141,7 +146,9 @@ types, entry parameter refs, value schema/field/variant declarations, output
 declarations, requirement and operation metadata, op payload and resume
 references, op modes, after-hook flags, nested-with target declarations, unique
 `return_error` literals, and the executable and session capability-ledger
-summaries. It is metadata for tests and callers that need to inspect what a
+summaries. The session ledger advertises whether trace metadata and value
+fingerprints are supported and exposes the current fingerprint version. It is
+metadata for tests and callers that need to inspect what a
 program declares; it does not expose mutable ProgramPlan tables, Artifact or VM
 surfaces, or legacy capability maps.
 
@@ -184,6 +191,25 @@ resumes an operation with a typed value, returns now from a choice/abort request
 or resumes an after continuation with the typed transformed value. Return-now and
 abort terminal paths bypass after continuations, matching `Program.run`.
 
+Each yielded request has a deterministic trace view. Operation traces include
+the program label, plan hash, session turn index, requirement and op identity,
+op mode, payload/resume/result refs, payload value fingerprint, after flag, and
+request fingerprint. After traces include the same program and turn context,
+the original requirement/op identity, current value ref and fingerprint,
+expected output ref, result ref, and request fingerprint. Fingerprints are
+stable across fresh deterministic runs when the plan, entry args, host
+responses, and execution path are the same; they change when the yielded op,
+visible value, response kind/value, or plan identity changes. Value
+fingerprints hash supported typed values by contents and schema: unit, bool,
+i32, usize, strings by bytes, and product/sum values through
+`Body.value_schema_types`.
+
+Trace fingerprints are audit/replay witnesses, not request tokens. Request
+tokens remain in-process misuse guards for the active session and should not be
+serialized as durable ids. Trace metadata is also not a session snapshot, a
+restore format, or a prescribed serialization format. Hosts own persistence,
+external orchestration, and any replay transcript encoding.
+
 This is the foundation for agentic loops. The library does not bundle an async
 runtime, parser, compiler, VM, Artifact API, source language, network client, or
 LLM integration, and it does not widen the public root. `ProgramValue` remains
@@ -215,8 +241,8 @@ IR:
   typed outputs and explicit output cleanup.
 - `examples/agent_loop.zig` demonstrates a host-driven `Program.Session` loop
   where yielded decide/tool operations are data, the session parks between
-  turns, and the host supplies a typed sum action plus tool observations without
-  handler dispatch.
+  turns, request/response fingerprints are printed, and a second run verifies
+  the recorded request fingerprints before replaying the same typed responses.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
   abort operations in one plan without exposing a custom effect API.
 
