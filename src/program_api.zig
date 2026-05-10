@@ -448,6 +448,8 @@ fn ProgramContractFor(
     const requirement_views = contractRequirements(plan);
     const op_views = contractOps(plan);
     const return_error_views = contractReturnErrors(plan, nested_targets);
+    const session_yield_site_views = lowering_api.sessionOperationYieldSitesForPlan(plan, nested_targets);
+    const session_after_site_views = lowering_api.sessionAfterYieldSitesForPlan(plan, nested_targets);
     const Ledger = lowering_api.ExecutableCapabilityLedgerForPlan(plan, schema_types, nested_targets);
     const first_blocker: ?lowering_api.CapabilityBlocker = if (Ledger.blockers.len == 0) null else Ledger.blockers[0];
     const SessionLedger = lowering_api.TypedSessionCapabilityLedgerForPlan(plan, schema_types, nested_targets);
@@ -521,6 +523,10 @@ fn ProgramContractFor(
             pub const fingerprint_version = lowering_api.trace_fingerprint_version;
             /// Whether typed Program.Session values can be fingerprinted for trace/audit metadata.
             pub const value_fingerprint_supported = true;
+            /// Entry-reachable operation yield sites exposed by Program.Session.
+            pub const yield_sites = &session_yield_site_views;
+            /// Entry-reachable after-continuation sites exposed by Program.Session.
+            pub const after_sites = &session_after_site_views;
             /// Number of retained blockers for session execution.
             pub const blocker_count = SessionLedger.blockers.len;
             /// Maximum blocker records retained by the session ledger.

@@ -239,9 +239,10 @@ fn runSession(writer: anytype, mode: TraceMode, recording: *TraceRecording) ![]c
             .after => return error.UnexpectedAfter,
             .request => |request| {
                 const trace = request.trace();
-                try writer.print("{s} turn={d} kind={s} op={s} request={x}\n", .{
+                try writer.print("{s} turn={d} site={d} kind={s} op={s} request={x}\n", .{
                     phase,
                     trace.turn_index,
+                    trace.operation_site_index,
                     @tagName(trace.kind),
                     trace.op_name,
                     trace.fingerprint,

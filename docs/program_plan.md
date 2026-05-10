@@ -113,10 +113,18 @@ validated body and plan contract. It includes:
 - nested-with target declarations
 - unique reachable `return_error` literals
 - executable and session capability-ledger metadata
+- static session operation yield sites and after-continuation sites
 
 The session ledger includes trace capability flags and the stable fingerprint
 version for hosts that want to gate replay/audit behavior from contract
-metadata.
+metadata. It also includes `yield_sites` and `after_sites` catalogs derived from
+the same entry reachability used by executable/session support. Operation sites
+carry stable indexes and fingerprints, function/block/instruction coordinates,
+requirement/op metadata, payload/resume/result refs, mode, after capability, and
+whether the host may resume or return now. After sites are generated per
+reachable after-enabled call site and point back to the source operation site.
+Two instructions that call the same op therefore have distinct site indexes and
+fingerprints.
 
 `Program.contract` is inspection metadata. It does not expose mutable function,
 block, instruction, Artifact, VM, compiler, parser, or capability-map surfaces.
@@ -138,9 +146,11 @@ type must match the request's resume or terminal result ref.
 
 `request.trace()` returns a read-only operation trace view: program label, plan
 label and hash, monotonically increasing session turn index, request kind,
-requirement index and label, op index and name, op mode, payload/resume/result
-refs, payload value fingerprint, after flag, fingerprint version, and stable
-request fingerprint. `request.fingerprint()` returns the same request
+static operation site index and fingerprint, function/block/instruction
+coordinates, requirement index and label, op index and name, op mode,
+payload/resume/result refs, payload value fingerprint, after flag, fingerprint
+version, and stable request fingerprint. `request.fingerprint()` returns the
+same request
 fingerprint directly, and `request.expectFingerprint(expected)` returns a
 precise mismatch error without mutating the session.
 
@@ -154,9 +164,11 @@ the active session/token. The host resumes that continuation with
 yield in the same reverse unwind order that `Program.run` applies.
 
 `after.trace()` returns the after-request trace view: program label, plan label
-and hash, session turn index, request kind, original requirement index and
-label, original op index and name, current value ref and fingerprint, expected
-output ref, result ref, fingerprint version, and stable request fingerprint.
+and hash, session turn index, request kind, static after-site index and
+fingerprint, source operation site index, source function/block/instruction
+coordinates, original requirement index and label, original op index and name,
+current value ref and fingerprint, expected output ref, result ref, fingerprint
+version, and stable request fingerprint.
 `after.fingerprint()` and `after.expectFingerprint(expected)` provide the same
 direct replay witness helpers as operation requests.
 
@@ -206,13 +218,16 @@ with requirement/op metadata, payload and resume refs, the operation mode, and
 typed payload access through `request.payload(T)` or `after.value(T)`.
 
 The same request data exposes deterministic trace and fingerprint metadata for
-audit-friendly loops. Request fingerprints include plan identity, session turn,
-requirement/op identity, relevant refs, and payload/current value fingerprints.
-Response fingerprints include the matching request fingerprint, response kind,
-response ref, and typed response value fingerprint. These fingerprints are
-stable across fresh deterministic runs with the same plan, entry args, host
-responses, and execution path, and are intentionally separate from in-process
-request tokens.
+audit-friendly loops. Request fingerprints include plan identity, request kind,
+session turn, static site identity, requirement/op identity, relevant refs, and
+payload/current value fingerprints. Response fingerprints include the matching
+request fingerprint, response kind, response ref, and typed response value
+fingerprint. These fingerprints are stable across fresh deterministic runs with
+the same plan, entry args, host responses, and execution path, and are
+intentionally separate from in-process request tokens. Static site identity is
+not dynamic turn identity: repeated loop yields from the same instruction reuse
+the same static site index, while turn indexes distinguish the individual
+occurrences.
 
 The host owns external work. It can resume transform and choice requests with a
 value matching the resume ref, complete choice and abort requests with a value
@@ -229,7 +244,9 @@ custom effect API, or public root export. Full snapshot/restore for durable
 session persistence is intentionally left for a later branch. Trace metadata is
 not a snapshot/restore mechanism and is not a serialization format; hosts own
 persistence and external orchestration. `ProgramValue` remains scalar, and no
-new value codecs are added.
+new value codecs are added. Request tokens remain in-process misuse guards, not
+durable ids; site, request, response, and value fingerprints are audit and
+replay-verification metadata.
 
 ## Effect schema row lowering
 
@@ -384,9 +401,10 @@ request loop. The plan yields a `decide` operation, the host resumes it with a
 typed sum action, a `tool` action causes the plan to yield a tool operation, and
 the returned observation is carried by the same ProgramPlan interpreter until a
 `final` action returns the answer. The example records request and response
-fingerprints during the first run, then starts a fresh session, verifies each
-recorded request fingerprint, replays the recorded typed response, and reaches
-the same final answer without any network or LLM integration.
+fingerprints during the first run, prints the operation site index for each
+yielded request, then starts a fresh session, verifies each recorded request
+fingerprint, replays the recorded typed response, and reaches the same final
+answer without any network or LLM integration.
 
 ## Layout builder
 

@@ -746,7 +746,278 @@ pub fn authoredBoundProgramPlan(
 const max_interpreter_steps = 10_000;
 
 /// Stable version tag mixed into Program.Session trace fingerprints.
-pub const trace_fingerprint_version: u32 = 1;
+pub const trace_fingerprint_version: u32 = 2;
+
+/// Static metadata for one entry-reachable Program.Session operation yield site.
+pub const SessionOperationYieldSite = struct {
+    index: usize,
+    fingerprint: u64,
+    function_index: usize,
+    function_symbol_name: []const u8,
+    block_index: usize,
+    instruction_index: usize,
+    requirement_index: u16,
+    requirement_label: []const u8,
+    op_index: u16,
+    op_name: []const u8,
+    op_mode: program_plan.ControlMode,
+    payload_ref: program_plan.ValueRef,
+    resume_ref: program_plan.ValueRef,
+    result_ref: program_plan.ValueRef,
+    has_after: bool,
+    host_may_resume: bool,
+    host_may_return_now: bool,
+    can_yield_after: bool,
+};
+
+/// Static metadata for one entry-reachable Program.Session after-continuation site.
+pub const SessionAfterYieldSite = struct {
+    index: usize,
+    fingerprint: u64,
+    source_operation_site_index: usize,
+    source_operation_site_fingerprint: u64,
+    source_function_index: usize,
+    source_block_index: usize,
+    source_instruction_index: usize,
+    original_requirement_index: u16,
+    original_requirement_label: []const u8,
+    original_op_index: u16,
+    original_op_name: []const u8,
+    // Dynamic current/output refs depend on the concrete after stack and are exposed by AfterRequest.trace().
+    result_ref: program_plan.ValueRef,
+};
+
+fn sessionSiteHashBytes(hasher: *std.hash.Wyhash, value: []const u8) void {
+    sessionSiteHashUsize(hasher, value.len);
+    hasher.update(value);
+}
+
+fn sessionSiteHashBool(hasher: *std.hash.Wyhash, value: bool) void {
+    hasher.update(&[_]u8{@intFromBool(value)});
+}
+
+fn sessionSiteHashU8(hasher: *std.hash.Wyhash, value: u8) void {
+    hasher.update(&[_]u8{value});
+}
+
+fn sessionSiteHashU16(hasher: *std.hash.Wyhash, value: u16) void {
+    var bytes: [2]u8 = undefined;
+    std.mem.writeInt(u16, &bytes, value, .little);
+    hasher.update(&bytes);
+}
+
+fn sessionSiteHashU32(hasher: *std.hash.Wyhash, value: u32) void {
+    var bytes: [4]u8 = undefined;
+    std.mem.writeInt(u32, &bytes, value, .little);
+    hasher.update(&bytes);
+}
+
+fn sessionSiteHashU64(hasher: *std.hash.Wyhash, value: u64) void {
+    var bytes: [8]u8 = undefined;
+    std.mem.writeInt(u64, &bytes, value, .little);
+    hasher.update(&bytes);
+}
+
+fn sessionSiteHashUsize(hasher: *std.hash.Wyhash, value: usize) void {
+    sessionSiteHashU64(hasher, @intCast(value));
+}
+
+fn sessionSiteHashOptionalU16(hasher: *std.hash.Wyhash, value: ?u16) void {
+    sessionSiteHashBool(hasher, value != null);
+    if (value) |actual| sessionSiteHashU16(hasher, actual);
+}
+
+fn sessionSiteHashCodec(hasher: *std.hash.Wyhash, codec: program_plan.ValueCodec) void {
+    sessionSiteHashU8(hasher, @intFromEnum(codec));
+}
+
+fn sessionSiteHashMode(hasher: *std.hash.Wyhash, mode: program_plan.ControlMode) void {
+    sessionSiteHashBytes(hasher, @tagName(mode));
+}
+
+fn sessionSiteHashValueRef(hasher: *std.hash.Wyhash, ref: program_plan.ValueRef) void {
+    sessionSiteHashCodec(hasher, ref.codec);
+    sessionSiteHashOptionalU16(hasher, ref.schema_index);
+}
+
+fn sessionHostMayResume(mode: program_plan.ControlMode) bool {
+    return mode != .abort;
+}
+
+fn sessionHostMayReturnNow(mode: program_plan.ControlMode) bool {
+    return mode != .transform;
+}
+
+fn sessionOperationSiteFingerprint(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    site: SessionOperationYieldSite,
+) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    sessionSiteHashBytes(&hasher, "ability.session.static_site");
+    sessionSiteHashU32(&hasher, trace_fingerprint_version);
+    sessionSiteHashBytes(&hasher, "operation");
+    sessionSiteHashU64(&hasher, compiled_plan.hash());
+    sessionSiteHashUsize(&hasher, site.index);
+    sessionSiteHashUsize(&hasher, site.function_index);
+    sessionSiteHashBytes(&hasher, site.function_symbol_name);
+    sessionSiteHashUsize(&hasher, site.block_index);
+    sessionSiteHashUsize(&hasher, site.instruction_index);
+    sessionSiteHashU16(&hasher, site.requirement_index);
+    sessionSiteHashBytes(&hasher, site.requirement_label);
+    sessionSiteHashU16(&hasher, site.op_index);
+    sessionSiteHashBytes(&hasher, site.op_name);
+    sessionSiteHashMode(&hasher, site.op_mode);
+    sessionSiteHashValueRef(&hasher, site.payload_ref);
+    sessionSiteHashValueRef(&hasher, site.resume_ref);
+    sessionSiteHashValueRef(&hasher, site.result_ref);
+    sessionSiteHashBool(&hasher, site.has_after);
+    sessionSiteHashBool(&hasher, site.host_may_resume);
+    sessionSiteHashBool(&hasher, site.host_may_return_now);
+    sessionSiteHashBool(&hasher, site.can_yield_after);
+    return hasher.final();
+}
+
+fn sessionAfterSiteFingerprint(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    site: SessionAfterYieldSite,
+) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    sessionSiteHashBytes(&hasher, "ability.session.static_site");
+    sessionSiteHashU32(&hasher, trace_fingerprint_version);
+    sessionSiteHashBytes(&hasher, "after");
+    sessionSiteHashU64(&hasher, compiled_plan.hash());
+    sessionSiteHashUsize(&hasher, site.index);
+    sessionSiteHashUsize(&hasher, site.source_operation_site_index);
+    sessionSiteHashU64(&hasher, site.source_operation_site_fingerprint);
+    sessionSiteHashUsize(&hasher, site.source_function_index);
+    sessionSiteHashUsize(&hasher, site.source_block_index);
+    sessionSiteHashUsize(&hasher, site.source_instruction_index);
+    sessionSiteHashU16(&hasher, site.original_requirement_index);
+    sessionSiteHashBytes(&hasher, site.original_requirement_label);
+    sessionSiteHashU16(&hasher, site.original_op_index);
+    sessionSiteHashBytes(&hasher, site.original_op_name);
+    sessionSiteHashValueRef(&hasher, site.result_ref);
+    return hasher.final();
+}
+
+fn sessionOperationYieldSiteCount(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime nested_with_targets: anytype,
+) usize {
+    const analysis = comptime program_plan.entryExecutionAnalysisWithNestedTargets(compiled_plan, nested_with_targets) catch |err|
+        @compileError("validated ProgramPlan entry analysis failed: " ++ @errorName(err));
+    var count: usize = 0;
+    inline for (compiled_plan.instructions, 0..) |instruction, instruction_index| {
+        if (analysis.reachable_instructions[instruction_index] and instruction.kind == .call_op) count += 1;
+    }
+    return count;
+}
+
+fn sessionAfterYieldSiteCount(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime nested_with_targets: anytype,
+) usize {
+    const analysis = comptime program_plan.entryExecutionAnalysisWithNestedTargets(compiled_plan, nested_with_targets) catch |err|
+        @compileError("validated ProgramPlan entry analysis failed: " ++ @errorName(err));
+    var count: usize = 0;
+    inline for (compiled_plan.instructions, 0..) |instruction, instruction_index| {
+        if (analysis.reachable_instructions[instruction_index] and
+            instruction.kind == .call_op and
+            instruction.operand < compiled_plan.ops.len and
+            compiled_plan.ops[instruction.operand].has_after)
+        {
+            count += 1;
+        }
+    }
+    return count;
+}
+
+fn fillSessionOperationYieldSites(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime nested_with_targets: anytype,
+    sites: anytype,
+) void {
+    const analysis = comptime program_plan.entryExecutionAnalysisWithNestedTargets(compiled_plan, nested_with_targets) catch |err|
+        @compileError("validated ProgramPlan entry analysis failed: " ++ @errorName(err));
+    var next_site: usize = 0;
+    inline for (compiled_plan.functions, 0..) |function, function_index| {
+        const function_block_end = @as(usize, function.first_block) + function.block_count;
+        block_loop: inline for (compiled_plan.blocks[function.first_block..function_block_end], function.first_block..) |block, block_index| {
+            if (!analysis.reachable_blocks[block_index]) continue :block_loop;
+            const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
+            instruction_loop: inline for (compiled_plan.instructions[block.first_instruction..instruction_end], block.first_instruction..) |instruction, instruction_index| {
+                if (!analysis.reachable_instructions[instruction_index] or instruction.kind != .call_op) continue :instruction_loop;
+                if (instruction.operand >= compiled_plan.ops.len) @compileError("reachable call_op references an invalid op index");
+                const op = compiled_plan.ops[instruction.operand];
+                const requirement = compiled_plan.requirements[op.requirement_index];
+                var site: SessionOperationYieldSite = .{
+                    .index = next_site,
+                    .fingerprint = 0,
+                    .function_index = function_index,
+                    .function_symbol_name = function.symbol_name,
+                    .block_index = block_index,
+                    .instruction_index = instruction_index,
+                    .requirement_index = op.requirement_index,
+                    .requirement_label = requirement.label,
+                    .op_index = instruction.operand,
+                    .op_name = op.op_name,
+                    .op_mode = op.mode,
+                    .payload_ref = .{ .codec = op.payload_codec, .schema_index = op.payload_schema_index },
+                    .resume_ref = .{ .codec = op.resume_codec, .schema_index = op.resume_schema_index },
+                    .result_ref = program_plan.functionResultRef(function),
+                    .has_after = op.has_after,
+                    .host_may_resume = sessionHostMayResume(op.mode),
+                    .host_may_return_now = sessionHostMayReturnNow(op.mode),
+                    .can_yield_after = op.has_after,
+                };
+                site.fingerprint = sessionOperationSiteFingerprint(compiled_plan, site);
+                sites[next_site] = site;
+                next_site += 1;
+            }
+        }
+    }
+}
+
+/// Build the deterministic entry-reachable Program.Session operation site catalog for a plan.
+pub fn sessionOperationYieldSitesForPlan(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime nested_with_targets: anytype,
+) [sessionOperationYieldSiteCount(compiled_plan, nested_with_targets)]SessionOperationYieldSite {
+    var sites: [sessionOperationYieldSiteCount(compiled_plan, nested_with_targets)]SessionOperationYieldSite = undefined;
+    fillSessionOperationYieldSites(compiled_plan, nested_with_targets, &sites);
+    return sites;
+}
+
+/// Build the deterministic entry-reachable Program.Session after site catalog for a plan.
+pub fn sessionAfterYieldSitesForPlan(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime nested_with_targets: anytype,
+) [sessionAfterYieldSiteCount(compiled_plan, nested_with_targets)]SessionAfterYieldSite {
+    const operation_sites = sessionOperationYieldSitesForPlan(compiled_plan, nested_with_targets);
+    var sites: [sessionAfterYieldSiteCount(compiled_plan, nested_with_targets)]SessionAfterYieldSite = undefined;
+    var next_after_site: usize = 0;
+    inline for (operation_sites) |operation_site| {
+        if (!operation_site.has_after) continue;
+        var site: SessionAfterYieldSite = .{
+            .index = next_after_site,
+            .fingerprint = 0,
+            .source_operation_site_index = operation_site.index,
+            .source_operation_site_fingerprint = operation_site.fingerprint,
+            .source_function_index = operation_site.function_index,
+            .source_block_index = operation_site.block_index,
+            .source_instruction_index = operation_site.instruction_index,
+            .original_requirement_index = operation_site.requirement_index,
+            .original_requirement_label = operation_site.requirement_label,
+            .original_op_index = operation_site.op_index,
+            .original_op_name = operation_site.op_name,
+            .result_ref = operation_site.result_ref,
+        };
+        site.fingerprint = sessionAfterSiteFingerprint(compiled_plan, site);
+        sites[next_after_site] = site;
+        next_after_site += 1;
+    }
+    return sites;
+}
 
 const SchemaValue = struct {
     schema_index: u16,
@@ -1442,8 +1713,14 @@ const CompletionKind = enum {
 const CompletionValue = struct {
     value: ExecutableValue,
     initial_ref: program_plan.ValueRef,
-    after_stack: []const u16,
+    after_stack: []const SessionAfterStackEntry,
     kind: CompletionKind,
+};
+
+const SessionAfterStackEntry = struct {
+    op_index: u16,
+    operation_site_index: u16 = 0,
+    after_site_index: u16 = 0,
 };
 
 const InterpreterFrame = struct {
@@ -1473,7 +1750,7 @@ fn InterpreterScratch(comptime after_stack_capacity: usize) type {
         locals: std.ArrayList(ExecutableValue) = .empty,
         call_args: std.ArrayList(ExecutableValue) = .empty,
         owned_schema_values: std.ArrayList(OwnedSchemaValue) = .empty,
-        after_stack: [after_stack_capacity]u16 = [_]u16{0} ** after_stack_capacity,
+        after_stack: [after_stack_capacity]SessionAfterStackEntry = [_]SessionAfterStackEntry{.{ .op_index = 0 }} ** after_stack_capacity,
         after_stack_len: usize = 0,
 
         fn init(
@@ -1546,13 +1823,13 @@ fn InterpreterScratch(comptime after_stack_capacity: usize) type {
             self.call_args.shrinkRetainingCapacity(self.call_args.items.len - args.len);
         }
 
-        fn pushAfter(self: *@This(), op_index: u16) error{ExecutionBudgetExceeded}!void {
+        fn pushAfter(self: *@This(), entry: SessionAfterStackEntry) error{ExecutionBudgetExceeded}!void {
             if (self.after_stack_len >= self.after_stack.len) return error.ExecutionBudgetExceeded;
-            self.after_stack[self.after_stack_len] = op_index;
+            self.after_stack[self.after_stack_len] = entry;
             self.after_stack_len += 1;
         }
 
-        fn frameAfterStack(self: *@This(), frame: InterpreterFrame) []const u16 {
+        fn frameAfterStack(self: *@This(), frame: InterpreterFrame) []const SessionAfterStackEntry {
             return self.after_stack[frame.after_start..self.after_stack_len];
         }
     };
@@ -2156,14 +2433,14 @@ fn completeFunctionValue(
         var remaining = completion.after_stack.len;
         while (remaining != 0) {
             remaining -= 1;
-            const next_after = if (remaining == 0) null else completion.after_stack[remaining - 1];
+            const next_after = if (remaining == 0) null else completion.after_stack[remaining - 1].op_index;
             const after = try applyAfterByIndex(
                 compiled_plan,
                 schema_types,
                 function_index,
                 handlers,
                 scratch,
-                completion.after_stack[remaining],
+                completion.after_stack[remaining].op_index,
                 completed,
                 current_ref,
                 next_after,
@@ -2309,9 +2586,7 @@ fn executeKnownFunction(
                         };
                     }
                     if (!valueMatchesRef(.{ .codec = op.resume_codec, .schema_index = op.resume_schema_index }, op_result.value)) return error.ProgramContractViolation;
-                    if (op.has_after) {
-                        try scratch.pushAfter(instruction.operand);
-                    }
+                    if (op.has_after) try scratch.pushAfter(.{ .op_index = instruction.operand });
                     if (op.resume_codec == .unit) {
                         last_return = op_result.value;
                     } else if (instruction.dst != std.math.maxInt(u16)) {
@@ -2781,7 +3056,7 @@ fn executeFunctionWithFrameStack(
                         if (try returnFromActiveFrame(compiled_plan, schema_types, handlers, scratch, &frames, .{ .value = completed, .terminal = true })) |result| return result;
                     } else {
                         if (!valueMatchesRef(.{ .codec = op.resume_codec, .schema_index = op.resume_schema_index }, op_result.value)) return error.ProgramContractViolation;
-                        if (op.has_after) try scratch.pushAfter(instruction.operand);
+                        if (op.has_after) try scratch.pushAfter(.{ .op_index = instruction.operand });
                         if (op.resume_codec == .unit) {
                             active.last_return = op_result.value;
                         } else if (instruction.dst != std.math.maxInt(u16)) {
@@ -3000,6 +3275,8 @@ pub fn ExecutableSessionForPlan(
     const RawResult = TypedRunResultTypeForPlan(compiled_plan, schema_types);
     const session_after_stack_capacity = if (analysis.reachable_after_count == 0) 0 else max_interpreter_steps;
     const plan_hash = compiled_plan.hash();
+    const operation_yield_sites = sessionOperationYieldSitesForPlan(compiled_plan, nested_with_targets);
+    const after_yield_sites = sessionAfterYieldSitesForPlan(compiled_plan, nested_with_targets);
 
     return struct {
         const Self = @This();
@@ -3010,19 +3287,30 @@ pub fn ExecutableSessionForPlan(
             session_id: usize,
             token: u64,
             function_index: usize,
+            block_index: usize,
+            instruction_index: usize,
             dst: u16,
             op_index: u16,
+            operation_site_index: usize,
+            operation_site_fingerprint: u64,
             mode: program_plan.ControlMode,
             resume_ref: program_plan.ValueRef,
             result_ref: program_plan.ValueRef,
             has_after: bool,
+            after_stack_entry: SessionAfterStackEntry,
         };
 
         const PendingAfter = struct {
             session_id: usize,
             token: u64,
             function_index: usize,
+            block_index: usize,
+            instruction_index: usize,
             op_index: u16,
+            after_site_index: usize,
+            after_site_fingerprint: u64,
+            source_operation_site_index: usize,
+            source_operation_site_fingerprint: u64,
             value_ref: program_plan.ValueRef,
             output_ref: program_plan.ValueRef,
             result_ref: program_plan.ValueRef,
@@ -3078,6 +3366,11 @@ pub fn ExecutableSessionForPlan(
                 plan_hash: u64,
                 turn_index: usize,
                 kind: RequestKind = .operation,
+                operation_site_index: usize,
+                operation_site_fingerprint: u64,
+                function_index: usize,
+                block_index: usize,
+                instruction_index: usize,
                 requirement_index: u16,
                 requirement_label: []const u8,
                 op_index: u16,
@@ -3103,6 +3396,13 @@ pub fn ExecutableSessionForPlan(
                 plan_hash: u64,
                 turn_index: usize,
                 kind: RequestKind = .after,
+                after_site_index: usize,
+                after_site_fingerprint: u64,
+                source_operation_site_index: usize,
+                source_operation_site_fingerprint: u64,
+                function_index: usize,
+                block_index: usize,
+                instruction_index: usize,
                 original_requirement_index: u16,
                 original_requirement_label: []const u8,
                 original_op_index: u16,
@@ -3144,6 +3444,11 @@ pub fn ExecutableSessionForPlan(
         pub const Request = struct {
             _session_id: usize,
             token: u64,
+            operation_site_index: usize,
+            operation_site_fingerprint: u64,
+            function_index: usize,
+            block_index: usize,
+            instruction_index: usize,
             requirement_index: u16,
             requirement_label: []const u8,
             op_index: u16,
@@ -3211,6 +3516,11 @@ pub fn ExecutableSessionForPlan(
                     .plan_label = compiled_plan.label,
                     .plan_hash = plan_hash,
                     .turn_index = self._turn_index,
+                    .operation_site_index = self.operation_site_index,
+                    .operation_site_fingerprint = self.operation_site_fingerprint,
+                    .function_index = self.function_index,
+                    .block_index = self.block_index,
+                    .instruction_index = self.instruction_index,
                     .requirement_index = self.requirement_index,
                     .requirement_label = self.requirement_label,
                     .op_index = self.op_index,
@@ -3278,6 +3588,13 @@ pub fn ExecutableSessionForPlan(
         pub const AfterRequest = struct {
             _session_id: usize,
             token: u64,
+            after_site_index: usize,
+            after_site_fingerprint: u64,
+            source_operation_site_index: usize,
+            source_operation_site_fingerprint: u64,
+            function_index: usize,
+            block_index: usize,
+            instruction_index: usize,
             requirement_index: u16,
             requirement_label: []const u8,
             op_index: u16,
@@ -3344,6 +3661,13 @@ pub fn ExecutableSessionForPlan(
                     .plan_label = compiled_plan.label,
                     .plan_hash = plan_hash,
                     .turn_index = self._turn_index,
+                    .after_site_index = self.after_site_index,
+                    .after_site_fingerprint = self.after_site_fingerprint,
+                    .source_operation_site_index = self.source_operation_site_index,
+                    .source_operation_site_fingerprint = self.source_operation_site_fingerprint,
+                    .function_index = self.function_index,
+                    .block_index = self.block_index,
+                    .instruction_index = self.instruction_index,
                     .original_requirement_index = self.requirement_index,
                     .original_requirement_label = self.requirement_label,
                     .original_op_index = self.op_index,
@@ -3400,6 +3724,20 @@ pub fn ExecutableSessionForPlan(
             done: RawResult,
             request: Request,
         };
+
+        fn operationSiteForInstruction(instruction_index: usize) ?SessionOperationYieldSite {
+            inline for (operation_yield_sites) |site| {
+                if (site.instruction_index == instruction_index) return site;
+            }
+            return null;
+        }
+
+        fn afterSiteForOperationSite(operation_site_index: usize) ?SessionAfterYieldSite {
+            inline for (after_yield_sites) |site| {
+                if (site.source_operation_site_index == operation_site_index) return site;
+            }
+            return null;
+        }
 
         fn nextTurnIndex(self: *Self) usize {
             const turn_index = self.next_turn_index;
@@ -3484,6 +3822,11 @@ pub fn ExecutableSessionForPlan(
 
         fn operationRequestFingerprint(
             turn_index: usize,
+            operation_site_index: usize,
+            operation_site_fingerprint: u64,
+            function_index: usize,
+            block_index: usize,
+            instruction_index: usize,
             requirement_index: u16,
             requirement_label: []const u8,
             op_index: u16,
@@ -3497,6 +3840,11 @@ pub fn ExecutableSessionForPlan(
         ) u64 {
             var hasher = std.hash.Wyhash.init(0);
             traceHashCommonRequestPrefix(&hasher, turn_index, .operation);
+            traceHashUsize(&hasher, operation_site_index);
+            traceHashU64(&hasher, operation_site_fingerprint);
+            traceHashUsize(&hasher, function_index);
+            traceHashUsize(&hasher, block_index);
+            traceHashUsize(&hasher, instruction_index);
             traceHashU16(&hasher, requirement_index);
             traceHashBytes(&hasher, requirement_label);
             traceHashU16(&hasher, op_index);
@@ -3512,6 +3860,13 @@ pub fn ExecutableSessionForPlan(
 
         fn afterRequestFingerprint(
             turn_index: usize,
+            after_site_index: usize,
+            after_site_fingerprint: u64,
+            source_operation_site_index: usize,
+            source_operation_site_fingerprint: u64,
+            function_index: usize,
+            block_index: usize,
+            instruction_index: usize,
             requirement_index: u16,
             requirement_label: []const u8,
             op_index: u16,
@@ -3523,6 +3878,13 @@ pub fn ExecutableSessionForPlan(
         ) u64 {
             var hasher = std.hash.Wyhash.init(0);
             traceHashCommonRequestPrefix(&hasher, turn_index, .after);
+            traceHashUsize(&hasher, after_site_index);
+            traceHashU64(&hasher, after_site_fingerprint);
+            traceHashUsize(&hasher, source_operation_site_index);
+            traceHashU64(&hasher, source_operation_site_fingerprint);
+            traceHashUsize(&hasher, function_index);
+            traceHashUsize(&hasher, block_index);
+            traceHashUsize(&hasher, instruction_index);
             traceHashU16(&hasher, requirement_index);
             traceHashBytes(&hasher, requirement_label);
             traceHashU16(&hasher, op_index);
@@ -3918,8 +4280,12 @@ pub fn ExecutableSessionForPlan(
                             const payload = if (op.payload_codec == .unit) .none else locals[instruction.aux];
                             if (!valueMatchesRef(payload_ref, payload)) return error.ProgramContractViolation;
                             const result_ref = program_plan.functionResultRef(function);
+                            const operation_site = operationSiteForInstruction(instruction_index) orelse return error.ProgramContractViolation;
                             const request = try self.makeRequest(
                                 active.function_index,
+                                active.block_index,
+                                instruction_index,
+                                operation_site,
                                 instruction.dst,
                                 instruction.operand,
                                 result_ref,
@@ -4019,7 +4385,7 @@ pub fn ExecutableSessionForPlan(
             const active = self.frames.top();
             if (active.function_index != pending.function_index or active.waiting_helper_dst != null) return error.ProgramContractViolation;
             var locals = self.scratch.frameLocals(active.frame);
-            if (pending.has_after) try self.scratch.pushAfter(pending.op_index);
+            if (pending.has_after) try self.scratch.pushAfter(pending.after_stack_entry);
             if (pending.resume_ref.codec == .unit) {
                 active.last_return = encoded;
             } else if (pending.dst != std.math.maxInt(u16)) {
@@ -4116,7 +4482,16 @@ pub fn ExecutableSessionForPlan(
             const after_stack = self.scratch.frameAfterStack(active.frame);
             if (unwind.remaining > after_stack.len) return error.ProgramContractViolation;
             const after_index = unwind.remaining - 1;
-            const op_index = after_stack[after_index];
+            const after_entry = after_stack[after_index];
+            const op_index = after_entry.op_index;
+            if (after_entry.after_site_index >= after_yield_sites.len) return error.ProgramContractViolation;
+            const after_site = after_yield_sites[after_entry.after_site_index];
+            if (after_site.index != after_entry.after_site_index or
+                after_site.source_operation_site_index != after_entry.operation_site_index or
+                after_site.original_op_index != op_index)
+            {
+                return error.ProgramContractViolation;
+            }
             const output_ref = try sessionAfterOutputRefByIndex(
                 compiled_plan,
                 schema_types,
@@ -4128,6 +4503,7 @@ pub fn ExecutableSessionForPlan(
             );
             const request = try self.makeAfterRequest(
                 unwind.function_index,
+                after_site,
                 op_index,
                 unwind.current_ref,
                 output_ref,
@@ -4160,6 +4536,9 @@ pub fn ExecutableSessionForPlan(
         fn makeRequest(
             self: *Self,
             function_index: usize,
+            block_index: usize,
+            instruction_index: usize,
+            operation_site: SessionOperationYieldSite,
             dst: u16,
             op_index: u16,
             result_ref: program_plan.ValueRef,
@@ -4167,6 +4546,13 @@ pub fn ExecutableSessionForPlan(
         ) error{ProgramContractViolation}!Request {
             inline for (compiled_plan.ops, 0..) |op, index| {
                 if (op_index == index) {
+                    if (operation_site.op_index != op_index or
+                        operation_site.function_index != function_index or
+                        operation_site.block_index != block_index or
+                        operation_site.instruction_index != instruction_index)
+                    {
+                        return error.ProgramContractViolation;
+                    }
                     const requirement = compiled_plan.requirements[op.requirement_index];
                     const resume_ref: program_plan.ValueRef = .{
                         .codec = op.resume_codec,
@@ -4180,6 +4566,11 @@ pub fn ExecutableSessionForPlan(
                     const payload_fingerprint = try Self.fingerprintExecutableValueForRef(payload_ref, payload);
                     const request_fingerprint = Self.operationRequestFingerprint(
                         turn_index,
+                        operation_site.index,
+                        operation_site.fingerprint,
+                        function_index,
+                        block_index,
+                        instruction_index,
                         op.requirement_index,
                         requirement.label,
                         op_index,
@@ -4193,20 +4584,35 @@ pub fn ExecutableSessionForPlan(
                     );
                     const token = self.next_token;
                     self.next_token +%= 1;
+                    const after_site: ?SessionAfterYieldSite = if (op.has_after) afterSiteForOperationSite(operation_site.index) orelse return error.ProgramContractViolation else null;
                     self.pending = .{ .op = .{
                         .session_id = self.session_id,
                         .token = token,
                         .function_index = function_index,
+                        .block_index = block_index,
+                        .instruction_index = instruction_index,
                         .dst = dst,
                         .op_index = op_index,
+                        .operation_site_index = operation_site.index,
+                        .operation_site_fingerprint = operation_site.fingerprint,
                         .mode = op.mode,
                         .resume_ref = resume_ref,
                         .result_ref = result_ref,
                         .has_after = op.has_after,
+                        .after_stack_entry = if (after_site) |site| .{
+                            .op_index = op_index,
+                            .operation_site_index = @intCast(operation_site.index),
+                            .after_site_index = @intCast(site.index),
+                        } else .{ .op_index = op_index },
                     } };
                     var request: Request = .{
                         ._session_id = self.session_id,
                         .token = token,
+                        .operation_site_index = operation_site.index,
+                        .operation_site_fingerprint = operation_site.fingerprint,
+                        .function_index = function_index,
+                        .block_index = block_index,
+                        .instruction_index = instruction_index,
                         .requirement_index = op.requirement_index,
                         .requirement_label = requirement.label,
                         .op_index = op_index,
@@ -4232,6 +4638,7 @@ pub fn ExecutableSessionForPlan(
         fn makeAfterRequest(
             self: *Self,
             function_index: usize,
+            after_site: SessionAfterYieldSite,
             op_index: u16,
             value_ref: program_plan.ValueRef,
             output_ref: program_plan.ValueRef,
@@ -4242,12 +4649,22 @@ pub fn ExecutableSessionForPlan(
             inline for (compiled_plan.ops, 0..) |op, index| {
                 if (op_index == index) {
                     if (!op.has_after) return error.ProgramContractViolation;
+                    if (after_site.original_op_index != op_index or after_site.source_function_index != function_index) {
+                        return error.ProgramContractViolation;
+                    }
                     if (!valueMatchesRef(value_ref, value)) return error.ProgramContractViolation;
                     const requirement = compiled_plan.requirements[op.requirement_index];
                     const turn_index = self.nextTurnIndex();
                     const value_fingerprint = try Self.fingerprintExecutableValueForRef(value_ref, value);
                     const request_fingerprint = Self.afterRequestFingerprint(
                         turn_index,
+                        after_site.index,
+                        after_site.fingerprint,
+                        after_site.source_operation_site_index,
+                        after_site.source_operation_site_fingerprint,
+                        after_site.source_function_index,
+                        after_site.source_block_index,
+                        after_site.source_instruction_index,
                         op.requirement_index,
                         requirement.label,
                         op_index,
@@ -4263,7 +4680,13 @@ pub fn ExecutableSessionForPlan(
                         .session_id = self.session_id,
                         .token = token,
                         .function_index = function_index,
+                        .block_index = after_site.source_block_index,
+                        .instruction_index = after_site.source_instruction_index,
                         .op_index = op_index,
+                        .after_site_index = after_site.index,
+                        .after_site_fingerprint = after_site.fingerprint,
+                        .source_operation_site_index = after_site.source_operation_site_index,
+                        .source_operation_site_fingerprint = after_site.source_operation_site_fingerprint,
                         .value_ref = value_ref,
                         .output_ref = output_ref,
                         .result_ref = result_ref,
@@ -4272,6 +4695,13 @@ pub fn ExecutableSessionForPlan(
                     var request: AfterRequest = .{
                         ._session_id = self.session_id,
                         .token = token,
+                        .after_site_index = after_site.index,
+                        .after_site_fingerprint = after_site.fingerprint,
+                        .source_operation_site_index = after_site.source_operation_site_index,
+                        .source_operation_site_fingerprint = after_site.source_operation_site_fingerprint,
+                        .function_index = function_index,
+                        .block_index = after_site.source_block_index,
+                        .instruction_index = after_site.source_instruction_index,
                         .requirement_index = op.requirement_index,
                         .requirement_label = requirement.label,
                         .op_index = op_index,
@@ -4300,6 +4730,11 @@ pub fn ExecutableSessionForPlan(
             };
             if (pending.session_id != request._session_id or
                 pending.token != request.token or
+                pending.operation_site_index != request.operation_site_index or
+                pending.operation_site_fingerprint != request.operation_site_fingerprint or
+                pending.function_index != request.function_index or
+                pending.block_index != request.block_index or
+                pending.instruction_index != request.instruction_index or
                 pending.op_index != request.op_index or
                 pending.mode != request.mode or
                 !pending.resume_ref.eql(request.resume_ref) or
@@ -4317,6 +4752,13 @@ pub fn ExecutableSessionForPlan(
             };
             if (pending.session_id != request._session_id or
                 pending.token != request.token or
+                pending.after_site_index != request.after_site_index or
+                pending.after_site_fingerprint != request.after_site_fingerprint or
+                pending.source_operation_site_index != request.source_operation_site_index or
+                pending.source_operation_site_fingerprint != request.source_operation_site_fingerprint or
+                pending.function_index != request.function_index or
+                pending.block_index != request.block_index or
+                pending.instruction_index != request.instruction_index or
                 pending.op_index != request.op_index or
                 pending.remaining != request._remaining or
                 !pending.value_ref.eql(request.value_ref) or
