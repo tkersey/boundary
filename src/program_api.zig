@@ -511,6 +511,10 @@ fn ProgramContractFor(
         pub const session = struct {
             /// Whether Program.Session can start for this plan.
             pub const supported = SessionLedger.blockers.len == 0;
+            /// Whether yielded requests park runtime active execution before returning to the host.
+            pub const parks_runtime = true;
+            /// Whether the owning Runtime must outlive all live sessions.
+            pub const requires_runtime_lifetime = true;
             /// Number of retained blockers for session execution.
             pub const blocker_count = SessionLedger.blockers.len;
             /// Maximum blocker records retained by the session ledger.
@@ -704,7 +708,17 @@ pub fn program(
             runtime: *lowered_machine.Runtime,
             handlers: HandlersType,
             core: Core,
-            active: bool = true,
+            lifecycle: Lifecycle = .ready,
+            live_registered: bool = true,
+
+            const Lifecycle = enum {
+                deinitialized,
+                done,
+                parked_on_after,
+                parked_on_request,
+                ready,
+                running,
+            };
 
             /// Defunctionalized effect operation request yielded by `next`.
             pub const Request = Core.Request;
@@ -717,19 +731,22 @@ pub fn program(
                 request: Request,
             };
 
-            /// Start a host-driven execution session and enter runtime ownership.
+            /// Start a host-driven execution session without leaving runtime execution active.
             pub fn start(runtime: *lowered_machine.Runtime, handlers: HandlersType) Error!Session {
                 const mutable_handlers = handlers;
+                try ensureRuntimeCanEnter(runtime);
                 lowered_machine.beginExecution(runtime) catch |err| return mapProgramRunError(Error, err);
-                var runtime_active = true;
-                errdefer if (runtime_active) lowered_machine.endExecution(runtime);
+                defer lowered_machine.endExecution(runtime);
 
                 const args = if (comptime hasDeclSafe(Body, "encodeArgs"))
                     Body.encodeArgs(mutable_handlers)
                 else
                     @as([]const lowered_machine.ProgramValue, &.{});
-                const core = Core.start(lowered_machine.runtimeAllocator(runtime), args) catch |err| return mapProgramRunError(Error, err);
-                runtime_active = false;
+                var core = Core.start(lowered_machine.runtimeAllocator(runtime), args) catch |err| return mapProgramRunError(Error, err);
+                var core_owned = true;
+                errdefer if (core_owned) core.deinit();
+                lowered_machine.registerLiveSession(runtime) catch |err| return mapProgramRunError(Error, err);
+                core_owned = false;
                 return .{
                     .runtime = runtime,
                     .handlers = mutable_handlers,
@@ -745,20 +762,34 @@ pub fn program(
 
             /// Close an unfinished session, returning an error on runtime ownership misuse.
             pub fn deinitChecked(self: *Session) Error!void {
-                try self.closeChecked();
+                switch (self.lifecycle) {
+                    .done, .deinitialized => return,
+                    .running => return error.RuntimeBusy,
+                    .parked_on_after, .parked_on_request, .ready => {},
+                }
+                try ensureRuntimeCanEnter(self.runtime);
+                try self.closeChecked(.deinitialized);
             }
 
             /// Advance until the next yielded request or terminal result.
             pub fn next(self: *Session) Error!Step {
-                try self.ensureActiveThread();
+                try self.enterRuntimeFrom(.ready);
+                defer self.leaveRuntime();
+
                 if (self.core.hasPendingRequest()) return error.ProgramContractViolation;
                 const core_step = self.core.next() catch |err| {
-                    self.close();
+                    self.closeAs(.deinitialized);
                     return mapProgramRunError(Error, err);
                 };
                 return switch (core_step) {
-                    .request => |request| .{ .request = request },
-                    .after => |after| .{ .after = after },
+                    .request => |request| request: {
+                        self.lifecycle = .parked_on_request;
+                        break :request .{ .request = request };
+                    },
+                    .after => |after| after: {
+                        self.lifecycle = .parked_on_after;
+                        break :after .{ .after = after };
+                    },
                     .done => |raw| done: {
                         const allocator = lowered_machine.runtimeAllocator(self.runtime);
                         const result = if (comptime @typeInfo(HandlersType) == .pointer)
@@ -766,10 +797,10 @@ pub fn program(
                         else
                             finishResult(allocator, &self.handlers, raw.value);
                         const finished = result catch |err| {
-                            self.close();
+                            self.closeAs(.deinitialized);
                             return err;
                         };
-                        self.close();
+                        self.closeAs(.done);
                         break :done .{ .done = finished };
                     },
                 };
@@ -777,40 +808,78 @@ pub fn program(
 
             /// Resume a yielded transform or choice request with a typed value.
             pub fn @"resume"(self: *Session, request: Request, value: anytype) Error!void {
-                try self.ensureActiveThread();
-                self.core.@"resume"(request, value) catch |err| return mapProgramRunError(Error, err);
+                try self.enterRuntimeFrom(.parked_on_request);
+                defer self.leaveRuntime();
+
+                self.core.@"resume"(request, value) catch |err| {
+                    self.lifecycle = .parked_on_request;
+                    return mapProgramRunError(Error, err);
+                };
+                self.lifecycle = .ready;
             }
 
             /// Resume a yielded after-continuation request with the transformed value.
             pub fn resumeAfter(self: *Session, request: AfterRequest, value: anytype) Error!void {
-                try self.ensureActiveThread();
-                self.core.resumeAfter(request, value) catch |err| return mapProgramRunError(Error, err);
+                try self.enterRuntimeFrom(.parked_on_after);
+                defer self.leaveRuntime();
+
+                self.core.resumeAfter(request, value) catch |err| {
+                    self.lifecycle = .parked_on_after;
+                    return mapProgramRunError(Error, err);
+                };
+                self.lifecycle = .ready;
             }
 
             /// Complete a yielded choice or abort request with a terminal value.
             pub fn returnNow(self: *Session, request: Request, value: anytype) Error!void {
-                try self.ensureActiveThread();
-                self.core.returnNow(request, value) catch |err| return mapProgramRunError(Error, err);
+                try self.enterRuntimeFrom(.parked_on_request);
+                defer self.leaveRuntime();
+
+                self.core.returnNow(request, value) catch |err| {
+                    self.lifecycle = .parked_on_request;
+                    return mapProgramRunError(Error, err);
+                };
+                self.lifecycle = .ready;
             }
 
-            fn ensureActiveThread(self: *Session) Error!void {
-                if (!self.active) return error.ProgramContractViolation;
-                self.runtime.ensureThread() catch |err| return mapProgramRunError(Error, err);
-                const active_runtime = lowered_machine.activeRuntime() orelse return error.RuntimeBusy;
-                if (active_runtime != self.runtime) return error.RuntimeBusy;
+            fn ensureRuntimeCanEnter(runtime: *lowered_machine.Runtime) Error!void {
+                runtime.ensureThread() catch |err| return mapProgramRunError(Error, err);
+                if (lowered_machine.activeRuntime() != null) return error.RuntimeBusy;
+            }
+
+            fn enterRuntimeFrom(self: *Session, expected: Lifecycle) Error!void {
+                try ensureRuntimeCanEnter(self.runtime);
+                if (self.lifecycle != expected) return error.ProgramContractViolation;
+                lowered_machine.beginExecution(self.runtime) catch |err| return mapProgramRunError(Error, err);
+                self.lifecycle = .running;
+            }
+
+            fn leaveRuntime(self: *Session) void {
+                lowered_machine.endExecution(self.runtime);
             }
 
             fn close(self: *Session) void {
-                self.closeChecked() catch |err|
+                self.closeChecked(.deinitialized) catch |err|
                     std.debug.panic("runtime execution teardown misuse: {s}", .{@errorName(err)});
             }
 
-            fn closeChecked(self: *Session) Error!void {
-                if (!self.active) return;
-                try lowered_machine.endExecutionChecked(self.runtime);
-                self.active = false;
+            fn closeAs(self: *Session, final_lifecycle: Lifecycle) void {
+                self.closeChecked(final_lifecycle) catch |err|
+                    std.debug.panic("runtime execution teardown misuse: {s}", .{@errorName(err)});
+            }
+
+            fn closeChecked(self: *Session, final_lifecycle: Lifecycle) Error!void {
+                switch (self.lifecycle) {
+                    .done, .deinitialized => return,
+                    .parked_on_after, .parked_on_request, .ready, .running => {},
+                }
+                if (self.live_registered) {
+                    lowered_machine.unregisterLiveSession(self.runtime) catch |err| return mapProgramRunError(Error, err);
+                    self.live_registered = false;
+                }
                 self.deinitCompletedResult();
                 self.core.deinit();
+                self.lifecycle = final_lifecycle;
             }
 
             fn deinitCompletedResult(self: *Session) void {

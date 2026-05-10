@@ -120,9 +120,10 @@ block, instruction, Artifact, VM, compiler, parser, or capability-map surfaces.
 ## Program.Session
 
 `Program.Session` runs the same validated `Body.compiled_plan` as a caller-owned
-request loop. `Session.start` begins runtime execution, `next()` yields either
-an operation request, an after-continuation request, or the final
-`Program.Result`, and `deinit()` closes any still-active runtime scope.
+request loop. `Session.start` prepares explicit interpreter state without
+leaving runtime execution active. `next()` enters runtime execution only long
+enough to advance the interpreter, then returns either an operation request, an
+after-continuation request, or the final `Program.Result`.
 
 An operation request carries stable requirement/op metadata, payload, resume
 ref, result ref, control mode, and after-hook flag. `request.payload(T)` decodes
@@ -150,12 +151,21 @@ lexical-with targets. Final result and output materialization use the same
 `Body.collectOutputs`, `Body.deinitOutputs`, and `Body.deinitResult` ownership
 hooks as `Program.run`.
 
+When `next()` yields an operation or after-continuation request, the session is
+parked. The continuation remains explicit session data, runtime active execution
+bookkeeping is balanced before control returns to the host, and
+`Runtime.deinitChecked()` rejects the owning runtime while the live session still
+exists. A parked session can resume later only on the same runtime and owning
+thread. Because active execution is not held while parked, host code can run
+other programs or other sessions on that runtime between turns.
+
 ## Defunctionalized execution and agent loops
 
 `Program.Session` is a defunctionalized execution surface for host-driven loops.
-The interpreter reaches an effect operation, stores its explicit frame state,
-and yields request data with requirement/op metadata, payload and resume refs,
-the operation mode, and typed payload access through `request.payload(T)`.
+The interpreter reaches an effect operation or after-continuation boundary,
+stores its explicit frame state, parks runtime execution, and yields request data
+with requirement/op metadata, payload and resume refs, the operation mode, and
+typed payload access through `request.payload(T)` or `after.value(T)`.
 
 The host owns external work. It can resume transform and choice requests with a
 value matching the resume ref, complete choice and abort requests with a value

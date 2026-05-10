@@ -208,6 +208,7 @@ pub const ExecutionCore = struct {
     allocator: std.mem.Allocator,
     state: LifecycleState = .alive,
     active_reset_count: usize = 0,
+    live_session_count: usize = 0,
     prompt_tokens: *PromptTokenSource,
     frames: FrameRegistry = .{},
     cleanup: CleanupStack = .{},

@@ -135,11 +135,65 @@ const AgentBody = struct {
     }
 };
 
+fn hostBetweenTurnsPlan() ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const value = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        .{ .kind = .const_string, .dst = value.index, .string_literal = "parked" },
+        ability.ir.builder.returnValue(root, value) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "host_check",
+        .value_codec = .string,
+        .result_codec = .string,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return mustPlan(ability.ir.builder.finish(.{
+        .label = "agent-loop-host-between-turns",
+        .ir_hash = 101,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &.{},
+        .value_fields = &.{},
+        .value_variants = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }));
+}
+
+const HostBetweenTurnsBody = struct {
+    pub const compiled_plan = hostBetweenTurnsPlan();
+};
+
 pub fn run(writer: anytype) !void {
     var runtime = ability.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
     const Program = ability.program("agent-loop-session", AgentHandlers, AgentBody);
+    const HostBetweenTurns = ability.program("agent-loop-host-between-turns", struct {}, HostBetweenTurnsBody);
     var session = try Program.Session.start(&runtime, .{ .initial_remaining = 3 });
     defer session.deinit();
 
@@ -147,6 +201,10 @@ pub fn run(writer: anytype) !void {
         switch (try session.next()) {
             .after => return error.UnexpectedAfter,
             .request => |request| {
+                var host_check = try HostBetweenTurns.run(&runtime, .{});
+                defer host_check.deinit();
+                try writer.print("between_turns={s}\n", .{host_check.value});
+
                 if (std.mem.eql(u8, request.op_name, "decide")) {
                     const observation = try request.payload([]const u8);
                     try writer.print("decide observation={s}\n", .{observation});
