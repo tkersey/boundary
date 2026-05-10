@@ -4393,6 +4393,33 @@ test "Program.protocol does not publish static refs for invalid afterDispatch ar
     try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
 }
 
+test "Program.protocol does not publish static refs for non-method afterDispatch" {
+    const InvalidAfterHandlers = struct {
+        handlerless: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 0;
+            }
+
+            pub fn afterDispatch(value: i32, extra: bool) ![]const u8 {
+                _ = value;
+                _ = extra;
+                return "invalid";
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = handlerlessAfterReturnBoolPlan("protocol-invalid-after-dispatch-receiver");
+    };
+    const Program = ability.program("protocol-invalid-after-dispatch-receiver", InvalidAfterHandlers, Body);
+    const After = Program.protocol.afterSite("handlerless", "step", 0);
+
+    try std.testing.expect(!After.has_static_input_ref);
+    try std.testing.expect(!@hasDecl(After, "Input"));
+    try std.testing.expect(After.input_ref == null);
+    try std.testing.expect(After.Output == bool);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
+}
+
 test "Program.protocol derives handlerless outer after input from inner output" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();

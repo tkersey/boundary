@@ -1937,12 +1937,22 @@ fn HandlerType(comptime HandlerPtr: type) type {
     };
 }
 
+fn afterDispatchReceiverMatches(comptime Authored: type, comptime Receiver: type) bool {
+    if (Receiver == Authored) return true;
+    return switch (@typeInfo(Receiver)) {
+        .pointer => |pointer| pointer.size == .one and pointer.child == Authored,
+        else => false,
+    };
+}
+
 fn afterDispatchHasRuntimeShape(comptime AuthoredPtr: type) bool {
     const Authored = HandlerType(AuthoredPtr);
     const after_dispatch_info = @typeInfo(@TypeOf(Authored.afterDispatch)).@"fn";
     return after_dispatch_info.params.len == 2 and
+        after_dispatch_info.params[0].type != null and
         after_dispatch_info.params[1].type != null and
-        after_dispatch_info.return_type != null;
+        after_dispatch_info.return_type != null and
+        afterDispatchReceiverMatches(Authored, after_dispatch_info.params[0].type.?);
 }
 
 fn afterDispatchAccepts(
