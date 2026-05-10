@@ -194,9 +194,10 @@ same public entry point for optional, state/reader, writer, exception-style
 abort, and resource-style lifecycle workflows while compatibility effect APIs
 remain in place.
 See [docs/custom_effect_authoring.md](docs/custom_effect_authoring.md) for the
-schema-first custom effect authoring direction. Custom generated effects are not
-public yet; custom workflows should still lower to `ProgramPlan` and execute
-through `ability.program`.
+minimal schema-first custom protocol authoring API. Custom workflows still
+lower to `ProgramPlan` and execute through `ability.program`; old
+`effect.Define`, `effect.ops`, and generated direct-style custom effects remain
+outside the public surface.
 See [docs/release_hardening.md](docs/release_hardening.md) for package/lint
 coverage, file classification, and the built-in effects roadmap.
 
@@ -290,7 +291,8 @@ IR:
   printed, and a second run verifies the recorded request fingerprints before
   replaying the same typed responses.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
-  abort operations in one plan without exposing a custom effect API.
+  abort operations declared through a schema-first custom protocol family, with
+  both synchronous and host-driven session execution.
 
 ## Build
 

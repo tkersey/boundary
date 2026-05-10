@@ -1,52 +1,49 @@
-# Typed Program.protocol Implementation Plan
+# Minimal Schema-First Custom Protocol Families
 
 ## Summary
-Build a typed defunctionalized effect protocol for `Program.Session` by adding
-additive `Program.protocol` descriptors, site lookup, typed request/after views,
-site-aware response/resume helpers, and compile-time coverage witnesses.
+Build a minimal custom protocol-family authoring API under `ability.ir.schema`
+by extending the existing schema/lowering path, not by adding a new runtime
+surface. First implement constructors plus `Protocol`/`Rows`/op descriptors in
+`src/ir_api.zig`, then rewrite the approval workflow and prove `Program.contract`
+and `Program.protocol` see ordinary ProgramPlan facts.
 
-Keep `Program.contract.session` as compatible static metadata and keep
-`Program.Session` as the only execution surface. The protocol must not become a
-host driver, serializer, VM, or second runtime.
+Done means custom approval uses the new API, sync and session paths prove the
+same behavior, trace fingerprint version remains compatible when identity inputs
+are unchanged, and every requested Zig/lint/example proof passes.
 
 ## Non-Goals
-- Do not change `Program.run` semantics.
-- Do not change `Program.Session` execution semantics.
-- Do not remove or rename `Program.contract.session.yield_sites` or
-  `Program.contract.session.after_sites`.
 - Do not widen the public root.
-- Do not expose `effect.Define`, `effect.ops`, generated public custom effects,
-  VM APIs, Artifact APIs, parser/compiler/source-language APIs, async runtime,
-  network/LLM integration, durable session snapshot/restore, cross-thread
-  session resume, serializable request tokens, new value codecs, or widened
-  `ProgramValue`.
-- Do not bump trace fingerprint version unless fingerprint contents change.
-- Do not add automatic host-driver execution in this branch.
+- Do not expose `effect.Define`, `effect.ops`, or old public
+  `generated_family` APIs.
+- Do not add direct-style custom effects, automatic host-driver execution,
+  generated visitor DSLs, trait-style host implementations, VM, Artifact,
+  parser/compiler/source-language APIs, async runtime, network/LLM integration,
+  durable session snapshots, cross-thread resume, serializable request tokens,
+  new value codecs, or `ProgramValue` widening.
+- Do not change `Program.run` or `Program.Session` semantics.
+- Do not change trace fingerprint contents or bump fingerprint version unless
+  dynamic identity inputs actually change.
 
 ## Acceptance
-- `Program.protocol.operationSite(label, op_name, occurrence_index)` and
-  `Program.protocol.siteByIndex(index)` expose typed operation descriptors.
-- `Program.protocol.afterSite(label, op_name, occurrence_index)` and
-  `Program.protocol.afterSiteByIndex(index)` expose typed after descriptors.
-- Operation descriptors expose static site metadata plus `Payload`, `Resume`,
-  `Result`, `payload_ref`, `resume_ref`, `result_ref`, `has_after`,
-  `may_resume`, and `may_return_now`.
-- After descriptors expose source operation metadata plus `Input`, `Output`,
-  `Result`, `input_ref`, `output_ref`, and `result_ref`.
-- Dynamic operation and after requests can be checked against static site
-  descriptors by site index and fingerprint.
-- Typed request/after views expose descriptor-derived payload/current value
-  access.
-- Site-aware response trace helpers produce the same response fingerprint as raw
-  `responseTrace` for valid inputs.
-- Typed resume, return-now, and resume-after helpers preserve existing pending
-  request token, runtime, lifecycle, and type validation.
-- Coverage helpers accept complete site sets and fail at comptime for omitted,
-  duplicate, or foreign-program descriptors.
-- `examples/agent_loop.zig` uses typed protocol sites where practical and no
-  longer dispatches by raw `request.op_name` strings for normal operation flow.
-- README and `docs/program_plan.md` document the typed protocol surface and
-  unchanged non-goals.
+- `ability.ir.schema.transform`, `.choice`, `.abort`, plus explicit transform
+  and choice after-intent constructors, create custom op schemas.
+- `ability.ir.schema.Protocol(spec)` validates non-empty label, non-empty unique
+  op names, default lifecycle/output tags, and exposes a Binding-shaped family.
+- `Protocol.Rows(HandlerType, offsets)` lowers through existing `LowerBinding`
+  with caller-owned requirement/op/output/schema indexes.
+- Scalar payload/resume/output refs lower without schema refs; product/sum refs
+  require explicit `SchemaRefs` and fail closed when missing or duplicated.
+- Rows-bound descriptors expose ordinal/name/mode/types/refs, `opRef`, and
+  `call` helpers so examples avoid manual op-name/op-index duplication.
+- Custom protocol rows appear in `Program.contract`; reachable custom operation
+  and after sites appear in `Program.contract.session` and `Program.protocol`.
+- Dynamic custom requests bind to matching descriptors, reject mismatched
+  descriptors, and use existing typed resume/return/trace helpers.
+- `examples/custom_approval_workflow.zig` uses the new API, demonstrates
+  transform/choice/abort, sync behavior, deterministic session/protocol
+  handling, coverage witnesses, and fingerprint stability.
+- Docs mark minimal schema-first custom protocol authoring available while
+  preserving the non-goals.
 
 ## Proof
 ```sh
@@ -54,25 +51,56 @@ zig version
 zig fmt --check build.zig src examples test bench
 git diff --check
 zig build --summary all
+zig build run-custom-approval-workflow
 zig build run-agent-loop
 zig build test --summary all
+zig build test --summary none -- --test-filter "custom"
 zig build test --summary none -- --test-filter "protocol"
+zig build test --summary none -- --test-filter "schema"
 zig build test --summary none -- --test-filter "site"
 zig build test --summary none -- --test-filter "session"
-zig build test --summary none -- --test-filter "trace"
-zig build test --summary none -- --test-filter "replay"
-zig build test --summary none -- --test-filter "agent"
 zig build lint -- --max-warnings 0
 ```
 
 ## Implementation Brief
-1. step=baseline_and_surface_map; owner=implementer; success_criteria=confirm latest main, import this typed protocol plan into `$st`, map current `Program.contract.session`, `Program.Session` request/after structs, typed value mapping, response trace helpers, agent_loop, docs, and relevant tests.
-2. step=operation_protocol_descriptors; owner=implementer; success_criteria=add `Program.protocol` operation descriptors, `operationSite`, and `siteByIndex` derived from existing session yield sites, with typed `Payload`, `Resume`, and `Result` aliases and no public root widening. (deps: baseline_and_surface_map)
-3. step=after_protocol_descriptors; owner=implementer; success_criteria=add after descriptors, `afterSite`, and `afterSiteByIndex` with typed `Input`, `Output`, and `Result` aliases; prove one static input/output pair from existing Session handler/type evidence or abort without changing fingerprints. (deps: operation_protocol_descriptors)
-4. step=typed_request_after_views; owner=implementer; success_criteria=add `matches`, `as`, typed payload/value views, and site-aware response trace helpers for operation and after requests, checking site index plus fingerprint and preserving raw response fingerprint parity. (deps: after_protocol_descriptors)
-5. step=typed_session_resume_helpers; owner=implementer; success_criteria=add `resumeTyped`, `returnNowTyped`, and `resumeAfterTyped` that delegate to existing Session methods and preserve pending-token, runtime, lifecycle, and type validation. (deps: typed_request_after_views)
-6. step=coverage_witness_helpers; owner=implementer; success_criteria=add operation, after, and all-site coverage helpers that fail at comptime for omitted reachable sites, duplicate descriptors, and descriptors from another Program. (deps: typed_session_resume_helpers)
-7. step=protocol_tests_and_compile_fail; owner=implementer; success_criteria=focused tests cover operation/after descriptor metadata and types, matching/mismatched dynamic bindings, typed resume/return/after behavior, response trace parity, coverage success/failures, same-op duplicate sites, helper-yield sites, nested-with sites, and existing session/replay/program-run compatibility. (deps: coverage_witness_helpers)
-8. step=agent_loop_and_docs; owner=implementer; success_criteria=`examples/agent_loop.zig` dispatches through typed protocol sites, preserves deterministic replay fingerprints, and README/docs describe typed protocol descriptors, dynamic request checks, coverage helpers, explicit host execution, request token boundaries, fingerprint boundaries, and unchanged non-goals. (deps: protocol_tests_and_compile_fail)
-9. step=fixed_point_review; owner=implementer; success_criteria=de novo fixed-point review, negative-ledger handoff, and one-change challenge find no unresolved material soundness, invariant, hazard, complexity, or verification gaps. (deps: agent_loop_and_docs)
-10. step=full_proof_and_ship; owner=implementer; success_criteria=all requested proof commands pass, branch is pushed, and `$ship` opens a PR summarizing protocol descriptors, typed request/after checks, site-aware response helpers, coverage witnesses, agent_loop changes, fingerprint version status, explicit non-runtime posture, and unchanged non-goals. (deps: fixed_point_review)
+1. step=baseline_and_surface_map; owner=implementer; success_criteria=confirm
+   latest main, import this custom protocol plan into `$st`, map current
+   `ability.ir.schema`, `LowerBinding`, `SchemaRefs`, approval workflow,
+   Program.contract/session/protocol tests, docs, and proof lanes.
+2. step=protocol_constructors_and_descriptor; owner=implementer;
+   success_criteria=add `ability.ir.schema` custom op constructors and
+   `Protocol` descriptor validation with no public-root change. (deps:
+   baseline_and_surface_map)
+3. step=protocol_rows_and_op_helpers; owner=implementer;
+   success_criteria=lower custom Protocol through existing `LowerBinding` and
+   expose rows-bound operation descriptors with refs, `opRef`, and `call`
+   helpers using caller-owned offsets and schema refs. (deps:
+   protocol_constructors_and_descriptor)
+4. step=schema_protocol_tests_and_compile_fail; owner=implementer;
+   success_criteria=focused tests and compile-fail fixtures cover empty label,
+   empty op, duplicate op, abort-after rejection, transform/choice/abort rows,
+   scalar refs, product/sum refs, missing structured refs, and duplicate
+   `SchemaRefs`. (deps: protocol_rows_and_op_helpers)
+5. step=custom_approval_rewrite; owner=implementer; success_criteria=rewrite
+   `examples/custom_approval_workflow.zig` to use the new custom protocol
+   descriptor and layout builder helpers, while preserving approve/deny/invalid
+   synchronous behavior. (deps: schema_protocol_tests_and_compile_fail)
+6. step=custom_approval_session_protocol; owner=implementer;
+   success_criteria=upgrade/add approval session path using `Program.protocol`
+   descriptors, coverage helpers, typed payload/resume/returnNow, bind/reject
+   checks, and deterministic trace/fingerprint replay. (deps:
+   custom_approval_rewrite)
+7. step=contract_protocol_docs; owner=implementer; success_criteria=add
+   `Program.contract`, `Program.contract.session`, and `Program.protocol` tests
+   for custom protocol sites and update `docs/custom_effect_authoring.md` plus
+   `docs/program_plan.md`, with README only if needed. (deps:
+   custom_approval_session_protocol)
+8. step=fixed_point_review; owner=implementer; success_criteria=de novo
+   fixed-point review, negative-ledger handoff, and one-change challenge find no
+   unresolved material soundness, invariant, hazard, complexity, or verification
+   gaps. (deps: contract_protocol_docs)
+9. step=full_proof_and_ship; owner=implementer; success_criteria=all requested
+   proof commands pass, branch is pushed, and `$ship` opens a PR summarizing the
+   new API, lowering path, schema ref handling, descriptor helpers, approval
+   workflow changes, Program.protocol integration, and unchanged non-goals.
+   (deps: fixed_point_review)

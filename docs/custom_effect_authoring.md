@@ -1,13 +1,11 @@
-# Custom effect authoring design
+# Custom effect authoring
 
-Custom effect authoring is intentionally a later public surface. The current
-authoring path for reusable effect-shaped workflows is explicit ProgramPlan
-construction through `ability.ir`, executed by `ability.program`.
+Minimal schema-first custom protocol-family authoring is available under
+`ability.ir.schema`. It is public-adjacent and additive: the public root remains
+small, and the schema path still emits ordinary `ProgramPlan` facts consumed by
+`ability.program`.
 
-This document records the intended shape of custom effects so the plan-native
-built-in work can converge on one target without re-opening the public root.
-
-## Current boundary
+## Boundary
 
 The public root remains:
 
@@ -16,129 +14,147 @@ The public root remains:
 - `ability.program`
 - `ability.Runtime`
 
-`ability.effect` does not expose `Define` or `ops`. Custom generated effects are
-not public. Users who need a custom workflow today should build a ProgramPlan,
-provide handlers, and run it through `ability.program`.
+Custom protocol families do not create a second IR. They do not expose
+`effect.Define`, `effect.ops`, old generated-family APIs, direct-style custom
+effects, a parser, compiler, VM, Artifact API, source-language API, async
+runtime, automatic host driver, network or LLM integration, value codecs, or a
+wider public root. Raw `ProgramPlan` construction remains available.
 
-`ability.ir.schema.LowerBinding` is public-adjacent infrastructure for built-in
-schemas. It lowers an `effect_schema.Binding`-shaped type to ordinary
-ProgramPlan requirement, op, and output rows, and is the preferred route for
-built-in plan-native metadata. It is not a custom effect authoring API, does not
-expose `effect.Define`, and does not add parser, compiler, VM, Artifact, source
-language, value-codec, or execution semantics.
+## Protocol Families
 
-`examples/custom_approval_workflow.zig` is the current public pattern. It
-declares a workflow requirement with transform, choice, and abort operations in
-the plan tables, then supplies ordinary Zig handlers at the `ability.program`
-front door.
-
-## Future public shape
-
-Custom effect authoring should be schema-first:
-
-1. Define requirement metadata with a stable label and lifecycle tag.
-2. Define operations with explicit mode, payload ref, resume ref, and after-hook
-   intent.
-3. Define value schemas before referencing typed product or sum values.
-4. Define outputs with ownership and cleanup expectations.
-5. Lower the description to `ability.ir.ProgramPlan`.
-6. Execute only through `ability.program`.
-
-The future authoring surface may add helpers under `ability.ir` for this
-schema-first shape, but it should still emit the existing ProgramPlan. It must
-not introduce a second IR, a source parser, a public VM, a public Artifact
-surface, or a public compiler layer.
-
-Current built-in schemas already prove the intended direction at a smaller
-scope: schema lowering owns requirement/op/output metadata, while
-`ability.ir.builder.layout` owns function, local, block, instruction, and
-terminator layout. Raw ProgramPlan rows remain available for exact-table tests
-and unsupported shapes.
-
-When a schema-lowered payload, resume, or output type is a product or sum, the
-author must pass the same explicit schema-ref map used by built-in plan-native
-metadata:
+Define a family as schema data:
 
 ```zig
-const schema_refs = ability.ir.schema.SchemaRefs(.{
-    ability.ir.schema.ref(ProductPayload, 0),
-    ability.ir.schema.ref(ResultChoice, 1),
+const Approval = ability.ir.schema.Protocol(.{
+    .label = "approval",
+    .lifecycle_tag = .generated_family,
+    .ops = .{
+        ability.ir.schema.transform("exists", []const u8, i32),
+        ability.ir.schema.choiceAfter("request", []const u8, i32),
+        ability.ir.schema.abort("invalid", []const u8),
+    },
 });
 ```
 
-Scalar refs need no map entry. Product and sum refs fail closed unless their
-exact Zig type appears in the local map. The map points only at caller-owned
-`value_schemas` indexes; it is not a hidden registry and it does not reorder or
-create schema rows.
+The operation constructors are:
 
-## Required semantics
+- `ability.ir.schema.transform(name, Payload, Resume)`
+- `ability.ir.schema.transformAfter(name, Payload, Resume)`
+- `ability.ir.schema.choice(name, Payload, Resume)`
+- `ability.ir.schema.choiceAfter(name, Payload, Resume)`
+- `ability.ir.schema.abort(name, Payload)`
 
-A custom effect description must lower to ordinary ProgramPlan facts:
+`schema.op.*` exposes the same constructors for call sites that prefer a nested
+namespace. Abort ops have no after hook and use the existing terminal
+`returnNow` semantics when driven by a session host.
 
-- Requirements become `ProgramPlan.requirements` rows with stable labels and
-  source metadata.
-- Transform operations become `.transform` ops with exact payload and resume
-  refs.
-- Choice operations become `.choice` ops whose handlers either resume with the
-  declared resume ref or return the declared terminal result.
-- Abort operations become `.abort` ops whose handlers return the declared
-  terminal result.
-- After hooks become `has_after = true` op metadata and execute only on resumed
-  paths.
-- Product and sum payloads use `Body.value_schema_types` for exact Zig type
-  matching.
-- Sum control flow uses `sum_variant_is` and `sum_extract_payload`; extraction
-  destinations must match the schema-local variant payload ref.
-- Outputs materialize through `Program.Result.outputs` and are released by
-  `Body.deinitOutputs` when ownership requires it.
-- Result ownership is released by `Body.deinitResult`; output cleanup remains
-  independent.
-- Nested lexical-with behavior is available only through explicit
-  `Body.nested_with_targets`.
-- `return_error` literals are part of the reachable executable contract and must
-  be declared in `Body.Error`.
+`schema.Protocol` validates non-empty labels, non-empty op names, and duplicate
+op names at comptime. The default lifecycle tag is `.generated_family`, and the
+default output tag is `.none`. A protocol may declare an output with
+`.output_tag` and `.output_type`; output rows are lowered through the same
+schema lowerer as built-ins.
 
-## Contract projection
+## Lowering
 
-Every custom effect helper must be testable through `Program.contract`. A caller
-or test should be able to assert:
+Lower a protocol through `Rows`, supplying the handler type and caller-owned
+table offsets:
 
-- requirement labels and lifecycle metadata
-- op names, modes, payload refs, resume refs, and after flags
-- output labels and output refs
-- value schema, field, and variant declarations
-- nested-with target declarations
-- unique reachable `return_error` literals
-- executable capability-ledger blocker metadata
+```zig
+const ApprovalRows = Approval.Rows(Handlers, .{
+    .requirement_index = 0,
+    .first_op = 0,
+    .first_output = 0,
+});
+```
 
-This keeps custom authoring honest: if a helper cannot prove its output through
-the same contract projection as a raw ProgramPlan, it is not ready to be public.
+The row bundle contains:
 
-The current schema lowerer resolves scalar payload, resume, and output refs
-directly, and resolves structured product/sum refs through the caller-provided
-schema-index map above.
-Writer accumulator output rows use the accumulator item ref; the final collected
-slice remains owned by the program body `Outputs` contract.
+- `requirement`
+- `ops`
+- `outputs`
+- `requirement_index`
+- `first_op`
+- `first_output`
+- `op_count`
+- `output_count`
 
-## Approval workflow target
+These are ordinary ProgramPlan rows. Offsets stay caller-owned. There is no
+hidden schema registry, no row reordering, and no automatic value-schema table.
 
-The first custom authoring example should remain an approval workflow because it
-uses all core control modes without requiring lifecycle machinery:
+Scalar payload, resume, and output refs lower without schema refs. Product and
+sum refs require explicit caller-owned indexes:
 
-- `exists`: transform from a request id to a lookup result
-- `request`: choice that resumes on approval or returns a denial result
-- `invalid`: abort that returns an invalid-request result
+```zig
+const Rows = Approval.Rows(Handlers, .{
+    .requirement_index = 0,
+    .first_op = 0,
+    .schema_refs = ability.ir.schema.SchemaRefs(.{
+        ability.ir.schema.ref(ProductPayload, 0),
+        ability.ir.schema.ref(Decision, 1),
+    }),
+});
+```
 
-The schema-first helper should produce the same contract metadata as the raw
-`examples/custom_approval_workflow.zig` ProgramPlan before it becomes a public
-recommendation.
+Missing product/sum refs fail closed. Duplicate schema refs and scalar schema
+ref entries continue to fail through the existing `SchemaRefs` map logic.
 
-## Non-goals
+## Plan Authoring
 
-- Do not expose `effect.Define`.
-- Do not expose `effect.ops`.
-- Do not add public generated custom effects.
-- Do not widen the public root.
-- Do not widen `ProgramValue`; it remains scalar-only.
-- Do not add source-like syntax.
-- Do not add a public Artifact, VM, compile, or parser API.
+Lowered rows expose operation descriptors for layout-builder code:
+
+```zig
+const Exists = ApprovalRows.op("exists");
+const Request = ApprovalRows.op("request");
+const Invalid = ApprovalRows.op("invalid");
+
+const instructions = [_]ability.ir.plan.Instruction{
+    try Exists.call(root, exists_local, request_id_local),
+    try Request.call(root, decision_local, approval_request_local),
+    try Invalid.call(root, null, invalid_request_local),
+};
+```
+
+Descriptors expose the op ordinal, op name, mode, `Payload`, `Resume`,
+`payload_ref`, `resume_ref`, `opRef(function_ref)`, and
+`call(function_ref, dst_local_or_null, payload_local_or_null)`. They remove the
+need to duplicate op names, modes, payload refs, resume refs, and op table
+indexes while still letting the caller own locals, blocks, instructions,
+branches, value schemas, and cleanup hooks.
+
+## Contract and Protocol
+
+After a schema family is lowered into a `ProgramPlan`, `ability.program` treats
+it like any other plan:
+
+- `Program.contract.requirements` exposes the custom requirement row.
+- `Program.contract.ops` exposes the custom operation rows.
+- `Program.contract.session.yield_sites` exposes reachable operation sites.
+- `Program.contract.session.after_sites` exposes reachable after sites.
+- `Program.protocol.operationSite` and `afterSite` provide typed host-facing
+  static descriptors.
+- Dynamic session requests bind to those descriptors with `matches`, `as`,
+  typed payload/value views, typed resume/return helpers, and response traces.
+- Coverage helpers can prove all reachable custom operation and after sites are
+  handled.
+
+`examples/custom_approval_workflow.zig` is the reference example. It defines a
+custom `workflow` protocol with transform, choice, and abort operations, lowers
+it to rows, authors the remaining ProgramPlan control flow explicitly, runs
+through `Program.run`, and also demonstrates a host-driven `Program.Session`
+path using `Program.protocol` descriptors and deterministic trace replay.
+
+## Non-Goals
+
+- No `effect.Define`.
+- No `effect.ops`.
+- No old generated-family public API.
+- No direct-style custom effects.
+- No generated visitor DSL or trait-style host implementation.
+- No automatic host runtime.
+- No VM, Artifact, parser, compiler, or source-language API.
+- No async runtime, network, or LLM integration.
+- No durable session snapshot/restore.
+- No serializable request tokens.
+- No public root widening.
+- No `ProgramValue` widening.
+- No new value codecs.

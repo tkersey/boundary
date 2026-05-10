@@ -681,6 +681,174 @@ pub const schema = struct {
         schema_refs: type = SchemaRefs(.{}),
     };
 
+    /// Custom protocol transform operation schema.
+    pub fn transform(
+        comptime name: [:0]const u8,
+        comptime Payload: type,
+        comptime Resume: type,
+    ) type {
+        return effect_schema.op(name, .transform, Payload, Resume, .none);
+    }
+
+    /// Custom protocol transform operation schema with an optional after hook.
+    pub fn transformAfter(
+        comptime name: [:0]const u8,
+        comptime Payload: type,
+        comptime Resume: type,
+    ) type {
+        return effect_schema.op(name, .transform, Payload, Resume, .binding_optional);
+    }
+
+    /// Custom protocol choice operation schema.
+    pub fn choice(
+        comptime name: [:0]const u8,
+        comptime Payload: type,
+        comptime Resume: type,
+    ) type {
+        return effect_schema.op(name, .choice, Payload, Resume, .none);
+    }
+
+    /// Custom protocol choice operation schema with an optional after hook.
+    pub fn choiceAfter(
+        comptime name: [:0]const u8,
+        comptime Payload: type,
+        comptime Resume: type,
+    ) type {
+        return effect_schema.op(name, .choice, Payload, Resume, .binding_optional);
+    }
+
+    /// Custom protocol abort operation schema.
+    pub fn abort(
+        comptime name: [:0]const u8,
+        comptime Payload: type,
+    ) type {
+        return effect_schema.op(name, .abort, Payload, noreturn, .none);
+    }
+
+    /// Nested constructor aliases for call sites that prefer `schema.op.*`.
+    pub const op = struct {
+        pub fn transform(
+            comptime name: [:0]const u8,
+            comptime Payload: type,
+            comptime Resume: type,
+        ) type {
+            return schema.transform(name, Payload, Resume);
+        }
+
+        pub fn transformAfter(
+            comptime name: [:0]const u8,
+            comptime Payload: type,
+            comptime Resume: type,
+        ) type {
+            return schema.transformAfter(name, Payload, Resume);
+        }
+
+        pub fn choice(
+            comptime name: [:0]const u8,
+            comptime Payload: type,
+            comptime Resume: type,
+        ) type {
+            return schema.choice(name, Payload, Resume);
+        }
+
+        pub fn choiceAfter(
+            comptime name: [:0]const u8,
+            comptime Payload: type,
+            comptime Resume: type,
+        ) type {
+            return schema.choiceAfter(name, Payload, Resume);
+        }
+
+        pub fn abort(
+            comptime name: [:0]const u8,
+            comptime Payload: type,
+        ) type {
+            return schema.abort(name, Payload);
+        }
+    };
+
+    /// Minimal schema-first custom protocol-family descriptor.
+    pub fn Protocol(comptime spec: anytype) type {
+        comptime validateProtocolSpec(spec);
+        const FamilySchema = comptime protocolFamilySchema(spec);
+        const protocol_label: [:0]const u8 = spec.label;
+        const protocol_ops = spec.ops;
+
+        return struct {
+            pub const label: [:0]const u8 = protocol_label;
+            pub const Family = FamilySchema;
+            pub const family = FamilySchema;
+            pub const lifecycle_tag = FamilySchema.lifecycle_tag;
+            pub const output_tag = FamilySchema.output;
+            pub const ops = protocol_ops;
+            pub const op_count = protocol_ops.len;
+
+            pub fn Binding(comptime HandlerType: type) type {
+                return schema.Binding(protocol_label, FamilySchema, HandlerType);
+            }
+
+            pub fn Rows(
+                comptime HandlerType: type,
+                comptime offsets: BindingOffsets,
+            ) type {
+                const BindingSchema = schema.Binding(protocol_label, FamilySchema, HandlerType);
+                const Lowered = schema.LowerBinding(BindingSchema, offsets);
+                return struct {
+                    pub const requirement_index = Lowered.requirement_index;
+                    pub const first_output = Lowered.first_output;
+                    pub const first_op = offsets.first_op;
+                    pub const op_count = Lowered.op_count;
+                    pub const output_count = Lowered.output_count;
+                    pub const requirement = Lowered.requirement;
+                    pub const ops = Lowered.ops;
+                    pub const outputs = Lowered.outputs;
+
+                    pub fn op(comptime name: []const u8) type {
+                        inline for (protocol_ops, 0..) |OpSchema, ordinal| {
+                            if (standard.mem.eql(u8, OpSchema.name, name)) {
+                                const global_op_index: u16 = offsets.first_op + @as(u16, @intCast(ordinal));
+                                const op_row = Lowered.ops[ordinal];
+                                return struct {
+                                    pub const protocol = protocol_label;
+                                    pub const op_ordinal: u16 = @intCast(ordinal);
+                                    pub const op_index: u16 = global_op_index;
+                                    pub const op_name: [:0]const u8 = OpSchema.name;
+                                    pub const mode = op_row.mode;
+                                    pub const Payload = OpSchema.Payload;
+                                    pub const Resume = OpSchema.Resume;
+                                    pub const payload_ref: program_plan.ValueRef = .{
+                                        .codec = op_row.payload_codec,
+                                        .schema_index = op_row.payload_schema_index,
+                                    };
+                                    pub const resume_ref: program_plan.ValueRef = .{
+                                        .codec = op_row.resume_codec,
+                                        .schema_index = op_row.resume_schema_index,
+                                    };
+
+                                    pub fn opRef(function_ref: builder.FunctionRef) builder.OpRef {
+                                        return builder.op(function_ref, global_op_index);
+                                    }
+
+                                    pub fn call(
+                                        function_ref: builder.FunctionRef,
+                                        dst: ?builder.LocalRef,
+                                        payload: ?builder.LocalRef,
+                                    ) program_plan.ValidationError!program_plan.Instruction {
+                                        return builder.callOp(function_ref, dst, opRef(function_ref), payload);
+                                    }
+                                };
+                            }
+                        }
+                        @compileError(standard.fmt.comptimePrint(
+                            "schema.Protocol op '{s}' is not declared for '{s}'",
+                            .{ name, protocol_label },
+                        ));
+                    }
+                };
+            }
+        };
+    }
+
     /// Build a schema binding type without exposing `effect_schema` at the root.
     pub fn Binding(
         comptime label: [:0]const u8,
@@ -769,13 +937,28 @@ pub const schema = struct {
         // after{OpName} hooks remain effect_schema row metadata.
         return switch (OpSchema.after) {
             .none => false,
-            .binding_optional => hasDeclSafe(BindingSchema.Handler, "afterDispatch"),
+            .binding_optional => hasDeclSafe(BindingSchema.Handler, "afterDispatch") or
+                handlerFieldHasAfterDispatch(BindingSchema.Handler, OpSchema.name),
         };
     }
 
     fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
         return switch (@typeInfo(T)) {
             .@"struct", .@"union", .@"enum", .@"opaque" => @hasDecl(T, name),
+            else => false,
+        };
+    }
+
+    fn handlerFieldHasAfterDispatch(comptime HandlerType: type, comptime field_name: []const u8) bool {
+        return switch (@typeInfo(HandlerType)) {
+            .@"struct" => |info| {
+                inline for (info.fields) |field| {
+                    if (standard.mem.eql(u8, field.name, field_name)) {
+                        return hasDeclSafe(field.type, "afterDispatch");
+                    }
+                }
+                return false;
+            },
             else => false,
         };
     }
@@ -883,6 +1066,123 @@ pub const schema = struct {
                 }
             }
         }
+    }
+
+    fn validateProtocolSpec(comptime spec: anytype) void {
+        const SpecType = @TypeOf(spec);
+        if (!@hasField(SpecType, "label")) {
+            @compileError("schema.Protocol requires a label");
+        }
+        const protocol_label: [:0]const u8 = spec.label;
+        if (protocol_label.len == 0) {
+            @compileError("schema.Protocol requires a non-empty label");
+        }
+        if (!@hasField(SpecType, "ops")) {
+            @compileError("schema.Protocol requires ops");
+        }
+        if (spec.ops.len == 0) {
+            @compileError("schema.Protocol requires at least one op");
+        }
+        inline for (spec.ops, 0..) |OpSchema, index| {
+            validateProtocolOp(OpSchema);
+            inline for (spec.ops, 0..) |prior, prior_index| {
+                if (prior_index < index and standard.mem.eql(u8, prior.name, OpSchema.name)) {
+                    @compileError(standard.fmt.comptimePrint(
+                        "schema.Protocol has duplicate op name '{s}'",
+                        .{OpSchema.name},
+                    ));
+                }
+            }
+        }
+    }
+
+    fn validateProtocolOp(comptime OpSchema: type) void {
+        if (!hasDeclSafe(OpSchema, "name")) {
+            @compileError("schema.Protocol op must declare a name");
+        }
+        if (OpSchema.name.len == 0) {
+            @compileError("schema.Protocol op name must be non-empty");
+        }
+        inline for (.{
+            "control_mode",
+            "Payload",
+            "Resume",
+            "after",
+        }) |decl_name| {
+            if (!hasDeclSafe(OpSchema, decl_name)) {
+                @compileError("schema.Protocol op is missing " ++ decl_name);
+            }
+        }
+        if (OpSchema.control_mode == .abort and OpSchema.after != .none) {
+            @compileError("schema.Protocol abort op cannot declare an after hook");
+        }
+    }
+
+    fn protocolFamilySchema(comptime spec: anytype) type {
+        const SpecType = @TypeOf(spec);
+        const ErrorSetType: type = if (@hasField(SpecType, "error_set_type"))
+            spec.error_set_type
+        else if (@hasField(SpecType, "ErrorSet"))
+            spec.ErrorSet
+        else
+            error{};
+        const StateType: type = if (@hasField(SpecType, "state_type"))
+            spec.state_type
+        else
+            void;
+        const OutputType: type = if (@hasField(SpecType, "output_type"))
+            spec.output_type
+        else if (@hasField(SpecType, "Output"))
+            spec.Output
+        else
+            void;
+        const ItemType: type = if (@hasField(SpecType, "item_type"))
+            spec.item_type
+        else
+            OutputType;
+        const OutputFinalizerValue: type = if (@hasField(SpecType, "output_finalizer_type"))
+            spec.output_finalizer_type
+        else
+            void;
+        const PolicyType: type = if (@hasField(SpecType, "policy_type"))
+            spec.policy_type
+        else
+            void;
+        const CatchType: type = if (@hasField(SpecType, "catch_type"))
+            spec.catch_type
+        else
+            void;
+        const ManagerType: type = if (@hasField(SpecType, "manager_type"))
+            spec.manager_type
+        else
+            void;
+        const lifecycle_value: effect_schema.LifecycleTag = if (@hasField(SpecType, "lifecycle_tag"))
+            standard.meta.stringToEnum(effect_schema.LifecycleTag, @tagName(spec.lifecycle_tag)) orelse
+                @compileError("schema.Protocol lifecycle_tag must map to effect schema lifecycle tags")
+        else
+            .generated_family;
+        const output_value: effect_schema.OutputTag = if (@hasField(SpecType, "output_tag"))
+            standard.meta.stringToEnum(effect_schema.OutputTag, @tagName(spec.output_tag)) orelse
+                @compileError("schema.Protocol output_tag must map to effect schema output tags")
+        else
+            .none;
+        const protocol_label: [:0]const u8 = spec.label;
+
+        return struct {
+            pub const logical_family_name: [:0]const u8 = protocol_label;
+            pub const lifecycle_tag = lifecycle_value;
+            pub const ErrorSet = ErrorSetType;
+            pub const State = StateType;
+            pub const Item = ItemType;
+            pub const Output = OutputType;
+            pub const output = output_value;
+            pub const OutputFinalizerType = OutputFinalizerValue;
+            pub const Policy = PolicyType;
+            pub const Catch = CatchType;
+            pub const Manager = ManagerType;
+            pub const ops = spec.ops;
+            pub const op_count = spec.ops.len;
+        };
     }
 };
 
@@ -1043,6 +1343,144 @@ test "schema lowerer maps binding-optional after hooks to ProgramPlan afterDispa
         .{ .requirement_index = 0, .first_op = 0 },
     );
     try standard.testing.expect(!GeneratedSchemaAfterRows.ops[0].has_after);
+}
+
+test "schema Protocol lowers custom transform choice and abort rows" {
+    const ProductPayload = struct {
+        request_id: i32,
+    };
+    const Decision = union(enum) {
+        approve: i32,
+        deny,
+    };
+    const Approval = schema.Protocol(.{
+        .label = "approval",
+        .ops = .{
+            schema.transform("exists", []const u8, i32),
+            schema.choiceAfter("request", ProductPayload, Decision),
+            schema.abort("invalid", ProductPayload),
+        },
+    });
+    const Handlers = struct {
+        request: struct {
+            pub fn afterDispatch(_: *const @This(), answer: []const u8) error{}![]const u8 {
+                return answer;
+            }
+        },
+    };
+    const Rows = Approval.Rows(Handlers, .{
+        .requirement_index = 3,
+        .first_op = 7,
+        .schema_refs = schema.SchemaRefs(.{
+            schema.ref(ProductPayload, 5),
+            schema.ref(Decision, 6),
+        }),
+    });
+
+    try standard.testing.expectEqualStrings("approval", Approval.label);
+    try standard.testing.expectEqual(@as(usize, 3), Approval.op_count);
+    try standard.testing.expectEqualStrings("approval", Rows.requirement.label);
+    try standard.testing.expectEqual(@as(u16, 3), Rows.requirement_index);
+    try standard.testing.expectEqual(@as(u16, 7), Rows.requirement.first_op);
+    try standard.testing.expectEqual(@as(u16, 3), Rows.requirement.op_count);
+    try standard.testing.expectEqual(@as(@TypeOf(Rows.requirement.lifecycle_tag), .generated_family), Rows.requirement.lifecycle_tag);
+    try standard.testing.expectEqual(@as(@TypeOf(Rows.requirement.output_tag), .none), Rows.requirement.output_tag);
+
+    try standard.testing.expectEqualStrings("exists", Rows.ops[0].op_name);
+    try standard.testing.expectEqual(program_plan.ControlMode.transform, Rows.ops[0].mode);
+    try standard.testing.expectEqual(program_plan.ValueCodec.string, Rows.ops[0].payload_codec);
+    try standard.testing.expectEqual(@as(?u16, null), Rows.ops[0].payload_schema_index);
+    try standard.testing.expectEqual(program_plan.ValueCodec.i32, Rows.ops[0].resume_codec);
+    try standard.testing.expectEqual(@as(?u16, null), Rows.ops[0].resume_schema_index);
+    try standard.testing.expect(!Rows.ops[0].has_after);
+
+    try standard.testing.expectEqualStrings("request", Rows.ops[1].op_name);
+    try standard.testing.expectEqual(program_plan.ControlMode.choice, Rows.ops[1].mode);
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, Rows.ops[1].payload_codec);
+    try standard.testing.expectEqual(@as(?u16, 5), Rows.ops[1].payload_schema_index);
+    try standard.testing.expectEqual(program_plan.ValueCodec.sum, Rows.ops[1].resume_codec);
+    try standard.testing.expectEqual(@as(?u16, 6), Rows.ops[1].resume_schema_index);
+    try standard.testing.expect(Rows.ops[1].has_after);
+
+    try standard.testing.expectEqualStrings("invalid", Rows.ops[2].op_name);
+    try standard.testing.expectEqual(program_plan.ControlMode.abort, Rows.ops[2].mode);
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, Rows.ops[2].payload_codec);
+    try standard.testing.expectEqual(@as(?u16, 5), Rows.ops[2].payload_schema_index);
+    try standard.testing.expectEqual(program_plan.ValueCodec.unit, Rows.ops[2].resume_codec);
+    try standard.testing.expectEqual(@as(?u16, null), Rows.ops[2].resume_schema_index);
+    try standard.testing.expect(!Rows.ops[2].has_after);
+}
+
+test "schema Protocol exposes op descriptors for builder authoring" {
+    const Approval = schema.Protocol(.{
+        .label = "approval",
+        .ops = .{
+            schema.transform("exists", []const u8, i32),
+            schema.choice("request", []const u8, i32),
+            schema.abort("invalid", []const u8),
+        },
+    });
+    const Rows = Approval.Rows(void, .{
+        .requirement_index = 0,
+        .first_op = 4,
+    });
+    const Exists = Rows.op("exists");
+    const Request = Rows.op("request");
+    const Invalid = Rows.op("invalid");
+    const root = builder.function(0);
+    const payload = builder.local(root, 0);
+    const dst = builder.local(root, 1);
+
+    try standard.testing.expectEqual(@as(u16, 0), Exists.op_ordinal);
+    try standard.testing.expectEqual(@as(u16, 4), Exists.op_index);
+    try standard.testing.expectEqual(@as(u16, 5), Request.opRef(root).index);
+    try standard.testing.expectEqual(@as(u16, 6), Invalid.opRef(root).index);
+    try standard.testing.expectEqualStrings("request", Request.op_name);
+    try standard.testing.expect(Request.Payload == []const u8);
+    try standard.testing.expect(Request.Resume == i32);
+    try standard.testing.expectEqual(program_plan.ValueCodec.string, Exists.payload_ref.codec);
+    try standard.testing.expectEqual(program_plan.ValueCodec.i32, Exists.resume_ref.codec);
+
+    const exists_call = try Exists.call(root, dst, payload);
+    try standard.testing.expectEqual(program_plan.InstructionKind.call_op, exists_call.kind);
+    try standard.testing.expectEqual(@as(u16, 1), exists_call.dst);
+    try standard.testing.expectEqual(@as(u16, 4), exists_call.operand);
+    try standard.testing.expectEqual(@as(u16, 0), exists_call.aux);
+
+    const invalid_call = try Invalid.call(root, null, payload);
+    try standard.testing.expectEqual(program_plan.InstructionKind.call_op, invalid_call.kind);
+    try standard.testing.expectEqual(standard.math.maxInt(u16), invalid_call.dst);
+    try standard.testing.expectEqual(@as(u16, 6), invalid_call.operand);
+    try standard.testing.expectEqual(@as(u16, 0), invalid_call.aux);
+}
+
+test "schema Protocol lowers output row when declared" {
+    const OutputPayload = struct {
+        value: i32,
+    };
+    const Workflow = schema.Protocol(.{
+        .label = "approval",
+        .output_tag = .final_state,
+        .output_type = OutputPayload,
+        .ops = .{
+            schema.transform("exists", void, i32),
+        },
+    });
+    const Rows = Workflow.Rows(void, .{
+        .requirement_index = 1,
+        .first_op = 2,
+        .first_output = 3,
+        .schema_refs = schema.SchemaRefs(.{
+            schema.ref(OutputPayload, 8),
+        }),
+    });
+
+    try standard.testing.expectEqual(@as(u16, 1), Rows.output_count);
+    try standard.testing.expectEqual(@as(u16, 3), Rows.first_output);
+    try standard.testing.expectEqual(@as(@TypeOf(Rows.requirement.output_tag), .final_state), Rows.requirement.output_tag);
+    try standard.testing.expectEqualStrings("approval", Rows.outputs[0].label);
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, Rows.outputs[0].codec);
+    try standard.testing.expectEqual(@as(?u16, 8), Rows.outputs[0].schema_index);
 }
 
 test "schema lowerer lowers reader binding to ProgramPlan rows" {

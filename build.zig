@@ -350,8 +350,15 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const custom_approval_mod = b.createModule(.{
+        .root_source_file = b.path("examples/custom_approval_workflow.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    custom_approval_mod.addImport("ability", ability);
     plan_native_resource_mod.addImport("ability", ability);
     program_api_tests_mod.addImport("ability", ability);
+    program_api_tests_mod.addImport("custom_approval_workflow", custom_approval_mod);
     program_api_tests_mod.addImport("plan_native_resource", plan_native_resource_mod);
     const program_api_tests = b.addTest(.{ .root_module = program_api_tests_mod, .filters = test_args.filters });
     test_step.dependOn(&addRunArtifactWithArgs(b, program_api_tests, test_args.passthrough).step);
@@ -435,6 +442,30 @@ pub fn build(b: *std.Build) void {
         .{
             .path = "test/compile_fail/schema_refs_unsupported_type.zig",
             .expected_error = "schema.SchemaRefs unsupported type '*const i32': UnsupportedCodecType",
+        },
+        .{
+            .path = "test/compile_fail/schema_protocol_empty_label.zig",
+            .expected_error = "schema.Protocol requires a non-empty label",
+        },
+        .{
+            .path = "test/compile_fail/schema_protocol_duplicate_op_name.zig",
+            .expected_error = "schema.Protocol has duplicate op name 'exists'",
+        },
+        .{
+            .path = "test/compile_fail/schema_protocol_empty_op_name.zig",
+            .expected_error = "schema.Protocol op name must be non-empty",
+        },
+        .{
+            .path = "test/compile_fail/schema_protocol_missing_product_ref.zig",
+            .expected_error = "schema.LowerBinding requires a schema ref for product/sum payload type 'schema_protocol_missing_product_ref.ProductPayload'",
+        },
+        .{
+            .path = "test/compile_fail/schema_protocol_missing_sum_ref.zig",
+            .expected_error = "schema.LowerBinding requires a schema ref for product/sum resume type 'schema_protocol_missing_sum_ref.Decision'",
+        },
+        .{
+            .path = "test/compile_fail/custom_protocol_coverage_omitted_operation.zig",
+            .expected_error = "Program.protocol coverage omitted reachable operation site",
         },
         .{
             .path = "test/compile_fail/protocol_coverage_omitted_operation.zig",

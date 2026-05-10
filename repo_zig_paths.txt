@@ -1,4 +1,3 @@
-build.zig
 bench/abortive_effect_decompose_bench.zig
 bench/algebraic_builder_decompose_bench.zig
 bench/direct_first_suspend_bench.zig
@@ -8,6 +7,7 @@ bench/resource_effect_decompose_bench.zig
 bench/state_effect_bench.zig
 bench/writer_effect_decompose_bench.zig
 bench/zprof_hotspots.zig
+build.zig
 examples/agent_loop.zig
 examples/custom_approval_workflow.zig
 examples/plan_native_exception.zig
@@ -74,6 +74,7 @@ src/reference_machine.zig
 src/root.zig
 src/runtime_contract_registry.zig
 src/witnesses.zig
+test/compile_fail/custom_protocol_coverage_omitted_operation.zig
 test/compile_fail/encode_args_tuple_field_mismatch.zig
 test/compile_fail/invalid_output_cleanup_hook.zig
 test/compile_fail/invalid_result_cleanup_with_outputs.zig
@@ -89,6 +90,11 @@ test/compile_fail/protocol_coverage_omitted_after.zig
 test/compile_fail/protocol_coverage_omitted_operation.zig
 test/compile_fail/protocol_request_foreign_site.zig
 test/compile_fail/schema_lower_binding_product_ref.zig
+test/compile_fail/schema_protocol_duplicate_op_name.zig
+test/compile_fail/schema_protocol_empty_label.zig
+test/compile_fail/schema_protocol_empty_op_name.zig
+test/compile_fail/schema_protocol_missing_product_ref.zig
+test/compile_fail/schema_protocol_missing_sum_ref.zig
 test/compile_fail/schema_refs_duplicate_type.zig
 test/compile_fail/schema_refs_scalar_entry.zig
 test/compile_fail/schema_refs_unsupported_type.zig
