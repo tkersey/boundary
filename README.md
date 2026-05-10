@@ -157,6 +157,29 @@ row. It is metadata for tests and callers that need to inspect what a program
 declares; it does not expose mutable ProgramPlan tables, Artifact or VM
 surfaces, or legacy capability maps.
 
+For host code that wants typed defunctionalized dispatch, each compiled program
+also exposes `Program.protocol`. This is derived from
+`Program.contract.session.yield_sites` and `after_sites`; it is not a second
+runtime. `Program.protocol.operationSite(requirement_label, op_name,
+occurrence_index)` and `siteByIndex(index)` return static operation site
+descriptors with `Payload`, `Resume`, and `Result` Zig type aliases plus the
+site index, fingerprint, source coordinates, requirement/op identity, mode,
+refs, after flag, and resume/return-now capabilities. `afterSite(...)` and
+`afterSiteByIndex(index)` return after descriptors with `Output` and `Result`
+aliases plus the source operation site identity and refs. Handler-owned after
+descriptors also expose `Input` and a static `input_ref`; handlerless after
+descriptors set `has_static_input_ref = false` because their current value ref is
+defined by the concrete after stack. A host can check a dynamic request with
+`request.as(Site)` or `after.as(AfterSite)`, decode through the descriptor-owned
+payload or static/dynamic current-value type, compute site-aware response traces,
+and use `session.resumeTyped`, `session.returnNowTyped`, or
+`session.resumeAfterTyped`. After response traces and typed after resume validate
+the live request's expected output ref, which can differ from the descriptor
+output ref for stack-dependent final continuations.
+Coverage helpers such as `assertOperationSitesCovered`, `assertAfterSitesCovered`,
+and `assertAllSitesCovered` fail at comptime for omitted reachable sites,
+duplicate descriptors, or descriptors from another program.
+
 See [docs/program_plan.md](docs/program_plan.md) for typed product/sum bodies,
 tuple entry args, outputs, cleanup hooks, nested-with targets, and
 `Program.contract`. `ability.ir.builder.typed` provides a small higher-level
@@ -214,6 +237,17 @@ identity changes. Value
 fingerprints hash supported typed values by contents and schema: unit, bool,
 i32, usize, strings by bytes, and product/sum values through
 `Body.value_schema_types`.
+
+`Program.protocol` lets hosts avoid string-dispatching those records. The host
+can bind `const Decide = Program.protocol.operationSite("agent", "decide", 0);`,
+check `request.matches(Decide)` or `try request.as(Decide)`, decode
+`Decide.Payload`, and resume with `Decide.Resume`. Handler-owned after requests
+decode `AfterSite.Input`; handlerless after requests decode with
+`typed_after.value(T)` after inspecting the live request value ref. Their
+response value is checked against the live request output ref. The dynamic check
+first proves the descriptor belongs to the same program, then compares static
+site identity plus the relevant request refs before any site-aware response
+trace or typed resume helper is used.
 
 Trace fingerprints are audit/replay witnesses, not request tokens. Request
 tokens remain in-process misuse guards for the active session and should not be

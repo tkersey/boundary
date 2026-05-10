@@ -436,6 +436,26 @@ pub fn build(b: *std.Build) void {
             .path = "test/compile_fail/schema_refs_unsupported_type.zig",
             .expected_error = "schema.SchemaRefs unsupported type '*const i32': UnsupportedCodecType",
         },
+        .{
+            .path = "test/compile_fail/protocol_coverage_omitted_operation.zig",
+            .expected_error = "Program.protocol coverage omitted reachable operation site",
+        },
+        .{
+            .path = "test/compile_fail/protocol_coverage_omitted_after.zig",
+            .expected_error = "Program.protocol coverage omitted reachable after site",
+        },
+        .{
+            .path = "test/compile_fail/protocol_coverage_duplicate_site.zig",
+            .expected_error = "Program.protocol coverage listed duplicate operation site",
+        },
+        .{
+            .path = "test/compile_fail/protocol_coverage_foreign_site.zig",
+            .expected_error = "Program.protocol coverage descriptor belongs to another program",
+        },
+        .{
+            .path = "test/compile_fail/protocol_request_foreign_site.zig",
+            .expected_error = "Program.protocol descriptor belongs to another program",
+        },
     };
     inline for (compile_fail_specs) |spec| {
         const compile_fail_mod = b.createModule(.{

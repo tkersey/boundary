@@ -438,6 +438,84 @@ fn stackedAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
+fn branchedHandlerlessAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const skip_inner = ability.ir.builder.local(root, 0);
+    const outer_resume = ability.ir.builder.local(root, 1);
+    const inner_resume = ability.ir.builder.local(root, 2);
+    const condition = ability.ir.builder.local(root, 3);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, outer_resume, ability.ir.builder.op(root, 0), null) catch unreachable,
+        .{ .kind = .compare_eq_zero, .dst = condition.index, .operand = skip_inner.index },
+        ability.ir.builder.callOp(root, inner_resume, ability.ir.builder.op(root, 1), null) catch unreachable,
+        ability.ir.builder.returnValue(root, inner_resume) catch unreachable,
+        ability.ir.builder.returnValue(root, outer_resume) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .string,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 2,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 4,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 3,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{
+        .{ .label = "outer", .first_op = 0, .op_count = 1 },
+        .{ .label = "inner", .first_op = 1, .op_count = 1 },
+    };
+    const ops = [_]ability.ir.plan.Op{
+        .{
+            .requirement_index = 0,
+            .op_name = "outer",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .i32,
+            .has_after = true,
+        },
+        .{
+            .requirement_index = 1,
+            .op_name = "inner",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .i32,
+            .has_after = true,
+        },
+    };
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+        .{ .first_instruction = 4, .instruction_count = 1, .terminator_index = 2 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 19,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .bool }, .{ .codec = .i32 }, .{ .codec = .i32 }, .{ .codec = .bool } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn terminalBypassesAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const resume_value = ability.ir.builder.local(root, 0);
@@ -3942,6 +4020,715 @@ test "Program.contract.session after sites map dynamic after traces to source op
     try std.testing.expect(RepeatedAfterProgram.contract.session.after_sites[0].fingerprint != RepeatedAfterProgram.contract.session.after_sites[1].fingerprint);
 }
 
+test "Program.protocol exposes typed operation site descriptors" {
+    const TransformBody = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "protocol-transform-descriptor");
+    };
+    const TransformProgram = ability.program("protocol-transform-descriptor", struct {}, TransformBody);
+    const Transform = TransformProgram.protocol.operationSite("session", "decide", 0);
+    const TransformByIndex = TransformProgram.protocol.siteByIndex(0);
+
+    try std.testing.expect(Transform == TransformByIndex);
+    try std.testing.expectEqual(@as(usize, 1), TransformProgram.protocol.operation_site_count);
+    try std.testing.expectEqual(@as(usize, 0), Transform.index);
+    try std.testing.expectEqual(TransformProgram.contract.session.yield_sites[0].fingerprint, Transform.fingerprint);
+    try std.testing.expectEqualStrings("run", Transform.function_symbol_name);
+    try std.testing.expectEqualStrings("session", Transform.requirement_label);
+    try std.testing.expectEqualStrings("decide", Transform.op_name);
+    try std.testing.expectEqual(@as(@TypeOf(Transform.op_mode), .transform), Transform.op_mode);
+    try std.testing.expect(Transform.Payload == []const u8);
+    try std.testing.expect(Transform.Resume == i32);
+    try std.testing.expect(Transform.Result == i32);
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, Transform.payload_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Transform.resume_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Transform.result_ref.codec);
+    try std.testing.expect(Transform.may_resume);
+    try std.testing.expect(!Transform.may_return_now);
+    try std.testing.expect(!Transform.has_after);
+
+    const ChoiceBody = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "protocol-choice-descriptor");
+    };
+    const ChoiceProgram = ability.program("protocol-choice-descriptor", struct {}, ChoiceBody);
+    const Choice = ChoiceProgram.protocol.operationSite("session", "decide", 0);
+    try std.testing.expect(Choice.Payload == []const u8);
+    try std.testing.expect(Choice.Resume == i32);
+    try std.testing.expect(Choice.Result == i32);
+    try std.testing.expectEqual(@as(@TypeOf(Choice.op_mode), .choice), Choice.op_mode);
+    try std.testing.expect(Choice.may_resume);
+    try std.testing.expect(Choice.may_return_now);
+
+    const AbortBody = struct {
+        pub const compiled_plan = abortPlan("protocol-abort-descriptor");
+    };
+    const AbortProgram = ability.program("protocol-abort-descriptor", struct {}, AbortBody);
+    const Abort = AbortProgram.protocol.operationSite("authored", "abort", 0);
+    try std.testing.expect(Abort.Payload == void);
+    try std.testing.expect(Abort.Resume == void);
+    try std.testing.expect(Abort.Result == i32);
+    try std.testing.expectEqual(@as(@TypeOf(Abort.op_mode), .abort), Abort.op_mode);
+    try std.testing.expect(!Abort.may_resume);
+    try std.testing.expect(Abort.may_return_now);
+}
+
+test "Program.protocol exposes handler-derived after site descriptors" {
+    const StackedHandlers = struct {
+        outer: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 1;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: bool) ![]const u8 {
+                return if (value) "outer:true" else "outer:false";
+            }
+        },
+        inner: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 7;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: i32) !bool {
+                return value == 7;
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = stackedAfterPlan("protocol-stacked-after-descriptor");
+    };
+    const Program = ability.program("protocol-stacked-after-descriptor", StackedHandlers, Body);
+    const Outer = Program.protocol.afterSite("outer", "outer", 0);
+    const Inner = Program.protocol.afterSite("inner", "inner", 0);
+
+    try std.testing.expect(Outer == Program.protocol.afterSiteByIndex(0));
+    try std.testing.expect(Inner == Program.protocol.afterSiteByIndex(1));
+    try std.testing.expectEqual(@as(usize, 2), Program.protocol.after_site_count);
+    try std.testing.expect(Outer.Input == bool);
+    try std.testing.expect(Outer.Output == []const u8);
+    try std.testing.expect(Outer.Result == []const u8);
+    try std.testing.expect(Outer.has_static_input_ref);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, Outer.input_ref.?.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, Outer.output_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, Outer.result_ref.codec);
+    try std.testing.expectEqualStrings("outer", Outer.original_requirement_label);
+    try std.testing.expectEqualStrings("outer", Outer.original_op_name);
+
+    try std.testing.expect(Inner.Input == i32);
+    try std.testing.expect(Inner.Output == bool);
+    try std.testing.expect(Inner.Result == []const u8);
+    try std.testing.expect(Inner.has_static_input_ref);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Inner.input_ref.?.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, Inner.output_ref.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, Inner.result_ref.codec);
+    try std.testing.expectEqualStrings("inner", Inner.original_requirement_label);
+    try std.testing.expectEqualStrings("inner", Inner.original_op_name);
+}
+
+test "Program.protocol binds dynamic operation requests to matching static sites" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = repeatedCallSiteSameOpPlan("protocol-operation-binding", false);
+    };
+    const Program = ability.program("protocol-operation-binding", struct {}, Body);
+    const First = Program.protocol.operationSite("session", "same_op", 0);
+    const Second = Program.protocol.operationSite("session", "same_op", 1);
+    try std.testing.expect(First.fingerprint != Second.fingerprint);
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const first_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expect(first_request.matches(First));
+    try std.testing.expect(!first_request.matches(Second));
+    try std.testing.expectError(error.ProgramContractViolation, first_request.as(Second));
+    const typed_first = try first_request.as(First);
+    const first_payload: First.Payload = try typed_first.payload();
+    try std.testing.expectEqualStrings("same", first_payload);
+    const raw_trace = try first_request.responseTrace(.@"resume", @as(i32, 10));
+    const site_trace = try first_request.responseTraceFor(First, .@"resume", @as(i32, 10));
+    try std.testing.expectEqual(raw_trace.fingerprint, site_trace.fingerprint);
+    try std.testing.expectError(error.ProgramContractViolation, session.resumeTyped(typed_first, true));
+    try session.resumeTyped(typed_first, @as(First.Resume, 10));
+
+    const second_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expect(second_request.matches(Second));
+    try session.resumeTyped(try second_request.as(Second), @as(Second.Resume, 11));
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 11), result.value);
+}
+
+test "Program.protocol site-aware returnNow accepts terminal sites and rejects transform" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const TransformBody = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "protocol-transform-return-now-reject");
+    };
+    const TransformProgram = ability.program("protocol-transform-return-now-reject", struct {}, TransformBody);
+    const Transform = TransformProgram.protocol.operationSite("session", "decide", 0);
+    var transform_session = try TransformProgram.Session.start(&runtime, .{});
+    defer transform_session.deinit();
+    const transform_request = switch (try transform_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    const typed_transform = try transform_request.as(Transform);
+    try std.testing.expectError(error.ProgramContractViolation, transform_session.returnNowTyped(typed_transform, @as(i32, 9)));
+    try transform_session.resumeTyped(typed_transform, @as(i32, 10));
+    var transform_result = switch (try transform_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer transform_result.deinit();
+
+    const ChoiceBody = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "protocol-choice-return-now");
+    };
+    const ChoiceProgram = ability.program("protocol-choice-return-now", struct {}, ChoiceBody);
+    const Choice = ChoiceProgram.protocol.operationSite("session", "decide", 0);
+    var choice_session = try ChoiceProgram.Session.start(&runtime, .{});
+    defer choice_session.deinit();
+    const choice_request = switch (try choice_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try choice_session.returnNowTyped(try choice_request.as(Choice), @as(Choice.Result, 77));
+    var choice_result = switch (try choice_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer choice_result.deinit();
+    try std.testing.expectEqual(@as(i32, 77), choice_result.value);
+
+    const AbortBody = struct {
+        pub const compiled_plan = abortPlan("protocol-abort-return-now");
+    };
+    const AbortProgram = ability.program("protocol-abort-return-now", struct {}, AbortBody);
+    const Abort = AbortProgram.protocol.operationSite("authored", "abort", 0);
+    var abort_session = try AbortProgram.Session.start(&runtime, .{});
+    defer abort_session.deinit();
+    const abort_request = switch (try abort_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try abort_session.returnNowTyped(try abort_request.as(Abort), @as(Abort.Result, 55));
+    var abort_result = switch (try abort_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer abort_result.deinit();
+    try std.testing.expectEqual(@as(i32, 55), abort_result.value);
+}
+
+test "Program.protocol binds dynamic after requests to matching static after sites" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const StackedHandlers = struct {
+        outer: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 1;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: bool) ![]const u8 {
+                return if (value) "outer:true" else "outer:false";
+            }
+        },
+        inner: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 7;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: i32) !bool {
+                return value == 7;
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = stackedAfterPlan("protocol-after-binding");
+    };
+    const Program = ability.program("protocol-after-binding", StackedHandlers, Body);
+    const Outer = Program.protocol.afterSite("outer", "outer", 0);
+    const Inner = Program.protocol.afterSite("inner", "inner", 0);
+    var session = try Program.Session.start(&runtime, .{ .outer = .{}, .inner = .{} });
+    defer session.deinit();
+
+    const outer_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.resumeTyped(try outer_request.as(Program.protocol.operationSite("outer", "outer", 0)), @as(i32, 1));
+    const inner_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.resumeTyped(try inner_request.as(Program.protocol.operationSite("inner", "inner", 0)), @as(i32, 7));
+
+    const inner_after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expect(inner_after.matches(Inner));
+    try std.testing.expect(!inner_after.matches(Outer));
+    try std.testing.expectError(error.ProgramContractViolation, inner_after.as(Outer));
+    const typed_inner = try inner_after.as(Inner);
+    const current: Inner.Input = try typed_inner.value();
+    try std.testing.expectEqual(@as(i32, 7), current);
+    const raw_after_trace = try inner_after.responseTrace(.resume_after, true);
+    const typed_after_trace = try inner_after.responseTraceFor(Inner, true);
+    try std.testing.expectEqual(raw_after_trace.fingerprint, typed_after_trace.fingerprint);
+    try std.testing.expectError(error.ProgramContractViolation, session.resumeAfterTyped(typed_inner, @as(i32, 1)));
+    try session.resumeAfterTyped(typed_inner, true);
+
+    const outer_after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expect(outer_after.matches(Outer));
+    const typed_outer = try outer_after.as(Outer);
+    try std.testing.expect(try typed_outer.value());
+    try session.resumeAfterTyped(typed_outer, @as(Outer.Output, "outer:true"));
+
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqualStrings("outer:true", result.value);
+}
+
+test "Program.protocol binds handlerless after sites to unwound value refs" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = handlerlessAfterReturnBoolPlan("protocol-handlerless-after-current-ref");
+    };
+    const Program = ability.program("protocol-handlerless-after-current-ref", struct {}, Body);
+    const Operation = Program.protocol.operationSite("handlerless", "step", 0);
+    const After = Program.protocol.afterSite("handlerless", "step", 0);
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Operation.resume_ref.codec);
+    try std.testing.expect(!After.has_static_input_ref);
+    try std.testing.expect(After.input_ref == null);
+    try std.testing.expect(After.Output == bool);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |actual| actual,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.resumeTyped(try request.as(Operation), @as(i32, 0));
+
+    const after = switch (try session.next()) {
+        .after => |actual| actual,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, after.value_ref.codec);
+    try std.testing.expect(after.matches(After));
+    const typed_after = try after.as(After);
+    try std.testing.expect(try typed_after.value(bool));
+    try session.resumeAfterTyped(typed_after, false);
+
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expect(!result.value);
+}
+
+test "Program.protocol does not publish static refs for invalid afterDispatch arity" {
+    const InvalidAfterHandlers = struct {
+        handlerless: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 0;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: bool, extra: i32) ![]const u8 {
+                _ = value;
+                _ = extra;
+                return "invalid";
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = handlerlessAfterReturnBoolPlan("protocol-invalid-after-dispatch-arity");
+    };
+    const Program = ability.program("protocol-invalid-after-dispatch-arity", InvalidAfterHandlers, Body);
+    const After = Program.protocol.afterSite("handlerless", "step", 0);
+
+    try std.testing.expect(!After.has_static_input_ref);
+    try std.testing.expect(!@hasDecl(After, "Input"));
+    try std.testing.expect(After.input_ref == null);
+    try std.testing.expect(After.Output == bool);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
+}
+
+test "Program.protocol does not publish static refs for non-method afterDispatch" {
+    const InvalidAfterHandlers = struct {
+        handlerless: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 0;
+            }
+
+            pub fn afterDispatch(value: i32, extra: bool) ![]const u8 {
+                _ = value;
+                _ = extra;
+                return "invalid";
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = handlerlessAfterReturnBoolPlan("protocol-invalid-after-dispatch-receiver");
+    };
+    const Program = ability.program("protocol-invalid-after-dispatch-receiver", InvalidAfterHandlers, Body);
+    const After = Program.protocol.afterSite("handlerless", "step", 0);
+
+    try std.testing.expect(!After.has_static_input_ref);
+    try std.testing.expect(!@hasDecl(After, "Input"));
+    try std.testing.expect(After.input_ref == null);
+    try std.testing.expect(After.Output == bool);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
+}
+
+test "Program.protocol accepts generic receiver afterDispatch" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const GenericAfterHandlers = struct {
+        handlerless: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 0;
+            }
+
+            pub fn afterDispatch(_: anytype, value: bool) !bool {
+                return value;
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = handlerlessAfterReturnBoolPlan("protocol-generic-after-dispatch-receiver");
+    };
+    const Program = ability.program("protocol-generic-after-dispatch-receiver", GenericAfterHandlers, Body);
+    const After = Program.protocol.afterSite("handlerless", "step", 0);
+
+    try std.testing.expect(After.has_static_input_ref);
+    try std.testing.expect(After.Input == bool);
+    try std.testing.expect(After.Output == bool);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.input_ref.?.codec);
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
+
+    var result = try Program.run(&runtime, .{ .handlerless = .{} });
+    defer result.deinit();
+    try std.testing.expect(result.value);
+}
+
+test "Program.protocol derives handlerless outer after input from inner output" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const HandlerlessOuterHandlers = struct {
+        outer: struct {},
+        inner: struct {
+            pub fn afterDispatch(_: *const @This(), value: i32) !bool {
+                return value == 7;
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = stackedAfterPlan("protocol-handlerless-outer-after");
+    };
+    const Program = ability.program("protocol-handlerless-outer-after", HandlerlessOuterHandlers, Body);
+    const OuterOperation = Program.protocol.operationSite("outer", "outer", 0);
+    const InnerOperation = Program.protocol.operationSite("inner", "inner", 0);
+    const Outer = Program.protocol.afterSite("outer", "outer", 0);
+    const Inner = Program.protocol.afterSite("inner", "inner", 0);
+    try std.testing.expect(Inner.Input == i32);
+    try std.testing.expect(Inner.Output == bool);
+    try std.testing.expect(!Outer.has_static_input_ref);
+    try std.testing.expect(Outer.input_ref == null);
+    try std.testing.expect(Outer.Output == []const u8);
+
+    var session = try Program.Session.start(&runtime, .{ .outer = .{}, .inner = .{} });
+    defer session.deinit();
+    const outer_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.resumeTyped(try outer_request.as(OuterOperation), @as(i32, 1));
+    const inner_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.resumeTyped(try inner_request.as(InnerOperation), @as(i32, 7));
+
+    const inner_after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expect(inner_after.matches(Inner));
+    try session.resumeAfterTyped(try inner_after.as(Inner), true);
+
+    const outer_after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, outer_after.value_ref.codec);
+    try std.testing.expect(outer_after.matches(Outer));
+    const typed_outer = try outer_after.as(Outer);
+    try std.testing.expect(try typed_outer.value(bool));
+    try session.resumeAfterTyped(typed_outer, @as([]const u8, "outer:true"));
+
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqualStrings("outer:true", result.value);
+}
+
+test "Program.protocol matches branched handlerless after sites with dynamic inputs" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const BranchedHandlers = struct {
+        skip_inner: bool,
+        outer: struct {},
+        inner: struct {
+            pub fn afterDispatch(_: *const @This(), value: i32) !bool {
+                return value == 7;
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = branchedHandlerlessAfterPlan("protocol-branched-handlerless-after");
+
+        pub fn encodeArgs(handlers: BranchedHandlers) struct { bool } {
+            return .{handlers.skip_inner};
+        }
+    };
+    const Program = ability.program("protocol-branched-handlerless-after", BranchedHandlers, Body);
+    const OuterOperation = Program.protocol.operationSite("outer", "outer", 0);
+    const InnerOperation = Program.protocol.operationSite("inner", "inner", 0);
+    const Outer = Program.protocol.afterSite("outer", "outer", 0);
+    const Inner = Program.protocol.afterSite("inner", "inner", 0);
+    try std.testing.expect(!Outer.has_static_input_ref);
+    try std.testing.expect(Outer.input_ref == null);
+    try std.testing.expect(Inner.has_static_input_ref);
+    try std.testing.expect(Inner.Input == i32);
+
+    var inner_session = try Program.Session.start(&runtime, .{ .skip_inner = false, .outer = .{}, .inner = .{} });
+    defer inner_session.deinit();
+    const inner_path_outer_request = switch (try inner_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try inner_session.resumeTyped(try inner_path_outer_request.as(OuterOperation), @as(i32, 1));
+    const inner_request = switch (try inner_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try inner_session.resumeTyped(try inner_request.as(InnerOperation), @as(i32, 7));
+
+    const inner_after = switch (try inner_session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expect(inner_after.matches(Inner));
+    try inner_session.resumeAfterTyped(try inner_after.as(Inner), true);
+    const outer_after_with_inner = switch (try inner_session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(ability.ir.ValueCodec.bool, outer_after_with_inner.value_ref.codec);
+    try std.testing.expect(outer_after_with_inner.matches(Outer));
+    const typed_outer_with_inner = try outer_after_with_inner.as(Outer);
+    try std.testing.expect(try typed_outer_with_inner.value(bool));
+    try inner_session.resumeAfterTyped(typed_outer_with_inner, @as([]const u8, "outer:true"));
+    var inner_result = switch (try inner_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer inner_result.deinit();
+    try std.testing.expectEqualStrings("outer:true", inner_result.value);
+
+    var skip_session = try Program.Session.start(&runtime, .{ .skip_inner = true, .outer = .{}, .inner = .{} });
+    defer skip_session.deinit();
+    const skip_outer_request = switch (try skip_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try skip_session.resumeTyped(try skip_outer_request.as(OuterOperation), @as(i32, 1));
+    const outer_after_without_inner = switch (try skip_session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(ability.ir.ValueCodec.i32, outer_after_without_inner.value_ref.codec);
+    try std.testing.expect(outer_after_without_inner.matches(Outer));
+    const typed_outer_without_inner = try outer_after_without_inner.as(Outer);
+    try std.testing.expectEqual(@as(i32, 1), try typed_outer_without_inner.value(i32));
+    try std.testing.expectError(error.ProgramContractViolation, typed_outer_without_inner.value(bool));
+    try skip_session.resumeAfterTyped(typed_outer_without_inner, @as([]const u8, "outer:solo"));
+    var skip_result = switch (try skip_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer skip_result.deinit();
+    try std.testing.expectEqualStrings("outer:solo", skip_result.value);
+}
+
+test "Program.protocol matches final after sites with dynamic output refs" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const FinalAfterHandlers = struct {
+        step: struct {
+            pub fn afterDispatch(_: *const @This(), value: i32) !bool {
+                return value == 1;
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = finalAfterOutputMismatchPlan("protocol-final-after-dynamic-output");
+    };
+    const Program = ability.program("protocol-final-after-dynamic-output", FinalAfterHandlers, Body);
+    const Operation = Program.protocol.operationSite("step", "step", 0);
+    const After = Program.protocol.afterSite("step", "step", 0);
+    try std.testing.expect(After.has_static_input_ref);
+    try std.testing.expect(After.Input == i32);
+    try std.testing.expect(After.Output == bool);
+    try std.testing.expect(After.Result == []const u8);
+
+    var session = try Program.Session.start(&runtime, .{ .step = .{} });
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |actual| actual,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.resumeTyped(try request.as(Operation), @as(i32, 1));
+
+    const after = switch (try session.next()) {
+        .after => |actual| actual,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try std.testing.expect(after.matches(After));
+    try std.testing.expect(after.value_ref.eql(After.input_ref.?));
+    try std.testing.expect(!after.output_ref.eql(After.output_ref));
+    try std.testing.expectEqual(ability.ir.ValueCodec.string, after.output_ref.codec);
+    var mismatched_input = after;
+    mismatched_input.value_ref = .{ .codec = .bool };
+    try std.testing.expect(!mismatched_input.matches(After));
+    try std.testing.expectError(error.ProgramContractViolation, mismatched_input.as(After));
+    const typed_after = try after.as(After);
+    try std.testing.expectEqual(@as(i32, 1), try typed_after.value());
+    try std.testing.expectError(error.ProgramContractViolation, typed_after.responseTrace(true));
+    const raw_after_trace = try after.responseTrace(.resume_after, @as([]const u8, "ok"));
+    const typed_after_trace = try typed_after.responseTrace(@as([]const u8, "ok"));
+    try std.testing.expectEqual(raw_after_trace.fingerprint, typed_after_trace.fingerprint);
+    try session.resumeAfterTyped(typed_after, @as([]const u8, "ok"));
+
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqualStrings("ok", result.value);
+}
+
+test "Program.protocol coverage helpers accept complete site sets" {
+    const Body = struct {
+        pub const compiled_plan = repeatedCallSiteSameOpPlan("protocol-coverage-complete", true);
+    };
+    const Program = ability.program("protocol-coverage-complete", struct {}, Body);
+    const First = Program.protocol.operationSite("session", "same_op", 0);
+    const Second = Program.protocol.operationSite("session", "same_op", 1);
+    const FirstAfter = Program.protocol.afterSite("session", "same_op", 0);
+    const SecondAfter = Program.protocol.afterSite("session", "same_op", 1);
+
+    comptime Program.protocol.assertOperationSitesCovered(.{ First, Second });
+    comptime Program.protocol.assertAfterSitesCovered(.{ FirstAfter, SecondAfter });
+    comptime Program.protocol.assertAllSitesCovered(.{ First, Second, FirstAfter, SecondAfter });
+}
+
+test "Program.protocol descriptor lookup distinguishes duplicate, helper, and nested-with sites" {
+    const RepeatedBody = struct {
+        pub const compiled_plan = repeatedCallSiteSameOpPlan("protocol-duplicate-sites", false);
+    };
+    const RepeatedProgram = ability.program("protocol-duplicate-sites", struct {}, RepeatedBody);
+    const First = RepeatedProgram.protocol.operationSite("session", "same_op", 0);
+    const Second = RepeatedProgram.protocol.operationSite("session", "same_op", 1);
+    try std.testing.expectEqual(@as(usize, 0), First.index);
+    try std.testing.expectEqual(@as(usize, 1), Second.index);
+    try std.testing.expect(First.fingerprint != Second.fingerprint);
+
+    const HelperBody = struct {
+        pub const compiled_plan = sessionHelperYieldPlan("protocol-helper-site");
+    };
+    const HelperProgram = ability.program("protocol-helper-site", struct {}, HelperBody);
+    const Helper = HelperProgram.protocol.operationSite("helper", "yield", 0);
+    try std.testing.expectEqualStrings("helper", Helper.function_symbol_name);
+    try std.testing.expectEqual(@as(usize, 1), Helper.function_index);
+    try std.testing.expectEqual(@as(usize, 3), Helper.instruction_index);
+
+    const NestedBody = struct {
+        pub const compiled_plan = resolvedNestedWithStringListPlan("protocol-nested-site");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+    };
+    const NestedProgram = ability.program("protocol-nested-site", struct {}, NestedBody);
+    const Nested = NestedProgram.protocol.operationSite("authored", "dispatch", 0);
+    try std.testing.expectEqualStrings("nested", Nested.function_symbol_name);
+    try std.testing.expectEqual(@as(usize, 1), Nested.function_index);
+    try std.testing.expect(Nested.Resume == []const []const u8);
+}
+
 test "Program.Session yields transform request data and resumes to completion" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -4525,6 +5312,117 @@ fn boolComparePlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .ops = &ops,
         .outputs = &.{},
         .locals = &.{ .{ .codec = .bool }, .{ .codec = .bool } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn handlerlessAfterReturnBoolPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const resumed = ability.ir.builder.local(root, 0);
+    const result = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null) catch unreachable,
+        .{ .kind = .compare_eq_zero, .dst = result.index, .operand = resumed.index },
+        ability.ir.builder.returnValue(root, result) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .bool,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "handlerless", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "step",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+        .has_after = true,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 126,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .bool } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn finalAfterOutputMismatchPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const resumed = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .string,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "step", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "step",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+        .has_after = true,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 127,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,

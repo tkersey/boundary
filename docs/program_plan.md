@@ -129,6 +129,73 @@ fingerprints.
 `Program.contract` is inspection metadata. It does not expose mutable function,
 block, instruction, Artifact, VM, compiler, parser, or capability-map surfaces.
 
+## Program.protocol
+
+`Program.protocol` turns the session site catalog into a typed defunctionalized
+protocol surface. It is a static property of the compiled program, derived from
+`Program.contract.session.yield_sites` and `after_sites`; it is not an automatic
+host driver and does not change `Program.run` or `Program.Session` execution.
+
+Operation descriptors are looked up by static identity:
+
+```zig
+const Decide = Program.protocol.operationSite("agent", "decide", 0);
+const Tool = Program.protocol.operationSite("tool", "call", 0);
+comptime Program.protocol.assertOperationSitesCovered(.{ Decide, Tool });
+```
+
+The occurrence index disambiguates repeated static call sites for the same
+requirement label and op name. `siteByIndex(index)` is available when the stable
+site index is already known. Each operation descriptor exposes `Payload`,
+`Resume`, and `Result` type aliases, plus the site index, site fingerprint,
+function/block/instruction coordinates, requirement/op identity, op mode,
+payload/resume/result refs, `has_after`, `may_resume`, and `may_return_now`.
+
+After descriptors are looked up with `afterSite(requirement_label, op_name,
+occurrence_index)` or `afterSiteByIndex(index)`. They expose `Output` and
+`Result` type aliases plus the after-site index and fingerprint, source operation
+site index and fingerprint, source function/block/instruction coordinates,
+original requirement/op identity, and output/result refs. When a handler type
+declares `afterDispatch`, the descriptor also exposes `Input`, a static
+`input_ref`, and derives input/output types from that handler signature.
+Handlerless after descriptors set `has_static_input_ref = false` and
+`input_ref = null`; their current input ref is a property of the live after
+request's concrete unwind stack.
+
+Dynamic requests can be checked against a descriptor before host code decodes or
+responds:
+
+```zig
+if (request.matches(Decide)) {
+    const typed = try request.as(Decide);
+    const payload: Decide.Payload = try typed.payload();
+    const trace = try typed.responseTrace(.@"resume", response);
+    try session.resumeTyped(typed, response);
+    _ = payload;
+    _ = trace;
+}
+```
+
+The check first proves the descriptor belongs to the same program. Operation
+requests then compare static site identity and payload/resume/result refs. After
+requests compare static site identity and result ref, plus the current input ref
+when the descriptor has one. The expected output ref is carried by the live after
+request because final and stack-dependent continuations can require a different
+output than the descriptor's handler-derived `Output` alias. Handler-owned after
+requests use `after.as(AfterSite)` and `typed_after.value()` as
+`AfterSite.Input`. Handlerless after requests use `typed_after.value(T)` after
+checking the live request's `value_ref`. Both forms use
+`after.responseTraceFor(AfterSite, value)` and
+`session.resumeAfterTyped(typed_after, value)` with a value matching the live
+request output ref.
+
+Coverage helpers are optional comptime witnesses. `assertOperationSitesCovered`,
+`assertAfterSitesCovered`, and `assertAllSitesCovered` fail when a reachable
+site is omitted, a descriptor is repeated, or a descriptor belongs to another
+program. They intentionally stop at enumeration coverage; the library does not
+generate a visitor DSL, trait-style host implementation, async dispatcher, or
+automatic method dispatch.
+
 ## Program.Session
 
 `Program.Session` runs the same validated `Body.compiled_plan` as a caller-owned

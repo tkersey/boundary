@@ -83,6 +83,11 @@ test/compile_fail/missing_output_collector.zig
 test/compile_fail/missing_reachable_return_error_decl.zig
 test/compile_fail/nested_with_result_codec_mismatch.zig
 test/compile_fail/nested_with_wrong_function_index.zig
+test/compile_fail/protocol_coverage_duplicate_site.zig
+test/compile_fail/protocol_coverage_foreign_site.zig
+test/compile_fail/protocol_coverage_omitted_after.zig
+test/compile_fail/protocol_coverage_omitted_operation.zig
+test/compile_fail/protocol_request_foreign_site.zig
 test/compile_fail/schema_lower_binding_product_ref.zig
 test/compile_fail/schema_refs_duplicate_type.zig
 test/compile_fail/schema_refs_scalar_entry.zig
