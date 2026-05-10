@@ -875,6 +875,237 @@ fn deinitBodyResult(
     }
 }
 
+fn cloneBodyOwnedStringList(comptime T: type, allocator: std.mem.Allocator, value: T) std.mem.Allocator.Error!T {
+    var owned = try allocator.alloc([]const u8, value.len);
+    errdefer allocator.free(owned);
+    var cloned_len: usize = 0;
+    errdefer for (owned[0..cloned_len]) |item| allocator.free(item);
+    for (value, 0..) |item, index| {
+        owned[index] = try allocator.dupe(u8, item);
+        cloned_len += 1;
+    }
+    return owned;
+}
+
+fn deinitBodyOwnedStringList(allocator: std.mem.Allocator, value: anytype) void {
+    for (value) |item| allocator.free(item);
+    allocator.free(value);
+}
+
+fn cloneBodyOwnedResultValue(allocator: std.mem.Allocator, value: anytype) std.mem.Allocator.Error!@TypeOf(value) {
+    const Value = @TypeOf(value);
+    if (Value == []const u8) return try allocator.dupe(u8, value);
+    if (Value == []const []const u8 or Value == [][]const u8) return try cloneBodyOwnedStringList(Value, allocator, value);
+
+    return switch (@typeInfo(Value)) {
+        .void, .bool, .int, .@"enum" => value,
+        .optional => blk: {
+            if (value) |payload| break :blk try cloneBodyOwnedResultValue(allocator, payload);
+            break :blk null;
+        },
+        .@"struct" => |struct_info| blk: {
+            var cloned: Value = undefined;
+            var initialized_fields: usize = 0;
+            errdefer inline for (struct_info.fields, 0..) |field, field_index| {
+                if (field_index < initialized_fields) {
+                    deinitBodyOwnedResultValue(allocator, @field(cloned, field.name));
+                }
+            };
+            inline for (struct_info.fields) |field| {
+                @field(cloned, field.name) = try cloneBodyOwnedResultValue(allocator, @field(value, field.name));
+                initialized_fields += 1;
+            }
+            break :blk cloned;
+        },
+        .@"union" => |union_info| blk: {
+            const Tag = union_info.tag_type orelse @compileError("Program.Session result cleanup requires tagged union values");
+            const active_tag = std.meta.activeTag(value);
+            inline for (union_info.fields) |field| {
+                if (active_tag == @field(Tag, field.name)) {
+                    if (field.type == void) break :blk @unionInit(Value, field.name, {});
+                    break :blk @unionInit(Value, field.name, try cloneBodyOwnedResultValue(allocator, @field(value, field.name)));
+                }
+            }
+            unreachable;
+        },
+        else => @compileError("unsupported Program.Session result cleanup value type: " ++ @typeName(Value)),
+    };
+}
+
+fn deinitBodyOwnedResultValue(allocator: std.mem.Allocator, value: anytype) void {
+    const Value = @TypeOf(value);
+    if (Value == []const u8) {
+        allocator.free(value);
+        return;
+    }
+    if (Value == []const []const u8 or Value == [][]const u8) {
+        deinitBodyOwnedStringList(allocator, value);
+        return;
+    }
+
+    switch (@typeInfo(Value)) {
+        .void, .bool, .int, .@"enum" => {},
+        .optional => if (value) |payload| deinitBodyOwnedResultValue(allocator, payload),
+        .@"struct" => |struct_info| inline for (struct_info.fields) |field| {
+            deinitBodyOwnedResultValue(allocator, @field(value, field.name));
+        },
+        .@"union" => |union_info| {
+            const Tag = union_info.tag_type orelse return;
+            const active_tag = std.meta.activeTag(value);
+            inline for (union_info.fields) |field| {
+                if (active_tag == @field(Tag, field.name)) {
+                    if (field.type != void) deinitBodyOwnedResultValue(allocator, @field(value, field.name));
+                    return;
+                }
+            }
+        },
+        else => {},
+    }
+}
+
+const TrackedAllocation = struct {
+    memory: []u8,
+    alignment: std.mem.Alignment,
+};
+
+const TrackedResultAllocator = struct {
+    child: std.mem.Allocator,
+    allocations: std.ArrayList(TrackedAllocation) = .empty,
+
+    fn init(child: std.mem.Allocator) @This() {
+        return .{ .child = child };
+    }
+
+    fn allocator(self: *@This()) std.mem.Allocator {
+        return .{
+            .ptr = self,
+            .vtable = &.{
+                .alloc = alloc,
+                .resize = resize,
+                .remap = remap,
+                .free = free,
+            },
+        };
+    }
+
+    fn deinit(self: *@This()) void {
+        for (self.allocations.items) |allocation| {
+            self.child.rawFree(allocation.memory, allocation.alignment, @returnAddress());
+        }
+        self.allocations.deinit(self.child);
+        self.* = .{ .child = self.child };
+    }
+
+    fn findAllocation(self: *@This(), memory: []u8, alignment: std.mem.Alignment) ?usize {
+        for (self.allocations.items, 0..) |allocation, index| {
+            if (allocation.memory.ptr == memory.ptr and allocation.memory.len == memory.len and allocation.alignment == alignment) {
+                return index;
+            }
+        }
+        return null;
+    }
+
+    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        const ptr = self.child.rawAlloc(len, alignment, ret_addr) orelse return null;
+        self.allocations.append(self.child, .{
+            .memory = ptr[0..len],
+            .alignment = alignment,
+        }) catch {
+            self.child.rawFree(ptr[0..len], alignment, ret_addr);
+            return null;
+        };
+        return ptr;
+    }
+
+    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        const allocation_index = self.findAllocation(memory, alignment);
+        const resized = self.child.rawResize(memory, alignment, new_len, ret_addr);
+        if (resized) {
+            if (allocation_index) |index| self.allocations.items[index].memory.len = new_len;
+        }
+        return resized;
+    }
+
+    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        const allocation_index = self.findAllocation(memory, alignment);
+        const ptr = self.child.rawRemap(memory, alignment, new_len, ret_addr) orelse return null;
+        if (allocation_index) |index| {
+            self.allocations.items[index].memory = ptr[0..new_len];
+        }
+        return ptr;
+    }
+
+    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        if (self.findAllocation(memory, alignment)) |index| {
+            _ = self.allocations.swapRemove(index);
+        }
+        self.child.rawFree(memory, alignment, ret_addr);
+    }
+};
+
+const TrackedBodyResultStorage = struct {
+    tracker: TrackedResultAllocator,
+
+    fn deinit(self: *@This()) void {
+        self.tracker.deinit();
+    }
+};
+
+fn TrackedBodyResultClone(comptime Value: type) type {
+    return struct {
+        value: Value,
+        storage: ResultOwnedStorage,
+        cleanup_allocator: std.mem.Allocator,
+    };
+}
+
+fn cloneBodyOwnedResultWithTrackedStorage(
+    comptime Value: type,
+    allocator: std.mem.Allocator,
+    value: Value,
+) std.mem.Allocator.Error!TrackedBodyResultClone(Value) {
+    const boxed = try allocator.create(TrackedBodyResultStorage);
+    errdefer allocator.destroy(boxed);
+    boxed.* = .{ .tracker = TrackedResultAllocator.init(allocator) };
+    errdefer boxed.tracker.deinit();
+
+    const cleanup_allocator = boxed.tracker.allocator();
+    const cloned = try cloneBodyOwnedResultValue(cleanup_allocator, value);
+    return .{
+        .value = cloned,
+        .storage = .{
+            .allocator = allocator,
+            .ptr = boxed,
+            .destroy = ResultStorageDestroyer(TrackedBodyResultStorage).destroy,
+        },
+        .cleanup_allocator = cleanup_allocator,
+    };
+}
+
+const ResultOwnedStorage = struct {
+    allocator: std.mem.Allocator,
+    ptr: *anyopaque,
+    destroy: *const fn (std.mem.Allocator, *anyopaque) void,
+
+    fn deinit(self: *@This()) void {
+        self.destroy(self.allocator, self.ptr);
+    }
+};
+
+fn ResultStorageDestroyer(comptime Storage: type) type {
+    return struct {
+        fn destroy(allocator: std.mem.Allocator, ptr: *anyopaque) void {
+            const storage: *Storage = @ptrCast(@alignCast(ptr));
+            storage.deinit();
+            allocator.destroy(storage);
+        }
+    };
+}
+
 fn errorValueInSet(comptime ErrorSet: type, err: anyerror) bool {
     return switch (@typeInfo(ErrorSet)) {
         .error_set => |errors| blk: {
@@ -924,11 +1155,13 @@ pub fn program(
             allocator: std.mem.Allocator,
             value: Value,
             outputs: Outputs,
+            _session_storage: ?ResultOwnedStorage = null,
+            _result_cleanup_allocator: ?std.mem.Allocator = null,
 
             /// Release owned result resources declared by the program body.
             pub fn deinit(self: *@This()) void {
                 deinitBodyResult(Body, Value, Outputs, .{
-                    .allocator = self.allocator,
+                    .allocator = self._result_cleanup_allocator orelse self.allocator,
                     .value = self.value,
                     .outputs = self.outputs,
                 });
@@ -939,23 +1172,40 @@ pub fn program(
                     }
                     Body.deinitOutputs(self.allocator, self.outputs);
                 }
+                if (self._session_storage) |*storage| storage.deinit();
+                self._session_storage = null;
+                self._result_cleanup_allocator = null;
             }
         };
 
-        fn finishResult(allocator: std.mem.Allocator, handlers: anytype, value: Value) Error!Result {
+        fn finishResultWithStorage(
+            allocator: std.mem.Allocator,
+            handlers: anytype,
+            value: Value,
+            session_storage: ?ResultOwnedStorage,
+            result_cleanup_allocator: ?std.mem.Allocator,
+        ) Error!Result {
+            var storage = session_storage;
             const outputs = collectBodyOutputs(Body, Outputs, allocator, handlers) catch |err| {
                 deinitBodyResult(Body, Value, Outputs, .{
-                    .allocator = allocator,
+                    .allocator = result_cleanup_allocator orelse allocator,
                     .value = value,
                     .outputs = null,
                 });
+                if (storage) |*owned| owned.deinit();
                 return mapProgramRunError(Error, err);
             };
             return .{
                 .allocator = allocator,
                 .value = value,
                 .outputs = outputs,
+                ._session_storage = storage,
+                ._result_cleanup_allocator = result_cleanup_allocator,
             };
+        }
+
+        fn finishResult(allocator: std.mem.Allocator, handlers: anytype, value: Value) Error!Result {
+            return finishResultWithStorage(allocator, handlers, value, null, null);
         }
 
         /// Execute the compiled ProgramPlan against one caller-owned runtime.
@@ -997,6 +1247,36 @@ pub fn program(
             core: Core,
             lifecycle: Lifecycle = .ready,
             live_registered: bool = true,
+
+            fn boxResultStorage(
+                allocator: std.mem.Allocator,
+                session_storage: ?Core.ResultStorage,
+            ) Error!?ResultOwnedStorage {
+                var storage = session_storage orelse return null;
+                errdefer storage.deinit();
+                const boxed = allocator.create(Core.ResultStorage) catch |err| return mapProgramRunError(Error, err);
+                boxed.* = storage;
+                return .{
+                    .allocator = allocator,
+                    .ptr = boxed,
+                    .destroy = ResultStorageDestroyer(Core.ResultStorage).destroy,
+                };
+            }
+
+            fn finishSessionResult(allocator: std.mem.Allocator, handlers: anytype, raw: *Core.RawResult) Error!Result {
+                const result_cleanup = comptime bodyDeinitResultMode(Body, Value, Outputs);
+                if (result_cleanup != .none) {
+                    var storage = raw.takeStorage();
+                    defer if (storage) |*owned| owned.deinit();
+                    if (storage != null) {
+                        const owned = cloneBodyOwnedResultWithTrackedStorage(Value, allocator, raw.value) catch |err| return mapProgramRunError(Error, err);
+                        return finishResultWithStorage(allocator, handlers, owned.value, owned.storage, owned.cleanup_allocator);
+                    }
+                    return finishResultWithStorage(allocator, handlers, raw.value, null, null);
+                }
+                const storage = try boxResultStorage(allocator, raw.takeStorage());
+                return finishResultWithStorage(allocator, handlers, raw.value, storage, null);
+            }
 
             const Lifecycle = enum {
                 deinitialized,
@@ -1150,13 +1430,15 @@ pub fn program(
                         self.lifecycle = .parked_on_after;
                         break :after .{ .after = after };
                     },
-                    .done => |raw| done: {
+                    .done => |raw_result| done: {
+                        var raw = raw_result;
                         const allocator = lowered_machine.runtimeAllocator(self.runtime);
                         const result = if (comptime @typeInfo(HandlersType) == .pointer)
-                            finishResult(allocator, self.handlers, raw.value)
+                            finishSessionResult(allocator, self.handlers, &raw)
                         else
-                            finishResult(allocator, &self.handlers, raw.value);
+                            finishSessionResult(allocator, &self.handlers, &raw);
                         const finished = result catch |err| {
+                            raw.deinit();
                             self.closeAs(.deinitialized);
                             return err;
                         };
@@ -1266,9 +1548,27 @@ pub fn program(
             fn deinitCompletedResult(self: *Session) void {
                 const completed = self.core.takeCompleted() catch |err|
                     std.debug.panic("completed session result decode failed during deinit: {s}", .{@errorName(err)});
-                if (completed) |raw| {
+                if (completed) |raw_result| {
+                    var raw = raw_result;
+                    defer raw.deinit();
+                    const result_cleanup = comptime bodyDeinitResultMode(Body, Value, Outputs);
+                    if (result_cleanup == .none) return;
+                    var storage = raw.takeStorage();
+                    defer if (storage) |*owned| owned.deinit();
+                    const allocator = lowered_machine.runtimeAllocator(self.runtime);
+                    if (storage != null) {
+                        var owned = cloneBodyOwnedResultWithTrackedStorage(Value, allocator, raw.value) catch |err|
+                            std.debug.panic("completed session result clone failed during deinit: {s}", .{@errorName(err)});
+                        defer owned.storage.deinit();
+                        deinitBodyResult(Body, Value, Outputs, .{
+                            .allocator = owned.cleanup_allocator,
+                            .value = owned.value,
+                            .outputs = null,
+                        });
+                        return;
+                    }
                     deinitBodyResult(Body, Value, Outputs, .{
-                        .allocator = lowered_machine.runtimeAllocator(self.runtime),
+                        .allocator = allocator,
                         .value = raw.value,
                         .outputs = null,
                     });

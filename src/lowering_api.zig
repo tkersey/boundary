@@ -1129,6 +1129,55 @@ fn isStringListCarrier(comptime T: type) bool {
     return T == []const []const u8 or T == [][]const u8;
 }
 
+fn typeMayBorrowRuntimeStorage(comptime T: type) bool {
+    if (T == []const u8 or isStringListCarrier(T)) return true;
+    return switch (@typeInfo(T)) {
+        .optional => |optional_info| typeMayBorrowRuntimeStorage(optional_info.child),
+        .@"struct" => |struct_info| {
+            inline for (struct_info.fields) |field| {
+                if (typeMayBorrowRuntimeStorage(field.type)) return true;
+            }
+            return false;
+        },
+        .@"union" => |union_info| {
+            inline for (union_info.fields) |field| {
+                if (typeMayBorrowRuntimeStorage(field.type)) return true;
+            }
+            return false;
+        },
+        else => false,
+    };
+}
+
+fn typedValueMayBorrowRuntimeStorage(value: anytype) bool {
+    const ValueType = @TypeOf(value);
+    if (ValueType == []const u8 or isStringListCarrier(ValueType)) return true;
+    return switch (@typeInfo(ValueType)) {
+        .optional => {
+            if (value == null) return false;
+            return typedValueMayBorrowRuntimeStorage(value.?);
+        },
+        .@"struct" => |struct_info| {
+            inline for (struct_info.fields) |field| {
+                if (typedValueMayBorrowRuntimeStorage(@field(value, field.name))) return true;
+            }
+            return false;
+        },
+        .@"union" => |union_info| {
+            const Tag = union_info.tag_type orelse return typeMayBorrowRuntimeStorage(ValueType);
+            const active = std.meta.activeTag(value);
+            inline for (union_info.fields) |field| {
+                if (active == @field(Tag, field.name)) {
+                    if (field.type == void) return false;
+                    return typedValueMayBorrowRuntimeStorage(@field(value, field.name));
+                }
+            }
+            return false;
+        },
+        else => false,
+    };
+}
+
 fn typeMatchesRef(
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime schema_types: anytype,
@@ -1836,7 +1885,7 @@ fn InterpreterScratch(comptime after_stack_capacity: usize) type {
             return owned;
         }
 
-        fn storeOwnedStringList(self: *@This(), value: []const []const u8) std.mem.Allocator.Error![]const []const u8 {
+        fn storeOwnedMutableStringList(self: *@This(), value: []const []const u8) std.mem.Allocator.Error![][]const u8 {
             const owned = try self.allocator.alloc([]const u8, value.len);
             errdefer self.allocator.free(owned);
             for (value, 0..) |item, index| {
@@ -1844,6 +1893,10 @@ fn InterpreterScratch(comptime after_stack_capacity: usize) type {
             }
             try self.owned_string_lists.append(self.allocator, owned);
             return owned;
+        }
+
+        fn storeOwnedStringList(self: *@This(), value: []const []const u8) std.mem.Allocator.Error![]const []const u8 {
+            return try self.storeOwnedMutableStringList(value);
         }
 
         fn reserveSchemaValueStorage(self: *@This(), comptime T: type) std.mem.Allocator.Error!*T {
@@ -1884,6 +1937,10 @@ fn InterpreterScratch(comptime after_stack_capacity: usize) type {
         }
 
         fn frameLocals(self: *@This(), frame: InterpreterFrame) []ExecutableValue {
+            return self.locals.items[frame.locals_start..][0..frame.locals_len];
+        }
+
+        fn frameLocalsConst(self: *const @This(), frame: InterpreterFrame) []const ExecutableValue {
             return self.locals.items[frame.locals_start..][0..frame.locals_len];
         }
 
@@ -3424,7 +3481,7 @@ pub fn ExecutableSessionForPlan(
     const entry = compiled_plan.functions[compiled_plan.entry_index];
     const analysis = comptime program_plan.entryExecutionAnalysisWithNestedTargets(compiled_plan, nested_with_targets) catch |err|
         @compileError("validated ProgramPlan entry analysis failed: " ++ @errorName(err));
-    const RawResult = TypedRunResultTypeForPlan(compiled_plan, schema_types);
+    const ResultValue = ValueTypeForRef(compiled_plan, schema_types, program_plan.functionResultRef(entry));
     const session_after_stack_capacity = if (analysis.reachable_after_count == 0) 0 else max_interpreter_steps;
     const plan_hash = compiled_plan.hash();
     const body_site_metadata = BodySiteMetadata(ProtocolOwner).values;
@@ -3435,6 +3492,35 @@ pub fn ExecutableSessionForPlan(
         const Self = @This();
         const request_payload_storage_size = maxSchemaValueSize(schema_types);
         const request_payload_storage_align = maxSchemaValueAlign(schema_types);
+
+        /// Owned storage that keeps detached session result values alive after the session core closes.
+        pub const ResultStorage = struct {
+            scratch: InterpreterScratch(session_after_stack_capacity),
+
+            /// Release detached session result storage.
+            pub fn deinit(self: *@This()) void {
+                self.scratch.deinit();
+            }
+        };
+
+        /// Terminal session result plus any storage needed by borrowed scalar or schema fields.
+        pub const RawResult = struct {
+            value: ResultValue,
+            _storage: ?ResultStorage = null,
+
+            /// Release storage still attached to this raw result.
+            pub fn deinit(self: *@This()) void {
+                if (self._storage) |*storage| storage.deinit();
+                self._storage = null;
+            }
+
+            /// Move attached storage out so Program.Result can own it.
+            pub fn takeStorage(self: *@This()) ?ResultStorage {
+                const storage = self._storage;
+                self._storage = null;
+                return storage;
+            }
+        };
 
         const PendingRequest = struct {
             session_id: usize,
@@ -3448,6 +3534,7 @@ pub fn ExecutableSessionForPlan(
             operation_site_fingerprint: u64,
             turn_index: usize,
             payload_ref: program_plan.ValueRef,
+            payload_local_id: u16,
             payload: ExecutableValue,
             payload_value_fingerprint: u64,
             request_fingerprint: u64,
@@ -4528,7 +4615,8 @@ pub fn ExecutableSessionForPlan(
             if (!typeMatchesRuntimeRef(schema_types, ref, ValueT)) return error.ProgramContractViolation;
             if (ValueT == void or ValueT == bool or ValueT == i32 or ValueT == usize) return value;
             if (ValueT == []const u8) return try scratch.storeOwnedString(value);
-            if (comptime isStringListCarrier(ValueT)) return try scratch.storeOwnedStringList(value);
+            if (ValueT == []const []const u8) return try scratch.storeOwnedStringList(value);
+            if (ValueT == [][]const u8) return try scratch.storeOwnedMutableStringList(value);
             const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
             inline for (schema_types, 0..) |SchemaType, index| {
                 if (schema_index == index) {
@@ -4833,6 +4921,7 @@ pub fn ExecutableSessionForPlan(
                                 .schema_index = op.payload_schema_index,
                             };
                             const payload = if (op.payload_codec == .unit) .none else locals[instruction.aux];
+                            const payload_local_id = if (op.payload_codec == .unit) std.math.maxInt(u16) else instruction.aux;
                             if (!valueMatchesRef(payload_ref, payload)) return error.ProgramContractViolation;
                             const result_ref = program_plan.functionResultRef(function);
                             const operation_site = operationSiteForInstruction(instruction_index) orelse return error.ProgramContractViolation;
@@ -4844,6 +4933,7 @@ pub fn ExecutableSessionForPlan(
                                 instruction.dst,
                                 instruction.operand,
                                 result_ref,
+                                payload_local_id,
                                 payload,
                             );
                             return .{ .request = request };
@@ -5097,6 +5187,7 @@ pub fn ExecutableSessionForPlan(
             dst: u16,
             op_index: u16,
             result_ref: program_plan.ValueRef,
+            payload_local_id: u16,
             payload: ExecutableValue,
         ) error{ProgramContractViolation}!Request {
             inline for (compiled_plan.ops, 0..) |op, index| {
@@ -5152,6 +5243,7 @@ pub fn ExecutableSessionForPlan(
                         .operation_site_fingerprint = operation_site.fingerprint,
                         .turn_index = turn_index,
                         .payload_ref = payload_ref,
+                        .payload_local_id = payload_local_id,
                         .payload = payload,
                         .payload_value_fingerprint = payload_fingerprint,
                         .request_fingerprint = request_fingerprint,
@@ -5340,9 +5432,7 @@ pub fn ExecutableSessionForPlan(
             const result = self.completed orelse return error.ProgramContractViolation;
             self.completed = null;
             self.done_consumed = true;
-            return .{ .done = .{
-                .value = try decodeTypedValue(compiled_plan, schema_types, program_plan.functionResultRef(entry), result.value),
-            } };
+            return .{ .done = try self.detachExecutionResult(result) };
         }
 
         pub fn takeCompleted(self: *Self) anyerror!?RawResult {
@@ -5354,21 +5444,147 @@ pub fn ExecutableSessionForPlan(
             };
         }
 
+        fn executableValueMayBorrowRuntimeStorage(
+            ref: program_plan.ValueRef,
+            value: ExecutableValue,
+        ) error{ProgramContractViolation}!bool {
+            if (!valueMatchesRef(ref, value)) return error.ProgramContractViolation;
+            return switch (ref.codec) {
+                .unit, .bool, .i32, .usize => false,
+                .string, .string_list => true,
+                .product, .sum => switch (value) {
+                    .schema => |schema| blk: {
+                        const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
+                        if (schema.schema_index != schema_index) return error.ProgramContractViolation;
+                        inline for (schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                const typed: *const SchemaType = @ptrCast(@alignCast(schema.ptr));
+                                break :blk typedValueMayBorrowRuntimeStorage(typed.*);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                    else => error.ProgramContractViolation,
+                },
+            };
+        }
+
+        fn detachExecutionResult(self: *Self, result: ExecutionResult) anyerror!RawResult {
+            const result_ref = comptime program_plan.functionResultRef(entry);
+            if (comptime !typeMayBorrowRuntimeStorage(ResultValue)) {
+                return .{
+                    .value = try decodeTypedValue(compiled_plan, schema_types, result_ref, result.value),
+                };
+            }
+            if (!(try executableValueMayBorrowRuntimeStorage(result_ref, result.value))) {
+                return .{
+                    .value = try decodeTypedValue(compiled_plan, schema_types, result_ref, result.value),
+                };
+            }
+            var scratch = try InterpreterScratch(session_after_stack_capacity).init(self.allocator, 0, 0);
+            errdefer scratch.deinit();
+            const cloned = try cloneExecutableValueForRef(result_ref, &scratch, result.value);
+            const decoded = try decodeTypedValue(compiled_plan, schema_types, result_ref, cloned);
+            return .{
+                .value = decoded,
+                ._storage = .{ .scratch = scratch },
+            };
+        }
+
+        fn executableValuesShareIdentity(left: ExecutableValue, right: ExecutableValue) bool {
+            return switch (left) {
+                .schema => |left_schema| switch (right) {
+                    .schema => |right_schema| left_schema.schema_index == right_schema.schema_index and left_schema.ptr == right_schema.ptr,
+                    else => false,
+                },
+                .string => |left_string| switch (right) {
+                    .string => |right_string| left_string.ptr == right_string.ptr and left_string.len == right_string.len,
+                    else => false,
+                },
+                .string_list => |left_list| switch (right) {
+                    .string_list => |right_list| left_list.ptr == right_list.ptr and left_list.len == right_list.len,
+                    else => false,
+                },
+                else => false,
+            };
+        }
+
+        fn clonedLocalForPendingPayload(
+            self: *const Self,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            op: PendingRequest,
+        ) ?ExecutableValue {
+            if (op.payload_local_id == std.math.maxInt(u16)) return null;
+
+            var frame_index: usize = 0;
+            while (frame_index < self.frames.len()) : (frame_index += 1) {
+                const frame = self.frames.at(frame_index) orelse return null;
+                if (frame.function_index != op.function_index) continue;
+                const original_locals = self.scratch.frameLocalsConst(frame.frame);
+                if (op.payload_local_id >= original_locals.len) return null;
+                const original_payload_local = original_locals[op.payload_local_id];
+                if (!executableValuesShareIdentity(original_payload_local, op.payload)) return null;
+                const cloned_locals = scratch.frameLocals(frame.frame);
+                return cloned_locals[op.payload_local_id];
+            }
+            return null;
+        }
+
+        fn clonedScratchValueForOriginalIdentity(
+            self: *const Self,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            original: ExecutableValue,
+        ) ?ExecutableValue {
+            for (self.scratch.locals.items, 0..) |value, index| {
+                if (executableValuesShareIdentity(value, original)) return scratch.locals.items[index];
+            }
+            for (self.scratch.call_args.items, 0..) |value, index| {
+                if (executableValuesShareIdentity(value, original)) return scratch.call_args.items[index];
+            }
+            return null;
+        }
+
+        fn clonedPriorScratchValueForOriginalIdentity(
+            self: *const Self,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            original: ExecutableValue,
+            local_limit: usize,
+            call_arg_limit: usize,
+        ) ?ExecutableValue {
+            for (self.scratch.locals.items[0..local_limit], 0..) |value, index| {
+                if (executableValuesShareIdentity(value, original)) return scratch.locals.items[index];
+            }
+            for (self.scratch.call_args.items[0..call_arg_limit], 0..) |value, index| {
+                if (executableValuesShareIdentity(value, original)) return scratch.call_args.items[index];
+            }
+            return null;
+        }
+
+        fn cloneExecutableValuePreservingScratchIdentity(
+            self: *const Self,
+            ref: program_plan.ValueRef,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            value: ExecutableValue,
+        ) anyerror!ExecutableValue {
+            if (self.clonedScratchValueForOriginalIdentity(scratch, value)) |cloned| return cloned;
+            return cloneExecutableValueForRef(ref, scratch, value);
+        }
+
         fn clonePending(
             self: *const Self,
             scratch: *InterpreterScratch(session_after_stack_capacity),
             pending: Pending,
         ) anyerror!Pending {
-            _ = self;
             return switch (pending) {
                 .op => |op| blk: {
                     var cloned = op;
-                    cloned.payload = try cloneExecutableValueForRef(op.payload_ref, scratch, op.payload);
+                    cloned.payload = self.clonedLocalForPendingPayload(scratch, op) orelse
+                        try cloneExecutableValueForRef(op.payload_ref, scratch, op.payload);
                     break :blk .{ .op = cloned };
                 },
                 .after => |after| blk: {
                     var cloned = after;
-                    cloned.value = try cloneExecutableValueForRef(after.value_ref, scratch, after.value);
+                    cloned.value = try self.cloneExecutableValuePreservingScratchIdentity(after.value_ref, scratch, after.value);
                     break :blk .{ .after = cloned };
                 },
             };
@@ -5384,12 +5600,14 @@ pub fn ExecutableSessionForPlan(
 
             try scratch.locals.resize(allocator, self.scratch.locals.items.len);
             for (self.scratch.locals.items, 0..) |value, index| {
-                scratch.locals.items[index] = try cloneExecutableValueByIdentity(&scratch, value);
+                scratch.locals.items[index] = self.clonedPriorScratchValueForOriginalIdentity(&scratch, value, index, 0) orelse
+                    try cloneExecutableValueByIdentity(&scratch, value);
             }
 
             try scratch.call_args.resize(allocator, self.scratch.call_args.items.len);
             for (self.scratch.call_args.items, 0..) |value, index| {
-                scratch.call_args.items[index] = try cloneExecutableValueByIdentity(&scratch, value);
+                scratch.call_args.items[index] = self.clonedPriorScratchValueForOriginalIdentity(&scratch, value, self.scratch.locals.items.len, index) orelse
+                    try cloneExecutableValueByIdentity(&scratch, value);
             }
 
             scratch.after_stack = self.scratch.after_stack;
@@ -5397,12 +5615,19 @@ pub fn ExecutableSessionForPlan(
             return scratch;
         }
 
-        fn cloneFrames(self: *const Self, allocator: std.mem.Allocator) anyerror!ActiveFrameStack {
+        fn cloneFrames(
+            self: *const Self,
+            allocator: std.mem.Allocator,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+        ) anyerror!ActiveFrameStack {
             var frames = try ActiveFrameStack.init(allocator, self.frames.len());
             errdefer frames.deinit(allocator);
             var index: usize = 0;
             while (index < self.frames.len()) : (index += 1) {
-                try frames.append(allocator, self.frames.at(index) orelse return error.ProgramContractViolation);
+                var frame = self.frames.at(index) orelse return error.ProgramContractViolation;
+                frame.last_return = self.clonedScratchValueForOriginalIdentity(scratch, frame.last_return) orelse
+                    try cloneExecutableValueByIdentity(scratch, frame.last_return);
+                try frames.append(allocator, frame);
             }
             return frames;
         }
@@ -5410,7 +5635,7 @@ pub fn ExecutableSessionForPlan(
         fn cloneState(self: *const Self, allocator: std.mem.Allocator) anyerror!Self {
             var scratch = try self.cloneScratch(allocator);
             errdefer scratch.deinit();
-            var frames = try self.cloneFrames(allocator);
+            var frames = try self.cloneFrames(allocator, &scratch);
             errdefer frames.deinit(allocator);
 
             var core: Self = .{
@@ -5434,7 +5659,7 @@ pub fn ExecutableSessionForPlan(
             if (self.unwinding_after) |unwind| {
                 core.unwinding_after = .{
                     .function_index = unwind.function_index,
-                    .value = try cloneExecutableValueForRef(unwind.current_ref, &core.scratch, unwind.value),
+                    .value = try self.cloneExecutableValuePreservingScratchIdentity(unwind.current_ref, &core.scratch, unwind.value),
                     .current_ref = unwind.current_ref,
                     .final_ref = unwind.final_ref,
                     .remaining = unwind.remaining,
@@ -5442,7 +5667,7 @@ pub fn ExecutableSessionForPlan(
             }
             if (self.completed) |completed| {
                 core.completed = .{
-                    .value = try cloneExecutableValueForRef(program_plan.functionResultRef(entry), &core.scratch, completed.value),
+                    .value = try self.cloneExecutableValuePreservingScratchIdentity(program_plan.functionResultRef(entry), &core.scratch, completed.value),
                     .terminal = completed.terminal,
                 };
             }
@@ -5703,7 +5928,7 @@ pub fn ExecutableSessionForPlan(
             }
         }
 
-        fn traceHashPending(hasher: *std.hash.Wyhash, pending: Pending) void {
+        fn traceHashPending(hasher: *std.hash.Wyhash, pending: Pending) error{ProgramContractViolation}!void {
             switch (pending) {
                 .op => |op| {
                     traceHashBytes(hasher, "operation");
@@ -5718,7 +5943,7 @@ pub fn ExecutableSessionForPlan(
                     traceHashU64(hasher, op.operation_site_fingerprint);
                     traceHashMode(hasher, op.mode);
                     traceHashValueRef(hasher, op.payload_ref);
-                    traceHashU64(hasher, op.payload_value_fingerprint);
+                    traceHashU64(hasher, try fingerprintExecutableValueForRef(op.payload_ref, op.payload));
                     traceHashValueRef(hasher, op.resume_ref);
                     traceHashValueRef(hasher, op.result_ref);
                     traceHashBool(hasher, op.has_after);
@@ -5739,7 +5964,7 @@ pub fn ExecutableSessionForPlan(
                     traceHashUsize(hasher, after.source_operation_site_index);
                     traceHashU64(hasher, after.source_operation_site_fingerprint);
                     traceHashValueRef(hasher, after.value_ref);
-                    traceHashU64(hasher, after.value_fingerprint);
+                    traceHashU64(hasher, try fingerprintExecutableValueForRef(after.value_ref, after.value));
                     traceHashValueRef(hasher, after.output_ref);
                     traceHashValueRef(hasher, after.result_ref);
                     traceHashUsize(hasher, after.remaining);
@@ -5759,7 +5984,7 @@ pub fn ExecutableSessionForPlan(
             traceHashUsize(&hasher, self.next_turn_index);
             traceHashUsize(&hasher, self.remaining_steps);
             traceHashBool(&hasher, self.done_consumed);
-            traceHashPending(&hasher, pending);
+            try traceHashPending(&hasher, pending);
 
             traceHashUsize(&hasher, self.frames.len());
             var frame_index: usize = 0;
@@ -6078,6 +6303,74 @@ fn supportResultPlan(comptime codec: program_plan.ValueCodec) program_plan.Progr
         .value_fields = schema.fields,
         .value_variants = schema.variants,
         .locals = &.{.{ .codec = codec, .schema_index = schema.schema_index }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch |err| supportPlanError(err);
+}
+
+fn supportLastReturnAliasedPayloadPlan(comptime Payload: type) program_plan.ProgramPlan {
+    const root = program_plan.program_plan_builder.function(0);
+    const payload = program_plan.program_plan_builder.local(root, 0);
+    const resumed = program_plan.program_plan_builder.local(root, 1);
+    const instructions = [_]program_plan.Instruction{
+        program_plan.program_plan_builder.returnValue(root, payload) catch |err| supportPlanError(err),
+        program_plan.program_plan_builder.callOp(root, resumed, program_plan.program_plan_builder.op(root, 0), payload) catch |err| supportPlanError(err),
+        program_plan.program_plan_builder.returnValue(root, payload) catch |err| supportPlanError(err),
+    };
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .value_codec = .product,
+        .value_schema_index = 0,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 2,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]program_plan.RequirementPlan{.{ .label = "mutable", .first_op = 0, .op_count = 1 }};
+    const ops = [_]program_plan.OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "payload",
+        .mode = .transform,
+        .payload_codec = .product,
+        .payload_schema_index = 0,
+        .resume_codec = .i32,
+    }};
+    const value_schemas = [_]program_plan.ValueSchemaPlan{.{
+        .label = @typeName(Payload),
+        .codec = .product,
+        .first_field = 0,
+        .field_count = 1,
+    }};
+    const value_fields = [_]program_plan.ValueFieldPlan{.{ .name = "items", .codec = .string_list }};
+    const blocks = [_]program_plan.BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 2, .terminator_index = 1 },
+    };
+    const terminators = [_]program_plan.Terminator{
+        .{ .kind = .jump, .primary = 1 },
+        .{ .kind = .return_value },
+    };
+    return program_plan.program_plan_builder.finish(.{
+        .label = "session-last-return-aliased-payload",
+        .ir_hash = 121,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &.{ .{ .codec = .product, .schema_index = 0 }, .{ .codec = .i32 } },
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,
@@ -7254,6 +7547,53 @@ test "ability.program executable capability ledger accepts string-list nested ta
     const ledger = ExecutableCapabilityLedgerForPlan(supportNestedWithStringListTargetPlan(), &.{}, &targets);
     try std.testing.expectEqual(@as(usize, 0), ledger.blockers.len);
     try std.testing.expect(!ledger.truncated);
+}
+
+test "Program.Session cloneState preserves last_return aliases into cloned scratch" {
+    const Payload = struct {
+        items: [][]const u8,
+    };
+    const compiled_plan = supportLastReturnAliasedPayloadPlan(Payload);
+    const Core = ExecutableSessionForPlan(
+        error{ProgramContractViolation},
+        "session-last-return-aliased-payload",
+        compiled_plan,
+        .{Payload},
+        &.{},
+        struct {},
+        struct {},
+    );
+
+    var items = [_][]const u8{ "left", "right" };
+    var core = try Core.start(std.testing.allocator, .{Payload{ .items = items[0..] }});
+    defer core.deinit();
+    _ = switch (try core.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+
+    var capsule = try core.capture(std.testing.allocator);
+    defer capsule.deinit();
+    var restored = try Core.restore(std.testing.allocator, &capsule);
+    defer restored.deinit();
+
+    const restored_request = switch (try restored.current()) {
+        .request => |request| request,
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    };
+    var restored_payload = try restored_request.payload(Payload);
+    restored_payload.items[0] = "restored";
+
+    const frame = restored.frames.at(0) orelse return error.ProgramContractViolation;
+    const last_return = try decodeTypedValue(
+        compiled_plan,
+        .{Payload},
+        .{ .codec = .product, .schema_index = 0 },
+        frame.last_return,
+    );
+    try std.testing.expectEqualStrings("restored", last_return.items[0]);
 }
 
 test "ability.program executable support rejects terminal nested target result mismatches" {

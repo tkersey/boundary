@@ -4870,7 +4870,8 @@ test "custom approval workflow keeps synchronous and session behavior" {
     try std.testing.expectEqual(@as(usize, 0), invalid.transcript.continuations);
     try std.testing.expectEqual(@as(usize, 1), invalid.transcript.aborts);
 
-    const session_approved = try custom_approval.runApproveSession(&runtime);
+    var session_approved = try custom_approval.runApproveSession(&runtime);
+    defer session_approved.deinit();
     try std.testing.expectEqualStrings("published:approved", session_approved.value);
     try std.testing.expectEqual(@as(usize, 4), session_approved.trace_entries);
     try std.testing.expect(session_approved.deterministic_replay);
@@ -4879,7 +4880,8 @@ test "custom approval workflow keeps synchronous and session behavior" {
     try std.testing.expectEqual(@as(usize, 1), session_approved.transcript.continuations);
     try std.testing.expectEqual(@as(usize, 0), session_approved.transcript.aborts);
 
-    const session_invalid = try custom_approval.runInvalidSession(&runtime);
+    var session_invalid = try custom_approval.runInvalidSession(&runtime);
+    defer session_invalid.deinit();
     try std.testing.expectEqualStrings("invalid:missing", session_invalid.value);
     try std.testing.expectEqual(@as(usize, 2), session_invalid.trace_entries);
     try std.testing.expect(session_invalid.deterministic_replay);
@@ -5556,6 +5558,607 @@ test "Program.Session capsule deep copies nested sum product string payloads" {
         .denied => |value| try std.testing.expectEqualStrings("done", value),
         .details => return error.UnexpectedPayload,
     }
+}
+
+test "Program.Session capsule deep copies frame last_return values" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const LastReturnHandlers = struct {
+        items: []const []const u8,
+    };
+    const Body = struct {
+        pub const compiled_plan = sessionLastReturnThenYieldStringListPlan("session-capsule-last-return-owned");
+
+        pub fn encodeArgs(handlers: LastReturnHandlers) struct { []const []const u8 } {
+            return .{handlers.items};
+        }
+    };
+    const Program = ability.program("session-capsule-last-return-owned", LastReturnHandlers, Body);
+
+    var left = [_]u8{ 'l', 'e', 'f', 't' };
+    var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
+    var items = [_][]const u8{ left[0..], right[0..] };
+    var session = try Program.Session.start(&runtime, .{ .items = items[0..] });
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |parked| parked,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+
+    @memcpy(left[0..], "wxyz");
+    @memcpy(right[0..], "omega");
+
+    var restored = try Program.Session.restore(&runtime, .{ .items = items[0..] }, &capsule);
+    defer restored.deinit();
+    const restored_request = switch (try restored.current()) {
+        .request => |current| current,
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    };
+    try std.testing.expectEqual(request.fingerprint(), restored_request.fingerprint());
+    var recaptured = try restored.capture(std.testing.allocator);
+    defer recaptured.deinit();
+    try std.testing.expectEqual(capsule.fingerprint(), recaptured.fingerprint());
+}
+
+test "Program.Session restored string-list results outlive closed session scratch" {
+    var counting_allocator = CountingAllocator.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(counting_allocator.allocator());
+    defer runtime.deinit();
+
+    const LastReturnHandlers = struct {
+        items: []const []const u8,
+    };
+    const Body = struct {
+        pub const compiled_plan = sessionLastReturnThenYieldStringListPlan("session-capsule-result-owned");
+
+        pub fn encodeArgs(handlers: LastReturnHandlers) struct { []const []const u8 } {
+            return .{handlers.items};
+        }
+    };
+    const Program = ability.program("session-capsule-result-owned", LastReturnHandlers, Body);
+
+    var left = [_]u8{ 'l', 'e', 'f', 't' };
+    var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
+    var items = [_][]const u8{ left[0..], right[0..] };
+    var session = try Program.Session.start(&runtime, .{ .items = items[0..] });
+    var session_live = true;
+    defer if (session_live) session.deinit();
+
+    _ = switch (try session.next()) {
+        .request => |parked| parked,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(counting_allocator.allocator());
+    defer capsule.deinit();
+    session.deinit();
+    session_live = false;
+
+    @memcpy(left[0..], "wxyz");
+    @memcpy(right[0..], "omega");
+
+    var restored = try Program.Session.restore(&runtime, .{ .items = items[0..] }, &capsule);
+    defer restored.deinit();
+    const restored_request = switch (try restored.current()) {
+        .request => |current| current,
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    };
+    try restored.@"resume"(restored_request, @as(i32, 7));
+    var result = switch (try restored.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+
+    try std.testing.expectEqual(@as(usize, 2), result.value.len);
+    try std.testing.expectEqualStrings("left", result.value[0]);
+    try std.testing.expectEqualStrings("right", result.value[1]);
+    const frees_before_result_deinit = counting_allocator.free_calls;
+    result.deinit();
+    try std.testing.expect(counting_allocator.free_calls > frees_before_result_deinit);
+}
+
+test "Program.Session delegates borrowed result cleanup to Body.deinitResult" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        items: [][]const u8,
+    };
+    const LastReturnHandlers = struct {
+        payload: Payload,
+    };
+    const CleanupState = struct {
+        var result_deinit_called = false;
+    };
+    const Body = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = sessionLastReturnThenYieldProductPlan(Payload, "session-body-result-cleanup-owned");
+
+        pub fn encodeArgs(handlers: LastReturnHandlers) struct { Payload } {
+            return .{handlers.payload};
+        }
+
+        pub fn deinitResult(allocator: std.mem.Allocator, value: Payload) void {
+            CleanupState.result_deinit_called = true;
+            for (value.items) |item| allocator.free(item);
+            allocator.free(value.items);
+        }
+    };
+    const Program = ability.program("session-body-result-cleanup-owned", LastReturnHandlers, Body);
+
+    var left = [_]u8{ 'l', 'e', 'f', 't' };
+    var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
+    var items = [_][]const u8{ left[0..], right[0..] };
+    var session = try Program.Session.start(&runtime, .{ .payload = .{ .items = items[0..] } });
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |parked| parked,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.@"resume"(request, @as(i32, 7));
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+
+    @memcpy(left[0..], "wxyz");
+    @memcpy(right[0..], "omega");
+    try std.testing.expectEqual(@as(usize, 2), result.value.items.len);
+    try std.testing.expectEqualStrings("left", result.value.items[0]);
+    try std.testing.expectEqualStrings("right", result.value.items[1]);
+    try std.testing.expect(!CleanupState.result_deinit_called);
+    result.deinit();
+    try std.testing.expect(CleanupState.result_deinit_called);
+}
+
+test "Program.Session result storage frees fields skipped by Body.deinitResult" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        items: [][]const u8,
+    };
+    const LastReturnHandlers = struct {
+        payload: Payload,
+    };
+    const CleanupState = struct {
+        var result_deinit_called = false;
+    };
+    const Body = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = sessionLastReturnThenYieldProductPlan(Payload, "session-body-result-cleanup-partial-owned");
+
+        pub fn encodeArgs(handlers: LastReturnHandlers) struct { Payload } {
+            return .{handlers.payload};
+        }
+
+        pub fn deinitResult(allocator: std.mem.Allocator, value: Payload) void {
+            CleanupState.result_deinit_called = true;
+            allocator.free(value.items[0]);
+        }
+    };
+    const Program = ability.program("session-body-result-cleanup-partial-owned", LastReturnHandlers, Body);
+
+    var left = [_]u8{ 'l', 'e', 'f', 't' };
+    var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
+    var items = [_][]const u8{ left[0..], right[0..] };
+    var session = try Program.Session.start(&runtime, .{ .payload = .{ .items = items[0..] } });
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |parked| parked,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.@"resume"(request, @as(i32, 7));
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+
+    result.deinit();
+    try std.testing.expect(CleanupState.result_deinit_called);
+}
+
+test "Program.Session output failure delegates borrowed result cleanup to Body.deinitResult" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        items: [][]const u8,
+    };
+    const LastReturnHandlers = struct {
+        payload: Payload,
+    };
+    const CleanupState = struct {
+        var result_deinit_called = false;
+    };
+    const Body = struct {
+        pub const Error = error{OutputFailed};
+        pub const Outputs = []i32;
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = sessionLastReturnThenYieldProductPlan(Payload, "session-output-failure-result-cleanup-owned");
+
+        pub fn encodeArgs(handlers: LastReturnHandlers) struct { Payload } {
+            return .{handlers.payload};
+        }
+
+        pub fn collectOutputs(_: std.mem.Allocator, _: *LastReturnHandlers) Error!Outputs {
+            return error.OutputFailed;
+        }
+
+        pub fn deinitResult(allocator: std.mem.Allocator, value: Payload) void {
+            CleanupState.result_deinit_called = true;
+            for (value.items) |item| allocator.free(item);
+            allocator.free(value.items);
+        }
+    };
+    const Program = ability.program("session-output-failure-result-cleanup-owned", LastReturnHandlers, Body);
+
+    var left = [_]u8{ 'l', 'e', 'f', 't' };
+    var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
+    var items = [_][]const u8{ left[0..], right[0..] };
+    var session = try Program.Session.start(&runtime, .{ .payload = .{ .items = items[0..] } });
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |parked| parked,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.@"resume"(request, @as(i32, 7));
+    try std.testing.expectError(error.OutputFailed, session.next());
+    try std.testing.expect(CleanupState.result_deinit_called);
+}
+
+test "Program.Session output failure result storage frees fields skipped by Body.deinitResult" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        items: [][]const u8,
+    };
+    const LastReturnHandlers = struct {
+        payload: Payload,
+    };
+    const CleanupState = struct {
+        var result_deinit_called = false;
+    };
+    const Body = struct {
+        pub const Error = error{OutputFailed};
+        pub const Outputs = []i32;
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = sessionLastReturnThenYieldProductPlan(Payload, "session-output-failure-result-cleanup-partial-owned");
+
+        pub fn encodeArgs(handlers: LastReturnHandlers) struct { Payload } {
+            return .{handlers.payload};
+        }
+
+        pub fn collectOutputs(_: std.mem.Allocator, _: *LastReturnHandlers) Error!Outputs {
+            return error.OutputFailed;
+        }
+
+        pub fn deinitResult(allocator: std.mem.Allocator, value: Payload) void {
+            CleanupState.result_deinit_called = true;
+            allocator.free(value.items[0]);
+        }
+    };
+    const Program = ability.program("session-output-failure-result-cleanup-partial-owned", LastReturnHandlers, Body);
+
+    var left = [_]u8{ 'l', 'e', 'f', 't' };
+    var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
+    var items = [_][]const u8{ left[0..], right[0..] };
+    var session = try Program.Session.start(&runtime, .{ .payload = .{ .items = items[0..] } });
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |parked| parked,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.@"resume"(request, @as(i32, 7));
+    try std.testing.expectError(error.OutputFailed, session.next());
+    try std.testing.expect(CleanupState.result_deinit_called);
+}
+
+test "Program.Session scalar results avoid detached storage allocation" {
+    var counting_allocator = CountingAllocator.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(counting_allocator.allocator());
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "session-scalar-result-no-storage");
+    };
+    const Program = ability.program("session-scalar-result-no-storage", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |parked| parked,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.@"resume"(request, @as(i32, 42));
+    const allocs_before_done = counting_allocator.alloc_calls;
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+    try std.testing.expectEqual(allocs_before_done, counting_allocator.alloc_calls);
+}
+
+test "Program.Session by-value structured results avoid detached storage allocation" {
+    var counting_allocator = CountingAllocator.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(counting_allocator.allocator());
+    defer runtime.deinit();
+
+    const ProductPayload = struct {
+        amount: i32,
+    };
+    const ProductHandlers = struct {};
+    const ProductBody = struct {
+        pub const value_schema_types = .{ProductPayload};
+        pub const compiled_plan = productIdentityPlan(ProductPayload, "session-product-result-no-storage");
+
+        pub fn encodeArgs(_: ProductHandlers) @TypeOf(.{ProductPayload{ .amount = 44 }}) {
+            return .{ProductPayload{ .amount = 44 }};
+        }
+    };
+    const ProductProgram = ability.program("session-product-result-no-storage", ProductHandlers, ProductBody);
+    var product_session = try ProductProgram.Session.start(&runtime, .{});
+    defer product_session.deinit();
+
+    const product_allocs_before_done = counting_allocator.alloc_calls;
+    var product_result = switch (try product_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer product_result.deinit();
+
+    try std.testing.expectEqual(@as(i32, 44), product_result.value.amount);
+    try std.testing.expectEqual(product_allocs_before_done, counting_allocator.alloc_calls);
+
+    const SumPayload = ?i32;
+    const SumHandlers = struct {};
+    const SumBody = struct {
+        pub const value_schema_types = .{SumPayload};
+        pub const compiled_plan = sumIdentityPlan(SumPayload, "session-sum-result-no-storage");
+
+        pub fn encodeArgs(_: SumHandlers) @TypeOf(.{@as(SumPayload, 55)}) {
+            return .{@as(SumPayload, 55)};
+        }
+    };
+    const SumProgram = ability.program("session-sum-result-no-storage", SumHandlers, SumBody);
+    var sum_session = try SumProgram.Session.start(&runtime, .{});
+    defer sum_session.deinit();
+
+    const sum_allocs_before_done = counting_allocator.alloc_calls;
+    var sum_result = switch (try sum_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer sum_result.deinit();
+
+    try std.testing.expectEqual(@as(i32, 55), sum_result.value.?);
+    try std.testing.expectEqual(sum_allocs_before_done, counting_allocator.alloc_calls);
+
+    const OptionalStringPayload = ?[]const u8;
+    const OptionalStringHandlers = struct {};
+    const OptionalStringBody = struct {
+        pub const value_schema_types = .{OptionalStringPayload};
+        pub const compiled_plan = optionalStringIdentityPlan("session-optional-string-null-result-no-storage");
+
+        pub fn encodeArgs(_: OptionalStringHandlers) @TypeOf(.{@as(OptionalStringPayload, null)}) {
+            return .{@as(OptionalStringPayload, null)};
+        }
+    };
+    const OptionalStringProgram = ability.program(
+        "session-optional-string-null-result-no-storage",
+        OptionalStringHandlers,
+        OptionalStringBody,
+    );
+    var optional_string_session = try OptionalStringProgram.Session.start(&runtime, .{});
+    defer optional_string_session.deinit();
+
+    const optional_string_allocs_before_done = counting_allocator.alloc_calls;
+    var optional_string_result = switch (try optional_string_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer optional_string_result.deinit();
+
+    try std.testing.expect(optional_string_result.value == null);
+    try std.testing.expectEqual(optional_string_allocs_before_done, counting_allocator.alloc_calls);
+}
+
+test "Program.Session capsule clones mutable string-list product fields" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        items: [][]const u8,
+    };
+    const MutableListHandlers = struct {
+        payload: Payload,
+    };
+    const Body = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = sessionLastReturnThenYieldProductPlan(Payload, "session-capsule-mutable-string-list");
+
+        pub fn encodeArgs(handlers: MutableListHandlers) struct { Payload } {
+            return .{handlers.payload};
+        }
+    };
+    const Program = ability.program("session-capsule-mutable-string-list", MutableListHandlers, Body);
+
+    var left = [_]u8{ 'l', 'e', 'f', 't' };
+    var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
+    var items = [_][]const u8{ left[0..], right[0..] };
+    var session = try Program.Session.start(&runtime, .{ .payload = .{ .items = items[0..] } });
+    defer session.deinit();
+
+    _ = switch (try session.next()) {
+        .request => |parked| parked,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+
+    @memcpy(left[0..], "wxyz");
+    @memcpy(right[0..], "omega");
+
+    var restored = try Program.Session.restore(&runtime, .{ .payload = .{ .items = items[0..] } }, &capsule);
+    defer restored.deinit();
+    const restored_request = switch (try restored.current()) {
+        .request => |current| current,
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    };
+    _ = restored_request;
+    var recaptured = try restored.capture(std.testing.allocator);
+    defer recaptured.deinit();
+    try std.testing.expectEqual(capsule.fingerprint(), recaptured.fingerprint());
+}
+
+test "Program.Session capsule fingerprint rehashes mutable current payload views" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        items: [][]const u8,
+    };
+    const MutableListHandlers = struct {
+        payload: Payload,
+    };
+    const Body = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = sessionMutableStringListPayloadPlan(Payload, "session-capsule-fingerprint-live-payload");
+
+        pub fn encodeArgs(handlers: MutableListHandlers) struct { Payload } {
+            return .{handlers.payload};
+        }
+    };
+    const Program = ability.program("session-capsule-fingerprint-live-payload", MutableListHandlers, Body);
+
+    var items = [_][]const u8{ "left", "right" };
+    var session = try Program.Session.start(&runtime, .{ .payload = .{ .items = items[0..] } });
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |parked| parked,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var before = try session.capture(std.testing.allocator);
+    defer before.deinit();
+
+    var payload = try request.payload(Payload);
+    payload.items[0] = "captured";
+
+    var after = try session.capture(std.testing.allocator);
+    defer after.deinit();
+    try std.testing.expect(before.fingerprint() != after.fingerprint());
+
+    var restored = try Program.Session.restore(&runtime, .{ .payload = .{ .items = items[0..] } }, &after);
+    defer restored.deinit();
+    const restored_request = switch (try restored.current()) {
+        .request => |current| current,
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    };
+    var restored_payload = try restored_request.payload(Payload);
+    restored_payload.items[0] = "restored";
+
+    var recaptured = try restored.capture(std.testing.allocator);
+    defer recaptured.deinit();
+    try std.testing.expect(before.fingerprint() != recaptured.fingerprint());
+
+    try restored.@"resume"(restored_request, @as(i32, 7));
+    var result = switch (try restored.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+
+    try std.testing.expectEqualStrings("restored", result.value.items[0]);
+}
+
+test "Program.Session capsule preserves helper payload alias groups" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        items: [][]const u8,
+    };
+    const AliasHandlers = struct {
+        payload: Payload,
+    };
+    const Body = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = sessionHelperPayloadAliasPlan(Payload, "session-capsule-helper-payload-alias");
+
+        pub fn encodeArgs(handlers: AliasHandlers) struct { Payload } {
+            return .{handlers.payload};
+        }
+    };
+    const Program = ability.program("session-capsule-helper-payload-alias", AliasHandlers, Body);
+
+    var left = [_]u8{ 'l', 'e', 'f', 't' };
+    var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
+    var items = [_][]const u8{ left[0..], right[0..] };
+    var session = try Program.Session.start(&runtime, .{ .payload = .{ .items = items[0..] } });
+    defer session.deinit();
+
+    _ = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+
+    var restored = try Program.Session.restore(&runtime, .{ .payload = .{ .items = items[0..] } }, &capsule);
+    defer restored.deinit();
+    const restored_request = switch (try restored.current()) {
+        .request => |request| request,
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    };
+    var restored_payload = try restored_request.payload(Payload);
+    restored_payload.items[0] = "restored";
+
+    try restored.@"resume"(restored_request, @as(i32, 7));
+    var result = switch (try restored.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+
+    try std.testing.expectEqual(@as(usize, 2), result.value.items.len);
+    try std.testing.expectEqualStrings("restored", result.value.items[0]);
+    try std.testing.expectEqualStrings("right", result.value.items[1]);
 }
 
 test "Program.Session structured request payloads survive session deinit" {
@@ -6825,6 +7428,225 @@ fn unreachableCallOpPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
+fn sessionMutableStringListPayloadPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const resumed = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
+        ability.ir.builder.returnValue(root, payload) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .product,
+        .value_schema_index = 0,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "mutable", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "payload",
+        .mode = .transform,
+        .payload_codec = .product,
+        .payload_schema_index = 0,
+        .resume_codec = .i32,
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(Payload),
+        .codec = .product,
+        .first_field = 0,
+        .field_count = 1,
+    }};
+    const value_fields = [_]ability.ir.ValueFieldPlan{.{ .name = "items", .codec = .string_list }};
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 119,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &.{ .{ .codec = .product, .schema_index = 0 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn sessionHelperPayloadAliasPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const helper = ability.ir.builder.function(1);
+    const root_payload = ability.ir.builder.local(root, 0);
+    const root_ignored = ability.ir.builder.local(root, 1);
+    const helper_payload = ability.ir.builder.local(helper, 0);
+    const helper_ignored = ability.ir.builder.local(helper, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callHelper(root, root_ignored, helper, 0) catch unreachable,
+        ability.ir.builder.returnValue(root, root_payload) catch unreachable,
+        ability.ir.builder.callOp(helper, helper_ignored, ability.ir.builder.op(helper, 0), helper_payload) catch unreachable,
+        ability.ir.builder.returnValue(helper, helper_payload) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .product,
+            .value_schema_index = 0,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 2,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "helper",
+            .value_codec = .product,
+            .value_schema_index = 0,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 2,
+            .local_count = 2,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 2,
+        },
+    };
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "helper_alias", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "payload",
+        .mode = .transform,
+        .payload_codec = .product,
+        .payload_schema_index = 0,
+        .resume_codec = .i32,
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(Payload),
+        .codec = .product,
+        .first_field = 0,
+        .field_count = 1,
+    }};
+    const value_fields = [_]ability.ir.ValueFieldPlan{.{ .name = "items", .codec = .string_list }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 123,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &.{
+            .{ .codec = .product, .schema_index = 0 },
+            .{ .codec = .product, .schema_index = 0 },
+            .{ .codec = .product, .schema_index = 0 },
+            .{ .codec = .i32 },
+        },
+        .call_args = &.{root_payload.index},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn optionalStringIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const Payload = ?[]const u8;
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.returnValue(root, payload) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .sum,
+        .value_schema_index = 0,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(Payload),
+        .codec = .sum,
+        .first_variant = 0,
+        .variant_count = 2,
+    }};
+    const value_variants = [_]ability.ir.ValueVariantPlan{
+        .{ .name = "none", .codec = .unit },
+        .{ .name = "some", .codec = .string },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 120,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &.{},
+        .value_variants = &value_variants,
+        .locals = &.{.{ .codec = .sum, .schema_index = 0 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn sessionStringPayloadPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const payload = ability.ir.builder.local(root, 0);
@@ -6922,6 +7744,134 @@ fn sessionStringListPayloadPlan(comptime label: []const u8) ability.ir.ProgramPl
         .ops = &ops,
         .outputs = &.{},
         .locals = &.{ .{ .codec = .string_list }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn sessionLastReturnThenYieldStringListPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const ignored = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.returnValue(root, payload) catch unreachable,
+        ability.ir.builder.callOp(root, ignored, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(root, payload) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .string_list,
+        .result_codec = .string_list,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 2,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "last_return", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "park",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+    }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 2, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .jump, .primary = 1 },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 118,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string_list }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn sessionLastReturnThenYieldProductPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const ignored = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.returnValue(root, payload) catch unreachable,
+        ability.ir.builder.callOp(root, ignored, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(root, payload) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .product,
+        .value_schema_index = 0,
+        .result_codec = .product,
+        .result_schema_index = 0,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 2,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "last_return", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "park",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(Payload),
+        .codec = .product,
+        .first_field = 0,
+        .field_count = 1,
+    }};
+    const value_fields = [_]ability.ir.ValueFieldPlan{.{ .name = "items", .codec = .string_list }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 2, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .jump, .primary = 1 },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 117,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &.{ .{ .codec = .product, .schema_index = 0 }, .{ .codec = .i32 } },
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,

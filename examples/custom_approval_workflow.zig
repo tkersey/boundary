@@ -225,6 +225,12 @@ pub const SessionRunResult = struct {
     transcript: Transcript,
     trace_entries: usize,
     deterministic_replay: bool,
+    _result: ?WorkflowProgram.Result = null,
+
+    pub fn deinit(self: *@This()) void {
+        if (self._result) |*result| result.deinit();
+        self._result = null;
+    }
 };
 
 fn workflowHandlers(state: DirectoryState, branch: ApprovalBranch) WorkflowHandlers {
@@ -343,13 +349,14 @@ fn runSessionCase(
             },
             .done => |done| {
                 var result = done;
-                defer result.deinit();
+                errdefer result.deinit();
                 if (mode == .replay and replay_index != recording.len) return error.TraceReplayLengthMismatch;
                 return .{
                     .value = result.value,
                     .transcript = currentTranscript(),
                     .trace_entries = replay_index,
                     .deterministic_replay = mode == .replay,
+                    ._result = result,
                 };
             },
         }
@@ -362,16 +369,14 @@ pub fn runSessionReplay(
     branch: ApprovalBranch,
 ) !SessionRunResult {
     var recording: SessionTraceRecording = .{};
-    const recorded = try runSessionCase(runtime, state, branch, .record, &recording);
-    const replayed = try runSessionCase(runtime, state, branch, .replay, &recording);
+    var recorded = try runSessionCase(runtime, state, branch, .record, &recording);
+    errdefer recorded.deinit();
+    var replayed = try runSessionCase(runtime, state, branch, .replay, &recording);
+    defer replayed.deinit();
     if (!std.mem.eql(u8, recorded.value, replayed.value)) return error.TraceReplayValueMismatch;
     if (recorded.trace_entries != replayed.trace_entries) return error.TraceReplayLengthMismatch;
-    return .{
-        .value = recorded.value,
-        .transcript = recorded.transcript,
-        .trace_entries = recorded.trace_entries,
-        .deterministic_replay = true,
-    };
+    recorded.deterministic_replay = true;
+    return recorded;
 }
 
 pub fn runApproveSession(runtime: *ability.Runtime) !SessionRunResult {
@@ -413,7 +418,8 @@ pub fn run(writer: anytype) !void {
         invalid.transcript.aborts,
     });
 
-    const session_approved = try runApproveSession(&runtime);
+    var session_approved = try runApproveSession(&runtime);
+    defer session_approved.deinit();
     try writer.print("session-approve={s} lookups={d} choices={d} continuations={d} aborts={d} traces={d} replay={any}\n", .{
         session_approved.value,
         session_approved.transcript.lookups,
@@ -424,7 +430,8 @@ pub fn run(writer: anytype) !void {
         session_approved.deterministic_replay,
     });
 
-    const session_invalid = try runInvalidSession(&runtime);
+    var session_invalid = try runInvalidSession(&runtime);
+    defer session_invalid.deinit();
     try writer.print("session-invalid={s} lookups={d} choices={d} continuations={d} aborts={d} traces={d} replay={any}\n", .{
         session_invalid.value,
         session_invalid.transcript.lookups,

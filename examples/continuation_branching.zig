@@ -64,14 +64,12 @@ const ApprovalBody = struct {
 const ApprovalProgram = ability.program("continuation-branching", ApprovalHandlers, ApprovalBody);
 const RequestSite = ApprovalProgram.protocol.operationSite("approval", "request", 0);
 
-fn doneValue(session: *ApprovalProgram.Session) ![]const u8 {
-    var result = switch (try session.next()) {
+fn doneResult(session: *ApprovalProgram.Session) !ApprovalProgram.Result {
+    return switch (try session.next()) {
         .done => |done| done,
         .request => return error.UnexpectedRequest,
         .after => return error.UnexpectedAfter,
     };
-    defer result.deinit();
-    return result.value;
 }
 
 fn currentRequest(session: *ApprovalProgram.Session) !ApprovalProgram.Session.Request {
@@ -105,13 +103,15 @@ pub fn run(writer: anytype) !void {
     defer approved_branch.deinit();
     const approved_request = try currentRequest(&approved_branch);
     try approved_branch.resumeTyped(try approved_request.as(RequestSite), @as(RequestSite.Resume, 1));
-    const approved = try doneValue(&approved_branch);
+    var approved_result = try doneResult(&approved_branch);
+    defer approved_result.deinit();
 
     var denied_branch = try ApprovalProgram.Session.restore(&runtime, .{}, &capsule);
     defer denied_branch.deinit();
     const denied_request = try currentRequest(&denied_branch);
     try denied_branch.returnNowTyped(try denied_request.as(RequestSite), @as(RequestSite.Result, "denied"));
-    const denied = try doneValue(&denied_branch);
+    var denied_result = try doneResult(&denied_branch);
+    defer denied_result.deinit();
 
     var proof_branch = try ApprovalProgram.Session.restore(&runtime, .{}, &capsule);
     defer proof_branch.deinit();
@@ -123,8 +123,8 @@ pub fn run(writer: anytype) !void {
     try writer.print("capsule_fingerprint={x}\n", .{capsule.fingerprint()});
     try writer.print("request_fingerprint={x}\n", .{request.fingerprint()});
     try writer.print("payload={s}\n", .{payload});
-    try writer.print("approved_result={s}\n", .{approved});
-    try writer.print("denied_result={s}\n", .{denied});
+    try writer.print("approved_result={s}\n", .{approved_result.value});
+    try writer.print("denied_result={s}\n", .{denied_result.value});
     try writer.print("capsule_reused={any}\n", .{reused});
 }
 

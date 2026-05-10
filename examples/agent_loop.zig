@@ -73,9 +73,14 @@ const RunRecord = struct {
 };
 
 const InvokeOutcome = struct {
-    final_text: []const u8,
+    final_text: []u8,
     run_record: RunRecord,
     recorded_response_count: usize,
+
+    fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.final_text);
+        self.final_text = &.{};
+    }
 };
 
 const Scenario = enum {
@@ -474,8 +479,9 @@ fn runSession(
                 try writer.print("{s} answer={s}\n", .{ phase, result.value });
                 if (mode == .replay and replay_index != recording.count) return error.TraceReplayUnusedResponse;
                 recordEvent(&run_record, .run_completed);
+                const final_text = try allocator.dupe(u8, result.value);
                 return .{
-                    .final_text = result.value,
+                    .final_text = final_text,
                     .run_record = run_record,
                     .recorded_response_count = recording.count,
                 };
@@ -488,8 +494,10 @@ fn runScenario(writer: anytype, allocator: std.mem.Allocator, scenario: Scenario
     if (scenario == .fixture) try prepareFixtureWorkspace();
 
     var recording: TraceRecording = .{};
-    const record_outcome = try runSession(writer, allocator, scenario, .record, &recording);
-    const replay_outcome = try runSession(writer, allocator, scenario, .replay, &recording);
+    var record_outcome = try runSession(writer, allocator, scenario, .record, &recording);
+    errdefer record_outcome.deinit(allocator);
+    var replay_outcome = try runSession(writer, allocator, scenario, .replay, &recording);
+    defer replay_outcome.deinit(allocator);
     if (!std.mem.eql(u8, record_outcome.final_text, replay_outcome.final_text)) return error.TraceReplayAnswerMismatch;
     if (!runRecordsEqual(record_outcome.run_record, replay_outcome.run_record)) return error.TraceReplayRunRecordMismatch;
     if (!std.mem.eql(u8, record_outcome.final_text, expectedFinalText(scenario))) return error.UnexpectedFinalText;
@@ -498,9 +506,9 @@ fn runScenario(writer: anytype, allocator: std.mem.Allocator, scenario: Scenario
     return record_outcome;
 }
 
-pub fn run(writer: anytype) !void {
-    const allocator = std.heap.page_allocator;
-    const skeleton = try runScenario(writer, allocator, .skeleton);
+pub fn run(writer: anytype, allocator: std.mem.Allocator) !void {
+    var skeleton = try runScenario(writer, allocator, .skeleton);
+    defer skeleton.deinit(allocator);
     try writer.print("skeleton final={s} events={d} tool_calls={d} responses={d}\n", .{
         skeleton.final_text,
         skeleton.run_record.event_count,
@@ -508,7 +516,8 @@ pub fn run(writer: anytype) !void {
         skeleton.recorded_response_count,
     });
 
-    const fixture = try runScenario(writer, allocator, .fixture);
+    var fixture = try runScenario(writer, allocator, .fixture);
+    defer fixture.deinit(allocator);
     const io = std.Io.Threaded.global_single_threaded.io();
     var output_buffer: [1024]u8 = undefined;
     const bytes = try std.Io.Dir.cwd().readFile(io, fixture_output_path, &output_buffer);
@@ -526,7 +535,7 @@ pub fn main(init: std.process.Init) !void {
     var stdout_buffer: [512]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
-    try run(stdout);
+    try run(stdout, std.heap.page_allocator);
     try stdout.flush();
 }
 
@@ -534,7 +543,8 @@ test "agent loop skeleton scenario mirrors actuate skeleton coverage" {
     var output = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer output.deinit();
 
-    const outcome = try runScenario(&output.writer, std.testing.allocator, .skeleton);
+    var outcome = try runScenario(&output.writer, std.testing.allocator, .skeleton);
+    defer outcome.deinit(std.testing.allocator);
     try std.testing.expectEqualStrings("final=actuate skeleton complete", outcome.final_text);
     try std.testing.expectEqual(@as(usize, 6), outcome.run_record.event_count);
     try std.testing.expectEqual(@as(usize, 1), outcome.run_record.tool_calls);
@@ -547,7 +557,8 @@ test "agent loop fixture scenario mirrors actuate fixture coverage" {
     var output = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer output.deinit();
 
-    const outcome = try runScenario(&output.writer, std.testing.allocator, .fixture);
+    var outcome = try runScenario(&output.writer, std.testing.allocator, .fixture);
+    defer outcome.deinit(std.testing.allocator);
     try std.testing.expectEqualStrings("final=fixture updated", outcome.final_text);
     try std.testing.expectEqual(@as(usize, 10), outcome.run_record.event_count);
     try std.testing.expectEqual(@as(usize, 2), outcome.run_record.tool_calls);
