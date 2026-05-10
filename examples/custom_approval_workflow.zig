@@ -78,9 +78,11 @@ pub const RunResult = struct {
 const DirectoryState = enum { missing, present };
 
 const WorkflowHandlers = struct {
-    exists: DirectoryHandler,
-    request: ApprovalHandler,
-    invalid: GuardHandler,
+    workflow: struct {
+        exists: DirectoryHandler,
+        request: ApprovalHandler,
+        invalid: GuardHandler,
+    },
 };
 
 pub const WorkflowProtocol = ability.ir.schema.Protocol(.{
@@ -188,9 +190,11 @@ fn runCase(
 ) !RunResult {
     resetTranscript();
     var result = try WorkflowProgram.run(runtime, .{
-        .exists = .{ .exists_value = state == .present },
-        .request = .{ .branch = branch },
-        .invalid = .{},
+        .workflow = .{
+            .exists = .{ .exists_value = state == .present },
+            .request = .{ .branch = branch },
+            .invalid = .{},
+        },
     });
     defer result.deinit();
     return .{ .value = result.value, .transcript = currentTranscript() };
@@ -243,9 +247,11 @@ pub const SessionRunResult = struct {
 
 fn workflowHandlers(state: DirectoryState, branch: ApprovalBranch) WorkflowHandlers {
     return .{
-        .exists = .{ .exists_value = state == .present },
-        .request = .{ .branch = branch },
-        .invalid = .{},
+        .workflow = .{
+            .exists = .{ .exists_value = state == .present },
+            .request = .{ .branch = branch },
+            .invalid = .{},
+        },
     };
 }
 

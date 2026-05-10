@@ -921,7 +921,7 @@ pub const schema = struct {
                 .payload_schema_index = payload_ref.schema_index,
                 .resume_codec = resume_ref.codec,
                 .resume_schema_index = resume_ref.schema_index,
-                .has_after = programPlanHasAfter(BindingSchema, FamilySchema.ops[index], op_spec),
+                .has_after = programPlanHasAfter(BindingSchema, FamilySchema, FamilySchema.ops[index], op_spec),
             };
         }
         return ops;
@@ -929,6 +929,7 @@ pub const schema = struct {
 
     fn programPlanHasAfter(
         comptime BindingSchema: type,
+        comptime FamilySchema: type,
         comptime OpSchema: type,
         comptime op_spec: effect_ir.OpSpec,
     ) bool {
@@ -937,8 +938,7 @@ pub const schema = struct {
         // after{OpName} hooks remain effect_schema row metadata.
         return switch (OpSchema.after) {
             .none => false,
-            .binding_optional => hasDeclSafe(BindingSchema.Handler, "afterDispatch") or
-                handlerFieldHasAfterDispatch(BindingSchema.Handler, OpSchema.name),
+            .binding_optional => runtimeHandlerHasAfterDispatch(BindingSchema, FamilySchema, OpSchema.name),
         };
     }
 
@@ -949,18 +949,72 @@ pub const schema = struct {
         };
     }
 
-    fn handlerFieldHasAfterDispatch(comptime HandlerType: type, comptime field_name: []const u8) bool {
+    fn handlerSetType(comptime HandlerType: type) type {
         return switch (@typeInfo(HandlerType)) {
+            .pointer => |pointer| pointer.child,
+            else => HandlerType,
+        };
+    }
+
+    fn authoredHandlerType(comptime HandlerType: type) type {
+        return handlerSetType(HandlerType);
+    }
+
+    fn hasFieldSafe(comptime HandlerType: type, comptime field_name: []const u8) bool {
+        const SetType = handlerSetType(HandlerType);
+        return switch (@typeInfo(SetType)) {
             .@"struct" => |info| {
                 inline for (info.fields) |field| {
                     if (standard.mem.eql(u8, field.name, field_name)) {
-                        return hasDeclSafe(field.type, "afterDispatch");
+                        return true;
                     }
                 }
                 return false;
             },
             else => false,
         };
+    }
+
+    fn fieldType(comptime HandlerType: type, comptime field_name: []const u8) type {
+        return @FieldType(handlerSetType(HandlerType), field_name);
+    }
+
+    fn fieldHasAfterDispatch(comptime HandlerType: type, comptime field_name: []const u8) bool {
+        if (!hasFieldSafe(HandlerType, field_name)) return false;
+        return hasDeclSafe(authoredHandlerType(fieldType(HandlerType, field_name)), "afterDispatch");
+    }
+
+    fn nestedFieldHasAfterDispatch(
+        comptime HandlerType: type,
+        comptime parent_field_name: []const u8,
+        comptime child_field_name: []const u8,
+    ) bool {
+        if (!hasFieldSafe(HandlerType, parent_field_name)) return false;
+        const ParentType = authoredHandlerType(fieldType(HandlerType, parent_field_name));
+        return fieldHasAfterDispatch(ParentType, child_field_name);
+    }
+
+    fn runtimeHandlerHasAfterDispatch(
+        comptime BindingSchema: type,
+        comptime FamilySchema: type,
+        comptime op_name: []const u8,
+    ) bool {
+        _ = FamilySchema;
+        const HandlerType = BindingSchema.Handler;
+        const requirement_label = BindingSchema.requirement_label;
+        if (comptime hasFieldSafe(HandlerType, requirement_label)) {
+            const RequirementType = authoredHandlerType(fieldType(HandlerType, requirement_label));
+            if (comptime hasDeclSafe(RequirementType, "dispatch")) {
+                return fieldHasAfterDispatch(HandlerType, requirement_label);
+            }
+            if (comptime hasFieldSafe(RequirementType, op_name)) {
+                return fieldHasAfterDispatch(RequirementType, op_name);
+            }
+            if (comptime hasFieldSafe(RequirementType, "authored")) {
+                return fieldHasAfterDispatch(RequirementType, "authored");
+            }
+        }
+        return false;
     }
 
     fn lowerOutputs(
@@ -1290,9 +1344,13 @@ test "schema lowerer maps binding-optional after hooks to ProgramPlan afterDispa
 
     const OptionalAfterRows = schema.LowerBinding(
         schema.Binding("optional", effect_schema.choice_policy(i32, error{}, void), struct {
-            pub fn afterDispatch(_: *const @This(), answer: i32) error{}!i32 {
-                return answer;
-            }
+            optional: struct {
+                request: struct {
+                    pub fn afterDispatch(_: *const @This(), answer: i32) error{}!i32 {
+                        return answer;
+                    }
+                },
+            },
         }),
         .{ .requirement_index = 0, .first_op = 0 },
     );
@@ -1323,9 +1381,13 @@ test "schema lowerer maps binding-optional after hooks to ProgramPlan afterDispa
     });
     const GeneratedRows = schema.LowerBinding(
         schema.Binding("counter", GeneratedFamily, struct {
-            pub fn afterDispatch(_: *const @This(), answer: i32) error{}!i32 {
-                return answer + 1;
-            }
+            counter: struct {
+                get: struct {
+                    pub fn afterDispatch(_: *const @This(), answer: i32) error{}!i32 {
+                        return answer + 1;
+                    }
+                },
+            },
         }),
         .{ .requirement_index = 0, .first_op = 0 },
     );
@@ -1362,10 +1424,12 @@ test "schema Protocol lowers custom transform choice and abort rows" {
         },
     });
     const Handlers = struct {
-        request: struct {
-            pub fn afterDispatch(_: *const @This(), answer: []const u8) error{}![]const u8 {
-                return answer;
-            }
+        approval: struct {
+            request: struct {
+                pub fn afterDispatch(_: *const @This(), answer: []const u8) error{}![]const u8 {
+                    return answer;
+                }
+            },
         },
     };
     const Rows = Approval.Rows(Handlers, .{
@@ -1409,6 +1473,77 @@ test "schema Protocol lowers custom transform choice and abort rows" {
     try standard.testing.expectEqual(program_plan.ValueCodec.unit, Rows.ops[2].resume_codec);
     try standard.testing.expectEqual(@as(?u16, null), Rows.ops[2].resume_schema_index);
     try standard.testing.expect(!Rows.ops[2].has_after);
+}
+
+test "schema Protocol mirrors runtime handler lookup for after metadata" {
+    const Workflow = schema.Protocol(.{
+        .label = "workflow",
+        .ops = .{
+            schema.choiceAfter("request", []const u8, i32),
+        },
+    });
+    const NestedOpRows = Workflow.Rows(struct {
+        workflow: struct {
+            request: struct {
+                pub fn afterDispatch(_: *const @This(), answer: []const u8) error{}![]const u8 {
+                    return answer;
+                }
+            },
+        },
+    }, .{ .requirement_index = 0, .first_op = 0 });
+    try standard.testing.expect(NestedOpRows.ops[0].has_after);
+
+    const NestedAuthoredRows = Workflow.Rows(struct {
+        workflow: struct {
+            authored: struct {
+                pub fn afterDispatch(_: *const @This(), answer: []const u8) error{}![]const u8 {
+                    return answer;
+                }
+            },
+        },
+    }, .{ .requirement_index = 0, .first_op = 0 });
+    try standard.testing.expect(NestedAuthoredRows.ops[0].has_after);
+
+    const TopLevelAuthoredRows = Workflow.Rows(struct {
+        authored: struct {
+            pub fn afterDispatch(_: *const @This(), answer: []const u8) error{}![]const u8 {
+                return answer;
+            }
+        },
+    }, .{ .requirement_index = 0, .first_op = 0 });
+    try standard.testing.expect(!TopLevelAuthoredRows.ops[0].has_after);
+
+    const RequirementHandlerWinsRows = Workflow.Rows(struct {
+        workflow: struct {
+            pub fn dispatch(_: *const @This(), _: []const u8) error{}!i32 {
+                return 1;
+            }
+
+            request: struct {
+                pub fn afterDispatch(_: *const @This(), answer: []const u8) error{}![]const u8 {
+                    return answer;
+                }
+            },
+        },
+    }, .{ .requirement_index = 0, .first_op = 0 });
+    try standard.testing.expect(!RequirementHandlerWinsRows.ops[0].has_after);
+
+    const OpFieldShadowsAuthoredRows = Workflow.Rows(struct {
+        workflow: struct {
+            request: struct {
+                pub fn dispatch(_: *const @This(), _: []const u8) error{}!i32 {
+                    return 1;
+                }
+            },
+
+            authored: struct {
+                pub fn afterDispatch(_: *const @This(), answer: []const u8) error{}![]const u8 {
+                    return answer;
+                }
+            },
+        },
+    }, .{ .requirement_index = 0, .first_op = 0 });
+    try standard.testing.expect(!OpFieldShadowsAuthoredRows.ops[0].has_after);
 }
 
 test "schema Protocol exposes op descriptors for builder authoring" {

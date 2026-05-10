@@ -4765,9 +4765,11 @@ test "custom approval dynamic requests bind to matching protocol descriptors" {
     const Invalid = Program.protocol.operationSite("workflow", "invalid", 0);
     const ExistsPublish = Program.protocol.operationSite("workflow", "exists", 1);
     var session = try Program.Session.start(&runtime, .{
-        .exists = .{ .exists_value = true },
-        .request = .{ .branch = .approve },
-        .invalid = .{},
+        .workflow = .{
+            .exists = .{ .exists_value = true },
+            .request = .{ .branch = .approve },
+            .invalid = .{},
+        },
     });
     defer session.deinit();
 
