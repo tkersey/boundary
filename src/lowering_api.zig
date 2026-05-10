@@ -760,6 +760,7 @@ pub const trace_fingerprint_version: u32 = 2;
 pub const SessionOperationYieldSite = struct {
     index: usize,
     fingerprint: u64,
+    semantic_label: ?[]const u8 = null,
     function_index: usize,
     function_symbol_name: []const u8,
     block_index: usize,
@@ -782,6 +783,7 @@ pub const SessionOperationYieldSite = struct {
 pub const SessionAfterYieldSite = struct {
     index: usize,
     fingerprint: u64,
+    semantic_label: ?[]const u8 = null,
     source_operation_site_index: usize,
     source_operation_site_fingerprint: u64,
     source_function_index: usize,
@@ -940,9 +942,22 @@ fn sessionAfterYieldSiteCount(
     return count;
 }
 
+fn siteLabelForInstruction(comptime site_metadata: anytype, comptime instruction_index: usize) ?[]const u8 {
+    comptime var label: ?[]const u8 = null;
+    inline for (site_metadata) |entry| {
+        if (entry.instruction_index == instruction_index) {
+            if (label != null) @compileError("Body.site_metadata has duplicate label for one instruction index");
+            if (entry.label.len == 0) @compileError("Body.site_metadata labels must be non-empty");
+            label = entry.label;
+        }
+    }
+    return label;
+}
+
 fn fillSessionOperationYieldSites(
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime nested_with_targets: anytype,
+    comptime site_metadata: anytype,
     sites: anytype,
 ) void {
     const analysis = comptime program_plan.entryExecutionAnalysisWithNestedTargets(compiled_plan, nested_with_targets) catch |err|
@@ -961,6 +976,7 @@ fn fillSessionOperationYieldSites(
                 var site: SessionOperationYieldSite = .{
                     .index = next_site,
                     .fingerprint = 0,
+                    .semantic_label = siteLabelForInstruction(site_metadata, instruction_index),
                     .function_index = function_index,
                     .function_symbol_name = function.symbol_name,
                     .block_index = block_index,
@@ -991,8 +1007,18 @@ pub fn sessionOperationYieldSitesForPlan(
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime nested_with_targets: anytype,
 ) [sessionOperationYieldSiteCount(compiled_plan, nested_with_targets)]SessionOperationYieldSite {
+    return sessionOperationYieldSitesForPlanWithMetadata(compiled_plan, nested_with_targets, .{});
+}
+
+/// Build the deterministic entry-reachable Program.Session operation site catalog
+/// and attach optional non-fingerprint semantic labels.
+pub fn sessionOperationYieldSitesForPlanWithMetadata(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime nested_with_targets: anytype,
+    comptime site_metadata: anytype,
+) [sessionOperationYieldSiteCount(compiled_plan, nested_with_targets)]SessionOperationYieldSite {
     var sites: [sessionOperationYieldSiteCount(compiled_plan, nested_with_targets)]SessionOperationYieldSite = undefined;
-    fillSessionOperationYieldSites(compiled_plan, nested_with_targets, &sites);
+    fillSessionOperationYieldSites(compiled_plan, nested_with_targets, site_metadata, &sites);
     return sites;
 }
 
@@ -1001,7 +1027,17 @@ pub fn sessionAfterYieldSitesForPlan(
     comptime compiled_plan: program_plan.ProgramPlan,
     comptime nested_with_targets: anytype,
 ) [sessionAfterYieldSiteCount(compiled_plan, nested_with_targets)]SessionAfterYieldSite {
-    const operation_sites = sessionOperationYieldSitesForPlan(compiled_plan, nested_with_targets);
+    return sessionAfterYieldSitesForPlanWithMetadata(compiled_plan, nested_with_targets, .{});
+}
+
+/// Build the deterministic entry-reachable Program.Session after site catalog
+/// and attach optional non-fingerprint semantic labels.
+pub fn sessionAfterYieldSitesForPlanWithMetadata(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime nested_with_targets: anytype,
+    comptime site_metadata: anytype,
+) [sessionAfterYieldSiteCount(compiled_plan, nested_with_targets)]SessionAfterYieldSite {
+    const operation_sites = sessionOperationYieldSitesForPlanWithMetadata(compiled_plan, nested_with_targets, site_metadata);
     var sites: [sessionAfterYieldSiteCount(compiled_plan, nested_with_targets)]SessionAfterYieldSite = undefined;
     var next_after_site: usize = 0;
     inline for (operation_sites) |operation_site| {
@@ -1009,6 +1045,7 @@ pub fn sessionAfterYieldSitesForPlan(
         var site: SessionAfterYieldSite = .{
             .index = next_after_site,
             .fingerprint = 0,
+            .semantic_label = operation_site.semantic_label,
             .source_operation_site_index = operation_site.index,
             .source_operation_site_fingerprint = operation_site.fingerprint,
             .source_function_index = operation_site.function_index,
@@ -3341,6 +3378,17 @@ fn validateSessionTerminalPropagation(
     }
 }
 
+fn BodySiteMetadata(comptime Body: type) type {
+    if (comptime hasDeclSafe(Body, "site_metadata")) {
+        return struct {
+            pub const values = Body.site_metadata;
+        };
+    }
+    return struct {
+        pub const values = .{};
+    };
+}
+
 pub fn ExecutableSessionForPlan(
     comptime ErrorSet: type,
     comptime program_label: []const u8,
@@ -3356,8 +3404,9 @@ pub fn ExecutableSessionForPlan(
     const RawResult = TypedRunResultTypeForPlan(compiled_plan, schema_types);
     const session_after_stack_capacity = if (analysis.reachable_after_count == 0) 0 else max_interpreter_steps;
     const plan_hash = compiled_plan.hash();
-    const operation_yield_sites = sessionOperationYieldSitesForPlan(compiled_plan, nested_with_targets);
-    const after_yield_sites = sessionAfterYieldSitesForPlan(compiled_plan, nested_with_targets);
+    const body_site_metadata = BodySiteMetadata(ProtocolOwner).values;
+    const operation_yield_sites = sessionOperationYieldSitesForPlanWithMetadata(compiled_plan, nested_with_targets, body_site_metadata);
+    const after_yield_sites = sessionAfterYieldSitesForPlanWithMetadata(compiled_plan, nested_with_targets, body_site_metadata);
 
     return struct {
         const Self = @This();
@@ -3449,6 +3498,7 @@ pub fn ExecutableSessionForPlan(
                 kind: RequestKind = .operation,
                 operation_site_index: usize,
                 operation_site_fingerprint: u64,
+                semantic_label: ?[]const u8 = null,
                 function_index: usize,
                 block_index: usize,
                 instruction_index: usize,
@@ -3479,6 +3529,7 @@ pub fn ExecutableSessionForPlan(
                 kind: RequestKind = .after,
                 after_site_index: usize,
                 after_site_fingerprint: u64,
+                semantic_label: ?[]const u8 = null,
                 source_operation_site_index: usize,
                 source_operation_site_fingerprint: u64,
                 function_index: usize,
@@ -3527,6 +3578,7 @@ pub fn ExecutableSessionForPlan(
             token: u64,
             operation_site_index: usize,
             operation_site_fingerprint: u64,
+            semantic_label: ?[]const u8 = null,
             function_index: usize,
             block_index: usize,
             instruction_index: usize,
@@ -3617,6 +3669,7 @@ pub fn ExecutableSessionForPlan(
                     .turn_index = self._turn_index,
                     .operation_site_index = self.operation_site_index,
                     .operation_site_fingerprint = self.operation_site_fingerprint,
+                    .semantic_label = self.semantic_label,
                     .function_index = self.function_index,
                     .block_index = self.block_index,
                     .instruction_index = self.instruction_index,
@@ -3699,6 +3752,7 @@ pub fn ExecutableSessionForPlan(
             token: u64,
             after_site_index: usize,
             after_site_fingerprint: u64,
+            semantic_label: ?[]const u8 = null,
             source_operation_site_index: usize,
             source_operation_site_fingerprint: u64,
             function_index: usize,
@@ -3792,6 +3846,7 @@ pub fn ExecutableSessionForPlan(
                     .turn_index = self._turn_index,
                     .after_site_index = self.after_site_index,
                     .after_site_fingerprint = self.after_site_fingerprint,
+                    .semantic_label = self.semantic_label,
                     .source_operation_site_index = self.source_operation_site_index,
                     .source_operation_site_fingerprint = self.source_operation_site_fingerprint,
                     .function_index = self.function_index,
@@ -4824,6 +4879,7 @@ pub fn ExecutableSessionForPlan(
                         .token = token,
                         .operation_site_index = operation_site.index,
                         .operation_site_fingerprint = operation_site.fingerprint,
+                        .semantic_label = operation_site.semantic_label,
                         .function_index = function_index,
                         .block_index = block_index,
                         .instruction_index = instruction_index,
@@ -4911,6 +4967,7 @@ pub fn ExecutableSessionForPlan(
                         .token = token,
                         .after_site_index = after_site.index,
                         .after_site_fingerprint = after_site.fingerprint,
+                        .semantic_label = after_site.semantic_label,
                         .source_operation_site_index = after_site.source_operation_site_index,
                         .source_operation_site_fingerprint = after_site.source_operation_site_fingerprint,
                         .function_index = function_index,

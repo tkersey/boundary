@@ -153,7 +153,9 @@ session yield points. Operation sites include stable site indexes and
 fingerprints, function/block/instruction coordinates, requirement/op metadata,
 payload/resume/result refs, mode, and host resume/return-now capabilities.
 After sites are tied to the source operation call site, not merely to the op
-row. It is metadata for tests and callers that need to inspect what a program
+row. Optional semantic site labels authored through the semantic builder are
+projected to these sites for display/debugging without changing fingerprints.
+It is metadata for tests and callers that need to inspect what a program
 declares; it does not expose mutable ProgramPlan tables, Artifact or VM
 surfaces, or legacy capability maps.
 
@@ -164,15 +166,16 @@ runtime. `Program.protocol.operationSite(requirement_label, op_name,
 occurrence_index)` and `siteByIndex(index)` return static operation site
 descriptors with `Payload`, `Resume`, and `Result` Zig type aliases plus the
 site index, fingerprint, source coordinates, requirement/op identity, mode,
-refs, after flag, and resume/return-now capabilities. `afterSite(...)` and
-`afterSiteByIndex(index)` return after descriptors with `Output` and `Result`
-aliases plus the source operation site identity and refs. Handler-owned after
-descriptors also expose `Input` and a static `input_ref`; handlerless after
-descriptors set `has_static_input_ref = false` because their current value ref is
-defined by the concrete after stack. A host can check a dynamic request with
-`request.as(Site)` or `after.as(AfterSite)`, decode through the descriptor-owned
-payload or static/dynamic current-value type, compute site-aware response traces,
-and use `session.resumeTyped`, `session.returnNowTyped`, or
+refs, after flag, resume/return-now capabilities, and optional site labels.
+`afterSite(...)` and `afterSiteByIndex(index)` return after descriptors with
+`Output` and `Result` aliases plus the source operation site identity and refs.
+Handler-owned after descriptors also expose `Input` and a static `input_ref`;
+handlerless after descriptors set `has_static_input_ref = false` because their
+current value ref is defined by the concrete after stack. A host can check a
+dynamic request with `request.as(Site)` or `after.as(AfterSite)`, decode through
+the descriptor-owned payload or static/dynamic current-value type, compute
+site-aware response traces, and use `session.resumeTyped`,
+`session.returnNowTyped`, or
 `session.resumeAfterTyped`. After response traces and typed after resume validate
 the live request's expected output ref, which can differ from the descriptor
 output ref for stack-dependent final continuations.
@@ -180,12 +183,15 @@ Coverage helpers such as `assertOperationSitesCovered`, `assertAfterSitesCovered
 and `assertAllSitesCovered` fail at comptime for omitted reachable sites,
 duplicate descriptors, or descriptors from another program.
 
-See [docs/program_plan.md](docs/program_plan.md) for typed product/sum bodies,
-tuple entry args, outputs, cleanup hooks, nested-with targets, and
-`Program.contract`. `ability.ir.builder.typed` provides a small higher-level
-builder prototype that still emits `ProgramPlan`. `ability.effect.optional.plan`
-provides reusable optional-specific rows and instructions for plan-native
-optional authoring while compatibility APIs remain in place.
+See [docs/program_plan.md](docs/program_plan.md) for semantic program
+authoring, typed product/sum bodies, tuple entry args, outputs, cleanup hooks,
+nested-with targets, and `Program.contract`.
+`ability.ir.builder.semantic` is the preferred construction layer for ordinary
+custom protocol programs: it accepts typed params/locals/results, named blocks,
+protocol op descriptors, and optional site labels, then emits an ordinary
+`ProgramPlan`. `ability.effect.optional.plan` provides reusable
+optional-specific rows and instructions for plan-native optional authoring while
+compatibility APIs remain in place.
 `examples/typed_program_plan.zig` runs product execution, sum matching,
 tagged-union payload extraction, output cleanup, and contract inspection through
 the public API.
@@ -194,10 +200,12 @@ same public entry point for optional, state/reader, writer, exception-style
 abort, and resource-style lifecycle workflows while compatibility effect APIs
 remain in place.
 See [docs/custom_effect_authoring.md](docs/custom_effect_authoring.md) for the
-minimal schema-first custom protocol authoring API. Custom workflows still
-lower to `ProgramPlan` and execute through `ability.program`; old
-`effect.Define`, `effect.ops`, and generated direct-style custom effects remain
-outside the public surface.
+preferred custom effect path: define `schema.Protocol`, derive schemas with
+`schema.Registry`, author control flow with `builder.semantic`, execute through
+`ability.program`, bind requests with `Program.protocol`, and audit/replay with
+traces and fingerprints. Raw `ProgramPlan` tables remain available for advanced
+kernel work; old `effect.Define`, `effect.ops`, and generated direct-style
+custom effects remain outside the public surface.
 See [docs/release_hardening.md](docs/release_hardening.md) for package/lint
 coverage, file classification, and the built-in effects roadmap.
 
@@ -271,13 +279,14 @@ Effect families remain under `ability.effect`. Built-in and custom bound
 programs that expose `has_compiled_plan` execute through the same ProgramPlan
 interpreter used by `ability.program`.
 
-The shipped examples build reusable programs directly from public ProgramPlan
-IR:
+The shipped examples build reusable programs from semantic ProgramPlan
+authoring and public plan-native helpers:
 
 - `examples/state_basic.zig` demonstrates two named operations over handler-owned
   state.
 - `examples/typed_program_plan.zig` demonstrates typed product/sum execution,
-  outputs, cleanup, and `Program.contract`.
+  outputs, cleanup, and `Program.contract` using semantic authoring for ordinary
+  control flow.
 - `examples/plan_native_optional.zig` demonstrates optional-like control flow as
   a plan-native choice op with a typed sum resume value, using
   `ability.effect.optional.plan`.
@@ -287,12 +296,13 @@ IR:
   typed outputs and explicit output cleanup.
 - `examples/agent_loop.zig` demonstrates a host-driven `Program.Session` loop
   where yielded decide/tool operations are data, the session parks between
-  turns, site-aware request metadata plus request/response fingerprints are
-  printed, and a second run verifies the recorded request fingerprints before
-  replaying the same typed responses.
+  turns, semantic site labels plus request/response fingerprints are printed,
+  and a second run verifies the recorded request fingerprints before replaying
+  the same typed responses.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
-  abort operations declared through a schema-first custom protocol family, with
-  both synchronous and host-driven session execution.
+  abort operations declared through a schema-first custom protocol family,
+  schema registry, semantic builder, and both synchronous and host-driven
+  session execution.
 
 ## Build
 
