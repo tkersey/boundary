@@ -243,6 +243,49 @@ fn ProgramValueTypeForRef(
     };
 }
 
+fn maxProgramValueStorageSize(comptime schema_types: anytype) comptime_int {
+    var max_size: comptime_int = 1;
+    inline for (.{ void, bool, i32, usize, []const u8, []const []const u8 }) |T| {
+        max_size = @max(max_size, @sizeOf(T));
+    }
+    inline for (schema_types) |T| {
+        max_size = @max(max_size, @sizeOf(T));
+    }
+    return max_size;
+}
+
+fn maxProgramValueStorageAlign(comptime schema_types: anytype) comptime_int {
+    var max_align: comptime_int = 1;
+    inline for (.{ void, bool, i32, usize, []const u8, []const []const u8 }) |T| {
+        max_align = @max(max_align, @alignOf(T));
+    }
+    inline for (schema_types) |T| {
+        max_align = @max(max_align, @alignOf(T));
+    }
+    return max_align;
+}
+
+fn ProgramValueRefForType(comptime schema_types: anytype, comptime ValueType: type) lowering_api.ValueRef {
+    if (ValueType == void) return .{ .codec = .unit };
+    if (ValueType == bool) return .{ .codec = .bool };
+    if (ValueType == i32) return .{ .codec = .i32 };
+    if (ValueType == usize) return .{ .codec = .usize };
+    if (ValueType == []const u8) return .{ .codec = .string };
+    if (ValueType == []const []const u8 or ValueType == [][]const u8) return .{ .codec = .string_list };
+
+    inline for (schema_types, 0..) |SchemaType, schema_index| {
+        if (ValueType == SchemaType) {
+            return switch (@typeInfo(ValueType)) {
+                .@"struct" => .{ .codec = .product, .schema_index = @intCast(schema_index) },
+                .@"enum", .@"union", .optional => .{ .codec = .sum, .schema_index = @intCast(schema_index) },
+                else => @compileError("Program.Handler value schema type must be product or sum: " ++ @typeName(ValueType)),
+            };
+        }
+    }
+
+    @compileError("Program.Handler value type is not representable by this Program: " ++ @typeName(ValueType));
+}
+
 fn ProgramErrorSet(comptime Body: type) type {
     if (comptime hasDeclSafe(Body, "Error")) return lowered_machine.ResetError(Body.Error);
     return lowered_machine.ResetError(error{});
@@ -1150,6 +1193,8 @@ pub fn program(
     const body_site_metadata = BodySiteMetadata(Body).values;
     const body_compiled_plan_hash = body_compiled_plan.hash();
     const InterpreterAuthenticityToken = opaque {};
+    const handler_value_storage_size = maxProgramValueStorageSize(body_value_schema_types);
+    const handler_value_storage_align = maxProgramValueStorageAlign(body_value_schema_types);
     const Value = ProgramValueTypeForRef(body_compiled_plan, body_value_schema_types, lowering_api.executableResultRefForPlan(body_compiled_plan));
     const Outputs = ProgramOutputsType(Body);
 
@@ -1592,6 +1637,29 @@ pub fn program(
         // zlinter-disable declaration_naming - Program.Handler is the documented public algebraic-effect namespace.
         /// Typed algebraic-effect handler declarations and outcomes for this Program.
         pub const Handler = struct {
+            /// Program-representable handler value checked against the live request ref when applied.
+            pub const DynamicValue = struct {
+                ref: lowering_api.ValueRef,
+                storage: [handler_value_storage_size]u8 align(handler_value_storage_align) = undefined,
+
+                fn init(value: anytype) @This() {
+                    const ValueType = @TypeOf(value);
+                    var result: @This() = .{ .ref = ProgramValueRefForType(body_value_schema_types, ValueType) };
+                    if (ValueType != void) {
+                        const destination: *ValueType = @ptrCast(@alignCast(&result.storage));
+                        destination.* = value;
+                    }
+                    return result;
+                }
+
+                fn as(self: *const @This(), comptime ValueType: type) Error!ValueType {
+                    if (!self.ref.eql(ProgramValueRefForType(body_value_schema_types, ValueType))) return error.ProgramContractViolation;
+                    if (ValueType == void) return {};
+                    const source: *const ValueType = @ptrCast(@alignCast(&self.storage));
+                    return source.*;
+                }
+            };
+
             /// Interpreter stop reason for capsule-bearing results.
             pub const StopReason = enum {
                 explicit_suspend,
@@ -1659,7 +1727,7 @@ pub fn program(
                     return union(enum) {
                         fail: anyerror,
                         forward,
-                        resume_after: Site.Output,
+                        resume_after: DynamicValue,
                         @"suspend",
                     };
                 }
@@ -1711,10 +1779,10 @@ pub fn program(
                 return .{ .return_now = value };
             }
 
-            /// Resume an after-continuation with a typed output value.
-            pub fn resumeAfter(comptime Site: type, value: Site.Output) Outcome(Site) {
+            /// Resume an after-continuation with a value checked against the live output ref.
+            pub fn resumeAfter(comptime Site: type, value: anytype) Outcome(Site) {
                 comptime validateAfterSite(Site);
-                return .{ .resume_after = value };
+                return .{ .resume_after = DynamicValue.init(value) };
             }
 
             /// Suspend at the current continuation boundary and return an owned capsule.
@@ -1959,6 +2027,42 @@ pub fn program(
                     };
                 }
 
+                fn afterResponseTraceForValue(typed: anytype, value: Handler.DynamicValue) Error!Session.Trace.Response {
+                    return switch (value.ref.codec) {
+                        .unit => try typed.responseTrace(try value.as(void)),
+                        .bool => try typed.responseTrace(try value.as(bool)),
+                        .i32 => try typed.responseTrace(try value.as(i32)),
+                        .usize => try typed.responseTrace(try value.as(usize)),
+                        .string => try typed.responseTrace(try value.as([]const u8)),
+                        .string_list => try typed.responseTrace(try value.as([]const []const u8)),
+                        .product, .sum => schema_trace: {
+                            const schema_index = value.ref.schema_index orelse return error.ProgramContractViolation;
+                            inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                                if (schema_index == index) break :schema_trace try typed.responseTrace(try value.as(SchemaType));
+                            }
+                            return error.ProgramContractViolation;
+                        },
+                    };
+                }
+
+                fn resumeAfterWithValue(session: *Session, typed: anytype, value: Handler.DynamicValue) Error!void {
+                    return switch (value.ref.codec) {
+                        .unit => try session.resumeAfterTyped(typed, try value.as(void)),
+                        .bool => try session.resumeAfterTyped(typed, try value.as(bool)),
+                        .i32 => try session.resumeAfterTyped(typed, try value.as(i32)),
+                        .usize => try session.resumeAfterTyped(typed, try value.as(usize)),
+                        .string => try session.resumeAfterTyped(typed, try value.as([]const u8)),
+                        .string_list => try session.resumeAfterTyped(typed, try value.as([]const []const u8)),
+                        .product, .sum => {
+                            const schema_index = value.ref.schema_index orelse return error.ProgramContractViolation;
+                            inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                                if (schema_index == index) return try session.resumeAfterTyped(typed, try value.as(SchemaType));
+                            }
+                            return error.ProgramContractViolation;
+                        },
+                    };
+                }
+
                 fn applyAfterOutcome(
                     comptime Site: type,
                     session: *Session,
@@ -1969,9 +2073,9 @@ pub fn program(
                 ) Error!?ExecutionResult {
                     return switch (outcome) {
                         .resume_after => |value| resume_after: {
-                            const response_trace = typed.responseTrace(value) catch |err| return mapProgramRunError(Error, err);
+                            const response_trace = afterResponseTraceForValue(typed, value) catch |err| return mapProgramRunError(Error, err);
                             try recordTrace(options, (try traceFor(current)).after, response_trace);
-                            try session.resumeAfterTyped(typed, value);
+                            try resumeAfterWithValue(session, typed, value);
                             break :resume_after null;
                         },
                         .@"suspend" => try buildSuspended(session, current, .explicit_suspend),

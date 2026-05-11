@@ -5088,6 +5088,58 @@ test "Program.protocol matches final after sites with dynamic output refs" {
     try std.testing.expectEqualStrings("ok", result.value);
 }
 
+test "Program.Interpreter resumes after sites with dynamic output refs" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const FinalAfterHandlers = struct {
+        step: struct {
+            pub fn afterDispatch(_: *const @This(), value: i32) !bool {
+                return value == 1;
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = finalAfterOutputMismatchPlan("interpreter-final-after-dynamic-output");
+    };
+    const Program = ability.program("interpreter-final-after-dynamic-output", FinalAfterHandlers, Body);
+    const Operation = Program.protocol.operationSite("step", "step", 0);
+    const After = Program.protocol.afterSite("step", "step", 0);
+    try std.testing.expect(After.Output == bool);
+    try std.testing.expect(After.Result == []const u8);
+
+    const DynamicAfterHandler = struct {
+        fn handle(ctx: anytype, request: anytype, control: Program.Handler.Control) !Program.Handler.Outcome(After) {
+            ctx.after_count += 1;
+            try std.testing.expectEqual(@as(i32, 1), try request.value());
+            try std.testing.expectEqual(ability.ir.ValueCodec.string, request.request.output_ref.codec);
+            try std.testing.expectEqual(Program.Session.ParkedKind.after, try control.parkedKind());
+            return Program.Handler.resumeAfter(After, @as([]const u8, "ok"));
+        }
+    };
+    const Interpreter = Program.Interpreter(.{
+        Program.Handler.operation(Operation, ResumeI32OperationHandler(Program, Operation, 1).handle),
+        Program.Handler.after(After, DynamicAfterHandler.handle),
+    });
+    Interpreter.assertCoversAll();
+
+    const Host = struct {
+        operation_count: usize = 0,
+        after_count: usize = 0,
+    };
+    var host = Host{};
+    var result = try Interpreter.run(&runtime, .{ .step = .{} }, &host, .{});
+    switch (result) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqualStrings("ok", done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+    try std.testing.expectEqual(@as(usize, 1), host.operation_count);
+    try std.testing.expectEqual(@as(usize, 1), host.after_count);
+}
+
 test "Program.protocol coverage helpers accept complete site sets" {
     const Body = struct {
         pub const compiled_plan = repeatedCallSiteSameOpPlan("protocol-coverage-complete", true);
