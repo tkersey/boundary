@@ -216,6 +216,11 @@ semantic builder, runs through `Program.run`, and also demonstrates a
 host-driven `Program.Session` path using `Program.protocol` descriptors and
 deterministic trace replay.
 
+`examples/continuation_branching.zig` shows the same schema-first and semantic
+authoring stack for protocol-hosted control at a parked choice boundary: the
+host captures a reusable continuation capsule, restores it into independent
+branches, resumes approval in one branch, and returns denial from another.
+
 ## Preferred Path
 
 1. Define the protocol with `ability.ir.schema.Protocol`.

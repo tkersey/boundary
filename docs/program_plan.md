@@ -395,14 +395,40 @@ registry that `Program.run` already uses for executable plans. The final value,
 outputs, and cleanup hooks follow the same `Program.Result` rules as
 synchronous execution.
 
+## Continuation capsules
+
+`Session.current()` inspects the parked operation or after request without
+advancing the interpreter. `Session.capture(allocator)` copies that parked
+continuation into a reusable `Session.Capsule`; `Session.restore(runtime,
+handlers, &capsule)` creates a fresh live parked session for the same `Program`
+and plan with fresh in-process request tokens. Capsule metadata records the
+parked kind, site indexes, result ref, frame/after-stack shape, and deterministic
+continuation fingerprint, while trace request fingerprints remain stable for the
+same captured continuation. Hosts must `deinit` capsules. Capsules are owner
+values: pass them by pointer, do not copy the struct itself, and restore them
+only before `deinit`.
+
+Capsules own copied scalar and schema-guided typed values, including strings,
+string lists, products, and sums, so restored branches do not borrow the original
+session's value storage. Reusable capsules can fork computation at an effect
+boundary: each restore gets fresh request tokens, while capsule/request
+fingerprints remain audit and replay witnesses. Request and after request payload
+views remain ordinary session request views; inspect them while the parked
+session that produced them is still live.
+
+Capsules are first-class in-process continuation snapshots, not `ProgramPlan`
+artifacts, VM bytecode, source-language values, or a stable cross-version byte
+serialization format. Hosts own persistence if they choose to serialize capsule
+metadata or their own capsule-adjacent records.
+
 The session surface does not add an async runtime, parser, compiler, VM,
 Artifact API, source-language API, network client, LLM client, public generated
-custom effect API, or public root export. Full snapshot/restore for durable
-session persistence is intentionally left for a later branch. Trace metadata is
-not a snapshot/restore mechanism and is not a serialization format; hosts own
-persistence and external orchestration. `ProgramValue` remains scalar, and no
-new value codecs are added. Request tokens remain in-process misuse guards, not
-durable ids; site, request, response, and value fingerprints are audit and
+custom effect API, or public root export. Capsules are an in-process branching
+surface, not a durable wire format; hosts still own persistence and external
+orchestration. Trace metadata is not a snapshot/restore mechanism and is not a
+serialization format. `ProgramValue` remains scalar, and no new value codecs are
+added. Request tokens remain in-process misuse guards, not durable ids; site,
+request, response, value, and continuation fingerprints are audit and
 replay-verification metadata.
 
 ## Effect schema row lowering

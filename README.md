@@ -260,9 +260,33 @@ trace or typed resume helper is used.
 
 Trace fingerprints are audit/replay witnesses, not request tokens. Request
 tokens remain in-process misuse guards for the active session and should not be
-serialized as durable ids. Trace metadata is also not a session snapshot, a
-restore format, or a prescribed serialization format. Hosts own persistence,
-external orchestration, and any replay transcript encoding.
+serialized as durable ids. Trace metadata is also not a session snapshot or a
+prescribed serialization format. Hosts own persistence, external orchestration,
+and any replay transcript encoding.
+
+### Continuation capsules
+
+For in-process branching, `Session.current()` returns the parked operation or
+after-continuation request without advancing the interpreter. `Session.capture`
+copies the parked continuation into a reusable `Session.Capsule`; restoring it
+creates a fresh live parked session for the same `Program` and plan, with new
+request tokens while preserving the same trace-visible request identity and
+copied typed values. Hosts must `deinit` capsules; string, string-list, product,
+and sum values are copied into capsule-owned storage. Capsules are owner values:
+pass them by pointer, do not copy the struct itself, and restore them only before
+`deinit`.
+
+Capsule metadata includes the parked kind, static site indexes, result ref,
+frame/after-stack shape, and a deterministic continuation fingerprint. Capsule
+fingerprints and request fingerprints are audit/replay metadata. Request tokens
+remain in-process misuse guards, not durable ids. Request and after request
+payload views are ordinary session request views; inspect them while the parked
+session that produced them is still live.
+
+Capsules are owned Zig values for the same process; they are not `ProgramPlan`
+artifacts, VM bytecode, source-language values, or a stable cross-version
+serialization format. Hosts own any persistence if they serialize capsule
+metadata themselves.
 
 This is the foundation for agentic loops. The library does not bundle an async
 runtime, parser, compiler, VM, Artifact API, source language, network client, or
@@ -270,8 +294,8 @@ LLM integration, and it does not widen the public root. `ProgramValue` remains
 the scalar public carrier; typed product and sum payloads and resumes use the
 existing `Body.value_schema_types` schema registry, including after-continuation
 values. Result, output, and cleanup rules are the same `Program.Result` rules
-used by `Program.run`. Durable session serialization and snapshot/restore are
-future directions, not part of this surface.
+used by `Program.run`. Durable session serialization remains a future direction;
+in-process capsules are the public branching surface.
 
 ## Effects
 
@@ -299,6 +323,9 @@ authoring and public plan-native helpers:
   turns, semantic site labels plus request/response fingerprints are printed,
   and a second run verifies the recorded request fingerprints before replaying
   the same typed responses.
+- `examples/continuation_branching.zig` demonstrates `Session.current`,
+  reusable continuation capsules, fresh restored request tokens, copied payload
+  ownership, and multiple typed outcomes from one parked operation request.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
   abort operations declared through a schema-first custom protocol family,
   schema registry, semantic builder, and both synchronous and host-driven
@@ -323,5 +350,6 @@ zig build run-plan-native-optional
 zig build run-plan-native-state-reader
 zig build run-plan-native-writer
 zig build run-agent-loop
+zig build run-continuation-branching
 zig build run-custom-approval-workflow
 ```
