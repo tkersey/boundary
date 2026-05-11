@@ -4446,6 +4446,535 @@ test "Program.Interpreter handles transform requests and records response traces
     try std.testing.expectEqual(manual_response.fingerprint, recorder.response_fingerprint);
 }
 
+test "Program.Morphism and ProtocolRequest preserve source capsule metadata" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "morphism-protocol-request");
+    };
+    const Program = ability.program("morphism-protocol-request", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, bool),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const Mapper = struct {
+        pub fn @"resume"(decision: bool) Program.Handler.SourceOutcome(Source) {
+            return Program.Handler.@"resume"(Source, if (decision) 1 else 0);
+        }
+    };
+    const AlternateMapper = struct {
+        pub fn @"resume"(decision: bool) Program.Handler.SourceOutcome(Source) {
+            return Program.Handler.@"resume"(Source, if (decision) 2 else 0);
+        }
+    };
+    const ApprovalViaPolicy = Program.Morphism(.{
+        .source = Source,
+        .target = Check,
+        .Mapper = Mapper,
+    });
+    const AlternateApprovalViaPolicy = Program.Morphism(.{
+        .source = Source,
+        .target = Check,
+        .Mapper = AlternateMapper,
+    });
+    try std.testing.expect(ApprovalViaPolicy.source == Source);
+    try std.testing.expect(ApprovalViaPolicy.target == Check);
+    try std.testing.expectEqual(Source.fingerprint, ApprovalViaPolicy.source.fingerprint);
+    try std.testing.expectEqual(Check.fingerprint, ApprovalViaPolicy.target.fingerprint);
+    try std.testing.expect(ApprovalViaPolicy.fingerprint != 0);
+    try std.testing.expect(ApprovalViaPolicy.fingerprint != AlternateApprovalViaPolicy.fingerprint);
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    const request_payload = try request.payload([]const u8);
+    var owned_payload = try std.testing.allocator.dupe(u8, request_payload);
+    defer std.testing.allocator.free(owned_payload);
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    const capsule_fingerprint = capsule.fingerprint();
+
+    var protocol_request = try Program.ProtocolRequest(Source, Check).init(
+        std.testing.allocator,
+        request.fingerprint(),
+        &capsule,
+        owned_payload,
+        "policy.check",
+    );
+    defer protocol_request.deinit();
+    owned_payload[0] = 'x';
+
+    try std.testing.expectEqualStrings("morphism-protocol-request", protocol_request.source_program_label);
+    try std.testing.expectEqualStrings("morphism-protocol-request", protocol_request.source_plan_label);
+    try std.testing.expectEqual(Source.index, protocol_request.source_site_index);
+    try std.testing.expectEqual(Source.fingerprint, protocol_request.source_site_fingerprint);
+    try std.testing.expectEqual(request.fingerprint(), protocol_request.source_request_fingerprint);
+    try std.testing.expectEqual(capsule_fingerprint, protocol_request.source_capsule_fingerprint);
+    try std.testing.expectEqualStrings("policy", protocol_request.target_protocol_label);
+    try std.testing.expectEqualStrings("check", protocol_request.target_op_name);
+    try std.testing.expectEqual(Check.op_mode, protocol_request.target_op_mode);
+    try std.testing.expectEqual(Check.payload_ref, protocol_request.target_payload_ref);
+    try std.testing.expectEqual(Check.resume_ref, protocol_request.target_resume_ref);
+    try std.testing.expectEqual(Check.result_ref, protocol_request.target_result_ref);
+    try std.testing.expectEqualStrings("payload", protocol_request.payload());
+    try std.testing.expect(protocol_request.target_payload_fingerprint != 0);
+    try std.testing.expect(protocol_request.fingerprint() != 0);
+    try std.testing.expect(protocol_request.matches(Check));
+
+    const reinterpret = Program.Handler.reinterpret(ApprovalViaPolicy, "payload");
+    switch (reinterpret) {
+        .reinterpret => |entry| {
+            try std.testing.expectEqualStrings("policy", entry.target_protocol_label);
+            try std.testing.expectEqualStrings("check", entry.target_op_name);
+            try std.testing.expectEqual(Check.fingerprint, entry.target_protocol_op_fingerprint);
+            try std.testing.expectEqualStrings("payload", try entry.payload([]const u8));
+            try std.testing.expect(entry.target_payload_fingerprint != 0);
+            try std.testing.expectEqual(ApprovalViaPolicy.fingerprint, entry.morphism_fingerprint);
+            const mapped = try entry.mapResume(true);
+            switch (mapped) {
+                .@"resume" => |value| try std.testing.expectEqual(@as(i32, 1), value),
+                else => return error.ExpectedResume,
+            }
+        },
+        else => return error.ExpectedReinterpret,
+    }
+}
+
+test "Program.ProtocolRequest frees earlier structured payload fields after clone failure" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "morphism-protocol-request-oom");
+    };
+    const Program = ability.program("morphism-protocol-request-oom", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Payload = struct {
+        first: []const u8,
+        second: []const u8,
+    };
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", Payload, bool),
+        },
+    });
+    const Schemas = ability.ir.schema.Registry(.{Payload});
+    const Check = Policy.operation("check", .{ .schema_refs = Schemas.schema_refs });
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
+    try std.testing.expectError(error.OutOfMemory, Program.ProtocolRequest(Source, Check).init(
+        failing.allocator(),
+        request.fingerprint(),
+        &capsule,
+        .{
+            .first = "first-owned-field",
+            .second = "second-owned-field",
+        },
+        "policy.check",
+    ));
+    try std.testing.expect(failing.has_induced_failure);
+}
+
+test "Program.ProtocolRequest validates source capsule metadata" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = duplicateOperationNamesPlan("morphism-protocol-request-metadata");
+    };
+    const Program = ability.program("morphism-protocol-request-metadata", struct {}, Body);
+    const Left = Program.protocol.operationSite("left", "get", 0);
+    const Right = Program.protocol.operationSite("right", "get", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", void, bool),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const left_request = switch (try session.next()) {
+        .request => |value| value,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var left_capsule = try session.capture(std.testing.allocator);
+    defer left_capsule.deinit();
+
+    try std.testing.expectError(error.ProgramContractViolation, Program.ProtocolRequest(Right, Check).init(
+        std.testing.allocator,
+        left_request.fingerprint(),
+        &left_capsule,
+        {},
+        "policy.check",
+    ));
+    try std.testing.expectError(error.ProgramContractViolation, Program.ProtocolRequest(Left, Check).init(
+        std.testing.allocator,
+        left_request.fingerprint() +% 1,
+        &left_capsule,
+        {},
+        "policy.check",
+    ));
+
+    var mismatched_program_capsule = try left_capsule.clone(std.testing.allocator);
+    defer mismatched_program_capsule.deinit();
+    mismatched_program_capsule._core.metadata_value.program_label = "foreign-program";
+    try std.testing.expectError(error.ProgramContractViolation, Program.ProtocolRequest(Left, Check).init(
+        std.testing.allocator,
+        left_request.fingerprint(),
+        &mismatched_program_capsule,
+        {},
+        "policy.check",
+    ));
+
+    try session.@"resume"(left_request, @as(i32, 11));
+    const right_request = switch (try session.next()) {
+        .request => |value| value,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var right_capsule = try session.capture(std.testing.allocator);
+    defer right_capsule.deinit();
+    var valid = try Program.ProtocolRequest(Right, Check).init(
+        std.testing.allocator,
+        right_request.fingerprint(),
+        &right_capsule,
+        {},
+        "policy.check",
+    );
+    defer valid.deinit();
+    try std.testing.expectEqual(Right.index, valid.source_site_index);
+    try std.testing.expectEqual(right_request.fingerprint(), valid.source_request_fingerprint);
+}
+
+test "Program.Interpreter returns and handles reinterpreted protocol requests" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "interpreter-reinterpret");
+    };
+    const Program = ability.program("interpreter-reinterpret", struct {}, Body);
+    try std.testing.expectEqual(@as(u32, 2), Program.Session.Trace.fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 1), Program.reinterpret_fingerprint_version);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, bool),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const Mapper = struct {
+        pub fn @"resume"(decision: bool) Program.Handler.SourceOutcome(Source) {
+            return Program.Handler.@"resume"(Source, if (decision) 42 else 0);
+        }
+    };
+    const PolicyHandler = struct {
+        pub fn handle(_: anytype, request: anytype) !Program.Handler.TargetResponse(Check) {
+            const payload = try request.payload();
+            return .{ .@"resume" = std.mem.eql(u8, payload, "payload") };
+        }
+    };
+    const ForwardingPolicyHandler = struct {
+        pub fn handle(_: anytype, request: anytype) !Program.Handler.TargetResponse(Check) {
+            _ = try request.payload();
+            return .forward;
+        }
+    };
+    const ApprovalViaPolicy = Program.Morphism(.{
+        .source = Source,
+        .target = Check,
+        .Mapper = Mapper,
+    });
+    const ApprovalHandler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Program.Handler.Control) !Program.Handler.MorphismOutcome(ApprovalViaPolicy) {
+            return Program.Handler.reinterpret(ApprovalViaPolicy, try request.payload());
+        }
+    };
+    const DirectApprovalHandler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Program.Handler.Control) !Program.Handler.MorphismOutcome(ApprovalViaPolicy) {
+            _ = try request.payload();
+            return Program.Handler.@"resume"(ApprovalViaPolicy, 5);
+        }
+    };
+    _ = @as(Program.Handler.MorphismOutcome(ApprovalViaPolicy), Program.Handler.forward(ApprovalViaPolicy));
+    _ = @as(Program.Handler.MorphismOutcome(ApprovalViaPolicy), Program.Handler.@"suspend"(ApprovalViaPolicy));
+    _ = @as(Program.Handler.MorphismOutcome(ApprovalViaPolicy), Program.Handler.fail(ApprovalViaPolicy, error.ExpectedFailure));
+    const SourceOnly = Program.Interpreter(.{
+        Program.Handler.morphism(ApprovalViaPolicy, ApprovalHandler.handle),
+    });
+    const Direct = Program.Interpreter(.{
+        Program.Handler.morphism(ApprovalViaPolicy, DirectApprovalHandler.handle),
+    });
+    const Composed = Program.Interpreter(.{
+        Program.Handler.morphism(ApprovalViaPolicy, ApprovalHandler.handle),
+        Program.Handler.protocolOperation(Check, PolicyHandler.handle),
+    });
+    const ForwardingTarget = Program.Interpreter(.{
+        Program.Handler.morphism(ApprovalViaPolicy, ApprovalHandler.handle),
+        Program.Handler.protocolOperation(Check, ForwardingPolicyHandler.handle),
+    });
+    SourceOnly.assertCoversAll();
+    Composed.assertCoversAll();
+    SourceOnly.assertReinterprets(Source, Check);
+    Composed.assertReinterprets(Source, Check);
+    Composed.assertHandlesProtocolOps(.{Check});
+    Composed.assertEliminates(Program);
+    const SourceOnlyRow = SourceOnly.effectRow(Program);
+    try std.testing.expectEqual(@as(usize, 1), SourceOnlyRow.handled_operation_sites);
+    try std.testing.expectEqual(@as(usize, 1), SourceOnlyRow.reinterpreted_source_sites);
+    try std.testing.expectEqual(@as(usize, 1), SourceOnlyRow.emitted_protocol_operations);
+    try std.testing.expectEqual(@as(usize, 0), SourceOnlyRow.handled_protocol_operations);
+    const ComposedRow = Composed.effectRow(Program);
+    try std.testing.expectEqual(@as(usize, 1), ComposedRow.handled_protocol_operations);
+
+    var host = struct {}{};
+    var direct = try Direct.run(&runtime, .{}, &host, .{});
+    switch (direct) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 5), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+
+    var source_only = try SourceOnly.run(&runtime, .{}, &host, .{});
+    switch (source_only) {
+        .reinterpreted => |*request| {
+            defer request.deinit();
+            try std.testing.expectEqualStrings("policy", request.target_protocol_label);
+            try std.testing.expectEqualStrings("check", request.target_op_name);
+            try std.testing.expectEqual(Check.fingerprint, request.target_protocol_op_fingerprint);
+            try std.testing.expectEqualStrings("payload", try request.payload([]const u8));
+            try std.testing.expect(request.source_request_fingerprint != 0);
+            try std.testing.expect(request.source_capsule_fingerprint != 0);
+            try std.testing.expect(request.target_payload_fingerprint != 0);
+            try std.testing.expect(request.reinterpreted_request_fingerprint != 0);
+            try std.testing.expectEqual(ApprovalViaPolicy.fingerprint, request.morphism_fingerprint);
+            try std.testing.expectEqual(Program.Handler.StopReason.unhandled, request.reason);
+            try std.testing.expect(request.matches(Check));
+        },
+        else => return error.ExpectedReinterpreted,
+    }
+
+    var forwarded_target = try ForwardingTarget.run(&runtime, .{}, &host, .{});
+    switch (forwarded_target) {
+        .reinterpreted => |*request| {
+            defer request.deinit();
+            try std.testing.expectEqualStrings("policy", request.target_protocol_label);
+            try std.testing.expectEqualStrings("check", request.target_op_name);
+            try std.testing.expectEqualStrings("payload", try request.payload([]const u8));
+            try std.testing.expectEqual(Program.Handler.StopReason.forwarded_unhandled, request.reason);
+        },
+        else => return error.ExpectedReinterpreted,
+    }
+
+    var composed = try Composed.run(&runtime, .{}, &host, .{});
+    switch (composed) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 42), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+}
+
+test "Program.Interpreter supports structured target payload and response schemas outside source Program" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "interpreter-structured-target-reinterpret");
+    };
+    const Program = ability.program("interpreter-structured-target-reinterpret", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const PolicyPayload = struct {
+        subject: []const u8,
+    };
+    const PolicyDecision = struct {
+        allow: bool,
+        audit_label: []const u8,
+        audit_actor: []const u8,
+        audit_reason: []const u8,
+    };
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", PolicyPayload, PolicyDecision),
+        },
+    });
+    const Schemas = ability.ir.schema.Registry(.{ PolicyPayload, PolicyDecision });
+    const Check = Policy.operation("check", .{ .schema_refs = Schemas.schema_refs });
+    const Mapper = struct {
+        pub fn @"resume"(decision: PolicyDecision) Program.Handler.SourceOutcome(Source) {
+            return Program.Handler.@"resume"(Source, if (decision.allow and std.mem.eql(u8, decision.audit_label, "policy")) 7 else 0);
+        }
+    };
+    const ApprovalViaStructuredPolicy = Program.Morphism(.{
+        .source = Source,
+        .target = Check,
+        .Mapper = Mapper,
+    });
+    const ApprovalHandler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Program.Handler.Control) !Program.Handler.MorphismOutcome(ApprovalViaStructuredPolicy) {
+            return Program.Handler.reinterpret(ApprovalViaStructuredPolicy, .{ .subject = try request.payload() });
+        }
+    };
+    const PolicyHandler = struct {
+        pub fn handle(_: anytype, request: anytype) !Program.Handler.TargetResponse(Check) {
+            const payload = try request.payload();
+            return .{ .@"resume" = .{
+                .allow = std.mem.eql(u8, payload.subject, "payload"),
+                .audit_label = "policy",
+                .audit_actor = "structured-target-handler",
+                .audit_reason = "external-response-schema",
+            } };
+        }
+    };
+    const SourceOnly = Program.Interpreter(.{
+        Program.Handler.morphism(ApprovalViaStructuredPolicy, ApprovalHandler.handle),
+    });
+    const Composed = Program.Interpreter(.{
+        Program.Handler.morphism(ApprovalViaStructuredPolicy, ApprovalHandler.handle),
+        Program.Handler.protocolOperation(Check, PolicyHandler.handle),
+    });
+
+    var host = struct {}{};
+    var source_only = try SourceOnly.run(&runtime, .{}, &host, .{});
+    switch (source_only) {
+        .reinterpreted => |*request| {
+            defer request.deinit();
+            const payload = try request.payload(PolicyPayload);
+            try std.testing.expectEqualStrings("payload", payload.subject);
+            try std.testing.expectEqual(Check.payload_ref, request.target_payload_ref);
+            try std.testing.expectEqual(Check.resume_ref, (ability.ir.ValueRef{ .codec = .product, .schema_index = 1 }));
+            try std.testing.expect(request.matches(Check));
+        },
+        else => return error.ExpectedReinterpreted,
+    }
+
+    var composed = try Composed.run(&runtime, .{}, &host, .{});
+    switch (composed) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 7), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+}
+
+test "Program.Interpreter preserves mutable string-list target protocol payloads" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "interpreter-string-list-target-reinterpret");
+    };
+    const Program = ability.program("interpreter-string-list-target-reinterpret", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", [][]const u8, bool),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const Mapper = struct {
+        pub fn @"resume"(accepted: bool) Program.Handler.SourceOutcome(Source) {
+            return Program.Handler.@"resume"(Source, if (accepted) 17 else 0);
+        }
+    };
+    const ApprovalViaPolicy = Program.Morphism(.{
+        .source = Source,
+        .target = Check,
+        .Mapper = Mapper,
+    });
+    const Host = struct {
+        items: [2][]const u8 = .{ "left", "right" },
+    };
+    const ApprovalHandler = struct {
+        pub fn handle(host: *Host, request: anytype, _: Program.Handler.Control) !Program.Handler.MorphismOutcome(ApprovalViaPolicy) {
+            _ = try request.payload();
+            const outcome = Program.Handler.reinterpret(ApprovalViaPolicy, host.items[0..]);
+            host.items[0] = "updated";
+            return outcome;
+        }
+    };
+    const PolicyHandler = struct {
+        pub fn handle(_: *Host, request: anytype) !Program.Handler.TargetResponse(Check) {
+            const payload = try request.payload();
+            return .{ .@"resume" = std.mem.eql(u8, payload[0], "updated") and std.mem.eql(u8, payload[1], "right") };
+        }
+    };
+    const SourceOnly = Program.Interpreter(.{
+        Program.Handler.morphism(ApprovalViaPolicy, ApprovalHandler.handle),
+    });
+    const Composed = Program.Interpreter(.{
+        Program.Handler.morphism(ApprovalViaPolicy, ApprovalHandler.handle),
+        Program.Handler.protocolOperation(Check, PolicyHandler.handle),
+    });
+
+    var inspect_host = Host{};
+    var source_only = try SourceOnly.run(&runtime, .{}, &inspect_host, .{});
+    switch (source_only) {
+        .reinterpreted => |*request| {
+            defer request.deinit();
+            const payload = try request.payload([][]const u8);
+            try std.testing.expectEqual(@as(usize, 2), payload.len);
+            try std.testing.expectEqualStrings("updated", payload[0]);
+            try std.testing.expectEqualStrings("right", payload[1]);
+            try std.testing.expect(request.matches(Check));
+            var canonical = try Program.ProtocolRequest(Source, Check).init(
+                std.testing.allocator,
+                request.source_request_fingerprint,
+                &request.capsule,
+                inspect_host.items[0..],
+                request.semantic_label,
+            );
+            defer canonical.deinit();
+            const canonical_payload = canonical.payload();
+            try std.testing.expectEqualStrings("updated", canonical_payload[0]);
+            try std.testing.expectEqualStrings("right", canonical_payload[1]);
+            try std.testing.expectEqual(canonical.target_payload_fingerprint, request.target_payload_fingerprint);
+            try std.testing.expectEqual(canonical.fingerprint(), request.reinterpreted_request_fingerprint);
+        },
+        else => return error.ExpectedReinterpreted,
+    }
+
+    var host = Host{};
+    var composed = try Composed.run(&runtime, .{}, &host, .{});
+    switch (composed) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 17), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+}
+
 test "Program.Interpreter handles choice resume returnNow and abort returnNow" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -5137,6 +5666,56 @@ test "Program.Interpreter resumes after sites with dynamic output refs" {
         else => return error.ExpectedDone,
     }
     try std.testing.expectEqual(@as(usize, 1), host.operation_count);
+    try std.testing.expectEqual(@as(usize, 1), host.after_count);
+}
+
+test "Program.Interpreter preserves mutable string-list after resume carriers" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const FinalAfterHandlers = struct {
+        step: struct {
+            pub fn afterDispatch(_: *const @This(), value: i32) !bool {
+                return value == 1;
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = finalAfterStringListOutputPlan("interpreter-after-mutable-string-list");
+    };
+    const Program = ability.program("interpreter-after-mutable-string-list", FinalAfterHandlers, Body);
+    const Operation = Program.protocol.operationSite("step", "step", 0);
+    const After = Program.protocol.afterSite("step", "step", 0);
+
+    const DynamicAfterHandler = struct {
+        fn handle(ctx: anytype, request: anytype, _: Program.Handler.Control) !Program.Handler.Outcome(After) {
+            _ = try request.value();
+            ctx.after_count += 1;
+            return Program.Handler.resumeAfter(After, @as([][]const u8, ctx.items[0..]));
+        }
+    };
+    const Interpreter = Program.Interpreter(.{
+        Program.Handler.operation(Operation, ResumeI32OperationHandler(Program, Operation, 1).handle),
+        Program.Handler.after(After, DynamicAfterHandler.handle),
+    });
+    Interpreter.assertCoversAll();
+
+    const Host = struct {
+        operation_count: usize = 0,
+        after_count: usize = 0,
+        items: [2][]const u8 = .{ "left", "right" },
+    };
+    var host = Host{};
+    var result = try Interpreter.run(&runtime, .{ .step = .{} }, &host, .{});
+    switch (result) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(usize, 2), done.value.len);
+            try std.testing.expectEqualStrings("left", done.value[0]);
+            try std.testing.expectEqualStrings("right", done.value[1]);
+        },
+        else => return error.ExpectedDone,
+    }
     try std.testing.expectEqual(@as(usize, 1), host.after_count);
 }
 
@@ -7218,6 +7797,61 @@ fn finalAfterOutputMismatchPlan(comptime label: []const u8) ability.ir.ProgramPl
     return ability.ir.builder.finish(.{
         .label = label,
         .ir_hash = 127,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn finalAfterStringListOutputPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const resumed = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .string_list,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "step", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "step",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+        .has_after = true,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 128,
         .entry = root,
         .functions = &functions,
         .requirements = &requirements,

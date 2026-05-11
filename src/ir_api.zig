@@ -1,5 +1,6 @@
 // zlinter-disable declaration_naming - retained compatibility aliases intentionally preserve the prior public IR vocabulary.
 // zlinter-disable field_naming function_naming - public schema helpers intentionally use value-like names and type-valued fields.
+// zlinter-disable max_positional_args - schema/protocol fingerprint helpers mirror the explicit fingerprint field set.
 // zlinter-disable no_undefined - the layout builder fills fixed comptime table buffers before validation observes them.
 // zlinter-disable require_doc_comment - this compatibility module re-exports documented declarations from the underlying namespaces.
 const effect_ir = @import("effect_ir");
@@ -1483,11 +1484,11 @@ pub const schema = struct {
     pub fn Protocol(comptime spec: anytype) type {
         comptime validateProtocolSpec(spec);
         const FamilySchema = comptime protocolFamilySchema(spec);
-        const protocol_label: [:0]const u8 = spec.label;
+        const protocol_family_label: [:0]const u8 = spec.label;
         const protocol_ops = spec.ops;
 
         return struct {
-            pub const label: [:0]const u8 = protocol_label;
+            pub const label: [:0]const u8 = protocol_family_label;
             pub const Family = FamilySchema;
             pub const family = FamilySchema;
             pub const lifecycle_tag = FamilySchema.lifecycle_tag;
@@ -1496,14 +1497,70 @@ pub const schema = struct {
             pub const op_count = protocol_ops.len;
 
             pub fn Binding(comptime HandlerType: type) type {
-                return schema.Binding(protocol_label, FamilySchema, HandlerType);
+                return schema.Binding(protocol_family_label, FamilySchema, HandlerType);
             }
+
+            /// Return a typed protocol-level operation descriptor independent of any Program call site.
+            pub fn operation(comptime name: []const u8, comptime options: anytype) type {
+                const OptionsType = @TypeOf(options);
+                const schema_refs = comptime if (@hasField(OptionsType, "schema_refs")) options.schema_refs else schema.SchemaRefs(.{});
+                const ResultType: type = comptime if (@hasField(OptionsType, "Result")) options.Result else void;
+                inline for (protocol_ops, 0..) |OpSchema, ordinal| {
+                    if (standard.mem.eql(u8, OpSchema.name, name)) {
+                        const op_mode_value = comptime schemaControlMode(OpSchema.control_mode);
+                        if (comptime op_mode_value == .transform and @hasField(OptionsType, "Result")) {
+                            @compileError("schema.Protocol transform operation does not accept Result");
+                        }
+                        const payload_ref_value = comptime protocolRefForType(OpSchema.Payload, "payload", schema_refs);
+                        const resume_ref_value = comptime protocolRefForType(OpSchema.Resume, "resume", schema_refs);
+                        const result_ref_value = comptime protocolRefForType(ResultType, "result", schema_refs);
+                        const descriptor_fingerprint = comptime protocolOperationFingerprint(
+                            protocol_family_label,
+                            OpSchema.name,
+                            @intCast(ordinal),
+                            op_mode_value,
+                            OpSchema.Payload,
+                            payload_ref_value,
+                            OpSchema.Resume,
+                            resume_ref_value,
+                            ResultType,
+                            result_ref_value,
+                        );
+                        const descriptor_protocol_label = protocol_family_label;
+                        return struct {
+                            pub const kind = .protocol_operation;
+                            pub const protocol_label: [:0]const u8 = descriptor_protocol_label;
+                            pub const protocol = descriptor_protocol_label;
+                            pub const op_name: [:0]const u8 = OpSchema.name;
+                            pub const op_ordinal: u16 = @intCast(ordinal);
+                            pub const mode = op_mode_value;
+                            pub const op_mode = op_mode_value;
+                            pub const Payload = OpSchema.Payload;
+                            pub const Resume = OpSchema.Resume;
+                            pub const Result = ResultType;
+                            pub const payload_ref: program_plan.ValueRef = payload_ref_value;
+                            pub const resume_ref: program_plan.ValueRef = resume_ref_value;
+                            pub const result_ref: program_plan.ValueRef = result_ref_value;
+                            pub const may_resume = op_mode_value != .abort;
+                            pub const may_return_now = op_mode_value != .transform;
+                            pub const fingerprint: u64 = descriptor_fingerprint;
+                        };
+                    }
+                }
+                @compileError(standard.fmt.comptimePrint(
+                    "schema.Protocol operation '{s}' is not declared for '{s}'",
+                    .{ name, protocol_family_label },
+                ));
+            }
+
+            /// Short alias for `operation`.
+            pub const op = operation;
 
             pub fn Rows(
                 comptime HandlerType: type,
                 comptime offsets: BindingOffsets,
             ) type {
-                const BindingSchema = schema.Binding(protocol_label, FamilySchema, HandlerType);
+                const BindingSchema = schema.Binding(protocol_family_label, FamilySchema, HandlerType);
                 const Lowered = schema.LowerBinding(BindingSchema, offsets);
                 return struct {
                     pub const requirement_index = Lowered.requirement_index;
@@ -1521,7 +1578,7 @@ pub const schema = struct {
                                 const global_op_index: u16 = offsets.first_op + @as(u16, @intCast(ordinal));
                                 const op_row = Lowered.ops[ordinal];
                                 return struct {
-                                    pub const protocol = protocol_label;
+                                    pub const protocol = protocol_family_label;
                                     pub const op_ordinal: u16 = @intCast(ordinal);
                                     pub const op_index: u16 = global_op_index;
                                     pub const op_name: [:0]const u8 = OpSchema.name;
@@ -1553,7 +1610,7 @@ pub const schema = struct {
                         }
                         @compileError(standard.fmt.comptimePrint(
                             "schema.Protocol op '{s}' is not declared for '{s}'",
-                            .{ name, protocol_label },
+                            .{ name, protocol_family_label },
                         ));
                     }
                 };
@@ -1758,6 +1815,14 @@ pub const schema = struct {
         };
     }
 
+    fn schemaControlMode(comptime mode: effect_schema.ControlMode) program_plan.ControlMode {
+        return switch (mode) {
+            .abort => .abort,
+            .choice => .choice,
+            .transform => .transform,
+        };
+    }
+
     fn requirementLifecycleFromSchema(comptime FamilySchema: type) @TypeOf(@as(program_plan.RequirementPlan, undefined).lifecycle_tag) {
         const LifecycleTag = @TypeOf(@as(program_plan.RequirementPlan, undefined).lifecycle_tag);
         return standard.meta.stringToEnum(LifecycleTag, @tagName(FamilySchema.lifecycle_tag)) orelse
@@ -1811,6 +1876,82 @@ pub const schema = struct {
             )),
             else => .{ .codec = codec },
         };
+    }
+
+    fn protocolRefForType(
+        comptime T: type,
+        comptime role: []const u8,
+        comptime schema_refs: type,
+    ) program_plan.ValueRef {
+        const codec = comptime program_plan.codecForType(T) catch |err| @compileError(standard.fmt.comptimePrint(
+            "schema.Protocol operation unsupported {s} type '{s}': {s}",
+            .{ role, @typeName(T), @errorName(err) },
+        ));
+        return switch (codec) {
+            .product, .sum => schema_refs.valueRef(T) orelse @compileError(standard.fmt.comptimePrint(
+                "schema.Protocol operation requires a schema ref for product/sum {s} type '{s}'",
+                .{ role, @typeName(T) },
+            )),
+            else => .{ .codec = codec },
+        };
+    }
+
+    fn protocolHashU16(hasher: *standard.hash.Wyhash, raw_value: u16) void {
+        var bytes: [2]u8 = undefined;
+        standard.mem.writeInt(u16, &bytes, raw_value, .little);
+        hasher.update(&bytes);
+    }
+
+    fn protocolHashUsize(hasher: *standard.hash.Wyhash, raw_value: usize) void {
+        var bytes: [8]u8 = undefined;
+        standard.mem.writeInt(u64, &bytes, @intCast(raw_value), .little);
+        hasher.update(&bytes);
+    }
+
+    fn protocolHashBytes(hasher: *standard.hash.Wyhash, bytes: []const u8) void {
+        protocolHashUsize(hasher, bytes.len);
+        hasher.update(bytes);
+    }
+
+    fn protocolHashValueRef(hasher: *standard.hash.Wyhash, value_ref: program_plan.ValueRef) void {
+        protocolHashBytes(hasher, @tagName(value_ref.codec));
+        if (value_ref.schema_index) |schema_index| {
+            protocolHashU16(hasher, schema_index);
+        } else {
+            protocolHashBytes(hasher, "none");
+        }
+    }
+
+    fn protocolHashTypeIdentity(hasher: *standard.hash.Wyhash, comptime ValueType: type) void {
+        protocolHashBytes(hasher, @typeName(ValueType));
+    }
+
+    fn protocolOperationFingerprint(
+        comptime protocol_label: []const u8,
+        comptime op_name: []const u8,
+        comptime op_ordinal: u16,
+        comptime mode: program_plan.ControlMode,
+        comptime Payload: type,
+        comptime payload_ref: program_plan.ValueRef,
+        comptime Resume: type,
+        comptime resume_ref: program_plan.ValueRef,
+        comptime Result: type,
+        comptime result_ref: program_plan.ValueRef,
+    ) u64 {
+        @setEvalBranchQuota(10_000);
+        var hasher = standard.hash.Wyhash.init(0);
+        protocolHashBytes(&hasher, "ability.schema.protocol.operation");
+        protocolHashBytes(&hasher, protocol_label);
+        protocolHashBytes(&hasher, op_name);
+        protocolHashU16(&hasher, op_ordinal);
+        protocolHashBytes(&hasher, @tagName(mode));
+        protocolHashTypeIdentity(&hasher, Payload);
+        protocolHashValueRef(&hasher, payload_ref);
+        protocolHashTypeIdentity(&hasher, Resume);
+        protocolHashValueRef(&hasher, resume_ref);
+        protocolHashTypeIdentity(&hasher, Result);
+        protocolHashValueRef(&hasher, result_ref);
+        return hasher.final();
     }
 
     fn validateSchemaRefs(comptime entries: anytype) void {
@@ -2432,6 +2573,95 @@ test "schema Protocol exposes op descriptors for builder authoring" {
     try standard.testing.expectEqual(standard.math.maxInt(u16), invalid_call.dst);
     try standard.testing.expectEqual(@as(u16, 6), invalid_call.operand);
     try standard.testing.expectEqual(@as(u16, 0), invalid_call.aux);
+}
+
+test "schema Protocol exposes protocol-level operation descriptors" {
+    const PolicyRequest = struct {
+        subject: []const u8,
+    };
+    const AlternateRequest = struct {
+        resource: []const u8,
+    };
+    const PolicyDecision = enum {
+        allow,
+        deny,
+    };
+    const ResultNote = struct {
+        message: []const u8,
+    };
+    const AlternateResultNote = struct {
+        code: i32,
+    };
+    const Policy = schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            schema.transform("check", PolicyRequest, PolicyDecision),
+            schema.choice("decide", PolicyRequest, PolicyDecision),
+            schema.abort("reject", PolicyRequest),
+        },
+    });
+    const AlternatePolicy = schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            schema.transform("check", AlternateRequest, PolicyDecision),
+        },
+    });
+    const Schemas = schema.Registry(.{ PolicyRequest, PolicyDecision });
+    const AlternateSchemas = schema.Registry(.{ AlternateRequest, PolicyDecision });
+    const ResultSchemas = schema.Registry(.{ PolicyRequest, PolicyDecision, ResultNote });
+    const AlternateResultSchemas = schema.Registry(.{ PolicyRequest, PolicyDecision, AlternateResultNote });
+
+    const Check = Policy.operation("check", .{ .schema_refs = Schemas.schema_refs });
+    const AlternateCheck = AlternatePolicy.operation("check", .{ .schema_refs = AlternateSchemas.schema_refs });
+    const Decide = Policy.op("decide", .{
+        .schema_refs = Schemas.schema_refs,
+        .Result = []const u8,
+    });
+    const DecideResultNote = Policy.op("decide", .{
+        .schema_refs = ResultSchemas.schema_refs,
+        .Result = ResultNote,
+    });
+    const DecideAlternateResultNote = Policy.op("decide", .{
+        .schema_refs = AlternateResultSchemas.schema_refs,
+        .Result = AlternateResultNote,
+    });
+    const Reject = Policy.operation("reject", .{
+        .schema_refs = Schemas.schema_refs,
+        .Result = PolicyDecision,
+    });
+    const CheckAgain = Policy.op("check", .{ .schema_refs = Schemas.schema_refs });
+
+    try standard.testing.expect(Check.kind == .protocol_operation);
+    try standard.testing.expectEqualStrings("policy", Check.protocol_label);
+    try standard.testing.expectEqualStrings("check", Check.op_name);
+    try standard.testing.expectEqual(@as(u16, 0), Check.op_ordinal);
+    try standard.testing.expect(Check.Payload == PolicyRequest);
+    try standard.testing.expect(Check.Resume == PolicyDecision);
+    try standard.testing.expect(Check.Result == void);
+    try standard.testing.expectEqual(program_plan.ControlMode.transform, Check.op_mode);
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, Check.payload_ref.codec);
+    try standard.testing.expectEqual(@as(?u16, 0), Check.payload_ref.schema_index);
+    try standard.testing.expectEqual(program_plan.ValueCodec.sum, Check.resume_ref.codec);
+    try standard.testing.expectEqual(@as(?u16, 1), Check.resume_ref.schema_index);
+    try standard.testing.expectEqual(program_plan.ValueCodec.unit, Check.result_ref.codec);
+    try standard.testing.expect(Check.may_resume);
+    try standard.testing.expect(!Check.may_return_now);
+    try standard.testing.expectEqual(Check.fingerprint, CheckAgain.fingerprint);
+    try standard.testing.expect(Check.fingerprint != AlternateCheck.fingerprint);
+
+    try standard.testing.expectEqual(program_plan.ControlMode.choice, Decide.mode);
+    try standard.testing.expectEqual(program_plan.ValueCodec.string, Decide.result_ref.codec);
+    try standard.testing.expect(Decide.may_resume);
+    try standard.testing.expect(Decide.may_return_now);
+    try standard.testing.expect(DecideResultNote.fingerprint != DecideAlternateResultNote.fingerprint);
+
+    try standard.testing.expectEqual(program_plan.ControlMode.abort, Reject.mode);
+    try standard.testing.expectEqual(program_plan.ValueCodec.sum, Reject.result_ref.codec);
+    try standard.testing.expectEqual(@as(?u16, 1), Reject.result_ref.schema_index);
+    try standard.testing.expect(!Reject.may_resume);
+    try standard.testing.expect(Reject.may_return_now);
+    try standard.testing.expect(Check.fingerprint != Decide.fingerprint);
+    try standard.testing.expect(Decide.fingerprint != Reject.fingerprint);
 }
 
 test "schema Protocol lowers output row when declared" {

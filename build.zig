@@ -484,6 +484,18 @@ pub fn build(b: *std.Build) void {
             .expected_error = "schema.LowerBinding requires a schema ref for product/sum resume type 'schema_protocol_missing_sum_ref.Decision'",
         },
         .{
+            .path = "test/compile_fail/schema_protocol_operation_missing_product_ref.zig",
+            .expected_error = "schema.Protocol operation requires a schema ref for product/sum payload type 'schema_protocol_operation_missing_product_ref.ProductPayload'",
+        },
+        .{
+            .path = "test/compile_fail/schema_protocol_operation_missing_sum_result_ref.zig",
+            .expected_error = "schema.Protocol operation requires a schema ref for product/sum result type 'schema_protocol_operation_missing_sum_result_ref.Decision'",
+        },
+        .{
+            .path = "test/compile_fail/schema_protocol_transform_result.zig",
+            .expected_error = "schema.Protocol transform operation does not accept Result",
+        },
+        .{
             .path = "test/compile_fail/semantic_protocol_payload_mismatch.zig",
             .expected_error = "semantic builder protocol call payload type mismatch",
         },
@@ -532,12 +544,48 @@ pub fn build(b: *std.Build) void {
             .expected_error = "Program.protocol descriptor belongs to another program",
         },
         .{
+            .path = "test/compile_fail/protocol_target_response_abort_resume.zig",
+            .expected_error = "Program.Handler.TargetResponse abort rejects resume",
+        },
+        .{
+            .path = "test/compile_fail/protocol_target_response_transform_return_now.zig",
+            .expected_error = "Program.Handler.TargetResponse transform rejects return_now",
+        },
+        .{
             .path = "test/compile_fail/interpreter_invalid_transform_return_now.zig",
             .expected_error = "Program.Handler.returnNow is invalid for this operation site",
         },
         .{
             .path = "test/compile_fail/interpreter_duplicate_handler.zig",
             .expected_error = "Program.Interpreter listed duplicate handler for site",
+        },
+        .{
+            .path = "test/compile_fail/interpreter_duplicate_protocol_operation_handler.zig",
+            .expected_error = "Program.Interpreter listed duplicate protocol operation handler",
+        },
+        .{
+            .path = "test/compile_fail/interpreter_elimination_missing_protocol_operation.zig",
+            .expected_error = "Program.Interpreter elimination omitted emitted protocol operation",
+        },
+        .{
+            .path = "test/compile_fail/interpreter_effect_row_foreign_program.zig",
+            .expected_error = "Program.Interpreter effectRow expected owning Program type",
+        },
+        .{
+            .path = "test/compile_fail/interpreter_plain_operation_reinterpret.zig",
+            .expected_error = "plain operation handlers cannot return reinterpret outcomes",
+        },
+        .{
+            .path = "test/compile_fail/interpreter_protocol_handler_nested_mutable_payload.zig",
+            .expected_error = "Program.Handler protocol request payload contains mutable string-list storage",
+        },
+        .{
+            .path = "test/compile_fail/interpreter_protocol_handler_mutable_payload.zig",
+            .expected_error = "cannot assign to constant",
+        },
+        .{
+            .path = "test/compile_fail/interpreter_reinterpreted_mutable_payload.zig",
+            .expected_error = "cannot assign to constant",
         },
         .{
             .path = "test/compile_fail/interpreter_foreign_site.zig",
@@ -554,6 +602,18 @@ pub fn build(b: *std.Build) void {
         .{
             .path = "test/compile_fail/interpreter_coverage_fake_interpreter.zig",
             .expected_error = "Program.protocol expected a Program.Interpreter type",
+        },
+        .{
+            .path = "test/compile_fail/reinterpret_mapper_invalid_source_outcome.zig",
+            .expected_error = "Program.Handler.reinterpret mapper resume must return Program.Handler.SourceOutcome(SourceSite)",
+        },
+        .{
+            .path = "test/compile_fail/reinterpret_mapper_invalid_resume_param.zig",
+            .expected_error = "Program.Handler.reinterpret mapper resume parameter must match target protocol operation type",
+        },
+        .{
+            .path = "test/compile_fail/reinterpret_mapper_invalid_return_param.zig",
+            .expected_error = "Program.Handler.reinterpret mapper returnNow parameter must match target protocol operation type",
         },
     };
     inline for (compile_fail_specs) |spec| {
@@ -583,6 +643,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "ability-agent-loop", .path = "examples/agent_loop.zig", .step = "run-agent-loop", .desc = "Run the host-driven Program.Session agent loop example." },
         .{ .name = "ability-continuation-branching", .path = "examples/continuation_branching.zig", .step = "run-continuation-branching", .desc = "Run the Program.Session continuation capsule branching example." },
         .{ .name = "ability-interpreter-branching", .path = "examples/interpreter_branching.zig", .step = "run-interpreter-branching", .desc = "Run the continuation-aware Program.Interpreter branching example." },
+        .{ .name = "ability-protocol-reinterpretation", .path = "examples/protocol_reinterpretation.zig", .step = "run-protocol-reinterpretation", .desc = "Run the protocol morphism reinterpretation example." },
     };
     inline for (examples) |example| {
         const exe_mod = b.createModule(.{

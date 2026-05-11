@@ -105,6 +105,7 @@ fn expectDone(result: anytype) !ApprovalProgram.Result {
         .done => |done| done,
         .suspended => return error.UnexpectedSuspend,
         .unhandled => return error.UnexpectedUnhandled,
+        .reinterpreted => return error.UnexpectedReinterpreted,
     };
 }
 
@@ -118,6 +119,7 @@ pub fn run(writer: anytype) !void {
         .done => |value| value,
         .suspended => return error.UnexpectedSuspend,
         .unhandled => return error.UnexpectedUnhandled,
+        .reinterpreted => return error.UnexpectedReinterpreted,
     };
     defer approved_result.deinit();
 

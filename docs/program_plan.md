@@ -310,40 +310,104 @@ Request tokens remain in-process guards and are not exported as durable ids.
 
 Handlers return site-specific outcomes:
 
-- transform operation: `resume`, `suspend`, `forward`, or `fail`
-- choice operation: `resume`, `returnNow`, `suspend`, `forward`, or `fail`
-- abort operation: `returnNow`, `suspend`, `forward`, or `fail`
+- transform operation: `resume`, `suspend`, `forward`, `reinterpret`, or `fail`
+- choice operation: `resume`, `returnNow`, `suspend`, `forward`, `reinterpret`,
+  or `fail`
+- abort operation: `returnNow`, `suspend`, `forward`, `reinterpret`, or `fail`
 - after continuation: `resumeAfter`, `suspend`, `forward`, or `fail`
 
 Invalid helper use fails at comptime where the static descriptor mode proves the
 outcome is impossible. Runtime outcome application still validates the live
 request, response ref, and typed value before resuming the session.
 
-`Program.Interpreter(.{ ... })` drives a `Program.Session` until one of three
+Protocol-level operation descriptors are available directly from
+`ability.ir.schema.Protocol`, without a `ProgramPlan` call site:
+
+```zig
+const Policy = ability.ir.schema.Protocol(.{
+    .label = "policy",
+    .ops = .{ability.ir.schema.transform("check", []const u8, bool)},
+});
+const Check = Policy.operation("check", .{});
+```
+
+The descriptor exposes protocol label, op name, mode, `Payload`, `Resume`,
+`Result`, payload/resume/result refs, and a deterministic protocol-operation
+fingerprint. Product and sum payload/resume/result refs require the caller to
+pass a `schema.Registry` through `.schema_refs`; scalar refs use the existing
+scalar schema refs. Descriptor fingerprints include both the declared value refs
+and the concrete payload/resume/result type identities, so equal schema indexes
+from different registries do not alias distinct protocol operations.
+
+Handlers can use these descriptors as target effect constructors. A
+`Program.Morphism(.{ .source = SourceSite, .target = TargetOp, .Mapper = Mapper
+})` proves the source Program operation site and target protocol operation
+match the typed mapper. A handler declared with `Program.Handler.morphism` may
+return `Program.Handler.reinterpret(Morphism, payload)`, which captures the
+source continuation as a
+`Program.Session.Capsule`, builds an inspectable
+`Program.ProtocolRequest(SourceSite, TargetOp)`, and attaches mapper functions
+that convert target `resume` or `return_now` responses back into a valid
+`Program.Handler.SourceOutcome(SourceSite)`. The mapper is a comptime type with
+plain functions, not a hidden closure; invalid source outcomes and wrong target
+payload types fail at comptime where Zig can prove them.
+
+Protocol-operation handlers bind to protocol-level descriptors:
+
+```zig
+const Interpreter = Program.Interpreter(.{
+    Program.Handler.morphism(ApprovalViaPolicy, approvalHandler),
+    Program.Handler.protocolOperation(Check, policyHandler),
+});
+```
+
+Normal Program requests are offered to Program-site handlers. Reinterpreted
+protocol requests are offered to protocol-operation handlers in the same
+interpreter entry list. If no later handler accepts the target request, execution
+returns `reinterpreted` to the host with the owned source capsule and target
+request metadata. If a protocol handler answers, the interpreter applies the
+mapper to the source outcome, restores the source capsule, resumes or returns
+from the original site, and continues running the same primitive
+`Program.Session`.
+
+`Program.Interpreter(.{ ... })` drives a `Program.Session` until one of four
 results is reached:
 
 - `done`: owns the ordinary `Program.Result`
 - `suspended`: owns a capsule for an explicit handler suspension
 - `unhandled`: owns a capsule for a missing handler or forwarded-unhandled site
+- `reinterpreted`: owns the source capsule plus target protocol request data for
+  a missing or explicitly forwarded target protocol operation
 
 Suspended and unhandled results also include the parked kind, request or after
 trace, request fingerprint, capsule fingerprint, and reason
 (`explicit_suspend`, `unhandled`, or `forwarded_unhandled`). The host owns these
-capsules and must deinit them.
+capsules and must deinit them. Reinterpreted results include the stop reason,
+source request fingerprint, source site fingerprint, source capsule fingerprint, target
+protocol label/op/mode, target payload/ref metadata, target payload fingerprint,
+target protocol-op fingerprint, morphism witness fingerprint, optional semantic
+label, and a separate reinterpretation fingerprint.
 
 Interpreters can be partial. A missing handler or `forward` outcome declines the
 current site and returns an unhandled capsule. The host can manually restore the
 capsule through `Program.Session`, or restore it and continue with another
 `Program.Interpreter`. Complete interpreters can assert coverage with
-`Interpreter.assertCoversAll()` or
+`Interpreter.assertCoversAll()`, `Interpreter.assertEliminates(Program)`, or
 `Program.protocol.assertAllSitesCoveredBy(Interpreter)`, which reject omitted
 operation sites, omitted after sites, duplicate handlers, and foreign sites at
-comptime.
+comptime. `Interpreter.effectRow(Program)` exposes handled Program operation
+sites, handled after sites, handled protocol operations, reinterpreted source
+sites, emitted target protocol operations, and statically known residual Program
+sites. `assertReinterprets(SourceSite, TargetOp)`,
+`assertHandlesProtocolOps(.{ ... })`, and `assertResidualSites(.{ ... })`
+provide focused effect-row witnesses for partial and composed interpreters.
 
 Interpreter options may include `.trace_recorder`; the driver records request
 and response traces before applying typed resume, return-now, or resume-after
 outcomes. The fingerprints are the existing session fingerprints. The trace
-fingerprint version remains unchanged unless the traced contents change.
+fingerprint version remains 2; request, response, site, value, and continuation
+fingerprint contents remain unchanged. Reinterpretation uses a separate
+`Program.reinterpret_fingerprint_version` for the reinterpreted request witness.
 
 ## Program.Session
 
@@ -604,6 +668,18 @@ ability.ir.builder.semantic.call(Request, .{
 });
 ```
 
+The protocol family also exposes protocol-level descriptors that are not tied to
+any static Program site:
+
+```zig
+const Check = Policy.operation("check", .{ .schema_refs = Schemas.schema_refs });
+```
+
+These are typed defunctionalized effect constructors for reinterpretation and
+external protocol-operation handlers. They expose the protocol label, op name,
+mode, payload/resume/result types, schema refs, and stable protocol-op
+fingerprint without adding a ProgramPlan call site.
+
 After compilation with `ability.program`, no custom runtime surface is needed.
 `Program.contract` exposes the custom requirement/op rows and session yield
 sites, and `Program.protocol` derives typed host-facing descriptors from those
@@ -617,6 +693,12 @@ operations, derives schema tables with `schema.Registry`, authors control flow
 with `builder.semantic`, runs synchronously through `Program.run`, and
 demonstrates the host-driven `Program.Session` path through `Program.protocol`
 with deterministic trace replay.
+
+`examples/protocol_reinterpretation.zig` demonstrates protocol morphisms over
+the same kernel: an `approval.request` choice operation is handled by emitting a
+protocol-level `policy.check` transform request, preserving the approval
+continuation as a capsule, and mapping the policy answer back into either
+approval resume or approval return-now behavior.
 
 ## Built-in plan helper namespaces
 
