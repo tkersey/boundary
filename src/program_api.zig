@@ -2140,6 +2140,7 @@ pub fn program(
             source_site_foreign_program,
             target_schema_mismatch,
             duplicate_source_site,
+            shared_source_operation,
             after_residualization_unsupported,
             nested_with_residualization_unsupported,
             output_residualization_unsupported,
@@ -2269,7 +2270,6 @@ pub fn program(
             const response_mapping = comptime if (@hasField(SpecType, "response")) spec.response else ResidualResponse.resumeIdentity();
             const disposition_value = comptime if (@hasField(SpecType, "disposition")) spec.disposition else ResidualDisposition.reinterpreted;
             const mapping_label_value: ?[]const u8 = comptime if (@hasField(SpecType, "label")) spec.label else null;
-            if (comptime TargetOp.op_mode != .transform) @compileError("Program.ResidualMorphism first version only targets transform protocol operations");
             return struct {
                 /// Descriptor tag for residual morphism reflection.
                 pub const kind = .residual_morphism;
@@ -2327,6 +2327,14 @@ pub fn program(
             };
         }
 
+        fn residualSourceOpReachableSiteCount(comptime SourceSite: type) usize {
+            comptime var count: usize = 0;
+            inline for (protocol.operation_site_metadata) |site| {
+                if (site.op_index == SourceSite.op_index) count += 1;
+            }
+            return count;
+        }
+
         fn residualBlockerFor(comptime Descriptor: type) ?ResidualBlocker {
             validateResidualMorphismDescriptor(Descriptor);
             if (Descriptor.disposition != .reinterpreted) {
@@ -2338,24 +2346,6 @@ pub fn program(
                     .message = "residualization first version only supports reinterpreted source-site disposition",
                 };
             }
-            if (body_nested_with_targets.len != 0) {
-                return .{
-                    .tag = .nested_with_residualization_unsupported,
-                    .source_site_index = Descriptor.source.index,
-                    .source_site_fingerprint = Descriptor.source.fingerprint,
-                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
-                    .message = "nested-with residualization is unsupported in this version",
-                };
-            }
-            if (body_compiled_plan.outputs.len != 0) {
-                return .{
-                    .tag = .output_residualization_unsupported,
-                    .source_site_index = Descriptor.source.index,
-                    .source_site_fingerprint = Descriptor.source.fingerprint,
-                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
-                    .message = "output residualization is unsupported in this version",
-                };
-            }
             const source_requirement = body_compiled_plan.requirements[Descriptor.source.requirement_index];
             if (source_requirement.op_count != 1) {
                 return .{
@@ -2364,6 +2354,15 @@ pub fn program(
                     .source_site_fingerprint = Descriptor.source.fingerprint,
                     .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
                     .message = "residualization first version requires the source requirement row to contain exactly one op",
+                };
+            }
+            if (residualSourceOpReachableSiteCount(Descriptor.source) != 1) {
+                return .{
+                    .tag = .shared_source_operation,
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .message = "residualization first version requires the source op row to have exactly one reachable site",
                 };
             }
             if (Descriptor.source.op_mode == .transform and !Descriptor.source.may_resume) {
@@ -2458,13 +2457,31 @@ pub fn program(
                     }
                 }
             }
-            comptime var blocker_count: usize = 0;
+            comptime var global_blocker_count_value: usize = 0;
+            if (body_nested_with_targets.len != 0) global_blocker_count_value += 1;
+            if (Outputs != void or body_compiled_plan.outputs.len != 0) global_blocker_count_value += 1;
+            comptime var morphism_blocker_count_value: usize = 0;
             inline for (morphisms) |Descriptor| {
-                if (residualBlockerFor(Descriptor) != null) blocker_count += 1;
+                if (residualBlockerFor(Descriptor) != null) morphism_blocker_count_value += 1;
             }
+            const blocker_count = global_blocker_count_value + morphism_blocker_count_value;
             var blocker_table: [blocker_count]ResidualBlocker = undefined;
             var source_map_table: [morphisms.len]ResidualSourceMapEntry = undefined;
             comptime var blocker_index: usize = 0;
+            if (body_nested_with_targets.len != 0) {
+                blocker_table[blocker_index] = .{
+                    .tag = .nested_with_residualization_unsupported,
+                    .message = "nested-with residualization is unsupported in this version",
+                };
+                blocker_index += 1;
+            }
+            if (Outputs != void or body_compiled_plan.outputs.len != 0) {
+                blocker_table[blocker_index] = .{
+                    .tag = .output_residualization_unsupported,
+                    .message = "output residualization is unsupported in this version",
+                };
+                blocker_index += 1;
+            }
             inline for (morphisms, 0..) |Descriptor, index| {
                 if (residualBlockerFor(Descriptor)) |blocker| {
                     blocker_table[blocker_index] = blocker;
@@ -2487,6 +2504,10 @@ pub fn program(
             return struct {
                 /// Statically unsupported residual morphisms.
                 pub const blockers = final_blockers;
+                /// Body-level residualization blockers that are independent of morphism shape.
+                pub const global_blocker_count = global_blocker_count_value;
+                /// Per-morphism residualization blockers.
+                pub const morphism_blocker_count = morphism_blocker_count_value;
                 /// Source-site to residual-target mapping entries.
                 pub const source_map = final_source_map;
             };
@@ -2496,7 +2517,9 @@ pub fn program(
         pub fn residualizationReport(comptime config: anytype) type {
             const Storage = ResidualReportStorage(config);
             const unsupported_count = Storage.blockers.len;
+            const morphism_unsupported_count = Storage.morphism_blocker_count;
             const morphism_count = config.morphisms.len;
+            const supported_morphism_count = morphism_count - morphism_unsupported_count;
             return struct {
                 /// Residualization fingerprint domain version.
                 pub const fingerprint_version = residual_fingerprint_version;
@@ -2514,12 +2537,12 @@ pub fn program(
                     .source_plan_hash = body_compiled_plan_hash,
                     .residual_program_label = if (@hasField(@TypeOf(config), "label")) config.label else label ++ ".residual",
                     .residual_plan_hash = 0,
-                    .eliminated_source_sites = morphism_count - unsupported_count,
-                    .reinterpreted_source_sites = morphism_count - unsupported_count,
-                    .emitted_target_protocol_ops = morphism_count - unsupported_count,
-                    .residual_operation_sites = protocol.operation_site_count - (morphism_count - unsupported_count),
-                    .unsupported_source_sites = unsupported_count,
-                    .unsupported_morphisms = unsupported_count,
+                    .eliminated_source_sites = supported_morphism_count,
+                    .reinterpreted_source_sites = supported_morphism_count,
+                    .emitted_target_protocol_ops = supported_morphism_count,
+                    .residual_operation_sites = protocol.operation_site_count,
+                    .unsupported_source_sites = morphism_unsupported_count,
+                    .unsupported_morphisms = morphism_unsupported_count,
                 };
                 /// Whether all requested residual morphisms are supported.
                 pub const supported = unsupported_count == 0;
@@ -2559,15 +2582,28 @@ pub fn program(
             if (payload_mapping.kind == .const_string) return TargetOp.payload_ref.codec == .string;
             if (payload_mapping.kind == .const_i32) return TargetOp.payload_ref.codec == .i32;
             if (payload_mapping.kind == .const_usize) return TargetOp.payload_ref.codec == .usize;
-            return SourceSite.payload_ref.eql(TargetOp.payload_ref);
+            return residualValueRefCompatible(SourceSite.Payload, SourceSite.payload_ref, TargetOp.Payload, TargetOp.payload_ref);
         }
 
         fn residualResponseCompatible(comptime SourceSite: type, comptime TargetOp: type, comptime response: ResidualResponse) bool {
             return switch (response.kind) {
-                .resume_identity => SourceSite.resume_ref.eql(TargetOp.resume_ref),
+                .resume_identity => residualValueRefCompatible(SourceSite.Resume, SourceSite.resume_ref, TargetOp.Resume, TargetOp.resume_ref),
                 .resume_const_i32, .return_const_i32 => TargetOp.resume_ref.codec == .i32 and SourceSite.result_ref.codec == .i32,
                 .bool_i32 => TargetOp.resume_ref.codec == .bool and SourceSite.result_ref.codec == .i32,
                 .unsupported => false,
+            };
+        }
+
+        fn residualValueRefCompatible(
+            comptime SourceValue: type,
+            comptime source_ref: lowering_api.ValueRef,
+            comptime TargetValue: type,
+            comptime target_ref: lowering_api.ValueRef,
+        ) bool {
+            if (!source_ref.eql(target_ref)) return false;
+            return switch (source_ref.codec) {
+                .product, .sum => SourceValue == TargetValue,
+                else => true,
             };
         }
 
@@ -2580,7 +2616,7 @@ pub fn program(
             if (body_nested_with_targets.len != 0) {
                 @compileError("Program.residualize blocked: nested-with residualization is unsupported in this version");
             }
-            if (body_compiled_plan.outputs.len != 0) {
+            if (Outputs != void or body_compiled_plan.outputs.len != 0) {
                 @compileError("Program.residualize blocked: output residualization is unsupported in this version");
             }
             comptime {
@@ -2649,6 +2685,58 @@ pub fn program(
 
         fn ResidualBodyFor(comptime config: anytype) type {
             const Storage = ResidualPlanStorage(config);
+            const ConfigType = @TypeOf(config);
+            const ResidualHandlers = comptime if (@hasField(ConfigType, "Handlers")) config.Handlers else HandlersType;
+            if (comptime hasDeclSafe(Body, "encodeArgs") and hasDeclSafe(Body, "deinitResult")) {
+                return struct {
+                    /// Ordinary ProgramPlan compiled from the residualized source plan.
+                    pub const compiled_plan = Storage.plan;
+                    /// Value schema type metadata inherited from the source Body.
+                    pub const value_schema_types = BodyValueSchemaTypes(Body).values;
+                    /// Site metadata inherited from the source Body when available.
+                    pub const site_metadata = BodySiteMetadata(Body).values;
+                    /// Body error set inherited from the source Body.
+                    pub const Error = BodyErrorSet(Body);
+                    /// Forward source result cleanup because the residual plan preserves the result type.
+                    pub const deinitResult = Body.deinitResult;
+
+                    /// Forward source argument encoding because the residual plan preserves entry parameters.
+                    pub fn encodeArgs(handlers: ResidualHandlers) @TypeOf(Body.encodeArgs(handlers)) {
+                        return Body.encodeArgs(handlers);
+                    }
+                };
+            }
+            if (comptime hasDeclSafe(Body, "encodeArgs")) {
+                return struct {
+                    /// Ordinary ProgramPlan compiled from the residualized source plan.
+                    pub const compiled_plan = Storage.plan;
+                    /// Value schema type metadata inherited from the source Body.
+                    pub const value_schema_types = BodyValueSchemaTypes(Body).values;
+                    /// Site metadata inherited from the source Body when available.
+                    pub const site_metadata = BodySiteMetadata(Body).values;
+                    /// Body error set inherited from the source Body.
+                    pub const Error = BodyErrorSet(Body);
+
+                    /// Forward source argument encoding because the residual plan preserves entry parameters.
+                    pub fn encodeArgs(handlers: ResidualHandlers) @TypeOf(Body.encodeArgs(handlers)) {
+                        return Body.encodeArgs(handlers);
+                    }
+                };
+            }
+            if (comptime hasDeclSafe(Body, "deinitResult")) {
+                return struct {
+                    /// Ordinary ProgramPlan compiled from the residualized source plan.
+                    pub const compiled_plan = Storage.plan;
+                    /// Value schema type metadata inherited from the source Body.
+                    pub const value_schema_types = BodyValueSchemaTypes(Body).values;
+                    /// Site metadata inherited from the source Body when available.
+                    pub const site_metadata = BodySiteMetadata(Body).values;
+                    /// Body error set inherited from the source Body.
+                    pub const Error = BodyErrorSet(Body);
+                    /// Forward source result cleanup because the residual plan preserves the result type.
+                    pub const deinitResult = Body.deinitResult;
+                };
+            }
             return struct {
                 /// Ordinary ProgramPlan compiled from the residualized source plan.
                 pub const compiled_plan = Storage.plan;
