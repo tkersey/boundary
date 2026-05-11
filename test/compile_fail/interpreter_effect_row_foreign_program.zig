@@ -44,11 +44,10 @@ fn plan(comptime label: []const u8) ability.ir.ProgramPlan {
 const Body = struct {
     pub const compiled_plan = plan("interpreter-effect-row-owner");
 };
-const OtherBody = struct {
-    pub const compiled_plan = plan("interpreter-effect-row-foreign");
-};
-const Program = ability.program("interpreter-effect-row-owner", struct {}, Body);
-const OtherProgram = ability.program("interpreter-effect-row-foreign", struct {}, OtherBody);
+const OwnerHandlers = struct {};
+const OtherHandlers = struct {};
+const Program = ability.program("interpreter-effect-row-owner", OwnerHandlers, Body);
+const OtherProgram = ability.program("interpreter-effect-row-owner", OtherHandlers, Body);
 const Interpreter = Program.Interpreter(.{});
 
 comptime {

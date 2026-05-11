@@ -651,6 +651,7 @@ fn ProgramProtocolFor(
         pub const Owner = ProtocolOwner;
         pub const label = program_label;
         pub const hash = plan_hash;
+        pub const OwnerHandlers = HandlersType;
         pub const operation_site_count = operation_sites.len;
         pub const after_site_count = after_sites.len;
         pub const operation_site_metadata = &operation_sites;
@@ -1934,6 +1935,39 @@ pub fn program(
             };
         }
 
+        fn protocolPayloadContainsMutableStringList(comptime Payload: type) bool {
+            if (Payload == [][]const u8) return true;
+            return switch (@typeInfo(Payload)) {
+                .optional => |optional| protocolPayloadContainsMutableStringList(optional.child),
+                .@"struct" => |info| {
+                    inline for (info.fields) |field| {
+                        if (protocolPayloadContainsMutableStringList(field.type)) return true;
+                    }
+                    return false;
+                },
+                .@"union" => |info| {
+                    inline for (info.fields) |field| {
+                        if (protocolPayloadContainsMutableStringList(field.type)) return true;
+                    }
+                    return false;
+                },
+                else => false,
+            };
+        }
+
+        fn ProtocolHandlerPayloadType(comptime Payload: type) type {
+            if (Payload == [][]const u8) return []const []const u8;
+            if (protocolPayloadContainsMutableStringList(Payload)) {
+                @compileError("Program.Handler protocol request payload contains mutable string-list storage");
+            }
+            return Payload;
+        }
+
+        fn protocolHandlerPayloadView(value: anytype) ProtocolHandlerPayloadType(@TypeOf(value)) {
+            if (@TypeOf(value) == [][]const u8) return @as([]const []const u8, value);
+            return value;
+        }
+
         fn deinitProgramValue(allocator: std.mem.Allocator, comptime ValueType: type, value: ValueType) void {
             if (ValueType == []const u8) {
                 allocator.free(value);
@@ -2080,7 +2114,10 @@ pub fn program(
                     semantic_label: ?[]const u8,
                 ) Error!@This() {
                     const source_metadata = source_capsule.metadata();
-                    if (source_metadata.parked_kind != .operation or
+                    if (!std.mem.eql(u8, source_metadata.program_label, label) or
+                        !std.mem.eql(u8, source_metadata.plan_label, body_compiled_plan.label) or
+                        source_metadata.plan_hash != body_compiled_plan_hash or
+                        source_metadata.parked_kind != .operation or
                         source_metadata.current_operation_site_index == null or
                         source_metadata.current_operation_site_index.? != SourceSite.index or
                         source_metadata.function_index == null or
@@ -2125,9 +2162,9 @@ pub fn program(
                     self.source_capsule.deinit();
                 }
 
-                /// Return the typed target payload.
-                pub fn payload(self: @This()) TargetOp.Payload {
-                    return self.target_payload;
+                /// Return the typed target payload as an immutable protocol-safe view.
+                pub fn payload(self: @This()) ProtocolHandlerPayloadType(TargetOp.Payload) {
+                    return protocolHandlerPayloadView(self.target_payload);
                 }
 
                 /// Return the reinterpreted request fingerprint.
@@ -2722,9 +2759,9 @@ pub fn program(
                         self.capsule.deinit();
                     }
 
-                    /// Decode the target payload as the expected type.
-                    pub fn payload(self: @This(), comptime Payload: type) Error!Payload {
-                        return self.target_payload.as(Payload);
+                    /// Decode the target payload as the expected type with protocol-safe mutability.
+                    pub fn payload(self: @This(), comptime Payload: type) Error!ProtocolHandlerPayloadType(Payload) {
+                        return protocolHandlerPayloadView(try self.target_payload.as(Payload));
                     }
 
                     /// Return whether this request matches a target protocol op.
@@ -2824,7 +2861,9 @@ pub fn program(
                         !hasDeclSafe(ProgramType.protocol, "Owner") or
                         ProgramType.protocol.Owner != Body or
                         ProgramType.protocol.hash != protocol.hash or
-                        !std.mem.eql(u8, ProgramType.protocol.label, protocol.label))
+                        !std.mem.eql(u8, ProgramType.protocol.label, protocol.label) or
+                        !hasDeclSafe(ProgramType.protocol, "OwnerHandlers") or
+                        ProgramType.protocol.OwnerHandlers != HandlersType)
                     {
                         @compileError("Program.Interpreter effectRow expected owning Program type");
                     }
@@ -2951,9 +2990,9 @@ pub fn program(
                         request: *const Reinterpreted,
 
                         /// Decode the typed target payload.
-                        pub fn payload(self: @This()) Error!TargetOp.Payload {
+                        pub fn payload(self: @This()) Error!ProtocolHandlerPayloadType(TargetOp.Payload) {
                             if (!self.request.matches(TargetOp)) return error.ProgramContractViolation;
-                            return self.request.payload(TargetOp.Payload);
+                            return protocolHandlerPayloadView(try self.request.payload(TargetOp.Payload));
                         }
                     };
                 }
@@ -3150,26 +3189,26 @@ pub fn program(
                         return switch (response) {
                             .@"resume" => |value| try applyTargetResume(SourceSite, session, current, typed, reinterpretation, value, options, handled),
                             .return_now => |value| try applyTargetReturnNow(SourceSite, session, current, typed, reinterpretation, value, options, handled),
-                            .forward => applyTargetForward(reinterpreted),
+                            .forward => try applyTargetForward(reinterpretation, reinterpreted),
                             .fail => |err| applyTargetFail(err, handled),
                         };
                     }
                     if (comptime TargetOp.may_resume) {
                         return switch (response) {
                             .@"resume" => |value| try applyTargetResume(SourceSite, session, current, typed, reinterpretation, value, options, handled),
-                            .forward => applyTargetForward(reinterpreted),
+                            .forward => try applyTargetForward(reinterpretation, reinterpreted),
                             .fail => |err| applyTargetFail(err, handled),
                         };
                     }
                     if (comptime TargetOp.may_return_now) {
                         return switch (response) {
                             .return_now => |value| try applyTargetReturnNow(SourceSite, session, current, typed, reinterpretation, value, options, handled),
-                            .forward => applyTargetForward(reinterpreted),
+                            .forward => try applyTargetForward(reinterpretation, reinterpreted),
                             .fail => |err| applyTargetFail(err, handled),
                         };
                     }
                     return switch (response) {
-                        .forward => applyTargetForward(reinterpreted),
+                        .forward => try applyTargetForward(reinterpretation, reinterpreted),
                         .fail => |err| applyTargetFail(err, handled),
                     };
                 }
@@ -3204,8 +3243,19 @@ pub fn program(
                     return try applySourceOutcome(SourceSite, session, current, typed, source_outcome, options);
                 }
 
-                fn applyTargetForward(reinterpreted: *Reinterpreted) ?ExecutionResult {
+                fn applyTargetForward(
+                    reinterpretation: anytype,
+                    reinterpreted: *Reinterpreted,
+                ) Error!?ExecutionResult {
                     reinterpreted.reason = .forwarded_unhandled;
+                    const target_payload_fingerprint = try @TypeOf(reinterpretation).fingerprintStoredPayload(&reinterpreted.target_payload);
+                    reinterpreted.target_payload_fingerprint = target_payload_fingerprint;
+                    reinterpreted.reinterpreted_request_fingerprint = reinterpretFingerprint(
+                        reinterpreted.source_request_fingerprint,
+                        reinterpreted.source_capsule_fingerprint,
+                        reinterpreted.target_protocol_op_fingerprint,
+                        target_payload_fingerprint,
+                    );
                     return null;
                 }
 

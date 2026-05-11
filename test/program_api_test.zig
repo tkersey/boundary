@@ -4638,6 +4638,17 @@ test "Program.ProtocolRequest validates source capsule metadata" {
         "policy.check",
     ));
 
+    var mismatched_program_capsule = try left_capsule.clone(std.testing.allocator);
+    defer mismatched_program_capsule.deinit();
+    mismatched_program_capsule._core.metadata_value.program_label = "foreign-program";
+    try std.testing.expectError(error.ProgramContractViolation, Program.ProtocolRequest(Left, Check).init(
+        std.testing.allocator,
+        left_request.fingerprint(),
+        &mismatched_program_capsule,
+        {},
+        "policy.check",
+    ));
+
     try session.@"resume"(left_request, @as(i32, 11));
     const right_request = switch (try session.next()) {
         .request => |value| value,
@@ -4940,10 +4951,13 @@ test "Program.Interpreter preserves mutable string-list target protocol payloads
                 std.testing.allocator,
                 request.source_request_fingerprint,
                 &request.capsule,
-                payload,
+                inspect_host.items[0..],
                 request.semantic_label,
             );
             defer canonical.deinit();
+            const canonical_payload = canonical.payload();
+            try std.testing.expectEqualStrings("updated", canonical_payload[0]);
+            try std.testing.expectEqualStrings("right", canonical_payload[1]);
             try std.testing.expectEqual(canonical.target_payload_fingerprint, request.target_payload_fingerprint);
             try std.testing.expectEqual(canonical.fingerprint(), request.reinterpreted_request_fingerprint);
         },

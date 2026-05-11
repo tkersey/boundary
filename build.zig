@@ -576,6 +576,18 @@ pub fn build(b: *std.Build) void {
             .expected_error = "plain operation handlers cannot return reinterpret outcomes",
         },
         .{
+            .path = "test/compile_fail/interpreter_protocol_handler_nested_mutable_payload.zig",
+            .expected_error = "Program.Handler protocol request payload contains mutable string-list storage",
+        },
+        .{
+            .path = "test/compile_fail/interpreter_protocol_handler_mutable_payload.zig",
+            .expected_error = "cannot assign to constant",
+        },
+        .{
+            .path = "test/compile_fail/interpreter_reinterpreted_mutable_payload.zig",
+            .expected_error = "cannot assign to constant",
+        },
+        .{
             .path = "test/compile_fail/interpreter_foreign_site.zig",
             .expected_error = "Program.Handler site descriptor belongs to another program",
         },
