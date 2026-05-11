@@ -286,6 +286,65 @@ program. They intentionally stop at enumeration coverage; the library does not
 generate a visitor DSL, trait-style host implementation, async dispatcher, or
 automatic method dispatch.
 
+## Program.Handler and Program.Interpreter
+
+`Program.Handler` and `Program.Interpreter` are the typed handler algebra above
+`Program.Session`; they are not a new runtime and do not hide the primitive
+session machine. Handler declarations bind one function to one
+`Program.protocol` operation or after descriptor:
+
+```zig
+const Decide = Program.protocol.operationSite("approval", "request", 0);
+const Interpreter = Program.Interpreter(.{
+    Program.Handler.operation(Decide, decide),
+});
+```
+
+The handler receives a typed request and a `Control` value. `Control` exposes
+the currently parked kind, request or after trace, request fingerprint, and
+`capture(allocator)`, which copies the current continuation into a reusable
+`Program.Session.Capsule` without mutating or advancing the live session.
+`Control` is a live handler-boundary capability: store the capsule returned by
+`capture`, not the `Control` value itself.
+Request tokens remain in-process guards and are not exported as durable ids.
+
+Handlers return site-specific outcomes:
+
+- transform operation: `resume`, `suspend`, `forward`, or `fail`
+- choice operation: `resume`, `returnNow`, `suspend`, `forward`, or `fail`
+- abort operation: `returnNow`, `suspend`, `forward`, or `fail`
+- after continuation: `resumeAfter`, `suspend`, `forward`, or `fail`
+
+Invalid helper use fails at comptime where the static descriptor mode proves the
+outcome is impossible. Runtime outcome application still validates the live
+request, response ref, and typed value before resuming the session.
+
+`Program.Interpreter(.{ ... })` drives a `Program.Session` until one of three
+results is reached:
+
+- `done`: owns the ordinary `Program.Result`
+- `suspended`: owns a capsule for an explicit handler suspension
+- `unhandled`: owns a capsule for a missing handler or forwarded-unhandled site
+
+Suspended and unhandled results also include the parked kind, request or after
+trace, request fingerprint, capsule fingerprint, and reason
+(`explicit_suspend`, `unhandled`, or `forwarded_unhandled`). The host owns these
+capsules and must deinit them.
+
+Interpreters can be partial. A missing handler or `forward` outcome declines the
+current site and returns an unhandled capsule. The host can manually restore the
+capsule through `Program.Session`, or restore it and continue with another
+`Program.Interpreter`. Complete interpreters can assert coverage with
+`Interpreter.assertCoversAll()` or
+`Program.protocol.assertAllSitesCoveredBy(Interpreter)`, which reject omitted
+operation sites, omitted after sites, duplicate handlers, and foreign sites at
+comptime.
+
+Interpreter options may include `.trace_recorder`; the driver records request
+and response traces before applying typed resume, return-now, or resume-after
+outcomes. The fingerprints are the existing session fingerprints. The trace
+fingerprint version remains unchanged unless the traced contents change.
+
 ## Program.Session
 
 `Program.Session` runs the same validated `Body.compiled_plan` as a caller-owned

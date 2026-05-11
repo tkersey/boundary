@@ -205,6 +205,9 @@ it like any other plan:
   typed payload/value views, typed resume/return helpers, and response traces.
 - Coverage helpers can prove all reachable custom operation and after sites are
   handled.
+- `Program.Handler` binds typed handler functions to those descriptors, and
+  `Program.Interpreter` composes them into a continuation-aware driver over
+  `Program.Session`.
 - Optional semantic site labels appear on static yield/after sites,
   `Program.protocol` descriptors, dynamic request traces, and after traces when
   the body exposes `site_metadata`.
@@ -221,6 +224,12 @@ authoring stack for protocol-hosted control at a parked choice boundary: the
 host captures a reusable continuation capsule, restores it into independent
 branches, resumes approval in one branch, and returns denial from another.
 
+`examples/interpreter_branching.zig` shows the higher-level handler algebra over
+the same primitive. A typed choice handler captures the current continuation
+through `Control.capture`, resumes the main approval path, and later
+interpreters restore the reusable capsule into approve and deny branches. The
+main path does not hand-write a session loop.
+
 ## Preferred Path
 
 1. Define the protocol with `ability.ir.schema.Protocol`.
@@ -230,7 +239,8 @@ branches, resumes approval in one branch, and returns denial from another.
 5. Execute with `ability.program` and `Program.run`.
 6. Step host-driven runs with `Program.Session`.
 7. Bind dynamic requests with `Program.protocol`.
-8. Inspect and replay with traces and fingerprints.
+8. Compose typed continuation-aware handlers with `Program.Interpreter`.
+9. Inspect and replay with traces and fingerprints.
 
 ## Non-Goals
 
@@ -239,7 +249,8 @@ branches, resumes approval in one branch, and returns denial from another.
 - No old generated-family public API.
 - No direct-style custom effects.
 - No generated visitor DSL or trait-style host implementation.
-- No automatic host runtime.
+- No automatic host runtime. `Program.Interpreter` is a typed algebra over the
+  explicit `Program.Session` machine, not a replacement for it.
 - No VM, Artifact, parser, compiler, or source-language API.
 - No async runtime, network, or LLM integration.
 - No durable session snapshot/restore.

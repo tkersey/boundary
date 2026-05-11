@@ -11,6 +11,7 @@ build.zig
 examples/agent_loop.zig
 examples/continuation_branching.zig
 examples/custom_approval_workflow.zig
+examples/interpreter_branching.zig
 examples/plan_native_exception.zig
 examples/plan_native_optional.zig
 examples/plan_native_resource.zig
@@ -77,6 +78,12 @@ src/runtime_contract_registry.zig
 src/witnesses.zig
 test/compile_fail/custom_protocol_coverage_omitted_operation.zig
 test/compile_fail/encode_args_tuple_field_mismatch.zig
+test/compile_fail/interpreter_coverage_fake_interpreter.zig
+test/compile_fail/interpreter_coverage_omitted_after.zig
+test/compile_fail/interpreter_coverage_omitted_operation.zig
+test/compile_fail/interpreter_duplicate_handler.zig
+test/compile_fail/interpreter_foreign_site.zig
+test/compile_fail/interpreter_invalid_transform_return_now.zig
 test/compile_fail/invalid_output_cleanup_hook.zig
 test/compile_fail/invalid_result_cleanup_with_outputs.zig
 test/compile_fail/invalid_sum_extract_destination.zig
