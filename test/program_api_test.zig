@@ -6161,6 +6161,65 @@ test "Program.Session capsule preserves helper payload alias groups" {
     try std.testing.expectEqualStrings("right", result.value.items[1]);
 }
 
+test "Program.Session capsule preserves nested string-list aliases across schema clones" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        items: [][]const u8,
+    };
+    const SumPayload = union(enum) {
+        payload: Payload,
+    };
+    const AliasHandlers = struct {
+        payload: SumPayload,
+    };
+    const Body = struct {
+        pub const value_schema_types = .{ Payload, SumPayload };
+        pub const compiled_plan = sessionSumPayloadAliasPlan(Payload, SumPayload, "session-capsule-nested-payload-alias");
+
+        pub fn encodeArgs(handlers: AliasHandlers) struct { SumPayload } {
+            return .{handlers.payload};
+        }
+    };
+    const Program = ability.program("session-capsule-nested-payload-alias", AliasHandlers, Body);
+
+    var left = [_]u8{ 'l', 'e', 'f', 't' };
+    var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
+    var items = [_][]const u8{ left[0..], right[0..] };
+    var session = try Program.Session.start(&runtime, .{ .payload = .{ .payload = .{ .items = items[0..] } } });
+    defer session.deinit();
+
+    _ = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+
+    var restored = try Program.Session.restore(&runtime, .{ .payload = .{ .payload = .{ .items = items[0..] } } }, &capsule);
+    defer restored.deinit();
+    const restored_request = switch (try restored.current()) {
+        .request => |request| request,
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    };
+    var restored_payload = try restored_request.payload(Payload);
+    restored_payload.items[0] = "restored";
+
+    try restored.@"resume"(restored_request, @as(i32, 7));
+    var result = switch (try restored.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+
+    try std.testing.expectEqualStrings("restored", result.value.payload.items[0]);
+    try std.testing.expectEqualStrings("right", result.value.payload.items[1]);
+}
+
 test "Program.Session structured request payloads survive session deinit" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -7582,6 +7641,87 @@ fn sessionHelperPayloadAliasPlan(comptime Payload: type, comptime label: []const
             .{ .codec = .i32 },
         },
         .call_args = &.{root_payload.index},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn sessionSumPayloadAliasPlan(comptime Payload: type, comptime SumPayload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const sum = ability.ir.builder.local(root, 0);
+    const extracted = ability.ir.builder.local(root, 1);
+    const ignored = ability.ir.builder.local(root, 2);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.sumExtractPayload(root, extracted, sum, 0) catch unreachable,
+        ability.ir.builder.callOp(root, ignored, ability.ir.builder.op(root, 0), extracted) catch unreachable,
+        ability.ir.builder.returnValue(root, sum) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .sum,
+        .value_schema_index = 1,
+        .result_codec = .sum,
+        .result_schema_index = 1,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 3,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "sum_alias", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "payload",
+        .mode = .transform,
+        .payload_codec = .product,
+        .payload_schema_index = 0,
+        .resume_codec = .i32,
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+        .{
+            .label = @typeName(Payload),
+            .codec = .product,
+            .first_field = 0,
+            .field_count = 1,
+        },
+        .{
+            .label = @typeName(SumPayload),
+            .codec = .sum,
+            .first_field = 1,
+            .field_count = 0,
+            .first_variant = 0,
+            .variant_count = 1,
+        },
+    };
+    const value_fields = [_]ability.ir.ValueFieldPlan{.{ .name = "items", .codec = .string_list }};
+    const value_variants = [_]ability.ir.ValueVariantPlan{.{ .name = "payload", .codec = .product, .schema_index = 0 }};
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 124,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &value_variants,
+        .locals = &.{
+            .{ .codec = .sum, .schema_index = 1 },
+            .{ .codec = .product, .schema_index = 0 },
+            .{ .codec = .i32 },
+        },
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,

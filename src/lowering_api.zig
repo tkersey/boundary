@@ -4606,17 +4606,83 @@ pub fn ExecutableSessionForPlan(
             traceHashU64(hasher, try fingerprintExecutableValueForRef(ref, value));
         }
 
+        const ClonedString = struct {
+            original: []const u8,
+            cloned: []const u8,
+        };
+
+        const ClonedStringList = struct {
+            original: []const []const u8,
+            cloned: []const []const u8,
+        };
+
+        const CloneContext = struct {
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            strings: std.ArrayList(ClonedString) = .empty,
+            string_lists: std.ArrayList(ClonedStringList) = .empty,
+
+            fn init(scratch: *InterpreterScratch(session_after_stack_capacity)) @This() {
+                return .{ .scratch = scratch };
+            }
+
+            fn deinit(self: *@This()) void {
+                self.string_lists.deinit(self.scratch.allocator);
+                self.strings.deinit(self.scratch.allocator);
+            }
+
+            fn sameString(left: []const u8, right: []const u8) bool {
+                return left.ptr == right.ptr and left.len == right.len;
+            }
+
+            fn sameStringList(left: []const []const u8, right: []const []const u8) bool {
+                return left.ptr == right.ptr and left.len == right.len;
+            }
+
+            fn cloneString(self: *@This(), value: []const u8) std.mem.Allocator.Error![]const u8 {
+                for (self.strings.items) |cloned_entry| {
+                    if (sameString(cloned_entry.original, value)) return cloned_entry.cloned;
+                }
+                const cloned = try self.scratch.storeOwnedString(value);
+                try self.strings.append(self.scratch.allocator, .{
+                    .original = value,
+                    .cloned = cloned,
+                });
+                return cloned;
+            }
+
+            fn cloneStringList(self: *@This(), value: []const []const u8) std.mem.Allocator.Error![]const []const u8 {
+                for (self.string_lists.items) |cloned_entry| {
+                    if (sameStringList(cloned_entry.original, value)) return cloned_entry.cloned;
+                }
+                const cloned = try self.scratch.allocator.alloc([]const u8, value.len);
+                errdefer self.scratch.allocator.free(cloned);
+                for (value, 0..) |item, index| {
+                    cloned[index] = try self.cloneString(item);
+                }
+                try self.scratch.owned_string_lists.append(self.scratch.allocator, cloned);
+                try self.string_lists.append(self.scratch.allocator, .{
+                    .original = value,
+                    .cloned = cloned,
+                });
+                return cloned;
+            }
+
+            fn cloneMutableStringList(self: *@This(), value: []const []const u8) std.mem.Allocator.Error![][]const u8 {
+                return @constCast(try self.cloneStringList(value));
+            }
+        };
+
         fn cloneTypedRuntimeValueForRef(
             ref: program_plan.ValueRef,
-            scratch: *InterpreterScratch(session_after_stack_capacity),
+            clone_context: *CloneContext,
             value: anytype,
         ) anyerror!@TypeOf(value) {
             const ValueT = @TypeOf(value);
             if (!typeMatchesRuntimeRef(schema_types, ref, ValueT)) return error.ProgramContractViolation;
             if (ValueT == void or ValueT == bool or ValueT == i32 or ValueT == usize) return value;
-            if (ValueT == []const u8) return try scratch.storeOwnedString(value);
-            if (ValueT == []const []const u8) return try scratch.storeOwnedStringList(value);
-            if (ValueT == [][]const u8) return try scratch.storeOwnedMutableStringList(value);
+            if (ValueT == []const u8) return try clone_context.cloneString(value);
+            if (ValueT == []const []const u8) return try clone_context.cloneStringList(value);
+            if (ValueT == [][]const u8) return try clone_context.cloneMutableStringList(value);
             const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
             inline for (schema_types, 0..) |SchemaType, index| {
                 if (schema_index == index) {
@@ -4624,8 +4690,8 @@ pub fn ExecutableSessionForPlan(
                     const schema = compiled_plan.value_schemas[index];
                     if (schema.codec != ref.codec) return error.ProgramContractViolation;
                     return switch (schema.codec) {
-                        .product => cloneProductTypedValue(index, ValueT, scratch, value),
-                        .sum => cloneSumTypedValue(index, ValueT, scratch, value),
+                        .product => cloneProductTypedValue(index, ValueT, clone_context, value),
+                        .sum => cloneSumTypedValue(index, ValueT, clone_context, value),
                         else => error.ProgramContractViolation,
                     };
                 }
@@ -4636,7 +4702,7 @@ pub fn ExecutableSessionForPlan(
         fn cloneProductTypedValue(
             comptime schema_index: usize,
             comptime T: type,
-            scratch: *InterpreterScratch(session_after_stack_capacity),
+            clone_context: *CloneContext,
             value: T,
         ) anyerror!T {
             const schema = compiled_plan.value_schemas[schema_index];
@@ -4652,7 +4718,7 @@ pub fn ExecutableSessionForPlan(
                 };
                 @field(cloned, field.name) = try cloneTypedRuntimeValueForRef(
                     field_ref,
-                    scratch,
+                    clone_context,
                     @field(value, field.name),
                 );
             }
@@ -4662,7 +4728,7 @@ pub fn ExecutableSessionForPlan(
         fn cloneSumTypedValue(
             comptime schema_index: usize,
             comptime T: type,
-            scratch: *InterpreterScratch(session_after_stack_capacity),
+            clone_context: *CloneContext,
             value: T,
         ) anyerror!T {
             const schema = compiled_plan.value_schemas[schema_index];
@@ -4679,7 +4745,7 @@ pub fn ExecutableSessionForPlan(
                         .codec = variant.codec,
                         .schema_index = variant.schema_index,
                     };
-                    break :blk try cloneTypedRuntimeValueForRef(variant_ref, scratch, value.?);
+                    break :blk try cloneTypedRuntimeValueForRef(variant_ref, clone_context, value.?);
                 },
                 .@"union" => |union_info| blk: {
                     const Tag = union_info.tag_type orelse return error.ProgramContractViolation;
@@ -4695,7 +4761,7 @@ pub fn ExecutableSessionForPlan(
                             break :blk @unionInit(
                                 T,
                                 field.name,
-                                try cloneTypedRuntimeValueForRef(variant_ref, scratch, @field(value, field.name)),
+                                try cloneTypedRuntimeValueForRef(variant_ref, clone_context, @field(value, field.name)),
                             );
                         }
                     }
@@ -4705,9 +4771,9 @@ pub fn ExecutableSessionForPlan(
             };
         }
 
-        fn cloneExecutableValueForRef(
+        fn cloneExecutableValueForRefWithContext(
             ref: program_plan.ValueRef,
-            scratch: *InterpreterScratch(session_after_stack_capacity),
+            clone_context: *CloneContext,
             value: ExecutableValue,
         ) anyerror!ExecutableValue {
             if (!valueMatchesRef(ref, value)) return error.ProgramContractViolation;
@@ -4716,8 +4782,8 @@ pub fn ExecutableSessionForPlan(
                 .bool => .{ .bool = try decodeArg(.bool, value) },
                 .i32 => .{ .i32 = try decodeArg(.i32, value) },
                 .usize => .{ .usize = try decodeArg(.usize, value) },
-                .string => .{ .string = try scratch.storeOwnedString(try decodeArg(.string, value)) },
-                .string_list => .{ .string_list = try scratch.storeOwnedStringList(try decodeArg(.string_list, value)) },
+                .string => .{ .string = try clone_context.cloneString(try decodeArg(.string, value)) },
+                .string_list => .{ .string_list = try clone_context.cloneStringList(try decodeArg(.string_list, value)) },
                 .product, .sum => switch (value) {
                     .schema => |schema| blk: {
                         const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
@@ -4725,8 +4791,8 @@ pub fn ExecutableSessionForPlan(
                         inline for (schema_types, 0..) |SchemaType, index| {
                             if (schema_index == index) {
                                 const typed: *const SchemaType = @ptrCast(@alignCast(schema.ptr));
-                                const cloned = try cloneTypedRuntimeValueForRef(ref, scratch, typed.*);
-                                break :blk try scratch.storeSchemaValue(SchemaType, schema.schema_index, cloned);
+                                const cloned = try cloneTypedRuntimeValueForRef(ref, clone_context, typed.*);
+                                break :blk try clone_context.scratch.storeSchemaValue(SchemaType, schema.schema_index, cloned);
                             }
                         }
                         return error.ProgramContractViolation;
@@ -4736,14 +4802,33 @@ pub fn ExecutableSessionForPlan(
             };
         }
 
-        fn cloneExecutableValueByIdentity(
+        fn cloneExecutableValueForRef(
+            ref: program_plan.ValueRef,
             scratch: *InterpreterScratch(session_after_stack_capacity),
+            value: ExecutableValue,
+        ) anyerror!ExecutableValue {
+            var clone_context = CloneContext.init(scratch);
+            defer clone_context.deinit();
+            return cloneExecutableValueForRefWithContext(ref, &clone_context, value);
+        }
+
+        fn cloneExecutableValueByIdentityWithContext(
+            clone_context: *CloneContext,
             value: ExecutableValue,
         ) anyerror!ExecutableValue {
             return switch (value) {
                 .none => .none,
-                else => cloneExecutableValueForRef(try runtimeRefForExecutableValue(value), scratch, value),
+                else => cloneExecutableValueForRefWithContext(try runtimeRefForExecutableValue(value), clone_context, value),
             };
+        }
+
+        fn cloneExecutableValueByIdentity(
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            value: ExecutableValue,
+        ) anyerror!ExecutableValue {
+            var clone_context = CloneContext.init(scratch);
+            defer clone_context.deinit();
+            return cloneExecutableValueByIdentityWithContext(&clone_context, value);
         }
 
         const session_id_source = struct {
@@ -5563,79 +5648,83 @@ pub fn ExecutableSessionForPlan(
         fn cloneExecutableValuePreservingScratchIdentity(
             self: *const Self,
             ref: program_plan.ValueRef,
-            scratch: *InterpreterScratch(session_after_stack_capacity),
+            clone_context: *CloneContext,
             value: ExecutableValue,
         ) anyerror!ExecutableValue {
-            if (self.clonedScratchValueForOriginalIdentity(scratch, value)) |cloned| return cloned;
-            return cloneExecutableValueForRef(ref, scratch, value);
+            if (self.clonedScratchValueForOriginalIdentity(clone_context.scratch, value)) |cloned| return cloned;
+            return cloneExecutableValueForRefWithContext(ref, clone_context, value);
         }
 
         fn clonePending(
             self: *const Self,
-            scratch: *InterpreterScratch(session_after_stack_capacity),
+            clone_context: *CloneContext,
             pending: Pending,
         ) anyerror!Pending {
             return switch (pending) {
                 .op => |op| blk: {
                     var cloned = op;
-                    cloned.payload = self.clonedLocalForPendingPayload(scratch, op) orelse
-                        try cloneExecutableValueForRef(op.payload_ref, scratch, op.payload);
+                    cloned.payload = self.clonedLocalForPendingPayload(clone_context.scratch, op) orelse
+                        try cloneExecutableValueForRefWithContext(op.payload_ref, clone_context, op.payload);
                     break :blk .{ .op = cloned };
                 },
                 .after => |after| blk: {
                     var cloned = after;
-                    cloned.value = try self.cloneExecutableValuePreservingScratchIdentity(after.value_ref, scratch, after.value);
+                    cloned.value = try self.cloneExecutableValuePreservingScratchIdentity(after.value_ref, clone_context, after.value);
                     break :blk .{ .after = cloned };
                 },
             };
         }
 
-        fn cloneScratch(self: *const Self, allocator: std.mem.Allocator) anyerror!InterpreterScratch(session_after_stack_capacity) {
-            var scratch = try InterpreterScratch(session_after_stack_capacity).init(
-                allocator,
-                self.scratch.locals.items.len,
-                self.scratch.call_args.items.len,
-            );
-            errdefer scratch.deinit();
+        fn cloneScratchInto(
+            self: *const Self,
+            clone_context: *CloneContext,
+        ) anyerror!void {
+            const scratch = clone_context.scratch;
 
-            try scratch.locals.resize(allocator, self.scratch.locals.items.len);
+            try scratch.locals.resize(scratch.allocator, self.scratch.locals.items.len);
             for (self.scratch.locals.items, 0..) |value, index| {
-                scratch.locals.items[index] = self.clonedPriorScratchValueForOriginalIdentity(&scratch, value, index, 0) orelse
-                    try cloneExecutableValueByIdentity(&scratch, value);
+                scratch.locals.items[index] = self.clonedPriorScratchValueForOriginalIdentity(scratch, value, index, 0) orelse
+                    try cloneExecutableValueByIdentityWithContext(clone_context, value);
             }
 
-            try scratch.call_args.resize(allocator, self.scratch.call_args.items.len);
+            try scratch.call_args.resize(scratch.allocator, self.scratch.call_args.items.len);
             for (self.scratch.call_args.items, 0..) |value, index| {
-                scratch.call_args.items[index] = self.clonedPriorScratchValueForOriginalIdentity(&scratch, value, self.scratch.locals.items.len, index) orelse
-                    try cloneExecutableValueByIdentity(&scratch, value);
+                scratch.call_args.items[index] = self.clonedPriorScratchValueForOriginalIdentity(scratch, value, self.scratch.locals.items.len, index) orelse
+                    try cloneExecutableValueByIdentityWithContext(clone_context, value);
             }
 
             scratch.after_stack = self.scratch.after_stack;
             scratch.after_stack_len = self.scratch.after_stack_len;
-            return scratch;
         }
 
         fn cloneFrames(
             self: *const Self,
             allocator: std.mem.Allocator,
-            scratch: *InterpreterScratch(session_after_stack_capacity),
+            clone_context: *CloneContext,
         ) anyerror!ActiveFrameStack {
             var frames = try ActiveFrameStack.init(allocator, self.frames.len());
             errdefer frames.deinit(allocator);
             var index: usize = 0;
             while (index < self.frames.len()) : (index += 1) {
                 var frame = self.frames.at(index) orelse return error.ProgramContractViolation;
-                frame.last_return = self.clonedScratchValueForOriginalIdentity(scratch, frame.last_return) orelse
-                    try cloneExecutableValueByIdentity(scratch, frame.last_return);
+                frame.last_return = self.clonedScratchValueForOriginalIdentity(clone_context.scratch, frame.last_return) orelse
+                    try cloneExecutableValueByIdentityWithContext(clone_context, frame.last_return);
                 try frames.append(allocator, frame);
             }
             return frames;
         }
 
         fn cloneState(self: *const Self, allocator: std.mem.Allocator) anyerror!Self {
-            var scratch = try self.cloneScratch(allocator);
+            var scratch = try InterpreterScratch(session_after_stack_capacity).init(
+                allocator,
+                self.scratch.locals.items.len,
+                self.scratch.call_args.items.len,
+            );
             errdefer scratch.deinit();
-            var frames = try self.cloneFrames(allocator, &scratch);
+            var clone_context = CloneContext.init(&scratch);
+            defer clone_context.deinit();
+            try self.cloneScratchInto(&clone_context);
+            var frames = try self.cloneFrames(allocator, &clone_context);
             errdefer frames.deinit(allocator);
 
             var core: Self = .{
@@ -5651,15 +5740,16 @@ pub fn ExecutableSessionForPlan(
             scratch = .{ .allocator = allocator };
             frames = .{};
             errdefer core.deinit();
+            clone_context.scratch = &core.scratch;
 
             if (self.pending) |pending| {
-                core.pending = try self.clonePending(&core.scratch, pending);
+                core.pending = try self.clonePending(&clone_context, pending);
             }
 
             if (self.unwinding_after) |unwind| {
                 core.unwinding_after = .{
                     .function_index = unwind.function_index,
-                    .value = try self.cloneExecutableValuePreservingScratchIdentity(unwind.current_ref, &core.scratch, unwind.value),
+                    .value = try self.cloneExecutableValuePreservingScratchIdentity(unwind.current_ref, &clone_context, unwind.value),
                     .current_ref = unwind.current_ref,
                     .final_ref = unwind.final_ref,
                     .remaining = unwind.remaining,
@@ -5667,7 +5757,7 @@ pub fn ExecutableSessionForPlan(
             }
             if (self.completed) |completed| {
                 core.completed = .{
-                    .value = try self.cloneExecutableValuePreservingScratchIdentity(program_plan.functionResultRef(entry), &core.scratch, completed.value),
+                    .value = try self.cloneExecutableValuePreservingScratchIdentity(program_plan.functionResultRef(entry), &clone_context, completed.value),
                     .terminal = completed.terminal,
                 };
             }
