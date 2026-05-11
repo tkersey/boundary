@@ -1508,6 +1508,9 @@ pub const schema = struct {
                 inline for (protocol_ops, 0..) |OpSchema, ordinal| {
                     if (standard.mem.eql(u8, OpSchema.name, name)) {
                         const op_mode_value = comptime schemaControlMode(OpSchema.control_mode);
+                        if (comptime op_mode_value == .transform and @hasField(OptionsType, "Result")) {
+                            @compileError("schema.Protocol transform operation does not accept Result");
+                        }
                         const payload_ref_value = comptime protocolRefForType(OpSchema.Payload, "payload", schema_refs);
                         const resume_ref_value = comptime protocolRefForType(OpSchema.Resume, "resume", schema_refs);
                         const result_ref_value = comptime protocolRefForType(ResultType, "result", schema_refs);
@@ -1516,8 +1519,11 @@ pub const schema = struct {
                             OpSchema.name,
                             @intCast(ordinal),
                             op_mode_value,
+                            OpSchema.Payload,
                             payload_ref_value,
+                            OpSchema.Resume,
                             resume_ref_value,
+                            ResultType,
                             result_ref_value,
                         );
                         const descriptor_protocol_label = protocol_family_label;
@@ -1891,11 +1897,15 @@ pub const schema = struct {
     }
 
     fn protocolHashU16(hasher: *standard.hash.Wyhash, raw_value: u16) void {
-        hasher.update(standard.mem.asBytes(&raw_value));
+        var bytes: [2]u8 = undefined;
+        standard.mem.writeInt(u16, &bytes, raw_value, .little);
+        hasher.update(&bytes);
     }
 
     fn protocolHashUsize(hasher: *standard.hash.Wyhash, raw_value: usize) void {
-        hasher.update(standard.mem.asBytes(&raw_value));
+        var bytes: [8]u8 = undefined;
+        standard.mem.writeInt(u64, &bytes, @intCast(raw_value), .little);
+        hasher.update(&bytes);
     }
 
     fn protocolHashBytes(hasher: *standard.hash.Wyhash, bytes: []const u8) void {
@@ -1912,13 +1922,20 @@ pub const schema = struct {
         }
     }
 
+    fn protocolHashTypeIdentity(hasher: *standard.hash.Wyhash, comptime ValueType: type) void {
+        protocolHashBytes(hasher, @typeName(ValueType));
+    }
+
     fn protocolOperationFingerprint(
         comptime protocol_label: []const u8,
         comptime op_name: []const u8,
         comptime op_ordinal: u16,
         comptime mode: program_plan.ControlMode,
+        comptime Payload: type,
         comptime payload_ref: program_plan.ValueRef,
+        comptime Resume: type,
         comptime resume_ref: program_plan.ValueRef,
+        comptime Result: type,
         comptime result_ref: program_plan.ValueRef,
     ) u64 {
         @setEvalBranchQuota(10_000);
@@ -1928,8 +1945,11 @@ pub const schema = struct {
         protocolHashBytes(&hasher, op_name);
         protocolHashU16(&hasher, op_ordinal);
         protocolHashBytes(&hasher, @tagName(mode));
+        protocolHashTypeIdentity(&hasher, Payload);
         protocolHashValueRef(&hasher, payload_ref);
+        protocolHashTypeIdentity(&hasher, Resume);
         protocolHashValueRef(&hasher, resume_ref);
+        protocolHashTypeIdentity(&hasher, Result);
         protocolHashValueRef(&hasher, result_ref);
         return hasher.final();
     }
@@ -2559,9 +2579,18 @@ test "schema Protocol exposes protocol-level operation descriptors" {
     const PolicyRequest = struct {
         subject: []const u8,
     };
+    const AlternateRequest = struct {
+        resource: []const u8,
+    };
     const PolicyDecision = enum {
         allow,
         deny,
+    };
+    const ResultNote = struct {
+        message: []const u8,
+    };
+    const AlternateResultNote = struct {
+        code: i32,
     };
     const Policy = schema.Protocol(.{
         .label = "policy",
@@ -2571,12 +2600,30 @@ test "schema Protocol exposes protocol-level operation descriptors" {
             schema.abort("reject", PolicyRequest),
         },
     });
+    const AlternatePolicy = schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            schema.transform("check", AlternateRequest, PolicyDecision),
+        },
+    });
     const Schemas = schema.Registry(.{ PolicyRequest, PolicyDecision });
+    const AlternateSchemas = schema.Registry(.{ AlternateRequest, PolicyDecision });
+    const ResultSchemas = schema.Registry(.{ PolicyRequest, PolicyDecision, ResultNote });
+    const AlternateResultSchemas = schema.Registry(.{ PolicyRequest, PolicyDecision, AlternateResultNote });
 
     const Check = Policy.operation("check", .{ .schema_refs = Schemas.schema_refs });
+    const AlternateCheck = AlternatePolicy.operation("check", .{ .schema_refs = AlternateSchemas.schema_refs });
     const Decide = Policy.op("decide", .{
         .schema_refs = Schemas.schema_refs,
         .Result = []const u8,
+    });
+    const DecideResultNote = Policy.op("decide", .{
+        .schema_refs = ResultSchemas.schema_refs,
+        .Result = ResultNote,
+    });
+    const DecideAlternateResultNote = Policy.op("decide", .{
+        .schema_refs = AlternateResultSchemas.schema_refs,
+        .Result = AlternateResultNote,
     });
     const Reject = Policy.operation("reject", .{
         .schema_refs = Schemas.schema_refs,
@@ -2600,11 +2647,13 @@ test "schema Protocol exposes protocol-level operation descriptors" {
     try standard.testing.expect(Check.may_resume);
     try standard.testing.expect(!Check.may_return_now);
     try standard.testing.expectEqual(Check.fingerprint, CheckAgain.fingerprint);
+    try standard.testing.expect(Check.fingerprint != AlternateCheck.fingerprint);
 
     try standard.testing.expectEqual(program_plan.ControlMode.choice, Decide.mode);
     try standard.testing.expectEqual(program_plan.ValueCodec.string, Decide.result_ref.codec);
     try standard.testing.expect(Decide.may_resume);
     try standard.testing.expect(Decide.may_return_now);
+    try standard.testing.expect(DecideResultNote.fingerprint != DecideAlternateResultNote.fingerprint);
 
     try standard.testing.expectEqual(program_plan.ControlMode.abort, Reject.mode);
     try standard.testing.expectEqual(program_plan.ValueCodec.sum, Reject.result_ref.codec);

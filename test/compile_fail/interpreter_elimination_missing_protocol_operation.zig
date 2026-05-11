@@ -67,15 +67,11 @@ const Mapper = struct {
     }
 };
 const Handler = struct {
-    pub fn handle(_: anytype, _: anytype, _: Program.Handler.Control) Program.Handler.Outcome(Site) {
-        return Program.Handler.reinterpret(Site, Check, {}, Mapper);
+    pub fn handle(_: anytype, _: anytype, _: Program.Handler.Control) Program.Handler.MorphismOutcome(Morphism) {
+        return Program.Handler.reinterpret(Morphism, {});
     }
 };
-const Morphism = Program.Morphism(.{
-    .source = Site,
-    .target = Check,
-    .Mapper = Mapper,
-});
+const Morphism = Program.Morphism(.{ .source = Site, .target = Check, .Mapper = Mapper });
 const Interpreter = Program.Interpreter(.{
     Program.Handler.morphism(Morphism, Handler.handle),
 });

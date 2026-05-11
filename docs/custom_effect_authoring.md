@@ -210,9 +210,10 @@ it like any other plan:
   `Program.Session`.
 - `schema.Protocol.operation("op", .{ .schema_refs = ... })` provides a typed
   protocol-level operation descriptor independent of any static Program yield
-  site. Handlers can use it with `Program.Handler.reinterpret` to translate a
-  source Program operation into another protocol operation while preserving the
-  source continuation as a capsule.
+  site. Handlers declared with `Program.Handler.morphism` can use
+  `Program.Handler.reinterpret` to translate a source Program operation into
+  another protocol operation while preserving the source continuation as a
+  capsule.
 - `Program.Handler.protocolOperation(TargetOp, handler)` handles those emitted
   protocol requests. The target response is mapped back through a comptime
   mapper into a valid source-site outcome, so composed interpreters can

@@ -5,7 +5,7 @@ fn plan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const value = ability.ir.builder.local(root, 0);
     const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, value, ability.ir.builder.op(root, 0), null) catch unreachable,
+        .{ .kind = .const_i32, .dst = value.index, .operand = 1 },
         ability.ir.builder.returnValue(root, value) catch unreachable,
     };
     const functions = [_]ability.ir.plan.Function{.{
@@ -13,7 +13,7 @@ fn plan(comptime label: []const u8) ability.ir.ProgramPlan {
         .value_codec = .i32,
         .result_codec = .i32,
         .first_requirement = 0,
-        .requirement_count = 1,
+        .requirement_count = 0,
         .first_output = 0,
         .output_count = 0,
         .first_local = 0,
@@ -24,23 +24,15 @@ fn plan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "protocol", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
-        .requirement_index = 0,
-        .op_name = "step",
-        .mode = .transform,
-        .payload_codec = .unit,
-        .resume_codec = .i32,
-    }};
     const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
     const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
     return ability.ir.builder.finish(.{
         .label = label,
-        .ir_hash = 119,
+        .ir_hash = 126,
         .entry = root,
         .functions = &functions,
-        .requirements = &requirements,
-        .ops = &ops,
+        .requirements = &.{},
+        .ops = &.{},
         .outputs = &.{},
         .locals = &.{.{ .codec = .i32 }},
         .blocks = &blocks,
@@ -50,24 +42,16 @@ fn plan(comptime label: []const u8) ability.ir.ProgramPlan {
 }
 
 const Body = struct {
-    pub const compiled_plan = plan("reinterpret-invalid-mapper");
+    pub const compiled_plan = plan("interpreter-effect-row-owner");
 };
-const Program = ability.program("reinterpret-invalid-mapper", struct {}, Body);
-const Site = Program.protocol.operationSite("protocol", "step", 0);
-const Policy = ability.ir.schema.Protocol(.{
-    .label = "policy",
-    .ops = .{
-        ability.ir.schema.transform("check", void, bool),
-    },
-});
-const Check = Policy.operation("check", .{});
-const Mapper = struct {
-    pub fn @"resume"(_: bool) i32 {
-        return 1;
-    }
+const OtherBody = struct {
+    pub const compiled_plan = plan("interpreter-effect-row-foreign");
 };
-const Morphism = Program.Morphism(.{ .source = Site, .target = Check, .Mapper = Mapper });
+const Program = ability.program("interpreter-effect-row-owner", struct {}, Body);
+const OtherProgram = ability.program("interpreter-effect-row-foreign", struct {}, OtherBody);
+const Interpreter = Program.Interpreter(.{});
 
 comptime {
-    _ = Program.Handler.reinterpret(Morphism, {});
+    const count = Interpreter.effectRow(OtherProgram).handled_operation_sites;
+    _ = count;
 }

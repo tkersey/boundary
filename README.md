@@ -199,8 +199,9 @@ request or after-continuation.
 
 Handlers can also act as effect morphisms. `schema.Protocol.operation("op",
 .{ .schema_refs = ... })` derives a typed protocol-level operation descriptor
-that is independent of any compiled `Program` yield site. A morphism handler can
-return `Handler.reinterpret(SourceSite, TargetOp, payload, Mapper)`: the
+	that is independent of any compiled `Program` yield site. A handler declared with
+	`Program.Handler.morphism(Morphism, handler)` can return
+	`Handler.reinterpret(Morphism, payload)`: the
 interpreter captures the source continuation as a `Program.Session.Capsule`,
 emits an inspectable `Program.ProtocolRequest(SourceSite, TargetOp)`, and later
 maps the target protocol response back into a source-site outcome through the
@@ -215,8 +216,8 @@ until it returns `done`, `suspended`, `unhandled`, or `reinterpreted`. Suspended
 and unhandled results own a capsule plus parked-kind, trace, request
 fingerprint, capsule fingerprint, and reason metadata. A reinterpreted result
 owns the source capsule plus source request/capsule fingerprints, target protocol
-label/op/mode/ref metadata, target payload value and fingerprint, mapper
-fingerprint, and a separate reinterpretation fingerprint. Partial interpreters
+label/op/mode/ref metadata, target payload value and fingerprint, morphism
+witness fingerprint, and a separate reinterpretation fingerprint. Partial interpreters
 are valid: missing handlers or explicit `forward` return an owned unhandled
 capsule, and an unhandled target protocol request returns `reinterpreted` to the
 host. Complete interpreters can call `assertCoversAll()` or `assertEliminates()`;

@@ -36,7 +36,7 @@ fn plan(comptime label: []const u8) ability.ir.ProgramPlan {
     const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
     return ability.ir.builder.finish(.{
         .label = label,
-        .ir_hash = 119,
+        .ir_hash = 123,
         .entry = root,
         .functions = &functions,
         .requirements = &requirements,
@@ -50,9 +50,9 @@ fn plan(comptime label: []const u8) ability.ir.ProgramPlan {
 }
 
 const Body = struct {
-    pub const compiled_plan = plan("reinterpret-invalid-mapper");
+    pub const compiled_plan = plan("interpreter-plain-operation-reinterpret");
 };
-const Program = ability.program("reinterpret-invalid-mapper", struct {}, Body);
+const Program = ability.program("interpreter-plain-operation-reinterpret", struct {}, Body);
 const Site = Program.protocol.operationSite("protocol", "step", 0);
 const Policy = ability.ir.schema.Protocol(.{
     .label = "policy",
@@ -62,12 +62,14 @@ const Policy = ability.ir.schema.Protocol(.{
 });
 const Check = Policy.operation("check", .{});
 const Mapper = struct {
-    pub fn @"resume"(_: bool) i32 {
-        return 1;
+    pub fn @"resume"(_: bool) Program.Handler.SourceOutcome(Site) {
+        return Program.Handler.@"resume"(Site, 1);
     }
 };
 const Morphism = Program.Morphism(.{ .source = Site, .target = Check, .Mapper = Mapper });
 
 comptime {
-    _ = Program.Handler.reinterpret(Morphism, {});
+    if (@TypeOf(Program.Handler.reinterpret(Morphism, {})) != Program.Handler.Outcome(Site)) {
+        @compileError("plain operation handlers cannot return reinterpret outcomes");
+    }
 }

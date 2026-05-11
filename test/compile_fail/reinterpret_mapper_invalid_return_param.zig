@@ -36,7 +36,7 @@ fn plan(comptime label: []const u8) ability.ir.ProgramPlan {
     const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
     return ability.ir.builder.finish(.{
         .label = label,
-        .ir_hash = 119,
+        .ir_hash = 121,
         .entry = root,
         .functions = &functions,
         .requirements = &requirements,
@@ -50,20 +50,24 @@ fn plan(comptime label: []const u8) ability.ir.ProgramPlan {
 }
 
 const Body = struct {
-    pub const compiled_plan = plan("reinterpret-invalid-mapper");
+    pub const compiled_plan = plan("reinterpret-invalid-return-param");
 };
-const Program = ability.program("reinterpret-invalid-mapper", struct {}, Body);
+const Program = ability.program("reinterpret-invalid-return-param", struct {}, Body);
 const Site = Program.protocol.operationSite("protocol", "step", 0);
 const Policy = ability.ir.schema.Protocol(.{
     .label = "policy",
     .ops = .{
-        ability.ir.schema.transform("check", void, bool),
+        ability.ir.schema.choice("check", void, bool),
     },
 });
-const Check = Policy.operation("check", .{});
+const Check = Policy.operation("check", .{ .Result = i32 });
 const Mapper = struct {
-    pub fn @"resume"(_: bool) i32 {
-        return 1;
+    pub fn @"resume"(_: bool) Program.Handler.SourceOutcome(Site) {
+        return Program.Handler.@"resume"(Site, 1);
+    }
+
+    pub fn returnNow(_: bool) Program.Handler.SourceOutcome(Site) {
+        return Program.Handler.@"resume"(Site, 2);
     }
 };
 const Morphism = Program.Morphism(.{ .source = Site, .target = Check, .Mapper = Mapper });

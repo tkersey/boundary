@@ -335,13 +335,16 @@ The descriptor exposes protocol label, op name, mode, `Payload`, `Resume`,
 `Result`, payload/resume/result refs, and a deterministic protocol-operation
 fingerprint. Product and sum payload/resume/result refs require the caller to
 pass a `schema.Registry` through `.schema_refs`; scalar refs use the existing
-scalar schema refs.
+scalar schema refs. Descriptor fingerprints include both the declared value refs
+and the concrete payload/resume/result type identities, so equal schema indexes
+from different registries do not alias distinct protocol operations.
 
 Handlers can use these descriptors as target effect constructors. A
 `Program.Morphism(.{ .source = SourceSite, .target = TargetOp, .Mapper = Mapper
 })` proves the source Program operation site and target protocol operation
-match the typed mapper. `Program.Handler.reinterpret(SourceSite, TargetOp,
-payload, Mapper)` captures the source continuation as a
+match the typed mapper. A handler declared with `Program.Handler.morphism` may
+return `Program.Handler.reinterpret(Morphism, payload)`, which captures the
+source continuation as a
 `Program.Session.Capsule`, builds an inspectable
 `Program.ProtocolRequest(SourceSite, TargetOp)`, and attaches mapper functions
 that convert target `resume` or `return_now` responses back into a valid
@@ -374,16 +377,16 @@ results is reached:
 - `suspended`: owns a capsule for an explicit handler suspension
 - `unhandled`: owns a capsule for a missing handler or forwarded-unhandled site
 - `reinterpreted`: owns the source capsule plus target protocol request data for
-  an unhandled reinterpreted protocol operation
+  a missing or explicitly forwarded target protocol operation
 
 Suspended and unhandled results also include the parked kind, request or after
 trace, request fingerprint, capsule fingerprint, and reason
 (`explicit_suspend`, `unhandled`, or `forwarded_unhandled`). The host owns these
-capsules and must deinit them. Reinterpreted results include the source request
-fingerprint, source site fingerprint, source capsule fingerprint, target
+capsules and must deinit them. Reinterpreted results include the stop reason,
+source request fingerprint, source site fingerprint, source capsule fingerprint, target
 protocol label/op/mode, target payload/ref metadata, target payload fingerprint,
-target protocol-op fingerprint, mapper fingerprint, optional semantic label, and
-a separate reinterpretation fingerprint.
+target protocol-op fingerprint, morphism witness fingerprint, optional semantic
+label, and a separate reinterpretation fingerprint.
 
 Interpreters can be partial. A missing handler or `forward` outcome declines the
 current site and returns an unhandled capsule. The host can manually restore the

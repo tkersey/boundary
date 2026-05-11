@@ -286,6 +286,34 @@ fn ProgramValueRefForType(comptime schema_types: anytype, comptime ValueType: ty
     @compileError("Program.Handler value type is not representable by this Program: " ++ @typeName(ValueType));
 }
 
+fn ProgramValueCodecForType(comptime ValueType: type) lowering_api.ValueCodec {
+    if (ValueType == void) return .unit;
+    if (ValueType == bool) return .bool;
+    if (ValueType == i32) return .i32;
+    if (ValueType == usize) return .usize;
+    if (ValueType == []const u8) return .string;
+    if (ValueType == []const []const u8 or ValueType == [][]const u8) return .string_list;
+    return switch (@typeInfo(ValueType)) {
+        .@"struct" => .product,
+        .@"enum", .@"union", .optional => .sum,
+        else => @compileError("Program.Handler value type is not representable by Program values: " ++ @typeName(ValueType)),
+    };
+}
+
+fn ProgramValueRefCompatibleWithType(ref: lowering_api.ValueRef, comptime ValueType: type) bool {
+    const codec = comptime ProgramValueCodecForType(ValueType);
+    if (ref.codec != codec) return false;
+    return switch (codec) {
+        .product, .sum => true,
+        else => ref.schema_index == null,
+    };
+}
+
+fn ProgramValueStandaloneRefForType(comptime ValueType: type) lowering_api.ValueRef {
+    const codec = comptime ProgramValueCodecForType(ValueType);
+    return .{ .codec = codec };
+}
+
 fn ProgramErrorSet(comptime Body: type) type {
     if (comptime hasDeclSafe(Body, "Error")) return lowered_machine.ResetError(Body.Error);
     return lowered_machine.ResetError(error{});
@@ -620,6 +648,7 @@ fn ProgramProtocolFor(
     const plan_hash = plan.hash();
 
     return struct {
+        pub const Owner = ProtocolOwner;
         pub const label = program_label;
         pub const hash = plan_hash;
         pub const operation_site_count = operation_sites.len;
@@ -1199,6 +1228,8 @@ pub fn program(
     const Outputs = ProgramOutputsType(Body);
 
     return struct {
+        const InterpreterToken = InterpreterAuthenticityToken;
+
         /// Runtime-owned executable plan for this public program.
         pub const compiled_plan = body_compiled_plan;
         /// Read-only projection of the compiled ProgramPlan contract.
@@ -1380,6 +1411,13 @@ pub fn program(
                 /// Return the deterministic continuation fingerprint.
                 pub fn fingerprint(self: *const @This()) u64 {
                     return self._core.fingerprint();
+                }
+
+                /// Return an independent owned copy of this reusable capsule.
+                pub fn clone(self: *const @This(), allocator: std.mem.Allocator) Error!@This() {
+                    return .{
+                        ._core = self._core.clone(allocator) catch |err| return mapProgramRunError(Error, err),
+                    };
                 }
             };
             /// One session step: either a terminal result, yielded operation request, or yielded after continuation.
@@ -1679,15 +1717,27 @@ pub fn program(
         }
 
         fn hashU32(hasher: *std.hash.Wyhash, value: u32) void {
-            hasher.update(std.mem.asBytes(&value));
+            var bytes: [4]u8 = undefined;
+            std.mem.writeInt(u32, &bytes, value, .little);
+            hasher.update(&bytes);
+        }
+
+        fn hashI32(hasher: *std.hash.Wyhash, value: i32) void {
+            hashU32(hasher, @bitCast(value));
         }
 
         fn hashU64(hasher: *std.hash.Wyhash, value: u64) void {
-            hasher.update(std.mem.asBytes(&value));
+            var bytes: [8]u8 = undefined;
+            std.mem.writeInt(u64, &bytes, value, .little);
+            hasher.update(&bytes);
         }
 
         fn hashUsize(hasher: *std.hash.Wyhash, value: usize) void {
-            hasher.update(std.mem.asBytes(&value));
+            hashU64(hasher, @intCast(value));
+        }
+
+        fn hashBool(hasher: *std.hash.Wyhash, value: bool) void {
+            hasher.update(&[_]u8{@intFromBool(value)});
         }
 
         fn hashBytes(hasher: *std.hash.Wyhash, bytes: []const u8) void {
@@ -1705,14 +1755,18 @@ pub fn program(
             }
         }
 
+        fn hashProgramValueTypeIdentity(hasher: *std.hash.Wyhash, comptime ValueType: type) void {
+            hashBytes(hasher, @typeName(ValueType));
+        }
+
         fn hashTypedPayload(hasher: *std.hash.Wyhash, comptime ref: lowering_api.ValueRef, value: anytype) Error!void {
             const ValueType = @TypeOf(value);
             if (!ref.eql(ProgramValueRefForType(body_value_schema_types, ValueType))) return error.ProgramContractViolation;
             switch (ref.codec) {
                 .unit => {},
-                .bool => hasher.update(std.mem.asBytes(&value)),
-                .i32 => hasher.update(std.mem.asBytes(&value)),
-                .usize => hasher.update(std.mem.asBytes(&value)),
+                .bool => hashBool(hasher, value),
+                .i32 => hashI32(hasher, value),
+                .usize => hashUsize(hasher, value),
                 .string => hashBytes(hasher, value),
                 .string_list => {
                     hashUsize(hasher, value.len);
@@ -1766,6 +1820,149 @@ pub fn program(
             return hasher.final();
         }
 
+        fn hashTypedProtocolPayload(hasher: *std.hash.Wyhash, comptime ref: lowering_api.ValueRef, value: anytype) Error!void {
+            const ValueType = @TypeOf(value);
+            if (comptime !ProgramValueRefCompatibleWithType(ref, ValueType)) return error.ProgramContractViolation;
+            hashProgramValueTypeIdentity(hasher, ValueType);
+            switch (ref.codec) {
+                .unit => {},
+                .bool => hashBool(hasher, value),
+                .i32 => hashI32(hasher, value),
+                .usize => hashUsize(hasher, value),
+                .string => hashBytes(hasher, value),
+                .string_list => {
+                    hashUsize(hasher, value.len);
+                    for (value) |item| hashBytes(hasher, item);
+                },
+                .product => {
+                    const info = @typeInfo(ValueType).@"struct";
+                    inline for (info.fields) |field| {
+                        hashBytes(hasher, field.name);
+                        const field_ref = comptime ProgramValueStandaloneRefForType(field.type);
+                        hashValueRef(hasher, field_ref);
+                        try hashTypedProtocolPayload(hasher, field_ref, @field(value, field.name));
+                    }
+                },
+                .sum => switch (@typeInfo(ValueType)) {
+                    .@"enum" => hashBytes(hasher, @tagName(value)),
+                    .optional => {
+                        if (value) |payload| {
+                            hashBytes(hasher, "some");
+                            const payload_ref = comptime ProgramValueStandaloneRefForType(@TypeOf(payload));
+                            hashValueRef(hasher, payload_ref);
+                            try hashTypedProtocolPayload(hasher, payload_ref, payload);
+                        } else {
+                            hashBytes(hasher, "none");
+                        }
+                    },
+                    .@"union" => |union_info| {
+                        const tag = std.meta.activeTag(value);
+                        hashBytes(hasher, @tagName(tag));
+                        inline for (union_info.fields) |field| {
+                            if (tag == @field(union_info.tag_type.?, field.name)) {
+                                if (field.type == void) return;
+                                const payload_ref = comptime ProgramValueStandaloneRefForType(field.type);
+                                hashValueRef(hasher, payload_ref);
+                                try hashTypedProtocolPayload(hasher, payload_ref, @field(value, field.name));
+                                return;
+                            }
+                        }
+                    },
+                    else => return error.ProgramContractViolation,
+                },
+            }
+        }
+
+        fn fingerprintTypedProtocolValue(comptime ref: lowering_api.ValueRef, value: anytype) Error!u64 {
+            var hasher = std.hash.Wyhash.init(0);
+            hashBytes(&hasher, "ability.session.protocol_value");
+            hashU32(&hasher, reinterpret_fingerprint_version);
+            hashValueRef(&hasher, ref);
+            try hashTypedProtocolPayload(&hasher, ref, value);
+            return hasher.final();
+        }
+
+        fn cloneProgramValue(allocator: std.mem.Allocator, comptime ValueType: type, value: ValueType) Error!ValueType {
+            if (ValueType == void or ValueType == bool or ValueType == i32 or ValueType == usize) return value;
+            if (ValueType == []const u8) return allocator.dupe(u8, value) catch |err| return mapProgramRunError(Error, err);
+            if (ValueType == []const []const u8 or ValueType == [][]const u8) {
+                const cloned = allocator.alloc([]const u8, value.len) catch |err| return mapProgramRunError(Error, err);
+                var initialized: usize = 0;
+                errdefer {
+                    for (cloned[0..initialized]) |item| allocator.free(item);
+                    allocator.free(cloned);
+                }
+                for (value, 0..) |item, index| {
+                    cloned[index] = allocator.dupe(u8, item) catch |err| return mapProgramRunError(Error, err);
+                    initialized += 1;
+                }
+                return cloned;
+            }
+            return switch (@typeInfo(ValueType)) {
+                .@"enum" => value,
+                .optional => |optional| if (value) |payload|
+                    try cloneProgramValue(allocator, optional.child, payload)
+                else
+                    null,
+                .@"struct" => |info| blk: {
+                    var result: ValueType = undefined;
+                    var initialized_fields: usize = 0;
+                    errdefer inline for (info.fields, 0..) |field, field_index| {
+                        if (field_index < initialized_fields) {
+                            deinitProgramValue(allocator, field.type, @field(result, field.name));
+                        }
+                    };
+                    inline for (info.fields) |field| {
+                        @field(result, field.name) = try cloneProgramValue(allocator, field.type, @field(value, field.name));
+                        initialized_fields += 1;
+                    }
+                    break :blk result;
+                },
+                .@"union" => |union_info| blk: {
+                    const Tag = union_info.tag_type orelse return error.ProgramContractViolation;
+                    const tag = std.meta.activeTag(value);
+                    inline for (union_info.fields) |field| {
+                        if (tag == @field(Tag, field.name)) {
+                            if (field.type == void) break :blk @unionInit(ValueType, field.name, {});
+                            const cloned = try cloneProgramValue(allocator, field.type, @field(value, field.name));
+                            break :blk @unionInit(ValueType, field.name, cloned);
+                        }
+                    }
+                    return error.ProgramContractViolation;
+                },
+                else => return error.ProgramContractViolation,
+            };
+        }
+
+        fn deinitProgramValue(allocator: std.mem.Allocator, comptime ValueType: type, value: ValueType) void {
+            if (ValueType == []const u8) {
+                allocator.free(value);
+                return;
+            }
+            if (ValueType == []const []const u8 or ValueType == [][]const u8) {
+                for (value) |item| allocator.free(item);
+                allocator.free(value);
+                return;
+            }
+            switch (@typeInfo(ValueType)) {
+                .optional => |optional| if (value) |payload| deinitProgramValue(allocator, optional.child, payload),
+                .@"struct" => |info| inline for (info.fields) |field| {
+                    deinitProgramValue(allocator, field.type, @field(value, field.name));
+                },
+                .@"union" => |union_info| {
+                    if (union_info.tag_type) |Tag| {
+                        const tag = std.meta.activeTag(value);
+                        inline for (union_info.fields) |field| {
+                            if (tag == @field(Tag, field.name)) {
+                                if (field.type != void) deinitProgramValue(allocator, field.type, @field(value, field.name));
+                            }
+                        }
+                    }
+                },
+                else => {},
+            }
+        }
+
         fn reinterpretFingerprint(
             source_request_fingerprint: u64,
             source_capsule_fingerprint: u64,
@@ -1779,6 +1976,30 @@ pub fn program(
             hashU64(&hasher, source_capsule_fingerprint);
             hashU64(&hasher, target_operation_fingerprint);
             hashU64(&hasher, target_payload_fingerprint);
+            return hasher.final();
+        }
+
+        fn mapperIdentityFingerprint(comptime Mapper: type) u64 {
+            var hasher = std.hash.Wyhash.init(0);
+            hashBytes(&hasher, "ability.program.mapper");
+            hashU32(&hasher, reinterpret_fingerprint_version);
+            hashBytes(&hasher, @typeName(Mapper));
+            if (comptime hasDeclSafe(Mapper, "identity_fingerprint")) {
+                hashU64(&hasher, Mapper.identity_fingerprint);
+            } else if (comptime hasDeclSafe(Mapper, "fingerprint")) {
+                hashU64(&hasher, Mapper.fingerprint);
+            }
+            return hasher.final();
+        }
+
+        fn morphismFingerprint(comptime SourceSite: type, comptime TargetOp: type, comptime Mapper: type) u64 {
+            var hasher = std.hash.Wyhash.init(0);
+            hashBytes(&hasher, "ability.program.morphism");
+            hashU32(&hasher, reinterpret_fingerprint_version);
+            hashU64(&hasher, SourceSite.owner_plan_hash);
+            hashU64(&hasher, SourceSite.fingerprint);
+            hashU64(&hasher, TargetOp.fingerprint);
+            hashU64(&hasher, mapperIdentityFingerprint(Mapper));
             return hasher.final();
         }
 
@@ -1799,13 +2020,8 @@ pub fn program(
                 pub const target = TargetOp;
                 /// Comptime mapper from target responses back to source outcomes.
                 pub const Mapper = spec.Mapper;
-                /// Stable morphism fingerprint over source and target identities.
-                pub const fingerprint: u64 = reinterpretFingerprint(
-                    SourceSite.fingerprint,
-                    SourceSite.owner_plan_hash,
-                    TargetOp.fingerprint,
-                    0,
-                );
+                /// Stable morphism witness fingerprint over source, target, and mapper identity.
+                pub const fingerprint: u64 = morphismFingerprint(SourceSite, TargetOp, Mapper);
             };
         }
 
@@ -1844,6 +2060,8 @@ pub fn program(
                 target_resume_ref: lowering_api.ValueRef = TargetOp.resume_ref,
                 /// Target result ref.
                 target_result_ref: lowering_api.ValueRef = TargetOp.result_ref,
+                /// Allocator owning cloned target payload values.
+                target_payload_allocator: std.mem.Allocator,
                 /// Target payload value.
                 target_payload: TargetOp.Payload,
                 /// Target payload fingerprint.
@@ -1855,20 +2073,41 @@ pub fn program(
 
                 /// Build an owned reinterpreted protocol request.
                 pub fn init(
+                    allocator: std.mem.Allocator,
                     source_request_fingerprint: u64,
-                    source_capsule: Session.Capsule,
+                    source_capsule: *const Session.Capsule,
                     target_payload: TargetOp.Payload,
                     semantic_label: ?[]const u8,
                 ) Error!@This() {
+                    const source_metadata = source_capsule.metadata();
+                    if (source_metadata.parked_kind != .operation or
+                        source_metadata.current_operation_site_index == null or
+                        source_metadata.current_operation_site_index.? != SourceSite.index or
+                        source_metadata.function_index == null or
+                        source_metadata.function_index.? != SourceSite.function_index or
+                        source_metadata.block_index == null or
+                        source_metadata.block_index.? != SourceSite.block_index or
+                        source_metadata.instruction_index == null or
+                        source_metadata.instruction_index.? != SourceSite.instruction_index or
+                        !source_metadata.result_ref.eql(SourceSite.result_ref) or
+                        source_metadata.current_request_fingerprint != source_request_fingerprint)
+                    {
+                        return error.ProgramContractViolation;
+                    }
                     const capsule_fingerprint = source_capsule.fingerprint();
-                    const payload_fingerprint = try fingerprintTypedProgramValue(TargetOp.payload_ref, target_payload);
+                    const payload_fingerprint = try fingerprintTypedProtocolValue(TargetOp.payload_ref, target_payload);
+                    const owned_payload = try cloneProgramValue(allocator, TargetOp.Payload, target_payload);
+                    errdefer deinitProgramValue(allocator, TargetOp.Payload, owned_payload);
+                    var owned_capsule = try source_capsule.clone(allocator);
+                    errdefer owned_capsule.deinit();
                     return .{
                         .source_site_index = SourceSite.index,
                         .source_site_fingerprint = SourceSite.fingerprint,
                         .source_request_fingerprint = source_request_fingerprint,
                         .source_capsule_fingerprint = capsule_fingerprint,
-                        .source_capsule = source_capsule,
-                        .target_payload = target_payload,
+                        .source_capsule = owned_capsule,
+                        .target_payload_allocator = allocator,
+                        .target_payload = owned_payload,
                         .target_payload_fingerprint = payload_fingerprint,
                         .reinterpreted_request_fingerprint = reinterpretFingerprint(
                             source_request_fingerprint,
@@ -1882,6 +2121,7 @@ pub fn program(
 
                 /// Release the owned source capsule.
                 pub fn deinit(self: *@This()) void {
+                    deinitProgramValue(self.target_payload_allocator, TargetOp.Payload, self.target_payload);
                     self.source_capsule.deinit();
                 }
 
@@ -1911,22 +2151,66 @@ pub fn program(
             /// Program-representable handler value checked against the live request ref when applied.
             pub const DynamicValue = struct {
                 ref: lowering_api.ValueRef,
+                type_name: []const u8,
+                boxed_ptr: ?*anyopaque = null,
                 storage: [handler_value_storage_size]u8 align(handler_value_storage_align) = undefined,
+
+                fn StorageType(comptime ValueType: type) type {
+                    if (ValueType == [][]const u8) return []const []const u8;
+                    return ValueType;
+                }
+
+                fn storageValue(value: anytype) StorageType(@TypeOf(value)) {
+                    if (@TypeOf(value) == [][]const u8) return @as([]const []const u8, value);
+                    return value;
+                }
 
                 fn init(value: anytype) @This() {
                     const ValueType = @TypeOf(value);
-                    var result: @This() = .{ .ref = ProgramValueRefForType(body_value_schema_types, ValueType) };
-                    if (ValueType != void) {
-                        const destination: *ValueType = @ptrCast(@alignCast(&result.storage));
-                        destination.* = value;
+                    return initWithRef(ProgramValueRefForType(body_value_schema_types, ValueType), value);
+                }
+
+                fn initWithRef(comptime ref: lowering_api.ValueRef, value: anytype) @This() {
+                    const ValueType = @TypeOf(value);
+                    const StoredType = StorageType(ValueType);
+                    if (comptime !ProgramValueRefCompatibleWithType(ref, ValueType)) {
+                        @compileError("Program.Handler value ref does not match value type: " ++ @typeName(ValueType));
+                    }
+                    var result: @This() = .{
+                        .ref = ref,
+                        .type_name = @typeName(StoredType),
+                    };
+                    if (StoredType != void) {
+                        const destination: *StoredType = @ptrCast(@alignCast(&result.storage));
+                        destination.* = storageValue(value);
                     }
                     return result;
                 }
 
+                fn initBoxedWithRef(comptime ref: lowering_api.ValueRef, boxed: anytype) @This() {
+                    const BoxedType = @TypeOf(boxed);
+                    const ValueType = @typeInfo(BoxedType).pointer.child;
+                    if (comptime !ProgramValueRefCompatibleWithType(ref, ValueType)) {
+                        @compileError("Program.Handler boxed value ref does not match value type: " ++ @typeName(ValueType));
+                    }
+                    return .{
+                        .ref = ref,
+                        .type_name = @typeName(ValueType),
+                        .boxed_ptr = @ptrCast(boxed),
+                    };
+                }
+
                 fn as(self: *const @This(), comptime ValueType: type) Error!ValueType {
-                    if (!self.ref.eql(ProgramValueRefForType(body_value_schema_types, ValueType))) return error.ProgramContractViolation;
+                    if (!ProgramValueRefCompatibleWithType(self.ref, ValueType)) return error.ProgramContractViolation;
                     if (ValueType == void) return {};
-                    const source: *const ValueType = @ptrCast(@alignCast(&self.storage));
+                    const source: *const ValueType = if (self.boxed_ptr) |ptr| boxed: {
+                        if (!std.mem.eql(u8, self.type_name, @typeName(ValueType))) return error.ProgramContractViolation;
+                        break :boxed @ptrCast(@alignCast(ptr));
+                    } else unboxed: {
+                        if (ValueType != StorageType(ValueType)) return error.ProgramContractViolation;
+                        if (!std.mem.eql(u8, self.type_name, @typeName(ValueType))) return error.ProgramContractViolation;
+                        break :unboxed @ptrCast(@alignCast(&self.storage));
+                    };
                     return source.*;
                 }
             };
@@ -2007,7 +2291,23 @@ pub fn program(
                     forward,
                     @"resume": Site.Resume,
                     return_now: Site.Result,
-                    reinterpret: Reinterpretation(Site),
+                    @"suspend",
+                };
+            }
+
+            /// Site-specific outcome for handlers declared with an explicit morphism.
+            pub fn MorphismOutcome(comptime MorphismType: type) type {
+                comptime {
+                    validateOperationSite(MorphismType.source);
+                    validateProtocolOperationDescriptor(MorphismType.target);
+                }
+                const Site = MorphismType.source;
+                return union(enum) {
+                    fail: anyerror,
+                    forward,
+                    @"resume": Site.Resume,
+                    return_now: Site.Result,
+                    reinterpret: Reinterpretation(MorphismType),
                     @"suspend",
                 };
             }
@@ -2023,18 +2323,45 @@ pub fn program(
             // zlinter-disable field_ordering - target responses stay grouped by protocol control action.
             pub fn TargetResponse(comptime TargetOp: type) type {
                 comptime validateProtocolOperationDescriptor(TargetOp);
+                if (comptime TargetOp.may_resume and TargetOp.may_return_now) {
+                    return union(enum) {
+                        fail: anyerror,
+                        forward,
+                        return_now: TargetOp.Result,
+                        @"resume": TargetOp.Resume,
+                    };
+                }
+                if (comptime TargetOp.may_resume) {
+                    return union(enum) {
+                        fail: anyerror,
+                        forward,
+                        @"resume": TargetOp.Resume,
+                    };
+                }
+                if (comptime TargetOp.may_return_now) {
+                    return union(enum) {
+                        fail: anyerror,
+                        forward,
+                        return_now: TargetOp.Result,
+                    };
+                }
                 return union(enum) {
                     fail: anyerror,
                     forward,
-                    return_now: TargetOp.Result,
-                    @"resume": TargetOp.Resume,
                 };
             }
             // zlinter-enable field_ordering
 
             /// Type-erased reinterpretation payload carried by a source-site outcome.
-            pub fn Reinterpretation(comptime SourceSite: type) type {
-                comptime validateOperationSite(SourceSite);
+            pub fn Reinterpretation(comptime MorphismType: type) type {
+                const SourceSite = MorphismType.source;
+                const TargetOp = MorphismType.target;
+                const Mapper = MorphismType.Mapper;
+                comptime {
+                    validateOperationSite(SourceSite);
+                    validateProtocolOperationDescriptor(TargetOp);
+                    MapperFns(SourceSite, TargetOp, Mapper).validate();
+                }
                 return struct {
                     target_protocol_label: []const u8,
                     target_op_name: []const u8,
@@ -2043,27 +2370,60 @@ pub fn program(
                     target_payload_ref: lowering_api.ValueRef,
                     target_resume_ref: lowering_api.ValueRef,
                     target_result_ref: lowering_api.ValueRef,
-                    target_payload: DynamicValue,
+                    target_payload: TargetOp.Payload,
                     target_payload_fingerprint: u64,
-                    mapper_fingerprint: u64,
-                    mapResumeFn: ?*const fn (DynamicValue) Error!Outcome(SourceSite),
-                    mapReturnNowFn: ?*const fn (DynamicValue) Error!Outcome(SourceSite),
+                    morphism_fingerprint: u64,
 
                     /// Decode the target payload.
                     pub fn payload(self: @This(), comptime Payload: type) Error!Payload {
-                        return self.target_payload.as(Payload);
+                        if (Payload != TargetOp.Payload) return error.ProgramContractViolation;
+                        return self.target_payload;
                     }
 
                     /// Map a target resume value into a source outcome.
                     pub fn mapResume(self: @This(), value: anytype) Error!Outcome(SourceSite) {
-                        const mapper = self.mapResumeFn orelse return error.ProgramContractViolation;
-                        return mapper(DynamicValue.init(value));
+                        _ = self;
+                        if (comptime !TargetOp.may_resume) return error.ProgramContractViolation;
+                        if (comptime @TypeOf(value) != TargetOp.Resume) return error.ProgramContractViolation;
+                        return MapperFns(SourceSite, TargetOp, Mapper).mapResume(value);
                     }
 
                     /// Map a target return-now value into a source outcome.
                     pub fn mapReturnNow(self: @This(), value: anytype) Error!Outcome(SourceSite) {
-                        const mapper = self.mapReturnNowFn orelse return error.ProgramContractViolation;
-                        return mapper(DynamicValue.init(value));
+                        _ = self;
+                        if (comptime !TargetOp.may_return_now) return error.ProgramContractViolation;
+                        if (comptime @TypeOf(value) != TargetOp.Result) return error.ProgramContractViolation;
+                        return MapperFns(SourceSite, TargetOp, Mapper).mapReturnNow(value);
+                    }
+
+                    fn clonePayload(self: @This(), allocator: std.mem.Allocator) Error!DynamicValue {
+                        const cloned = try cloneProgramValue(allocator, TargetOp.Payload, self.target_payload);
+                        errdefer deinitProgramValue(allocator, TargetOp.Payload, cloned);
+                        const boxed = allocator.create(TargetOp.Payload) catch |err| return mapProgramRunError(Error, err);
+                        boxed.* = cloned;
+                        return DynamicValue.initBoxedWithRef(TargetOp.payload_ref, boxed);
+                    }
+
+                    fn fingerprintStoredPayload(stored_payload: *const DynamicValue) Error!u64 {
+                        const typed = try stored_payload.as(TargetOp.Payload);
+                        return fingerprintTypedProtocolValue(TargetOp.payload_ref, typed);
+                    }
+
+                    fn deinitPayload(self: @This(), allocator: std.mem.Allocator, stored_payload: *DynamicValue) void {
+                        _ = self;
+                        deinitStoredPayload(allocator, stored_payload);
+                    }
+
+                    fn deinitStoredPayload(allocator: std.mem.Allocator, stored_payload: *DynamicValue) void {
+                        if (stored_payload.boxed_ptr) |ptr| {
+                            const boxed: *TargetOp.Payload = @ptrCast(@alignCast(ptr));
+                            deinitProgramValue(allocator, TargetOp.Payload, boxed.*);
+                            allocator.destroy(boxed);
+                            stored_payload.boxed_ptr = null;
+                            return;
+                        }
+                        const typed = stored_payload.as(TargetOp.Payload) catch return;
+                        deinitProgramValue(allocator, TargetOp.Payload, typed);
                     }
                 };
             }
@@ -2116,13 +2476,46 @@ pub fn program(
                 validateOperationSite(SourceSite);
                 validateProtocolOperationDescriptor(TargetOp);
                 return struct {
-                    fn mapResume(value: DynamicValue) Error!Outcome(SourceSite) {
+                    fn validateUnaryMapper(
+                        comptime mapper_name: []const u8,
+                        comptime Fn: type,
+                        comptime Param: type,
+                    ) void {
+                        const info = @typeInfo(Fn).@"fn";
+                        if (info.params.len != 1 or info.params[0].type == null or info.params[0].type.? != Param) {
+                            @compileError("Program.Handler.reinterpret mapper " ++ mapper_name ++ " parameter must match target protocol operation type");
+                        }
+                    }
+
+                    fn validate() void {
+                        if (comptime TargetOp.may_resume) {
+                            if (comptime !hasDeclSafe(Mapper, "resume") and !hasDeclSafe(Mapper, "@\"resume\"")) {
+                                @compileError("Program.Handler.reinterpret mapper must declare resume for resumable target protocol ops");
+                            }
+                            const resume_info = @typeInfo(@TypeOf(Mapper.@"resume")).@"fn";
+                            validateUnaryMapper("resume", @TypeOf(Mapper.@"resume"), TargetOp.Resume);
+                            if (resume_info.return_type == null or resume_info.return_type.? != Outcome(SourceSite)) {
+                                @compileError("Program.Handler.reinterpret mapper resume must return Program.Handler.SourceOutcome(SourceSite)");
+                            }
+                        }
+                        if (comptime TargetOp.may_return_now) {
+                            if (comptime !hasDeclSafe(Mapper, "returnNow")) {
+                                @compileError("Program.Handler.reinterpret mapper must declare returnNow for terminal target protocol ops");
+                            }
+                            const return_now_info = @typeInfo(@TypeOf(Mapper.returnNow)).@"fn";
+                            validateUnaryMapper("returnNow", @TypeOf(Mapper.returnNow), TargetOp.Result);
+                            if (return_now_info.return_type == null or return_now_info.return_type.? != Outcome(SourceSite)) {
+                                @compileError("Program.Handler.reinterpret mapper returnNow must return Program.Handler.SourceOutcome(SourceSite)");
+                            }
+                        }
+                    }
+
+                    fn mapResume(value: TargetOp.Resume) Error!Outcome(SourceSite) {
                         if (comptime !TargetOp.may_resume) return error.ProgramContractViolation;
                         if (comptime !hasDeclSafe(Mapper, "resume") and !hasDeclSafe(Mapper, "@\"resume\"")) {
                             @compileError("Program.Handler.reinterpret mapper must declare resume for resumable target protocol ops");
                         }
-                        const typed = try value.as(TargetOp.Resume);
-                        const raw = Mapper.@"resume"(typed);
+                        const raw = Mapper.@"resume"(value);
                         const RawType = @TypeOf(raw);
                         if (comptime RawType != Outcome(SourceSite)) {
                             @compileError("Program.Handler.reinterpret mapper resume must return Program.Handler.SourceOutcome(SourceSite)");
@@ -2130,13 +2523,12 @@ pub fn program(
                         return raw;
                     }
 
-                    fn mapReturnNow(value: DynamicValue) Error!Outcome(SourceSite) {
+                    fn mapReturnNow(value: TargetOp.Result) Error!Outcome(SourceSite) {
                         if (comptime !TargetOp.may_return_now) return error.ProgramContractViolation;
                         if (comptime !hasDeclSafe(Mapper, "returnNow")) {
                             @compileError("Program.Handler.reinterpret mapper must declare returnNow for terminal target protocol ops");
                         }
-                        const typed = try value.as(TargetOp.Result);
-                        const raw = Mapper.returnNow(typed);
+                        const raw = Mapper.returnNow(value);
                         const RawType = @TypeOf(raw);
                         if (comptime RawType != Outcome(SourceSite)) {
                             @compileError("Program.Handler.reinterpret mapper returnNow must return Program.Handler.SourceOutcome(SourceSite)");
@@ -2148,19 +2540,16 @@ pub fn program(
 
             /// Reinterpret a source Program operation as a target protocol operation.
             pub fn reinterpret(
-                comptime SourceSite: type,
-                comptime TargetOp: type,
-                target_payload: TargetOp.Payload,
-                comptime Mapper: type,
-            ) Outcome(SourceSite) {
+                comptime MorphismType: type,
+                target_payload: MorphismType.target.Payload,
+            ) MorphismOutcome(MorphismType) {
+                const SourceSite = MorphismType.source;
+                const TargetOp = MorphismType.target;
+                const Mapper = MorphismType.Mapper;
                 comptime {
                     validateOperationSite(SourceSite);
                     validateProtocolOperationDescriptor(TargetOp);
-                    _ = MapperFns(SourceSite, TargetOp, Mapper);
-                }
-                const payload_dynamic = DynamicValue.init(target_payload);
-                if (comptime !TargetOp.payload_ref.eql(ProgramValueRefForType(body_value_schema_types, TargetOp.Payload))) {
-                    @compileError("Program.Handler.reinterpret target payload type does not match target protocol descriptor");
+                    MapperFns(SourceSite, TargetOp, Mapper).validate();
                 }
                 return .{ .reinterpret = .{
                     .target_protocol_label = TargetOp.protocol_label,
@@ -2170,16 +2559,15 @@ pub fn program(
                     .target_payload_ref = TargetOp.payload_ref,
                     .target_resume_ref = TargetOp.resume_ref,
                     .target_result_ref = TargetOp.result_ref,
-                    .target_payload = payload_dynamic,
-                    .target_payload_fingerprint = fingerprintTypedProgramValue(TargetOp.payload_ref, target_payload) catch 0,
-                    .mapper_fingerprint = reinterpretFingerprint(SourceSite.fingerprint, 0, TargetOp.fingerprint, 0),
-                    .mapResumeFn = if (TargetOp.may_resume) MapperFns(SourceSite, TargetOp, Mapper).mapResume else null,
-                    .mapReturnNowFn = if (TargetOp.may_return_now) MapperFns(SourceSite, TargetOp, Mapper).mapReturnNow else null,
+                    .target_payload = target_payload,
+                    .target_payload_fingerprint = fingerprintTypedProtocolValue(TargetOp.payload_ref, target_payload) catch 0,
+                    .morphism_fingerprint = MorphismType.fingerprint,
                 } };
             }
 
             /// Resume a transform or choice operation with a typed value.
-            pub fn @"resume"(comptime Site: type, value: Site.Resume) Outcome(Site) {
+            pub fn @"resume"(comptime Descriptor: type, value: SourceSiteForOutcome(Descriptor).Resume) OutcomeForDescriptor(Descriptor) {
+                const Site = SourceSiteForOutcome(Descriptor);
                 comptime {
                     validateOperationSite(Site);
                     if (!Site.may_resume) @compileError("Program.Handler.resume is invalid for this operation site");
@@ -2188,7 +2576,8 @@ pub fn program(
             }
 
             /// Complete a choice or abort operation with a terminal value.
-            pub fn returnNow(comptime Site: type, value: Site.Result) Outcome(Site) {
+            pub fn returnNow(comptime Descriptor: type, value: SourceSiteForOutcome(Descriptor).Result) OutcomeForDescriptor(Descriptor) {
+                const Site = SourceSiteForOutcome(Descriptor);
                 comptime {
                     validateOperationSite(Site);
                     if (!Site.may_return_now) @compileError("Program.Handler.returnNow is invalid for this operation site");
@@ -2203,21 +2592,42 @@ pub fn program(
             }
 
             /// Suspend at the current continuation boundary and return an owned capsule.
-            pub fn @"suspend"(comptime Site: type) Outcome(Site) {
-                comptime validateAnySite(Site);
+            pub fn @"suspend"(comptime Descriptor: type) OutcomeForDescriptor(Descriptor) {
+                comptime _ = SourceSiteForOutcome(Descriptor);
                 return .@"suspend";
             }
 
             /// Decline this site so a later composed interpreter can try to handle it.
-            pub fn forward(comptime Site: type) Outcome(Site) {
-                comptime validateAnySite(Site);
+            pub fn forward(comptime Descriptor: type) OutcomeForDescriptor(Descriptor) {
+                comptime _ = SourceSiteForOutcome(Descriptor);
                 return .forward;
             }
 
             /// Fail the interpreter with a handler-provided error.
-            pub fn fail(comptime Site: type, err: anyerror) Outcome(Site) {
-                comptime validateAnySite(Site);
+            pub fn fail(comptime Descriptor: type, err: anyerror) OutcomeForDescriptor(Descriptor) {
+                comptime _ = SourceSiteForOutcome(Descriptor);
                 return .{ .fail = err };
+            }
+
+            fn OutcomeForDescriptor(comptime Descriptor: type) type {
+                if (comptime isMorphismDescriptor(Descriptor)) return MorphismOutcome(Descriptor);
+                return Outcome(Descriptor);
+            }
+
+            fn SourceSiteForOutcome(comptime Descriptor: type) type {
+                if (comptime isMorphismDescriptor(Descriptor)) {
+                    validateOperationSite(Descriptor.source);
+                    validateProtocolOperationDescriptor(Descriptor.target);
+                    return Descriptor.source;
+                }
+                validateAnySite(Descriptor);
+                return Descriptor;
+            }
+
+            fn isMorphismDescriptor(comptime Descriptor: type) bool {
+                return hasDeclSafe(Descriptor, "source") and
+                    hasDeclSafe(Descriptor, "target") and
+                    hasDeclSafe(Descriptor, "Mapper");
             }
 
             fn validateAnySite(comptime Site: type) void {
@@ -2298,14 +2708,17 @@ pub fn program(
                     target_payload_ref: lowering_api.ValueRef,
                     target_resume_ref: lowering_api.ValueRef,
                     target_result_ref: lowering_api.ValueRef,
+                    target_payload_allocator: std.mem.Allocator,
                     target_payload: Handler.DynamicValue,
                     target_payload_fingerprint: u64,
+                    targetPayloadDeinitFn: *const fn (std.mem.Allocator, *Handler.DynamicValue) void,
                     reinterpreted_request_fingerprint: u64,
-                    mapper_fingerprint: u64,
+                    morphism_fingerprint: u64,
                     semantic_label: ?[]const u8 = null,
 
                     /// Release the owned source capsule.
                     pub fn deinit(self: *@This()) void {
+                        self.targetPayloadDeinitFn(self.target_payload_allocator, &self.target_payload);
                         self.capsule.deinit();
                     }
 
@@ -2406,9 +2819,28 @@ pub fn program(
                     return .{ .operation_sites = operation_count, .after_sites = after_count };
                 }
 
+                fn validateProgramArgument(comptime ProgramType: type) void {
+                    if (!hasDeclSafe(ProgramType, "protocol") or
+                        !hasDeclSafe(ProgramType.protocol, "Owner") or
+                        ProgramType.protocol.Owner != Body or
+                        ProgramType.protocol.hash != protocol.hash or
+                        !std.mem.eql(u8, ProgramType.protocol.label, protocol.label))
+                    {
+                        @compileError("Program.Interpreter effectRow expected owning Program type");
+                    }
+                }
+
                 /// Return static effect-row counts for handled and residual effects.
-                pub fn effectRow(comptime ProgramType: type) type {
-                    _ = ProgramType;
+                pub fn effectRow(comptime ProgramType: type) struct {
+                    handled_operation_sites: usize,
+                    handled_after_sites: usize,
+                    handled_protocol_operations: usize,
+                    reinterpreted_source_sites: usize,
+                    emitted_protocol_operations: usize,
+                    residual_operation_sites: usize,
+                    residual_after_sites: usize,
+                } {
+                    comptime validateProgramArgument(ProgramType);
                     comptime var operation_count: usize = 0;
                     comptime var after_count: usize = 0;
                     comptime var protocol_operation_count: usize = 0;
@@ -2416,27 +2848,20 @@ pub fn program(
                     inline for (entries) |Entry| switch (Entry.kind) {
                         .operation => {
                             operation_count += 1;
-                            if (hasDeclSafe(Entry, "Morphism")) reinterpreted_count += 1;
+                            if (comptime hasDeclSafe(Entry, "Morphism")) reinterpreted_count += 1;
                         },
                         .after => after_count += 1,
                         .protocol_operation => protocol_operation_count += 1,
                         else => {},
                     };
-                    return struct {
-                        /// Program operation sites handled by this interpreter.
-                        pub const handled_operation_sites = operation_count;
-                        /// Program after-continuation sites handled by this interpreter.
-                        pub const handled_after_sites = after_count;
-                        /// Protocol-level operations handled by this interpreter.
-                        pub const handled_protocol_operations = protocol_operation_count;
-                        /// Program source sites reinterpreted by this interpreter.
-                        pub const reinterpreted_source_sites = reinterpreted_count;
-                        /// Protocol-level operations emitted by reinterpreting handlers.
-                        pub const emitted_protocol_operations = reinterpreted_count;
-                        /// Program operation sites not handled by this interpreter.
-                        pub const residual_operation_sites = protocol.operation_site_count - operation_count;
-                        /// Program after-continuation sites not handled by this interpreter.
-                        pub const residual_after_sites = protocol.after_site_count - after_count;
+                    return .{
+                        .handled_operation_sites = operation_count,
+                        .handled_after_sites = after_count,
+                        .handled_protocol_operations = protocol_operation_count,
+                        .reinterpreted_source_sites = reinterpreted_count,
+                        .emitted_protocol_operations = reinterpreted_count,
+                        .residual_operation_sites = protocol.operation_site_count - operation_count,
+                        .residual_after_sites = protocol.after_site_count - after_count,
                     };
                 }
 
@@ -2547,8 +2972,8 @@ pub fn program(
                         if (Entry.kind == .operation and request.matches(Entry.Site)) {
                             const typed = try request.as(Entry.Site);
                             const control = Handler.Control.init(session, current);
-                            const outcome = try callHandler(Entry, host_ctx, typed, control);
-                            return try applyOperationOutcome(Entry.Site, session, current, typed, outcome, host_ctx, options);
+                            const outcome = try callOperationHandler(Entry, host_ctx, typed, control);
+                            return try applyOperationOutcome(Entry, session, current, typed, outcome, host_ctx, options);
                         }
                     }
                     return try buildUnhandled(session, current, .unhandled);
@@ -2568,14 +2993,35 @@ pub fn program(
                         if (Entry.kind == .after and after_request.matches(Entry.Site)) {
                             const typed = try after_request.as(Entry.Site);
                             const control = Handler.Control.init(session, current);
-                            const outcome = try callHandler(Entry, host_ctx, typed, control);
+                            const outcome = try callAfterHandler(Entry, host_ctx, typed, control);
                             return try applyAfterOutcome(Entry.Site, session, current, typed, outcome, options);
                         }
                     }
                     return try buildUnhandled(session, current, .unhandled);
                 }
 
-                fn callHandler(comptime Entry: type, host_ctx: anytype, typed: anytype, control: Handler.Control) Error!Handler.Outcome(Entry.Site) {
+                fn OperationOutcomeForEntry(comptime Entry: type) type {
+                    if (comptime hasDeclSafe(Entry, "Morphism")) return Handler.MorphismOutcome(Entry.Morphism);
+                    return Handler.Outcome(Entry.Site);
+                }
+
+                fn callOperationHandler(comptime Entry: type, host_ctx: anytype, typed: anytype, control: Handler.Control) Error!OperationOutcomeForEntry(Entry) {
+                    const raw = Entry.function(host_ctx, typed, control);
+                    const ExpectedOutcome = OperationOutcomeForEntry(Entry);
+                    const RawOutcome = switch (@typeInfo(@TypeOf(raw))) {
+                        .error_union => |error_union| error_union.payload,
+                        else => @TypeOf(raw),
+                    };
+                    if (comptime RawOutcome != ExpectedOutcome) {
+                        @compileError("Program.Handler.operation cannot return reinterpret; declare Program.Handler.morphism for protocol reinterpretation");
+                    }
+                    if (comptime @typeInfo(@TypeOf(raw)) == .error_union) {
+                        return raw catch |err| return mapProgramRunError(Error, err);
+                    }
+                    return raw;
+                }
+
+                fn callAfterHandler(comptime Entry: type, host_ctx: anytype, typed: anytype, control: Handler.Control) Error!Handler.Outcome(Entry.Site) {
                     const raw = Entry.function(host_ctx, typed, control);
                     if (comptime @typeInfo(@TypeOf(raw)) == .error_union) {
                         return raw catch |err| return mapProgramRunError(Error, err);
@@ -2583,15 +3029,48 @@ pub fn program(
                     return raw;
                 }
 
-                fn applyOperationOutcome(
+                fn applySourceOutcome(
                     comptime Site: type,
                     session: *Session,
                     current: Session.Current,
                     typed: anytype,
                     outcome: Handler.Outcome(Site),
+                    options: anytype,
+                ) Error!?ExecutionResult {
+                    return switch (outcome) {
+                        .@"resume" => |value| resume_branch: {
+                            if (!Site.may_resume) return error.ProgramContractViolation;
+                            const response_trace = typed.responseTrace(.@"resume", value) catch |err| return mapProgramRunError(Error, err);
+                            try recordTrace(options, (try traceFor(current)).operation, response_trace);
+                            try session.resumeTyped(typed, value);
+                            break :resume_branch null;
+                        },
+                        .return_now => |value| return_now: {
+                            if (!Site.may_return_now) return error.ProgramContractViolation;
+                            const response_trace = typed.responseTrace(.return_now, value) catch |err| return mapProgramRunError(Error, err);
+                            try recordTrace(options, (try traceFor(current)).operation, response_trace);
+                            try session.returnNowTyped(typed, value);
+                            break :return_now null;
+                        },
+                        .@"suspend" => try buildSuspended(session, current, .explicit_suspend),
+                        .forward => try buildUnhandled(session, current, .forwarded_unhandled),
+                        .fail => |err| return mapProgramRunError(Error, err),
+                    };
+                }
+
+                fn applyOperationOutcome(
+                    comptime Entry: type,
+                    session: *Session,
+                    current: Session.Current,
+                    typed: anytype,
+                    outcome: OperationOutcomeForEntry(Entry),
                     host_ctx: anytype,
                     options: anytype,
                 ) Error!?ExecutionResult {
+                    const Site = Entry.Site;
+                    if (comptime !hasDeclSafe(Entry, "Morphism")) {
+                        return applySourceOutcome(Site, session, current, typed, outcome, options);
+                    }
                     return switch (outcome) {
                         .@"resume" => |value| resume_branch: {
                             if (!Site.may_resume) return error.ProgramContractViolation;
@@ -2619,7 +3098,7 @@ pub fn program(
                     session: *Session,
                     current: Session.Current,
                     typed: anytype,
-                    reinterpretation: Handler.Reinterpretation(SourceSite),
+                    reinterpretation: anytype,
                     host_ctx: anytype,
                     options: anytype,
                 ) Error!?ExecutionResult {
@@ -2639,8 +3118,8 @@ pub fn program(
                     session: *Session,
                     current: Session.Current,
                     typed: anytype,
-                    reinterpreted: *const Reinterpreted,
-                    reinterpretation: Handler.Reinterpretation(SourceSite),
+                    reinterpreted: *Reinterpreted,
+                    reinterpretation: anytype,
                     host_ctx: anytype,
                     options: anytype,
                     handled: *bool,
@@ -2649,26 +3128,90 @@ pub fn program(
                         if (Entry.kind == .protocol_operation and reinterpreted.matches(Entry.TargetOp)) {
                             const protocol_request = ProtocolOperationRequest(Entry.TargetOp){ .request = reinterpreted };
                             const response = try callProtocolHandler(Entry, host_ctx, protocol_request);
-                            switch (response) {
-                                .@"resume" => |value| {
-                                    handled.* = true;
-                                    const source_outcome = try reinterpretation.mapResume(value);
-                                    return try applyOperationOutcome(SourceSite, session, current, typed, source_outcome, host_ctx, options);
-                                },
-                                .return_now => |value| {
-                                    handled.* = true;
-                                    const source_outcome = try reinterpretation.mapReturnNow(value);
-                                    return try applyOperationOutcome(SourceSite, session, current, typed, source_outcome, host_ctx, options);
-                                },
-                                .forward => return null,
-                                .fail => |err| {
-                                    handled.* = true;
-                                    return mapProgramRunError(Error, err);
-                                },
-                            }
+                            return try applyTargetResponse(SourceSite, Entry.TargetOp, session, current, typed, reinterpretation, reinterpreted, response, options, handled);
                         }
                     }
                     return null;
+                }
+
+                fn applyTargetResponse(
+                    comptime SourceSite: type,
+                    comptime TargetOp: type,
+                    session: *Session,
+                    current: Session.Current,
+                    typed: anytype,
+                    reinterpretation: anytype,
+                    reinterpreted: *Reinterpreted,
+                    response: Handler.TargetResponse(TargetOp),
+                    options: anytype,
+                    handled: *bool,
+                ) Error!?ExecutionResult {
+                    if (comptime TargetOp.may_resume and TargetOp.may_return_now) {
+                        return switch (response) {
+                            .@"resume" => |value| try applyTargetResume(SourceSite, session, current, typed, reinterpretation, value, options, handled),
+                            .return_now => |value| try applyTargetReturnNow(SourceSite, session, current, typed, reinterpretation, value, options, handled),
+                            .forward => applyTargetForward(reinterpreted),
+                            .fail => |err| applyTargetFail(err, handled),
+                        };
+                    }
+                    if (comptime TargetOp.may_resume) {
+                        return switch (response) {
+                            .@"resume" => |value| try applyTargetResume(SourceSite, session, current, typed, reinterpretation, value, options, handled),
+                            .forward => applyTargetForward(reinterpreted),
+                            .fail => |err| applyTargetFail(err, handled),
+                        };
+                    }
+                    if (comptime TargetOp.may_return_now) {
+                        return switch (response) {
+                            .return_now => |value| try applyTargetReturnNow(SourceSite, session, current, typed, reinterpretation, value, options, handled),
+                            .forward => applyTargetForward(reinterpreted),
+                            .fail => |err| applyTargetFail(err, handled),
+                        };
+                    }
+                    return switch (response) {
+                        .forward => applyTargetForward(reinterpreted),
+                        .fail => |err| applyTargetFail(err, handled),
+                    };
+                }
+
+                fn applyTargetResume(
+                    comptime SourceSite: type,
+                    session: *Session,
+                    current: Session.Current,
+                    typed: anytype,
+                    reinterpretation: anytype,
+                    value: anytype,
+                    options: anytype,
+                    handled: *bool,
+                ) Error!?ExecutionResult {
+                    handled.* = true;
+                    const source_outcome = try reinterpretation.mapResume(value);
+                    return try applySourceOutcome(SourceSite, session, current, typed, source_outcome, options);
+                }
+
+                fn applyTargetReturnNow(
+                    comptime SourceSite: type,
+                    session: *Session,
+                    current: Session.Current,
+                    typed: anytype,
+                    reinterpretation: anytype,
+                    value: anytype,
+                    options: anytype,
+                    handled: *bool,
+                ) Error!?ExecutionResult {
+                    handled.* = true;
+                    const source_outcome = try reinterpretation.mapReturnNow(value);
+                    return try applySourceOutcome(SourceSite, session, current, typed, source_outcome, options);
+                }
+
+                fn applyTargetForward(reinterpreted: *Reinterpreted) ?ExecutionResult {
+                    reinterpreted.reason = .forwarded_unhandled;
+                    return null;
+                }
+
+                fn applyTargetFail(err: anyerror, handled: *bool) Error!?ExecutionResult {
+                    handled.* = true;
+                    return mapProgramRunError(Error, err);
                 }
 
                 fn callProtocolHandler(comptime Entry: type, host_ctx: anytype, typed: anytype) Error!Handler.TargetResponse(Entry.TargetOp) {
@@ -2752,7 +3295,11 @@ pub fn program(
                     reinterpretation: anytype,
                 ) Error!Reinterpreted {
                     const trace = (try traceFor(current)).operation;
-                    var capsule = try session.capture(lowered_machine.runtimeAllocator(session.runtime));
+                    const payload_allocator = lowered_machine.runtimeAllocator(session.runtime);
+                    var target_payload = try reinterpretation.clonePayload(payload_allocator);
+                    errdefer reinterpretation.deinitPayload(payload_allocator, &target_payload);
+                    const target_payload_fingerprint = try @TypeOf(reinterpretation).fingerprintStoredPayload(&target_payload);
+                    var capsule = try session.capture(payload_allocator);
                     errdefer capsule.deinit();
                     const capsule_fingerprint = capsule.fingerprint();
                     const request_fingerprint = try fingerprintFor(current);
@@ -2769,15 +3316,17 @@ pub fn program(
                         .target_payload_ref = reinterpretation.target_payload_ref,
                         .target_resume_ref = reinterpretation.target_resume_ref,
                         .target_result_ref = reinterpretation.target_result_ref,
-                        .target_payload = reinterpretation.target_payload,
-                        .target_payload_fingerprint = reinterpretation.target_payload_fingerprint,
+                        .target_payload_allocator = payload_allocator,
+                        .target_payload = target_payload,
+                        .target_payload_fingerprint = target_payload_fingerprint,
+                        .targetPayloadDeinitFn = @TypeOf(reinterpretation).deinitStoredPayload,
                         .reinterpreted_request_fingerprint = reinterpretFingerprint(
                             request_fingerprint,
                             capsule_fingerprint,
                             reinterpretation.target_protocol_op_fingerprint,
-                            reinterpretation.target_payload_fingerprint,
+                            target_payload_fingerprint,
                         ),
-                        .mapper_fingerprint = reinterpretation.mapper_fingerprint,
+                        .morphism_fingerprint = reinterpretation.morphism_fingerprint,
                         .semantic_label = trace.semantic_label,
                     };
                 }

@@ -4171,6 +4171,18 @@ pub fn ExecutableSessionForPlan(
             pub fn fingerprint(self: *const @This()) u64 {
                 return self.metadata_value.continuation_fingerprint;
             }
+
+            pub fn clone(self: *const @This(), allocator: std.mem.Allocator) anyerror!@This() {
+                if (self.deinitialized) return error.ProgramContractViolation;
+                try validateCapsuleMetadata(self.metadata_value);
+                var core = try self.core.cloneState(allocator);
+                errdefer core.deinit();
+                try core.validateCapsuleShape(self.metadata_value);
+                return .{
+                    .core = core,
+                    .metadata_value = self.metadata_value,
+                };
+            }
         };
 
         fn operationSiteForInstruction(instruction_index: usize) ?SessionOperationYieldSite {

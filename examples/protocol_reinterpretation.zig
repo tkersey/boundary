@@ -91,8 +91,8 @@ const Host = struct {
 };
 
 const ApprovalHandler = struct {
-    pub fn handle(_: *Host, request: anytype, _: ApprovalProgram.Handler.Control) !ApprovalProgram.Handler.Outcome(ApprovalRequest) {
-        return ApprovalProgram.Handler.reinterpret(ApprovalRequest, CheckPolicy, try request.payload(), ApprovalPolicyMapper);
+    pub fn handle(_: *Host, request: anytype, _: ApprovalProgram.Handler.Control) !ApprovalProgram.Handler.MorphismOutcome(ApprovalViaPolicy) {
+        return ApprovalProgram.Handler.reinterpret(ApprovalViaPolicy, try request.payload());
     }
 };
 
