@@ -1329,6 +1329,132 @@ pub const value = struct {
     }
 };
 
+// zlinter-disable field_ordering - expression descriptor order follows mapping ergonomics, not alphabetical tags.
+/// Restricted typed value-mapping descriptors for residualizable plan morphisms.
+///
+/// These descriptors are metadata for plan-level rewrites, not a source
+/// language. Unsupported shapes are represented explicitly so residualization
+/// can fail closed before constructing a ProgramPlan.
+pub const expr = struct {
+    pub const Kind = enum {
+        identity,
+        payload,
+        unit,
+        const_string,
+        const_i32,
+        const_usize,
+        field,
+        variant,
+        product,
+        sum,
+        unsupported,
+    };
+
+    pub const Expr = struct {
+        kind: Kind,
+        value_ref: ?program_plan.ValueRef = null,
+        name: []const u8 = "",
+        string_value: []const u8 = "",
+        i32_value: i32 = 0,
+        usize_value: usize = 0,
+        variant_ordinal: u16 = 0,
+
+        pub fn fingerprint(comptime self: @This()) u64 {
+            var hasher = standard.hash.Wyhash.init(0);
+            hashBytes(&hasher, "ability.ir.expr");
+            hashBytes(&hasher, @tagName(self.kind));
+            hashOptionalValueRef(&hasher, self.value_ref);
+            hashBytes(&hasher, self.name);
+            hashBytes(&hasher, self.string_value);
+            hashI32(&hasher, self.i32_value);
+            hashUsize(&hasher, self.usize_value);
+            hashU16(&hasher, self.variant_ordinal);
+            return hasher.final();
+        }
+    };
+
+    pub fn identity() Expr {
+        return .{ .kind = .identity };
+    }
+
+    pub fn payload() Expr {
+        return .{ .kind = .payload };
+    }
+
+    pub fn unit() Expr {
+        return .{ .kind = .unit, .value_ref = .{ .codec = .unit } };
+    }
+
+    pub fn constString(comptime literal: []const u8) Expr {
+        return .{ .kind = .const_string, .value_ref = .{ .codec = .string }, .string_value = literal };
+    }
+
+    pub fn constI32(comptime literal: i32) Expr {
+        return .{ .kind = .const_i32, .value_ref = .{ .codec = .i32 }, .i32_value = literal };
+    }
+
+    pub fn constUsize(comptime literal: usize) Expr {
+        return .{ .kind = .const_usize, .value_ref = .{ .codec = .usize }, .usize_value = literal };
+    }
+
+    pub fn field(comptime name: []const u8) Expr {
+        return .{ .kind = .field, .name = name };
+    }
+
+    pub fn variant(comptime name: []const u8) Expr {
+        return .{ .kind = .variant, .name = name };
+    }
+
+    pub fn variantOrdinal(comptime ordinal: u16) Expr {
+        return .{ .kind = .variant, .variant_ordinal = ordinal };
+    }
+
+    pub fn product(comptime ref_value: program_plan.ValueRef) Expr {
+        return .{ .kind = .product, .value_ref = ref_value };
+    }
+
+    pub fn sum(comptime ref_value: program_plan.ValueRef, comptime variant_name: []const u8) Expr {
+        return .{ .kind = .sum, .value_ref = ref_value, .name = variant_name };
+    }
+
+    pub fn unsupported(comptime name: []const u8) Expr {
+        return .{ .kind = .unsupported, .name = name };
+    }
+
+    fn hashBytes(hasher: *standard.hash.Wyhash, bytes: []const u8) void {
+        hasher.update(bytes);
+        hasher.update(&[_]u8{0});
+    }
+
+    fn hashOptionalValueRef(hasher: *standard.hash.Wyhash, maybe_ref: ?program_plan.ValueRef) void {
+        hasher.update(&[_]u8{@intFromBool(maybe_ref != null)});
+        if (maybe_ref) |ref_value| {
+            hashBytes(hasher, @tagName(ref_value.codec));
+            hasher.update(&[_]u8{@intFromBool(ref_value.schema_index != null)});
+            if (ref_value.schema_index) |schema_index| hashU16(hasher, schema_index);
+        }
+    }
+
+    fn hashI32(hasher: *standard.hash.Wyhash, scalar: i32) void {
+        var bytes: [4]u8 = undefined;
+        standard.mem.writeInt(i32, &bytes, scalar, .little);
+        hasher.update(&bytes);
+    }
+
+    fn hashU16(hasher: *standard.hash.Wyhash, scalar: u16) void {
+        var bytes: [2]u8 = undefined;
+        standard.mem.writeInt(u16, &bytes, scalar, .little);
+        hasher.update(&bytes);
+    }
+
+    fn hashUsize(hasher: *standard.hash.Wyhash, scalar: usize) void {
+        var bytes: [8]u8 = undefined;
+        standard.mem.writeInt(u64, &bytes, @intCast(scalar), .little);
+        hasher.update(&bytes);
+    }
+};
+// zlinter-enable field_ordering
+
 /// Schema-first helpers that lower effect binding metadata into ProgramPlan rows.
 pub const schema = struct {
     /// Build one explicit ProgramPlan schema-index map entry.

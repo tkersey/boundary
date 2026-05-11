@@ -221,6 +221,12 @@ it like any other plan:
 - `Interpreter.effectRow(Program)` distinguishes handled Program sites, handled
   protocol operations, reinterpreted source sites, emitted target protocol
   operations, and statically known residual Program sites.
+- `Program.ResidualMorphism` and `Program.residualize` compile supported
+  declarative protocol morphisms into a new ordinary `ProgramPlan` instead of
+  interpreting them dynamically. The first compiled shape supports
+  identity/payload passthrough payload mappings and identity resume responses;
+  unsupported expression shapes fail closed in residualization metadata or at
+  compile time before a residual plan is emitted.
 - Optional semantic site labels appear on static yield/after sites,
   `Program.protocol` descriptors, dynamic request traces, and after traces when
   the body exposes `site_metadata`.
@@ -249,6 +255,14 @@ typed approval handler reinterprets `approval.request` into a protocol-level
 capsule, and the mapper converts the policy decision into either approval resume
 or approval return-now behavior.
 
+`examples/residualized_approval_policy.zig` shows the static counterpart. A
+declarative residual morphism lowers the source `approval.request` site into a
+residual `policy.check` Program site. The example runs dynamic reinterpretation
+and residual execution for allow and deny cases, prints source/residual
+fingerprints, and demonstrates trace correspondence without adding a parser,
+source language, public VM, Artifact API, async runtime, persistence backend, or
+trace serialization requirement.
+
 ## Preferred Path
 
 1. Define the protocol with `ability.ir.schema.Protocol`.
@@ -262,7 +276,9 @@ or approval return-now behavior.
    needs to emit a target protocol request.
 9. Compose typed continuation-aware handlers and protocol-operation handlers with
    `Program.Interpreter`.
-10. Inspect effect rows, traces, capsules, and fingerprints.
+10. Use `Program.ResidualMorphism` plus `Program.residualize` when the morphism
+    is declarative enough to compile into a residual ProgramPlan.
+11. Inspect effect rows, source maps, trace maps, capsules, and fingerprints.
 
 ## Non-Goals
 
@@ -282,3 +298,5 @@ or approval return-now behavior.
 - No new value codecs.
 - No cross-thread sessions, persistence backend, or required trace serialization
   format.
+- No residualization of arbitrary Zig closures or host functions; those remain
+  interpreter-only.

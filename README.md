@@ -227,6 +227,20 @@ program sites when statically knowable, and assertion helpers cover
 reinterpretation and protocol-op handling. Manual session loops remain available
 for hosts that need lower-level control.
 
+Declarative morphisms can also be residualized. `Program.ResidualMorphism`
+describes a source `Program.protocol` operation site, a target
+`schema.Protocol.operation` descriptor, restricted `ability.ir.expr` payload
+mapping metadata, response mapping metadata, and a disposition. The first
+residualizer compiles supported identity/payload mappings with identity resume
+responses into an ordinary `ProgramPlan` by replacing the source operation row
+with the target protocol operation row. The returned residual program exposes
+`compiled_plan`, `contract`, `protocol`, `Session`, `Handler`, `Interpreter`,
+`effect_row`, `source_map`, `residualForSourceSite`, `sourceForResidualSite`,
+and `mapResidualTrace`. This is an algebraic ProgramPlan transformation inside
+the defunctionalized kernel: it is not a parser, source language, public VM,
+Artifact API, async runtime, persistence layer, or trace serialization format.
+Arbitrary Zig handlers and closures remain interpreter-only.
+
 See [docs/program_plan.md](docs/program_plan.md) for semantic program
 authoring, typed product/sum bodies, tuple entry args, outputs, cleanup hooks,
 nested-with targets, and `Program.contract`.
@@ -380,6 +394,11 @@ authoring and public plan-native helpers:
   protocol-level `policy.check` transform request, the source continuation is
   preserved as a capsule, and the policy answer maps back to either resume or
   return-now behavior for the original approval site.
+- `examples/residualized_approval_policy.zig` demonstrates the same approval to
+  policy morphism compiled statically: dynamic reinterpretation and the
+  residualized program agree for allow and deny cases, the residual program
+  exposes a `policy.check` site, and the source/residual fingerprints map back
+  to the eliminated approval site.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
   abort operations declared through a schema-first custom protocol family,
   schema registry, semantic builder, and both synchronous and host-driven
@@ -407,5 +426,6 @@ zig build run-agent-loop
 zig build run-continuation-branching
 zig build run-interpreter-branching
 zig build run-protocol-reinterpretation
+zig build run-residualized-approval-policy
 zig build run-custom-approval-workflow
 ```

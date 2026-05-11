@@ -4549,6 +4549,290 @@ test "Program.Morphism and ProtocolRequest preserve source capsule metadata" {
     }
 }
 
+test "Program.ResidualMorphism report and residualize compile identity morphism into ProgramPlan" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "residualize-identity-source");
+    };
+    const Program = ability.program("residualize-identity-source", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, i32),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const DynamicMapper = struct {
+        pub fn @"resume"(decision: i32) Program.Handler.SourceOutcome(Source) {
+            return Program.Handler.@"resume"(Source, decision);
+        }
+    };
+    const DynamicMorphism = Program.Morphism(.{
+        .source = Source,
+        .target = Check,
+        .Mapper = DynamicMapper,
+    });
+    const StaticMorphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+        .label = "session.decide-as-policy.check",
+    });
+
+    const Report = Program.residualizationReport(.{ .morphisms = .{StaticMorphism} });
+    try std.testing.expect(Report.supported);
+    try std.testing.expectEqual(@as(usize, 0), Report.unsupported.len);
+    try std.testing.expectEqual(@as(u32, 1), Report.fingerprint_version);
+    try std.testing.expectEqual(Source.fingerprint, Report.source_map[0].source_site_fingerprint);
+    try std.testing.expectEqual(Check.fingerprint, Report.source_map[0].target_protocol_op_fingerprint);
+    try std.testing.expect(StaticMorphism.fingerprint != 0);
+
+    const Residual = Program.residualize(.{
+        .label = "residualize-identity-target",
+        .morphisms = .{StaticMorphism},
+    });
+    try Residual.compiled_plan.validate();
+    try std.testing.expectEqual(@as(u32, 2), Residual.Session.Trace.fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 1), Residual.residual_fingerprint_version);
+    try std.testing.expect(Residual.residualization_fingerprint != StaticMorphism.fingerprint);
+    try std.testing.expectEqualStrings("policy", Residual.contract.requirements[0].label);
+    try std.testing.expectEqualStrings("check", Residual.contract.ops[0].op_name);
+    try std.testing.expectEqual(@as(usize, 1), Residual.effect_row.eliminated_source_sites);
+    try std.testing.expectEqual(@as(usize, 1), Residual.effect_row.emitted_target_protocol_ops);
+    const ResidualSite = Residual.protocol.operationSite("policy", "check", 0);
+    const mapped_from_source = Residual.residualForSourceSite(Source) orelse return error.ExpectedResidualSourceMap;
+    try std.testing.expectEqual(ResidualSite.fingerprint, mapped_from_source.residual_site_fingerprint.?);
+    const mapped_from_residual = Residual.sourceForResidualSite(ResidualSite) orelse return error.ExpectedResidualSourceMap;
+    try std.testing.expectEqual(Source.fingerprint, mapped_from_residual.source_site_fingerprint);
+
+    const PolicyHandler = struct {
+        pub fn handle(_: anytype, request: anytype) !Program.Handler.TargetResponse(Check) {
+            const payload = try request.payload();
+            try std.testing.expectEqualStrings("payload", payload);
+            return .{ .@"resume" = 7 };
+        }
+    };
+    const SourceHandler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Program.Handler.Control) !Program.Handler.MorphismOutcome(DynamicMorphism) {
+            return Program.Handler.reinterpret(DynamicMorphism, try request.payload());
+        }
+    };
+    const Dynamic = Program.Interpreter(.{
+        Program.Handler.morphism(DynamicMorphism, SourceHandler.handle),
+        Program.Handler.protocolOperation(Check, PolicyHandler.handle),
+    });
+    var host = struct {}{};
+    var dynamic_result = try Dynamic.run(&runtime, .{}, &host, .{});
+    const dynamic_value = switch (dynamic_result) {
+        .done => |*done| value: {
+            defer done.deinit();
+            break :value done.value;
+        },
+        else => return error.ExpectedDone,
+    };
+
+    const ResidualPolicyHandler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Residual.Handler.Control) !Residual.Handler.Outcome(ResidualSite) {
+            const payload = try request.payload();
+            try std.testing.expectEqualStrings("payload", payload);
+            return Residual.Handler.@"resume"(ResidualSite, @as(i32, 7));
+        }
+    };
+    const ResidualInterpreter = Residual.Interpreter(.{
+        Residual.Handler.operation(ResidualSite, ResidualPolicyHandler.handle),
+    });
+    var residual_result = try ResidualInterpreter.run(&runtime, .{}, &host, .{});
+    const residual_value = switch (residual_result) {
+        .done => |*done| value: {
+            defer done.deinit();
+            break :value done.value;
+        },
+        else => return error.ExpectedDone,
+    };
+    try std.testing.expectEqual(dynamic_value, residual_value);
+
+    var session = try Residual.Session.start(&runtime, .{});
+    defer session.deinit();
+    const residual_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    const request_trace = residual_request.trace();
+    const trace_map = Residual.mapResidualTrace(request_trace) orelse return error.ExpectedResidualSourceMap;
+    try std.testing.expectEqual(Source.fingerprint, trace_map.source_site_fingerprint);
+    try std.testing.expectEqual(ResidualSite.fingerprint, trace_map.residual_site_fingerprint.?);
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    try std.testing.expectEqual(Residual.Session.ParkedKind.operation, capsule.metadata().parked_kind);
+    try session.@"resume"(residual_request, @as(i32, 7));
+    var done = switch (try session.next()) {
+        .done => |result| result,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer done.deinit();
+    try std.testing.expectEqual(@as(i32, 7), done.value);
+
+    var restored = try Residual.Session.restore(&runtime, .{}, &capsule);
+    defer restored.deinit();
+    const restored_request = switch (try restored.current()) {
+        .request => |request| request,
+        .none => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqual(residual_request.fingerprint(), restored_request.fingerprint());
+    try restored.@"resume"(restored_request, @as(i32, 8));
+    var restored_done = switch (try restored.next()) {
+        .done => |result| result,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer restored_done.deinit();
+    try std.testing.expectEqual(@as(i32, 8), restored_done.value);
+}
+
+test "Program.residualize rewrites choice source sites and rejects abort source sites" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, i32),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+
+    const ChoiceBody = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "residualize-choice-source");
+    };
+    const ChoiceProgram = ability.program("residualize-choice-source", struct {}, ChoiceBody);
+    const ChoiceSource = ChoiceProgram.protocol.operationSite("session", "decide", 0);
+    const ChoiceMorphism = ChoiceProgram.ResidualMorphism(.{
+        .source = ChoiceSource,
+        .target = Check,
+        .payload = ability.ir.expr.payload(),
+        .response = ChoiceProgram.ResidualResponse.resumeIdentity(),
+        .label = "choice-as-policy",
+    });
+    const ChoiceResidual = ChoiceProgram.residualize(.{
+        .label = "residualize-choice-target",
+        .morphisms = .{ChoiceMorphism},
+    });
+    try ChoiceResidual.compiled_plan.validate();
+    const ChoiceResidualSite = ChoiceResidual.protocol.operationSite("policy", "check", 0);
+    try std.testing.expectEqual(ability.ir.PlanControlMode.transform, ChoiceResidualSite.op_mode);
+    try std.testing.expectEqual(ChoiceSource.fingerprint, (ChoiceResidual.sourceForResidualSite(ChoiceResidualSite) orelse return error.ExpectedResidualSourceMap).source_site_fingerprint);
+
+    const ChoiceHandler = struct {
+        pub fn handle(ctx: anytype, request: anytype, _: ChoiceResidual.Handler.Control) !ChoiceResidual.Handler.Outcome(ChoiceResidualSite) {
+            ctx.operation_count += 1;
+            try std.testing.expectEqualStrings("payload", try request.payload());
+            return ChoiceResidual.Handler.@"resume"(ChoiceResidualSite, @as(i32, 12));
+        }
+    };
+    const ChoiceInterpreter = ChoiceResidual.Interpreter(.{
+        ChoiceResidual.Handler.operation(ChoiceResidualSite, ChoiceHandler.handle),
+    });
+    var choice_host = struct { operation_count: usize = 0 }{};
+    var choice_result = try ChoiceInterpreter.run(&runtime, .{}, &choice_host, .{});
+    switch (choice_result) {
+        .done => |*done_value| {
+            defer done_value.deinit();
+            try std.testing.expectEqual(@as(i32, 12), done_value.value);
+        },
+        else => return error.ExpectedDone,
+    }
+    try std.testing.expectEqual(@as(usize, 1), choice_host.operation_count);
+
+    const AbortBody = struct {
+        pub const compiled_plan = sessionStringOpPlan(.abort, "residualize-abort-source");
+    };
+    const AbortProgram = ability.program("residualize-abort-source", struct {}, AbortBody);
+    const AbortSource = AbortProgram.protocol.operationSite("session", "decide", 0);
+    const AbortMorphism = AbortProgram.ResidualMorphism(.{
+        .source = AbortSource,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = AbortProgram.ResidualResponse.resumeIdentity(),
+        .label = "abort-as-policy",
+    });
+    const AbortReport = AbortProgram.residualizationReport(.{ .morphisms = .{AbortMorphism} });
+    try std.testing.expect(!AbortReport.supported);
+    try std.testing.expectEqual(@as(usize, 1), AbortReport.unsupported.len);
+    try std.testing.expectEqual(AbortProgram.ResidualBlockerTag.unsupported_source_mode, AbortReport.unsupported[0].tag);
+}
+
+test "Program.residualizationReport rejects unsupported mapping expressions" {
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "residualize-unsupported-mapping");
+    };
+    const Program = ability.program("residualize-unsupported-mapping", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, i32),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const Unsupported = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.field("reason"),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const Report = Program.residualizationReport(.{ .morphisms = .{Unsupported} });
+    try std.testing.expect(!Report.supported);
+    try std.testing.expectEqual(@as(usize, 1), Report.unsupported.len);
+    try std.testing.expectEqual(Program.ResidualBlockerTag.unsupported_payload_mapping, Report.unsupported[0].tag);
+
+    const ConstPayload = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.constString("fixed"),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const ConstReport = Program.residualizationReport(.{ .morphisms = .{ConstPayload} });
+    try std.testing.expect(!ConstReport.supported);
+    try std.testing.expectEqual(Program.ResidualBlockerTag.unsupported_payload_mapping, ConstReport.unsupported[0].tag);
+}
+
+test "Program.residualizationReport rejects late residualize blockers" {
+    const NestedHandlers = struct {
+        observe: struct {},
+    };
+    const NestedBody = struct {
+        pub const compiled_plan = nestedWithOutputCollectionPlan("residualize-nested-output-blocker");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+    };
+    const Program = ability.program("residualize-nested-output-blocker", NestedHandlers, NestedBody);
+    const Source = Program.protocol.operationSite("observe", "dispatch", 0);
+    const Target = ability.ir.schema.Protocol(.{
+        .label = "target",
+        .ops = .{
+            ability.ir.schema.transform("dispatch", void, void),
+        },
+    }).operation("dispatch", .{});
+    const Morphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Target,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const Report = Program.residualizationReport(.{ .morphisms = .{Morphism} });
+    try std.testing.expect(!Report.supported);
+    try std.testing.expectEqual(Program.ResidualBlockerTag.nested_with_residualization_unsupported, Report.unsupported[0].tag);
+}
+
 test "Program.ProtocolRequest frees earlier structured payload fields after clone failure" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
