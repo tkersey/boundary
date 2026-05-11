@@ -4446,6 +4446,202 @@ test "Program.Interpreter handles transform requests and records response traces
     try std.testing.expectEqual(manual_response.fingerprint, recorder.response_fingerprint);
 }
 
+test "Program.Morphism and ProtocolRequest preserve source capsule metadata" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "morphism-protocol-request");
+    };
+    const Program = ability.program("morphism-protocol-request", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, bool),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const Mapper = struct {
+        pub fn @"resume"(decision: bool) Program.Handler.Outcome(Source) {
+            return Program.Handler.@"resume"(Source, if (decision) 1 else 0);
+        }
+    };
+    const ApprovalViaPolicy = Program.Morphism(.{
+        .source = Source,
+        .target = Check,
+        .Mapper = Mapper,
+    });
+    try std.testing.expect(ApprovalViaPolicy.source == Source);
+    try std.testing.expect(ApprovalViaPolicy.target == Check);
+    try std.testing.expectEqual(Source.fingerprint, ApprovalViaPolicy.source.fingerprint);
+    try std.testing.expectEqual(Check.fingerprint, ApprovalViaPolicy.target.fingerprint);
+    try std.testing.expect(ApprovalViaPolicy.fingerprint != 0);
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    const request_payload = try request.payload([]const u8);
+    var capsule = try session.capture(std.testing.allocator);
+    const capsule_fingerprint = capsule.fingerprint();
+
+    var protocol_request = try Program.ProtocolRequest(Source, Check).init(
+        request.fingerprint(),
+        capsule,
+        request_payload,
+        "policy.check",
+    );
+    defer protocol_request.deinit();
+    capsule = undefined;
+
+    try std.testing.expectEqualStrings("morphism-protocol-request", protocol_request.source_program_label);
+    try std.testing.expectEqualStrings("morphism-protocol-request", protocol_request.source_plan_label);
+    try std.testing.expectEqual(Source.index, protocol_request.source_site_index);
+    try std.testing.expectEqual(Source.fingerprint, protocol_request.source_site_fingerprint);
+    try std.testing.expectEqual(request.fingerprint(), protocol_request.source_request_fingerprint);
+    try std.testing.expectEqual(capsule_fingerprint, protocol_request.source_capsule_fingerprint);
+    try std.testing.expectEqualStrings("policy", protocol_request.target_protocol_label);
+    try std.testing.expectEqualStrings("check", protocol_request.target_op_name);
+    try std.testing.expectEqual(Check.op_mode, protocol_request.target_op_mode);
+    try std.testing.expectEqual(Check.payload_ref, protocol_request.target_payload_ref);
+    try std.testing.expectEqual(Check.resume_ref, protocol_request.target_resume_ref);
+    try std.testing.expectEqual(Check.result_ref, protocol_request.target_result_ref);
+    try std.testing.expectEqualStrings("payload", protocol_request.payload());
+    try std.testing.expect(protocol_request.target_payload_fingerprint != 0);
+    try std.testing.expect(protocol_request.fingerprint() != 0);
+    try std.testing.expect(protocol_request.matches(Check));
+
+    const reinterpret = Program.Handler.reinterpret(Source, Check, "payload", Mapper);
+    switch (reinterpret) {
+        .reinterpret => |entry| {
+            try std.testing.expectEqualStrings("policy", entry.target_protocol_label);
+            try std.testing.expectEqualStrings("check", entry.target_op_name);
+            try std.testing.expectEqual(Check.fingerprint, entry.target_protocol_op_fingerprint);
+            try std.testing.expectEqualStrings("payload", try entry.payload([]const u8));
+            try std.testing.expect(entry.target_payload_fingerprint != 0);
+            const mapped = try entry.mapResume(true);
+            switch (mapped) {
+                .@"resume" => |value| try std.testing.expectEqual(@as(i32, 1), value),
+                else => return error.ExpectedResume,
+            }
+        },
+        else => return error.ExpectedReinterpret,
+    }
+}
+
+test "Program.Interpreter returns and handles reinterpreted protocol requests" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "interpreter-reinterpret");
+    };
+    const Program = ability.program("interpreter-reinterpret", struct {}, Body);
+    try std.testing.expectEqual(@as(u32, 2), Program.Session.Trace.fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 1), Program.reinterpret_fingerprint_version);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, bool),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const Mapper = struct {
+        pub fn @"resume"(decision: bool) Program.Handler.SourceOutcome(Source) {
+            return Program.Handler.@"resume"(Source, if (decision) 42 else 0);
+        }
+    };
+    const ApprovalHandler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Program.Handler.Control) !Program.Handler.Outcome(Source) {
+            return Program.Handler.reinterpret(Source, Check, try request.payload(), Mapper);
+        }
+    };
+    const PolicyHandler = struct {
+        pub fn handle(_: anytype, request: anytype) !Program.Handler.TargetResponse(Check) {
+            const payload = try request.payload();
+            return .{ .@"resume" = std.mem.eql(u8, payload, "payload") };
+        }
+    };
+    const ForwardingPolicyHandler = struct {
+        pub fn handle(_: anytype, request: anytype) !Program.Handler.TargetResponse(Check) {
+            _ = try request.payload();
+            return .forward;
+        }
+    };
+    const ApprovalViaPolicy = Program.Morphism(.{
+        .source = Source,
+        .target = Check,
+        .Mapper = Mapper,
+    });
+    const SourceOnly = Program.Interpreter(.{
+        Program.Handler.morphism(ApprovalViaPolicy, ApprovalHandler.handle),
+    });
+    const Composed = Program.Interpreter(.{
+        Program.Handler.morphism(ApprovalViaPolicy, ApprovalHandler.handle),
+        Program.Handler.protocolOperation(Check, PolicyHandler.handle),
+    });
+    const ForwardingTarget = Program.Interpreter(.{
+        Program.Handler.morphism(ApprovalViaPolicy, ApprovalHandler.handle),
+        Program.Handler.protocolOperation(Check, ForwardingPolicyHandler.handle),
+    });
+    SourceOnly.assertCoversAll();
+    Composed.assertCoversAll();
+    SourceOnly.assertReinterprets(Source, Check);
+    Composed.assertReinterprets(Source, Check);
+    Composed.assertHandlesProtocolOps(.{Check});
+    Composed.assertEliminates(Program);
+    const SourceOnlyRow = SourceOnly.effectRow(Program);
+    try std.testing.expectEqual(@as(usize, 1), SourceOnlyRow.handled_operation_sites);
+    try std.testing.expectEqual(@as(usize, 1), SourceOnlyRow.reinterpreted_source_sites);
+    try std.testing.expectEqual(@as(usize, 1), SourceOnlyRow.emitted_protocol_operations);
+    try std.testing.expectEqual(@as(usize, 0), SourceOnlyRow.handled_protocol_operations);
+    const ComposedRow = Composed.effectRow(Program);
+    try std.testing.expectEqual(@as(usize, 1), ComposedRow.handled_protocol_operations);
+
+    var host = struct {}{};
+    var source_only = try SourceOnly.run(&runtime, .{}, &host, .{});
+    switch (source_only) {
+        .reinterpreted => |*request| {
+            defer request.deinit();
+            try std.testing.expectEqualStrings("policy", request.target_protocol_label);
+            try std.testing.expectEqualStrings("check", request.target_op_name);
+            try std.testing.expectEqual(Check.fingerprint, request.target_protocol_op_fingerprint);
+            try std.testing.expectEqualStrings("payload", try request.payload([]const u8));
+            try std.testing.expect(request.source_request_fingerprint != 0);
+            try std.testing.expect(request.source_capsule_fingerprint != 0);
+            try std.testing.expect(request.target_payload_fingerprint != 0);
+            try std.testing.expect(request.reinterpreted_request_fingerprint != 0);
+            try std.testing.expect(request.matches(Check));
+        },
+        else => return error.ExpectedReinterpreted,
+    }
+
+    var forwarded_target = try ForwardingTarget.run(&runtime, .{}, &host, .{});
+    switch (forwarded_target) {
+        .reinterpreted => |*request| {
+            defer request.deinit();
+            try std.testing.expectEqualStrings("policy", request.target_protocol_label);
+            try std.testing.expectEqualStrings("check", request.target_op_name);
+            try std.testing.expectEqualStrings("payload", try request.payload([]const u8));
+        },
+        else => return error.ExpectedReinterpreted,
+    }
+
+    var composed = try Composed.run(&runtime, .{}, &host, .{});
+    switch (composed) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 42), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+}
+
 test "Program.Interpreter handles choice resume returnNow and abort returnNow" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();

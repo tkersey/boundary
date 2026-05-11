@@ -17,6 +17,7 @@ examples/plan_native_optional.zig
 examples/plan_native_resource.zig
 examples/plan_native_state_reader.zig
 examples/plan_native_writer.zig
+examples/protocol_reinterpretation.zig
 examples/state_basic.zig
 examples/typed_program_plan.zig
 src/ability_shared.zig
@@ -82,6 +83,8 @@ test/compile_fail/interpreter_coverage_fake_interpreter.zig
 test/compile_fail/interpreter_coverage_omitted_after.zig
 test/compile_fail/interpreter_coverage_omitted_operation.zig
 test/compile_fail/interpreter_duplicate_handler.zig
+test/compile_fail/interpreter_duplicate_protocol_operation_handler.zig
+test/compile_fail/interpreter_elimination_missing_protocol_operation.zig
 test/compile_fail/interpreter_foreign_site.zig
 test/compile_fail/interpreter_invalid_transform_return_now.zig
 test/compile_fail/invalid_output_cleanup_hook.zig
@@ -97,12 +100,15 @@ test/compile_fail/protocol_coverage_foreign_site.zig
 test/compile_fail/protocol_coverage_omitted_after.zig
 test/compile_fail/protocol_coverage_omitted_operation.zig
 test/compile_fail/protocol_request_foreign_site.zig
+test/compile_fail/reinterpret_mapper_invalid_source_outcome.zig
 test/compile_fail/schema_lower_binding_product_ref.zig
 test/compile_fail/schema_protocol_duplicate_op_name.zig
 test/compile_fail/schema_protocol_empty_label.zig
 test/compile_fail/schema_protocol_empty_op_name.zig
 test/compile_fail/schema_protocol_missing_product_ref.zig
 test/compile_fail/schema_protocol_missing_sum_ref.zig
+test/compile_fail/schema_protocol_operation_missing_product_ref.zig
+test/compile_fail/schema_protocol_operation_missing_sum_result_ref.zig
 test/compile_fail/schema_refs_duplicate_type.zig
 test/compile_fail/schema_refs_scalar_entry.zig
 test/compile_fail/schema_refs_unsupported_type.zig

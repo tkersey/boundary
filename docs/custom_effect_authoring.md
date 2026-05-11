@@ -208,6 +208,18 @@ it like any other plan:
 - `Program.Handler` binds typed handler functions to those descriptors, and
   `Program.Interpreter` composes them into a continuation-aware driver over
   `Program.Session`.
+- `schema.Protocol.operation("op", .{ .schema_refs = ... })` provides a typed
+  protocol-level operation descriptor independent of any static Program yield
+  site. Handlers can use it with `Program.Handler.reinterpret` to translate a
+  source Program operation into another protocol operation while preserving the
+  source continuation as a capsule.
+- `Program.Handler.protocolOperation(TargetOp, handler)` handles those emitted
+  protocol requests. The target response is mapped back through a comptime
+  mapper into a valid source-site outcome, so composed interpreters can
+  progressively eliminate, transform, expose, or forward residual effects.
+- `Interpreter.effectRow(Program)` distinguishes handled Program sites, handled
+  protocol operations, reinterpreted source sites, emitted target protocol
+  operations, and statically known residual Program sites.
 - Optional semantic site labels appear on static yield/after sites,
   `Program.protocol` descriptors, dynamic request traces, and after traces when
   the body exposes `site_metadata`.
@@ -230,6 +242,12 @@ through `Control.capture`, resumes the main approval path, and later
 interpreters restore the reusable capsule into approve and deny branches. The
 main path does not hand-write a session loop.
 
+`examples/protocol_reinterpretation.zig` shows handlers as effect morphisms. A
+typed approval handler reinterprets `approval.request` into a protocol-level
+`policy.check` request, the interpreter preserves the approval continuation as a
+capsule, and the mapper converts the policy decision into either approval resume
+or approval return-now behavior.
+
 ## Preferred Path
 
 1. Define the protocol with `ability.ir.schema.Protocol`.
@@ -239,8 +257,11 @@ main path does not hand-write a session loop.
 5. Execute with `ability.program` and `Program.run`.
 6. Step host-driven runs with `Program.Session`.
 7. Bind dynamic requests with `Program.protocol`.
-8. Compose typed continuation-aware handlers with `Program.Interpreter`.
-9. Inspect and replay with traces and fingerprints.
+8. Derive protocol-level op descriptors with `Protocol.operation` when a handler
+   needs to emit a target protocol request.
+9. Compose typed continuation-aware handlers and protocol-operation handlers with
+   `Program.Interpreter`.
+10. Inspect effect rows, traces, capsules, and fingerprints.
 
 ## Non-Goals
 
@@ -258,3 +279,5 @@ main path does not hand-write a session loop.
 - No public root widening.
 - No `ProgramValue` widening.
 - No new value codecs.
+- No cross-thread sessions, persistence backend, or required trace serialization
+  format.

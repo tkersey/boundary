@@ -186,26 +186,45 @@ duplicate descriptors, or descriptors from another program.
 `Program.Handler` and `Program.Interpreter` add a typed algebra over
 `Program.Session`; they do not replace the primitive session machine. A handler
 binds to one `Program.protocol` operation or after descriptor and returns a
-site-specific outcome: resume, return-now, resume-after, suspend, forward, or
-fail. Transform handlers can resume, suspend, forward, or fail; choice handlers
-can also return now; abort handlers can return now, suspend, forward, or fail;
-after handlers resume-after, suspend, forward, or fail. A handler receives a
-`Control` value exposing the current trace, fingerprint, site metadata through
-the typed request, and `capture(allocator)` for a reusable continuation capsule
-without advancing the current session. Store the captured capsule, not the
-`Control` value; `Control.capture` is only valid during the handler call for the
-currently parked request or after-continuation.
+site-specific outcome: resume, return-now, resume-after, suspend, forward,
+reinterpret, or fail. Transform handlers can resume, suspend, forward,
+reinterpret, or fail; choice handlers can also return now; abort handlers can
+return now, suspend, forward, reinterpret, or fail; after handlers resume-after,
+suspend, forward, or fail. A handler receives a `Control` value exposing the
+current trace, fingerprint, site metadata through the typed request, and
+`capture(allocator)` for a reusable continuation capsule without advancing the
+current session. Store the captured capsule, not the `Control` value;
+`Control.capture` is only valid during the handler call for the currently parked
+request or after-continuation.
+
+Handlers can also act as effect morphisms. `schema.Protocol.operation("op",
+.{ .schema_refs = ... })` derives a typed protocol-level operation descriptor
+that is independent of any compiled `Program` yield site. A morphism handler can
+return `Handler.reinterpret(SourceSite, TargetOp, payload, Mapper)`: the
+interpreter captures the source continuation as a `Program.Session.Capsule`,
+emits an inspectable `Program.ProtocolRequest(SourceSite, TargetOp)`, and later
+maps the target protocol response back into a source-site outcome through the
+comptime mapper. Protocol-operation handlers are added with
+`Program.Handler.protocolOperation(TargetOp, handler)`, so a composed
+`Program.Interpreter(.{ source_morphism, target_handler, ... })` can eliminate a
+high-level effect by translating it into a lower-level protocol and resuming the
+original capsule.
 
 `Program.Interpreter(.{ ... })` drives a `Program.Session` with those handlers
-until it returns `done`, `suspended`, or `unhandled`. Suspended and unhandled
-results own a capsule plus parked-kind, trace, request fingerprint, capsule
-fingerprint, and reason metadata. Partial interpreters are valid: missing
-handlers or explicit `forward` return an owned unhandled capsule, which can be
-manually resumed through `Program.Session` or restored and continued with
-another interpreter. Complete interpreters can call `assertCoversAll()`, and
-`Program.protocol.assertAllSitesCoveredBy(Interpreter)` provides the same
-coverage gate from the protocol side. Manual session loops remain available for
-hosts that need lower-level control.
+until it returns `done`, `suspended`, `unhandled`, or `reinterpreted`. Suspended
+and unhandled results own a capsule plus parked-kind, trace, request
+fingerprint, capsule fingerprint, and reason metadata. A reinterpreted result
+owns the source capsule plus source request/capsule fingerprints, target protocol
+label/op/mode/ref metadata, target payload value and fingerprint, mapper
+fingerprint, and a separate reinterpretation fingerprint. Partial interpreters
+are valid: missing handlers or explicit `forward` return an owned unhandled
+capsule, and an unhandled target protocol request returns `reinterpreted` to the
+host. Complete interpreters can call `assertCoversAll()` or `assertEliminates()`;
+`effectRow(Program)` reports handled program sites, handled protocol ops,
+reinterpreted source sites, emitted target protocol ops, forwarded/residual
+program sites when statically knowable, and assertion helpers cover
+reinterpretation and protocol-op handling. Manual session loops remain available
+for hosts that need lower-level control.
 
 See [docs/program_plan.md](docs/program_plan.md) for semantic program
 authoring, typed product/sum bodies, tuple entry args, outputs, cleanup hooks,
@@ -355,6 +374,11 @@ authoring and public plan-native helpers:
   `Control.capture`, the current interpreter resumes the main approval path, and
   two restored interpreters branch the reusable capsule into approve and deny
   outcomes.
+- `examples/protocol_reinterpretation.zig` demonstrates typed protocol
+  morphisms: an `approval.request` choice site is reinterpreted into a
+  protocol-level `policy.check` transform request, the source continuation is
+  preserved as a capsule, and the policy answer maps back to either resume or
+  return-now behavior for the original approval site.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
   abort operations declared through a schema-first custom protocol family,
   schema registry, semantic builder, and both synchronous and host-driven
@@ -381,5 +405,6 @@ zig build run-plan-native-writer
 zig build run-agent-loop
 zig build run-continuation-branching
 zig build run-interpreter-branching
+zig build run-protocol-reinterpretation
 zig build run-custom-approval-workflow
 ```
