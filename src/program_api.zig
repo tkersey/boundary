@@ -570,6 +570,7 @@ fn ProgramProtocolFor(
     comptime HandlersType: type,
     comptime ProtocolOwner: type,
     comptime site_metadata: anytype,
+    comptime InterpreterToken: type,
 ) type {
     const operation_sites = lowering_api.sessionOperationYieldSitesForPlanWithMetadata(plan, nested_targets, site_metadata);
     const after_sites = lowering_api.sessionAfterYieldSitesForPlanWithMetadata(plan, nested_targets, site_metadata);
@@ -812,6 +813,16 @@ fn ProgramProtocolFor(
             inline for (after_covered) |is_covered| {
                 if (!is_covered) @compileError("Program.protocol coverage omitted reachable after site");
             }
+        }
+
+        pub fn assertAllSitesCoveredBy(comptime InterpreterType: type) void {
+            if (!hasDeclSafe(InterpreterType, "InterpreterToken") or
+                InterpreterType.InterpreterToken != InterpreterToken or
+                !hasDeclSafe(InterpreterType, "assertCoversAll"))
+            {
+                @compileError("Program.protocol expected a Program.Interpreter type");
+            }
+            InterpreterType.assertCoversAll();
         }
     };
 }
@@ -1137,6 +1148,8 @@ pub fn program(
     const body_value_schema_types = BodyValueSchemaTypes(Body).values;
     const body_nested_with_targets = BodyNestedWithTargets(Body).values;
     const body_site_metadata = BodySiteMetadata(Body).values;
+    const body_compiled_plan_hash = body_compiled_plan.hash();
+    const InterpreterAuthenticityToken = opaque {};
     const Value = ProgramValueTypeForRef(body_compiled_plan, body_value_schema_types, lowering_api.executableResultRefForPlan(body_compiled_plan));
     const Outputs = ProgramOutputsType(Body);
 
@@ -1146,7 +1159,7 @@ pub fn program(
         /// Read-only projection of the compiled ProgramPlan contract.
         pub const contract = ProgramContractFor(label, body_compiled_plan, Value, Outputs, body_value_schema_types, body_nested_with_targets, body_site_metadata);
         /// Typed defunctionalized protocol descriptors derived from Program.Session static sites.
-        pub const protocol = ProgramProtocolFor(label, body_compiled_plan, body_value_schema_types, body_nested_with_targets, HandlersType, Body, body_site_metadata);
+        pub const protocol = ProgramProtocolFor(label, body_compiled_plan, body_value_schema_types, body_nested_with_targets, HandlersType, Body, body_site_metadata, InterpreterAuthenticityToken);
         /// Public execution error for this program.
         pub const Error = ProgramErrorSet(Body);
 
@@ -1575,6 +1588,508 @@ pub fn program(
                 }
             }
         };
+
+        // zlinter-disable declaration_naming - Program.Handler is the documented public algebraic-effect namespace.
+        /// Typed algebraic-effect handler declarations and outcomes for this Program.
+        pub const Handler = struct {
+            /// Interpreter stop reason for capsule-bearing results.
+            pub const StopReason = enum {
+                explicit_suspend,
+                forwarded_unhandled,
+                unhandled,
+            };
+
+            /// Trace view for the currently parked operation or after-continuation.
+            pub const TraceView = union(enum) {
+                after: Session.Trace.AfterRequest,
+                operation: Session.Trace.OperationRequest,
+            };
+
+            /// Read-only, handler-scoped control over the currently parked continuation boundary.
+            pub const Control = struct {
+                _capture_context: *anyopaque,
+                _current: Session.Current,
+
+                fn init(session: *Session, current: Session.Current) @This() {
+                    return .{
+                        ._capture_context = session,
+                        ._current = current,
+                    };
+                }
+
+                /// Return the parked kind currently controlled by the handler.
+                pub fn parkedKind(self: @This()) Error!Session.ParkedKind {
+                    return switch (self._current) {
+                        .request => .operation,
+                        .after => .after,
+                        .none => error.ProgramContractViolation,
+                    };
+                }
+
+                /// Return the current request or after trace.
+                pub fn trace(self: @This()) Error!TraceView {
+                    return switch (self._current) {
+                        .request => |request| .{ .operation = request.trace() },
+                        .after => |after_request| .{ .after = after_request.trace() },
+                        .none => error.ProgramContractViolation,
+                    };
+                }
+
+                /// Return the deterministic fingerprint for the current parked request.
+                pub fn requestFingerprint(self: @This()) Error!u64 {
+                    return switch (self._current) {
+                        .request => |request| request.fingerprint(),
+                        .after => |after_request| after_request.fingerprint(),
+                        .none => error.ProgramContractViolation,
+                    };
+                }
+
+                /// Capture the current parked continuation without advancing it.
+                pub fn capture(self: @This(), allocator: std.mem.Allocator) Error!Session.Capsule {
+                    const session: *Session = @ptrCast(@alignCast(self._capture_context));
+                    return session.capture(allocator);
+                }
+            };
+
+            // zlinter-disable field_ordering - outcome tags stay grouped by handler control action, not alphabetically.
+            /// Site-specific handler outcome. Helper constructors enforce site-mode legality at comptime.
+            pub fn Outcome(comptime Site: type) type {
+                comptime validateAnySite(Site);
+                if (comptime Site.kind == .after) {
+                    return union(enum) {
+                        fail: anyerror,
+                        forward,
+                        resume_after: Site.Output,
+                        @"suspend",
+                    };
+                }
+                return union(enum) {
+                    fail: anyerror,
+                    forward,
+                    @"resume": Site.Resume,
+                    return_now: Site.Result,
+                    @"suspend",
+                };
+            }
+            // zlinter-enable field_ordering
+
+            /// Declare one operation-site handler.
+            pub fn operation(comptime site: type, comptime handler_fn: anytype) type {
+                comptime validateOperationSite(site);
+                return struct {
+                    const kind = .operation;
+                    const Site = site;
+                    const function = handler_fn;
+                };
+            }
+
+            /// Declare one after-continuation-site handler.
+            pub fn after(comptime site: type, comptime handler_fn: anytype) type {
+                comptime validateAfterSite(site);
+                return struct {
+                    const kind = .after;
+                    const Site = site;
+                    const function = handler_fn;
+                };
+            }
+
+            /// Resume a transform or choice operation with a typed value.
+            pub fn @"resume"(comptime Site: type, value: Site.Resume) Outcome(Site) {
+                comptime {
+                    validateOperationSite(Site);
+                    if (!Site.may_resume) @compileError("Program.Handler.resume is invalid for this operation site");
+                }
+                return .{ .@"resume" = value };
+            }
+
+            /// Complete a choice or abort operation with a terminal value.
+            pub fn returnNow(comptime Site: type, value: Site.Result) Outcome(Site) {
+                comptime {
+                    validateOperationSite(Site);
+                    if (!Site.may_return_now) @compileError("Program.Handler.returnNow is invalid for this operation site");
+                }
+                return .{ .return_now = value };
+            }
+
+            /// Resume an after-continuation with a typed output value.
+            pub fn resumeAfter(comptime Site: type, value: Site.Output) Outcome(Site) {
+                comptime validateAfterSite(Site);
+                return .{ .resume_after = value };
+            }
+
+            /// Suspend at the current continuation boundary and return an owned capsule.
+            pub fn @"suspend"(comptime Site: type) Outcome(Site) {
+                comptime validateAnySite(Site);
+                return .@"suspend";
+            }
+
+            /// Decline this site so a later composed interpreter can try to handle it.
+            pub fn forward(comptime Site: type) Outcome(Site) {
+                comptime validateAnySite(Site);
+                return .forward;
+            }
+
+            /// Fail the interpreter with a handler-provided error.
+            pub fn fail(comptime Site: type, err: anyerror) Outcome(Site) {
+                comptime validateAnySite(Site);
+                return .{ .fail = err };
+            }
+
+            fn validateAnySite(comptime Site: type) void {
+                if (!hasDeclSafe(Site, "kind")) @compileError("Program.Handler expected a Program.protocol site descriptor");
+                switch (Site.kind) {
+                    .operation => validateOperationSite(Site),
+                    .after => validateAfterSite(Site),
+                    else => @compileError("Program.Handler expected an operation or after site descriptor"),
+                }
+            }
+
+            fn validateOwner(comptime Site: type) void {
+                if (!hasDeclSafe(Site, "Owner") or
+                    Site.Owner != Body or
+                    !hasDeclSafe(Site, "owner_label") or
+                    !std.mem.eql(u8, Site.owner_label, label) or
+                    !hasDeclSafe(Site, "owner_plan_hash") or
+                    Site.owner_plan_hash != body_compiled_plan_hash or
+                    !hasDeclSafe(Site, "OwnerHandlers") or
+                    Site.OwnerHandlers != HandlersType)
+                {
+                    @compileError("Program.Handler site descriptor belongs to another program");
+                }
+            }
+
+            fn validateOperationSite(comptime Site: type) void {
+                validateOwner(Site);
+                if (!hasDeclSafe(Site, "kind") or Site.kind != .operation) {
+                    @compileError("Program.Handler.operation expected an operation site descriptor");
+                }
+            }
+
+            fn validateAfterSite(comptime Site: type) void {
+                validateOwner(Site);
+                if (!hasDeclSafe(Site, "kind") or Site.kind != .after) {
+                    @compileError("Program.Handler.after expected an after site descriptor");
+                }
+            }
+        };
+        // zlinter-enable declaration_naming
+
+        /// Build a typed interpreter from operation and after-continuation handlers.
+        pub fn Interpreter(comptime entries: anytype) type {
+            comptime validateInterpreterEntries(entries);
+            const ProgramRunResult = Result;
+            return struct {
+                const InterpreterToken = InterpreterAuthenticityToken;
+
+                /// Capsule-bearing suspension metadata.
+                pub const Suspended = struct {
+                    reason: Handler.StopReason,
+                    capsule: Session.Capsule,
+                    parked_kind: Session.ParkedKind,
+                    trace: Handler.TraceView,
+                    request_fingerprint: u64,
+                    capsule_fingerprint: u64,
+
+                    /// Release the owned capsule.
+                    pub fn deinit(self: *@This()) void {
+                        self.capsule.deinit();
+                    }
+                };
+
+                /// Capsule-bearing unhandled-site metadata.
+                pub const Unhandled = Suspended;
+
+                /// Interpreter execution result.
+                pub const ExecutionResult = union(enum) {
+                    done: ProgramRunResult,
+                    suspended: Suspended,
+                    unhandled: Unhandled,
+                };
+                /// Short alias for the interpreter execution result.
+                pub const Result = ExecutionResult;
+
+                /// Drive a fresh Program.Session until done, suspended, unhandled, or error.
+                pub fn run(
+                    runtime: *lowered_machine.Runtime,
+                    handlers: HandlersType,
+                    host_ctx: anytype,
+                    options: anytype,
+                ) Error!ExecutionResult {
+                    var session = try Session.start(runtime, handlers);
+                    defer session.deinit();
+                    return continueSession(&session, host_ctx, options);
+                }
+
+                /// Restore a fresh session from a reusable capsule and drive it with this interpreter.
+                pub fn restore(
+                    runtime: *lowered_machine.Runtime,
+                    handlers: HandlersType,
+                    host_ctx: anytype,
+                    capsule: *const Session.Capsule,
+                    options: anytype,
+                ) Error!ExecutionResult {
+                    var session = try Session.restore(runtime, handlers, capsule);
+                    defer session.deinit();
+                    return continueSession(&session, host_ctx, options);
+                }
+
+                /// Continue an existing session from its current lifecycle state.
+                pub fn continueSession(session: *Session, host_ctx: anytype, options: anytype) Error!ExecutionResult {
+                    while (true) {
+                        switch (try session.current()) {
+                            .none => {},
+                            .request => |request| {
+                                const current = Session.Current{ .request = request };
+                                if (try dispatchOperation(session, current, host_ctx, options)) |result| return result;
+                                continue;
+                            },
+                            .after => |after_request| {
+                                const current = Session.Current{ .after = after_request };
+                                if (try dispatchAfter(session, current, host_ctx, options)) |result| return result;
+                                continue;
+                            },
+                        }
+                        switch (try session.next()) {
+                            .done => |done| return .{ .done = done },
+                            .request => |request| {
+                                const current = Session.Current{ .request = request };
+                                if (try dispatchOperation(session, current, host_ctx, options)) |result| return result;
+                            },
+                            .after => |after| {
+                                const current = Session.Current{ .after = after };
+                                if (try dispatchAfter(session, current, host_ctx, options)) |result| return result;
+                            },
+                        }
+                    }
+                }
+
+                /// Assert that this interpreter covers all reachable operation and after sites.
+                pub fn assertCoversAll() void {
+                    comptime assertInterpreterCoversAll(entries);
+                }
+
+                /// Return static coverage counts for this interpreter.
+                pub fn coverage() struct { operation_sites: usize, after_sites: usize } {
+                    comptime var operation_count: usize = 0;
+                    comptime var after_count: usize = 0;
+                    inline for (entries) |Entry| switch (Entry.kind) {
+                        .operation => operation_count += 1,
+                        .after => after_count += 1,
+                        else => {},
+                    };
+                    return .{ .operation_sites = operation_count, .after_sites = after_count };
+                }
+
+                fn dispatchOperation(
+                    session: *Session,
+                    current: Session.Current,
+                    host_ctx: anytype,
+                    options: anytype,
+                ) Error!?ExecutionResult {
+                    const request = switch (current) {
+                        .request => |value| value,
+                        else => return error.ProgramContractViolation,
+                    };
+                    inline for (entries) |Entry| {
+                        if (Entry.kind == .operation and request.matches(Entry.Site)) {
+                            const typed = try request.as(Entry.Site);
+                            const control = Handler.Control.init(session, current);
+                            const outcome = try callHandler(Entry, host_ctx, typed, control);
+                            return try applyOperationOutcome(Entry.Site, session, current, typed, outcome, options);
+                        }
+                    }
+                    return try buildUnhandled(session, current, .unhandled);
+                }
+
+                fn dispatchAfter(
+                    session: *Session,
+                    current: Session.Current,
+                    host_ctx: anytype,
+                    options: anytype,
+                ) Error!?ExecutionResult {
+                    const after_request = switch (current) {
+                        .after => |value| value,
+                        else => return error.ProgramContractViolation,
+                    };
+                    inline for (entries) |Entry| {
+                        if (Entry.kind == .after and after_request.matches(Entry.Site)) {
+                            const typed = try after_request.as(Entry.Site);
+                            const control = Handler.Control.init(session, current);
+                            const outcome = try callHandler(Entry, host_ctx, typed, control);
+                            return try applyAfterOutcome(Entry.Site, session, current, typed, outcome, options);
+                        }
+                    }
+                    return try buildUnhandled(session, current, .unhandled);
+                }
+
+                fn callHandler(comptime Entry: type, host_ctx: anytype, typed: anytype, control: Handler.Control) Error!Handler.Outcome(Entry.Site) {
+                    const raw = Entry.function(host_ctx, typed, control);
+                    if (comptime @typeInfo(@TypeOf(raw)) == .error_union) {
+                        return raw catch |err| return mapProgramRunError(Error, err);
+                    }
+                    return raw;
+                }
+
+                fn applyOperationOutcome(
+                    comptime Site: type,
+                    session: *Session,
+                    current: Session.Current,
+                    typed: anytype,
+                    outcome: Handler.Outcome(Site),
+                    options: anytype,
+                ) Error!?ExecutionResult {
+                    return switch (outcome) {
+                        .@"resume" => |value| resume_branch: {
+                            if (!Site.may_resume) return error.ProgramContractViolation;
+                            const response_trace = typed.responseTrace(.@"resume", value) catch |err| return mapProgramRunError(Error, err);
+                            try recordTrace(options, (try traceFor(current)).operation, response_trace);
+                            try session.resumeTyped(typed, value);
+                            break :resume_branch null;
+                        },
+                        .return_now => |value| return_now: {
+                            if (!Site.may_return_now) return error.ProgramContractViolation;
+                            const response_trace = typed.responseTrace(.return_now, value) catch |err| return mapProgramRunError(Error, err);
+                            try recordTrace(options, (try traceFor(current)).operation, response_trace);
+                            try session.returnNowTyped(typed, value);
+                            break :return_now null;
+                        },
+                        .@"suspend" => try buildSuspended(session, current, .explicit_suspend),
+                        .forward => try buildUnhandled(session, current, .forwarded_unhandled),
+                        .fail => |err| return mapProgramRunError(Error, err),
+                    };
+                }
+
+                fn applyAfterOutcome(
+                    comptime Site: type,
+                    session: *Session,
+                    current: Session.Current,
+                    typed: anytype,
+                    outcome: Handler.Outcome(Site),
+                    options: anytype,
+                ) Error!?ExecutionResult {
+                    return switch (outcome) {
+                        .resume_after => |value| resume_after: {
+                            const response_trace = typed.responseTrace(value) catch |err| return mapProgramRunError(Error, err);
+                            try recordTrace(options, (try traceFor(current)).after, response_trace);
+                            try session.resumeAfterTyped(typed, value);
+                            break :resume_after null;
+                        },
+                        .@"suspend" => try buildSuspended(session, current, .explicit_suspend),
+                        .forward => try buildUnhandled(session, current, .forwarded_unhandled),
+                        .fail => |err| return mapProgramRunError(Error, err),
+                    };
+                }
+
+                fn recordTrace(options: anytype, request_trace: anytype, response_trace: Session.Trace.Response) Error!void {
+                    if (comptime @typeInfo(@TypeOf(options)) == .@"struct" and @hasField(@TypeOf(options), "trace_recorder")) {
+                        if (comptime @typeInfo(@TypeOf(options.trace_recorder.record(request_trace, response_trace))) == .error_union) {
+                            options.trace_recorder.record(request_trace, response_trace) catch |err| return mapProgramRunError(Error, err);
+                        } else {
+                            _ = options.trace_recorder.record(request_trace, response_trace);
+                        }
+                    }
+                }
+
+                fn buildSuspended(session: *Session, current: Session.Current, reason: Handler.StopReason) Error!?ExecutionResult {
+                    const parked_kind = switch (current) {
+                        .request => Session.ParkedKind.operation,
+                        .after => Session.ParkedKind.after,
+                        .none => return error.ProgramContractViolation,
+                    };
+                    var capsule = try session.capture(lowered_machine.runtimeAllocator(session.runtime));
+                    errdefer capsule.deinit();
+                    const capsule_fingerprint = capsule.fingerprint();
+                    return .{ .suspended = .{
+                        .reason = reason,
+                        .capsule = capsule,
+                        .parked_kind = parked_kind,
+                        .trace = try traceFor(current),
+                        .request_fingerprint = try fingerprintFor(current),
+                        .capsule_fingerprint = capsule_fingerprint,
+                    } };
+                }
+
+                fn buildUnhandled(session: *Session, current: Session.Current, reason: Handler.StopReason) Error!?ExecutionResult {
+                    const parked_kind = switch (current) {
+                        .request => Session.ParkedKind.operation,
+                        .after => Session.ParkedKind.after,
+                        .none => return error.ProgramContractViolation,
+                    };
+                    var capsule = try session.capture(lowered_machine.runtimeAllocator(session.runtime));
+                    errdefer capsule.deinit();
+                    const capsule_fingerprint = capsule.fingerprint();
+                    return .{ .unhandled = .{
+                        .reason = reason,
+                        .capsule = capsule,
+                        .parked_kind = parked_kind,
+                        .trace = try traceFor(current),
+                        .request_fingerprint = try fingerprintFor(current),
+                        .capsule_fingerprint = capsule_fingerprint,
+                    } };
+                }
+
+                fn traceFor(current: Session.Current) Error!Handler.TraceView {
+                    return switch (current) {
+                        .request => |request| .{ .operation = request.trace() },
+                        .after => |after_request| .{ .after = after_request.trace() },
+                        .none => error.ProgramContractViolation,
+                    };
+                }
+
+                fn fingerprintFor(current: Session.Current) Error!u64 {
+                    return switch (current) {
+                        .request => |request| request.fingerprint(),
+                        .after => |after_request| after_request.fingerprint(),
+                        .none => error.ProgramContractViolation,
+                    };
+                }
+            };
+        }
+
+        fn validateInterpreterEntries(comptime entries: anytype) void {
+            inline for (entries, 0..) |Entry, index| {
+                if (!hasDeclSafe(Entry, "kind") or !hasDeclSafe(Entry, "Site") or !hasDeclSafe(Entry, "function")) {
+                    @compileError("Program.Interpreter entries must be Program.Handler declarations");
+                }
+                Handler.validateAnySite(Entry.Site);
+                inline for (entries, 0..) |Prior, prior_index| {
+                    if (prior_index < index and Prior.kind == Entry.kind and Prior.Site.index == Entry.Site.index and Prior.Site.fingerprint == Entry.Site.fingerprint) {
+                        @compileError("Program.Interpreter listed duplicate handler for site");
+                    }
+                }
+            }
+        }
+
+        fn assertInterpreterCoversAll(comptime entries: anytype) void {
+            var operation_covered: [protocol.operation_site_count]bool = [_]bool{false} ** protocol.operation_site_count;
+            var after_covered: [protocol.after_site_count]bool = [_]bool{false} ** protocol.after_site_count;
+            inline for (entries) |Entry| {
+                Handler.validateAnySite(Entry.Site);
+                switch (Entry.kind) {
+                    .operation => {
+                        if (Entry.Site.index >= protocol.operation_site_count or protocol.operation_site_metadata[Entry.Site.index].fingerprint != Entry.Site.fingerprint) {
+                            @compileError("Program.Interpreter coverage descriptor belongs to another program");
+                        }
+                        if (operation_covered[Entry.Site.index]) @compileError("Program.Interpreter listed duplicate handler for site");
+                        operation_covered[Entry.Site.index] = true;
+                    },
+                    .after => {
+                        if (Entry.Site.index >= protocol.after_site_count or protocol.after_site_metadata[Entry.Site.index].fingerprint != Entry.Site.fingerprint) {
+                            @compileError("Program.Interpreter coverage descriptor belongs to another program");
+                        }
+                        if (after_covered[Entry.Site.index]) @compileError("Program.Interpreter listed duplicate handler for site");
+                        after_covered[Entry.Site.index] = true;
+                    },
+                    else => @compileError("Program.Interpreter entries must be Program.Handler declarations"),
+                }
+            }
+            inline for (operation_covered) |is_covered| {
+                if (!is_covered) @compileError("Program.Interpreter coverage omitted reachable operation site");
+            }
+            inline for (after_covered) |is_covered| {
+                if (!is_covered) @compileError("Program.Interpreter coverage omitted reachable after site");
+            }
+        }
     };
 }
 

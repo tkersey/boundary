@@ -531,6 +531,30 @@ pub fn build(b: *std.Build) void {
             .path = "test/compile_fail/protocol_request_foreign_site.zig",
             .expected_error = "Program.protocol descriptor belongs to another program",
         },
+        .{
+            .path = "test/compile_fail/interpreter_invalid_transform_return_now.zig",
+            .expected_error = "Program.Handler.returnNow is invalid for this operation site",
+        },
+        .{
+            .path = "test/compile_fail/interpreter_duplicate_handler.zig",
+            .expected_error = "Program.Interpreter listed duplicate handler for site",
+        },
+        .{
+            .path = "test/compile_fail/interpreter_foreign_site.zig",
+            .expected_error = "Program.Handler site descriptor belongs to another program",
+        },
+        .{
+            .path = "test/compile_fail/interpreter_coverage_omitted_operation.zig",
+            .expected_error = "Program.Interpreter coverage omitted reachable operation site",
+        },
+        .{
+            .path = "test/compile_fail/interpreter_coverage_omitted_after.zig",
+            .expected_error = "Program.Interpreter coverage omitted reachable after site",
+        },
+        .{
+            .path = "test/compile_fail/interpreter_coverage_fake_interpreter.zig",
+            .expected_error = "Program.protocol expected a Program.Interpreter type",
+        },
     };
     inline for (compile_fail_specs) |spec| {
         const compile_fail_mod = b.createModule(.{
@@ -558,6 +582,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "ability-custom-approval-workflow", .path = "examples/custom_approval_workflow.zig", .step = "run-custom-approval-workflow", .desc = "Run the custom approval workflow example." },
         .{ .name = "ability-agent-loop", .path = "examples/agent_loop.zig", .step = "run-agent-loop", .desc = "Run the host-driven Program.Session agent loop example." },
         .{ .name = "ability-continuation-branching", .path = "examples/continuation_branching.zig", .step = "run-continuation-branching", .desc = "Run the Program.Session continuation capsule branching example." },
+        .{ .name = "ability-interpreter-branching", .path = "examples/interpreter_branching.zig", .step = "run-interpreter-branching", .desc = "Run the continuation-aware Program.Interpreter branching example." },
     };
     inline for (examples) |example| {
         const exe_mod = b.createModule(.{

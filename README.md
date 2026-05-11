@@ -183,6 +183,30 @@ Coverage helpers such as `assertOperationSitesCovered`, `assertAfterSitesCovered
 and `assertAllSitesCovered` fail at comptime for omitted reachable sites,
 duplicate descriptors, or descriptors from another program.
 
+`Program.Handler` and `Program.Interpreter` add a typed algebra over
+`Program.Session`; they do not replace the primitive session machine. A handler
+binds to one `Program.protocol` operation or after descriptor and returns a
+site-specific outcome: resume, return-now, resume-after, suspend, forward, or
+fail. Transform handlers can resume, suspend, forward, or fail; choice handlers
+can also return now; abort handlers can return now, suspend, forward, or fail;
+after handlers resume-after, suspend, forward, or fail. A handler receives a
+`Control` value exposing the current trace, fingerprint, site metadata through
+the typed request, and `capture(allocator)` for a reusable continuation capsule
+without advancing the current session. Store the captured capsule, not the
+`Control` value; `Control.capture` is only valid during the handler call for the
+currently parked request or after-continuation.
+
+`Program.Interpreter(.{ ... })` drives a `Program.Session` with those handlers
+until it returns `done`, `suspended`, or `unhandled`. Suspended and unhandled
+results own a capsule plus parked-kind, trace, request fingerprint, capsule
+fingerprint, and reason metadata. Partial interpreters are valid: missing
+handlers or explicit `forward` return an owned unhandled capsule, which can be
+manually resumed through `Program.Session` or restored and continued with
+another interpreter. Complete interpreters can call `assertCoversAll()`, and
+`Program.protocol.assertAllSitesCoveredBy(Interpreter)` provides the same
+coverage gate from the protocol side. Manual session loops remain available for
+hosts that need lower-level control.
+
 See [docs/program_plan.md](docs/program_plan.md) for semantic program
 authoring, typed product/sum bodies, tuple entry args, outputs, cleanup hooks,
 nested-with targets, and `Program.contract`.
@@ -326,6 +350,11 @@ authoring and public plan-native helpers:
 - `examples/continuation_branching.zig` demonstrates `Session.current`,
   reusable continuation capsules, fresh restored request tokens, copied payload
   ownership, and multiple typed outcomes from one parked operation request.
+- `examples/interpreter_branching.zig` demonstrates the higher-level typed
+  handler/interpreter algebra: a handler captures the current continuation with
+  `Control.capture`, the current interpreter resumes the main approval path, and
+  two restored interpreters branch the reusable capsule into approve and deny
+  outcomes.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
   abort operations declared through a schema-first custom protocol family,
   schema registry, semantic builder, and both synchronous and host-driven
@@ -351,5 +380,6 @@ zig build run-plan-native-state-reader
 zig build run-plan-native-writer
 zig build run-agent-loop
 zig build run-continuation-branching
+zig build run-interpreter-branching
 zig build run-custom-approval-workflow
 ```

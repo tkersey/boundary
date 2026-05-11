@@ -83,6 +83,74 @@ const CountingAllocator = struct {
     }
 };
 
+fn ResumeI32OperationHandler(comptime Program: type, comptime Site: type, comptime value: i32) type {
+    return struct {
+        fn handle(ctx: anytype, request: anytype, control: Program.Handler.Control) !Program.Handler.Outcome(Site) {
+            ctx.operation_count += 1;
+            _ = try request.payload();
+            _ = try control.requestFingerprint();
+            return Program.Handler.@"resume"(Site, @as(Site.Resume, value));
+        }
+    };
+}
+
+fn ReturnNowI32OperationHandler(comptime Program: type, comptime Site: type, comptime value: i32) type {
+    return struct {
+        fn handle(ctx: anytype, request: anytype, control: Program.Handler.Control) !Program.Handler.Outcome(Site) {
+            ctx.operation_count += 1;
+            _ = try request.payload();
+            _ = try control.trace();
+            return Program.Handler.returnNow(Site, @as(Site.Result, value));
+        }
+    };
+}
+
+fn AbortReturnI32OperationHandler(comptime Program: type, comptime Site: type, comptime expected_payload: i32, comptime value: i32) type {
+    return struct {
+        fn handle(ctx: anytype, request: anytype, control: Program.Handler.Control) !Program.Handler.Outcome(Site) {
+            ctx.operation_count += 1;
+            try std.testing.expectEqual(@as(i32, expected_payload), try request.payload());
+            try std.testing.expectEqual(Program.Session.ParkedKind.operation, try control.parkedKind());
+            return Program.Handler.returnNow(Site, @as(Site.Result, value));
+        }
+    };
+}
+
+fn ResumeAfterHandler(comptime Program: type, comptime Site: type, comptime output: Site.Output) type {
+    return struct {
+        fn handle(ctx: anytype, request: anytype, control: Program.Handler.Control) !Program.Handler.Outcome(Site) {
+            ctx.after_count += 1;
+            if (comptime Site.has_static_input_ref) {
+                _ = try request.value();
+            }
+            try std.testing.expectEqual(Program.Session.ParkedKind.after, try control.parkedKind());
+            return Program.Handler.resumeAfter(Site, @as(Site.Output, output));
+        }
+    };
+}
+
+fn CaptureAndSuspendHandler(comptime Program: type, comptime Site: type) type {
+    return struct {
+        fn handle(ctx: anytype, request: anytype, control: Program.Handler.Control) !Program.Handler.Outcome(Site) {
+            ctx.operation_count += 1;
+            _ = try request.payload();
+            ctx.captured = try control.capture(std.testing.allocator);
+            return Program.Handler.@"suspend"(Site);
+        }
+    };
+}
+
+fn ForwardOperationHandler(comptime Program: type, comptime Site: type) type {
+    return struct {
+        fn handle(ctx: anytype, request: anytype, control: Program.Handler.Control) !Program.Handler.Outcome(Site) {
+            ctx.operation_count += 1;
+            _ = try request.payload();
+            _ = try control.trace();
+            return Program.Handler.forward(Site);
+        }
+    };
+}
+
 fn compiledTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const resume_local = ability.ir.builder.local(root, 0);
@@ -4320,6 +4388,304 @@ test "Program.protocol binds dynamic after requests to matching static after sit
     };
     defer result.deinit();
     try std.testing.expectEqualStrings("outer:true", result.value);
+}
+
+test "Program.Interpreter handles transform requests and records response traces" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "interpreter-transform");
+    };
+    const Program = ability.program("interpreter-transform", struct {}, Body);
+    const Decide = Program.protocol.operationSite("session", "decide", 0);
+    const Interpreter = Program.Interpreter(.{Program.Handler.operation(Decide, ResumeI32OperationHandler(Program, Decide, 41).handle)});
+    Interpreter.assertCoversAll();
+
+    const coverage = Interpreter.coverage();
+    try std.testing.expectEqual(@as(usize, 1), coverage.operation_sites);
+    try std.testing.expectEqual(@as(usize, 0), coverage.after_sites);
+
+    const Host = struct {
+        operation_count: usize = 0,
+    };
+    const Recorder = struct {
+        count: usize = 0,
+        request_fingerprint: u64 = 0,
+        response_fingerprint: u64 = 0,
+
+        pub fn record(self: *@This(), request_trace: anytype, response_trace: Program.Session.Trace.Response) !void {
+            self.count += 1;
+            self.request_fingerprint = request_trace.fingerprint;
+            self.response_fingerprint = response_trace.fingerprint;
+        }
+    };
+
+    var host = Host{};
+    var recorder = Recorder{};
+    var result = try Interpreter.run(&runtime, .{}, &host, .{ .trace_recorder = &recorder });
+    switch (result) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 41), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+    try std.testing.expectEqual(@as(usize, 1), host.operation_count);
+    try std.testing.expectEqual(@as(usize, 1), recorder.count);
+
+    var manual_session = try Program.Session.start(&runtime, .{});
+    defer manual_session.deinit();
+    const manual_request = switch (try manual_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    const manual_response = try (try manual_request.as(Decide)).responseTrace(.@"resume", @as(i32, 41));
+    try std.testing.expectEqual(manual_request.fingerprint(), recorder.request_fingerprint);
+    try std.testing.expectEqual(manual_response.fingerprint, recorder.response_fingerprint);
+}
+
+test "Program.Interpreter handles choice resume returnNow and abort returnNow" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const ResumeBody = struct {
+        pub const compiled_plan = sessionChoicePlan("interpreter-choice-resume");
+    };
+    const ResumeProgram = ability.program("interpreter-choice-resume", struct {}, ResumeBody);
+    const ResumeSite = ResumeProgram.protocol.operationSite("authored", "choose", 0);
+    const ResumeInterpreter = ResumeProgram.Interpreter(.{ResumeProgram.Handler.operation(ResumeSite, ResumeI32OperationHandler(ResumeProgram, ResumeSite, 12).handle)});
+    ResumeInterpreter.assertCoversAll();
+
+    const Host = struct {
+        operation_count: usize = 0,
+    };
+    var resume_host = Host{};
+    var resume_result = try ResumeInterpreter.run(&runtime, .{}, &resume_host, .{});
+    switch (resume_result) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 12), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+
+    const ReturnBody = struct {
+        pub const compiled_plan = sessionChoicePlan("interpreter-choice-return-now");
+    };
+    const ReturnProgram = ability.program("interpreter-choice-return-now", struct {}, ReturnBody);
+    const ReturnSite = ReturnProgram.protocol.operationSite("authored", "choose", 0);
+    const ReturnInterpreter = ReturnProgram.Interpreter(.{ReturnProgram.Handler.operation(ReturnSite, ReturnNowI32OperationHandler(ReturnProgram, ReturnSite, 99).handle)});
+    ReturnInterpreter.assertCoversAll();
+
+    var return_host = Host{};
+    var return_result = try ReturnInterpreter.run(&runtime, .{}, &return_host, .{});
+    switch (return_result) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 99), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+
+    const AbortBody = struct {
+        pub const compiled_plan = exceptionScalarThrowPlan("interpreter-abort-return-now");
+    };
+    const AbortProgram = ability.program("interpreter-abort-return-now", struct {}, AbortBody);
+    const AbortSite = AbortProgram.protocol.operationSite("exception", "throw", 0);
+    const AbortInterpreter = AbortProgram.Interpreter(.{AbortProgram.Handler.operation(AbortSite, AbortReturnI32OperationHandler(AbortProgram, AbortSite, 40, 55).handle)});
+    AbortInterpreter.assertCoversAll();
+
+    var abort_host = Host{};
+    var abort_result = try AbortInterpreter.run(&runtime, .{}, &abort_host, .{});
+    switch (abort_result) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 55), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+}
+
+test "Program.Interpreter handles after continuations in reverse order" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const StackedHandlers = struct {
+        outer: struct {
+            pub fn afterDispatch(_: *const @This(), value: bool) ![]const u8 {
+                return if (value) "outer:true" else "outer:false";
+            }
+        },
+        inner: struct {
+            pub fn afterDispatch(_: *const @This(), value: i32) !bool {
+                return value == 7;
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = stackedAfterPlan("interpreter-stacked-after");
+    };
+    const Program = ability.program("interpreter-stacked-after", StackedHandlers, Body);
+    const OuterOp = Program.protocol.operationSite("outer", "outer", 0);
+    const InnerOp = Program.protocol.operationSite("inner", "inner", 0);
+    const OuterAfter = Program.protocol.afterSite("outer", "outer", 0);
+    const InnerAfter = Program.protocol.afterSite("inner", "inner", 0);
+    const Interpreter = Program.Interpreter(.{
+        Program.Handler.operation(OuterOp, ResumeI32OperationHandler(Program, OuterOp, 1).handle),
+        Program.Handler.operation(InnerOp, ResumeI32OperationHandler(Program, InnerOp, 7).handle),
+        Program.Handler.after(InnerAfter, ResumeAfterHandler(Program, InnerAfter, true).handle),
+        Program.Handler.after(OuterAfter, ResumeAfterHandler(Program, OuterAfter, "outer:true").handle),
+    });
+    Interpreter.assertCoversAll();
+
+    const Host = struct {
+        operation_count: usize = 0,
+        after_count: usize = 0,
+    };
+    var host = Host{};
+    var result = try Interpreter.run(&runtime, .{ .outer = .{}, .inner = .{} }, &host, .{});
+    switch (result) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqualStrings("outer:true", done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+    try std.testing.expectEqual(@as(usize, 2), host.operation_count);
+    try std.testing.expectEqual(@as(usize, 2), host.after_count);
+}
+
+test "Program.Interpreter returns unhandled capsules and restores them with another interpreter" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "interpreter-unhandled-restore");
+    };
+    const Program = ability.program("interpreter-unhandled-restore", struct {}, Body);
+    const Decide = Program.protocol.operationSite("session", "decide", 0);
+    const Partial = Program.Interpreter(.{});
+
+    const Host = struct {
+        operation_count: usize = 0,
+    };
+    var host = Host{};
+    const partial_result = try Partial.run(&runtime, .{}, &host, .{});
+    var unhandled = switch (partial_result) {
+        .unhandled => |value| value,
+        else => return error.ExpectedRequest,
+    };
+    defer unhandled.deinit();
+    try std.testing.expectEqual(Program.Handler.StopReason.unhandled, unhandled.reason);
+    try std.testing.expectEqual(Program.Session.ParkedKind.operation, unhandled.parked_kind);
+
+    const BranchA = Program.Interpreter(.{Program.Handler.operation(Decide, ResumeI32OperationHandler(Program, Decide, 31).handle)});
+    const BranchB = Program.Interpreter(.{Program.Handler.operation(Decide, ResumeI32OperationHandler(Program, Decide, 32).handle)});
+
+    var branch_a = try BranchA.restore(&runtime, .{}, &host, &unhandled.capsule, .{});
+    switch (branch_a) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 31), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+
+    var branch_b = try BranchB.restore(&runtime, .{}, &host, &unhandled.capsule, .{});
+    switch (branch_b) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 32), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+}
+
+test "Program.Interpreter forwards capsules to another interpreter" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "interpreter-forward-restore");
+    };
+    const Program = ability.program("interpreter-forward-restore", struct {}, Body);
+    const Decide = Program.protocol.operationSite("session", "decide", 0);
+    const Forwarding = Program.Interpreter(.{Program.Handler.operation(Decide, ForwardOperationHandler(Program, Decide).handle)});
+    const Handling = Program.Interpreter(.{Program.Handler.operation(Decide, ResumeI32OperationHandler(Program, Decide, 44).handle)});
+
+    const Host = struct {
+        operation_count: usize = 0,
+    };
+    var host = Host{};
+    const forwarded_result = try Forwarding.run(&runtime, .{}, &host, .{});
+    var forwarded = switch (forwarded_result) {
+        .unhandled => |value| value,
+        else => return error.ExpectedRequest,
+    };
+    defer forwarded.deinit();
+    try std.testing.expectEqual(Program.Handler.StopReason.forwarded_unhandled, forwarded.reason);
+    try std.testing.expectEqual(Program.Session.ParkedKind.operation, forwarded.parked_kind);
+    try std.testing.expectEqual(@as(usize, 1), host.operation_count);
+
+    var handled = try Handling.restore(&runtime, .{}, &host, &forwarded.capsule, .{});
+    switch (handled) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 44), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+    try std.testing.expectEqual(@as(usize, 2), host.operation_count);
+}
+
+test "Program.Interpreter control captures reusable continuation inside handler" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "interpreter-control-capture");
+    };
+    const Program = ability.program("interpreter-control-capture", struct {}, Body);
+    const Decide = Program.protocol.operationSite("session", "decide", 0);
+    const Capture = Program.Interpreter(.{Program.Handler.operation(Decide, CaptureAndSuspendHandler(Program, Decide).handle)});
+
+    const Host = struct {
+        operation_count: usize = 0,
+        captured: ?Program.Session.Capsule = null,
+    };
+    var host = Host{};
+    const suspended_result = try Capture.run(&runtime, .{}, &host, .{});
+    var suspended = switch (suspended_result) {
+        .suspended => |value| value,
+        else => return error.ExpectedRequest,
+    };
+    defer suspended.deinit();
+    try std.testing.expectEqual(Program.Handler.StopReason.explicit_suspend, suspended.reason);
+    try std.testing.expect(host.captured != null);
+    defer host.captured.?.deinit();
+
+    const BranchA = Program.Interpreter(.{Program.Handler.operation(Decide, ResumeI32OperationHandler(Program, Decide, 71).handle)});
+    const BranchB = Program.Interpreter(.{Program.Handler.operation(Decide, ResumeI32OperationHandler(Program, Decide, 72).handle)});
+
+    var branch_a = try BranchA.restore(&runtime, .{}, &host, &host.captured.?, .{});
+    switch (branch_a) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 71), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+
+    var branch_b = try BranchB.restore(&runtime, .{}, &host, &host.captured.?, .{});
+    switch (branch_b) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 72), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
 }
 
 test "Program.protocol binds handlerless after sites to unwound value refs" {
