@@ -3312,14 +3312,83 @@ pub fn program(
                 {
                     return error.InvalidPipelineCertificate;
                 }
-                for (self.source_to_residual_site_map, 0..) |entry, index| {
-                    if (entry.source_site_fingerprint == 0) return error.InvalidPipelineCertificate;
-                    var duplicate = false;
-                    for (self.source_to_residual_site_map, 0..) |other, other_index| {
-                        if (other_index < index and other.source_site_fingerprint == entry.source_site_fingerprint) duplicate = true;
-                    }
-                    if (duplicate) return error.InvalidPipelineCertificate;
+                if (self.residualized_sites.len != self.target_effect_row.residualized_sites or
+                    self.dynamically_interpreted_sites.len != self.target_effect_row.dynamically_interpreted_sites or
+                    self.reinterpreted_sites.len != self.target_effect_row.dynamically_reinterpreted_sites or
+                    self.emitted_protocol_operations.len != self.target_effect_row.emitted_protocol_operations or
+                    self.exposed_residual_operations != self.target_effect_row.exposed_residual_operations)
+                {
+                    return error.InvalidPipelineCertificate;
                 }
+                if (self.residualized_sites.len != self.source_effect_row.residualized_sites or
+                    self.emitted_protocol_operations.len != self.source_effect_row.emitted_protocol_operations or
+                    self.source_effect_row.residualized_sites > self.source_effect_row.source_operation_sites or
+                    self.source_effect_row.residualized_sites + self.source_effect_row.exposed_residual_operations != self.source_effect_row.source_operation_sites or
+                    self.source_effect_row.dynamically_interpreted_sites != 0 or
+                    self.source_effect_row.dynamically_reinterpreted_sites != 0 or
+                    self.source_effect_row.handled_protocol_operations != 0 or
+                    self.source_effect_row.handled_after_sites != 0 or
+                    self.source_effect_row.residual_after_sites != self.source_effect_row.source_after_sites or
+                    self.source_effect_row.blockers != self.blockers.len)
+                {
+                    return error.InvalidPipelineCertificate;
+                }
+                if (self.target_effect_row.handled_after_sites > self.target_effect_row.source_after_sites or
+                    self.target_effect_row.residual_after_sites > self.target_effect_row.source_after_sites or
+                    self.target_effect_row.handled_after_sites + self.target_effect_row.residual_after_sites != self.target_effect_row.source_after_sites)
+                {
+                    return error.InvalidPipelineCertificate;
+                }
+                if (self.source_to_residual_site_map.len != self.residualized_sites.len or
+                    self.residual_to_source_site_map.len != self.residualized_sites.len)
+                {
+                    return error.InvalidPipelineCertificate;
+                }
+                for (self.residualized_sites) |route| {
+                    const source_map_entry = residualMapEntryForRoute(self.source_to_residual_site_map, route) orelse
+                        return error.InvalidPipelineCertificate;
+                    const residual_map_entry = residualMapEntryForRoute(self.residual_to_source_site_map, route) orelse
+                        return error.InvalidPipelineCertificate;
+                    if (!residualMapEntriesAgree(source_map_entry, residual_map_entry)) {
+                        return error.InvalidPipelineCertificate;
+                    }
+                }
+                for (self.source_to_residual_site_map, 0..) |entry, index| {
+                    if (entry.source_site_fingerprint == 0 or entry.residual_site_fingerprint == null) return error.InvalidPipelineCertificate;
+                    var duplicate_source = false;
+                    var duplicate_residual = false;
+                    for (self.source_to_residual_site_map, 0..) |other, other_index| {
+                        if (other_index < index and other.source_site_fingerprint == entry.source_site_fingerprint) duplicate_source = true;
+                        if (other_index < index and other.residual_site_fingerprint != null and other.residual_site_fingerprint.? == entry.residual_site_fingerprint.?) duplicate_residual = true;
+                    }
+                    if (duplicate_source or duplicate_residual) return error.InvalidPipelineCertificate;
+                }
+            }
+
+            fn residualMapEntryForRoute(entries: []const ResidualSourceMapEntry, route: PipelineRouteWitness) ?ResidualSourceMapEntry {
+                if (route.source_site_fingerprint == null or
+                    route.target_protocol_op_fingerprint == null or
+                    route.morphism_fingerprint == null)
+                {
+                    return null;
+                }
+                for (entries) |entry| {
+                    if (entry.residual_site_fingerprint != null and
+                        entry.source_site_fingerprint == route.source_site_fingerprint.? and
+                        entry.target_protocol_op_fingerprint == route.target_protocol_op_fingerprint.?)
+                    {
+                        return entry;
+                    }
+                }
+                return null;
+            }
+
+            fn residualMapEntriesAgree(left: ResidualSourceMapEntry, right: ResidualSourceMapEntry) bool {
+                return left.source_site_index == right.source_site_index and
+                    left.source_site_fingerprint == right.source_site_fingerprint and
+                    left.residual_site_index == right.residual_site_index and
+                    left.residual_site_fingerprint == right.residual_site_fingerprint and
+                    left.target_protocol_op_fingerprint == right.target_protocol_op_fingerprint;
             }
         };
 
@@ -3635,15 +3704,26 @@ pub fn program(
             };
         }
 
+        fn routeKindInSet(comptime route_kind: PipelineRouteKind, comptime route_kinds: anytype) bool {
+            inline for (route_kinds) |candidate| {
+                if (route_kind == candidate) return true;
+            }
+            return false;
+        }
+
         fn pipelineRoutesWithKind(comptime routes: []const PipelineRouteWitness, comptime route_kind: PipelineRouteKind) type {
+            return pipelineRoutesWithKinds(routes, .{route_kind});
+        }
+
+        fn pipelineRoutesWithKinds(comptime routes: []const PipelineRouteWitness, comptime route_kinds: anytype) type {
             comptime var count: usize = 0;
             inline for (routes) |route| {
-                if (route.kind == route_kind) count += 1;
+                if (routeKindInSet(route.kind, route_kinds)) count += 1;
             }
             var table: [count]PipelineRouteWitness = undefined;
             comptime var index: usize = 0;
             inline for (routes) |route| {
-                if (route.kind == route_kind) {
+                if (routeKindInSet(route.kind, route_kinds)) {
                     table[index] = route;
                     index += 1;
                 }
@@ -3670,6 +3750,11 @@ pub fn program(
             const ResidualizedRoutes = pipelineRoutesWithKind(Report.routes, .source_site_residualized);
             const HandledRoutes = pipelineRoutesWithKind(Report.routes, .source_site_handled);
             const DynamicRoutes = pipelineRoutesWithKind(Report.routes, .source_site_reinterpreted_dynamic);
+            const DynamicInterpretedRoutes = pipelineRoutesWithKinds(Report.routes, .{
+                .source_site_handled,
+                .source_site_reinterpreted_dynamic,
+            });
+            const AfterRoutes = pipelineRoutesWithKind(Report.routes, .after_site_handled);
             const residual_effect_row = PipelineEffectRow{
                 .source_program_label = label,
                 .source_plan_hash = body_compiled_plan_hash,
@@ -3678,12 +3763,12 @@ pub fn program(
                 .source_operation_sites = protocol.operation_site_count,
                 .source_after_sites = protocol.after_site_count,
                 .residualized_sites = ResidualizedRoutes.values.len,
-                .dynamically_interpreted_sites = HandledRoutes.values.len + DynamicRoutes.values.len,
+                .dynamically_interpreted_sites = DynamicInterpretedRoutes.values.len,
                 .dynamically_reinterpreted_sites = DynamicRoutes.values.len,
                 .handled_protocol_operations = 0,
                 .emitted_protocol_operations = ResidualizedRoutes.values.len,
                 .exposed_residual_operations = ResidualProgram.effect_row.residual_operation_sites,
-                .handled_after_sites = 0,
+                .handled_after_sites = AfterRoutes.values.len,
                 .residual_after_sites = ResidualProgram.protocol.after_site_count,
                 .blockers = 0,
             };
@@ -3717,7 +3802,7 @@ pub fn program(
                 .source_effect_row = source_effect_row,
                 .target_effect_row = residual_effect_row,
                 .handled_sites = &HandledRoutes.values,
-                .dynamically_interpreted_sites = &DynamicRoutes.values,
+                .dynamically_interpreted_sites = &DynamicInterpretedRoutes.values,
                 .residualized_sites = &ResidualizedRoutes.values,
                 .reinterpreted_sites = &DynamicRoutes.values,
                 .emitted_protocol_operations = &ResidualizedRoutes.values,
@@ -3792,6 +3877,7 @@ pub fn program(
 
                 /// Map a residual trace back to the source site selected by this pipeline.
                 pub fn mapResidualTrace(trace: anytype) ?ResidualSourceMapEntry {
+                    if (!traceBelongsToProgram(trace, ResidualProgram.contract.label, ResidualProgram.compiled_plan.hash())) return null;
                     if (ResidualProgram.mapResidualTrace(trace)) |entry| return entry;
                     return identityResidualTraceMap(trace);
                 }
@@ -3805,6 +3891,7 @@ pub fn program(
                 pub fn sourceForTargetProtocolRequest(request: anytype) ?PipelineRouteWitness {
                     if (@hasField(@TypeOf(request), "source_trace")) {
                         if (mapResidualTrace(request.source_trace)) |entry| {
+                            if (dynamicRouteForResidualEntry(entry, request)) |route| return route;
                             inline for (Report.routes) |route| {
                                 if (routeMatchesTargetFingerprint(route, request) and
                                     route.source_site_fingerprint != null and
@@ -3813,19 +3900,13 @@ pub fn program(
                                     return route;
                                 }
                             }
-                            return .{
-                                .kind = .source_site_reinterpreted_dynamic,
-                                .source_site_index = entry.source_site_index,
-                                .source_site_fingerprint = entry.source_site_fingerprint,
-                                .target_protocol_label = if (@hasField(@TypeOf(request), "target_protocol_label")) request.target_protocol_label else null,
-                                .target_op_name = if (@hasField(@TypeOf(request), "target_op_name")) request.target_op_name else null,
-                                .target_protocol_op_fingerprint = if (@hasField(@TypeOf(request), "target_protocol_op_fingerprint")) request.target_protocol_op_fingerprint else null,
-                            };
+                            return null;
                         }
                         if (routeForSourceTrace(request.source_trace, request)) |route| return route;
                         return null;
                     }
                     if (@hasField(@TypeOf(request), "source_site_fingerprint")) {
+                        if (dynamicRouteForResidualOwnedValue(request)) |route| return route;
                         inline for (Report.routes) |route| {
                             if (routeMatchesTargetFingerprint(route, request) and
                                 routeMatchesRequestSource(route, request))
@@ -3833,16 +3914,16 @@ pub fn program(
                                 return route;
                             }
                         }
-                        if (dynamicRouteForResidualOwnedValue(request)) |route| return route;
                         return null;
                     }
-                    return singleRouteMatchingTargetFingerprint(request);
+                    return null;
                 }
 
                 /// Map target request traces by the same deterministic protocol-operation fingerprint.
                 pub fn mapTargetTrace(trace: anytype) ?PipelineRouteWitness {
                     if (@hasField(@TypeOf(trace), "source_trace")) {
                         if (mapResidualTrace(trace.source_trace)) |entry| {
+                            if (dynamicRouteForResidualEntry(entry, trace)) |route| return route;
                             inline for (Report.routes) |route| {
                                 if (routeMatchesTargetFingerprint(route, trace) and
                                     route.source_site_fingerprint != null and
@@ -3851,19 +3932,13 @@ pub fn program(
                                     return route;
                                 }
                             }
-                            return .{
-                                .kind = .source_site_reinterpreted_dynamic,
-                                .source_site_index = entry.source_site_index,
-                                .source_site_fingerprint = entry.source_site_fingerprint,
-                                .target_protocol_label = if (@hasField(@TypeOf(trace), "target_protocol_label")) trace.target_protocol_label else null,
-                                .target_op_name = if (@hasField(@TypeOf(trace), "target_op_name")) trace.target_op_name else null,
-                                .target_protocol_op_fingerprint = if (@hasField(@TypeOf(trace), "target_protocol_op_fingerprint")) trace.target_protocol_op_fingerprint else null,
-                            };
+                            return null;
                         }
                         if (routeForSourceTrace(trace.source_trace, trace)) |route| return route;
                         return null;
                     }
                     if (@hasField(@TypeOf(trace), "source_site_fingerprint")) {
+                        if (dynamicRouteForResidualOwnedValue(trace)) |route| return route;
                         inline for (Report.routes) |route| {
                             if (routeMatchesTargetFingerprint(route, trace) and
                                 routeMatchesRequestSource(route, trace))
@@ -3871,16 +3946,15 @@ pub fn program(
                                 return route;
                             }
                         }
-                        if (dynamicRouteForResidualOwnedValue(trace)) |route| return route;
                         return null;
                     }
-                    return singleRouteMatchingTargetFingerprint(trace);
+                    return null;
                 }
 
                 fn routeMatchesTargetFingerprint(route: PipelineRouteWitness, value: anytype) bool {
+                    const target_protocol_op_fingerprint = targetProtocolFingerprintForValue(value) orelse return false;
                     return route.target_protocol_op_fingerprint != null and
-                        @hasField(@TypeOf(value), "target_protocol_op_fingerprint") and
-                        route.target_protocol_op_fingerprint.? == value.target_protocol_op_fingerprint;
+                        route.target_protocol_op_fingerprint.? == target_protocol_op_fingerprint;
                 }
 
                 fn routeForSourceTrace(trace: anytype, value: anytype) ?PipelineRouteWitness {
@@ -3892,18 +3966,6 @@ pub fn program(
                         }
                     }
                     return null;
-                }
-
-                fn singleRouteMatchingTargetFingerprint(value: anytype) ?PipelineRouteWitness {
-                    var match_count: usize = 0;
-                    var selected: ?PipelineRouteWitness = null;
-                    inline for (Report.routes) |route| {
-                        if (routeMatchesTargetFingerprint(route, value)) {
-                            match_count += 1;
-                            selected = route;
-                        }
-                    }
-                    return if (match_count == 1) selected else null;
                 }
 
                 fn routeMatchesRequestSource(route: PipelineRouteWitness, value: anytype) bool {
@@ -3927,16 +3989,40 @@ pub fn program(
 
                 fn dynamicRouteForResidualOwnedValue(value: anytype) ?PipelineRouteWitness {
                     if (residualSourceEntryForValue(value)) |entry| {
-                        return .{
-                            .kind = .source_site_reinterpreted_dynamic,
-                            .source_site_index = entry.source_site_index,
-                            .source_site_fingerprint = entry.source_site_fingerprint,
-                            .target_protocol_label = if (@hasField(@TypeOf(value), "target_protocol_label")) value.target_protocol_label else null,
-                            .target_op_name = if (@hasField(@TypeOf(value), "target_op_name")) value.target_op_name else null,
-                            .target_protocol_op_fingerprint = if (@hasField(@TypeOf(value), "target_protocol_op_fingerprint")) value.target_protocol_op_fingerprint else null,
-                        };
+                        return dynamicRouteForResidualEntry(entry, value);
                     }
                     return null;
+                }
+
+                fn dynamicRouteForResidualEntry(entry: ResidualSourceMapEntry, value: anytype) ?PipelineRouteWitness {
+                    const target_protocol_op_fingerprint = targetProtocolFingerprintForValue(value) orelse return null;
+                    return .{
+                        .kind = .source_site_reinterpreted_dynamic,
+                        .source_site_index = entry.source_site_index,
+                        .source_site_fingerprint = entry.source_site_fingerprint,
+                        .target_protocol_label = if (@hasField(@TypeOf(value), "target_protocol_label")) value.target_protocol_label else null,
+                        .target_op_name = if (@hasField(@TypeOf(value), "target_op_name")) value.target_op_name else null,
+                        .target_protocol_op_fingerprint = target_protocol_op_fingerprint,
+                        .morphism_fingerprint = morphismFingerprintForValue(value),
+                    };
+                }
+
+                fn morphismFingerprintForValue(value: anytype) ?u64 {
+                    if (!@hasField(@TypeOf(value), "morphism_fingerprint")) return null;
+                    const morphism_fingerprint = value.morphism_fingerprint;
+                    return switch (@typeInfo(@TypeOf(morphism_fingerprint))) {
+                        .optional => morphism_fingerprint,
+                        else => morphism_fingerprint,
+                    };
+                }
+
+                fn targetProtocolFingerprintForValue(value: anytype) ?u64 {
+                    if (!@hasField(@TypeOf(value), "target_protocol_op_fingerprint")) return null;
+                    const target_fingerprint = value.target_protocol_op_fingerprint;
+                    return switch (@typeInfo(@TypeOf(target_fingerprint))) {
+                        .optional => target_fingerprint,
+                        else => target_fingerprint,
+                    };
                 }
 
                 fn residualSourceEntryForValue(value: anytype) ?ResidualSourceMapEntry {
@@ -3947,6 +4033,33 @@ pub fn program(
                     }
                     inline for (ResidualProgram.source_map) |entry| {
                         if (entry.residual_site_fingerprint != null and entry.residual_site_fingerprint.? == value.source_site_fingerprint) return entry;
+                    }
+                    return forwardedResidualSourceEntryForFingerprint(value.source_site_fingerprint);
+                }
+
+                fn forwardedResidualSourceEntryForFingerprint(residual_site_fingerprint: u64) ?ResidualSourceMapEntry {
+                    inline for (protocol.operation_site_metadata) |site| {
+                        if (comptime !routeResidualizesSource(site.fingerprint)) {
+                            inline for (ResidualProgram.protocol.operation_site_metadata) |residual_site| {
+                                if (residual_site.fingerprint == residual_site_fingerprint and
+                                    residual_site.function_index == site.function_index and
+                                    residual_site.block_index == site.block_index and
+                                    residual_site.instruction_index == site.instruction_index)
+                                {
+                                    return .{
+                                        .source_site_index = site.index,
+                                        .source_site_fingerprint = site.fingerprint,
+                                        .residual_site_index = residual_site.index,
+                                        .residual_site_fingerprint = residual_site.fingerprint,
+                                        .disposition = .forwarded,
+                                        .target_protocol_label = residual_site.requirement_label,
+                                        .target_op_name = residual_site.op_name,
+                                        .target_protocol_op_fingerprint = residual_site.fingerprint,
+                                        .mapping_label = residual_site.semantic_label,
+                                    };
+                                }
+                            }
+                        }
                     }
                     return null;
                 }
@@ -4002,12 +4115,12 @@ pub fn program(
                     if (comptime @hasField(ValueType, "program_label") or @hasField(ValueType, "plan_hash")) {
                         return traceBelongsToProgram(value, expected_label, expected_plan_hash);
                     }
-                    return true;
+                    return false;
                 }
 
                 fn traceMatchesProgramSite(trace: anytype, comptime site: anytype, comptime expected_label: []const u8, comptime expected_plan_hash: u64) bool {
                     if (@hasField(@TypeOf(trace), "operation_site_fingerprint") and trace.operation_site_fingerprint == site.fingerprint) {
-                        return !@hasField(@TypeOf(trace), "program_label") or traceBelongsToProgram(trace, expected_label, expected_plan_hash);
+                        return traceBelongsToProgram(trace, expected_label, expected_plan_hash);
                     }
                     if (!traceBelongsToProgram(trace, expected_label, expected_plan_hash)) return false;
                     return @hasField(@TypeOf(trace), "function_index") and
