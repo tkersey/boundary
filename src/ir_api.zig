@@ -1642,6 +1642,7 @@ pub const schema = struct {
 
             /// Return a typed protocol-level operation descriptor independent of any Program call site.
             pub fn operation(comptime name: []const u8, comptime options: anytype) type {
+                @setEvalBranchQuota(10_000);
                 const OptionsType = @TypeOf(options);
                 const schema_refs = comptime if (@hasField(OptionsType, "schema_refs")) options.schema_refs else schema.SchemaRefs(.{});
                 const ResultType: type = comptime if (@hasField(OptionsType, "Result")) options.Result else void;
@@ -1654,11 +1655,15 @@ pub const schema = struct {
                         const payload_ref_value = comptime protocolRefForType(OpSchema.Payload, "payload", schema_refs);
                         const resume_ref_value = comptime protocolRefForType(OpSchema.Resume, "resume", schema_refs);
                         const result_ref_value = comptime protocolRefForType(ResultType, "result", schema_refs);
+                        const protocol_lifecycle_tag_value = comptime requirementLifecycleFromSchema(FamilySchema);
+                        const protocol_output_tag_value = comptime requirementOutputFromSchema(FamilySchema);
                         const descriptor_fingerprint = comptime protocolOperationFingerprint(
                             protocol_family_label,
                             OpSchema.name,
                             @intCast(ordinal),
                             op_mode_value,
+                            protocol_lifecycle_tag_value,
+                            protocol_output_tag_value,
                             OpSchema.Payload,
                             payload_ref_value,
                             OpSchema.Resume,
@@ -1671,6 +1676,8 @@ pub const schema = struct {
                             pub const kind = .protocol_operation;
                             pub const protocol_label: [:0]const u8 = descriptor_protocol_label;
                             pub const protocol = descriptor_protocol_label;
+                            pub const protocol_lifecycle_tag = protocol_lifecycle_tag_value;
+                            pub const protocol_output_tag = protocol_output_tag_value;
                             pub const op_name: [:0]const u8 = OpSchema.name;
                             pub const op_ordinal: u16 = @intCast(ordinal);
                             pub const mode = op_mode_value;
@@ -2071,6 +2078,8 @@ pub const schema = struct {
         comptime op_name: []const u8,
         comptime op_ordinal: u16,
         comptime mode: program_plan.ControlMode,
+        comptime lifecycle_tag: @TypeOf(@as(program_plan.RequirementPlan, undefined).lifecycle_tag),
+        comptime output_tag: @TypeOf(@as(program_plan.RequirementPlan, undefined).output_tag),
         comptime Payload: type,
         comptime payload_ref: program_plan.ValueRef,
         comptime Resume: type,
@@ -2085,6 +2094,8 @@ pub const schema = struct {
         protocolHashBytes(&hasher, op_name);
         protocolHashU16(&hasher, op_ordinal);
         protocolHashBytes(&hasher, @tagName(mode));
+        protocolHashBytes(&hasher, @tagName(lifecycle_tag));
+        protocolHashBytes(&hasher, @tagName(output_tag));
         protocolHashTypeIdentity(&hasher, Payload);
         protocolHashValueRef(&hasher, payload_ref);
         protocolHashTypeIdentity(&hasher, Resume);
@@ -2746,6 +2757,21 @@ test "schema Protocol exposes protocol-level operation descriptors" {
             schema.transform("check", AlternateRequest, PolicyDecision),
         },
     });
+    const PlainPolicy = schema.Protocol(.{
+        .label = "policy",
+        .lifecycle_tag = .plain_transform,
+        .ops = .{
+            schema.transform("check", PolicyRequest, PolicyDecision),
+        },
+    });
+    const OutputPolicy = schema.Protocol(.{
+        .label = "policy",
+        .output_tag = .final_state,
+        .output_type = i32,
+        .ops = .{
+            schema.transform("check", PolicyRequest, PolicyDecision),
+        },
+    });
     const Schemas = schema.Registry(.{ PolicyRequest, PolicyDecision });
     const AlternateSchemas = schema.Registry(.{ AlternateRequest, PolicyDecision });
     const ResultSchemas = schema.Registry(.{ PolicyRequest, PolicyDecision, ResultNote });
@@ -2753,6 +2779,8 @@ test "schema Protocol exposes protocol-level operation descriptors" {
 
     const Check = Policy.operation("check", .{ .schema_refs = Schemas.schema_refs });
     const AlternateCheck = AlternatePolicy.operation("check", .{ .schema_refs = AlternateSchemas.schema_refs });
+    const PlainCheck = PlainPolicy.operation("check", .{ .schema_refs = Schemas.schema_refs });
+    const OutputCheck = OutputPolicy.operation("check", .{ .schema_refs = Schemas.schema_refs });
     const Decide = Policy.op("decide", .{
         .schema_refs = Schemas.schema_refs,
         .Result = []const u8,
@@ -2788,6 +2816,8 @@ test "schema Protocol exposes protocol-level operation descriptors" {
     try standard.testing.expect(!Check.may_return_now);
     try standard.testing.expectEqual(Check.fingerprint, CheckAgain.fingerprint);
     try standard.testing.expect(Check.fingerprint != AlternateCheck.fingerprint);
+    try standard.testing.expect(Check.fingerprint != PlainCheck.fingerprint);
+    try standard.testing.expect(Check.fingerprint != OutputCheck.fingerprint);
 
     try standard.testing.expectEqual(program_plan.ControlMode.choice, Decide.mode);
     try standard.testing.expectEqual(program_plan.ValueCodec.string, Decide.result_ref.codec);

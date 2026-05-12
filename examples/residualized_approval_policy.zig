@@ -73,10 +73,7 @@ const ApprovalRequest = ApprovalProgram.protocol.operationSite("approval", "requ
 
 const DynamicApprovalPolicyMapper = struct {
     pub fn @"resume"(decision: i32) ApprovalProgram.Handler.SourceOutcome(ApprovalRequest) {
-        if (decision != 0) {
-            return ApprovalProgram.Handler.@"resume"(ApprovalRequest, @as(ApprovalRequest.Resume, decision));
-        }
-        return ApprovalProgram.Handler.returnNow(ApprovalRequest, @as(ApprovalRequest.Result, 0));
+        return ApprovalProgram.Handler.@"resume"(ApprovalRequest, @as(ApprovalRequest.Resume, decision));
     }
 };
 

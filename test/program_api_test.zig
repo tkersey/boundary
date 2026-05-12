@@ -4582,6 +4582,13 @@ test "Program.ResidualMorphism report and residualize compile identity morphism 
         .response = Program.ResidualResponse.resumeIdentity(),
         .label = "session.decide-as-policy.check",
     });
+    const DefaultPayloadMorphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .response = Program.ResidualResponse.resumeIdentity(),
+        .label = "session.decide-as-policy.check",
+    });
+    try std.testing.expectEqual(StaticMorphism.fingerprint, DefaultPayloadMorphism.fingerprint);
 
     const Report = Program.residualizationReport(.{ .morphisms = .{StaticMorphism} });
     try std.testing.expect(Report.supported);
@@ -4604,6 +4611,8 @@ test "Program.ResidualMorphism report and residualize compile identity morphism 
     try std.testing.expectEqualStrings("check", Residual.contract.ops[0].op_name);
     try std.testing.expectEqual(@as(usize, 1), Residual.effect_row.eliminated_source_sites);
     try std.testing.expectEqual(@as(usize, 1), Residual.effect_row.emitted_target_protocol_ops);
+    try std.testing.expectEqual(@as(@TypeOf(Residual.contract.requirements[0].lifecycle_tag), .generated_family), Residual.contract.requirements[0].lifecycle_tag);
+    try std.testing.expectEqual(@as(@TypeOf(Residual.contract.requirements[0].output_tag), .none), Residual.contract.requirements[0].output_tag);
     const ResidualSite = Residual.protocol.operationSite("policy", "check", 0);
     const mapped_from_source = Residual.residualForSourceSite(Source) orelse return error.ExpectedResidualSourceMap;
     try std.testing.expectEqual(ResidualSite.fingerprint, mapped_from_source.residual_site_fingerprint.?);
@@ -4977,6 +4986,37 @@ test "Program.residualizationReport rejects shared op-row rewrites" {
     try std.testing.expectEqual(@as(usize, 2), Report.effect_row.residual_operation_sites);
 }
 
+test "Program.residualizationReport reports duplicate source morphisms" {
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "residualize-duplicate-source");
+    };
+    const Program = ability.program("residualize-duplicate-source", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, i32),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const Morphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const Report = Program.residualizationReport(.{ .morphisms = .{ Morphism, Morphism, Morphism } });
+    try std.testing.expect(!Report.supported);
+    try std.testing.expectEqual(@as(usize, 1), Report.unsupported.len);
+    try std.testing.expectEqual(Program.ResidualBlockerTag.duplicate_source_site, Report.unsupported[0].tag);
+    try std.testing.expectEqual(@as(usize, 3), Report.source_map.len);
+    try std.testing.expectEqual(@as(usize, 0), Report.effect_row.eliminated_source_sites);
+    try std.testing.expectEqual(@as(usize, 0), Report.effect_row.reinterpreted_source_sites);
+    try std.testing.expectEqual(@as(usize, 0), Report.effect_row.emitted_target_protocol_ops);
+    try std.testing.expectEqual(@as(usize, 1), Report.effect_row.unsupported_source_sites);
+    try std.testing.expectEqual(@as(usize, 1), Report.effect_row.unsupported_morphisms);
+}
+
 test "Program.residualizationReport rejects structured target schema mismatches" {
     const SourcePayload = struct {
         amount: i32,
@@ -5080,6 +5120,26 @@ test "Program.residualizationReport rejects non-transform target modes" {
     try std.testing.expect(!Report.supported);
     try std.testing.expectEqual(@as(usize, 1), Report.unsupported.len);
     try std.testing.expectEqual(Program.ResidualBlockerTag.unsupported_target_mode, Report.unsupported[0].tag);
+
+    const OutputPolicy = ability.ir.schema.Protocol(.{
+        .label = "output_policy",
+        .output_tag = .final_state,
+        .output_type = i32,
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, i32),
+        },
+    });
+    const OutputCheck = OutputPolicy.operation("check", .{});
+    const OutputMorphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = OutputCheck,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const OutputReport = Program.residualizationReport(.{ .morphisms = .{OutputMorphism} });
+    try std.testing.expect(!OutputReport.supported);
+    try std.testing.expectEqual(@as(usize, 1), OutputReport.unsupported.len);
+    try std.testing.expectEqual(Program.ResidualBlockerTag.output_residualization_unsupported, OutputReport.unsupported[0].tag);
 }
 
 test "Program.residualizationReport rejects late residualize blockers" {
@@ -5110,6 +5170,9 @@ test "Program.residualizationReport rejects late residualize blockers" {
     const Report = Program.residualizationReport(.{ .morphisms = .{Morphism} });
     try std.testing.expect(!Report.supported);
     try std.testing.expectEqual(Program.ResidualBlockerTag.nested_with_residualization_unsupported, Report.unsupported[0].tag);
+    try std.testing.expectEqual(@as(usize, 0), Report.effect_row.eliminated_source_sites);
+    try std.testing.expectEqual(@as(usize, 0), Report.effect_row.reinterpreted_source_sites);
+    try std.testing.expectEqual(@as(usize, 0), Report.effect_row.emitted_target_protocol_ops);
 }
 
 test "Program.residualizationReport rejects global blockers without morphisms" {
@@ -5319,7 +5382,7 @@ test "Program.Interpreter returns and handles reinterpreted protocol requests" {
     };
     const Program = ability.program("interpreter-reinterpret", struct {}, Body);
     try std.testing.expectEqual(@as(u32, 2), Program.Session.Trace.fingerprint_version);
-    try std.testing.expectEqual(@as(u32, 1), Program.reinterpret_fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 2), Program.reinterpret_fingerprint_version);
     const Source = Program.protocol.operationSite("session", "decide", 0);
     const Policy = ability.ir.schema.Protocol(.{
         .label = "policy",

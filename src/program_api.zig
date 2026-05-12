@@ -1240,7 +1240,7 @@ pub fn program(
         /// Public execution error for this program.
         pub const Error = ProgramErrorSet(Body);
         /// Separate fingerprint domain for protocol reinterpretation metadata.
-        pub const reinterpret_fingerprint_version: u32 = 1;
+        pub const reinterpret_fingerprint_version: u32 = 2;
         /// Separate fingerprint domain for residual ProgramPlan transformation metadata.
         pub const residual_fingerprint_version: u32 = 1;
 
@@ -1684,6 +1684,8 @@ pub fn program(
             }
             inline for (.{
                 "protocol_label",
+                "protocol_lifecycle_tag",
+                "protocol_output_tag",
                 "op_name",
                 "op_mode",
                 "Payload",
@@ -1722,6 +1724,12 @@ pub fn program(
         fn hashU32(hasher: *std.hash.Wyhash, value: u32) void {
             var bytes: [4]u8 = undefined;
             std.mem.writeInt(u32, &bytes, value, .little);
+            hasher.update(&bytes);
+        }
+
+        fn hashU16(hasher: *std.hash.Wyhash, value: u16) void {
+            var bytes: [2]u8 = undefined;
+            std.mem.writeInt(u16, &bytes, value, .little);
             hasher.update(&bytes);
         }
 
@@ -2204,14 +2212,29 @@ pub fn program(
         fn residualExprFingerprint(comptime expression: anytype) u64 {
             if (comptime @hasDecl(@TypeOf(expression), "fingerprint")) return expression.fingerprint();
             var hasher = std.hash.Wyhash.init(0);
-            hashBytes(&hasher, "ability.program.residual.expr");
-            hashU32(&hasher, residual_fingerprint_version);
+            hashBytes(&hasher, "ability.ir.expr");
             if (comptime @hasField(@TypeOf(expression), "kind")) hashBytes(&hasher, @tagName(expression.kind));
+            residualExprHashOptionalValueRef(&hasher, comptime if (@hasField(@TypeOf(expression), "value_ref")) expression.value_ref else null);
             if (comptime @hasField(@TypeOf(expression), "name")) hashBytes(&hasher, expression.name);
+            if (comptime !@hasField(@TypeOf(expression), "name")) hashBytes(&hasher, "");
             if (comptime @hasField(@TypeOf(expression), "string_value")) hashBytes(&hasher, expression.string_value);
+            if (comptime !@hasField(@TypeOf(expression), "string_value")) hashBytes(&hasher, "");
             if (comptime @hasField(@TypeOf(expression), "i32_value")) hashI32(&hasher, expression.i32_value);
+            if (comptime !@hasField(@TypeOf(expression), "i32_value")) hashI32(&hasher, 0);
             if (comptime @hasField(@TypeOf(expression), "usize_value")) hashUsize(&hasher, expression.usize_value);
+            if (comptime !@hasField(@TypeOf(expression), "usize_value")) hashUsize(&hasher, 0);
+            if (comptime @hasField(@TypeOf(expression), "variant_ordinal")) hashU16(&hasher, expression.variant_ordinal);
+            if (comptime !@hasField(@TypeOf(expression), "variant_ordinal")) hashU16(&hasher, 0);
             return hasher.final();
+        }
+
+        fn residualExprHashOptionalValueRef(hasher: *std.hash.Wyhash, comptime maybe_ref: ?lowering_api.ValueRef) void {
+            hashBool(hasher, maybe_ref != null);
+            if (maybe_ref) |ref_value| {
+                hashBytes(hasher, @tagName(ref_value.codec));
+                hashBool(hasher, ref_value.schema_index != null);
+                if (ref_value.schema_index) |schema_index| hashU16(hasher, schema_index);
+            }
         }
 
         fn residualMorphismFingerprint(
@@ -2392,6 +2415,15 @@ pub fn program(
                     .message = "residualization first version only targets transform protocol operations",
                 };
             }
+            if (Descriptor.target.protocol_output_tag != .none) {
+                return .{
+                    .tag = .output_residualization_unsupported,
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .message = "residualization first version does not emit target protocol output rows",
+                };
+            }
             if (Descriptor.source.has_after) {
                 return .{
                     .tag = .after_residualization_unsupported,
@@ -2445,16 +2477,8 @@ pub fn program(
             if (!@hasField(ConfigType, "morphisms")) @compileError("Program.residualizationReport requires .morphisms");
             const morphisms = config.morphisms;
             comptime {
-                for (morphisms, 0..) |Descriptor, index| {
+                for (morphisms) |Descriptor| {
                     validateResidualMorphismDescriptor(Descriptor);
-                    for (morphisms, 0..) |Other, other_index| {
-                        if (other_index > index and
-                            Other.source.index == Descriptor.source.index and
-                            Other.source.fingerprint == Descriptor.source.fingerprint)
-                        {
-                            @compileError("Program residualization has duplicate morphisms for one source site");
-                        }
-                    }
                 }
             }
             comptime var global_blocker_count_value: usize = 0;
@@ -2464,7 +2488,30 @@ pub fn program(
             inline for (morphisms) |Descriptor| {
                 if (residualBlockerFor(Descriptor) != null) morphism_blocker_count_value += 1;
             }
-            const blocker_count = global_blocker_count_value + morphism_blocker_count_value;
+            comptime var duplicate_blocker_count_value: usize = 0;
+            inline for (morphisms, 0..) |Descriptor, index| {
+                comptime var has_prior_duplicate = false;
+                inline for (morphisms, 0..) |Prior, prior_index| {
+                    if (prior_index < index and
+                        Prior.source.index == Descriptor.source.index and
+                        Prior.source.fingerprint == Descriptor.source.fingerprint)
+                    {
+                        has_prior_duplicate = true;
+                    }
+                }
+                if (has_prior_duplicate) continue;
+                comptime var has_later_duplicate = false;
+                inline for (morphisms, 0..) |Other, other_index| {
+                    if (other_index > index and
+                        Other.source.index == Descriptor.source.index and
+                        Other.source.fingerprint == Descriptor.source.fingerprint)
+                    {
+                        has_later_duplicate = true;
+                    }
+                }
+                if (has_later_duplicate) duplicate_blocker_count_value += 1;
+            }
+            const blocker_count = global_blocker_count_value + morphism_blocker_count_value + duplicate_blocker_count_value;
             var blocker_table: [blocker_count]ResidualBlocker = undefined;
             var source_map_table: [morphisms.len]ResidualSourceMapEntry = undefined;
             comptime var blocker_index: usize = 0;
@@ -2499,6 +2546,34 @@ pub fn program(
                     .mapping_label = Descriptor.mapping_label,
                 };
             }
+            inline for (morphisms, 0..) |Descriptor, index| {
+                comptime var has_prior_duplicate = false;
+                inline for (morphisms, 0..) |Prior, prior_index| {
+                    if (prior_index < index and
+                        Prior.source.index == Descriptor.source.index and
+                        Prior.source.fingerprint == Descriptor.source.fingerprint)
+                    {
+                        has_prior_duplicate = true;
+                    }
+                }
+                if (has_prior_duplicate) continue;
+                inline for (morphisms, 0..) |Other, other_index| {
+                    if (other_index > index and
+                        Other.source.index == Descriptor.source.index and
+                        Other.source.fingerprint == Descriptor.source.fingerprint)
+                    {
+                        blocker_table[blocker_index] = .{
+                            .tag = .duplicate_source_site,
+                            .source_site_index = Descriptor.source.index,
+                            .source_site_fingerprint = Descriptor.source.fingerprint,
+                            .target_protocol_op_fingerprint = Other.target.fingerprint,
+                            .message = "duplicate residual morphisms for one source site",
+                        };
+                        blocker_index += 1;
+                        break;
+                    }
+                }
+            }
             const final_blockers = blocker_table;
             const final_source_map = source_map_table;
             return struct {
@@ -2508,6 +2583,8 @@ pub fn program(
                 pub const global_blocker_count = global_blocker_count_value;
                 /// Per-morphism residualization blockers.
                 pub const morphism_blocker_count = morphism_blocker_count_value;
+                /// Duplicate source-site blocker records.
+                pub const duplicate_blocker_count = duplicate_blocker_count_value;
                 /// Source-site to residual-target mapping entries.
                 pub const source_map = final_source_map;
             };
@@ -2518,8 +2595,13 @@ pub fn program(
             const Storage = ResidualReportStorage(config);
             const unsupported_count = Storage.blockers.len;
             const morphism_unsupported_count = Storage.morphism_blocker_count;
+            const duplicate_unsupported_count = Storage.duplicate_blocker_count;
             const morphism_count = config.morphisms.len;
-            const supported_morphism_count = morphism_count - morphism_unsupported_count;
+            const supported_morphism_count = if (Storage.global_blocker_count == 0 and duplicate_unsupported_count == 0)
+                morphism_count - morphism_unsupported_count
+            else
+                0;
+            const unsupported_morphism_count = morphism_unsupported_count + duplicate_unsupported_count;
             return struct {
                 /// Residualization fingerprint domain version.
                 pub const fingerprint_version = residual_fingerprint_version;
@@ -2541,8 +2623,8 @@ pub fn program(
                     .reinterpreted_source_sites = supported_morphism_count,
                     .emitted_target_protocol_ops = supported_morphism_count,
                     .residual_operation_sites = protocol.operation_site_count,
-                    .unsupported_source_sites = morphism_unsupported_count,
-                    .unsupported_morphisms = morphism_unsupported_count,
+                    .unsupported_source_sites = unsupported_morphism_count,
+                    .unsupported_morphisms = unsupported_morphism_count,
                 };
                 /// Whether all requested residual morphisms are supported.
                 pub const supported = unsupported_count == 0;
@@ -2661,8 +2743,8 @@ pub fn program(
                     .label = Descriptor.target.protocol_label,
                     .first_op = Descriptor.source.op_index,
                     .op_count = 1,
-                    .lifecycle_tag = .plain_transform,
-                    .output_tag = .none,
+                    .lifecycle_tag = Descriptor.target.protocol_lifecycle_tag,
+                    .output_tag = Descriptor.target.protocol_output_tag,
                 };
                 op_table[Descriptor.source.op_index] = residualTargetOpPlan(Descriptor.source.requirement_index, Descriptor.source, Descriptor.target);
             }

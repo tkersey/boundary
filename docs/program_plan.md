@@ -407,7 +407,8 @@ and response traces before applying typed resume, return-now, or resume-after
 outcomes. The fingerprints are the existing session fingerprints. The trace
 fingerprint version remains 2; request, response, site, value, and continuation
 fingerprint contents remain unchanged. Reinterpretation uses a separate
-`Program.reinterpret_fingerprint_version` for the reinterpreted request witness.
+`Program.reinterpret_fingerprint_version == 2` for the reinterpreted request
+witness.
 
 ## Residualization
 
@@ -451,7 +452,7 @@ residual metadata: `effect_row`, `source_map`, `residual_row`, `unsupported`,
 eliminated source sites, reinterpreted source sites, emitted target protocol
 ops, residual operation sites, and unsupported morphisms. Source/residual trace
 correspondence is separate from request fingerprints: the trace fingerprint
-version remains 2, reinterpretation fingerprint version remains 1, and
+version remains 2, reinterpretation fingerprint version remains 2, and
 residualization introduces `Program.residual_fingerprint_version == 1`.
 
 Residualization emits ordinary `ProgramPlan` rows: requirements, ops, value
