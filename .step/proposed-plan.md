@@ -1,140 +1,143 @@
-Iteration: 3
-
-# Typed Protocol Morphisms And Effect Reinterpretation
+Iteration: 4
+# Durable Capsule Images and Interaction Journals Plan
 
 ## Round Delta
-- Converted the spec handoff into a dependency-ordered implementation campaign for local `main` at `32418797a54b753ff829c3b36432cb7218fe8b0b`.
-- Locked one additional execution decision: add `Program.Morphism` as the static source-target witness so effect rows do not infer reinterpretation from handler bodies.
-- No scope expansion: optional `effect_middleware` stays stretch; root/session/fingerprint constraints stay hard gates.
+- Converted the durable-continuation spec into a dependency-ordered implementation campaign: canonical codec first, capsule image restore second, journal replay third, examples/docs/proof last.
+- Added the byte-authority firewall decision: one private canonical reader/writer/value-image layer with mutation tests becomes the only source of durable bytes for capsules and journals.
+- Locked the acceptance bar so scaffold examples cannot substitute for real decode, restore, negative replay, token freshness, leak, and regression proof.
 
 ## Summary
-Implement typed protocol morphisms by first adding protocol-level operation descriptors under `ability.ir.schema.Protocol`, then adding `Program.Morphism`, `Program.ProtocolRequest`, handler `reinterpret`, protocol-op handlers, composed interpreter execution, effect-row metadata, trace metadata, tests, docs, and `run-protocol-reinterpretation`. First wave is descriptor/ref/fingerprint groundwork; done means the required example, full Zig build/test/lint, focused reinterpret/morphism/effect-row/capsule/trace lanes, and existing example runners pass without public-root, `Program.Session`, `Program.run`, `ProgramValue`, request-token, or existing fingerprint-version drift.
+Implement durable continuation images and host interaction journals as a narrow Program-owned v1 codec. The chosen path is to build one deterministic binary codec and schema-guided value-image layer first, then use it for `Program.Session.Capsule.Image`, journal entries, replay helpers, interpreter/pipeline recording, examples, and docs. The first execution wave is the private codec firewall plus value round trips; the done state is all requested proof commands passing with no public-root widening and no serializable request tokens.
 
-Use `Program.Session` as the only continuation authority. A reinterpreted request is typed inspectable data plus an owned source capsule and mapper witness; it is not a runtime, durable id, token, pointer carrier, or persistence format.
+Execution waves:
+- Wave 1: Add format/version constants, private canonical byte writer/reader, checksum/fingerprint framing, and value-image encode/decode for all existing capsule-supported `ProgramValue` shapes.
+- Wave 2: Add `Program.Session.Capsule.Image` encode/decode, restore validation integration, deterministic metadata exposure, and corruption/wrong-program negative tests.
+- Wave 3: Add `Program.Session.Journal`, deterministic entry/journal encoding, pairing validation, replay from start and from capsule image, and additive recorder hooks for interpreter/pipeline flows.
+- Wave 4: Add durable capsule and journal replay examples, build steps, docs, path manifest updates, and the full proof-command closure.
 
 ## Iteration Change Log
-- iteration=1 focus=baseline_decisions round_decision=continue delta_kind=material evidence=spec handoff plus repo no-hit for reinterpret/morphism what_we_did=converted requirements into API and execution sequence change=added Program.Morphism witness and descriptor-first sequencing sections_touched=Summary, Interfaces/Types/APIs Impacted, Data Flow, Decision Log, Implementation Brief
-- iteration=2 focus=operability_risk round_decision=continue delta_kind=none evidence=adversarial pass found capsule-authority risk already covered by data-only request and rollback gates what_we_did=checked failure modes, rollback triggers, and mapper/descriptor typing change=no material delta sections_touched=Edge Cases/Failure Modes, Rollback/Abort Criteria, Adversarial Findings
-- iteration=3 focus=verification_convergence round_decision=close delta_kind=none evidence=press pass checked Interfaces, Data Flow, Tests/Acceptance, and Rollback with no new errors what_we_did=closed with two clean rounds and machine-readable contract signals change=no material delta sections_touched=Convergence Evidence, Contract Signals, Implementation Brief
+- iteration=1; focus=1 baseline decisions; round_decision=continue; delta_kind=material; evidence=repo exposes in-process capsules and trace fingerprints but no durable image or journal API; what_we_did=converted user milestone into API, codec, replay, docs, and proof boundaries; change=selected Program-scoped v1 capsule/journal codecs with no public-root widening; sections_touched=Summary,Interfaces/Types/APIs Impacted,Implementation Brief
+- iteration=2; focus=2 architecture and interfaces; round_decision=continue; delta_kind=material; evidence=existing restore is the authority for capsule metadata, shape validation, and token retokenization; what_we_did=hardened the plan around decode-as-owned-candidate plus restore-as-final-validation; change=added byte-authority firewall, schema-guided value images, and mutation-negative tests before feature integration; sections_touched=Data Flow,Edge Cases/Failure Modes,Decision Log,Rollback/Abort Criteria
+- iteration=3; focus=3 operability and risk; round_decision=continue; delta_kind=none; evidence=operability pass found the host-owned persistence boundary, recorder hooks, and replay validations already cover the material restart and inspection risks; what_we_did=rechecked rollout, monitoring, assumptions, and stakeholder readiness; change=no material delta; sections_touched=Rollout/Monitoring,Assumptions/Defaults,Stakeholder Signoff Matrix
+- iteration=4; focus=5 press verification and convergence; round_decision=close; delta_kind=none; evidence=press pass verified Summary, Requirement-to-Test Traceability, Rollback/Abort Criteria, and Contract Signals against the requested milestone and repo constraints; what_we_did=ran final feasibility, operability, and risk critique; change=no material delta; sections_touched=Convergence Evidence,Contract Signals,Implementation Brief
 
 ## Non-Goals/Out of Scope
-- Do not change `Program.run` semantics or `Program.Session` primitive stepping semantics.
-- Do not hide manual Session loops, remove Capsule APIs, remove `Program.protocol`, or make interpreters mandatory.
-- Do not add async runtime, network/LLM integration, parser/compiler/source language, public VM APIs, Artifact APIs, persistence backend, cross-thread sessions, serializable request tokens, trace serialization requirements, public root widening, `ProgramValue` widening, or new value codecs.
-- Do not delete lower-level examples: `continuation_branching`, `interpreter_branching`, `custom_approval_workflow`, or `agent_loop`.
+- Do not add a VM, Artifact API, ProgramPlan package format, parser, compiler, source language, persistence backend, async runtime, network or LLM integration.
+- Do not widen the public root beyond `ability.effect`, `ability.ir`, `ability.program`, and `ability.Runtime`.
+- Do not change `Program.run`, primitive `Program.Session` stepping semantics, existing manual Session/Capsule APIs, Handler/Interpreter APIs, Morphism, Residualize, or Pipeline APIs.
+- Do not widen `ProgramValue`, serialize arbitrary host handlers or host contexts, serialize runtime allocator/thread state, make sessions cross-thread, or make request tokens serializable.
+- Do not promise compatibility beyond the explicit v1 capsule image and journal format/fingerprint version policy.
 
 ## Scope Change Log
-- scope_change=none; reason=plan consumes the accepted spec-pipeline scope without expansion or reduction; approved_by=user brief and spec handoff
+- scope_change=spec-to-plan conversion only; reason=user invoked `$plan` after the durable capsule and journal spec was completed; approved_by=user
+- scope_change=add byte-authority firewall as implementation ordering control; reason=prevents duplicated or divergent durable byte encoders across capsules and journals; approved_by=planner
 
 ## Interfaces/Types/APIs Impacted
-- `ability.ir.schema.Protocol.operation(name, options)` and alias `op(name, options)`: returns a protocol-level descriptor with `kind=.protocol_operation`, `protocol_label`, `op_name`, `op_ordinal`, `op_mode`, `Payload`, `Resume`, `Result`, `payload_ref`, `resume_ref`, `result_ref`, `may_resume`, `may_return_now`, and deterministic `fingerprint`. `options.schema_refs` is required for product/sum refs; `options.Result` defaults to `void` and is used for choice/abort `returnNow` target responses.
-- `Program.Morphism(.{ .source, .target, .Mapper })`: static witness tying a `Program.protocol` source operation site to a schema protocol target descriptor and mapper. Effect-row metadata reads this witness, not handler function bodies.
-- `Program.ProtocolRequest(TargetOp)`: owned typed target request value with copied payload, source program/plan/site/request/capsule metadata, target protocol/op/ref metadata, target payload fingerprint, reinterpret fingerprint, and no durable request token or pointer/address fields.
-- `Program.Handler.SourceOutcome(SourceSite)` and `Program.Handler.TargetResponse(TargetOp)`: typed outcome vocabularies used by mappers. Source outcomes are restricted by source-site mode; target responses are restricted by target-op mode.
-- Handler API: add `control.reinterpret(TargetOp, payload, Mapper)` plus `Program.Handler.reinterpret(SourceSite, TargetOp, payload, Mapper)`; interpreter captures the current source capsule when applying the outcome.
-- Protocol handler API: add `Program.Handler.protocolOperation(TargetOp, handler_fn)` for target protocol requests. Handler returns `TargetResponse(TargetOp)` through helpers such as `protocolResume`, `protocolReturnNow`, `protocolForward`, and `protocolFail`.
-- Interpreter API: add `ExecutionResult.reinterpreted`, `Program.Interpreter.compose(.{ ... })`, `continueReinterpreted(...)`/`Reinterpreted.respond(...)` convenience for host-supplied target answers, and effect-row helpers `effectRow(Program)`, `assertEliminates(Program)`, `assertReinterprets(SourceSite, TargetOp)`, `assertHandlesProtocolOps(.{ ... })`, and `assertResidualSites(.{ ... })`.
-- Trace API: add separate reinterpret trace/fingerprint metadata; do not mutate existing request/site/response/value/capsule fingerprint contents or version constants unless implementation proves their contents changed.
+- Add Program constants: `Program.capsule_image_format_version = 1`, `Program.capsule_image_fingerprint_version = 1`, `Program.journal_format_version = 1`, and `Program.journal_fingerprint_version = 1`; leave existing trace/request/response/site/value/capsule/continuation/reinterpretation/residualization/pipeline versions unchanged unless implementation truly changes their contents.
+- Add `Program.Session.Capsule.Image` with owned `bytes`, image fingerprint, image version, capsule version, continuation fingerprint version, trace fingerprint version, program label, plan label, ProgramPlan hash, capsule fingerprint, continuation fingerprint, parked kind, current request fingerprint, optional semantic site label, and metadata summary.
+- Add `capsule.encode(allocator)`, `Program.Session.Capsule.Image.fromCapsule(allocator, &capsule)`, and `Program.Session.Capsule.decode(allocator, image_bytes)` as the public durable capsule surface under `Program.Session.Capsule`.
+- Add `Program.Session.Journal`, `Program.Session.Journal.Entry`, and `Program.Session.Journal.Recorder` with deterministic entry encode/decode, bounded in-memory journal encode/decode, journal fingerprinting, and request/response pairing validation.
+- Add `Program.Session.replayJournal(runtime, handlers, journal)` or an equivalent `Program.Session.Journal.Replayer` under `Program.Session`; it must replay by fingerprints and decoded typed values, not by request tokens.
+- Add interpreter/pipeline recorder integration as an additive option such as `.journal_recorder` while preserving existing trace recorder options and all existing handler/interpreter/pipeline APIs.
+- Keep the canonical reader/writer, checksum framing, and value-image codec private to the Program/lowering implementation; they are implementation details, not a broad Artifact format.
 
 ## Data Flow
-1. `Program.Session` yields a source operation request for a static `Program.protocol` site.
-2. A Program-site handler receives the typed request and `Control`, then returns `reinterpret` with target descriptor, target payload, and mapper witness.
-3. Interpreter validates payload/ref/mapper shape, captures the current source continuation as `Program.Session.Capsule`, builds `Program.ProtocolRequest(TargetOp)`, records reinterpret trace metadata, and offers the target request to later composed interpreters.
-4. If no protocol-op handler accepts the target request, Interpreter returns `.reinterpreted` containing source capsule, source trace/request/capsule fingerprints, target request, mapper identity/fingerprint when feasible, and stop reason.
-5. If a protocol-op handler answers, Interpreter validates the target response, applies mapper to produce `SourceOutcome(SourceSite)`, restores the source capsule into a fresh Session, applies the source outcome to the restored request, and continues.
-6. Manual host path remains available: host receives `.reinterpreted`, inspects target metadata/payload, supplies a typed target response through `Reinterpreted.respond(...)`, or restores the source capsule directly and applies the mapped source outcome through ordinary Session APIs.
+- Capsule image flow: host captures `Program.Session.Capsule`, encode produces deterministic owned bytes, host stores bytes by any backend it chooses, decode validates bytes into an owned in-process capsule candidate, and `Program.Session.restore` performs final program/plan/hash/fingerprint/site/runtime/thread validation while minting fresh request tokens.
+- Journal flow: a yielded request appends a request entry, the host response appends a response entry with encoded typed response value when replayable, capsule capture appends a capsule-image entry when requested, completion appends a done entry, the journal encodes to deterministic bytes, decode reconstructs entries, and replay compares each yielded request fingerprint before applying decoded typed responses.
+- Value image flow: encode values recursively from existing value/schema metadata, including unit, bool, i32, usize, string bytes, string lists, products, sums, nested product/sum values, and string-bearing product/sum values; fail closed on unsupported tags or malformed schema references.
+- Canonical bytes exclude pointer addresses, allocator addresses, runtime addresses, thread IDs, and request tokens; include only deterministic field ordering, length-prefixed byte slices, little-endian integers, explicit magic, explicit versions, and a canonical image/journal fingerprint over the payload.
 
 ## Edge Cases/Failure Modes
-- Wrong target payload type: compile-fail through `control.reinterpret`/`Program.Morphism`; runtime fallback returns `ProgramContractViolation` only if dynamic data is malformed.
-- Missing product/sum schema ref: compile-fail through `schema_refs`, matching existing schema.Protocol behavior.
-- Mapper returns invalid source outcome: compile-fail when source mode proves impossible; runtime contract violation only for dynamic ref mismatch.
-- Target choice/abort uses non-void terminal result without declaring `Result`: compile-fail or typed test failure at descriptor construction.
-- Duplicate protocol-op handlers in a composition: fail closed at comptime; no priority ordering.
-- Forwarded or unhandled target protocol request: return `.reinterpreted` with owned source capsule and target request intact.
-- Restored source capsule produces fresh request tokens: tests must prove tokens are not reused while request/capsule fingerprints remain stable.
-- Existing fingerprint churn: abort unless a changed hash input is intentional and documented.
+- Reject malformed capsule images and journals for bad magic, unsupported format version, unsupported capsule or continuation fingerprint version, checksum/fingerprint mismatch, truncated field, length overflow, invalid enum tag, structural inconsistency, and trailing garbage.
+- Reject capsule restore for wrong program label, wrong plan label, wrong ProgramPlan hash, wrong trace fingerprint version, wrong capsule/continuation/current request fingerprint, invalid site index, schema mismatch, frame shape mismatch, after stack shape mismatch, or runtime liveness/thread affinity violation.
+- Reject value images for invalid schema index, field count mismatch, unknown product field, invalid sum variant ordinal/name policy, missing non-unit payload, unexpected payload for unit variant, malformed nested value, and unsupported value kind.
+- Reject replay for missing response after a request entry, response entry whose matching request fingerprint differs from the current yielded request, unused response entries after terminal done, duplicate terminal done, malformed capsule-image entry, or final result fingerprint mismatch.
+- Preserve existing stale-token misuse guards: decoded/restored sessions get fresh in-process request tokens, and durable bytes never authorize an old request token.
+- Use testing allocator coverage to catch leaked decoded strings, lists, product/sum payloads, journal entries, capsule images, and failed partial-decode cleanup paths.
 
 ## Tests/Acceptance
-- Descriptor tests: transform/choice/abort protocol descriptors expose types, refs, mode, result refs, and deterministic fingerprints.
-- Reinterpret tests: transform, choice, and abort source sites reinterpret to transform target; mapper resumes or returns source correctly.
-- Composition tests: source-only interpreter returns `.reinterpreted`; composed source+target completes; unhandled target remains inspectable; forwarding still works.
-- Effect-row tests: handled Program sites, protocol ops, reinterpreted sources, emitted targets, forwarded sites, residuals, duplicate handlers, fake/foreign descriptors.
-- Trace/capsule tests: source request fingerprint, source capsule fingerprint, target payload fingerprint, reinterpret fingerprint, target response fingerprint, source continuation fingerprint, fresh restored tokens.
-- Regression proof: existing Program.run, Session, Handler/Interpreter, Capsule, Protocol, semantic builder, examples, and lint remain green.
+- Capsule image tests: encode/decode operation-parked and after-parked capsules; scalar, string, string_list, product, sum, nested, and string-bearing value images; deterministic same-capsule bytes; restore/capture determinism where semantic continuation is identical; different local value changes image fingerprint; request fingerprint stable across encode/decode/restore; restored tokens are fresh.
+- Capsule negative tests: malformed magic, unsupported version, truncation, trailing garbage, checksum mismatch, wrong program, wrong plan hash, bad schema/value refs, bad parked kind, bad frame/after/local shape, failed partial-decode cleanup, and no leaks under the testing allocator.
+- Branching tests: decode the same capsule image twice, restore both, resume different approve/deny branches, verify both complete correctly, and verify image bytes remain reusable.
+- Journal tests: encode/decode request, response, capsule, and done entries; stable journal fingerprint; replay operation request transcript; replay after request transcript; replay from capsule image; replay custom approval workflow; reject wrong response fingerprint, missing response, unused response, malformed entry, and final-result mismatch.
+- Integration tests: interpreter-driven journal recording/replay and pipeline residual run recording/replay when feasible; if pipeline replay needs a narrower proof, add a focused compatibility test that records pipeline request/response/capsule/done entries without changing pipeline semantics.
+- Examples and build steps: add `examples/durable_capsule_replay.zig` with `run-durable-capsule-replay` and `examples/journal_replay.zig` with `run-journal-replay`; update the repo Zig path/lint manifest if required.
+- Proof commands to run before completion: `zig version`; `zig fmt --check build.zig src examples test bench`; `git diff --check`; `zig build --summary all`; all existing requested `zig build run-*` examples; `zig build test --summary all`; filtered test commands for `capsule image`, `journal`, `replay`, `durable`, `capsule`, `continuation`, `pipeline`, `session`, and `trace`; `zig build lint -- --max-warnings 0`.
 
 ## Requirement-to-Test Traceability
-| requirement | acceptance |
-| --- | --- |
-| protocol descriptors independent of Program sites | descriptor unit tests plus missing schema-ref compile-fail |
-| typed reinterpreted request values | `.reinterpreted` result metadata tests and no-token/no-pointer field audit |
-| handler reinterpret outcome | handler tests for transform/choice/abort sources and wrong-payload compile-fail |
-| typed mappers | mapper resume/returnNow tests plus invalid source outcome compile-fail |
-| interpreter support and composition | source-only, composed, unhandled-target, and forwarding tests |
-| protocol-op handlers | protocol handler behavior tests plus duplicate/fake/foreign compile-fail |
-| effect-row discipline | `effectRow` and assert helper tests for eliminated/residual/reinterpreted/emitted effects |
-| trace metadata stability | trace tests for reinterpret fingerprint and unchanged existing version constants |
-| examples/docs | `zig build run-protocol-reinterpretation`, docs assertions by review, existing example runners |
+- requirement=capsule image deterministic bytes; acceptance=same capsule encodes twice to byte-identical output and same image fingerprint, while a changed local value changes the image fingerprint.
+- requirement=capsule image decode/restore; acceptance=decoded operation and after capsules restore into fresh sessions, yield the same request fingerprint, and reject wrong program and wrong plan hash.
+- requirement=value image coverage; acceptance=scalar, string, string_list, product, sum, nested product/sum, and string-bearing product/sum round trips pass and malformed variants fail closed.
+- requirement=request tokens not serializable; acceptance=image byte scan/metadata tests prove tokens are absent, stale old tokens remain rejected, and restored request tokens are fresh.
+- requirement=journal entry and journal codec; acceptance=request/response/capsule/done entries and bounded journals round trip with stable journal fingerprints and malformed bytes rejected.
+- requirement=replay by fingerprint and typed decoded values; acceptance=replay rejects wrong/missing/unused responses and succeeds for operation, after, capsule-start, approval workflow, interpreter, and feasible pipeline scenarios.
+- requirement=docs and examples prove crash-like use; acceptance=durable capsule example prints capsule image fingerprint, request fingerprint, approve result, and deny result; journal example prints journal fingerprint and replayed final result; docs state non-goals and version policy.
 
 ## Rollout/Monitoring
-- Rollout path: implement on a feature branch from local `main`; do not mutate public root exports.
-- Monitoring signals: focused test filters after each subsystem, example stdout showing source and target request fingerprints, full proof bundle before PR, PR summary explicitly confirming fingerprint version policy and non-goals.
-- Handoff points: after descriptor/API tests pass; after interpreter composition tests pass; after docs/examples pass; after full lint/build/test proof.
+- Roll out as an additive local library feature on the current branch; no feature flag, persistence backend, or public root change is required.
+- Monitor implementation health through deterministic fingerprints printed by the two examples, negative codec/replay tests, testing allocator leak checks, `repo_zig_paths.txt` or equivalent manifest validation, and unchanged existing example behavior.
+- PR summary must state the capsule image API, journal API, canonical byte guarantees, value encoding policy, decode/restore validation split, request-token versus fingerprint distinction, examples, added versions, unchanged primitive Session APIs, and all explicit non-goals.
 
 ## Rollback/Abort Criteria
-- abort_trigger=public root widens; rollback_action=revert root/API exposure before continuing
-- abort_trigger=Program.run or Program.Session stepping semantics change; rollback_action=revert runtime/session changes and re-scope through a new spec
-- abort_trigger=request tokens become serializable/durable or protocol requests carry pointers/addresses; rollback_action=revert ProtocolRequest representation
-- abort_trigger=existing trace/request/site/response/value/capsule fingerprint versions change without changed contents; rollback_action=revert fingerprint changes or isolate to separate reinterpret fingerprint
-- abort_trigger=required existing example runner fails due to behavior change; rollback_action=revert implicated subsystem before adding more features
-- abort_trigger=effect-row helpers cannot fail closed on duplicate/foreign/residual cases; rollback_action=withhold composition API and return to design
+- abort_trigger=canonical codec requires widening `ProgramValue`, serializing host handlers, serializing request tokens, or changing public root; rollback_action=stop implementation and return to a plan/spec revision instead of shipping a partial format.
+- abort_trigger=restore can succeed without validating program label, plan label, ProgramPlan hash, capsule fingerprint, continuation fingerprint, current request fingerprint, site indexes, runtime liveness, and thread affinity; rollback_action=remove decode/restore exposure until validation is complete.
+- abort_trigger=journal replay applies responses by in-process tokens or ordering alone instead of request fingerprints plus decoded typed values; rollback_action=disable replay helper and retain only codec tests until replay is corrected.
+- abort_trigger=examples pass but negative decode/replay tests or leak checks fail; rollback_action=do not publish examples as proof, fix codec ownership and validation first.
+- abort_trigger=existing Program.run, Session, Capsule, Handler/Interpreter, Morphism, Residualization, or Pipeline regression appears; rollback_action=bisect within the four waves and revert only the offending wave while preserving unrelated user changes.
 
 ## Assumptions/Defaults
-- assumption=local baseline is `main` at `32418797a54b753ff829c3b36432cb7218fe8b0b` as verified on May 11, 2026; confidence=high; verification_plan=implementation starts with `git status --short --branch && git rev-parse HEAD` and optional fetch if user permits ref updates
-- assumption=protocol-op terminal `Result` defaults to `void`; confidence=medium; verification_plan=descriptor tests cover choice/abort default and explicit structured Result
-- assumption=effect_middleware example is stretch; confidence=high; verification_plan=only implement after required example/proof is green
-- assumption=duplicate protocol-op handlers fail closed instead of priority ordering; confidence=high; verification_plan=compile-fail fixture wired in build.zig
-- assumption=mapper identity fingerprint is feasible but optional; confidence=medium; verification_plan=if comptime type/fn identity cannot be stable without pointer-like data, omit mapper fingerprint and document reason
+- confidence=high; assumption=as of 2026-05-12 the working tree is on `main` at the explored Ability baseline with Zig 0.16.0; verification plan=rerun `git status --short --branch`, `git rev-parse HEAD`, and `zig version` at implementation start.
+- confidence=high; assumption=exact type and method names may follow local Zig style if signatures preserve the specified capabilities under `Program.Session.Capsule` and `Program.Session.Journal`; verification plan=compile public tests and inspect generated docs/API call sites.
+- confidence=high; assumption=no external serialization dependency is allowed or needed; verification plan=review dependency diff and ensure codec code is in-library and deterministic.
+- confidence=medium; assumption=pipeline replay is feasible without changing pipeline semantics; verification plan=attempt focused pipeline residual replay test and, if infeasible, record request/response/capsule/done entries through existing pipeline trace surfaces without changing public behavior.
 
 ## Decision Log
-- decision_id=D1 decision=place protocol-level descriptors under `ability.ir.schema.Protocol.operation/op`, not `Program.protocol`; rationale=they are protocol constructors, not compiled Program call sites
-- decision_id=D2 decision=descriptor options include `.Result` defaulting to `void` for protocol-level choice/abort terminal responses; rationale=target protocol requests have no enclosing Program result
-- decision_id=D3 decision=add `Program.Morphism` as the static source-target witness used by handlers and effect rows; rationale=effect-row metadata must be explicit, inspectable, and not inferred from handler body control flow
-- decision_id=D4 decision=reinterpreted requests are data-only and source continuation authority remains the capsule; rationale=prevents second runtime and durable-token misuse
-- decision_id=D5 decision=composition fails closed on duplicate/fake/foreign protocol-op handlers; rationale=priority ordering would make effect rows ambiguous
-- decision_id=D6 decision=add separate reinterpret fingerprint domain while preserving existing fingerprint versions; rationale=adds auditability without replay churn
+- decision_id=D1; supersedes=n/a; decision=keep all durable APIs under `Program` and `Program.Session` without widening public root.
+- decision_id=D2; supersedes=n/a; decision=use fixed magic, explicit v1 versions, little-endian integers, length-prefixed slices, deterministic ordering, and in-library checksum/fingerprint framing instead of JSON or external serialization.
+- decision_id=D3; supersedes=n/a; decision=decode creates an owned capsule candidate, while `Program.Session.restore` remains final validation and retokenization authority.
+- decision_id=D4; supersedes=n/a; decision=encode values through existing schema/value metadata and fail closed on unsupported or malformed product/sum/value shapes.
+- decision_id=D5; supersedes=n/a; decision=journals replay by request fingerprints and decoded typed values, never by serialized request tokens.
+- decision_id=D6; supersedes=n/a; decision=implement the byte-authority firewall first so capsule and journal encoders share one canonical durable byte boundary.
+- decision_id=D7; supersedes=n/a; decision=interpreter and pipeline journal recording is additive and must not replace existing trace recorder behavior.
 
 ## Decision Impact Map
-- decision_id=D1 impacted_sections=Interfaces/Types/APIs Impacted, Data Flow, Tests/Acceptance follow_up_action=implement descriptor API before interpreter changes
-- decision_id=D2 impacted_sections=Interfaces/Types/APIs Impacted, Edge Cases/Failure Modes, Requirement-to-Test Traceability follow_up_action=add choice/abort Result descriptor tests
-- decision_id=D3 impacted_sections=Interfaces/Types/APIs Impacted, Data Flow, Effect-row tests, Implementation Brief follow_up_action=build Morphism before effect-row assertions
-- decision_id=D4 impacted_sections=Data Flow, Rollback/Abort Criteria, Adversarial Findings follow_up_action=audit ProtocolRequest fields for token/pointer/address exclusion
-- decision_id=D5 impacted_sections=Edge Cases/Failure Modes, Tests/Acceptance follow_up_action=add duplicate protocol-op compile-fail fixture
-- decision_id=D6 impacted_sections=Trace tests, Rollback/Abort Criteria follow_up_action=assert existing fingerprint versions unchanged
+- decision_id=D1; impacted_sections=Interfaces/Types/APIs Impacted,Non-Goals/Out of Scope,Implementation Brief; follow_up_action=place new public types under existing `Program` namespaces only.
+- decision_id=D2; impacted_sections=Data Flow,Tests/Acceptance,Rollback/Abort Criteria; follow_up_action=write codec mutation tests before exposing capsule image decode.
+- decision_id=D3; impacted_sections=Data Flow,Edge Cases/Failure Modes,Tests/Acceptance; follow_up_action=add wrong-program, wrong-plan, shape, fingerprint, and fresh-token restore tests.
+- decision_id=D4; impacted_sections=Data Flow,Tests/Acceptance,Requirement-to-Test Traceability; follow_up_action=round-trip every currently capsule-supported value kind and reject malformed schema refs.
+- decision_id=D5; impacted_sections=Data Flow,Journal Tests,Rollback/Abort Criteria; follow_up_action=make wrong/missing/unused response replay tests mandatory.
+- decision_id=D6; impacted_sections=Implementation Brief,Tests/Acceptance,Adversarial Findings; follow_up_action=complete private codec and mutation harness before feature examples.
+- decision_id=D7; impacted_sections=Interfaces/Types/APIs Impacted,Rollout/Monitoring,Tests/Acceptance; follow_up_action=preserve trace recorder tests while adding journal recorder coverage.
 
 ## Open Questions
-None; owner=n/a; due_date=n/a; default_action=n/a
+None.
 
 ## Stakeholder Signoff Matrix
-| product | engineering | operations | security |
+| stakeholder | owner | status | signoff basis |
 | --- | --- | --- | --- |
-| owner=Ability maintainer; status=ready_for_implementation | owner=implementation agent; status=ready_with_api_constraints | owner=implementation agent; status=local_proof_required_no_runtime_rollout | owner=implementation agent; status=token/pointer/durable-id constraints required |
+| product | Ability maintainer | ready-by-spec | meets requested durable capsule, journal, replay, example, and docs scope without excluded platform features |
+| engineering | implementer | ready | dependency-ordered waves and validation gates are explicit |
+| operations | host application owner | ready | persistence remains host-owned and no backend/runtime/thread state is serialized |
+| security | reviewer | ready | request tokens, pointers, allocator/runtime addresses, thread IDs, handlers, and host contexts are excluded from durable bytes |
 
 ## Adversarial Findings
-- lens=feasibility type=risks severity=medium section=Interfaces/Types/APIs Impacted decision=D2 status=mitigated probability=medium impact=high trigger=target choice/abort needs terminal Result without enclosing Program
-- lens=operability type=risks severity=medium section=Data Flow decision=D4 status=mitigated probability=medium impact=high trigger=reinterpreted request accidentally stores tokens, pointers, or allocator addresses
-- lens=risk type=risks severity=high section=Rollback/Abort Criteria decision=D4,D6 status=mitigated probability=low impact=high trigger=Session semantics or existing fingerprint versions drift
-- lens=verification type=preferences severity=low section=Tests/Acceptance decision=D3 status=accepted probability=low impact=low trigger=mapper identity fingerprint not stable enough to include
-- taxonomy_summary errors=0 risks=3 preferences=1
+Taxonomy markers: errors=0 active; risks=0 open after mitigation; preferences=1 accepted non-blocking.
+
+| lens | type | severity | section | decision | status | probability | impact | trigger |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| feasibility | risk | high | Data Flow | D3,D6 | mitigated | medium | high | decode path restores executable state before complete shape, fingerprint, and plan validation |
+| operability | risk | medium | Tests/Acceptance | D5 | mitigated | medium | medium | examples demonstrate happy path while replay pairing, missing response, and unused response failures remain untested |
+| risk | risk | high | Non-Goals/Out of Scope | D1,D5 | mitigated | low | high | durable bytes accidentally include request tokens, pointers, runtime addresses, thread IDs, or host handler state |
+| feasibility | preference | low | Interfaces/Types/APIs Impacted | D7 | accepted | low | low | final option field name differs from `.journal_recorder` but remains additive and source-local |
 
 ## Convergence Evidence
-clean_rounds=2
-press_pass_clean=true
-new_errors=0
-last_two_iterations_delta_kind=none,none
-press_sections_checked=Interfaces/Types/APIs Impacted,Data Flow,Tests/Acceptance,Rollback/Abort Criteria
-hysteresis=passed
-implementation_ready=true
-remaining_minor_concerns=mapper_identity_fingerprint_feasibility_optional
+- clean_rounds=2
+- press_pass_clean=true
+- new_errors=0
+- last_two_no_delta=iterations 3 and 4
+- press_verified_sections=Summary,Requirement-to-Test Traceability,Rollback/Abort Criteria,Contract Signals
+- implementation_ready=true because APIs, byte format, value coverage, validation split, replay semantics, examples, docs, proof commands, rollback triggers, and non-goals are decision-complete.
+- remaining_minor_concerns=exact Zig field names can adapt to local style without changing the locked capabilities.
 
 ## Contract Signals
 contract_version=2
@@ -148,18 +151,15 @@ rewrite_ratio=0.00
 external_inputs_trusted=false
 improvement_exhausted=true
 stop_reason=none
-plan_contract_lint=skipped_stdin_unsupported
 
 ## Implementation Brief
-| step | owner | success_criteria |
-| --- | --- | --- |
-| 1. Reconfirm baseline | implementation agent | `git status --short --branch`, `git rev-parse HEAD`, and `zig version` captured before edits |
-| 2. Add protocol-level descriptors | implementation agent | descriptor tests pass for transform/choice/abort refs, Result defaults, schema refs, and deterministic fingerprints |
-| 3. Add Morphism and ProtocolRequest | implementation agent | typed request metadata/fingerprint tests pass and representation excludes tokens/pointers/addresses |
-| 4. Add handler reinterpret and mapper validation | implementation agent | source transform/choice/abort reinterpret tests pass; invalid payload/outcome compile-fail fixtures pass |
-| 5. Extend Interpreter and composition | implementation agent | source-only `.reinterpreted`, composed completion, unhandled target, forwarding, and manual host response tests pass |
-| 6. Add effect-row helpers | implementation agent | eliminated/residual/reinterpreted/emitted assertions pass; duplicate/fake/foreign handlers fail closed |
-| 7. Add trace metadata, example, docs, build wiring | implementation agent | `run-protocol-reinterpretation` prints source/target fingerprints and both allow/deny outcomes; docs preserve non-goals |
-| 8. Close proof bundle | implementation agent | all proof commands from the spec pass, or only environment blockers remain with exact command/error evidence |
+- step=confirm baseline and recall local constraints; owner=lead implementer; success_criteria=`git status --short --branch`, `git rev-parse HEAD`, and `zig version` confirm the current implementation baseline before edits.
+- step=build byte-authority firewall and version constants; owner=codec implementer; success_criteria=private canonical writer/reader, fingerprint framing, capsule/journal version constants, and mutation tests reject corrupt bytes before capsule/journal features depend on them.
+- step=implement schema-guided value images; owner=codec implementer; success_criteria=all scalar, string, string_list, product, sum, nested, and string-bearing values round trip and malformed schema/value refs fail closed with no leaks.
+- step=implement capsule image encode/decode; owner=session implementer; success_criteria=`Program.Session.Capsule.Image`, encode/fromCapsule/decode APIs, deterministic metadata, restore integration, fresh-token proof, wrong-program/plan/hash negative tests, and branch replay tests pass.
+- step=implement journal entries and replay; owner=session implementer; success_criteria=request/response/capsule/done entries encode/decode deterministically, bounded journals fingerprint stably, replay succeeds by fingerprint and typed values, and wrong/missing/unused responses fail.
+- step=wire interpreter and pipeline recording; owner=integration implementer; success_criteria=journal recorder is additive to existing trace recording and focused interpreter/pipeline tests pass without changing semantics.
+- step=add examples, build steps, manifest entries, and docs; owner=examples/docs implementer; success_criteria=`run-durable-capsule-replay` and `run-journal-replay` demonstrate save/decode/restore/branch and record/decode/replay, while README and docs state version policy, host-owned persistence, token exclusion, and non-goals.
+- step=run closure proof and prepare PR summary; owner=lead implementer; success_criteria=all requested fmt, diff, build, example, test-filter, full-test, and lint commands pass, and PR summary covers APIs, byte guarantees, value encoding, validation, token/fingerprint distinction, examples, versions, preserved APIs, and excluded features.
 
-Iteration: 3
+Iteration: 4
