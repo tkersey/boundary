@@ -3298,6 +3298,20 @@ pub fn program(
                 if (self.pipeline_fingerprint_version != pipeline_fingerprint_version) return error.InvalidPipelineCertificate;
                 if (!self.goal_satisfied or self.blockers.len != 0) return error.PipelineGoalNotSatisfied;
                 if (self.source_plan_hash == 0 or self.residual_plan_hash == 0) return error.InvalidPipelineCertificate;
+                if (self.source_effect_row.source_plan_hash != self.source_plan_hash or
+                    self.source_effect_row.residual_plan_hash != self.residual_plan_hash or
+                    self.target_effect_row.source_plan_hash != self.source_plan_hash or
+                    self.target_effect_row.residual_plan_hash != self.residual_plan_hash)
+                {
+                    return error.InvalidPipelineCertificate;
+                }
+                if (!std.mem.eql(u8, self.source_effect_row.source_program_label, self.source_program_label) or
+                    !std.mem.eql(u8, self.source_effect_row.residual_program_label, self.residual_program_label) or
+                    !std.mem.eql(u8, self.target_effect_row.source_program_label, self.source_program_label) or
+                    !std.mem.eql(u8, self.target_effect_row.residual_program_label, self.residual_program_label))
+                {
+                    return error.InvalidPipelineCertificate;
+                }
                 for (self.source_to_residual_site_map, 0..) |entry, index| {
                     if (entry.source_site_fingerprint == 0) return error.InvalidPipelineCertificate;
                     var duplicate = false;
@@ -3404,9 +3418,19 @@ pub fn program(
             return hasher.final();
         }
 
-        fn pipelineSourceResidualized(comptime residual_catalog: anytype, comptime source_site_fingerprint: u64) bool {
+        fn pipelineResidualDescriptorSupported(comptime Report: type, comptime Descriptor: type) bool {
+            if (Report.effect_row.eliminated_source_sites == 0) return false;
+            inline for (Report.unsupported) |blocker| {
+                if (blocker.source_site_fingerprint != null and blocker.source_site_fingerprint.? == Descriptor.source.fingerprint) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        fn pipelineSupportedSourceResidualized(comptime Report: type, comptime residual_catalog: anytype, comptime source_site_fingerprint: u64) bool {
             inline for (residual_catalog) |Descriptor| {
-                if (Descriptor.source.fingerprint == source_site_fingerprint) return true;
+                if (Descriptor.source.fingerprint == source_site_fingerprint and pipelineResidualDescriptorSupported(Report, Descriptor)) return true;
             }
             return false;
         }
@@ -3419,12 +3443,13 @@ pub fn program(
         fn pipelineResidualizationReport(comptime config: anytype) type {
             const residual_catalog = pipelineResidualCatalog(config);
             if (residual_catalog.len != 0) return residualizationReport(pipelineResidualConfig(config));
+            const IdentityStorage = IdentityPipelinePlanStorage(pipelineResidualLabel(config));
             const source_map_entries = [_]ResidualSourceMapEntry{};
             const residual_effect_row = ResidualEffectRow{
                 .source_program_label = label,
                 .source_plan_hash = body_compiled_plan_hash,
                 .residual_program_label = pipelineResidualLabel(config),
-                .residual_plan_hash = body_compiled_plan_hash,
+                .residual_plan_hash = IdentityStorage.plan.hash(),
                 .eliminated_source_sites = 0,
                 .reinterpreted_source_sites = 0,
                 .emitted_target_protocol_ops = 0,
@@ -3454,6 +3479,8 @@ pub fn program(
             const residual_catalog = pipelineResidualCatalog(config);
             const Report = pipelineResidualizationReport(config);
             const goal_value = pipelineGoal(config);
+            const supported_residual_sites = Report.effect_row.eliminated_source_sites;
+            const emitted_protocol_ops = Report.effect_row.emitted_target_protocol_ops;
 
             const residual_blocker_count: usize = Report.unsupported.len;
             const interpret_blocker_count: usize = pipelineUnsupportedInterpretCatalogCount(config);
@@ -3461,7 +3488,7 @@ pub fn program(
             comptime var goal_blocker_count: usize = 0;
             if (!goal_value.allow_unhandled_residuals) {
                 inline for (protocol.operation_site_metadata) |site| {
-                    if (!pipelineSourceResidualized(residual_catalog, site.fingerprint)) {
+                    if (!pipelineSupportedSourceResidualized(Report, residual_catalog, site.fingerprint)) {
                         goal_blocker_count += 1;
                     }
                 }
@@ -3469,12 +3496,12 @@ pub fn program(
                     _ = site;
                     goal_blocker_count += 1;
                 }
-                goal_blocker_count += residual_catalog.len;
+                goal_blocker_count += supported_residual_sites;
             }
 
             const blocker_count = residual_blocker_count + interpret_blocker_count + goal_blocker_count;
             var blocker_table: [blocker_count]PipelineBlocker = undefined;
-            var route_table: [residual_catalog.len]PipelineRouteWitness = undefined;
+            var route_table: [supported_residual_sites]PipelineRouteWitness = undefined;
             comptime var blocker_index: usize = 0;
             comptime var route_index: usize = 0;
 
@@ -3490,17 +3517,19 @@ pub fn program(
             }
 
             inline for (residual_catalog) |Descriptor| {
-                route_table[route_index] = .{
-                    .kind = .source_site_residualized,
-                    .source_site_index = Descriptor.source.index,
-                    .source_site_fingerprint = Descriptor.source.fingerprint,
-                    .target_protocol_label = Descriptor.target.protocol_label,
-                    .target_op_name = Descriptor.target.op_name,
-                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
-                    .morphism_fingerprint = Descriptor.fingerprint,
-                    .label = Descriptor.mapping_label,
-                };
-                route_index += 1;
+                if (pipelineResidualDescriptorSupported(Report, Descriptor)) {
+                    route_table[route_index] = .{
+                        .kind = .source_site_residualized,
+                        .source_site_index = Descriptor.source.index,
+                        .source_site_fingerprint = Descriptor.source.fingerprint,
+                        .target_protocol_label = Descriptor.target.protocol_label,
+                        .target_op_name = Descriptor.target.op_name,
+                        .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                        .morphism_fingerprint = Descriptor.fingerprint,
+                        .label = Descriptor.mapping_label,
+                    };
+                    route_index += 1;
+                }
             }
 
             if (interpret_blocker_count != 0) {
@@ -3513,7 +3542,7 @@ pub fn program(
 
             if (!goal_value.allow_unhandled_residuals) {
                 inline for (protocol.operation_site_metadata) |site| {
-                    if (!pipelineSourceResidualized(residual_catalog, site.fingerprint)) {
+                    if (!pipelineSupportedSourceResidualized(Report, residual_catalog, site.fingerprint)) {
                         blocker_table[blocker_index] = .{
                             .tag = .missing_handler,
                             .source_site_index = site.index,
@@ -3533,15 +3562,17 @@ pub fn program(
                     blocker_index += 1;
                 }
                 inline for (residual_catalog) |Descriptor| {
-                    blocker_table[blocker_index] = .{
-                        .tag = .missing_protocol_handler,
-                        .source_site_index = Descriptor.source.index,
-                        .source_site_fingerprint = Descriptor.source.fingerprint,
-                        .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
-                        .morphism_fingerprint = Descriptor.fingerprint,
-                        .summary = "pipeline goal requires emitted protocol operations to be residualized or carried by execution",
-                    };
-                    blocker_index += 1;
+                    if (pipelineResidualDescriptorSupported(Report, Descriptor)) {
+                        blocker_table[blocker_index] = .{
+                            .tag = .missing_protocol_handler,
+                            .source_site_index = Descriptor.source.index,
+                            .source_site_fingerprint = Descriptor.source.fingerprint,
+                            .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                            .morphism_fingerprint = Descriptor.fingerprint,
+                            .summary = "pipeline goal requires emitted protocol operations to be residualized or carried by execution",
+                        };
+                        blocker_index += 1;
+                    }
                 }
             }
 
@@ -3561,14 +3592,15 @@ pub fn program(
                     .source_program_label = label,
                     .source_plan_hash = body_compiled_plan_hash,
                     .residual_program_label = pipelineResidualLabel(config),
+                    .residual_plan_hash = Report.effect_row.residual_plan_hash,
                     .source_operation_sites = protocol.operation_site_count,
                     .source_after_sites = protocol.after_site_count,
-                    .residualized_sites = residual_catalog.len,
+                    .residualized_sites = supported_residual_sites,
                     .dynamically_interpreted_sites = 0,
                     .dynamically_reinterpreted_sites = 0,
                     .handled_protocol_operations = 0,
-                    .emitted_protocol_operations = residual_catalog.len,
-                    .exposed_residual_operations = protocol.operation_site_count,
+                    .emitted_protocol_operations = emitted_protocol_ops,
+                    .exposed_residual_operations = protocol.operation_site_count - supported_residual_sites,
                     .handled_after_sites = 0,
                     .residual_after_sites = protocol.after_site_count,
                     .blockers = final_blockers.len,
@@ -3655,6 +3687,23 @@ pub fn program(
                 .residual_after_sites = ResidualProgram.protocol.after_site_count,
                 .blockers = 0,
             };
+            const source_effect_row = PipelineEffectRow{
+                .source_program_label = Report.effect_row.source_program_label,
+                .source_plan_hash = Report.effect_row.source_plan_hash,
+                .residual_program_label = ResidualProgram.contract.label,
+                .residual_plan_hash = ResidualProgram.compiled_plan.hash(),
+                .source_operation_sites = Report.effect_row.source_operation_sites,
+                .source_after_sites = Report.effect_row.source_after_sites,
+                .residualized_sites = Report.effect_row.residualized_sites,
+                .dynamically_interpreted_sites = Report.effect_row.dynamically_interpreted_sites,
+                .dynamically_reinterpreted_sites = Report.effect_row.dynamically_reinterpreted_sites,
+                .handled_protocol_operations = Report.effect_row.handled_protocol_operations,
+                .emitted_protocol_operations = Report.effect_row.emitted_protocol_operations,
+                .exposed_residual_operations = Report.effect_row.exposed_residual_operations,
+                .handled_after_sites = Report.effect_row.handled_after_sites,
+                .residual_after_sites = Report.effect_row.residual_after_sites,
+                .blockers = Report.effect_row.blockers,
+            };
             const certificate_value = PipelineCertificate{
                 .source_program_label = label,
                 .source_plan_label = body_compiled_plan.label,
@@ -3665,7 +3714,7 @@ pub fn program(
                 .pipeline_fingerprint = Report.fingerprint,
                 .residualization_fingerprint = ResidualProgram.residualization_fingerprint,
                 .dynamic_catalog_fingerprint = pipelineCatalogFingerprint(config),
-                .source_effect_row = Report.effect_row,
+                .source_effect_row = source_effect_row,
                 .target_effect_row = residual_effect_row,
                 .handled_sites = &HandledRoutes.values,
                 .dynamically_interpreted_sites = &DynamicRoutes.values,
@@ -3779,13 +3828,12 @@ pub fn program(
                     if (@hasField(@TypeOf(request), "source_site_fingerprint")) {
                         inline for (Report.routes) |route| {
                             if (routeMatchesTargetFingerprint(route, request) and
-                                route.source_site_fingerprint != null and
-                                route.source_site_fingerprint.? == request.source_site_fingerprint and
-                                sourceIdentityMatchesProgram(request, label, body_compiled_plan_hash))
+                                routeMatchesRequestSource(route, request))
                             {
                                 return route;
                             }
                         }
+                        if (dynamicRouteForResidualOwnedValue(request)) |route| return route;
                         return null;
                     }
                     return singleRouteMatchingTargetFingerprint(request);
@@ -3818,13 +3866,12 @@ pub fn program(
                     if (@hasField(@TypeOf(trace), "source_site_fingerprint")) {
                         inline for (Report.routes) |route| {
                             if (routeMatchesTargetFingerprint(route, trace) and
-                                route.source_site_fingerprint != null and
-                                route.source_site_fingerprint.? == trace.source_site_fingerprint and
-                                sourceIdentityMatchesProgram(trace, label, body_compiled_plan_hash))
+                                routeMatchesRequestSource(route, trace))
                             {
                                 return route;
                             }
                         }
+                        if (dynamicRouteForResidualOwnedValue(trace)) |route| return route;
                         return null;
                     }
                     return singleRouteMatchingTargetFingerprint(trace);
@@ -3857,6 +3904,51 @@ pub fn program(
                         }
                     }
                     return if (match_count == 1) selected else null;
+                }
+
+                fn routeMatchesRequestSource(route: PipelineRouteWitness, value: anytype) bool {
+                    if (route.source_site_fingerprint == null or !@hasField(@TypeOf(value), "source_site_fingerprint")) return false;
+                    if (sourceIdentityMatchesProgram(value, label, body_compiled_plan_hash) and
+                        route.source_site_fingerprint.? == value.source_site_fingerprint)
+                    {
+                        return true;
+                    }
+                    if (!sourceIdentityMatchesProgram(value, ResidualProgram.contract.label, ResidualProgram.compiled_plan.hash())) return false;
+                    inline for (ResidualProgram.source_map) |entry| {
+                        if (entry.residual_site_fingerprint != null and
+                            entry.residual_site_fingerprint.? == value.source_site_fingerprint and
+                            entry.source_site_fingerprint == route.source_site_fingerprint.?)
+                        {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
+                fn dynamicRouteForResidualOwnedValue(value: anytype) ?PipelineRouteWitness {
+                    if (residualSourceEntryForValue(value)) |entry| {
+                        return .{
+                            .kind = .source_site_reinterpreted_dynamic,
+                            .source_site_index = entry.source_site_index,
+                            .source_site_fingerprint = entry.source_site_fingerprint,
+                            .target_protocol_label = if (@hasField(@TypeOf(value), "target_protocol_label")) value.target_protocol_label else null,
+                            .target_op_name = if (@hasField(@TypeOf(value), "target_op_name")) value.target_op_name else null,
+                            .target_protocol_op_fingerprint = if (@hasField(@TypeOf(value), "target_protocol_op_fingerprint")) value.target_protocol_op_fingerprint else null,
+                        };
+                    }
+                    return null;
+                }
+
+                fn residualSourceEntryForValue(value: anytype) ?ResidualSourceMapEntry {
+                    if (!@hasField(@TypeOf(value), "source_site_fingerprint") or
+                        !sourceIdentityMatchesProgram(value, ResidualProgram.contract.label, ResidualProgram.compiled_plan.hash()))
+                    {
+                        return null;
+                    }
+                    inline for (ResidualProgram.source_map) |entry| {
+                        if (entry.residual_site_fingerprint != null and entry.residual_site_fingerprint.? == value.source_site_fingerprint) return entry;
+                    }
+                    return null;
                 }
 
                 fn identityResidualTraceMap(trace: anytype) ?ResidualSourceMapEntry {
