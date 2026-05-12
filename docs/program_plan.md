@@ -455,6 +455,38 @@ correspondence is separate from request fingerprints: the trace fingerprint
 version remains 2, reinterpretation fingerprint version remains 2, and
 residualization introduces `Program.residual_fingerprint_version == 1`.
 
+`Program.Pipeline(.{ ... })` synthesizes the residualization and dynamic
+interpretation stages into one proof-carrying effect pipeline. The catalog can
+name residualizable morphisms, dynamic interpreter entries, protocol-operation
+handlers, a residual-effect goal, and a route strategy. `Program.pipeline.Goal`
+currently exposes `allowResiduals`, `eliminateAll`, and `rejectAllResiduals`;
+`Program.pipelineReport` can be used when the caller wants blockers instead of a
+compile error.
+
+```zig
+const Pipeline = ApprovalProgram.Pipeline(.{
+    .label = "approval-policy-pipeline",
+    .residualize = .{ApprovalViaPolicyResidual},
+    .goal = ApprovalProgram.pipeline.Goal.allowResiduals(),
+    .strategy = .prefer_residualization,
+});
+
+const ResidualPolicy = Pipeline.Residual.protocol.operationSite("policy", "check", 0);
+const Interpreter = Pipeline.Interpreter(.{
+    Pipeline.Residual.Handler.operation(ResidualPolicy, handlePolicy),
+});
+```
+
+The pipeline certificate records the source and residual plan hashes, pipeline
+fingerprint (`Program.pipeline_fingerprint_version == 1`), residualization and
+dynamic-catalog fingerprints, source and residual effect rows, residualized and
+dynamic route witnesses, emitted protocol operations, blockers, source/residual
+site maps, and the trace mapping policy. `Pipeline.assertValid()` and
+`Pipeline.certificate.check()` verify that the claimed rows and maps satisfy the
+goal. Trace helpers map residual request traces and target protocol requests
+back to source sites without changing existing request/site/response/value
+fingerprints.
+
 Residualization emits ordinary `ProgramPlan` rows: requirements, ops, value
 schemas, locals, blocks, terminators, instructions, and site metadata remain the
 same runtime data that `Program.run` and `Program.Session` already execute.
@@ -754,6 +786,12 @@ the same kernel: an `approval.request` choice operation is handled by emitting a
 protocol-level `policy.check` transform request, preserving the approval
 continuation as a capsule, and mapping the policy answer back into either
 approval resume or approval return-now behavior.
+
+`examples/effect_pipeline.zig` demonstrates the pipeline form: an approval site
+is residualized into `policy.check`, the residual policy site is dynamically
+reinterpreted into `rules.lookup`, full execution agrees with source dynamic
+interpretation, and a partial interpreter returns an inspectable protocol
+request plus reusable capsule.
 
 ## Built-in plan helper namespaces
 

@@ -11,6 +11,7 @@ build.zig
 examples/agent_loop.zig
 examples/continuation_branching.zig
 examples/custom_approval_workflow.zig
+examples/effect_pipeline.zig
 examples/interpreter_branching.zig
 examples/plan_native_exception.zig
 examples/plan_native_optional.zig

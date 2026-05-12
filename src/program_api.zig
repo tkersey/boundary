@@ -1243,6 +1243,8 @@ pub fn program(
         pub const reinterpret_fingerprint_version: u32 = 2;
         /// Separate fingerprint domain for residual ProgramPlan transformation metadata.
         pub const residual_fingerprint_version: u32 = 1;
+        /// Separate fingerprint domain for proof-carrying effect pipeline metadata.
+        pub const pipeline_fingerprint_version: u32 = 1;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {
@@ -2962,6 +2964,681 @@ pub fn program(
                             entry.residual_site_fingerprint.? == trace.operation_site_fingerprint)
                         {
                             return entry;
+                        }
+                    }
+                    return null;
+                }
+            };
+        }
+
+        /// Goal and strategy vocabulary for proof-carrying effect pipelines.
+        pub const pipeline = struct {
+            /// Planner route preference when static and dynamic routes both exist.
+            pub const Strategy = enum {
+                prefer_residualization,
+                prefer_dynamic,
+                require_residualization,
+                report_ambiguity,
+            };
+
+            /// Static residual-effect goal checked by the pipeline planner.
+            pub const GoalKind = enum {
+                allow_residuals,
+                eliminate_all,
+                reject_all_residuals,
+            };
+
+            /// Inspectable pipeline goal descriptor.
+            pub const Goal = struct {
+                kind: GoalKind,
+                allow_unhandled_residuals: bool = true,
+
+                /// Allow residual effects to remain exposed to Program.Session.
+                pub fn allowResiduals() @This() {
+                    return .{ .kind = .allow_residuals, .allow_unhandled_residuals = true };
+                }
+
+                /// Require every reachable operation, after site, and emitted protocol op to be eliminated.
+                pub fn eliminateAll() @This() {
+                    return .{ .kind = .eliminate_all, .allow_unhandled_residuals = false };
+                }
+
+                /// Reject exposed residual effects after static and dynamic catalog routes are applied.
+                pub fn rejectAllResiduals() @This() {
+                    return .{ .kind = .reject_all_residuals, .allow_unhandled_residuals = false };
+                }
+            };
+
+            /// Default trace policy keeps existing request/response fingerprints unchanged.
+            pub const TracePolicy = enum {
+                inspectable,
+            };
+        };
+
+        /// Structured reason a pipeline cannot satisfy its goal or route catalog.
+        pub const PipelineBlockerTag = enum {
+            missing_handler,
+            missing_protocol_handler,
+            duplicate_handler,
+            ambiguous_route,
+            morphism_cycle,
+            unsupported_residualization_shape,
+            schema_mismatch,
+            source_site_unreachable,
+            foreign_program_site,
+            goal_not_satisfied,
+            residual_effect_not_allowed,
+            after_site_unsupported,
+            output_requirement_unsupported,
+        };
+
+        /// One fail-closed pipeline-planning blocker.
+        pub const PipelineBlocker = struct {
+            tag: PipelineBlockerTag,
+            source_site_index: ?usize = null,
+            source_site_fingerprint: ?u64 = null,
+            target_protocol_op_fingerprint: ?u64 = null,
+            morphism_fingerprint: ?u64 = null,
+            summary: []const u8 = "",
+        };
+
+        /// Route category selected or reported by the pipeline planner.
+        pub const PipelineRouteKind = enum {
+            source_site_handled,
+            source_site_reinterpreted_dynamic,
+            source_site_residualized,
+            protocol_op_handled,
+            after_site_handled,
+        };
+
+        /// Static route witness used by certificates and reports.
+        pub const PipelineRouteWitness = struct {
+            kind: PipelineRouteKind,
+            source_site_index: ?usize = null,
+            source_site_fingerprint: ?u64 = null,
+            after_site_index: ?usize = null,
+            after_site_fingerprint: ?u64 = null,
+            target_protocol_label: ?[]const u8 = null,
+            target_op_name: ?[]const u8 = null,
+            target_protocol_op_fingerprint: ?u64 = null,
+            morphism_fingerprint: ?u64 = null,
+            label: ?[]const u8 = null,
+        };
+
+        /// Static effect-row projection for a synthesized effect pipeline.
+        pub const PipelineEffectRow = struct {
+            source_program_label: []const u8,
+            source_plan_hash: u64,
+            residual_program_label: []const u8,
+            residual_plan_hash: u64 = 0,
+            source_operation_sites: usize,
+            source_after_sites: usize,
+            residualized_sites: usize,
+            dynamically_interpreted_sites: usize,
+            dynamically_reinterpreted_sites: usize,
+            handled_protocol_operations: usize,
+            emitted_protocol_operations: usize,
+            exposed_residual_operations: usize,
+            handled_after_sites: usize,
+            residual_after_sites: usize,
+            blockers: usize,
+            fingerprint_version: u32 = pipeline_fingerprint_version,
+        };
+
+        /// Proof-carrying certificate for one planned pipeline.
+        pub const PipelineCertificate = struct {
+            source_program_label: []const u8,
+            source_plan_label: []const u8,
+            source_plan_hash: u64,
+            residual_program_label: []const u8,
+            residual_plan_hash: u64,
+            pipeline_label: []const u8,
+            pipeline_fingerprint_version: u32 = pipeline_fingerprint_version,
+            pipeline_fingerprint: u64,
+            residualization_fingerprint: u64,
+            dynamic_catalog_fingerprint: u64,
+            source_effect_row: PipelineEffectRow,
+            target_effect_row: PipelineEffectRow,
+            handled_sites: []const PipelineRouteWitness,
+            dynamically_interpreted_sites: []const PipelineRouteWitness,
+            residualized_sites: []const PipelineRouteWitness,
+            reinterpreted_sites: []const PipelineRouteWitness,
+            emitted_protocol_operations: []const PipelineRouteWitness,
+            exposed_residual_operations: usize,
+            blockers: []const PipelineBlocker,
+            source_to_residual_site_map: []const ResidualSourceMapEntry,
+            residual_to_source_site_map: []const ResidualSourceMapEntry,
+            trace_mapping_policy: pipeline.TracePolicy = .inspectable,
+            goal_satisfied: bool,
+
+            /// Verify certificate self-consistency and goal satisfaction.
+            pub fn check(self: @This()) error{ InvalidPipelineCertificate, PipelineGoalNotSatisfied }!void {
+                if (self.source_program_label.len == 0 or self.pipeline_label.len == 0) return error.InvalidPipelineCertificate;
+                if (self.pipeline_fingerprint_version != pipeline_fingerprint_version) return error.InvalidPipelineCertificate;
+                if (!self.goal_satisfied or self.blockers.len != 0) return error.PipelineGoalNotSatisfied;
+                if (self.source_plan_hash == 0 or self.residual_plan_hash == 0) return error.InvalidPipelineCertificate;
+                for (self.source_to_residual_site_map, 0..) |entry, index| {
+                    if (entry.source_site_fingerprint == 0) return error.InvalidPipelineCertificate;
+                    var duplicate = false;
+                    for (self.source_to_residual_site_map, 0..) |other, other_index| {
+                        if (other_index < index and other.source_site_fingerprint == entry.source_site_fingerprint) duplicate = true;
+                    }
+                    if (duplicate) return error.InvalidPipelineCertificate;
+                }
+            }
+        };
+
+        fn pipelineLabel(comptime config: anytype) []const u8 {
+            if (comptime @hasField(@TypeOf(config), "label")) return config.label;
+            return label ++ ".pipeline";
+        }
+
+        fn pipelineResidualLabel(comptime config: anytype) []const u8 {
+            if (comptime @hasField(@TypeOf(config), "residual_label")) return config.residual_label;
+            if (comptime @hasField(@TypeOf(config), "label")) return config.label ++ ".residual";
+            return label ++ ".pipeline.residual";
+        }
+
+        fn pipelineStrategy(comptime config: anytype) pipeline.Strategy {
+            if (comptime @hasField(@TypeOf(config), "strategy")) return config.strategy;
+            return .prefer_residualization;
+        }
+
+        fn pipelineGoal(comptime config: anytype) pipeline.Goal {
+            if (comptime @hasField(@TypeOf(config), "goal")) return config.goal;
+            return pipeline.Goal.allowResiduals();
+        }
+
+        fn pipelineResidualCatalog(comptime config: anytype) @TypeOf(if (@hasField(@TypeOf(config), "residualize")) config.residualize else .{}) {
+            return if (comptime @hasField(@TypeOf(config), "residualize")) config.residualize else .{};
+        }
+
+        fn pipelineInterpretCatalog(comptime config: anytype) @TypeOf(if (@hasField(@TypeOf(config), "interpret")) config.interpret else .{}) {
+            return if (comptime @hasField(@TypeOf(config), "interpret")) config.interpret else .{};
+        }
+
+        fn pipelineResidualConfig(comptime config: anytype) @TypeOf(.{
+            .label = pipelineResidualLabel(config),
+            .morphisms = pipelineResidualCatalog(config),
+        }) {
+            return .{
+                .label = pipelineResidualLabel(config),
+                .morphisms = pipelineResidualCatalog(config),
+            };
+        }
+
+        fn pipelineBlockerTagForResidual(comptime tag_value: ResidualBlockerTag) PipelineBlockerTag {
+            return switch (tag_value) {
+                .unsupported_source_mode, .unsupported_payload_mapping, .unsupported_response_mapping, .unsupported_target_mode => .unsupported_residualization_shape,
+                .source_site_unreachable => .source_site_unreachable,
+                .source_site_foreign_program => .foreign_program_site,
+                .target_schema_mismatch => .schema_mismatch,
+                .duplicate_source_site, .shared_source_operation => .ambiguous_route,
+                .after_residualization_unsupported => .after_site_unsupported,
+                .nested_with_residualization_unsupported => .unsupported_residualization_shape,
+                .output_residualization_unsupported => .output_requirement_unsupported,
+            };
+        }
+
+        fn pipelineEntryFingerprint(comptime Entry: type) u64 {
+            var hasher = std.hash.Wyhash.init(0);
+            hashBytes(&hasher, "ability.program.pipeline.entry");
+            hashU32(&hasher, pipeline_fingerprint_version);
+            hashBytes(&hasher, @typeName(Entry));
+            hashBytes(&hasher, @tagName(Entry.kind));
+            switch (Entry.kind) {
+                .operation => {
+                    hashU64(&hasher, Entry.Site.fingerprint);
+                    if (comptime hasDeclSafe(Entry, "Morphism")) hashU64(&hasher, Entry.Morphism.fingerprint);
+                },
+                .after => hashU64(&hasher, Entry.Site.fingerprint),
+                .protocol_operation => hashU64(&hasher, Entry.TargetOp.fingerprint),
+                else => {},
+            }
+            return hasher.final();
+        }
+
+        fn pipelineCatalogFingerprint(comptime config: anytype) u64 {
+            @setEvalBranchQuota(10000);
+            const residual_catalog = pipelineResidualCatalog(config);
+            const interpret_catalog = pipelineInterpretCatalog(config);
+            var hasher = std.hash.Wyhash.init(0);
+            hashBytes(&hasher, "ability.program.pipeline.catalog");
+            hashU32(&hasher, pipeline_fingerprint_version);
+            inline for (residual_catalog) |Descriptor| hashU64(&hasher, Descriptor.fingerprint);
+            inline for (interpret_catalog) |Entry| hashU64(&hasher, pipelineEntryFingerprint(Entry));
+            return hasher.final();
+        }
+
+        fn pipelineFingerprint(comptime config: anytype) u64 {
+            @setEvalBranchQuota(10000);
+            var hasher = std.hash.Wyhash.init(0);
+            hashBytes(&hasher, "ability.program.pipeline");
+            hashU32(&hasher, pipeline_fingerprint_version);
+            hashU64(&hasher, body_compiled_plan_hash);
+            hashBytes(&hasher, pipelineLabel(config));
+            hashBytes(&hasher, @tagName(pipelineStrategy(config)));
+            const goal_value = pipelineGoal(config);
+            hashBytes(&hasher, @tagName(goal_value.kind));
+            hashBool(&hasher, goal_value.allow_unhandled_residuals);
+            hashU64(&hasher, pipelineCatalogFingerprint(config));
+            return hasher.final();
+        }
+
+        fn pipelineSourceResidualized(comptime residual_catalog: anytype, comptime source_site_fingerprint: u64) bool {
+            inline for (residual_catalog) |Descriptor| {
+                if (Descriptor.source.fingerprint == source_site_fingerprint) return true;
+            }
+            return false;
+        }
+
+        fn pipelineSourceHandled(comptime interpret_catalog: anytype, comptime source_site_fingerprint: u64) bool {
+            inline for (interpret_catalog) |Entry| {
+                if (Entry.kind == .operation and Entry.Site.fingerprint == source_site_fingerprint) return true;
+            }
+            return false;
+        }
+
+        fn pipelineAfterHandled(comptime interpret_catalog: anytype, comptime after_site_fingerprint: u64) bool {
+            inline for (interpret_catalog) |Entry| {
+                if (Entry.kind == .after and Entry.Site.fingerprint == after_site_fingerprint) return true;
+            }
+            return false;
+        }
+
+        fn pipelineProtocolHandled(comptime interpret_catalog: anytype, comptime target_fingerprint: u64) bool {
+            inline for (interpret_catalog) |Entry| {
+                if (Entry.kind == .protocol_operation and Entry.TargetOp.fingerprint == target_fingerprint) return true;
+            }
+            return false;
+        }
+
+        fn PipelinePlanStorage(comptime config: anytype) type {
+            const residual_catalog = pipelineResidualCatalog(config);
+            const interpret_catalog = pipelineInterpretCatalog(config);
+            const Report = residualizationReport(pipelineResidualConfig(config));
+            const goal_value = pipelineGoal(config);
+
+            const residual_blocker_count: usize = Report.unsupported.len;
+            comptime var duplicate_handler_count: usize = 0;
+            inline for (interpret_catalog, 0..) |Entry, index| {
+                duplicate_count_scan: inline for (interpret_catalog, 0..) |Other, other_index| {
+                    if (other_index <= index or Entry.kind != Other.kind) continue :duplicate_count_scan;
+                    if (Entry.kind == .operation and Entry.Site.fingerprint == Other.Site.fingerprint) duplicate_handler_count += 1;
+                    if (Entry.kind == .after and Entry.Site.fingerprint == Other.Site.fingerprint) duplicate_handler_count += 1;
+                    if (Entry.kind == .protocol_operation and Entry.TargetOp.fingerprint == Other.TargetOp.fingerprint) duplicate_handler_count += 1;
+                }
+            }
+
+            comptime var goal_blocker_count: usize = 0;
+            if (!goal_value.allow_unhandled_residuals) {
+                inline for (protocol.operation_site_metadata) |site| {
+                    if (!pipelineSourceResidualized(residual_catalog, site.fingerprint) and !pipelineSourceHandled(interpret_catalog, site.fingerprint)) {
+                        goal_blocker_count += 1;
+                    }
+                }
+                inline for (protocol.after_site_metadata) |site| {
+                    if (!pipelineAfterHandled(interpret_catalog, site.fingerprint)) goal_blocker_count += 1;
+                }
+                inline for (residual_catalog) |Descriptor| {
+                    if (!pipelineProtocolHandled(interpret_catalog, Descriptor.target.fingerprint)) goal_blocker_count += 1;
+                }
+            }
+
+            const blocker_count = residual_blocker_count + duplicate_handler_count + goal_blocker_count;
+            var blocker_table: [blocker_count]PipelineBlocker = undefined;
+            var route_table: [residual_catalog.len + interpret_catalog.len]PipelineRouteWitness = undefined;
+            comptime var blocker_index: usize = 0;
+            comptime var route_index: usize = 0;
+
+            inline for (Report.unsupported) |blocker| {
+                blocker_table[blocker_index] = .{
+                    .tag = pipelineBlockerTagForResidual(blocker.tag),
+                    .source_site_index = blocker.source_site_index,
+                    .source_site_fingerprint = blocker.source_site_fingerprint,
+                    .target_protocol_op_fingerprint = blocker.target_protocol_op_fingerprint,
+                    .summary = blocker.message,
+                };
+                blocker_index += 1;
+            }
+
+            inline for (residual_catalog) |Descriptor| {
+                route_table[route_index] = .{
+                    .kind = .source_site_residualized,
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .target_protocol_label = Descriptor.target.protocol_label,
+                    .target_op_name = Descriptor.target.op_name,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .morphism_fingerprint = Descriptor.fingerprint,
+                    .label = Descriptor.mapping_label,
+                };
+                route_index += 1;
+            }
+
+            inline for (interpret_catalog, 0..) |Entry, index| {
+                route_table[route_index] = switch (Entry.kind) {
+                    .operation => .{
+                        .kind = if (hasDeclSafe(Entry, "Morphism")) .source_site_reinterpreted_dynamic else .source_site_handled,
+                        .source_site_index = Entry.Site.index,
+                        .source_site_fingerprint = Entry.Site.fingerprint,
+                        .target_protocol_label = if (hasDeclSafe(Entry, "Morphism")) Entry.Morphism.target.protocol_label else null,
+                        .target_op_name = if (hasDeclSafe(Entry, "Morphism")) Entry.Morphism.target.op_name else null,
+                        .target_protocol_op_fingerprint = if (hasDeclSafe(Entry, "Morphism")) Entry.Morphism.target.fingerprint else null,
+                        .morphism_fingerprint = if (hasDeclSafe(Entry, "Morphism")) Entry.Morphism.fingerprint else null,
+                    },
+                    .after => .{
+                        .kind = .after_site_handled,
+                        .after_site_index = Entry.Site.index,
+                        .after_site_fingerprint = Entry.Site.fingerprint,
+                    },
+                    .protocol_operation => .{
+                        .kind = .protocol_op_handled,
+                        .target_protocol_label = Entry.TargetOp.protocol_label,
+                        .target_op_name = Entry.TargetOp.op_name,
+                        .target_protocol_op_fingerprint = Entry.TargetOp.fingerprint,
+                    },
+                    else => .{ .kind = .source_site_handled },
+                };
+                route_index += 1;
+
+                duplicate_emit_scan: inline for (interpret_catalog, 0..) |Other, other_index| {
+                    if (other_index <= index or Entry.kind != Other.kind) continue :duplicate_emit_scan;
+                    const duplicate = (Entry.kind == .operation and Entry.Site.fingerprint == Other.Site.fingerprint) or
+                        (Entry.kind == .after and Entry.Site.fingerprint == Other.Site.fingerprint) or
+                        (Entry.kind == .protocol_operation and Entry.TargetOp.fingerprint == Other.TargetOp.fingerprint);
+                    if (duplicate) {
+                        blocker_table[blocker_index] = .{
+                            .tag = .duplicate_handler,
+                            .source_site_index = if (Entry.kind == .operation) Entry.Site.index else null,
+                            .source_site_fingerprint = if (Entry.kind == .operation) Entry.Site.fingerprint else null,
+                            .target_protocol_op_fingerprint = if (Entry.kind == .protocol_operation) Entry.TargetOp.fingerprint else null,
+                            .summary = "duplicate pipeline catalog handler",
+                        };
+                        blocker_index += 1;
+                    }
+                }
+            }
+
+            if (!goal_value.allow_unhandled_residuals) {
+                inline for (protocol.operation_site_metadata) |site| {
+                    if (!pipelineSourceResidualized(residual_catalog, site.fingerprint) and !pipelineSourceHandled(interpret_catalog, site.fingerprint)) {
+                        blocker_table[blocker_index] = .{
+                            .tag = .missing_handler,
+                            .source_site_index = site.index,
+                            .source_site_fingerprint = site.fingerprint,
+                            .summary = "pipeline goal requires every source operation site to be routed",
+                        };
+                        blocker_index += 1;
+                    }
+                }
+                inline for (protocol.after_site_metadata) |site| {
+                    if (!pipelineAfterHandled(interpret_catalog, site.fingerprint)) {
+                        blocker_table[blocker_index] = .{
+                            .tag = .after_site_unsupported,
+                            .source_site_index = site.source_operation_site_index,
+                            .source_site_fingerprint = site.source_operation_site_fingerprint,
+                            .summary = "pipeline goal requires after sites to be handled",
+                        };
+                        blocker_index += 1;
+                    }
+                }
+                inline for (residual_catalog) |Descriptor| {
+                    if (!pipelineProtocolHandled(interpret_catalog, Descriptor.target.fingerprint)) {
+                        blocker_table[blocker_index] = .{
+                            .tag = .missing_protocol_handler,
+                            .source_site_index = Descriptor.source.index,
+                            .source_site_fingerprint = Descriptor.source.fingerprint,
+                            .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                            .morphism_fingerprint = Descriptor.fingerprint,
+                            .summary = "pipeline goal requires emitted protocol operations to be handled dynamically",
+                        };
+                        blocker_index += 1;
+                    }
+                }
+            }
+
+            const final_blockers = blocker_table;
+            const final_routes = route_table;
+            return struct {
+                /// Residualization report used by the pipeline planner.
+                pub const residual_report = Report;
+                /// Structured blockers accumulated while planning.
+                pub const blockers = final_blockers;
+                /// Static route witnesses selected or reported by the planner.
+                pub const routes = final_routes;
+                /// Whether the configured goal is satisfied by this report.
+                pub const goal_satisfied = final_blockers.len == 0;
+                /// Source-side effect-row summary before a residual Program is compiled.
+                pub const source_effect_row = PipelineEffectRow{
+                    .source_program_label = label,
+                    .source_plan_hash = body_compiled_plan_hash,
+                    .residual_program_label = pipelineResidualLabel(config),
+                    .source_operation_sites = protocol.operation_site_count,
+                    .source_after_sites = protocol.after_site_count,
+                    .residualized_sites = residual_catalog.len,
+                    .dynamically_interpreted_sites = interpret_catalog.len,
+                    .dynamically_reinterpreted_sites = 0,
+                    .handled_protocol_operations = 0,
+                    .emitted_protocol_operations = residual_catalog.len,
+                    .exposed_residual_operations = protocol.operation_site_count,
+                    .handled_after_sites = 0,
+                    .residual_after_sites = protocol.after_site_count,
+                    .blockers = final_blockers.len,
+                };
+            };
+        }
+
+        /// Inspect a pipeline catalog and goal without compiling a residual Program.
+        pub fn pipelineReport(comptime config: anytype) type {
+            const Storage = PipelinePlanStorage(config);
+            return struct {
+                /// Pipeline label.
+                pub const pipeline_label = pipelineLabel(config);
+                /// Pipeline fingerprint domain version.
+                pub const fingerprint_version = pipeline_fingerprint_version;
+                /// Stable fingerprint for this pipeline catalog, goal, and strategy.
+                pub const fingerprint = pipelineFingerprint(config);
+                /// Route-selection strategy requested by the caller.
+                pub const strategy = pipelineStrategy(config);
+                /// Static residual-effect goal requested by the caller.
+                pub const goal = pipelineGoal(config);
+                /// Structured pipeline blockers.
+                pub const blockers = &Storage.blockers;
+                /// Planned route witnesses.
+                pub const routes = &Storage.routes;
+                /// Underlying residualization report for declarative morphisms.
+                pub const residualization = Storage.residual_report;
+                /// Source-side effect-row metadata.
+                pub const effect_row = Storage.source_effect_row;
+                /// Whether the pipeline report satisfies its goal without blockers.
+                pub const supported = Storage.goal_satisfied;
+            };
+        }
+
+        fn pipelineRoutesWithKind(comptime routes: []const PipelineRouteWitness, comptime route_kind: PipelineRouteKind) type {
+            comptime var count: usize = 0;
+            inline for (routes) |route| {
+                if (route.kind == route_kind) count += 1;
+            }
+            var table: [count]PipelineRouteWitness = undefined;
+            comptime var index: usize = 0;
+            inline for (routes) |route| {
+                if (route.kind == route_kind) {
+                    table[index] = route;
+                    index += 1;
+                }
+            }
+            const final_table = table;
+            return struct {
+                /// Route witnesses with the requested kind.
+                pub const values = final_table;
+            };
+        }
+
+        /// Synthesize a proof-carrying residual Program plus dynamic interpreter adapters.
+        pub fn Pipeline(comptime config: anytype) type {
+            const Report = pipelineReport(config);
+            if (!Report.supported) {
+                const first = Report.blockers[0];
+                @compileError("Program.Pipeline blocked: " ++ @tagName(first.tag) ++ " " ++ first.summary);
+            }
+            const residual_config = pipelineResidualConfig(config);
+            const ResidualProgram = residualize(residual_config);
+            const ResidualizedRoutes = pipelineRoutesWithKind(Report.routes, .source_site_residualized);
+            const HandledRoutes = pipelineRoutesWithKind(Report.routes, .source_site_handled);
+            const DynamicRoutes = pipelineRoutesWithKind(Report.routes, .source_site_reinterpreted_dynamic);
+            const ProtocolRoutes = pipelineRoutesWithKind(Report.routes, .protocol_op_handled);
+            const exposed_residual_operations = if (ResidualProgram.effect_row.residual_operation_sites > ProtocolRoutes.values.len)
+                ResidualProgram.effect_row.residual_operation_sites - ProtocolRoutes.values.len
+            else
+                0;
+            const residual_effect_row = PipelineEffectRow{
+                .source_program_label = label,
+                .source_plan_hash = body_compiled_plan_hash,
+                .residual_program_label = ResidualProgram.contract.label,
+                .residual_plan_hash = ResidualProgram.compiled_plan.hash(),
+                .source_operation_sites = protocol.operation_site_count,
+                .source_after_sites = protocol.after_site_count,
+                .residualized_sites = ResidualizedRoutes.values.len,
+                .dynamically_interpreted_sites = HandledRoutes.values.len + DynamicRoutes.values.len,
+                .dynamically_reinterpreted_sites = DynamicRoutes.values.len,
+                .handled_protocol_operations = ProtocolRoutes.values.len,
+                .emitted_protocol_operations = ResidualizedRoutes.values.len,
+                .exposed_residual_operations = exposed_residual_operations,
+                .handled_after_sites = 0,
+                .residual_after_sites = ResidualProgram.protocol.after_site_count,
+                .blockers = 0,
+            };
+            const certificate_value = PipelineCertificate{
+                .source_program_label = label,
+                .source_plan_label = body_compiled_plan.label,
+                .source_plan_hash = body_compiled_plan_hash,
+                .residual_program_label = ResidualProgram.contract.label,
+                .residual_plan_hash = ResidualProgram.compiled_plan.hash(),
+                .pipeline_label = Report.pipeline_label,
+                .pipeline_fingerprint = Report.fingerprint,
+                .residualization_fingerprint = ResidualProgram.residualization_fingerprint,
+                .dynamic_catalog_fingerprint = pipelineCatalogFingerprint(config),
+                .source_effect_row = Report.effect_row,
+                .target_effect_row = residual_effect_row,
+                .handled_sites = &HandledRoutes.values,
+                .dynamically_interpreted_sites = &DynamicRoutes.values,
+                .residualized_sites = &ResidualizedRoutes.values,
+                .reinterpreted_sites = &DynamicRoutes.values,
+                .emitted_protocol_operations = &ResidualizedRoutes.values,
+                .exposed_residual_operations = residual_effect_row.exposed_residual_operations,
+                .blockers = Report.blockers,
+                .source_to_residual_site_map = ResidualProgram.source_map,
+                .residual_to_source_site_map = ResidualProgram.source_map,
+                .goal_satisfied = true,
+            };
+            return struct {
+                /// Pipeline label.
+                pub const pipeline_label = Report.pipeline_label;
+                /// Pipeline fingerprint domain version.
+                pub const fingerprint_version = pipeline_fingerprint_version;
+                /// Stable fingerprint for the synthesized pipeline.
+                pub const fingerprint = Report.fingerprint;
+                /// Route-selection strategy used by this pipeline.
+                pub const strategy = Report.strategy;
+                /// Static residual-effect goal used by this pipeline.
+                pub const goal = Report.goal;
+                /// Report-only planner output for this pipeline.
+                pub const report = Report;
+                /// Static route witnesses for this pipeline.
+                pub const plan = Report.routes;
+                /// Residual-side effect-row metadata.
+                pub const effect_row = residual_effect_row;
+                /// Alias for the residual Program effect row.
+                pub const residual_row = ResidualProgram.residual_row;
+                /// Structured blockers. Successful pipelines have none.
+                pub const blockers = Report.blockers;
+                /// Proof-carrying certificate for this pipeline.
+                pub const certificate = certificate_value;
+                /// Residual Program produced by the pipeline.
+                pub const Residual = ResidualProgram;
+                /// Alias for the residual Program produced by the pipeline.
+                pub const residual_program = ResidualProgram;
+
+                /// Build a dynamic interpreter for the residual Program.
+                pub fn Interpreter(comptime entries: anytype) type {
+                    return ResidualProgram.Interpreter(entries);
+                }
+
+                /// Alias for callers that want to name the dynamic handler stack explicitly.
+                pub fn dynamic_interpreter(comptime entries: anytype) type {
+                    return ResidualProgram.Interpreter(entries);
+                }
+
+                /// Run the residual Program directly.
+                pub const run = ResidualProgram.run;
+
+                /// Start the residual Program's primitive host-driven session.
+                pub const start = ResidualProgram.Session.start;
+
+                /// Compile-time assert for callers that demand a fully valid certificate.
+                pub fn assertValid() void {
+                    comptime {
+                        if (certificate.blockers.len != 0 or !certificate.goal_satisfied) {
+                            @compileError("Program.Pipeline certificate check failed");
+                        }
+                    }
+                }
+
+                /// Find the residual site corresponding to a source operation site.
+                pub fn residualForSourceSite(comptime SourceSite: type) ?ResidualSourceMapEntry {
+                    return ResidualProgram.residualForSourceSite(SourceSite);
+                }
+
+                /// Find the source site corresponding to a residual operation site.
+                pub fn sourceForResidualSite(comptime ResidualSite: type) ?ResidualSourceMapEntry {
+                    return ResidualProgram.sourceForResidualSite(ResidualSite);
+                }
+
+                /// Map a residual trace back to the source site selected by this pipeline.
+                pub fn mapResidualTrace(trace: anytype) ?ResidualSourceMapEntry {
+                    return ResidualProgram.mapResidualTrace(trace);
+                }
+
+                /// Alias for residual trace mapping.
+                pub fn sourceForResidualTrace(trace: anytype) ?ResidualSourceMapEntry {
+                    return mapResidualTrace(trace);
+                }
+
+                /// Map a target protocol request emitted by a dynamic stage back to a source site.
+                pub fn sourceForTargetProtocolRequest(request: anytype) ?PipelineRouteWitness {
+                    inline for (Report.routes) |route| {
+                        if (route.target_protocol_op_fingerprint != null and
+                            @hasField(@TypeOf(request), "target_protocol_op_fingerprint") and
+                            route.target_protocol_op_fingerprint.? == request.target_protocol_op_fingerprint)
+                        {
+                            return route;
+                        }
+                    }
+                    if (@hasField(@TypeOf(request), "source_trace")) {
+                        if (ResidualProgram.mapResidualTrace(request.source_trace)) |entry| {
+                            return .{
+                                .kind = .source_site_reinterpreted_dynamic,
+                                .source_site_index = entry.source_site_index,
+                                .source_site_fingerprint = entry.source_site_fingerprint,
+                                .target_protocol_label = if (@hasField(@TypeOf(request), "target_protocol_label")) request.target_protocol_label else null,
+                                .target_op_name = if (@hasField(@TypeOf(request), "target_op_name")) request.target_op_name else null,
+                                .target_protocol_op_fingerprint = if (@hasField(@TypeOf(request), "target_protocol_op_fingerprint")) request.target_protocol_op_fingerprint else null,
+                            };
+                        }
+                    }
+                    return null;
+                }
+
+                /// Map target request traces by the same deterministic protocol-operation fingerprint.
+                pub fn mapTargetTrace(trace: anytype) ?PipelineRouteWitness {
+                    inline for (Report.routes) |route| {
+                        if (route.target_protocol_op_fingerprint != null and
+                            @hasField(@TypeOf(trace), "target_protocol_op_fingerprint") and
+                            route.target_protocol_op_fingerprint.? == trace.target_protocol_op_fingerprint)
+                        {
+                            return route;
                         }
                     }
                     return null;
