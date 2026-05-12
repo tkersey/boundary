@@ -241,6 +241,18 @@ the defunctionalized kernel: it is not a parser, source language, public VM,
 Artifact API, async runtime, persistence layer, or trace serialization format.
 Arbitrary Zig handlers and closures remain interpreter-only.
 
+`Program.Pipeline` composes the same pieces into a proof-carrying residual
+effect pipeline. A pipeline catalog lists declarative residual morphisms and a
+static residual-effect goal. `Program.pipelineReport` is inspectable without
+compiling a residual plan; it reports route witnesses, effect-row metadata, and
+structured blockers such as missing handlers, unsupported residualization
+shapes, schema mismatches, and unsatisfied goals. A successful
+`Program.Pipeline` exposes `Residual`, `Interpreter(...)`, `certificate`,
+`effect_row`, `pipeline_fingerprint_version == 1`, and source/residual/target
+trace mapping helpers. It does not change `Program.run` or `Program.Session`;
+callers pass residual handlers to `Pipeline.Interpreter(...)` explicitly, and
+manual interpreters, capsules, morphisms, and residualization remain available.
+
 See [docs/program_plan.md](docs/program_plan.md) for semantic program
 authoring, typed product/sum bodies, tuple entry args, outputs, cleanup hooks,
 nested-with targets, and `Program.contract`.
@@ -399,6 +411,11 @@ authoring and public plan-native helpers:
   residualized program agree for allow and deny cases, the residual program
   exposes a `policy.check` site, and the source/residual fingerprints map back
   to the eliminated approval site.
+- `examples/effect_pipeline.zig` demonstrates a proof-carrying pipeline:
+  `approval.request` is residualized to `policy.check`, the residual policy site
+  is dynamically reinterpreted to `rules.lookup`, the certificate prints
+  residualized/emitted/residual effect metadata, and a partial run returns an
+  inspectable target request plus capsule.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
   abort operations declared through a schema-first custom protocol family,
   schema registry, semantic builder, and both synchronous and host-driven
@@ -427,5 +444,6 @@ zig build run-continuation-branching
 zig build run-interpreter-branching
 zig build run-protocol-reinterpretation
 zig build run-residualized-approval-policy
+zig build run-effect-pipeline
 zig build run-custom-approval-workflow
 ```

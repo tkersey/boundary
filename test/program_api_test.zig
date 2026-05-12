@@ -4706,6 +4706,836 @@ test "Program.ResidualMorphism report and residualize compile identity morphism 
     try std.testing.expectEqual(@as(i32, 8), restored_done.value);
 }
 
+test "Program.Pipeline report, certificate, residual interpreter, and trace mapping" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "pipeline-identity-source");
+    };
+    const Program = ability.program("pipeline-identity-source", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, i32),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const Morphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+        .label = "session.decide-as-policy.check",
+    });
+
+    const Report = Program.pipelineReport(.{
+        .label = "pipeline-identity",
+        .residualize = .{Morphism},
+        .goal = Program.pipeline.Goal.allowResiduals(),
+        .strategy = .prefer_residualization,
+    });
+    try std.testing.expect(Report.supported);
+    try std.testing.expectEqual(@as(u32, 1), Report.fingerprint_version);
+    try std.testing.expectEqual(@as(usize, 0), Report.blockers.len);
+    try std.testing.expectEqual(@as(usize, 1), Report.routes.len);
+    try std.testing.expectEqual(Program.PipelineRouteKind.source_site_residualized, Report.routes[0].kind);
+    try std.testing.expectEqual(Check.fingerprint, Report.routes[0].target_protocol_op_fingerprint.?);
+    try std.testing.expectEqual(@as(usize, 0), Report.effect_row.exposed_residual_operations);
+
+    const Pipeline = Program.Pipeline(.{
+        .label = "pipeline-identity",
+        .residualize = .{Morphism},
+        .goal = Program.pipeline.Goal.allowResiduals(),
+        .strategy = .prefer_residualization,
+    });
+    Pipeline.assertValid();
+    try Pipeline.certificate.check();
+    var stale_source_row = Pipeline.certificate;
+    stale_source_row.source_effect_row.residual_plan_hash = 0;
+    try std.testing.expectError(error.InvalidPipelineCertificate, stale_source_row.check());
+    var stale_source_residualized_count = Pipeline.certificate;
+    stale_source_residualized_count.source_effect_row.residualized_sites = 0;
+    try std.testing.expectError(error.InvalidPipelineCertificate, stale_source_residualized_count.check());
+    var stale_source_emitted_count = Pipeline.certificate;
+    stale_source_emitted_count.source_effect_row.emitted_protocol_operations = 0;
+    try std.testing.expectError(error.InvalidPipelineCertificate, stale_source_emitted_count.check());
+    var stale_source_exposed_count = Pipeline.certificate;
+    stale_source_exposed_count.source_effect_row.exposed_residual_operations = 1;
+    try std.testing.expectError(error.InvalidPipelineCertificate, stale_source_exposed_count.check());
+    var stale_target_row = Pipeline.certificate;
+    stale_target_row.target_effect_row.residual_plan_hash = 0;
+    try std.testing.expectError(error.InvalidPipelineCertificate, stale_target_row.check());
+    var stale_dynamic_routes = Pipeline.certificate;
+    stale_dynamic_routes.dynamically_interpreted_sites = Pipeline.certificate.residualized_sites;
+    try std.testing.expectError(error.InvalidPipelineCertificate, stale_dynamic_routes.check());
+    var stale_exposed_residual_summary = Pipeline.certificate;
+    stale_exposed_residual_summary.exposed_residual_operations = 0;
+    try std.testing.expectError(error.InvalidPipelineCertificate, stale_exposed_residual_summary.check());
+    var stale_after_row = Pipeline.certificate;
+    stale_after_row.target_effect_row.handled_after_sites = 1;
+    try std.testing.expectError(error.InvalidPipelineCertificate, stale_after_row.check());
+    var missing_source_map = Pipeline.certificate;
+    missing_source_map.source_to_residual_site_map = &.{};
+    try std.testing.expectError(error.InvalidPipelineCertificate, missing_source_map.check());
+    var missing_residual_map = Pipeline.certificate;
+    missing_residual_map.residual_to_source_site_map = &.{};
+    try std.testing.expectError(error.InvalidPipelineCertificate, missing_residual_map.check());
+    var mismatched_residual_entry = Pipeline.certificate.residual_to_source_site_map[0];
+    mismatched_residual_entry.residual_site_fingerprint = Source.fingerprint;
+    var mismatched_residual_map_entries = [_]@TypeOf(mismatched_residual_entry){mismatched_residual_entry};
+    var mismatched_residual_map = Pipeline.certificate;
+    mismatched_residual_map.residual_to_source_site_map = &mismatched_residual_map_entries;
+    try std.testing.expectError(error.InvalidPipelineCertificate, mismatched_residual_map.check());
+    try std.testing.expectEqual(@as(u32, 1), Pipeline.fingerprint_version);
+    try std.testing.expectEqual(@as(usize, 1), Pipeline.certificate.residualized_sites.len);
+    try std.testing.expectEqual(@as(usize, 1), Pipeline.effect_row.residualized_sites);
+    try std.testing.expectEqual(@as(usize, 1), Pipeline.effect_row.exposed_residual_operations);
+    try std.testing.expectEqual(Pipeline.certificate.target_effect_row.dynamically_interpreted_sites, Pipeline.certificate.dynamically_interpreted_sites.len);
+    try std.testing.expectEqual(Pipeline.certificate.target_effect_row.handled_after_sites + Pipeline.certificate.target_effect_row.residual_after_sites, Pipeline.certificate.target_effect_row.source_after_sites);
+    try std.testing.expectEqual(@as(usize, 0), Pipeline.certificate.source_effect_row.exposed_residual_operations);
+    try std.testing.expectEqual(Pipeline.Residual.compiled_plan.hash(), Pipeline.certificate.source_effect_row.residual_plan_hash);
+    try std.testing.expect(Pipeline.certificate.pipeline_fingerprint != Pipeline.certificate.residualization_fingerprint);
+    try std.testing.expectEqual(Program.pipeline_fingerprint_version, Pipeline.certificate.pipeline_fingerprint_version);
+
+    const ResidualSite = Pipeline.Residual.protocol.operationSite("policy", "check", 0);
+    const mapped_from_source = Pipeline.residualForSourceSite(Source) orelse return error.ExpectedPipelineSourceMap;
+    try std.testing.expectEqual(ResidualSite.fingerprint, mapped_from_source.residual_site_fingerprint.?);
+    const mapped_from_residual = Pipeline.sourceForResidualSite(ResidualSite) orelse return error.ExpectedPipelineSourceMap;
+    try std.testing.expectEqual(Source.fingerprint, mapped_from_residual.source_site_fingerprint);
+
+    const ResidualPolicyHandler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Pipeline.Residual.Handler.Control) !Pipeline.Residual.Handler.Outcome(ResidualSite) {
+            try std.testing.expectEqualStrings("payload", try request.payload());
+            return Pipeline.Residual.Handler.@"resume"(ResidualSite, @as(i32, 19));
+        }
+    };
+    const Interpreter = Pipeline.Interpreter(.{
+        Pipeline.Residual.Handler.operation(ResidualSite, ResidualPolicyHandler.handle),
+    });
+    var host = struct {}{};
+    var execution = try Interpreter.run(&runtime, .{}, &host, .{});
+    switch (execution) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 19), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+
+    var session = try Pipeline.Residual.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    const residual_trace = request.trace();
+    const trace_map = Pipeline.mapResidualTrace(residual_trace) orelse return error.ExpectedPipelineTraceMap;
+    try std.testing.expectEqual(Source.fingerprint, trace_map.source_site_fingerprint);
+    try std.testing.expectEqual(ResidualSite.fingerprint, trace_map.residual_site_fingerprint.?);
+    const ownerless_residual_trace = .{ .operation_site_fingerprint = residual_trace.operation_site_fingerprint };
+    try std.testing.expect(Pipeline.mapResidualTrace(ownerless_residual_trace) == null);
+    const foreign_residual_trace = .{
+        .program_label = "foreign-pipeline-residual",
+        .plan_hash = residual_trace.plan_hash,
+        .operation_site_fingerprint = residual_trace.operation_site_fingerprint,
+    };
+    try std.testing.expect(Pipeline.mapResidualTrace(foreign_residual_trace) == null);
+}
+
+test "Program.Pipeline reports blockers and fingerprint changes" {
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "pipeline-blockers-source");
+    };
+    const Program = ability.program("pipeline-blockers-source", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, i32),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const Supported = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const Unsupported = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.field("reason"),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+
+    const ResidualAllowed = Program.pipelineReport(.{
+        .label = "pipeline-blockers",
+        .residualize = .{Supported},
+        .goal = Program.pipeline.Goal.allowResiduals(),
+    });
+    const EliminateAll = Program.pipelineReport(.{
+        .label = "pipeline-blockers",
+        .residualize = .{Supported},
+        .goal = Program.pipeline.Goal.eliminateAll(),
+    });
+    try std.testing.expect(ResidualAllowed.supported);
+    try std.testing.expect(!EliminateAll.supported);
+    try std.testing.expectEqual(@as(usize, 1), EliminateAll.blockers.len);
+    try std.testing.expectEqual(Program.PipelineBlockerTag.missing_protocol_handler, EliminateAll.blockers[0].tag);
+    try std.testing.expect(ResidualAllowed.fingerprint != EliminateAll.fingerprint);
+
+    const ResidualLabelA = Program.pipelineReport(.{
+        .label = "pipeline-blockers",
+        .residual_label = "pipeline-blockers.residual.a",
+        .residualize = .{Supported},
+        .goal = Program.pipeline.Goal.allowResiduals(),
+    });
+    const ResidualLabelB = Program.pipelineReport(.{
+        .label = "pipeline-blockers",
+        .residual_label = "pipeline-blockers.residual.b",
+        .residualize = .{Supported},
+        .goal = Program.pipeline.Goal.allowResiduals(),
+    });
+    try std.testing.expect(ResidualLabelA.fingerprint != ResidualLabelB.fingerprint);
+
+    const DynamicMapper = struct {
+        pub fn @"resume"(decision: i32) Program.Handler.SourceOutcome(Source) {
+            return Program.Handler.@"resume"(Source, decision);
+        }
+    };
+    const DynamicMorphism = Program.Morphism(.{
+        .source = Source,
+        .target = Check,
+        .Mapper = DynamicMapper,
+    });
+    const DynamicHandler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Program.Handler.Control) !Program.Handler.MorphismOutcome(DynamicMorphism) {
+            return Program.Handler.reinterpret(DynamicMorphism, try request.payload());
+        }
+    };
+    const PolicyHandler = struct {
+        pub fn handle(_: anytype, request: anytype) !Program.Handler.TargetResponse(Check) {
+            _ = try request.payload();
+            return .{ .@"resume" = 1 };
+        }
+    };
+    const MissingDynamicTarget = Program.pipelineReport(.{
+        .label = "pipeline-dynamic-target-missing-handler",
+        .interpret = .{Program.Handler.morphism(DynamicMorphism, DynamicHandler.handle)},
+        .goal = Program.pipeline.Goal.allowResiduals(),
+    });
+    try std.testing.expect(!MissingDynamicTarget.supported);
+    try std.testing.expectEqual(@as(usize, 1), MissingDynamicTarget.blockers.len);
+    try std.testing.expectEqual(Program.PipelineBlockerTag.goal_not_satisfied, MissingDynamicTarget.blockers[0].tag);
+
+    const BlockedSameCatalogIdentity = Program.pipelineReport(.{
+        .label = "pipeline-blockers",
+        .residualize = .{Supported},
+        .interpret = .{Program.Handler.morphism(DynamicMorphism, DynamicHandler.handle)},
+        .goal = Program.pipeline.Goal.allowResiduals(),
+    });
+    try std.testing.expect(!BlockedSameCatalogIdentity.supported);
+    try std.testing.expect(ResidualAllowed.fingerprint != BlockedSameCatalogIdentity.fingerprint);
+
+    const DynamicTargetHandled = Program.pipelineReport(.{
+        .label = "pipeline-dynamic-target-handled",
+        .interpret = .{
+            Program.Handler.morphism(DynamicMorphism, DynamicHandler.handle),
+            Program.Handler.protocolOperation(Check, PolicyHandler.handle),
+        },
+        .goal = Program.pipeline.Goal.eliminateAll(),
+    });
+    try std.testing.expect(!DynamicTargetHandled.supported);
+    try std.testing.expectEqual(@as(usize, 2), DynamicTargetHandled.blockers.len);
+    try std.testing.expectEqual(Program.PipelineBlockerTag.goal_not_satisfied, DynamicTargetHandled.blockers[0].tag);
+    try std.testing.expectEqual(Program.PipelineBlockerTag.missing_handler, DynamicTargetHandled.blockers[1].tag);
+    try std.testing.expectEqual(Source.fingerprint, DynamicTargetHandled.blockers[1].source_site_fingerprint.?);
+    try std.testing.expectEqual(@as(usize, 0), DynamicTargetHandled.effect_row.dynamically_reinterpreted_sites);
+    try std.testing.expectEqual(@as(usize, 0), DynamicTargetHandled.effect_row.handled_protocol_operations);
+
+    const UnsupportedReport = Program.pipelineReport(.{
+        .label = "pipeline-unsupported",
+        .residualize = .{Unsupported},
+        .goal = Program.pipeline.Goal.allowResiduals(),
+    });
+    try std.testing.expect(!UnsupportedReport.supported);
+    try std.testing.expectEqual(@as(usize, 1), UnsupportedReport.blockers.len);
+    try std.testing.expectEqual(@as(usize, 0), UnsupportedReport.routes.len);
+    try std.testing.expectEqual(Program.PipelineBlockerTag.unsupported_residualization_shape, UnsupportedReport.blockers[0].tag);
+    try std.testing.expectEqual(@as(usize, 0), UnsupportedReport.effect_row.residualized_sites);
+    try std.testing.expectEqual(@as(usize, 1), UnsupportedReport.effect_row.exposed_residual_operations);
+
+    const DuplicateReport = Program.pipelineReport(.{
+        .label = "pipeline-duplicate-source",
+        .residualize = .{ Supported, Supported },
+        .goal = Program.pipeline.Goal.allowResiduals(),
+    });
+    try std.testing.expect(!DuplicateReport.supported);
+    try std.testing.expectEqual(@as(usize, 1), DuplicateReport.blockers.len);
+    try std.testing.expectEqual(@as(usize, 0), DuplicateReport.routes.len);
+    try std.testing.expectEqual(Program.PipelineBlockerTag.ambiguous_route, DuplicateReport.blockers[0].tag);
+    try std.testing.expectEqual(@as(usize, 0), DuplicateReport.effect_row.residualized_sites);
+    try std.testing.expectEqual(@as(usize, 1), DuplicateReport.effect_row.exposed_residual_operations);
+
+    const MixedBody = struct {
+        pub const compiled_plan = duplicateOperationNamesPlan("pipeline-mixed-supported-unsupported-source");
+    };
+    const MixedProgram = ability.program("pipeline-mixed-supported-unsupported-source", struct {}, MixedBody);
+    const MixedLeft = MixedProgram.protocol.operationSite("left", "get", 0);
+    const MixedRight = MixedProgram.protocol.operationSite("right", "get", 0);
+    const MixedPolicy = ability.ir.schema.Protocol(.{
+        .label = "mixed-policy",
+        .ops = .{
+            ability.ir.schema.transform("check", void, i32),
+        },
+    });
+    const MixedCheck = MixedPolicy.operation("check", .{});
+    const MixedSupported = MixedProgram.ResidualMorphism(.{
+        .source = MixedLeft,
+        .target = MixedCheck,
+        .payload = ability.ir.expr.identity(),
+        .response = MixedProgram.ResidualResponse.resumeIdentity(),
+    });
+    const MixedUnsupported = MixedProgram.ResidualMorphism(.{
+        .source = MixedRight,
+        .target = MixedCheck,
+        .payload = ability.ir.expr.field("reason"),
+        .response = MixedProgram.ResidualResponse.resumeIdentity(),
+    });
+    const MixedReport = MixedProgram.pipelineReport(.{
+        .label = "pipeline-mixed-supported-unsupported-source",
+        .residualize = .{ MixedSupported, MixedUnsupported },
+        .goal = MixedProgram.pipeline.Goal.allowResiduals(),
+    });
+    try std.testing.expect(!MixedReport.supported);
+    try std.testing.expectEqual(@as(usize, 1), MixedReport.blockers.len);
+    try std.testing.expectEqual(MixedRight.fingerprint, MixedReport.blockers[0].source_site_fingerprint.?);
+    try std.testing.expectEqual(@as(usize, 1), MixedReport.routes.len);
+    try std.testing.expectEqual(MixedLeft.fingerprint, MixedReport.routes[0].source_site_fingerprint.?);
+    try std.testing.expectEqual(@as(usize, 1), MixedReport.effect_row.residualized_sites);
+    try std.testing.expectEqual(@as(usize, 1), MixedReport.effect_row.exposed_residual_operations);
+
+    const Handler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Program.Handler.Control) !Program.Handler.Outcome(Source) {
+            return Program.Handler.@"resume"(Source, try request.payload());
+        }
+    };
+    const UnsupportedInterpretCatalog = Program.pipelineReport(.{
+        .label = "pipeline-unsupported-interpret-catalog",
+        .interpret = .{
+            Program.Handler.operation(Source, Handler.handle),
+            Program.Handler.operation(Source, Handler.handle),
+        },
+        .goal = Program.pipeline.Goal.allowResiduals(),
+    });
+    try std.testing.expect(!UnsupportedInterpretCatalog.supported);
+    try std.testing.expectEqual(@as(usize, 1), UnsupportedInterpretCatalog.blockers.len);
+    try std.testing.expectEqual(Program.PipelineBlockerTag.goal_not_satisfied, UnsupportedInterpretCatalog.blockers[0].tag);
+}
+
+test "Program.Pipeline maps dynamic target protocol requests to source routes" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "pipeline-target-map-source");
+    };
+    const Program = ability.program("pipeline-target-map-source", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, i32),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const Residual = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const Mapper = struct {
+        pub fn @"resume"(decision: i32) Program.Handler.SourceOutcome(Source) {
+            return Program.Handler.@"resume"(Source, decision);
+        }
+    };
+    const Dynamic = Program.Morphism(.{
+        .source = Source,
+        .target = Check,
+        .Mapper = Mapper,
+    });
+    const Pipeline = Program.Pipeline(.{
+        .label = "pipeline-target-map",
+        .residualize = .{Residual},
+        .goal = Program.pipeline.Goal.allowResiduals(),
+    });
+    const Rules = ability.ir.schema.Protocol(.{
+        .label = "rules",
+        .ops = .{
+            ability.ir.schema.transform("lookup", []const u8, i32),
+        },
+    });
+    const Lookup = Rules.operation("lookup", .{});
+    const ResidualSite = Pipeline.Residual.protocol.operationSite("policy", "check", 0);
+    const ResidualMapper = struct {
+        pub fn @"resume"(decision: i32) Pipeline.Residual.Handler.SourceOutcome(ResidualSite) {
+            return Pipeline.Residual.Handler.@"resume"(ResidualSite, decision);
+        }
+    };
+    const ResidualDynamic = Pipeline.Residual.Morphism(.{
+        .source = ResidualSite,
+        .target = Lookup,
+        .Mapper = ResidualMapper,
+    });
+    const ResidualOverlapDynamic = Pipeline.Residual.Morphism(.{
+        .source = ResidualSite,
+        .target = Check,
+        .Mapper = ResidualMapper,
+    });
+
+    const SourceHandler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Program.Handler.Control) !Program.Handler.MorphismOutcome(Dynamic) {
+            return Program.Handler.reinterpret(Dynamic, try request.payload());
+        }
+    };
+    const ResidualHandler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Pipeline.Residual.Handler.Control) !Pipeline.Residual.Handler.MorphismOutcome(ResidualDynamic) {
+            return Pipeline.Residual.Handler.reinterpret(ResidualDynamic, try request.payload());
+        }
+    };
+    const ResidualOverlapHandler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Pipeline.Residual.Handler.Control) !Pipeline.Residual.Handler.MorphismOutcome(ResidualOverlapDynamic) {
+            return Pipeline.Residual.Handler.reinterpret(ResidualOverlapDynamic, try request.payload());
+        }
+    };
+    const SourceOnly = Program.Interpreter(.{
+        Program.Handler.morphism(Dynamic, SourceHandler.handle),
+    });
+    const ResidualOnly = Pipeline.Interpreter(.{
+        Pipeline.Residual.Handler.morphism(ResidualDynamic, ResidualHandler.handle),
+    });
+    const ResidualOverlapOnly = Pipeline.Interpreter(.{
+        Pipeline.Residual.Handler.morphism(ResidualOverlapDynamic, ResidualOverlapHandler.handle),
+    });
+    var host = struct {}{};
+    var source_execution = try SourceOnly.run(&runtime, .{}, &host, .{});
+    switch (source_execution) {
+        .reinterpreted => |*target_request| {
+            defer target_request.deinit();
+            const route = Pipeline.sourceForTargetProtocolRequest(target_request.*) orelse return error.ExpectedPipelineTargetMap;
+            try std.testing.expectEqual(Source.fingerprint, route.source_site_fingerprint.?);
+            try std.testing.expectEqual(Check.fingerprint, route.target_protocol_op_fingerprint.?);
+        },
+        else => return error.ExpectedReinterpreted,
+    }
+
+    var residual_execution = try ResidualOnly.run(&runtime, .{}, &host, .{});
+    switch (residual_execution) {
+        .reinterpreted => |*target_request| {
+            defer target_request.deinit();
+            const route = Pipeline.sourceForTargetProtocolRequest(target_request.*) orelse return error.ExpectedPipelineTargetMap;
+            const trace_route = Pipeline.mapTargetTrace(target_request.*) orelse return error.ExpectedPipelineTargetTraceMap;
+            try std.testing.expectEqual(Program.PipelineRouteKind.source_site_reinterpreted_dynamic, trace_route.kind);
+            try std.testing.expectEqual(Source.fingerprint, route.source_site_fingerprint.?);
+            try std.testing.expectEqual(Source.fingerprint, trace_route.source_site_fingerprint.?);
+            try std.testing.expectEqual(Lookup.fingerprint, trace_route.target_protocol_op_fingerprint.?);
+            try std.testing.expectEqual(ResidualDynamic.fingerprint, route.morphism_fingerprint.?);
+            try std.testing.expectEqual(ResidualDynamic.fingerprint, trace_route.morphism_fingerprint.?);
+            const malformed_trace_wrapper = .{ .source_trace = target_request.source_trace };
+            try std.testing.expect(Pipeline.sourceForTargetProtocolRequest(malformed_trace_wrapper) == null);
+            try std.testing.expect(Pipeline.mapTargetTrace(malformed_trace_wrapper) == null);
+        },
+        else => return error.ExpectedReinterpreted,
+    }
+
+    var residual_overlap_execution = try ResidualOverlapOnly.run(&runtime, .{}, &host, .{});
+    switch (residual_overlap_execution) {
+        .reinterpreted => |*target_request| {
+            defer target_request.deinit();
+            const route = Pipeline.sourceForTargetProtocolRequest(target_request.*) orelse return error.ExpectedPipelineTargetMap;
+            const trace_route = Pipeline.mapTargetTrace(target_request.*) orelse return error.ExpectedPipelineTargetTraceMap;
+            try std.testing.expectEqual(Program.PipelineRouteKind.source_site_reinterpreted_dynamic, route.kind);
+            try std.testing.expectEqual(Program.PipelineRouteKind.source_site_reinterpreted_dynamic, trace_route.kind);
+            try std.testing.expectEqual(Check.fingerprint, route.target_protocol_op_fingerprint.?);
+            try std.testing.expectEqual(Check.fingerprint, trace_route.target_protocol_op_fingerprint.?);
+            try std.testing.expectEqual(ResidualOverlapDynamic.fingerprint, route.morphism_fingerprint.?);
+            try std.testing.expectEqual(ResidualOverlapDynamic.fingerprint, trace_route.morphism_fingerprint.?);
+        },
+        else => return error.ExpectedReinterpreted,
+    }
+
+    var residual_session = try Pipeline.Residual.Session.start(&runtime, .{});
+    defer residual_session.deinit();
+    const residual_request = switch (try residual_session.next()) {
+        .request => |value| value,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var residual_capsule = try residual_session.capture(std.testing.allocator);
+    defer residual_capsule.deinit();
+    var residual_owned_target = try Pipeline.Residual.ProtocolRequest(ResidualSite, Lookup).init(
+        std.testing.allocator,
+        residual_request.fingerprint(),
+        &residual_capsule,
+        "payload",
+        "rules.lookup",
+    );
+    defer residual_owned_target.deinit();
+    const residual_owned_route = Pipeline.sourceForTargetProtocolRequest(residual_owned_target) orelse return error.ExpectedPipelineTargetMap;
+    try std.testing.expectEqual(Source.fingerprint, residual_owned_route.source_site_fingerprint.?);
+    try std.testing.expectEqual(Lookup.fingerprint, residual_owned_route.target_protocol_op_fingerprint.?);
+
+    const ForwardBody = struct {
+        pub const compiled_plan = duplicateOperationNamesPlan("pipeline-forwarded-residual-target-map");
+    };
+    const ForwardProgram = ability.program("pipeline-forwarded-residual-target-map", struct {}, ForwardBody);
+    const ForwardLeft = ForwardProgram.protocol.operationSite("left", "get", 0);
+    const ForwardRight = ForwardProgram.protocol.operationSite("right", "get", 0);
+    const ForwardPolicy = ability.ir.schema.Protocol(.{
+        .label = "forward-policy",
+        .ops = .{
+            ability.ir.schema.transform("check", void, i32),
+        },
+    });
+    const ForwardCheck = ForwardPolicy.operation("check", .{});
+    const ForwardResidualized = ForwardProgram.ResidualMorphism(.{
+        .source = ForwardLeft,
+        .target = ForwardCheck,
+        .payload = ability.ir.expr.identity(),
+        .response = ForwardProgram.ResidualResponse.resumeIdentity(),
+    });
+    const ForwardPipeline = ForwardProgram.Pipeline(.{
+        .label = "pipeline-forwarded-residual-target-map",
+        .residualize = .{ForwardResidualized},
+        .goal = ForwardProgram.pipeline.Goal.allowResiduals(),
+    });
+    const ForwardRules = ability.ir.schema.Protocol(.{
+        .label = "forward-rules",
+        .ops = .{
+            ability.ir.schema.transform("lookup", void, i32),
+        },
+    });
+    const ForwardLookup = ForwardRules.operation("lookup", .{});
+    const ForwardResidualRight = ForwardPipeline.Residual.protocol.operationSite("right", "get", 0);
+    var forward_session = try ForwardPipeline.Residual.Session.start(&runtime, .{});
+    defer forward_session.deinit();
+    const forward_left_request = switch (try forward_session.next()) {
+        .request => |value| value,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    try forward_session.@"resume"(forward_left_request, @as(i32, 1));
+    const forward_right_request = switch (try forward_session.next()) {
+        .request => |value| value,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var forward_capsule = try forward_session.capture(std.testing.allocator);
+    defer forward_capsule.deinit();
+    var forwarded_target = try ForwardPipeline.Residual.ProtocolRequest(ForwardResidualRight, ForwardLookup).init(
+        std.testing.allocator,
+        forward_right_request.fingerprint(),
+        &forward_capsule,
+        {},
+        "forward-rules.lookup",
+    );
+    defer forwarded_target.deinit();
+    const forwarded_route = ForwardPipeline.sourceForTargetProtocolRequest(forwarded_target) orelse return error.ExpectedPipelineTargetMap;
+    try std.testing.expectEqual(ForwardRight.fingerprint, forwarded_route.source_site_fingerprint.?);
+    try std.testing.expectEqual(ForwardLookup.fingerprint, forwarded_route.target_protocol_op_fingerprint.?);
+}
+
+test "Program.Pipeline maps duplicate target protocol requests by source route" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = duplicateOperationNamesPlan("pipeline-target-map-duplicate-target");
+    };
+    const Program = ability.program("pipeline-target-map-duplicate-target", struct {}, Body);
+    const Left = Program.protocol.operationSite("left", "get", 0);
+    const Right = Program.protocol.operationSite("right", "get", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", void, i32),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const LeftMorphism = Program.ResidualMorphism(.{
+        .source = Left,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+        .label = "left.get-as-policy.check",
+    });
+    const RightMorphism = Program.ResidualMorphism(.{
+        .source = Right,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+        .label = "right.get-as-policy.check",
+    });
+    const Pipeline = Program.Pipeline(.{
+        .label = "pipeline-target-map-duplicate-target",
+        .residualize = .{ LeftMorphism, RightMorphism },
+        .goal = Program.pipeline.Goal.allowResiduals(),
+    });
+    const DynamicMapper = struct {
+        pub fn @"resume"(decision: i32) Program.Handler.SourceOutcome(Right) {
+            return Program.Handler.@"resume"(Right, decision);
+        }
+    };
+    const RightDynamic = Program.Morphism(.{
+        .source = Right,
+        .target = Check,
+        .Mapper = DynamicMapper,
+    });
+    const LeftHandler = struct {
+        pub fn handle(_: anytype, _: anytype, _: Program.Handler.Control) !Program.Handler.Outcome(Left) {
+            return Program.Handler.@"resume"(Left, @as(i32, 1));
+        }
+    };
+    const RightHandler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Program.Handler.Control) !Program.Handler.MorphismOutcome(RightDynamic) {
+            _ = try request.payload();
+            return Program.Handler.reinterpret(RightDynamic, {});
+        }
+    };
+    const SourceInterpreter = Program.Interpreter(.{
+        Program.Handler.operation(Left, LeftHandler.handle),
+        Program.Handler.morphism(RightDynamic, RightHandler.handle),
+    });
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const left_request = switch (try session.next()) {
+        .request => |value| value,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.@"resume"(left_request, @as(i32, 1));
+    const right_request = switch (try session.next()) {
+        .request => |value| value,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var right_capsule = try session.capture(std.testing.allocator);
+    defer right_capsule.deinit();
+    var target_request = try Program.ProtocolRequest(Right, Check).init(
+        std.testing.allocator,
+        right_request.fingerprint(),
+        &right_capsule,
+        {},
+        "policy.check",
+    );
+    defer target_request.deinit();
+
+    const route = Pipeline.sourceForTargetProtocolRequest(target_request) orelse return error.ExpectedPipelineTargetMap;
+    try std.testing.expectEqual(Right.fingerprint, route.source_site_fingerprint.?);
+    try std.testing.expectEqual(Check.fingerprint, route.target_protocol_op_fingerprint.?);
+    try std.testing.expectEqual(RightMorphism.fingerprint, route.morphism_fingerprint.?);
+    const target_only_request = .{ .target_protocol_op_fingerprint = Check.fingerprint };
+    try std.testing.expect(Pipeline.sourceForTargetProtocolRequest(target_only_request) == null);
+    try std.testing.expect(Pipeline.mapTargetTrace(target_only_request) == null);
+    const ownerless_source_request = .{
+        .source_site_fingerprint = Right.fingerprint,
+        .target_protocol_op_fingerprint = Check.fingerprint,
+    };
+    try std.testing.expect(Pipeline.sourceForTargetProtocolRequest(ownerless_source_request) == null);
+    try std.testing.expect(Pipeline.mapTargetTrace(ownerless_source_request) == null);
+
+    var foreign_runtime = ability.Runtime.init(std.testing.allocator);
+    defer foreign_runtime.deinit();
+    const ForeignProgram = ability.program("pipeline-target-map-duplicate-target-foreign", struct {}, Body);
+    const ForeignRight = ForeignProgram.protocol.operationSite("right", "get", 0);
+    var foreign_session = try ForeignProgram.Session.start(&foreign_runtime, .{});
+    defer foreign_session.deinit();
+    const foreign_left = switch (try foreign_session.next()) {
+        .request => |value| value,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    try foreign_session.@"resume"(foreign_left, @as(i32, 1));
+    const foreign_right = switch (try foreign_session.next()) {
+        .request => |value| value,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var foreign_capsule = try foreign_session.capture(std.testing.allocator);
+    defer foreign_capsule.deinit();
+    var foreign_target_request = try ForeignProgram.ProtocolRequest(ForeignRight, Check).init(
+        std.testing.allocator,
+        foreign_right.fingerprint(),
+        &foreign_capsule,
+        {},
+        "policy.check",
+    );
+    defer foreign_target_request.deinit();
+    try std.testing.expect(Pipeline.sourceForTargetProtocolRequest(foreign_target_request) == null);
+    try std.testing.expect(Pipeline.mapTargetTrace(foreign_target_request) == null);
+
+    var host = struct {}{};
+    var source_execution = try SourceInterpreter.run(&runtime, .{}, &host, .{});
+    switch (source_execution) {
+        .reinterpreted => |*request| {
+            defer request.deinit();
+            const traced_route = Pipeline.sourceForTargetProtocolRequest(request.*) orelse return error.ExpectedPipelineTargetMap;
+            try std.testing.expectEqual(Right.fingerprint, traced_route.source_site_fingerprint.?);
+            try std.testing.expectEqual(RightMorphism.fingerprint, traced_route.morphism_fingerprint.?);
+        },
+        else => return error.ExpectedReinterpreted,
+    }
+}
+
+test "Program.Pipeline without residual morphisms exposes identity residual program" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "pipeline-identity-residual-source");
+    };
+    const Program = ability.program("pipeline-identity-residual-source", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Report = Program.pipelineReport(.{
+        .label = "pipeline-identity-residual",
+        .goal = Program.pipeline.Goal.allowResiduals(),
+    });
+    const Pipeline = Program.Pipeline(.{
+        .label = "pipeline-identity-residual",
+        .goal = Program.pipeline.Goal.allowResiduals(),
+    });
+    const ExtraProtocol = ability.ir.schema.Protocol(.{
+        .label = "extra",
+        .ops = .{
+            ability.ir.schema.transform("left", void, i32),
+            ability.ir.schema.transform("right", void, i32),
+        },
+    });
+    const ExtraLeft = ExtraProtocol.operation("left", .{});
+    const ExtraRight = ExtraProtocol.operation("right", .{});
+    const ExtraHandler = struct {
+        pub fn handle(_: anytype, _: anytype) !Program.Handler.TargetResponse(ExtraLeft) {
+            return .{ .@"resume" = 1 };
+        }
+
+        pub fn handleRight(_: anytype, _: anytype) !Program.Handler.TargetResponse(ExtraRight) {
+            return .{ .@"resume" = 1 };
+        }
+    };
+    const WithExtraProtocolHandlers = Program.pipelineReport(.{
+        .label = "pipeline-identity-extra-protocol",
+        .goal = Program.pipeline.Goal.allowResiduals(),
+        .interpret = .{
+            Program.Handler.protocolOperation(ExtraLeft, ExtraHandler.handle),
+            Program.Handler.protocolOperation(ExtraRight, ExtraHandler.handleRight),
+        },
+    });
+    try std.testing.expect(!WithExtraProtocolHandlers.supported);
+    try std.testing.expectEqual(Program.PipelineBlockerTag.goal_not_satisfied, WithExtraProtocolHandlers.blockers[0].tag);
+    try std.testing.expectEqual(@as(usize, 1), WithExtraProtocolHandlers.effect_row.exposed_residual_operations);
+
+    try Pipeline.certificate.check();
+    try std.testing.expectEqual(Pipeline.Residual.compiled_plan.hash(), Report.residualization.effect_row.residual_plan_hash);
+    try std.testing.expectEqual(Pipeline.Residual.compiled_plan.hash(), Report.effect_row.residual_plan_hash);
+    try std.testing.expectEqual(Pipeline.Residual.compiled_plan.hash(), Pipeline.certificate.source_effect_row.residual_plan_hash);
+    try std.testing.expectEqual(@as(usize, 0), Pipeline.certificate.source_to_residual_site_map.len);
+    try std.testing.expectEqual(@as(usize, 1), Pipeline.effect_row.exposed_residual_operations);
+    try std.testing.expectEqualStrings(Pipeline.Residual.contract.label, Pipeline.effect_row.residual_program_label);
+    try std.testing.expectEqualStrings(Pipeline.Residual.contract.label, Pipeline.residual_row.residual_program_label);
+    const ResidualSite = Pipeline.Residual.protocol.operationSite("session", "decide", 0);
+    try std.testing.expectEqualStrings("session", Pipeline.Residual.contract.requirements[0].label);
+    try std.testing.expectEqualStrings("decide", Pipeline.Residual.contract.ops[0].op_name);
+
+    var identity_session = try Pipeline.Residual.Session.start(&runtime, .{});
+    defer identity_session.deinit();
+    const identity_request = switch (try identity_session.next()) {
+        .request => |value| value,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    const identity_map = Pipeline.mapResidualTrace(identity_request.trace()) orelse return error.ExpectedPipelineTraceMap;
+    try std.testing.expectEqual(Source.fingerprint, identity_map.source_site_fingerprint);
+    try std.testing.expectEqual(ResidualSite.fingerprint, identity_map.residual_site_fingerprint.?);
+
+    var foreign_runtime = ability.Runtime.init(std.testing.allocator);
+    defer foreign_runtime.deinit();
+    const ForeignBody = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "pipeline-identity-foreign-source");
+    };
+    const ForeignProgram = ability.program("pipeline-identity-foreign-source", struct {}, ForeignBody);
+    var foreign_session = try ForeignProgram.Session.start(&foreign_runtime, .{});
+    defer foreign_session.deinit();
+    const foreign_request = switch (try foreign_session.next()) {
+        .request => |value| value,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expect(Pipeline.mapResidualTrace(foreign_request.trace()) == null);
+
+    try identity_session.@"resume"(identity_request, @as(i32, 23));
+    var identity_done = switch (try identity_session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer identity_done.deinit();
+    try std.testing.expectEqual(@as(i32, 23), identity_done.value);
+
+    const Handler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Pipeline.Residual.Handler.Control) !Pipeline.Residual.Handler.Outcome(ResidualSite) {
+            try std.testing.expectEqualStrings("payload", try request.payload());
+            return Pipeline.Residual.Handler.@"resume"(ResidualSite, @as(i32, 23));
+        }
+    };
+    const Interpreter = Pipeline.Interpreter(.{
+        Pipeline.Residual.Handler.operation(ResidualSite, Handler.handle),
+    });
+    var host = struct {}{};
+    var execution = try Interpreter.run(&runtime, .{}, &host, .{});
+    switch (execution) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 23), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+    try std.testing.expectEqual(Source.fingerprint, Source.fingerprint);
+}
+
+test "Program.Pipeline identity path preserves output programs" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const OutputHandlers = struct {};
+    const Body = struct {
+        pub const Outputs = []const i32;
+        pub const compiled_plan = outputMetadataPlan("pipeline-identity-output-plan");
+
+        pub fn collectOutputs(_: std.mem.Allocator, _: *OutputHandlers) !Outputs {
+            return &[_]i32{ 1, 2, 3 };
+        }
+    };
+    const Program = ability.program("pipeline-identity-output", OutputHandlers, Body);
+    const Pipeline = Program.Pipeline(.{
+        .label = "pipeline-identity-output",
+        .goal = Program.pipeline.Goal.allowResiduals(),
+    });
+
+    Pipeline.assertValid();
+    try Pipeline.certificate.check();
+    try std.testing.expectEqual(@as(usize, 1), Pipeline.Residual.contract.outputs.len);
+    try std.testing.expectEqual(@as(usize, 1), Pipeline.Residual.compiled_plan.outputs.len);
+
+    var result = try Pipeline.run(&runtime, .{});
+    defer result.deinit();
+    try std.testing.expectEqualSlices(i32, &[_]i32{ 1, 2, 3 }, result.outputs);
+}
+
 test "Program.residualize forwards source Body encodeArgs" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();

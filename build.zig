@@ -645,6 +645,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "ability-interpreter-branching", .path = "examples/interpreter_branching.zig", .step = "run-interpreter-branching", .desc = "Run the continuation-aware Program.Interpreter branching example." },
         .{ .name = "ability-protocol-reinterpretation", .path = "examples/protocol_reinterpretation.zig", .step = "run-protocol-reinterpretation", .desc = "Run the protocol morphism reinterpretation example." },
         .{ .name = "ability-residualized-approval-policy", .path = "examples/residualized_approval_policy.zig", .step = "run-residualized-approval-policy", .desc = "Run the residualized approval policy example." },
+        .{ .name = "ability-effect-pipeline", .path = "examples/effect_pipeline.zig", .step = "run-effect-pipeline", .desc = "Run the proof-carrying effect pipeline example." },
     };
     inline for (examples) |example| {
         const exe_mod = b.createModule(.{
