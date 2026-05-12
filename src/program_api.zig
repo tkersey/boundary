@@ -1240,7 +1240,9 @@ pub fn program(
         /// Public execution error for this program.
         pub const Error = ProgramErrorSet(Body);
         /// Separate fingerprint domain for protocol reinterpretation metadata.
-        pub const reinterpret_fingerprint_version: u32 = 1;
+        pub const reinterpret_fingerprint_version: u32 = 2;
+        /// Separate fingerprint domain for residual ProgramPlan transformation metadata.
+        pub const residual_fingerprint_version: u32 = 1;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {
@@ -1682,6 +1684,8 @@ pub fn program(
             }
             inline for (.{
                 "protocol_label",
+                "protocol_lifecycle_tag",
+                "protocol_output_tag",
                 "op_name",
                 "op_mode",
                 "Payload",
@@ -1720,6 +1724,12 @@ pub fn program(
         fn hashU32(hasher: *std.hash.Wyhash, value: u32) void {
             var bytes: [4]u8 = undefined;
             std.mem.writeInt(u32, &bytes, value, .little);
+            hasher.update(&bytes);
+        }
+
+        fn hashU16(hasher: *std.hash.Wyhash, value: u16) void {
+            var bytes: [2]u8 = undefined;
+            std.mem.writeInt(u16, &bytes, value, .little);
             hasher.update(&bytes);
         }
 
@@ -2037,6 +2047,217 @@ pub fn program(
             return hasher.final();
         }
 
+        /// Static disposition assigned to one source site in a residualization report.
+        pub const ResidualDisposition = enum {
+            eliminated,
+            forwarded,
+            reinterpreted,
+        };
+
+        /// Supported source-side action emitted by a residual response mapping.
+        pub const ResidualActionKind = enum {
+            resume_identity,
+            resume_const_i32,
+            return_const_i32,
+            unsupported,
+        };
+
+        /// Source-side action descriptor used inside residual response branches.
+        pub const ResidualAction = struct {
+            kind: ResidualActionKind,
+            i32_value: i32 = 0,
+            reason: []const u8 = "",
+
+            /// Resume the source site with the target response value unchanged.
+            pub fn resumeIdentity() @This() {
+                return .{ .kind = .resume_identity };
+            }
+
+            /// Resume the source site with a constant i32 value.
+            pub fn resumeConstI32(comptime value: i32) @This() {
+                return .{ .kind = .resume_const_i32, .i32_value = value };
+            }
+
+            /// Return immediately from the source site with a constant i32 result.
+            pub fn returnConstI32(comptime value: i32) @This() {
+                return .{ .kind = .return_const_i32, .i32_value = value };
+            }
+
+            /// Mark this action as statically unsupported for residualization.
+            pub fn unsupported(comptime reason: []const u8) @This() {
+                return .{ .kind = .unsupported, .reason = reason };
+            }
+        };
+
+        /// Supported target-response mapping shapes for residualization metadata.
+        pub const ResidualResponseKind = enum {
+            resume_identity,
+            resume_const_i32,
+            return_const_i32,
+            bool_i32,
+            unsupported,
+        };
+
+        /// Target-response mapping descriptor for one residual morphism.
+        pub const ResidualResponse = struct {
+            kind: ResidualResponseKind,
+            i32_value: i32 = 0,
+            when_true: ResidualAction = ResidualAction.unsupported("missing true branch"),
+            when_false: ResidualAction = ResidualAction.unsupported("missing false branch"),
+            reason: []const u8 = "",
+
+            /// Resume the source site with the target response value unchanged.
+            pub fn resumeIdentity() @This() {
+                return .{ .kind = .resume_identity };
+            }
+
+            /// Resume the source site with a constant i32 value.
+            pub fn resumeConstI32(comptime value: i32) @This() {
+                return .{ .kind = .resume_const_i32, .i32_value = value };
+            }
+
+            /// Return immediately from the source site with a constant i32 result.
+            pub fn returnConstI32(comptime value: i32) @This() {
+                return .{ .kind = .return_const_i32, .i32_value = value };
+            }
+
+            /// Branch a bool target response into i32 source actions.
+            pub fn boolI32(comptime branches: anytype) @This() {
+                if (!@hasField(@TypeOf(branches), "when_true")) @compileError("ResidualResponse.boolI32 requires .when_true");
+                if (!@hasField(@TypeOf(branches), "when_false")) @compileError("ResidualResponse.boolI32 requires .when_false");
+                return .{
+                    .kind = .bool_i32,
+                    .when_true = branches.when_true,
+                    .when_false = branches.when_false,
+                };
+            }
+
+            /// Mark this response mapping as statically unsupported for residualization.
+            pub fn unsupported(comptime reason: []const u8) @This() {
+                return .{ .kind = .unsupported, .reason = reason };
+            }
+        };
+
+        /// Static reason a residual morphism cannot be compiled in this version.
+        pub const ResidualBlockerTag = enum {
+            unsupported_source_mode,
+            unsupported_target_mode,
+            unsupported_payload_mapping,
+            unsupported_response_mapping,
+            source_site_unreachable,
+            source_site_foreign_program,
+            target_schema_mismatch,
+            duplicate_source_site,
+            shared_source_operation,
+            after_residualization_unsupported,
+            nested_with_residualization_unsupported,
+            output_residualization_unsupported,
+        };
+
+        /// One fail-closed residualization blocker attached to a source site.
+        pub const ResidualBlocker = struct {
+            tag: ResidualBlockerTag,
+            source_site_index: ?usize = null,
+            source_site_fingerprint: ?u64 = null,
+            target_protocol_op_fingerprint: ?u64 = null,
+            message: []const u8 = "",
+        };
+
+        /// Static source-to-residual site mapping emitted by a residualization report.
+        pub const ResidualSourceMapEntry = struct {
+            source_site_index: usize,
+            source_site_fingerprint: u64,
+            residual_site_index: ?usize,
+            residual_site_fingerprint: ?u64,
+            disposition: ResidualDisposition,
+            target_protocol_label: []const u8,
+            target_op_name: []const u8,
+            target_protocol_op_fingerprint: u64,
+            mapping_label: ?[]const u8,
+        };
+
+        /// Static effect-row summary for a residualization report.
+        pub const ResidualEffectRow = struct {
+            source_program_label: []const u8,
+            source_plan_hash: u64,
+            residual_program_label: []const u8,
+            residual_plan_hash: u64,
+            eliminated_source_sites: usize,
+            reinterpreted_source_sites: usize,
+            emitted_target_protocol_ops: usize,
+            residual_operation_sites: usize,
+            unsupported_source_sites: usize,
+            unsupported_morphisms: usize,
+            fingerprint_version: u32 = residual_fingerprint_version,
+        };
+
+        fn residualActionFingerprint(hasher: *std.hash.Wyhash, comptime action_value: ResidualAction) void {
+            hashBytes(hasher, @tagName(action_value.kind));
+            hashI32(hasher, action_value.i32_value);
+            hashBytes(hasher, action_value.reason);
+        }
+
+        fn residualResponseFingerprint(comptime response: ResidualResponse) u64 {
+            var hasher = std.hash.Wyhash.init(0);
+            hashBytes(&hasher, "ability.program.residual.response");
+            hashU32(&hasher, residual_fingerprint_version);
+            hashBytes(&hasher, @tagName(response.kind));
+            hashI32(&hasher, response.i32_value);
+            residualActionFingerprint(&hasher, response.when_true);
+            residualActionFingerprint(&hasher, response.when_false);
+            hashBytes(&hasher, response.reason);
+            return hasher.final();
+        }
+
+        fn residualExprFingerprint(comptime expression: anytype) u64 {
+            if (comptime @hasDecl(@TypeOf(expression), "fingerprint")) return expression.fingerprint();
+            var hasher = std.hash.Wyhash.init(0);
+            hashBytes(&hasher, "ability.ir.expr");
+            if (comptime @hasField(@TypeOf(expression), "kind")) hashBytes(&hasher, @tagName(expression.kind));
+            residualExprHashOptionalValueRef(&hasher, comptime if (@hasField(@TypeOf(expression), "value_ref")) expression.value_ref else null);
+            if (comptime @hasField(@TypeOf(expression), "name")) hashBytes(&hasher, expression.name);
+            if (comptime !@hasField(@TypeOf(expression), "name")) hashBytes(&hasher, "");
+            if (comptime @hasField(@TypeOf(expression), "string_value")) hashBytes(&hasher, expression.string_value);
+            if (comptime !@hasField(@TypeOf(expression), "string_value")) hashBytes(&hasher, "");
+            if (comptime @hasField(@TypeOf(expression), "i32_value")) hashI32(&hasher, expression.i32_value);
+            if (comptime !@hasField(@TypeOf(expression), "i32_value")) hashI32(&hasher, 0);
+            if (comptime @hasField(@TypeOf(expression), "usize_value")) hashUsize(&hasher, expression.usize_value);
+            if (comptime !@hasField(@TypeOf(expression), "usize_value")) hashUsize(&hasher, 0);
+            if (comptime @hasField(@TypeOf(expression), "variant_ordinal")) hashU16(&hasher, expression.variant_ordinal);
+            if (comptime !@hasField(@TypeOf(expression), "variant_ordinal")) hashU16(&hasher, 0);
+            return hasher.final();
+        }
+
+        fn residualExprHashOptionalValueRef(hasher: *std.hash.Wyhash, comptime maybe_ref: ?lowering_api.ValueRef) void {
+            hashBool(hasher, maybe_ref != null);
+            if (maybe_ref) |ref_value| {
+                hashBytes(hasher, @tagName(ref_value.codec));
+                hashBool(hasher, ref_value.schema_index != null);
+                if (ref_value.schema_index) |schema_index| hashU16(hasher, schema_index);
+            }
+        }
+
+        fn residualMorphismFingerprint(
+            comptime SourceSite: type,
+            comptime TargetOp: type,
+            comptime payload_mapping: anytype,
+            comptime response_mapping: ResidualResponse,
+            comptime disposition: ResidualDisposition,
+            comptime mapping_label: ?[]const u8,
+        ) u64 {
+            var hasher = std.hash.Wyhash.init(0);
+            hashBytes(&hasher, "ability.program.residual.morphism");
+            hashU32(&hasher, residual_fingerprint_version);
+            hashU64(&hasher, SourceSite.owner_plan_hash);
+            hashU64(&hasher, SourceSite.fingerprint);
+            hashU64(&hasher, TargetOp.fingerprint);
+            hashU64(&hasher, residualExprFingerprint(payload_mapping));
+            hashU64(&hasher, residualResponseFingerprint(response_mapping));
+            hashBytes(&hasher, @tagName(disposition));
+            if (mapping_label) |label_text| hashBytes(&hasher, label_text);
+            return hasher.final();
+        }
+
         /// Static witness that one Program operation site may be reinterpreted as one protocol operation.
         pub fn Morphism(comptime spec: anytype) type {
             const SpecType = @TypeOf(spec);
@@ -2056,6 +2277,695 @@ pub fn program(
                 pub const Mapper = spec.Mapper;
                 /// Stable morphism witness fingerprint over source, target, and mapper identity.
                 pub const fingerprint: u64 = morphismFingerprint(SourceSite, TargetOp, Mapper);
+            };
+        }
+
+        /// Static witness that one Program operation site can be compiled into a target protocol operation.
+        pub fn ResidualMorphism(comptime spec: anytype) type {
+            const SpecType = @TypeOf(spec);
+            if (!@hasField(SpecType, "source")) @compileError("Program.ResidualMorphism requires .source");
+            if (!@hasField(SpecType, "target")) @compileError("Program.ResidualMorphism requires .target");
+            const SourceSite = spec.source;
+            const TargetOp = spec.target;
+            validateSourceOperationSite(SourceSite);
+            validateProtocolOperationDescriptor(TargetOp);
+            const payload_mapping = comptime if (@hasField(SpecType, "payload")) spec.payload else .{ .kind = .identity };
+            const response_mapping = comptime if (@hasField(SpecType, "response")) spec.response else ResidualResponse.resumeIdentity();
+            const disposition_value = comptime if (@hasField(SpecType, "disposition")) spec.disposition else ResidualDisposition.reinterpreted;
+            const mapping_label_value: ?[]const u8 = comptime if (@hasField(SpecType, "label")) spec.label else null;
+            return struct {
+                /// Descriptor tag for residual morphism reflection.
+                pub const kind = .residual_morphism;
+                /// Source Program operation site consumed by this residual morphism.
+                pub const source = SourceSite;
+                /// Target protocol operation emitted by this residual morphism.
+                pub const target = TargetOp;
+                /// Payload expression mapping for the target protocol operation.
+                pub const payload = payload_mapping;
+                /// Target response mapping back into the source outcome.
+                pub const response = response_mapping;
+                /// Source-site disposition in the residual effect row.
+                pub const disposition = disposition_value;
+                /// Optional stable label for report/debug displays.
+                pub const mapping_label = mapping_label_value;
+                /// Stable residual morphism fingerprint over source, target, and mappings.
+                pub const fingerprint: u64 = residualMorphismFingerprint(
+                    SourceSite,
+                    TargetOp,
+                    payload_mapping,
+                    response_mapping,
+                    disposition_value,
+                    mapping_label_value,
+                );
+            };
+        }
+
+        fn validateResidualMorphismDescriptor(comptime Descriptor: type) void {
+            if (!hasDeclSafe(Descriptor, "kind") or Descriptor.kind != .residual_morphism) {
+                @compileError("Program residualization expected Program.ResidualMorphism descriptor");
+            }
+            validateSourceOperationSite(Descriptor.source);
+            validateProtocolOperationDescriptor(Descriptor.target);
+        }
+
+        fn residualPayloadMappingSupported(comptime mapping: anytype) bool {
+            if (comptime !@hasField(@TypeOf(mapping), "kind")) return false;
+            return switch (mapping.kind) {
+                .identity, .payload => true,
+                else => false,
+            };
+        }
+
+        fn residualActionSupported(comptime action_value: ResidualAction) bool {
+            return switch (action_value.kind) {
+                .resume_identity, .resume_const_i32, .return_const_i32 => true,
+                .unsupported => false,
+            };
+        }
+
+        fn residualResponseMappingSupported(comptime response: ResidualResponse) bool {
+            return switch (response.kind) {
+                .resume_identity => true,
+                .resume_const_i32, .return_const_i32, .bool_i32, .unsupported => false,
+            };
+        }
+
+        fn residualSourceOpReachableSiteCount(comptime SourceSite: type) usize {
+            comptime var count: usize = 0;
+            inline for (protocol.operation_site_metadata) |site| {
+                if (site.op_index == SourceSite.op_index) count += 1;
+            }
+            return count;
+        }
+
+        fn residualBlockerFor(comptime Descriptor: type) ?ResidualBlocker {
+            validateResidualMorphismDescriptor(Descriptor);
+            if (Descriptor.disposition != .reinterpreted) {
+                return .{
+                    .tag = .unsupported_source_mode,
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .message = "residualization first version only supports reinterpreted source-site disposition",
+                };
+            }
+            const source_requirement = body_compiled_plan.requirements[Descriptor.source.requirement_index];
+            if (source_requirement.op_count != 1) {
+                return .{
+                    .tag = .unsupported_source_mode,
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .message = "residualization first version requires the source requirement row to contain exactly one op",
+                };
+            }
+            if (residualSourceOpReachableSiteCount(Descriptor.source) != 1) {
+                return .{
+                    .tag = .shared_source_operation,
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .message = "residualization first version requires the source op row to have exactly one reachable site",
+                };
+            }
+            if (Descriptor.source.op_mode == .transform and !Descriptor.source.may_resume) {
+                return .{
+                    .tag = .unsupported_source_mode,
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .message = "source transform site is not resumable",
+                };
+            }
+            if (Descriptor.source.op_mode == .abort) {
+                return .{
+                    .tag = .unsupported_source_mode,
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .message = "abort source-site residualization is unsupported in this version",
+                };
+            }
+            if (Descriptor.target.op_mode != .transform) {
+                return .{
+                    .tag = .unsupported_target_mode,
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .message = "residualization first version only targets transform protocol operations",
+                };
+            }
+            if (Descriptor.target.protocol_output_tag != .none) {
+                return .{
+                    .tag = .output_residualization_unsupported,
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .message = "residualization first version does not emit target protocol output rows",
+                };
+            }
+            if (Descriptor.source.has_after) {
+                return .{
+                    .tag = .after_residualization_unsupported,
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .message = "after-enabled source sites are not residualized in this version",
+                };
+            }
+            if (!residualPayloadMappingSupported(Descriptor.payload)) {
+                return .{
+                    .tag = .unsupported_payload_mapping,
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .message = "payload mapping is not ProgramPlan-compatible in this version",
+                };
+            }
+            if (!residualResponseMappingSupported(Descriptor.response)) {
+                return .{
+                    .tag = .unsupported_response_mapping,
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .message = "response mapping is not ProgramPlan-compatible in this version",
+                };
+            }
+            if (!residualPayloadCompatible(Descriptor.source, Descriptor.target, Descriptor.payload)) {
+                return .{
+                    .tag = .target_schema_mismatch,
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .message = "value schema mismatch for residual payload mapping",
+                };
+            }
+            if (!residualResponseCompatible(Descriptor.source, Descriptor.target, Descriptor.response)) {
+                return .{
+                    .tag = .target_schema_mismatch,
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .message = "value schema mismatch for residual response mapping",
+                };
+            }
+            return null;
+        }
+
+        fn ResidualReportStorage(comptime config: anytype) type {
+            const ConfigType = @TypeOf(config);
+            if (!@hasField(ConfigType, "morphisms")) @compileError("Program.residualizationReport requires .morphisms");
+            const morphisms = config.morphisms;
+            comptime {
+                for (morphisms) |Descriptor| {
+                    validateResidualMorphismDescriptor(Descriptor);
+                }
+            }
+            comptime var global_blocker_count_value: usize = 0;
+            if (body_nested_with_targets.len != 0) global_blocker_count_value += 1;
+            if (Outputs != void or body_compiled_plan.outputs.len != 0) global_blocker_count_value += 1;
+            comptime var morphism_blocker_count_value: usize = 0;
+            inline for (morphisms) |Descriptor| {
+                if (residualBlockerFor(Descriptor) != null) morphism_blocker_count_value += 1;
+            }
+            comptime var duplicate_blocker_count_value: usize = 0;
+            inline for (morphisms, 0..) |Descriptor, index| {
+                comptime var has_prior_duplicate = false;
+                inline for (morphisms, 0..) |Prior, prior_index| {
+                    if (prior_index < index and
+                        Prior.source.index == Descriptor.source.index and
+                        Prior.source.fingerprint == Descriptor.source.fingerprint)
+                    {
+                        has_prior_duplicate = true;
+                    }
+                }
+                if (has_prior_duplicate) continue;
+                comptime var has_later_duplicate = false;
+                inline for (morphisms, 0..) |Other, other_index| {
+                    if (other_index > index and
+                        Other.source.index == Descriptor.source.index and
+                        Other.source.fingerprint == Descriptor.source.fingerprint)
+                    {
+                        has_later_duplicate = true;
+                    }
+                }
+                if (has_later_duplicate) duplicate_blocker_count_value += 1;
+            }
+            const blocker_count = global_blocker_count_value + morphism_blocker_count_value + duplicate_blocker_count_value;
+            var blocker_table: [blocker_count]ResidualBlocker = undefined;
+            var source_map_table: [morphisms.len]ResidualSourceMapEntry = undefined;
+            comptime var blocker_index: usize = 0;
+            if (body_nested_with_targets.len != 0) {
+                blocker_table[blocker_index] = .{
+                    .tag = .nested_with_residualization_unsupported,
+                    .message = "nested-with residualization is unsupported in this version",
+                };
+                blocker_index += 1;
+            }
+            if (Outputs != void or body_compiled_plan.outputs.len != 0) {
+                blocker_table[blocker_index] = .{
+                    .tag = .output_residualization_unsupported,
+                    .message = "output residualization is unsupported in this version",
+                };
+                blocker_index += 1;
+            }
+            inline for (morphisms, 0..) |Descriptor, index| {
+                if (residualBlockerFor(Descriptor)) |blocker| {
+                    blocker_table[blocker_index] = blocker;
+                    blocker_index += 1;
+                }
+                source_map_table[index] = .{
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .residual_site_index = null,
+                    .residual_site_fingerprint = null,
+                    .disposition = Descriptor.disposition,
+                    .target_protocol_label = Descriptor.target.protocol_label,
+                    .target_op_name = Descriptor.target.op_name,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .mapping_label = Descriptor.mapping_label,
+                };
+            }
+            inline for (morphisms, 0..) |Descriptor, index| {
+                comptime var has_prior_duplicate = false;
+                inline for (morphisms, 0..) |Prior, prior_index| {
+                    if (prior_index < index and
+                        Prior.source.index == Descriptor.source.index and
+                        Prior.source.fingerprint == Descriptor.source.fingerprint)
+                    {
+                        has_prior_duplicate = true;
+                    }
+                }
+                if (has_prior_duplicate) continue;
+                inline for (morphisms, 0..) |Other, other_index| {
+                    if (other_index > index and
+                        Other.source.index == Descriptor.source.index and
+                        Other.source.fingerprint == Descriptor.source.fingerprint)
+                    {
+                        blocker_table[blocker_index] = .{
+                            .tag = .duplicate_source_site,
+                            .source_site_index = Descriptor.source.index,
+                            .source_site_fingerprint = Descriptor.source.fingerprint,
+                            .target_protocol_op_fingerprint = Other.target.fingerprint,
+                            .message = "duplicate residual morphisms for one source site",
+                        };
+                        blocker_index += 1;
+                        break;
+                    }
+                }
+            }
+            const final_blockers = blocker_table;
+            const final_source_map = source_map_table;
+            return struct {
+                /// Statically unsupported residual morphisms.
+                pub const blockers = final_blockers;
+                /// Body-level residualization blockers that are independent of morphism shape.
+                pub const global_blocker_count = global_blocker_count_value;
+                /// Per-morphism residualization blockers.
+                pub const morphism_blocker_count = morphism_blocker_count_value;
+                /// Duplicate source-site blocker records.
+                pub const duplicate_blocker_count = duplicate_blocker_count_value;
+                /// Source-site to residual-target mapping entries.
+                pub const source_map = final_source_map;
+            };
+        }
+
+        /// Inspect whether a residualization request is statically supported before compiling it.
+        pub fn residualizationReport(comptime config: anytype) type {
+            const Storage = ResidualReportStorage(config);
+            const unsupported_count = Storage.blockers.len;
+            const morphism_unsupported_count = Storage.morphism_blocker_count;
+            const duplicate_unsupported_count = Storage.duplicate_blocker_count;
+            const morphism_count = config.morphisms.len;
+            const supported_morphism_count = if (Storage.global_blocker_count == 0 and duplicate_unsupported_count == 0)
+                morphism_count - morphism_unsupported_count
+            else
+                0;
+            const unsupported_morphism_count = morphism_unsupported_count + duplicate_unsupported_count;
+            return struct {
+                /// Residualization fingerprint domain version.
+                pub const fingerprint_version = residual_fingerprint_version;
+                /// Source Program label.
+                pub const source_program_label = label;
+                /// Source ProgramPlan hash.
+                pub const source_plan_hash = body_compiled_plan_hash;
+                /// Unsupported residual morphisms, if any.
+                pub const unsupported = &Storage.blockers;
+                /// Static mapping from source sites to residual targets.
+                pub const source_map = &Storage.source_map;
+                /// Static handled/residual effect-row summary.
+                pub const effect_row = ResidualEffectRow{
+                    .source_program_label = label,
+                    .source_plan_hash = body_compiled_plan_hash,
+                    .residual_program_label = if (@hasField(@TypeOf(config), "label")) config.label else label ++ ".residual",
+                    .residual_plan_hash = 0,
+                    .eliminated_source_sites = supported_morphism_count,
+                    .reinterpreted_source_sites = supported_morphism_count,
+                    .emitted_target_protocol_ops = supported_morphism_count,
+                    .residual_operation_sites = protocol.operation_site_count,
+                    .unsupported_source_sites = unsupported_morphism_count,
+                    .unsupported_morphisms = unsupported_morphism_count,
+                };
+                /// Whether all requested residual morphisms are supported.
+                pub const supported = unsupported_count == 0;
+            };
+        }
+
+        fn residualizationFingerprint(comptime config: anytype) u64 {
+            var hasher = std.hash.Wyhash.init(0);
+            hashBytes(&hasher, "ability.program.residualization");
+            hashU32(&hasher, residual_fingerprint_version);
+            hashU64(&hasher, body_compiled_plan_hash);
+            if (comptime @hasField(@TypeOf(config), "label")) hashBytes(&hasher, config.label);
+            inline for (config.morphisms) |Descriptor| hashU64(&hasher, Descriptor.fingerprint);
+            return hasher.final();
+        }
+
+        fn residualLabel(comptime config: anytype) []const u8 {
+            if (comptime @hasField(@TypeOf(config), "label")) return config.label;
+            return label ++ ".residual";
+        }
+
+        fn residualTargetValueRef(
+            comptime source_ref: lowering_api.ValueRef,
+            comptime target_ref: lowering_api.ValueRef,
+        ) lowering_api.ValueRef {
+            return switch (target_ref.codec) {
+                .product, .sum => .{ .codec = target_ref.codec, .schema_index = source_ref.schema_index },
+                else => target_ref,
+            };
+        }
+
+        fn residualTargetOpPlan(comptime requirement_index: u16, comptime SourceSite: type, comptime TargetOp: type) plan_types.OpPlan {
+            const payload_ref = residualTargetValueRef(SourceSite.payload_ref, TargetOp.payload_ref);
+            const resume_ref = residualTargetValueRef(SourceSite.resume_ref, TargetOp.resume_ref);
+            return .{
+                .requirement_index = requirement_index,
+                .op_name = TargetOp.op_name,
+                .mode = TargetOp.op_mode,
+                .payload_codec = payload_ref.codec,
+                .payload_schema_index = payload_ref.schema_index,
+                .resume_codec = resume_ref.codec,
+                .resume_schema_index = resume_ref.schema_index,
+                .has_after = false,
+            };
+        }
+
+        fn residualPayloadCompatible(comptime SourceSite: type, comptime TargetOp: type, comptime payload_mapping: anytype) bool {
+            if (payload_mapping.kind == .unit) return TargetOp.payload_ref.codec == .unit;
+            if (payload_mapping.kind == .const_string) return TargetOp.payload_ref.codec == .string;
+            if (payload_mapping.kind == .const_i32) return TargetOp.payload_ref.codec == .i32;
+            if (payload_mapping.kind == .const_usize) return TargetOp.payload_ref.codec == .usize;
+            return residualValueRefCompatible(SourceSite.Payload, SourceSite.payload_ref, TargetOp.Payload, TargetOp.payload_ref);
+        }
+
+        fn residualResponseCompatible(comptime SourceSite: type, comptime TargetOp: type, comptime response: ResidualResponse) bool {
+            return switch (response.kind) {
+                .resume_identity => residualValueRefCompatible(SourceSite.Resume, SourceSite.resume_ref, TargetOp.Resume, TargetOp.resume_ref),
+                .resume_const_i32, .return_const_i32 => TargetOp.resume_ref.codec == .i32 and SourceSite.result_ref.codec == .i32,
+                .bool_i32 => TargetOp.resume_ref.codec == .bool and SourceSite.result_ref.codec == .i32,
+                .unsupported => false,
+            };
+        }
+
+        fn residualValueRefCompatible(
+            comptime SourceValue: type,
+            comptime source_ref: lowering_api.ValueRef,
+            comptime TargetValue: type,
+            comptime target_ref: lowering_api.ValueRef,
+        ) bool {
+            if (source_ref.codec != target_ref.codec) return false;
+            return switch (source_ref.codec) {
+                .product, .sum => source_ref.schema_index != null and target_ref.schema_index != null and SourceValue == TargetValue,
+                else => source_ref.eql(target_ref),
+            };
+        }
+
+        fn ResidualPlanStorage(comptime config: anytype) type {
+            const Report = residualizationReport(config);
+            if (!Report.supported) {
+                const first = Report.unsupported[0];
+                @compileError("Program.residualize blocked: " ++ @tagName(first.tag) ++ " " ++ first.message);
+            }
+            if (body_nested_with_targets.len != 0) {
+                @compileError("Program.residualize blocked: nested-with residualization is unsupported in this version");
+            }
+            if (Outputs != void or body_compiled_plan.outputs.len != 0) {
+                @compileError("Program.residualize blocked: output residualization is unsupported in this version");
+            }
+            comptime {
+                for (config.morphisms) |Descriptor| {
+                    const source_requirement = body_compiled_plan.requirements[Descriptor.source.requirement_index];
+                    if (source_requirement.op_count != 1) {
+                        @compileError("Program.residualize first version requires the source requirement row to contain exactly one op");
+                    }
+                    if (!residualPayloadCompatible(Descriptor.source, Descriptor.target, Descriptor.payload)) {
+                        @compileError("Program.residualize blocked: value schema mismatch for residual payload mapping");
+                    }
+                    if (!residualResponseCompatible(Descriptor.source, Descriptor.target, Descriptor.response)) {
+                        @compileError("Program.residualize blocked: value schema mismatch for residual response mapping");
+                    }
+                    if (Descriptor.response.kind != .resume_identity) {
+                        @compileError("Program.residualize first version compiles only identity resume response mappings");
+                    }
+                    if (Descriptor.payload.kind != .identity and Descriptor.payload.kind != .payload) {
+                        @compileError("Program.residualize first version compiles only identity payload mappings");
+                    }
+                }
+            }
+
+            var requirement_table: [body_compiled_plan.requirements.len]plan_types.RequirementPlan = undefined;
+            var op_table: [body_compiled_plan.ops.len]plan_types.OpPlan = undefined;
+            for (body_compiled_plan.requirements, 0..) |requirement, index| requirement_table[index] = requirement;
+            for (body_compiled_plan.ops, 0..) |op, index| op_table[index] = op;
+            inline for (config.morphisms) |Descriptor| {
+                requirement_table[Descriptor.source.requirement_index] = .{
+                    .label = Descriptor.target.protocol_label,
+                    .first_op = Descriptor.source.op_index,
+                    .op_count = 1,
+                    .lifecycle_tag = Descriptor.target.protocol_lifecycle_tag,
+                    .output_tag = Descriptor.target.protocol_output_tag,
+                };
+                op_table[Descriptor.source.op_index] = residualTargetOpPlan(Descriptor.source.requirement_index, Descriptor.source, Descriptor.target);
+            }
+            const final_requirements = requirement_table;
+            const final_ops = op_table;
+            return struct {
+                /// Residual requirement rows used to finish the compiled plan.
+                pub const requirement_rows = final_requirements;
+                /// Residual operation rows used to finish the compiled plan.
+                pub const op_rows = final_ops;
+                /// Validated ordinary ProgramPlan produced by residualization.
+                pub const plan = plan_types.program_plan_builder.finish(.{
+                    .schema_version = body_compiled_plan.schema_version,
+                    .label = residualLabel(config),
+                    .ir_hash = residualizationFingerprint(config),
+                    .entry = plan_types.program_plan_builder.function(@intCast(body_compiled_plan.entry_index)),
+                    .functions = body_compiled_plan.functions,
+                    .requirements = &requirement_rows,
+                    .ops = &op_rows,
+                    .outputs = body_compiled_plan.outputs,
+                    .value_schemas = body_compiled_plan.value_schemas,
+                    .value_fields = body_compiled_plan.value_fields,
+                    .value_variants = body_compiled_plan.value_variants,
+                    .locals = body_compiled_plan.locals,
+                    .call_args = body_compiled_plan.call_args,
+                    .blocks = body_compiled_plan.blocks,
+                    .terminators = body_compiled_plan.terminators,
+                    .instructions = body_compiled_plan.instructions,
+                }) catch |err| @compileError("Program.residualize produced invalid ProgramPlan: " ++ @errorName(err));
+            };
+        }
+
+        fn ResidualBodyFor(comptime config: anytype) type {
+            const Storage = ResidualPlanStorage(config);
+            const ConfigType = @TypeOf(config);
+            const ResidualHandlers = comptime if (@hasField(ConfigType, "Handlers")) config.Handlers else HandlersType;
+            if (comptime hasDeclSafe(Body, "encodeArgs") and hasDeclSafe(Body, "deinitResult")) {
+                return struct {
+                    /// Ordinary ProgramPlan compiled from the residualized source plan.
+                    pub const compiled_plan = Storage.plan;
+                    /// Value schema type metadata inherited from the source Body.
+                    pub const value_schema_types = BodyValueSchemaTypes(Body).values;
+                    /// Site metadata inherited from the source Body when available.
+                    pub const site_metadata = BodySiteMetadata(Body).values;
+                    /// Body error set inherited from the source Body.
+                    pub const Error = BodyErrorSet(Body);
+                    /// Forward source result cleanup because the residual plan preserves the result type.
+                    pub const deinitResult = Body.deinitResult;
+
+                    /// Forward source argument encoding because the residual plan preserves entry parameters.
+                    pub fn encodeArgs(handlers: ResidualHandlers) @TypeOf(Body.encodeArgs(handlers)) {
+                        return Body.encodeArgs(handlers);
+                    }
+                };
+            }
+            if (comptime hasDeclSafe(Body, "encodeArgs")) {
+                return struct {
+                    /// Ordinary ProgramPlan compiled from the residualized source plan.
+                    pub const compiled_plan = Storage.plan;
+                    /// Value schema type metadata inherited from the source Body.
+                    pub const value_schema_types = BodyValueSchemaTypes(Body).values;
+                    /// Site metadata inherited from the source Body when available.
+                    pub const site_metadata = BodySiteMetadata(Body).values;
+                    /// Body error set inherited from the source Body.
+                    pub const Error = BodyErrorSet(Body);
+
+                    /// Forward source argument encoding because the residual plan preserves entry parameters.
+                    pub fn encodeArgs(handlers: ResidualHandlers) @TypeOf(Body.encodeArgs(handlers)) {
+                        return Body.encodeArgs(handlers);
+                    }
+                };
+            }
+            if (comptime hasDeclSafe(Body, "deinitResult")) {
+                return struct {
+                    /// Ordinary ProgramPlan compiled from the residualized source plan.
+                    pub const compiled_plan = Storage.plan;
+                    /// Value schema type metadata inherited from the source Body.
+                    pub const value_schema_types = BodyValueSchemaTypes(Body).values;
+                    /// Site metadata inherited from the source Body when available.
+                    pub const site_metadata = BodySiteMetadata(Body).values;
+                    /// Body error set inherited from the source Body.
+                    pub const Error = BodyErrorSet(Body);
+                    /// Forward source result cleanup because the residual plan preserves the result type.
+                    pub const deinitResult = Body.deinitResult;
+                };
+            }
+            return struct {
+                /// Ordinary ProgramPlan compiled from the residualized source plan.
+                pub const compiled_plan = Storage.plan;
+                /// Value schema type metadata inherited from the source Body.
+                pub const value_schema_types = BodyValueSchemaTypes(Body).values;
+                /// Site metadata inherited from the source Body when available.
+                pub const site_metadata = BodySiteMetadata(Body).values;
+                /// Body error set inherited from the source Body.
+                pub const Error = BodyErrorSet(Body);
+            };
+        }
+
+        fn residualSourceMapFor(comptime ResidualProgram: type, comptime config: anytype) type {
+            var entry_table: [config.morphisms.len]ResidualSourceMapEntry = undefined;
+            for (config.morphisms, 0..) |Descriptor, index| {
+                comptime var residual_site_index: ?usize = null;
+                comptime var residual_site_fingerprint: ?u64 = null;
+                inline for (ResidualProgram.protocol.operation_site_metadata) |site| {
+                    if (site.function_index == Descriptor.source.function_index and
+                        site.block_index == Descriptor.source.block_index and
+                        site.instruction_index == Descriptor.source.instruction_index)
+                    {
+                        residual_site_index = site.index;
+                        residual_site_fingerprint = site.fingerprint;
+                    }
+                }
+                entry_table[index] = .{
+                    .source_site_index = Descriptor.source.index,
+                    .source_site_fingerprint = Descriptor.source.fingerprint,
+                    .residual_site_index = residual_site_index,
+                    .residual_site_fingerprint = residual_site_fingerprint,
+                    .disposition = Descriptor.disposition,
+                    .target_protocol_label = Descriptor.target.protocol_label,
+                    .target_op_name = Descriptor.target.op_name,
+                    .target_protocol_op_fingerprint = Descriptor.target.fingerprint,
+                    .mapping_label = Descriptor.mapping_label,
+                };
+            }
+            const final_entries = entry_table;
+            return struct {
+                /// Source-to-residual operation site correspondence entries.
+                pub const map_entries = final_entries;
+            };
+        }
+
+        /// Compile supported declarative morphisms into a residual ordinary ProgramPlan.
+        pub fn residualize(comptime config: anytype) type {
+            const ConfigType = @TypeOf(config);
+            const ResidualHandlers = comptime if (@hasField(ConfigType, "Handlers")) config.Handlers else HandlersType;
+            if (ResidualHandlers != HandlersType and comptime hasDeclSafe(Body, "encodeArgs")) {
+                @compileError("Program.residualize cannot change Handler type while reusing Body.encodeArgs");
+            }
+            const ResidualBody = ResidualBodyFor(config);
+            const Base = program(residualLabel(config), ResidualHandlers, ResidualBody);
+            const SourceMapStorage = residualSourceMapFor(Base, config);
+            const residual_effect_row = ResidualEffectRow{
+                .source_program_label = label,
+                .source_plan_hash = body_compiled_plan_hash,
+                .residual_program_label = residualLabel(config),
+                .residual_plan_hash = Base.compiled_plan.hash(),
+                .eliminated_source_sites = config.morphisms.len,
+                .reinterpreted_source_sites = config.morphisms.len,
+                .emitted_target_protocol_ops = config.morphisms.len,
+                .residual_operation_sites = Base.protocol.operation_site_count,
+                .unsupported_source_sites = 0,
+                .unsupported_morphisms = 0,
+            };
+            return struct {
+                /// Ordinary ProgramPlan emitted by residualization.
+                pub const compiled_plan = Base.compiled_plan;
+                /// Contract projection for the residual Program.
+                pub const contract = Base.contract;
+                /// Typed protocol descriptors for the residual Program.
+                pub const protocol = Base.protocol;
+                /// Error set for executing the residual Program.
+                pub const Error = Base.Error;
+                /// Result type for executing the residual Program.
+                pub const Result = Base.Result;
+                /// Primitive host-driven Session type for the residual Program.
+                pub const Session = Base.Session;
+                /// Handler constructor namespace for the residual Program.
+                pub const Handler = Base.Handler;
+                /// Interpreter constructor namespace for the residual Program.
+                pub const Interpreter = Base.Interpreter;
+                /// Protocol request type for residual reinterpretation paths.
+                pub const ProtocolRequest = Base.ProtocolRequest;
+                /// Dynamic morphism constructor namespace for the residual Program.
+                pub const Morphism = Base.Morphism;
+                /// Declarative morphism constructor namespace for further residualization.
+                pub const ResidualMorphism = Base.ResidualMorphism;
+                /// Residualization fingerprint metadata version.
+                pub const residual_fingerprint_version = Base.residual_fingerprint_version;
+                /// Reinterpretation fingerprint metadata version.
+                pub const reinterpret_fingerprint_version = Base.reinterpret_fingerprint_version;
+                /// Run the residual Program through ordinary handler dispatch.
+                pub const run = Base.run;
+                /// Stable fingerprint for this residualization configuration.
+                pub const residualization_fingerprint = residualizationFingerprint(config);
+                /// Source-to-residual operation site correspondence.
+                pub const source_map = &SourceMapStorage.map_entries;
+                /// Residual effect-row metadata.
+                pub const effect_row = residual_effect_row;
+                /// Alias for residual effect-row metadata.
+                pub const residual_row = residual_effect_row;
+                /// Unsupported blockers for this compiled residual Program.
+                pub const unsupported = &[_]ResidualBlocker{};
+
+                /// Find the residual site correspondence for a source Program operation site.
+                pub fn residualForSourceSite(comptime SourceSite: type) ?ResidualSourceMapEntry {
+                    inline for (SourceMapStorage.map_entries) |entry| {
+                        if (entry.source_site_fingerprint == SourceSite.fingerprint) return entry;
+                    }
+                    return null;
+                }
+
+                /// Find the source site correspondence for a residual Program operation site.
+                pub fn sourceForResidualSite(comptime ResidualSite: type) ?ResidualSourceMapEntry {
+                    inline for (SourceMapStorage.map_entries) |entry| {
+                        if (entry.residual_site_fingerprint != null and entry.residual_site_fingerprint.? == ResidualSite.fingerprint) return entry;
+                    }
+                    return null;
+                }
+
+                /// Map a residual dynamic operation trace back to source-site metadata.
+                pub fn mapResidualTrace(trace: anytype) ?ResidualSourceMapEntry {
+                    inline for (SourceMapStorage.map_entries) |entry| {
+                        if (entry.residual_site_fingerprint != null and
+                            @hasField(@TypeOf(trace), "operation_site_fingerprint") and
+                            entry.residual_site_fingerprint.? == trace.operation_site_fingerprint)
+                        {
+                            return entry;
+                        }
+                    }
+                    return null;
+                }
             };
         }
 

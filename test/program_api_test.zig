@@ -4549,6 +4549,710 @@ test "Program.Morphism and ProtocolRequest preserve source capsule metadata" {
     }
 }
 
+test "Program.ResidualMorphism report and residualize compile identity morphism into ProgramPlan" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "residualize-identity-source");
+    };
+    const Program = ability.program("residualize-identity-source", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, i32),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const DynamicMapper = struct {
+        pub fn @"resume"(decision: i32) Program.Handler.SourceOutcome(Source) {
+            return Program.Handler.@"resume"(Source, decision);
+        }
+    };
+    const DynamicMorphism = Program.Morphism(.{
+        .source = Source,
+        .target = Check,
+        .Mapper = DynamicMapper,
+    });
+    const StaticMorphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+        .label = "session.decide-as-policy.check",
+    });
+    const DefaultPayloadMorphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .response = Program.ResidualResponse.resumeIdentity(),
+        .label = "session.decide-as-policy.check",
+    });
+    try std.testing.expectEqual(StaticMorphism.fingerprint, DefaultPayloadMorphism.fingerprint);
+
+    const Report = Program.residualizationReport(.{ .morphisms = .{StaticMorphism} });
+    try std.testing.expect(Report.supported);
+    try std.testing.expectEqual(@as(usize, 0), Report.unsupported.len);
+    try std.testing.expectEqual(@as(u32, 1), Report.fingerprint_version);
+    try std.testing.expectEqual(Source.fingerprint, Report.source_map[0].source_site_fingerprint);
+    try std.testing.expectEqual(Check.fingerprint, Report.source_map[0].target_protocol_op_fingerprint);
+    try std.testing.expectEqual(@as(usize, 1), Report.effect_row.residual_operation_sites);
+    try std.testing.expect(StaticMorphism.fingerprint != 0);
+
+    const Residual = Program.residualize(.{
+        .label = "residualize-identity-target",
+        .morphisms = .{StaticMorphism},
+    });
+    try Residual.compiled_plan.validate();
+    try std.testing.expectEqual(@as(u32, 2), Residual.Session.Trace.fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 1), Residual.residual_fingerprint_version);
+    try std.testing.expect(Residual.residualization_fingerprint != StaticMorphism.fingerprint);
+    try std.testing.expectEqualStrings("policy", Residual.contract.requirements[0].label);
+    try std.testing.expectEqualStrings("check", Residual.contract.ops[0].op_name);
+    try std.testing.expectEqual(@as(usize, 1), Residual.effect_row.eliminated_source_sites);
+    try std.testing.expectEqual(@as(usize, 1), Residual.effect_row.emitted_target_protocol_ops);
+    try std.testing.expectEqual(@as(@TypeOf(Residual.contract.requirements[0].lifecycle_tag), .generated_family), Residual.contract.requirements[0].lifecycle_tag);
+    try std.testing.expectEqual(@as(@TypeOf(Residual.contract.requirements[0].output_tag), .none), Residual.contract.requirements[0].output_tag);
+    const ResidualSite = Residual.protocol.operationSite("policy", "check", 0);
+    const mapped_from_source = Residual.residualForSourceSite(Source) orelse return error.ExpectedResidualSourceMap;
+    try std.testing.expectEqual(ResidualSite.fingerprint, mapped_from_source.residual_site_fingerprint.?);
+    const mapped_from_residual = Residual.sourceForResidualSite(ResidualSite) orelse return error.ExpectedResidualSourceMap;
+    try std.testing.expectEqual(Source.fingerprint, mapped_from_residual.source_site_fingerprint);
+
+    const PolicyHandler = struct {
+        pub fn handle(_: anytype, request: anytype) !Program.Handler.TargetResponse(Check) {
+            const payload = try request.payload();
+            try std.testing.expectEqualStrings("payload", payload);
+            return .{ .@"resume" = 7 };
+        }
+    };
+    const SourceHandler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Program.Handler.Control) !Program.Handler.MorphismOutcome(DynamicMorphism) {
+            return Program.Handler.reinterpret(DynamicMorphism, try request.payload());
+        }
+    };
+    const Dynamic = Program.Interpreter(.{
+        Program.Handler.morphism(DynamicMorphism, SourceHandler.handle),
+        Program.Handler.protocolOperation(Check, PolicyHandler.handle),
+    });
+    var host = struct {}{};
+    var dynamic_result = try Dynamic.run(&runtime, .{}, &host, .{});
+    const dynamic_value = switch (dynamic_result) {
+        .done => |*done| value: {
+            defer done.deinit();
+            break :value done.value;
+        },
+        else => return error.ExpectedDone,
+    };
+
+    const ResidualPolicyHandler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Residual.Handler.Control) !Residual.Handler.Outcome(ResidualSite) {
+            const payload = try request.payload();
+            try std.testing.expectEqualStrings("payload", payload);
+            return Residual.Handler.@"resume"(ResidualSite, @as(i32, 7));
+        }
+    };
+    const ResidualInterpreter = Residual.Interpreter(.{
+        Residual.Handler.operation(ResidualSite, ResidualPolicyHandler.handle),
+    });
+    var residual_result = try ResidualInterpreter.run(&runtime, .{}, &host, .{});
+    const residual_value = switch (residual_result) {
+        .done => |*done| value: {
+            defer done.deinit();
+            break :value done.value;
+        },
+        else => return error.ExpectedDone,
+    };
+    try std.testing.expectEqual(dynamic_value, residual_value);
+
+    var session = try Residual.Session.start(&runtime, .{});
+    defer session.deinit();
+    const residual_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    const request_trace = residual_request.trace();
+    const trace_map = Residual.mapResidualTrace(request_trace) orelse return error.ExpectedResidualSourceMap;
+    try std.testing.expectEqual(Source.fingerprint, trace_map.source_site_fingerprint);
+    try std.testing.expectEqual(ResidualSite.fingerprint, trace_map.residual_site_fingerprint.?);
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    try std.testing.expectEqual(Residual.Session.ParkedKind.operation, capsule.metadata().parked_kind);
+    try session.@"resume"(residual_request, @as(i32, 7));
+    var done = switch (try session.next()) {
+        .done => |result| result,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer done.deinit();
+    try std.testing.expectEqual(@as(i32, 7), done.value);
+
+    var restored = try Residual.Session.restore(&runtime, .{}, &capsule);
+    defer restored.deinit();
+    const restored_request = switch (try restored.current()) {
+        .request => |request| request,
+        .none => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqual(residual_request.fingerprint(), restored_request.fingerprint());
+    try restored.@"resume"(restored_request, @as(i32, 8));
+    var restored_done = switch (try restored.next()) {
+        .done => |result| result,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer restored_done.deinit();
+    try std.testing.expectEqual(@as(i32, 8), restored_done.value);
+}
+
+test "Program.residualize forwards source Body encodeArgs" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const ArgHandlers = struct {
+        payload: []const u8,
+    };
+    const Body = struct {
+        pub const compiled_plan = parameterizedSessionStringOpPlan("residualize-encode-args-source");
+
+        pub fn encodeArgs(handlers: ArgHandlers) struct { []const u8 } {
+            return .{handlers.payload};
+        }
+    };
+    const Program = ability.program("residualize-encode-args-source", ArgHandlers, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, i32),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const Morphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const Residual = Program.residualize(.{
+        .label = "residualize-encode-args-target",
+        .morphisms = .{Morphism},
+    });
+    const ResidualSite = Residual.protocol.operationSite("policy", "check", 0);
+    const PolicyHandler = struct {
+        pub fn handle(_: anytype, request: anytype, _: Residual.Handler.Control) !Residual.Handler.Outcome(ResidualSite) {
+            try std.testing.expectEqualStrings("from-encode-args", try request.payload());
+            return Residual.Handler.@"resume"(ResidualSite, @as(i32, 31));
+        }
+    };
+    const Interpreter = Residual.Interpreter(.{
+        Residual.Handler.operation(ResidualSite, PolicyHandler.handle),
+    });
+
+    var host = struct {}{};
+    var result = try Interpreter.run(&runtime, .{ .payload = "from-encode-args" }, &host, .{});
+    switch (result) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqual(@as(i32, 31), done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+
+    var session = try Residual.Session.start(&runtime, .{ .payload = "from-encode-args" });
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqualStrings("from-encode-args", try request.payload([]const u8));
+    try session.@"resume"(request, @as(i32, 41));
+    var session_done = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer session_done.deinit();
+    try std.testing.expectEqual(@as(i32, 41), session_done.value);
+}
+
+test "Program.residualize preserves source Body result cleanup" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        items: [][]const u8,
+    };
+    const ArgHandlers = struct {
+        payload: Payload,
+    };
+    const CleanupState = struct {
+        var result_deinit_called = false;
+    };
+    const Body = struct {
+        pub const value_schema_types = .{Payload};
+        pub const compiled_plan = sessionLastReturnThenYieldProductPlan(Payload, "residualize-result-cleanup-source");
+
+        pub fn encodeArgs(handlers: ArgHandlers) struct { Payload } {
+            return .{handlers.payload};
+        }
+
+        pub fn deinitResult(allocator: std.mem.Allocator, value: Payload) void {
+            CleanupState.result_deinit_called = true;
+            for (value.items) |item| allocator.free(item);
+            allocator.free(value.items);
+        }
+    };
+    const Program = ability.program("residualize-result-cleanup-source", ArgHandlers, Body);
+    const Source = Program.protocol.operationSite("last_return", "park", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", void, i32),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const Morphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const Residual = Program.residualize(.{
+        .label = "residualize-result-cleanup-target",
+        .morphisms = .{Morphism},
+    });
+
+    var left = [_]u8{ 'l', 'e', 'f', 't' };
+    var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
+    var items = [_][]const u8{ left[0..], right[0..] };
+    var session = try Residual.Session.start(&runtime, .{ .payload = .{ .items = items[0..] } });
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |parked| parked,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.@"resume"(request, @as(i32, 7));
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+
+    @memcpy(left[0..], "wxyz");
+    @memcpy(right[0..], "omega");
+    try std.testing.expectEqual(@as(usize, 2), result.value.items.len);
+    try std.testing.expectEqualStrings("left", result.value.items[0]);
+    try std.testing.expectEqualStrings("right", result.value.items[1]);
+    try std.testing.expect(!CleanupState.result_deinit_called);
+    result.deinit();
+    try std.testing.expect(CleanupState.result_deinit_called);
+}
+
+test "Program.residualize rewrites choice source sites and rejects abort source sites" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, i32),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+
+    const ChoiceBody = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "residualize-choice-source");
+    };
+    const ChoiceProgram = ability.program("residualize-choice-source", struct {}, ChoiceBody);
+    const ChoiceSource = ChoiceProgram.protocol.operationSite("session", "decide", 0);
+    const ChoiceMorphism = ChoiceProgram.ResidualMorphism(.{
+        .source = ChoiceSource,
+        .target = Check,
+        .payload = ability.ir.expr.payload(),
+        .response = ChoiceProgram.ResidualResponse.resumeIdentity(),
+        .label = "choice-as-policy",
+    });
+    const ChoiceResidual = ChoiceProgram.residualize(.{
+        .label = "residualize-choice-target",
+        .morphisms = .{ChoiceMorphism},
+    });
+    try ChoiceResidual.compiled_plan.validate();
+    const ChoiceResidualSite = ChoiceResidual.protocol.operationSite("policy", "check", 0);
+    try std.testing.expectEqual(ability.ir.PlanControlMode.transform, ChoiceResidualSite.op_mode);
+    try std.testing.expectEqual(ChoiceSource.fingerprint, (ChoiceResidual.sourceForResidualSite(ChoiceResidualSite) orelse return error.ExpectedResidualSourceMap).source_site_fingerprint);
+
+    const ChoiceHandler = struct {
+        pub fn handle(ctx: anytype, request: anytype, _: ChoiceResidual.Handler.Control) !ChoiceResidual.Handler.Outcome(ChoiceResidualSite) {
+            ctx.operation_count += 1;
+            try std.testing.expectEqualStrings("payload", try request.payload());
+            return ChoiceResidual.Handler.@"resume"(ChoiceResidualSite, @as(i32, 12));
+        }
+    };
+    const ChoiceInterpreter = ChoiceResidual.Interpreter(.{
+        ChoiceResidual.Handler.operation(ChoiceResidualSite, ChoiceHandler.handle),
+    });
+    var choice_host = struct { operation_count: usize = 0 }{};
+    var choice_result = try ChoiceInterpreter.run(&runtime, .{}, &choice_host, .{});
+    switch (choice_result) {
+        .done => |*done_value| {
+            defer done_value.deinit();
+            try std.testing.expectEqual(@as(i32, 12), done_value.value);
+        },
+        else => return error.ExpectedDone,
+    }
+    try std.testing.expectEqual(@as(usize, 1), choice_host.operation_count);
+
+    const AbortBody = struct {
+        pub const compiled_plan = sessionStringOpPlan(.abort, "residualize-abort-source");
+    };
+    const AbortProgram = ability.program("residualize-abort-source", struct {}, AbortBody);
+    const AbortSource = AbortProgram.protocol.operationSite("session", "decide", 0);
+    const AbortMorphism = AbortProgram.ResidualMorphism(.{
+        .source = AbortSource,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = AbortProgram.ResidualResponse.resumeIdentity(),
+        .label = "abort-as-policy",
+    });
+    const AbortReport = AbortProgram.residualizationReport(.{ .morphisms = .{AbortMorphism} });
+    try std.testing.expect(!AbortReport.supported);
+    try std.testing.expectEqual(@as(usize, 1), AbortReport.unsupported.len);
+    try std.testing.expectEqual(AbortProgram.ResidualBlockerTag.unsupported_source_mode, AbortReport.unsupported[0].tag);
+}
+
+test "Program.residualizationReport rejects unsupported mapping expressions" {
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "residualize-unsupported-mapping");
+    };
+    const Program = ability.program("residualize-unsupported-mapping", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, i32),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const Unsupported = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.field("reason"),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const Report = Program.residualizationReport(.{ .morphisms = .{Unsupported} });
+    try std.testing.expect(!Report.supported);
+    try std.testing.expectEqual(@as(usize, 1), Report.unsupported.len);
+    try std.testing.expectEqual(Program.ResidualBlockerTag.unsupported_payload_mapping, Report.unsupported[0].tag);
+
+    const ConstPayload = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.constString("fixed"),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const ConstReport = Program.residualizationReport(.{ .morphisms = .{ConstPayload} });
+    try std.testing.expect(!ConstReport.supported);
+    try std.testing.expectEqual(Program.ResidualBlockerTag.unsupported_payload_mapping, ConstReport.unsupported[0].tag);
+}
+
+test "Program.residualizationReport rejects shared op-row rewrites" {
+    const Body = struct {
+        pub const compiled_plan = repeatedCallSiteSameOpPlan("residualize-shared-op-row", false);
+    };
+    const Program = ability.program("residualize-shared-op-row", struct {}, Body);
+    const First = Program.protocol.operationSite("session", "same_op", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, i32),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const Morphism = Program.ResidualMorphism(.{
+        .source = First,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const Report = Program.residualizationReport(.{ .morphisms = .{Morphism} });
+    try std.testing.expect(!Report.supported);
+    try std.testing.expectEqual(@as(usize, 1), Report.unsupported.len);
+    try std.testing.expectEqual(Program.ResidualBlockerTag.shared_source_operation, Report.unsupported[0].tag);
+    try std.testing.expectEqual(@as(usize, 2), Report.effect_row.residual_operation_sites);
+}
+
+test "Program.residualizationReport reports duplicate source morphisms" {
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "residualize-duplicate-source");
+    };
+    const Program = ability.program("residualize-duplicate-source", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, i32),
+        },
+    });
+    const Check = Policy.operation("check", .{});
+    const Morphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const Report = Program.residualizationReport(.{ .morphisms = .{ Morphism, Morphism, Morphism } });
+    try std.testing.expect(!Report.supported);
+    try std.testing.expectEqual(@as(usize, 1), Report.unsupported.len);
+    try std.testing.expectEqual(Program.ResidualBlockerTag.duplicate_source_site, Report.unsupported[0].tag);
+    try std.testing.expectEqual(@as(usize, 3), Report.source_map.len);
+    try std.testing.expectEqual(@as(usize, 0), Report.effect_row.eliminated_source_sites);
+    try std.testing.expectEqual(@as(usize, 0), Report.effect_row.reinterpreted_source_sites);
+    try std.testing.expectEqual(@as(usize, 0), Report.effect_row.emitted_target_protocol_ops);
+    try std.testing.expectEqual(@as(usize, 1), Report.effect_row.unsupported_source_sites);
+    try std.testing.expectEqual(@as(usize, 1), Report.effect_row.unsupported_morphisms);
+}
+
+test "Program.residualizationReport rejects structured target schema mismatches" {
+    const SourcePayload = struct {
+        amount: i32,
+    };
+    const TargetPayload = struct {
+        approved: bool,
+    };
+    const Body = struct {
+        pub const compiled_plan = structuredPayloadOpPlan(SourcePayload, "residualize-structured-schema-mismatch");
+        pub const value_schema_types = .{SourcePayload};
+    };
+    const Program = ability.program("residualize-structured-schema-mismatch", struct {}, Body);
+    const Source = Program.protocol.operationSite("structured", "structured", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", TargetPayload, void),
+        },
+    });
+    const Schemas = ability.ir.schema.Registry(.{TargetPayload});
+    const Check = Policy.operation("check", .{ .schema_refs = Schemas.schema_refs });
+    try std.testing.expectEqual(Source.payload_ref, Check.payload_ref);
+    try std.testing.expect(Source.Payload != Check.Payload);
+
+    const Morphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const Report = Program.residualizationReport(.{ .morphisms = .{Morphism} });
+    try std.testing.expect(!Report.supported);
+    try std.testing.expectEqual(@as(usize, 1), Report.unsupported.len);
+    try std.testing.expectEqual(Program.ResidualBlockerTag.target_schema_mismatch, Report.unsupported[0].tag);
+}
+
+test "Program.residualize remaps structured target schema ordinals" {
+    const SourcePayload = struct {
+        amount: i32,
+    };
+    const OtherPayload = struct {
+        approved: bool,
+    };
+    const Body = struct {
+        pub const compiled_plan = structuredPayloadOpPlan(SourcePayload, "residualize-structured-schema-remap");
+        pub const value_schema_types = .{SourcePayload};
+    };
+    const Program = ability.program("residualize-structured-schema-remap", struct {}, Body);
+    const Source = Program.protocol.operationSite("structured", "structured", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", SourcePayload, void),
+        },
+    });
+    const Schemas = ability.ir.schema.Registry(.{ OtherPayload, SourcePayload });
+    const Check = Policy.operation("check", .{ .schema_refs = Schemas.schema_refs });
+    try std.testing.expectEqual(@as(?u16, 0), Source.payload_ref.schema_index);
+    try std.testing.expectEqual(@as(?u16, 1), Check.payload_ref.schema_index);
+    try std.testing.expect(Source.Payload == Check.Payload);
+
+    const Morphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const Report = Program.residualizationReport(.{ .morphisms = .{Morphism} });
+    try std.testing.expect(Report.supported);
+
+    const Residual = Program.residualize(.{
+        .label = "residualize-structured-schema-remap-target",
+        .morphisms = .{Morphism},
+    });
+    try Residual.compiled_plan.validate();
+    try std.testing.expectEqual(Source.payload_ref.schema_index, Residual.compiled_plan.ops[Source.op_index].payload_schema_index);
+    const ResidualSite = Residual.protocol.operationSite("policy", "check", 0);
+    try std.testing.expectEqual(Source.payload_ref, ResidualSite.payload_ref);
+}
+
+test "Program.residualizationReport rejects non-transform target modes" {
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "residualize-target-mode-mismatch");
+    };
+    const Program = ability.program("residualize-target-mode-mismatch", struct {}, Body);
+    const Source = Program.protocol.operationSite("session", "decide", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.choice("choose", []const u8, i32),
+        },
+    });
+    const Choose = Policy.operation("choose", .{ .Result = i32 });
+    const Morphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Choose,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const Report = Program.residualizationReport(.{ .morphisms = .{Morphism} });
+    try std.testing.expect(!Report.supported);
+    try std.testing.expectEqual(@as(usize, 1), Report.unsupported.len);
+    try std.testing.expectEqual(Program.ResidualBlockerTag.unsupported_target_mode, Report.unsupported[0].tag);
+
+    const OutputPolicy = ability.ir.schema.Protocol(.{
+        .label = "output_policy",
+        .output_tag = .final_state,
+        .output_type = i32,
+        .ops = .{
+            ability.ir.schema.transform("check", []const u8, i32),
+        },
+    });
+    const OutputCheck = OutputPolicy.operation("check", .{});
+    const OutputMorphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = OutputCheck,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const OutputReport = Program.residualizationReport(.{ .morphisms = .{OutputMorphism} });
+    try std.testing.expect(!OutputReport.supported);
+    try std.testing.expectEqual(@as(usize, 1), OutputReport.unsupported.len);
+    try std.testing.expectEqual(Program.ResidualBlockerTag.output_residualization_unsupported, OutputReport.unsupported[0].tag);
+}
+
+test "Program.residualizationReport rejects late residualize blockers" {
+    const NestedHandlers = struct {
+        observe: struct {},
+    };
+    const NestedBody = struct {
+        pub const compiled_plan = nestedWithOutputCollectionPlan("residualize-nested-output-blocker");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+    };
+    const Program = ability.program("residualize-nested-output-blocker", NestedHandlers, NestedBody);
+    const Source = Program.protocol.operationSite("observe", "dispatch", 0);
+    const Target = ability.ir.schema.Protocol(.{
+        .label = "target",
+        .ops = .{
+            ability.ir.schema.transform("dispatch", void, void),
+        },
+    }).operation("dispatch", .{});
+    const Morphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Target,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const Report = Program.residualizationReport(.{ .morphisms = .{Morphism} });
+    try std.testing.expect(!Report.supported);
+    try std.testing.expectEqual(Program.ResidualBlockerTag.nested_with_residualization_unsupported, Report.unsupported[0].tag);
+    try std.testing.expectEqual(@as(usize, 0), Report.effect_row.eliminated_source_sites);
+    try std.testing.expectEqual(@as(usize, 0), Report.effect_row.reinterpreted_source_sites);
+    try std.testing.expectEqual(@as(usize, 0), Report.effect_row.emitted_target_protocol_ops);
+}
+
+test "Program.residualizationReport rejects global blockers without morphisms" {
+    const EmptyHandlers = struct {};
+    const NestedHandlers = struct {
+        observe: struct {},
+    };
+    const NestedBody = struct {
+        pub const Outputs = []i32;
+        pub const compiled_plan = nestedWithOutputCollectionPlan("residualize-empty-global-blockers");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+
+        pub fn collectOutputs(allocator: std.mem.Allocator, _: *NestedHandlers) !Outputs {
+            const outputs = try allocator.alloc(i32, 1);
+            outputs[0] = 1;
+            return outputs;
+        }
+
+        pub fn deinitOutputs(allocator: std.mem.Allocator, outputs: Outputs) void {
+            allocator.free(outputs);
+        }
+    };
+    const NestedProgram = ability.program("residualize-empty-global-blockers", NestedHandlers, NestedBody);
+    const NestedReport = NestedProgram.residualizationReport(.{ .morphisms = .{} });
+    try std.testing.expect(!NestedReport.supported);
+    try std.testing.expectEqual(@as(usize, 2), NestedReport.unsupported.len);
+    try std.testing.expectEqual(NestedProgram.ResidualBlockerTag.nested_with_residualization_unsupported, NestedReport.unsupported[0].tag);
+    try std.testing.expectEqual(NestedProgram.ResidualBlockerTag.output_residualization_unsupported, NestedReport.unsupported[1].tag);
+    try std.testing.expectEqual(@as(usize, 0), NestedReport.effect_row.eliminated_source_sites);
+    try std.testing.expectEqual(@as(usize, 0), NestedReport.effect_row.unsupported_source_sites);
+    try std.testing.expectEqual(@as(usize, 0), NestedReport.effect_row.unsupported_morphisms);
+
+    const OutputBody = struct {
+        pub const Outputs = []i32;
+        pub const compiled_plan = outputMetadataPlan("residualize-empty-output-blocker");
+
+        pub fn collectOutputs(allocator: std.mem.Allocator, _: *EmptyHandlers) !Outputs {
+            const outputs = try allocator.alloc(i32, 1);
+            outputs[0] = 2;
+            return outputs;
+        }
+
+        pub fn deinitOutputs(allocator: std.mem.Allocator, outputs: Outputs) void {
+            allocator.free(outputs);
+        }
+    };
+    const OutputProgram = ability.program("residualize-empty-output-blocker", EmptyHandlers, OutputBody);
+    const OutputReport = OutputProgram.residualizationReport(.{ .morphisms = .{} });
+    try std.testing.expect(!OutputReport.supported);
+    try std.testing.expectEqual(@as(usize, 1), OutputReport.unsupported.len);
+    try std.testing.expectEqual(OutputProgram.ResidualBlockerTag.output_residualization_unsupported, OutputReport.unsupported[0].tag);
+    try std.testing.expectEqual(@as(usize, 0), OutputReport.effect_row.eliminated_source_sites);
+    try std.testing.expectEqual(@as(usize, 0), OutputReport.effect_row.unsupported_source_sites);
+    try std.testing.expectEqual(@as(usize, 0), OutputReport.effect_row.unsupported_morphisms);
+
+    const HostOutputBody = struct {
+        pub const Outputs = []i32;
+        pub const compiled_plan = voidReturnPlan("residualize-empty-host-output-blocker");
+
+        pub fn collectOutputs(allocator: std.mem.Allocator, _: *EmptyHandlers) !Outputs {
+            const outputs = try allocator.alloc(i32, 1);
+            outputs[0] = 3;
+            return outputs;
+        }
+
+        pub fn deinitOutputs(allocator: std.mem.Allocator, outputs: Outputs) void {
+            allocator.free(outputs);
+        }
+    };
+    const HostOutputProgram = ability.program("residualize-empty-host-output-blocker", EmptyHandlers, HostOutputBody);
+    const HostOutputReport = HostOutputProgram.residualizationReport(.{ .morphisms = .{} });
+    try std.testing.expect(!HostOutputReport.supported);
+    try std.testing.expectEqual(@as(usize, 1), HostOutputReport.unsupported.len);
+    try std.testing.expectEqual(HostOutputProgram.ResidualBlockerTag.output_residualization_unsupported, HostOutputReport.unsupported[0].tag);
+    try std.testing.expectEqual(@as(usize, 0), HostOutputReport.effect_row.unsupported_morphisms);
+}
+
 test "Program.ProtocolRequest frees earlier structured payload fields after clone failure" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -4678,7 +5382,7 @@ test "Program.Interpreter returns and handles reinterpreted protocol requests" {
     };
     const Program = ability.program("interpreter-reinterpret", struct {}, Body);
     try std.testing.expectEqual(@as(u32, 2), Program.Session.Trace.fingerprint_version);
-    try std.testing.expectEqual(@as(u32, 1), Program.reinterpret_fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 2), Program.reinterpret_fingerprint_version);
     const Source = Program.protocol.operationSite("session", "decide", 0);
     const Policy = ability.ir.schema.Protocol(.{
         .label = "policy",
@@ -8268,6 +8972,57 @@ fn sessionStringOpPlan(comptime mode: ability.ir.PlanControlMode, comptime label
         .ops = &ops,
         .outputs = &.{},
         .locals = &.{ .{ .codec = .string }, .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn parameterizedSessionStringOpPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const resumed = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .i32,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "decide",
+        .mode = .transform,
+        .payload_codec = .string,
+        .resume_codec = .i32,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 102,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string }, .{ .codec = .i32 } },
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,

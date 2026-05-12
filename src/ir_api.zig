@@ -1329,6 +1329,146 @@ pub const value = struct {
     }
 };
 
+// zlinter-disable field_ordering - expression descriptor order follows mapping ergonomics, not alphabetical tags.
+/// Restricted typed value-mapping descriptors for residualizable plan morphisms.
+///
+/// These descriptors are metadata for plan-level rewrites, not a source
+/// language. Unsupported shapes are represented explicitly so residualization
+/// can fail closed before constructing a ProgramPlan.
+pub const expr = struct {
+    pub const Kind = enum {
+        identity,
+        payload,
+        unit,
+        const_string,
+        const_i32,
+        const_usize,
+        field,
+        variant,
+        product,
+        sum,
+        unsupported,
+    };
+
+    pub const Expr = struct {
+        kind: Kind,
+        value_ref: ?program_plan.ValueRef = null,
+        name: []const u8 = "",
+        string_value: []const u8 = "",
+        i32_value: i32 = 0,
+        usize_value: usize = 0,
+        variant_ordinal: u16 = 0,
+
+        pub fn fingerprint(comptime self: @This()) u64 {
+            var hasher = standard.hash.Wyhash.init(0);
+            hashBytes(&hasher, "ability.ir.expr");
+            hashBytes(&hasher, @tagName(self.kind));
+            hashOptionalValueRef(&hasher, self.value_ref);
+            hashBytes(&hasher, self.name);
+            hashBytes(&hasher, self.string_value);
+            hashI32(&hasher, self.i32_value);
+            hashUsize(&hasher, self.usize_value);
+            hashU16(&hasher, self.variant_ordinal);
+            return hasher.final();
+        }
+    };
+
+    pub fn identity() Expr {
+        return .{ .kind = .identity };
+    }
+
+    pub fn payload() Expr {
+        return .{ .kind = .payload };
+    }
+
+    pub fn unit() Expr {
+        return .{ .kind = .unit, .value_ref = .{ .codec = .unit } };
+    }
+
+    pub fn constString(comptime literal: []const u8) Expr {
+        return .{ .kind = .const_string, .value_ref = .{ .codec = .string }, .string_value = literal };
+    }
+
+    pub fn constI32(comptime literal: i32) Expr {
+        return .{ .kind = .const_i32, .value_ref = .{ .codec = .i32 }, .i32_value = literal };
+    }
+
+    pub fn constUsize(comptime literal: usize) Expr {
+        return .{ .kind = .const_usize, .value_ref = .{ .codec = .usize }, .usize_value = literal };
+    }
+
+    pub fn field(comptime name: []const u8) Expr {
+        return .{ .kind = .field, .name = name };
+    }
+
+    pub fn variant(comptime name: []const u8) Expr {
+        return .{ .kind = .variant, .name = name };
+    }
+
+    pub fn variantOrdinal(comptime ordinal: u16) Expr {
+        return .{ .kind = .variant, .variant_ordinal = ordinal };
+    }
+
+    pub fn product(comptime ref_value: program_plan.ValueRef) Expr {
+        return .{ .kind = .product, .value_ref = ref_value };
+    }
+
+    pub fn sum(comptime ref_value: program_plan.ValueRef, comptime variant_name: []const u8) Expr {
+        return .{ .kind = .sum, .value_ref = ref_value, .name = variant_name };
+    }
+
+    pub fn unsupported(comptime name: []const u8) Expr {
+        return .{ .kind = .unsupported, .name = name };
+    }
+
+    fn hashBytes(hasher: *standard.hash.Wyhash, bytes: []const u8) void {
+        hashUsize(hasher, bytes.len);
+        hasher.update(bytes);
+    }
+
+    fn hashOptionalValueRef(hasher: *standard.hash.Wyhash, maybe_ref: ?program_plan.ValueRef) void {
+        hasher.update(&[_]u8{@intFromBool(maybe_ref != null)});
+        if (maybe_ref) |ref_value| {
+            hashBytes(hasher, @tagName(ref_value.codec));
+            hasher.update(&[_]u8{@intFromBool(ref_value.schema_index != null)});
+            if (ref_value.schema_index) |schema_index| hashU16(hasher, schema_index);
+        }
+    }
+
+    fn hashI32(hasher: *standard.hash.Wyhash, scalar: i32) void {
+        var bytes: [4]u8 = undefined;
+        standard.mem.writeInt(i32, &bytes, scalar, .little);
+        hasher.update(&bytes);
+    }
+
+    fn hashU16(hasher: *standard.hash.Wyhash, scalar: u16) void {
+        var bytes: [2]u8 = undefined;
+        standard.mem.writeInt(u16, &bytes, scalar, .little);
+        hasher.update(&bytes);
+    }
+
+    fn hashUsize(hasher: *standard.hash.Wyhash, scalar: usize) void {
+        var bytes: [8]u8 = undefined;
+        standard.mem.writeInt(u64, &bytes, @intCast(scalar), .little);
+        hasher.update(&bytes);
+    }
+};
+// zlinter-enable field_ordering
+
+test "expression fingerprints length-prefix string fields" {
+    const left = expr.Expr{
+        .kind = .unsupported,
+        .name = "a",
+        .string_value = "\x00b",
+    };
+    const right = expr.Expr{
+        .kind = .unsupported,
+        .name = "a\x00",
+        .string_value = "b",
+    };
+    try standard.testing.expect(left.fingerprint() != right.fingerprint());
+}
+
 /// Schema-first helpers that lower effect binding metadata into ProgramPlan rows.
 pub const schema = struct {
     /// Build one explicit ProgramPlan schema-index map entry.
@@ -1502,6 +1642,7 @@ pub const schema = struct {
 
             /// Return a typed protocol-level operation descriptor independent of any Program call site.
             pub fn operation(comptime name: []const u8, comptime options: anytype) type {
+                @setEvalBranchQuota(10_000);
                 const OptionsType = @TypeOf(options);
                 const schema_refs = comptime if (@hasField(OptionsType, "schema_refs")) options.schema_refs else schema.SchemaRefs(.{});
                 const ResultType: type = comptime if (@hasField(OptionsType, "Result")) options.Result else void;
@@ -1514,11 +1655,15 @@ pub const schema = struct {
                         const payload_ref_value = comptime protocolRefForType(OpSchema.Payload, "payload", schema_refs);
                         const resume_ref_value = comptime protocolRefForType(OpSchema.Resume, "resume", schema_refs);
                         const result_ref_value = comptime protocolRefForType(ResultType, "result", schema_refs);
+                        const protocol_lifecycle_tag_value = comptime requirementLifecycleFromSchema(FamilySchema);
+                        const protocol_output_tag_value = comptime requirementOutputFromSchema(FamilySchema);
                         const descriptor_fingerprint = comptime protocolOperationFingerprint(
                             protocol_family_label,
                             OpSchema.name,
                             @intCast(ordinal),
                             op_mode_value,
+                            protocol_lifecycle_tag_value,
+                            protocol_output_tag_value,
                             OpSchema.Payload,
                             payload_ref_value,
                             OpSchema.Resume,
@@ -1531,6 +1676,8 @@ pub const schema = struct {
                             pub const kind = .protocol_operation;
                             pub const protocol_label: [:0]const u8 = descriptor_protocol_label;
                             pub const protocol = descriptor_protocol_label;
+                            pub const protocol_lifecycle_tag = protocol_lifecycle_tag_value;
+                            pub const protocol_output_tag = protocol_output_tag_value;
                             pub const op_name: [:0]const u8 = OpSchema.name;
                             pub const op_ordinal: u16 = @intCast(ordinal);
                             pub const mode = op_mode_value;
@@ -1931,6 +2078,8 @@ pub const schema = struct {
         comptime op_name: []const u8,
         comptime op_ordinal: u16,
         comptime mode: program_plan.ControlMode,
+        comptime lifecycle_tag: @TypeOf(@as(program_plan.RequirementPlan, undefined).lifecycle_tag),
+        comptime output_tag: @TypeOf(@as(program_plan.RequirementPlan, undefined).output_tag),
         comptime Payload: type,
         comptime payload_ref: program_plan.ValueRef,
         comptime Resume: type,
@@ -1945,6 +2094,8 @@ pub const schema = struct {
         protocolHashBytes(&hasher, op_name);
         protocolHashU16(&hasher, op_ordinal);
         protocolHashBytes(&hasher, @tagName(mode));
+        protocolHashBytes(&hasher, @tagName(lifecycle_tag));
+        protocolHashBytes(&hasher, @tagName(output_tag));
         protocolHashTypeIdentity(&hasher, Payload);
         protocolHashValueRef(&hasher, payload_ref);
         protocolHashTypeIdentity(&hasher, Resume);
@@ -2606,6 +2757,21 @@ test "schema Protocol exposes protocol-level operation descriptors" {
             schema.transform("check", AlternateRequest, PolicyDecision),
         },
     });
+    const PlainPolicy = schema.Protocol(.{
+        .label = "policy",
+        .lifecycle_tag = .plain_transform,
+        .ops = .{
+            schema.transform("check", PolicyRequest, PolicyDecision),
+        },
+    });
+    const OutputPolicy = schema.Protocol(.{
+        .label = "policy",
+        .output_tag = .final_state,
+        .output_type = i32,
+        .ops = .{
+            schema.transform("check", PolicyRequest, PolicyDecision),
+        },
+    });
     const Schemas = schema.Registry(.{ PolicyRequest, PolicyDecision });
     const AlternateSchemas = schema.Registry(.{ AlternateRequest, PolicyDecision });
     const ResultSchemas = schema.Registry(.{ PolicyRequest, PolicyDecision, ResultNote });
@@ -2613,6 +2779,8 @@ test "schema Protocol exposes protocol-level operation descriptors" {
 
     const Check = Policy.operation("check", .{ .schema_refs = Schemas.schema_refs });
     const AlternateCheck = AlternatePolicy.operation("check", .{ .schema_refs = AlternateSchemas.schema_refs });
+    const PlainCheck = PlainPolicy.operation("check", .{ .schema_refs = Schemas.schema_refs });
+    const OutputCheck = OutputPolicy.operation("check", .{ .schema_refs = Schemas.schema_refs });
     const Decide = Policy.op("decide", .{
         .schema_refs = Schemas.schema_refs,
         .Result = []const u8,
@@ -2648,6 +2816,8 @@ test "schema Protocol exposes protocol-level operation descriptors" {
     try standard.testing.expect(!Check.may_return_now);
     try standard.testing.expectEqual(Check.fingerprint, CheckAgain.fingerprint);
     try standard.testing.expect(Check.fingerprint != AlternateCheck.fingerprint);
+    try standard.testing.expect(Check.fingerprint != PlainCheck.fingerprint);
+    try standard.testing.expect(Check.fingerprint != OutputCheck.fingerprint);
 
     try standard.testing.expectEqual(program_plan.ControlMode.choice, Decide.mode);
     try standard.testing.expectEqual(program_plan.ValueCodec.string, Decide.result_ref.codec);

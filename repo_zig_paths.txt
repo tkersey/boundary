@@ -18,6 +18,7 @@ examples/plan_native_resource.zig
 examples/plan_native_state_reader.zig
 examples/plan_native_writer.zig
 examples/protocol_reinterpretation.zig
+examples/residualized_approval_policy.zig
 examples/state_basic.zig
 examples/typed_program_plan.zig
 src/ability_shared.zig

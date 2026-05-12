@@ -407,7 +407,62 @@ and response traces before applying typed resume, return-now, or resume-after
 outcomes. The fingerprints are the existing session fingerprints. The trace
 fingerprint version remains 2; request, response, site, value, and continuation
 fingerprint contents remain unchanged. Reinterpretation uses a separate
-`Program.reinterpret_fingerprint_version` for the reinterpreted request witness.
+`Program.reinterpret_fingerprint_version == 2` for the reinterpreted request
+witness.
+
+## Residualization
+
+Dynamic reinterpretation and static residualization are two views of the same
+effect algebra. Dynamic reinterpretation parks a source continuation and handles
+the target protocol request at interpreter time. Residualization compiles a
+declarative subset of those protocol morphisms into a new ordinary
+`ProgramPlan`, so a host can run or step the residual program directly.
+
+`Program.ResidualMorphism(.{ ... })` accepts a source `Program.protocol`
+operation-site descriptor, a target `ability.ir.schema.Protocol.operation`
+descriptor, a restricted payload mapping expression from `ability.ir.expr`, a
+response mapping descriptor, a disposition, and an optional mapping label. The
+first compiled shape is intentionally narrow: identity or payload passthrough
+payload mappings and identity resume response mappings are compiled by replacing
+the source operation row with the target transform operation row. Constant,
+field, variant, product, sum, and branch descriptors are represented for
+fail-closed reporting, but unsupported plan rewrites block before a residual
+`ProgramPlan` is produced.
+
+```zig
+const ApprovalViaPolicy = ApprovalProgram.ResidualMorphism(.{
+    .source = ApprovalRequest,
+    .target = CheckPolicy,
+    .payload = ability.ir.expr.identity(),
+    .response = ApprovalProgram.ResidualResponse.resumeIdentity(),
+    .label = "approval.request-as-policy.check",
+});
+
+const ResidualProgram = ApprovalProgram.residualize(.{
+    .label = "approval-as-policy",
+    .morphisms = .{ApprovalViaPolicy},
+});
+```
+
+The result is a normal program-shaped type. It exposes `compiled_plan`,
+`contract`, `protocol`, `run`, `Session`, `Handler`, and `Interpreter`, plus
+residual metadata: `effect_row`, `source_map`, `residual_row`, `unsupported`,
+`residualization_fingerprint`, `residualForSourceSite`,
+`sourceForResidualSite`, and `mapResidualTrace`. The residual effect row reports
+eliminated source sites, reinterpreted source sites, emitted target protocol
+ops, residual operation sites, and unsupported morphisms. Source/residual trace
+correspondence is separate from request fingerprints: the trace fingerprint
+version remains 2, reinterpretation fingerprint version remains 2, and
+residualization introduces `Program.residual_fingerprint_version == 1`.
+
+Residualization emits ordinary `ProgramPlan` rows: requirements, ops, value
+schemas, locals, blocks, terminators, instructions, and site metadata remain the
+same runtime data that `Program.run` and `Program.Session` already execute.
+There is no parser, broad source language, public VM API, Artifact API, async
+runtime, network integration, persistence backend, serializable request token,
+cross-thread session, or required trace serialization format. Arbitrary Zig
+handlers and closures remain interpreter-only; only declarative plan-level
+morphisms can be residualized.
 
 ## Program.Session
 
