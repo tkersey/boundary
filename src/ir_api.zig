@@ -1422,8 +1422,8 @@ pub const expr = struct {
     }
 
     fn hashBytes(hasher: *standard.hash.Wyhash, bytes: []const u8) void {
+        hashUsize(hasher, bytes.len);
         hasher.update(bytes);
-        hasher.update(&[_]u8{0});
     }
 
     fn hashOptionalValueRef(hasher: *standard.hash.Wyhash, maybe_ref: ?program_plan.ValueRef) void {
@@ -1454,6 +1454,20 @@ pub const expr = struct {
     }
 };
 // zlinter-enable field_ordering
+
+test "expression fingerprints length-prefix string fields" {
+    const left = expr.Expr{
+        .kind = .unsupported,
+        .name = "a",
+        .string_value = "\x00b",
+    };
+    const right = expr.Expr{
+        .kind = .unsupported,
+        .name = "a\x00",
+        .string_value = "b",
+    };
+    try standard.testing.expect(left.fingerprint() != right.fingerprint());
+}
 
 /// Schema-first helpers that lower effect binding metadata into ProgramPlan rows.
 pub const schema = struct {

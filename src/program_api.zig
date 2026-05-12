@@ -2564,15 +2564,27 @@ pub fn program(
             return label ++ ".residual";
         }
 
-        fn residualTargetOpPlan(comptime requirement_index: u16, comptime TargetOp: type) plan_types.OpPlan {
+        fn residualTargetValueRef(
+            comptime source_ref: lowering_api.ValueRef,
+            comptime target_ref: lowering_api.ValueRef,
+        ) lowering_api.ValueRef {
+            return switch (target_ref.codec) {
+                .product, .sum => .{ .codec = target_ref.codec, .schema_index = source_ref.schema_index },
+                else => target_ref,
+            };
+        }
+
+        fn residualTargetOpPlan(comptime requirement_index: u16, comptime SourceSite: type, comptime TargetOp: type) plan_types.OpPlan {
+            const payload_ref = residualTargetValueRef(SourceSite.payload_ref, TargetOp.payload_ref);
+            const resume_ref = residualTargetValueRef(SourceSite.resume_ref, TargetOp.resume_ref);
             return .{
                 .requirement_index = requirement_index,
                 .op_name = TargetOp.op_name,
                 .mode = TargetOp.op_mode,
-                .payload_codec = TargetOp.payload_ref.codec,
-                .payload_schema_index = TargetOp.payload_ref.schema_index,
-                .resume_codec = TargetOp.resume_ref.codec,
-                .resume_schema_index = TargetOp.resume_ref.schema_index,
+                .payload_codec = payload_ref.codec,
+                .payload_schema_index = payload_ref.schema_index,
+                .resume_codec = resume_ref.codec,
+                .resume_schema_index = resume_ref.schema_index,
                 .has_after = false,
             };
         }
@@ -2600,10 +2612,10 @@ pub fn program(
             comptime TargetValue: type,
             comptime target_ref: lowering_api.ValueRef,
         ) bool {
-            if (!source_ref.eql(target_ref)) return false;
+            if (source_ref.codec != target_ref.codec) return false;
             return switch (source_ref.codec) {
-                .product, .sum => SourceValue == TargetValue,
-                else => true,
+                .product, .sum => source_ref.schema_index != null and target_ref.schema_index != null and SourceValue == TargetValue,
+                else => source_ref.eql(target_ref),
             };
         }
 
@@ -2652,7 +2664,7 @@ pub fn program(
                     .lifecycle_tag = .plain_transform,
                     .output_tag = .none,
                 };
-                op_table[Descriptor.source.op_index] = residualTargetOpPlan(Descriptor.source.requirement_index, Descriptor.target);
+                op_table[Descriptor.source.op_index] = residualTargetOpPlan(Descriptor.source.requirement_index, Descriptor.source, Descriptor.target);
             }
             const final_requirements = requirement_table;
             const final_ops = op_table;

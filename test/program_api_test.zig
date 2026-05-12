@@ -5013,6 +5013,50 @@ test "Program.residualizationReport rejects structured target schema mismatches"
     try std.testing.expectEqual(Program.ResidualBlockerTag.target_schema_mismatch, Report.unsupported[0].tag);
 }
 
+test "Program.residualize remaps structured target schema ordinals" {
+    const SourcePayload = struct {
+        amount: i32,
+    };
+    const OtherPayload = struct {
+        approved: bool,
+    };
+    const Body = struct {
+        pub const compiled_plan = structuredPayloadOpPlan(SourcePayload, "residualize-structured-schema-remap");
+        pub const value_schema_types = .{SourcePayload};
+    };
+    const Program = ability.program("residualize-structured-schema-remap", struct {}, Body);
+    const Source = Program.protocol.operationSite("structured", "structured", 0);
+    const Policy = ability.ir.schema.Protocol(.{
+        .label = "policy",
+        .ops = .{
+            ability.ir.schema.transform("check", SourcePayload, void),
+        },
+    });
+    const Schemas = ability.ir.schema.Registry(.{ OtherPayload, SourcePayload });
+    const Check = Policy.operation("check", .{ .schema_refs = Schemas.schema_refs });
+    try std.testing.expectEqual(@as(?u16, 0), Source.payload_ref.schema_index);
+    try std.testing.expectEqual(@as(?u16, 1), Check.payload_ref.schema_index);
+    try std.testing.expect(Source.Payload == Check.Payload);
+
+    const Morphism = Program.ResidualMorphism(.{
+        .source = Source,
+        .target = Check,
+        .payload = ability.ir.expr.identity(),
+        .response = Program.ResidualResponse.resumeIdentity(),
+    });
+    const Report = Program.residualizationReport(.{ .morphisms = .{Morphism} });
+    try std.testing.expect(Report.supported);
+
+    const Residual = Program.residualize(.{
+        .label = "residualize-structured-schema-remap-target",
+        .morphisms = .{Morphism},
+    });
+    try Residual.compiled_plan.validate();
+    try std.testing.expectEqual(Source.payload_ref.schema_index, Residual.compiled_plan.ops[Source.op_index].payload_schema_index);
+    const ResidualSite = Residual.protocol.operationSite("policy", "check", 0);
+    try std.testing.expectEqual(Source.payload_ref, ResidualSite.payload_ref);
+}
+
 test "Program.residualizationReport rejects non-transform target modes" {
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "residualize-target-mode-mismatch");
