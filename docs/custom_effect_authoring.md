@@ -227,12 +227,13 @@ it like any other plan:
   identity/payload passthrough payload mappings and identity resume responses;
   unsupported expression shapes fail closed in residualization metadata or at
   compile time before a residual plan is emitted.
-- `Program.Pipeline` plans across residual morphisms, dynamic handler entries,
-  protocol-operation handlers, goals, and route strategy. A pipeline exposes a
-  residual Program, `Pipeline.Interpreter(...)` adapters, effect-row metadata,
-  structured blockers, a proof certificate, and deterministic
-  source/residual/target trace correspondence. `Program.pipelineReport` keeps
-  blockers inspectable when the caller is not demanding full success.
+- `Program.Pipeline` plans across residual morphisms and residual-effect goals.
+  A pipeline exposes a residual Program, `Pipeline.Interpreter(...)` adapters,
+  effect-row metadata, structured blockers, a proof certificate, and
+  deterministic source/residual/target trace correspondence.
+  `Program.pipelineReport` keeps blockers inspectable when the caller is not
+  demanding full success. Residual handlers are passed to
+  `Pipeline.Interpreter(...)` explicitly.
 - Optional semantic site labels appear on static yield/after sites,
   `Program.protocol` descriptors, dynamic request traces, and after traces when
   the body exposes `site_metadata`.
@@ -291,8 +292,8 @@ manually.
    `Program.Interpreter`.
 10. Use `Program.ResidualMorphism` plus `Program.residualize` when the morphism
     is declarative enough to compile into a residual ProgramPlan.
-11. Use `Program.Pipeline` when residualization, dynamic interpretation, goals,
-    blockers, and trace correspondence should be planned and certified together.
+11. Use `Program.Pipeline` when residualization, goals, blockers, and trace
+    correspondence should be planned and certified together.
 12. Inspect effect rows, source maps, trace maps, certificates, capsules, and
     fingerprints.
 

@@ -241,16 +241,16 @@ the defunctionalized kernel: it is not a parser, source language, public VM,
 Artifact API, async runtime, persistence layer, or trace serialization format.
 Arbitrary Zig handlers and closures remain interpreter-only.
 
-`Program.Pipeline` composes the same pieces into a proof-carrying effect
-pipeline. A pipeline catalog can list declarative residual morphisms, dynamic
-handler/interpreter entries, a static residual-effect goal, and a strategy such
-as `.prefer_residualization`. `Program.pipelineReport` is inspectable without
+`Program.Pipeline` composes the same pieces into a proof-carrying residual
+effect pipeline. A pipeline catalog lists declarative residual morphisms and a
+static residual-effect goal. `Program.pipelineReport` is inspectable without
 compiling a residual plan; it reports route witnesses, effect-row metadata, and
-structured blockers such as missing handlers, duplicate handlers, unsupported
-residualization shapes, schema mismatches, and unsatisfied goals. A successful
+structured blockers such as missing handlers, unsupported residualization
+shapes, schema mismatches, and unsatisfied goals. A successful
 `Program.Pipeline` exposes `Residual`, `Interpreter(...)`, `certificate`,
 `effect_row`, `pipeline_fingerprint_version == 1`, and source/residual/target
 trace mapping helpers. It does not change `Program.run` or `Program.Session`;
+callers pass residual handlers to `Pipeline.Interpreter(...)` explicitly, and
 manual interpreters, capsules, morphisms, and residualization remain available.
 
 See [docs/program_plan.md](docs/program_plan.md) for semantic program
