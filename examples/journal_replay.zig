@@ -99,6 +99,7 @@ pub fn run(writer: anytype) !void {
     defer replay_session.deinit();
     _ = try replay_session.next();
     var replayer = decoded.replayer();
+    defer replayer.deinit();
     const replay_value = try replayer.expectCurrentValue(try replay_session.current(), i32);
     try replay_session.resumeTyped(try (try replay_session.current()).request.as(ScoreSite), replay_value);
     var replay_result = switch (try replay_session.next()) {
@@ -107,6 +108,7 @@ pub fn run(writer: anytype) !void {
         .after => return error.UnexpectedAfter,
     };
     defer replay_result.deinit();
+    try replayer.expectDone(response_trace.response_value_fingerprint);
 
     try writer.print("journal_fingerprint={x}\n", .{try decoded.fingerprint()});
     try writer.print("recorded_result={d}\n", .{result.value});

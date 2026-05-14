@@ -4306,6 +4306,10 @@ pub fn ExecutableSessionForPlan(
                 return self.index == self.bytes.len;
             }
 
+            fn remaining(self: @This()) usize {
+                return self.bytes.len - self.index;
+            }
+
             fn readBytes(self: *@This(), len: usize) error{ProgramContractViolation}![]const u8 {
                 const end = std.math.add(usize, self.index, len) catch return error.ProgramContractViolation;
                 if (end > self.bytes.len) return error.ProgramContractViolation;
@@ -4435,6 +4439,113 @@ pub fn ExecutableSessionForPlan(
             };
         }
 
+        const DurableValueImageContext = struct {
+            allocator: std.mem.Allocator,
+            strings: std.ArrayList([]const u8) = .empty,
+            string_lists: std.ArrayList([]const []const u8) = .empty,
+
+            fn init(allocator: std.mem.Allocator) @This() {
+                return .{ .allocator = allocator };
+            }
+
+            fn deinit(self: *@This()) void {
+                self.strings.deinit(self.allocator);
+                self.string_lists.deinit(self.allocator);
+            }
+
+            fn stringIndex(self: *const @This(), value: []const u8) ?usize {
+                for (self.strings.items, 0..) |existing, index| {
+                    if (existing.ptr == value.ptr and existing.len == value.len) return index;
+                }
+                return null;
+            }
+
+            fn stringListIndex(self: *const @This(), value: []const []const u8) ?usize {
+                for (self.string_lists.items, 0..) |existing, index| {
+                    if (existing.ptr == value.ptr and existing.len == value.len) return index;
+                }
+                return null;
+            }
+        };
+
+        fn writeImageString(
+            writer: *DurableWriter,
+            context: *DurableValueImageContext,
+            value: []const u8,
+        ) std.mem.Allocator.Error!void {
+            if (context.stringIndex(value)) |index| {
+                try writer.writeU8(1);
+                try writer.writeUsize(index);
+                return;
+            }
+            try writer.writeU8(0);
+            try context.strings.append(context.allocator, value);
+            try writer.writeLenBytes(value);
+        }
+
+        fn readImageString(
+            reader: *DurableReader,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            context: *DurableValueImageContext,
+        ) anyerror![]const u8 {
+            return switch (try reader.readU8()) {
+                0 => blk: {
+                    const value = try scratch.storeOwnedString(try reader.readLenBytes());
+                    try context.strings.append(context.allocator, value);
+                    break :blk value;
+                },
+                1 => blk: {
+                    const index = try reader.readUsize();
+                    if (index >= context.strings.items.len) return error.ProgramContractViolation;
+                    break :blk context.strings.items[index];
+                },
+                else => error.ProgramContractViolation,
+            };
+        }
+
+        fn writeImageStringList(
+            writer: *DurableWriter,
+            context: *DurableValueImageContext,
+            value: []const []const u8,
+        ) anyerror!void {
+            if (context.stringListIndex(value)) |index| {
+                try writer.writeU8(1);
+                try writer.writeUsize(index);
+                return;
+            }
+            try writer.writeU8(0);
+            try context.string_lists.append(context.allocator, value);
+            try writer.writeUsize(value.len);
+            for (value) |item| try writeImageString(writer, context, item);
+        }
+
+        fn readImageStringList(
+            reader: *DurableReader,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            context: *DurableValueImageContext,
+        ) anyerror![]const []const u8 {
+            return switch (try reader.readU8()) {
+                0 => blk: {
+                    const count = try reader.readUsize();
+                    if (count > reader.remaining() / 8) return error.ProgramContractViolation;
+                    const items = try scratch.allocator.alloc([]const u8, count);
+                    var items_owned = false;
+                    errdefer if (!items_owned) scratch.allocator.free(items);
+                    for (items) |*item| item.* = try readImageString(reader, scratch, context);
+                    try context.string_lists.append(context.allocator, items);
+                    try scratch.owned_string_lists.append(scratch.allocator, items);
+                    items_owned = true;
+                    break :blk items;
+                },
+                1 => blk: {
+                    const index = try reader.readUsize();
+                    if (index >= context.string_lists.items.len) return error.ProgramContractViolation;
+                    break :blk context.string_lists.items[index];
+                },
+                else => error.ProgramContractViolation,
+            };
+        }
+
         fn writeCapsuleMetadata(writer: *DurableWriter, metadata: CapsuleMetadata) std.mem.Allocator.Error!void {
             try writer.writeU32(metadata.version);
             try writer.writeU32(metadata.continuation_fingerprint_version);
@@ -4510,6 +4621,7 @@ pub fn ExecutableSessionForPlan(
 
         fn writeTypedValue(
             writer: *DurableWriter,
+            context: *DurableValueImageContext,
             comptime ref: program_plan.ValueRef,
             value: anytype,
         ) anyerror!void {
@@ -4519,18 +4631,16 @@ pub fn ExecutableSessionForPlan(
                 .bool => try writer.writeBool(value),
                 .i32 => try writer.writeI32(value),
                 .usize => try writer.writeUsize(value),
-                .string => try writer.writeLenBytes(value),
-                .string_list => {
-                    try writer.writeUsize(value.len);
-                    for (value) |item| try writer.writeLenBytes(item);
-                },
-                .product => try writeProductValue(writer, ref.schema_index orelse return error.ProgramContractViolation, @TypeOf(value), value),
-                .sum => try writeSumValue(writer, ref.schema_index orelse return error.ProgramContractViolation, @TypeOf(value), value),
+                .string => try writeImageString(writer, context, value),
+                .string_list => try writeImageStringList(writer, context, value),
+                .product => try writeProductValue(writer, context, ref.schema_index orelse return error.ProgramContractViolation, @TypeOf(value), value),
+                .sum => try writeSumValue(writer, context, ref.schema_index orelse return error.ProgramContractViolation, @TypeOf(value), value),
             }
         }
 
         fn writeProductValue(
             writer: *DurableWriter,
+            context: *DurableValueImageContext,
             comptime schema_index: usize,
             comptime T: type,
             value: T,
@@ -4548,12 +4658,13 @@ pub fn ExecutableSessionForPlan(
                 const field_ref: program_plan.ValueRef = .{ .codec = field.codec, .schema_index = field.schema_index };
                 try writer.writeLenBytes(field.name);
                 try writeValueRef(writer, field_ref);
-                try writeTypedValue(writer, field_ref, @as(FieldType, @field(value, field.name)));
+                try writeTypedValue(writer, context, field_ref, @as(FieldType, @field(value, field.name)));
             }
         }
 
         fn writeSumValue(
             writer: *DurableWriter,
+            context: *DurableValueImageContext,
             comptime schema_index: usize,
             comptime T: type,
             value: T,
@@ -4566,37 +4677,44 @@ pub fn ExecutableSessionForPlan(
             try writer.writeU16(schema.first_variant);
             try writer.writeU16(schema.variant_count);
             try writer.writeU16(active);
-            const variant = compiled_plan.value_variants[@as(usize, schema.first_variant) + active];
-            const variant_ref: program_plan.ValueRef = .{ .codec = variant.codec, .schema_index = variant.schema_index };
-            try writer.writeLenBytes(variant.name);
-            try writeValueRef(writer, variant_ref);
-            switch (@typeInfo(T)) {
-                .@"enum" => try writeTypedValue(writer, variant_ref, {}),
-                .optional => {
-                    if (active == 0) try writeTypedValue(writer, variant_ref, {}) else try writeTypedValue(writer, variant_ref, value.?);
-                },
-                .@"union" => |union_info| {
-                    const Tag = union_info.tag_type orelse return error.ProgramContractViolation;
-                    const tag = std.meta.activeTag(value);
-                    inline for (union_info.fields, 0..) |field, field_index| {
-                        if (active == field_index and tag == @field(Tag, field.name)) {
-                            if (field.type == void) {
-                                try writeTypedValue(writer, variant_ref, {});
-                            } else {
-                                try writeTypedValue(writer, variant_ref, @field(value, field.name));
+            inline for (0..schema.variant_count) |variant_offset| {
+                if (active == variant_offset) {
+                    const variant = compiled_plan.value_variants[@as(usize, schema.first_variant) + variant_offset];
+                    const variant_ref: program_plan.ValueRef = comptime .{ .codec = variant.codec, .schema_index = variant.schema_index };
+                    try writer.writeLenBytes(variant.name);
+                    try writeValueRef(writer, variant_ref);
+                    switch (@typeInfo(T)) {
+                        .@"enum" => try writeTypedValue(writer, context, variant_ref, {}),
+                        .optional => {
+                            if (variant_offset == 0) try writeTypedValue(writer, context, variant_ref, {}) else try writeTypedValue(writer, context, variant_ref, value.?);
+                        },
+                        .@"union" => |union_info| {
+                            const Tag = union_info.tag_type orelse return error.ProgramContractViolation;
+                            const tag = std.meta.activeTag(value);
+                            inline for (union_info.fields, 0..) |field, field_index| {
+                                if (variant_offset == field_index and tag == @field(Tag, field.name)) {
+                                    if (field.type == void) {
+                                        try writeTypedValue(writer, context, variant_ref, {});
+                                    } else {
+                                        try writeTypedValue(writer, context, variant_ref, @field(value, field.name));
+                                    }
+                                    return;
+                                }
                             }
-                            return;
-                        }
+                            return error.ProgramContractViolation;
+                        },
+                        else => return error.ProgramContractViolation,
                     }
-                    return error.ProgramContractViolation;
-                },
-                else => return error.ProgramContractViolation,
+                    return;
+                }
             }
+            return error.ProgramContractViolation;
         }
 
         fn readTypedValue(
             reader: *DurableReader,
             scratch: *InterpreterScratch(session_after_stack_capacity),
+            context: *DurableValueImageContext,
             comptime ref: program_plan.ValueRef,
         ) anyerror!ValueTypeForRef(compiled_plan, schema_types, ref) {
             const T = ValueTypeForRef(compiled_plan, schema_types, ref);
@@ -4605,30 +4723,22 @@ pub fn ExecutableSessionForPlan(
                 .bool => try reader.readBool(),
                 .i32 => try reader.readI32(),
                 .usize => try reader.readUsize(),
-                .string => try scratch.storeOwnedString(try reader.readLenBytes()),
-                .string_list => try readStringList(reader, scratch),
-                .product => try readProductValue(reader, scratch, ref.schema_index orelse return error.ProgramContractViolation, T),
-                .sum => try readSumValue(reader, scratch, ref.schema_index orelse return error.ProgramContractViolation, T),
+                .string => try readImageString(reader, scratch, context),
+                .string_list => blk: {
+                    const items = try readImageStringList(reader, scratch, context);
+                    if (T == []const []const u8) break :blk items;
+                    if (T == [][]const u8) break :blk @constCast(items);
+                    return error.ProgramContractViolation;
+                },
+                .product => try readProductValue(reader, scratch, context, ref.schema_index orelse return error.ProgramContractViolation, T),
+                .sum => try readSumValue(reader, scratch, context, ref.schema_index orelse return error.ProgramContractViolation, T),
             };
-        }
-
-        fn readStringList(
-            reader: *DurableReader,
-            scratch: *InterpreterScratch(session_after_stack_capacity),
-        ) anyerror![]const []const u8 {
-            const count = try reader.readUsize();
-            const items = try scratch.allocator.alloc([]const u8, count);
-            errdefer scratch.allocator.free(items);
-            for (items) |*item| {
-                item.* = try scratch.storeOwnedString(try reader.readLenBytes());
-            }
-            try scratch.owned_string_lists.append(scratch.allocator, items);
-            return items;
         }
 
         fn readProductValue(
             reader: *DurableReader,
             scratch: *InterpreterScratch(session_after_stack_capacity),
+            context: *DurableValueImageContext,
             comptime schema_index: usize,
             comptime T: type,
         ) anyerror!T {
@@ -4643,7 +4753,13 @@ pub fn ExecutableSessionForPlan(
                 if (!std.mem.eql(u8, actual_name, field.name)) return error.ProgramContractViolation;
                 const field_ref: program_plan.ValueRef = .{ .codec = field.codec, .schema_index = field.schema_index };
                 if (!(try readValueRef(reader)).eql(field_ref)) return error.ProgramContractViolation;
-                @field(value, field.name) = try readTypedValue(reader, scratch, field_ref);
+                const decoded_field = try readTypedValue(reader, scratch, context, field_ref);
+                const struct_field = std.meta.fields(T)[field_offset];
+                if (comptime field.codec == .string_list and struct_field.type == [][]const u8) {
+                    @field(value, field.name) = @constCast(decoded_field);
+                } else {
+                    @field(value, field.name) = decoded_field;
+                }
             }
             return value;
         }
@@ -4651,6 +4767,7 @@ pub fn ExecutableSessionForPlan(
         fn readSumValue(
             reader: *DurableReader,
             scratch: *InterpreterScratch(session_after_stack_capacity),
+            context: *DurableValueImageContext,
             comptime schema_index: usize,
             comptime T: type,
         ) anyerror!T {
@@ -4660,41 +4777,57 @@ pub fn ExecutableSessionForPlan(
             if (try reader.readU16() != schema.variant_count) return error.ProgramContractViolation;
             const active = try reader.readU16();
             if (active >= schema.variant_count) return error.ProgramContractViolation;
-            const variant = compiled_plan.value_variants[@as(usize, schema.first_variant) + active];
-            const actual_name = try reader.readLenBytes();
-            if (!std.mem.eql(u8, actual_name, variant.name)) return error.ProgramContractViolation;
-            const variant_ref: program_plan.ValueRef = .{ .codec = variant.codec, .schema_index = variant.schema_index };
-            if (!(try readValueRef(reader)).eql(variant_ref)) return error.ProgramContractViolation;
-            return switch (@typeInfo(T)) {
-                .@"enum" => blk: {
-                    _ = try readTypedValue(reader, scratch, variant_ref);
-                    inline for (std.meta.fields(T), 0..) |field, field_index| {
-                        if (active == field_index) break :blk @field(T, field.name);
-                    }
-                    return error.ProgramContractViolation;
-                },
-                .optional => if (active == 0) blk: {
-                    _ = try readTypedValue(reader, scratch, variant_ref);
-                    break :blk null;
-                } else try readTypedValue(reader, scratch, variant_ref),
-                .@"union" => |union_info| blk: {
-                    inline for (union_info.fields, 0..) |field, field_index| {
-                        if (active == field_index) {
-                            if (field.type == void) {
-                                _ = try readTypedValue(reader, scratch, variant_ref);
-                                break :blk @unionInit(T, field.name, {});
+            inline for (0..schema.variant_count) |variant_offset| {
+                if (active == variant_offset) {
+                    const variant = compiled_plan.value_variants[@as(usize, schema.first_variant) + variant_offset];
+                    const actual_name = try reader.readLenBytes();
+                    if (!std.mem.eql(u8, actual_name, variant.name)) return error.ProgramContractViolation;
+                    const variant_ref: program_plan.ValueRef = comptime .{ .codec = variant.codec, .schema_index = variant.schema_index };
+                    if (!(try readValueRef(reader)).eql(variant_ref)) return error.ProgramContractViolation;
+                    return switch (@typeInfo(T)) {
+                        .@"enum" => blk: {
+                            _ = try readTypedValue(reader, scratch, context, variant_ref);
+                            inline for (std.meta.fields(T), 0..) |field, field_index| {
+                                if (active == field_index) break :blk @field(T, field.name);
                             }
-                            break :blk @unionInit(T, field.name, try readTypedValue(reader, scratch, variant_ref));
-                        }
-                    }
-                    return error.ProgramContractViolation;
-                },
-                else => error.ProgramContractViolation,
-            };
+                            return error.ProgramContractViolation;
+                        },
+                        .optional => |optional_info| if (variant_offset == 0) blk: {
+                            _ = try readTypedValue(reader, scratch, context, variant_ref);
+                            break :blk null;
+                        } else blk: {
+                            const decoded_payload = try readTypedValue(reader, scratch, context, variant_ref);
+                            if (comptime variant_ref.codec == .string_list and optional_info.child == [][]const u8) {
+                                break :blk @constCast(decoded_payload);
+                            }
+                            break :blk decoded_payload;
+                        },
+                        .@"union" => |union_info| blk: {
+                            inline for (union_info.fields, 0..) |field, field_index| {
+                                if (variant_offset == field_index) {
+                                    if (field.type == void) {
+                                        _ = try readTypedValue(reader, scratch, context, variant_ref);
+                                        break :blk @unionInit(T, field.name, {});
+                                    }
+                                    const decoded_payload = try readTypedValue(reader, scratch, context, variant_ref);
+                                    if (comptime variant_ref.codec == .string_list and field.type == [][]const u8) {
+                                        break :blk @unionInit(T, field.name, @constCast(decoded_payload));
+                                    }
+                                    break :blk @unionInit(T, field.name, decoded_payload);
+                                }
+                            }
+                            return error.ProgramContractViolation;
+                        },
+                        else => error.ProgramContractViolation,
+                    };
+                }
+            }
+            return error.ProgramContractViolation;
         }
 
         fn writeExecutableValueForRef(
             writer: *DurableWriter,
+            context: *DurableValueImageContext,
             ref: program_plan.ValueRef,
             value: ExecutableValue,
         ) anyerror!void {
@@ -4704,12 +4837,8 @@ pub fn ExecutableSessionForPlan(
                 .bool => try writer.writeBool(try decodeArg(.bool, value)),
                 .i32 => try writer.writeI32(try decodeArg(.i32, value)),
                 .usize => try writer.writeUsize(try decodeArg(.usize, value)),
-                .string => try writer.writeLenBytes(try decodeArg(.string, value)),
-                .string_list => {
-                    const items = try decodeArg(.string_list, value);
-                    try writer.writeUsize(items.len);
-                    for (items) |item| try writer.writeLenBytes(item);
-                },
+                .string => try writeImageString(writer, context, try decodeArg(.string, value)),
+                .string_list => try writeImageStringList(writer, context, try decodeArg(.string_list, value)),
                 .product, .sum => switch (value) {
                     .schema => |schema| {
                         const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
@@ -4722,7 +4851,7 @@ pub fn ExecutableSessionForPlan(
                                 };
                                 if (!static_ref.eql(ref)) return error.ProgramContractViolation;
                                 const typed: *const SchemaType = @ptrCast(@alignCast(schema.ptr));
-                                return writeTypedValue(writer, static_ref, typed.*);
+                                return writeTypedValue(writer, context, static_ref, typed.*);
                             }
                         }
                         return error.ProgramContractViolation;
@@ -4735,6 +4864,7 @@ pub fn ExecutableSessionForPlan(
         fn readExecutableValueForRef(
             reader: *DurableReader,
             scratch: *InterpreterScratch(session_after_stack_capacity),
+            context: *DurableValueImageContext,
             ref: program_plan.ValueRef,
         ) anyerror!ExecutableValue {
             return switch (ref.codec) {
@@ -4742,8 +4872,8 @@ pub fn ExecutableSessionForPlan(
                 .bool => .{ .bool = try reader.readBool() },
                 .i32 => .{ .i32 = try reader.readI32() },
                 .usize => .{ .usize = try reader.readUsize() },
-                .string => .{ .string = try scratch.storeOwnedString(try reader.readLenBytes()) },
-                .string_list => .{ .string_list = try readStringList(reader, scratch) },
+                .string => .{ .string = try readImageString(reader, scratch, context) },
+                .string_list => .{ .string_list = try readImageStringList(reader, scratch, context) },
                 .product, .sum => blk: {
                     const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
                     inline for (schema_types, 0..) |SchemaType, index| {
@@ -4753,7 +4883,7 @@ pub fn ExecutableSessionForPlan(
                                 .schema_index = @intCast(index),
                             };
                             if (!static_ref.eql(ref)) return error.ProgramContractViolation;
-                            const typed = try readTypedValue(reader, scratch, static_ref);
+                            const typed = try readTypedValue(reader, scratch, context, static_ref);
                             break :blk try scratch.storeSchemaValue(SchemaType, schema_index, typed);
                         }
                     }
@@ -4762,8 +4892,47 @@ pub fn ExecutableSessionForPlan(
             };
         }
 
+        fn writeExecutableImageValueForRef(
+            writer: *DurableWriter,
+            context: *DurableValueImageContext,
+            ref: program_plan.ValueRef,
+            value: ExecutableValue,
+            decoded_locals: []const ExecutableValue,
+        ) anyerror!void {
+            for (decoded_locals, 0..) |local, local_index| {
+                if (valueMatchesRef(ref, local) and executableValuesShareIdentity(local, value)) {
+                    try writer.writeU8(1);
+                    try writer.writeUsize(local_index);
+                    return;
+                }
+            }
+            try writer.writeU8(0);
+            try writeExecutableValueForRef(writer, context, ref, value);
+        }
+
+        fn readExecutableImageValueForRef(
+            reader: *DurableReader,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            context: *DurableValueImageContext,
+            ref: program_plan.ValueRef,
+            decoded_locals: []const ExecutableValue,
+        ) anyerror!ExecutableValue {
+            return switch (try reader.readU8()) {
+                0 => try readExecutableValueForRef(reader, scratch, context, ref),
+                1 => blk: {
+                    const local_index = try reader.readUsize();
+                    if (local_index >= decoded_locals.len) return error.ProgramContractViolation;
+                    const value = decoded_locals[local_index];
+                    if (!valueMatchesRef(ref, value)) return error.ProgramContractViolation;
+                    break :blk value;
+                },
+                else => error.ProgramContractViolation,
+            };
+        }
+
         fn writeMaybeExecutableValueForRef(
             writer: *DurableWriter,
+            context: *DurableValueImageContext,
             ref: program_plan.ValueRef,
             value: ExecutableValue,
         ) anyerror!void {
@@ -4778,16 +4947,61 @@ pub fn ExecutableSessionForPlan(
                 return;
             }
             try writer.writeBool(present);
-            try writeExecutableValueForRef(writer, ref, value);
+            try writeExecutableValueForRef(writer, context, ref, value);
         }
 
         fn readMaybeExecutableValueForRef(
             reader: *DurableReader,
             scratch: *InterpreterScratch(session_after_stack_capacity),
+            context: *DurableValueImageContext,
             ref: program_plan.ValueRef,
         ) anyerror!ExecutableValue {
             if (!try reader.readBool()) return .none;
-            return readExecutableValueForRef(reader, scratch, ref);
+            return readExecutableValueForRef(reader, scratch, context, ref);
+        }
+
+        fn writeMaybeExecutableImageValueForRef(
+            writer: *DurableWriter,
+            context: *DurableValueImageContext,
+            ref: program_plan.ValueRef,
+            value: ExecutableValue,
+            decoded_locals: []const ExecutableValue,
+        ) anyerror!void {
+            if (!valueMatchesRef(ref, value)) {
+                if (value != .none) return error.ProgramContractViolation;
+                try writer.writeU8(0);
+                return;
+            }
+            for (decoded_locals, 0..) |local, local_index| {
+                if (valueMatchesRef(ref, local) and executableValuesShareIdentity(local, value)) {
+                    try writer.writeU8(2);
+                    try writer.writeUsize(local_index);
+                    return;
+                }
+            }
+            try writer.writeU8(1);
+            try writeExecutableValueForRef(writer, context, ref, value);
+        }
+
+        fn readMaybeExecutableImageValueForRef(
+            reader: *DurableReader,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            context: *DurableValueImageContext,
+            ref: program_plan.ValueRef,
+            decoded_locals: []const ExecutableValue,
+        ) anyerror!ExecutableValue {
+            return switch (try reader.readU8()) {
+                0 => .none,
+                1 => try readExecutableValueForRef(reader, scratch, context, ref),
+                2 => blk: {
+                    const local_index = try reader.readUsize();
+                    if (local_index >= decoded_locals.len) return error.ProgramContractViolation;
+                    const value = decoded_locals[local_index];
+                    if (!valueMatchesRef(ref, value)) return error.ProgramContractViolation;
+                    break :blk value;
+                },
+                else => error.ProgramContractViolation,
+            };
         }
 
         fn writeSessionAfterEntry(writer: *DurableWriter, entry_value: SessionAfterStackEntry) std.mem.Allocator.Error!void {
@@ -4804,14 +5018,100 @@ pub fn ExecutableSessionForPlan(
             };
         }
 
-        fn writePending(writer: *DurableWriter, pending: ?Pending) anyerror!void {
-            try writer.writeBool(pending != null);
-            if (pending == null) return;
-            switch (pending.?) {
+        fn validateSessionAfterEntry(entry_value: SessionAfterStackEntry) error{ProgramContractViolation}!void {
+            if (entry_value.op_index >= compiled_plan.ops.len) return error.ProgramContractViolation;
+            const op = compiled_plan.ops[entry_value.op_index];
+            if (!op.has_after) return error.ProgramContractViolation;
+            if (entry_value.operation_site_index >= operation_yield_sites.len) return error.ProgramContractViolation;
+            if (entry_value.after_site_index >= after_yield_sites.len) return error.ProgramContractViolation;
+            const operation_site = operation_yield_sites[entry_value.operation_site_index];
+            const after_site = after_yield_sites[entry_value.after_site_index];
+            if (operation_site.index != entry_value.operation_site_index or
+                operation_site.op_index != entry_value.op_index or
+                !operation_site.has_after or
+                after_site.index != entry_value.after_site_index or
+                after_site.source_operation_site_index != entry_value.operation_site_index or
+                after_site.source_operation_site_fingerprint != operation_site.fingerprint or
+                after_site.original_op_index != entry_value.op_index)
+            {
+                return error.ProgramContractViolation;
+            }
+        }
+
+        fn validateSessionAfterEntryForOperationSite(
+            entry_value: SessionAfterStackEntry,
+            op_index: u16,
+            operation_site_index: usize,
+        ) error{ProgramContractViolation}!void {
+            try validateSessionAfterEntry(entry_value);
+            const after_site = afterSiteForOperationSite(operation_site_index) orelse return error.ProgramContractViolation;
+            if (entry_value.op_index != op_index or
+                @as(usize, entry_value.operation_site_index) != operation_site_index or
+                @as(usize, entry_value.after_site_index) != after_site.index)
+            {
+                return error.ProgramContractViolation;
+            }
+        }
+
+        fn pendingPayloadForImage(self: *const Self, op: PendingRequest) error{ProgramContractViolation}!ExecutableValue {
+            if (op.payload_ref.codec == .unit) return .none;
+            if (op.payload_local_id != std.math.maxInt(u16)) {
+                if (self.frames.len() == 0) return error.ProgramContractViolation;
+                const active_frame = self.frames.at(self.frames.len() - 1) orelse return error.ProgramContractViolation;
+                if (active_frame.function_index != op.function_index) return error.ProgramContractViolation;
+                const locals = self.scratch.frameLocalsConst(active_frame.frame);
+                if (op.payload_local_id >= locals.len) return error.ProgramContractViolation;
+                const local_payload = locals[op.payload_local_id];
+                if (!valueMatchesRef(op.payload_ref, local_payload)) return error.ProgramContractViolation;
+                return local_payload;
+            }
+            if (!valueMatchesRef(op.payload_ref, op.payload)) return error.ProgramContractViolation;
+            return op.payload;
+        }
+
+        const OperationPendingSnapshot = struct {
+            payload: ExecutableValue,
+            payload_value_fingerprint: u64,
+            request_fingerprint: u64,
+        };
+
+        fn operationPendingSnapshot(self: *const Self, op: PendingRequest) error{ProgramContractViolation}!OperationPendingSnapshot {
+            if (op.op_index >= compiled_plan.ops.len) return error.ProgramContractViolation;
+            const plan_op = compiled_plan.ops[op.op_index];
+            const requirement = compiled_plan.requirements[plan_op.requirement_index];
+            const payload = try self.pendingPayloadForImage(op);
+            const payload_value_fingerprint = try Self.fingerprintExecutableValueForRef(op.payload_ref, payload);
+            return .{
+                .payload = payload,
+                .payload_value_fingerprint = payload_value_fingerprint,
+                .request_fingerprint = Self.operationRequestFingerprint(
+                    op.turn_index,
+                    op.operation_site_index,
+                    op.operation_site_fingerprint,
+                    op.function_index,
+                    op.block_index,
+                    op.instruction_index,
+                    plan_op.requirement_index,
+                    requirement.label,
+                    op.op_index,
+                    plan_op.op_name,
+                    op.mode,
+                    op.payload_ref,
+                    payload_value_fingerprint,
+                    op.resume_ref,
+                    op.result_ref,
+                    op.has_after,
+                ),
+            };
+        }
+
+        fn writePending(writer: *DurableWriter, context: *DurableValueImageContext, self: *const Self) anyerror!void {
+            try writer.writeBool(self.pending != null);
+            if (self.pending == null) return;
+            switch (self.pending.?) {
                 .op => |op| {
+                    const snapshot = try self.operationPendingSnapshot(op);
                     try writer.writeU8(0);
-                    try writer.writeUsize(op.session_id);
-                    try writer.writeU64(op.token);
                     try writer.writeUsize(op.function_index);
                     try writer.writeUsize(op.block_index);
                     try writer.writeUsize(op.instruction_index);
@@ -4822,9 +5122,9 @@ pub fn ExecutableSessionForPlan(
                     try writer.writeUsize(op.turn_index);
                     try writeValueRef(writer, op.payload_ref);
                     try writer.writeU16(op.payload_local_id);
-                    try writeExecutableValueForRef(writer, op.payload_ref, op.payload);
-                    try writer.writeU64(op.payload_value_fingerprint);
-                    try writer.writeU64(op.request_fingerprint);
+                    try writeExecutableImageValueForRef(writer, context, op.payload_ref, snapshot.payload, self.scratch.locals.items);
+                    try writer.writeU64(snapshot.payload_value_fingerprint);
+                    try writer.writeU64(snapshot.request_fingerprint);
                     try writeControlMode(writer, op.mode);
                     try writeValueRef(writer, op.resume_ref);
                     try writeValueRef(writer, op.result_ref);
@@ -4833,8 +5133,6 @@ pub fn ExecutableSessionForPlan(
                 },
                 .after => |after| {
                     try writer.writeU8(1);
-                    try writer.writeUsize(after.session_id);
-                    try writer.writeU64(after.token);
                     try writer.writeUsize(after.function_index);
                     try writer.writeUsize(after.block_index);
                     try writer.writeUsize(after.instruction_index);
@@ -4845,7 +5143,7 @@ pub fn ExecutableSessionForPlan(
                     try writer.writeU64(after.source_operation_site_fingerprint);
                     try writer.writeUsize(after.turn_index);
                     try writeValueRef(writer, after.value_ref);
-                    try writeExecutableValueForRef(writer, after.value_ref, after.value);
+                    try writeExecutableImageValueForRef(writer, context, after.value_ref, after.value, self.scratch.locals.items);
                     try writer.writeU64(after.value_fingerprint);
                     try writer.writeU64(after.request_fingerprint);
                     try writeValueRef(writer, after.output_ref);
@@ -4858,12 +5156,13 @@ pub fn ExecutableSessionForPlan(
         fn readPending(
             reader: *DurableReader,
             scratch: *InterpreterScratch(session_after_stack_capacity),
+            context: *DurableValueImageContext,
+            frames: *const ActiveFrameStack,
+            session_id: usize,
         ) anyerror!?Pending {
             if (!try reader.readBool()) return null;
             return switch (try reader.readU8()) {
                 0 => blk: {
-                    const session_id = try reader.readUsize();
-                    const token = try reader.readU64();
                     const function_index = try reader.readUsize();
                     const block_index = try reader.readUsize();
                     const instruction_index = try reader.readUsize();
@@ -4874,33 +5173,125 @@ pub fn ExecutableSessionForPlan(
                     const turn_index = try reader.readUsize();
                     const payload_ref = try readValueRef(reader);
                     const payload_local_id = try reader.readU16();
-                    const payload = try readExecutableValueForRef(reader, scratch, payload_ref);
-                    break :blk .{ .op = .{
-                        .session_id = session_id,
-                        .token = token,
-                        .function_index = function_index,
-                        .block_index = block_index,
-                        .instruction_index = instruction_index,
-                        .dst = dst,
-                        .op_index = op_index,
-                        .operation_site_index = operation_site_index,
-                        .operation_site_fingerprint = operation_site_fingerprint,
-                        .turn_index = turn_index,
-                        .payload_ref = payload_ref,
-                        .payload_local_id = payload_local_id,
-                        .payload = payload,
-                        .payload_value_fingerprint = try reader.readU64(),
-                        .request_fingerprint = try reader.readU64(),
-                        .mode = try readControlMode(reader),
-                        .resume_ref = try readValueRef(reader),
-                        .result_ref = try readValueRef(reader),
-                        .has_after = try reader.readBool(),
-                        .after_stack_entry = try readSessionAfterEntry(reader),
-                    } };
+                    var payload = try readExecutableImageValueForRef(reader, scratch, context, payload_ref, scratch.locals.items);
+                    const stored_payload_fp = try reader.readU64();
+                    const stored_request_fingerprint = try reader.readU64();
+                    const mode = try readControlMode(reader);
+                    const resume_ref = try readValueRef(reader);
+                    const result_ref = try readValueRef(reader);
+                    const has_after = try reader.readBool();
+                    const after_stack_entry = try readSessionAfterEntry(reader);
+                    if (function_index >= compiled_plan.functions.len) return error.ProgramContractViolation;
+                    if (instruction_index >= compiled_plan.instructions.len) return error.ProgramContractViolation;
+                    const function = compiled_plan.functions[function_index];
+                    const instruction = compiled_plan.instructions[instruction_index];
+                    if (instruction.kind != .call_op or
+                        instruction.operand != op_index or
+                        instruction.dst != dst or
+                        (dst != std.math.maxInt(u16) and dst >= function.local_count))
+                    {
+                        return error.ProgramContractViolation;
+                    }
+                    inline for (compiled_plan.ops, 0..) |op, index| {
+                        if (op_index == index) {
+                            const expected_payload_local_id = if (op.payload_codec == .unit) std.math.maxInt(u16) else instruction.aux;
+                            const expected_payload_ref: program_plan.ValueRef = .{
+                                .codec = op.payload_codec,
+                                .schema_index = op.payload_schema_index,
+                            };
+                            const expected_resume_ref: program_plan.ValueRef = .{
+                                .codec = op.resume_codec,
+                                .schema_index = op.resume_schema_index,
+                            };
+                            if (!payload_ref.eql(expected_payload_ref) or
+                                !resume_ref.eql(expected_resume_ref) or
+                                mode != op.mode or
+                                has_after != op.has_after or
+                                payload_local_id != expected_payload_local_id or
+                                !result_ref.eql(program_plan.functionResultRef(compiled_plan.functions[function_index])))
+                            {
+                                return error.ProgramContractViolation;
+                            }
+                            if (operation_site_index >= operation_yield_sites.len) return error.ProgramContractViolation;
+                            const operation_site = operation_yield_sites[operation_site_index];
+                            if (operation_site.index != operation_site_index or
+                                operation_site.fingerprint != operation_site_fingerprint or
+                                operation_site.function_index != function_index or
+                                operation_site.block_index != block_index or
+                                operation_site.instruction_index != instruction_index or
+                                operation_site.op_index != op_index)
+                            {
+                                return error.ProgramContractViolation;
+                            }
+                            const decoded_payload_fingerprint = try Self.fingerprintExecutableValueForRef(payload_ref, payload);
+                            if (stored_payload_fp != decoded_payload_fingerprint) return error.ProgramContractViolation;
+                            if (payload_local_id != std.math.maxInt(u16)) {
+                                if (frames.len() == 0) return error.ProgramContractViolation;
+                                const active_frame = frames.at(frames.len() - 1) orelse return error.ProgramContractViolation;
+                                if (active_frame.function_index != function_index) return error.ProgramContractViolation;
+                                const locals = scratch.frameLocals(active_frame.frame);
+                                if (payload_local_id >= locals.len) return error.ProgramContractViolation;
+                                const local_payload = locals[payload_local_id];
+                                const local_payload_fingerprint = try Self.fingerprintExecutableValueForRef(payload_ref, local_payload);
+                                if (local_payload_fingerprint != decoded_payload_fingerprint) return error.ProgramContractViolation;
+                                payload = local_payload;
+                            }
+                            const payload_value_fingerprint = decoded_payload_fingerprint;
+                            const requirement = compiled_plan.requirements[op.requirement_index];
+                            const request_fingerprint = Self.operationRequestFingerprint(
+                                turn_index,
+                                operation_site_index,
+                                operation_site_fingerprint,
+                                function_index,
+                                block_index,
+                                instruction_index,
+                                op.requirement_index,
+                                requirement.label,
+                                op_index,
+                                op.op_name,
+                                mode,
+                                payload_ref,
+                                payload_value_fingerprint,
+                                resume_ref,
+                                result_ref,
+                                has_after,
+                            );
+                            if (stored_request_fingerprint != request_fingerprint) return error.ProgramContractViolation;
+                            if (has_after) {
+                                try validateSessionAfterEntryForOperationSite(after_stack_entry, op_index, operation_site_index);
+                            } else if (after_stack_entry.op_index != op_index or
+                                after_stack_entry.operation_site_index != 0 or
+                                after_stack_entry.after_site_index != 0)
+                            {
+                                return error.ProgramContractViolation;
+                            }
+                            break :blk .{ .op = .{
+                                .session_id = session_id,
+                                .token = 0,
+                                .function_index = function_index,
+                                .block_index = block_index,
+                                .instruction_index = instruction_index,
+                                .dst = dst,
+                                .op_index = op_index,
+                                .operation_site_index = operation_site_index,
+                                .operation_site_fingerprint = operation_site_fingerprint,
+                                .turn_index = turn_index,
+                                .payload_ref = payload_ref,
+                                .payload_local_id = payload_local_id,
+                                .payload = payload,
+                                .payload_value_fingerprint = payload_value_fingerprint,
+                                .request_fingerprint = request_fingerprint,
+                                .mode = mode,
+                                .resume_ref = resume_ref,
+                                .result_ref = result_ref,
+                                .has_after = has_after,
+                                .after_stack_entry = after_stack_entry,
+                            } };
+                        }
+                    }
+                    return error.ProgramContractViolation;
                 },
                 1 => blk: {
-                    const session_id = try reader.readUsize();
-                    const token = try reader.readU64();
                     const function_index = try reader.readUsize();
                     const block_index = try reader.readUsize();
                     const instruction_index = try reader.readUsize();
@@ -4911,33 +5302,138 @@ pub fn ExecutableSessionForPlan(
                     const source_op_site_fingerprint = try reader.readU64();
                     const turn_index = try reader.readUsize();
                     const value_ref = try readValueRef(reader);
-                    const value = try readExecutableValueForRef(reader, scratch, value_ref);
-                    break :blk .{ .after = .{
-                        .session_id = session_id,
-                        .token = token,
-                        .function_index = function_index,
-                        .block_index = block_index,
-                        .instruction_index = instruction_index,
-                        .op_index = op_index,
-                        .after_site_index = after_site_index,
-                        .after_site_fingerprint = after_site_fingerprint,
-                        .source_operation_site_index = source_operation_site_index,
-                        .source_operation_site_fingerprint = source_op_site_fingerprint,
-                        .turn_index = turn_index,
-                        .value = value,
-                        .value_fingerprint = try reader.readU64(),
-                        .request_fingerprint = try reader.readU64(),
-                        .value_ref = value_ref,
-                        .output_ref = try readValueRef(reader),
-                        .result_ref = try readValueRef(reader),
-                        .remaining = try reader.readUsize(),
-                    } };
+                    const value = try readExecutableImageValueForRef(reader, scratch, context, value_ref, scratch.locals.items);
+                    const stored_value_fingerprint = try reader.readU64();
+                    const stored_request_fingerprint = try reader.readU64();
+                    const output_ref = try readValueRef(reader);
+                    const result_ref = try readValueRef(reader);
+                    const remaining = try reader.readUsize();
+                    if (function_index >= compiled_plan.functions.len) return error.ProgramContractViolation;
+                    inline for (compiled_plan.ops, 0..) |op, index| {
+                        if (op_index == index) {
+                            if (!op.has_after) return error.ProgramContractViolation;
+                            if (after_site_index >= after_yield_sites.len) return error.ProgramContractViolation;
+                            const after_site = after_yield_sites[after_site_index];
+                            if (after_site.index != after_site_index or
+                                after_site.fingerprint != after_site_fingerprint or
+                                after_site.source_operation_site_index != source_operation_site_index or
+                                after_site.source_operation_site_fingerprint != source_op_site_fingerprint or
+                                after_site.source_function_index != function_index or
+                                after_site.source_block_index != block_index or
+                                after_site.source_instruction_index != instruction_index or
+                                after_site.original_op_index != op_index)
+                            {
+                                return error.ProgramContractViolation;
+                            }
+                            if (remaining == 0) return error.ProgramContractViolation;
+                            const expected_output_ref = try sessionAfterOutputRefByIndex(
+                                compiled_plan,
+                                schema_types,
+                                HandlersType,
+                                op_index,
+                                value_ref,
+                                remaining,
+                                result_ref,
+                            );
+                            if (!output_ref.eql(expected_output_ref)) return error.ProgramContractViolation;
+                            const value_fingerprint = try Self.fingerprintExecutableValueForRef(value_ref, value);
+                            if (stored_value_fingerprint != value_fingerprint) return error.ProgramContractViolation;
+                            const requirement = compiled_plan.requirements[op.requirement_index];
+                            const request_fingerprint = Self.afterRequestFingerprint(
+                                turn_index,
+                                after_site_index,
+                                after_site_fingerprint,
+                                source_operation_site_index,
+                                source_op_site_fingerprint,
+                                function_index,
+                                block_index,
+                                instruction_index,
+                                op.requirement_index,
+                                requirement.label,
+                                op_index,
+                                op.op_name,
+                                value_ref,
+                                value_fingerprint,
+                                output_ref,
+                                result_ref,
+                            );
+                            if (stored_request_fingerprint != request_fingerprint) return error.ProgramContractViolation;
+                            break :blk .{ .after = .{
+                                .session_id = session_id,
+                                .token = 0,
+                                .function_index = function_index,
+                                .block_index = block_index,
+                                .instruction_index = instruction_index,
+                                .op_index = op_index,
+                                .after_site_index = after_site_index,
+                                .after_site_fingerprint = after_site_fingerprint,
+                                .source_operation_site_index = source_operation_site_index,
+                                .source_operation_site_fingerprint = source_op_site_fingerprint,
+                                .turn_index = turn_index,
+                                .value = value,
+                                .value_fingerprint = value_fingerprint,
+                                .request_fingerprint = request_fingerprint,
+                                .value_ref = value_ref,
+                                .output_ref = output_ref,
+                                .result_ref = result_ref,
+                                .remaining = remaining,
+                            } };
+                        }
+                    }
+                    return error.ProgramContractViolation;
+                },
+                else => error.ProgramContractViolation,
+            };
+        }
+
+        fn writeFrameLastReturn(
+            writer: *DurableWriter,
+            context: *DurableValueImageContext,
+            ref: program_plan.ValueRef,
+            locals: []const ExecutableValue,
+            value: ExecutableValue,
+        ) anyerror!void {
+            if (!valueMatchesRef(ref, value)) {
+                if (value != .none) return error.ProgramContractViolation;
+                try writer.writeU8(0);
+                return;
+            }
+            for (locals, 0..) |local, local_index| {
+                if (executableValuesShareIdentity(local, value)) {
+                    try writer.writeU8(2);
+                    try writer.writeUsize(local_index);
+                    return;
+                }
+            }
+            try writer.writeU8(1);
+            try writeExecutableValueForRef(writer, context, ref, value);
+        }
+
+        fn readFrameLastReturn(
+            reader: *DurableReader,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            context: *DurableValueImageContext,
+            ref: program_plan.ValueRef,
+            locals: []const ExecutableValue,
+        ) anyerror!ExecutableValue {
+            return switch (try reader.readU8()) {
+                0 => .none,
+                1 => try readExecutableValueForRef(reader, scratch, context, ref),
+                2 => blk: {
+                    const local_index = try reader.readUsize();
+                    if (local_index >= locals.len) return error.ProgramContractViolation;
+                    const value = locals[local_index];
+                    if (!valueMatchesRef(ref, value)) return error.ProgramContractViolation;
+                    break :blk value;
                 },
                 else => error.ProgramContractViolation,
             };
         }
 
         fn writeCoreImage(writer: *DurableWriter, self: *const Self) anyerror!void {
+            var context = DurableValueImageContext.init(self.allocator);
+            defer context.deinit();
+
             try writer.writeUsize(self.remaining_steps);
             try writer.writeUsize(self.next_turn_index);
             try writer.writeBool(self.done_consumed);
@@ -4961,23 +5457,29 @@ pub fn ExecutableSessionForPlan(
                 if (frame.waiting_helper_dst) |dst| try writer.writeU16(dst);
                 const function = compiled_plan.functions[frame.function_index];
                 const result_ref = program_plan.functionResultRef(function);
-                try writeMaybeExecutableValueForRef(writer, result_ref, frame.last_return);
                 const locals = self.scratch.frameLocalsConst(frame.frame);
                 try writer.writeUsize(locals.len);
                 for (locals, 0..) |value, local_index| {
                     const local_ref = localRefForFunctionIndex(compiled_plan, frame.function_index, @intCast(local_index)) orelse
                         return error.ProgramContractViolation;
                     try writeValueRef(writer, local_ref);
-                    try writeMaybeExecutableValueForRef(writer, local_ref, value);
+                    try writeMaybeExecutableImageValueForRef(
+                        writer,
+                        &context,
+                        local_ref,
+                        value,
+                        self.scratch.locals.items[0 .. frame.frame.locals_start + local_index],
+                    );
                 }
+                try writeFrameLastReturn(writer, &context, result_ref, locals, frame.last_return);
             }
 
-            try writePending(writer, self.pending);
+            try writePending(writer, &context, self);
             try writer.writeBool(self.unwinding_after != null);
             if (self.unwinding_after) |unwind| {
                 try writer.writeUsize(unwind.function_index);
                 try writeValueRef(writer, unwind.current_ref);
-                try writeExecutableValueForRef(writer, unwind.current_ref, unwind.value);
+                try writeExecutableImageValueForRef(writer, &context, unwind.current_ref, unwind.value, self.scratch.locals.items);
                 try writeValueRef(writer, unwind.final_ref);
                 try writer.writeUsize(unwind.remaining);
             }
@@ -4994,24 +5496,32 @@ pub fn ExecutableSessionForPlan(
             var frames = try ActiveFrameStack.init(allocator, analysis.max_active_frame_depth);
             errdefer frames.deinit(allocator);
 
+            const remaining_steps = try reader.readUsize();
+            if (remaining_steps > max_interpreter_steps) return error.ProgramContractViolation;
+
             var core: Self = .{
                 .allocator = allocator,
                 .scratch = scratch,
                 .frames = frames,
                 .session_id = nextSessionId(),
-                .remaining_steps = try reader.readUsize(),
+                .remaining_steps = remaining_steps,
                 .next_turn_index = try reader.readUsize(),
                 .done_consumed = try reader.readBool(),
             };
+            if (core.done_consumed) return error.ProgramContractViolation;
             scratch = .{ .allocator = allocator };
             frames = .{};
             errdefer core.deinit();
+
+            var context = DurableValueImageContext.init(allocator);
+            defer context.deinit();
 
             const after_stack_len = try reader.readUsize();
             if (after_stack_len > core.scratch.after_stack.len) return error.ProgramContractViolation;
             core.scratch.after_stack_len = after_stack_len;
             for (core.scratch.after_stack[0..after_stack_len]) |*entry_value| {
                 entry_value.* = try readSessionAfterEntry(reader);
+                try validateSessionAfterEntry(entry_value.*);
             }
 
             const frame_count = try reader.readUsize();
@@ -5026,17 +5536,34 @@ pub fn ExecutableSessionForPlan(
                 const waiting_helper_dst = if (try reader.readBool()) try reader.readU16() else null;
                 if (function_index >= compiled_plan.functions.len) return error.ProgramContractViolation;
                 const function = compiled_plan.functions[function_index];
-                const result_ref = program_plan.functionResultRef(function);
-                const last_return = try readMaybeExecutableValueForRef(reader, &core.scratch, result_ref);
+                const expected_local_count: usize = function.local_count;
+                if (block_index < function.first_block or block_index >= @as(usize, function.first_block) + function.block_count) return error.ProgramContractViolation;
+                const bounds = try blockInstructionBounds(compiled_plan, function_index, block_index);
+                if (instruction_end != bounds.end or instruction_index < bounds.first or instruction_index > instruction_end) return error.ProgramContractViolation;
+                if (call_args_start > core.scratch.call_args.items.len) return error.ProgramContractViolation;
+                if (after_start > core.scratch.after_stack_len) return error.ProgramContractViolation;
+                if (waiting_helper_dst) |dst| {
+                    if (dst != std.math.maxInt(u16) and dst >= expected_local_count) return error.ProgramContractViolation;
+                }
                 const local_count = try reader.readUsize();
+                if (local_count != expected_local_count) return error.ProgramContractViolation;
                 const locals_start = core.scratch.locals.items.len;
                 try core.scratch.locals.resize(core.scratch.allocator, locals_start + local_count);
-                for (core.scratch.locals.items[locals_start..][0..local_count], 0..) |*slot, local_index| {
+                const locals = core.scratch.locals.items[locals_start..][0..local_count];
+                for (locals, 0..) |*slot, local_index| {
                     const local_ref = localRefForFunctionIndex(compiled_plan, function_index, @intCast(local_index)) orelse
                         return error.ProgramContractViolation;
                     if (!(try readValueRef(reader)).eql(local_ref)) return error.ProgramContractViolation;
-                    slot.* = try readMaybeExecutableValueForRef(reader, &core.scratch, local_ref);
+                    slot.* = try readMaybeExecutableImageValueForRef(
+                        reader,
+                        &core.scratch,
+                        &context,
+                        local_ref,
+                        core.scratch.locals.items[0 .. locals_start + local_index],
+                    );
                 }
+                const result_ref = program_plan.functionResultRef(function);
+                const last_return = try readFrameLastReturn(reader, &core.scratch, &context, result_ref, locals);
                 try core.frames.append(core.allocator, .{
                     .function_index = function_index,
                     .frame = .{
@@ -5054,11 +5581,11 @@ pub fn ExecutableSessionForPlan(
                 });
             }
 
-            core.pending = try readPending(reader, &core.scratch);
+            core.pending = try readPending(reader, &core.scratch, &context, &core.frames, core.session_id);
             if (try reader.readBool()) {
                 const function_index = try reader.readUsize();
                 const current_ref = try readValueRef(reader);
-                const value = try readExecutableValueForRef(reader, &core.scratch, current_ref);
+                const value = try readExecutableImageValueForRef(reader, &core.scratch, &context, current_ref, core.scratch.locals.items);
                 core.unwinding_after = .{
                     .function_index = function_index,
                     .value = value,
@@ -5067,8 +5594,70 @@ pub fn ExecutableSessionForPlan(
                     .remaining = try reader.readUsize(),
                 };
             }
+            try core.validateDecodedPendingState();
 
             return core;
+        }
+
+        fn validateDecodedPendingState(self: *Self) error{ProgramContractViolation}!void {
+            const pending = switch (self.pending orelse {
+                if (self.unwinding_after != null) return error.ProgramContractViolation;
+                return;
+            }) {
+                .op => |pending_op| {
+                    if (self.unwinding_after != null) return error.ProgramContractViolation;
+                    try self.validateDecodedPendingTurnIndex(pending_op.turn_index);
+                    try self.validateDecodedOperationPendingState(pending_op);
+                    return;
+                },
+                .after => |pending_after| pending_after,
+            };
+            try self.validateDecodedPendingTurnIndex(pending.turn_index);
+            if (pending.remaining == 0) return error.ProgramContractViolation;
+            const unwind = self.unwinding_after orelse return error.ProgramContractViolation;
+            if (unwind.function_index != pending.function_index or
+                unwind.remaining != pending.remaining or
+                !unwind.current_ref.eql(pending.value_ref) or
+                !unwind.final_ref.eql(pending.result_ref))
+            {
+                return error.ProgramContractViolation;
+            }
+            if (self.frames.len() == 0) return error.ProgramContractViolation;
+            const active = self.frames.top();
+            if (active.function_index != pending.function_index or active.waiting_helper_dst != null) return error.ProgramContractViolation;
+            const after_stack = self.scratch.frameAfterStack(active.frame);
+            if (pending.remaining > after_stack.len) return error.ProgramContractViolation;
+            const after_entry = after_stack[pending.remaining - 1];
+            if (after_entry.op_index != pending.op_index or
+                @as(usize, after_entry.operation_site_index) != pending.source_operation_site_index or
+                @as(usize, after_entry.after_site_index) != pending.after_site_index)
+            {
+                return error.ProgramContractViolation;
+            }
+        }
+
+        fn validateDecodedPendingTurnIndex(self: *const Self, turn_index: usize) error{ProgramContractViolation}!void {
+            if (self.next_turn_index > max_interpreter_steps) return error.ProgramContractViolation;
+            if (turn_index == std.math.maxInt(usize)) return error.ProgramContractViolation;
+            if (self.next_turn_index != turn_index + 1) return error.ProgramContractViolation;
+        }
+
+        fn validateDecodedOperationPendingState(self: *Self, pending: PendingRequest) error{ProgramContractViolation}!void {
+            if (self.frames.len() == 0) return error.ProgramContractViolation;
+            const active = self.frames.top();
+            try validateActiveOperationFrame(active.*, pending);
+        }
+
+        fn validateActiveOperationFrame(active: ActiveInterpreterFrame, pending: PendingRequest) error{ProgramContractViolation}!void {
+            if (active.function_index != pending.function_index or
+                active.block_index != pending.block_index or
+                active.waiting_helper_dst != null)
+            {
+                return error.ProgramContractViolation;
+            }
+            const expected_next_instruction = std.math.add(usize, pending.instruction_index, 1) catch
+                return error.ProgramContractViolation;
+            if (active.instruction_index != expected_next_instruction) return error.ProgramContractViolation;
         }
 
         fn operationSiteForInstruction(instruction_index: usize) ?SessionOperationYieldSite {
@@ -6011,7 +6600,7 @@ pub fn ExecutableSessionForPlan(
             if (!valueMatchesRef(pending.resume_ref, encoded)) return error.ProgramContractViolation;
             if (self.frames.len() == 0) return error.ProgramContractViolation;
             const active = self.frames.top();
-            if (active.function_index != pending.function_index or active.waiting_helper_dst != null) return error.ProgramContractViolation;
+            try validateActiveOperationFrame(active.*, pending);
             var locals = self.scratch.frameLocals(active.frame);
             if (pending.has_after) try self.scratch.pushAfter(pending.after_stack_entry);
             if (pending.resume_ref.codec == .unit) {
@@ -6048,7 +6637,7 @@ pub fn ExecutableSessionForPlan(
             if (pending.mode == .transform) return error.ProgramContractViolation;
             if (self.frames.len() == 0) return error.ProgramContractViolation;
             const active = self.frames.top();
-            if (active.function_index != pending.function_index or active.waiting_helper_dst != null) return error.ProgramContractViolation;
+            try validateActiveOperationFrame(active.*, pending);
             const encoded = try encodeRuntimeValueForRuntimeRef(schema_types, pending.result_ref, &self.scratch, value);
             if (!valueMatchesRef(pending.result_ref, encoded)) return error.ProgramContractViolation;
             const completed = try completeSessionFunctionValueByIndex(
@@ -6498,19 +7087,15 @@ pub fn ExecutableSessionForPlan(
             op: PendingRequest,
         ) ?ExecutableValue {
             if (op.payload_local_id == std.math.maxInt(u16)) return null;
-
-            var frame_index: usize = 0;
-            while (frame_index < self.frames.len()) : (frame_index += 1) {
-                const frame = self.frames.at(frame_index) orelse return null;
-                if (frame.function_index != op.function_index) continue;
-                const original_locals = self.scratch.frameLocalsConst(frame.frame);
-                if (op.payload_local_id >= original_locals.len) return null;
-                const original_payload_local = original_locals[op.payload_local_id];
-                if (!executableValuesShareIdentity(original_payload_local, op.payload)) return null;
-                const cloned_locals = scratch.frameLocals(frame.frame);
-                return cloned_locals[op.payload_local_id];
-            }
-            return null;
+            if (self.frames.len() == 0) return null;
+            const frame = self.frames.at(self.frames.len() - 1) orelse return null;
+            if (frame.function_index != op.function_index) return null;
+            const original_locals = self.scratch.frameLocalsConst(frame.frame);
+            if (op.payload_local_id >= original_locals.len) return null;
+            const original_payload_local = original_locals[op.payload_local_id];
+            if (!executableValuesShareIdentity(original_payload_local, op.payload)) return null;
+            const cloned_locals = scratch.frameLocals(frame.frame);
+            return cloned_locals[op.payload_local_id];
         }
 
         fn clonedScratchValueForOriginalIdentity(
@@ -6690,8 +7275,17 @@ pub fn ExecutableSessionForPlan(
         }
 
         fn requestPayloadForPending(self: *Self, pending: PendingRequest) error{ProgramContractViolation}!ExecutableValue {
-            _ = self;
             if (pending.payload_ref.codec == .unit) return .none;
+            if (pending.payload_local_id != std.math.maxInt(u16)) {
+                if (self.frames.len() == 0) return error.ProgramContractViolation;
+                const active_frame = self.frames.top();
+                if (active_frame.function_index != pending.function_index) return error.ProgramContractViolation;
+                const locals = self.scratch.frameLocals(active_frame.frame);
+                if (pending.payload_local_id >= locals.len) return error.ProgramContractViolation;
+                const local_payload = locals[pending.payload_local_id];
+                if (!valueMatchesRef(pending.payload_ref, local_payload)) return error.ProgramContractViolation;
+                return local_payload;
+            }
             if (!valueMatchesRef(pending.payload_ref, pending.payload)) return error.ProgramContractViolation;
             return pending.payload;
         }
@@ -6710,7 +7304,7 @@ pub fn ExecutableSessionForPlan(
                         return error.ProgramContractViolation;
                     }
                     const requirement = compiled_plan.requirements[op.requirement_index];
-                    const payload = try self.requestPayloadForPending(pending);
+                    const snapshot = try self.operationPendingSnapshot(pending);
                     var request: Request = .{
                         ._session_id = pending.session_id,
                         .token = pending.token,
@@ -6732,10 +7326,10 @@ pub fn ExecutableSessionForPlan(
                         .has_after = pending.has_after,
                         ._payload = .none,
                         ._turn_index = pending.turn_index,
-                        ._payload_value_fingerprint = pending.payload_value_fingerprint,
-                        ._fingerprint = pending.request_fingerprint,
+                        ._payload_value_fingerprint = snapshot.payload_value_fingerprint,
+                        ._fingerprint = snapshot.request_fingerprint,
                     };
-                    try request.setPayload(payload);
+                    try request.setPayload(snapshot.payload);
                     return request;
                 }
             }
@@ -6800,18 +7394,21 @@ pub fn ExecutableSessionForPlan(
         fn capsuleMetadata(self: *const Self) error{ProgramContractViolation}!CapsuleMetadata {
             const frame_count = self.frames.len();
             return switch (self.pending orelse return error.ProgramContractViolation) {
-                .op => |pending| .{
-                    .parked_kind = .operation,
-                    .current_turn_index = pending.turn_index,
-                    .current_request_fingerprint = pending.request_fingerprint,
-                    .current_operation_site_index = pending.operation_site_index,
-                    .result_ref = pending.result_ref,
-                    .frame_count = frame_count,
-                    .pending_after_count = self.scratch.after_stack_len,
-                    .function_index = pending.function_index,
-                    .block_index = pending.block_index,
-                    .instruction_index = pending.instruction_index,
-                    .continuation_fingerprint = 0,
+                .op => |pending| blk: {
+                    const snapshot = try self.operationPendingSnapshot(pending);
+                    break :blk .{
+                        .parked_kind = .operation,
+                        .current_turn_index = pending.turn_index,
+                        .current_request_fingerprint = snapshot.request_fingerprint,
+                        .current_operation_site_index = pending.operation_site_index,
+                        .result_ref = pending.result_ref,
+                        .frame_count = frame_count,
+                        .pending_after_count = self.scratch.after_stack_len,
+                        .function_index = pending.function_index,
+                        .block_index = pending.block_index,
+                        .instruction_index = pending.instruction_index,
+                        .continuation_fingerprint = 0,
+                    };
                 },
                 .after => |pending| .{
                     .parked_kind = .after,
@@ -6916,12 +7513,13 @@ pub fn ExecutableSessionForPlan(
             }
         }
 
-        fn traceHashPending(hasher: *std.hash.Wyhash, pending: Pending) error{ProgramContractViolation}!void {
+        fn traceHashPending(self: *const Self, hasher: *std.hash.Wyhash, pending: Pending) error{ProgramContractViolation}!void {
             switch (pending) {
                 .op => |op| {
+                    const snapshot = try self.operationPendingSnapshot(op);
                     traceHashBytes(hasher, "operation");
                     traceHashUsize(hasher, op.turn_index);
-                    traceHashU64(hasher, op.request_fingerprint);
+                    traceHashU64(hasher, snapshot.request_fingerprint);
                     traceHashUsize(hasher, op.function_index);
                     traceHashUsize(hasher, op.block_index);
                     traceHashUsize(hasher, op.instruction_index);
@@ -6931,7 +7529,7 @@ pub fn ExecutableSessionForPlan(
                     traceHashU64(hasher, op.operation_site_fingerprint);
                     traceHashMode(hasher, op.mode);
                     traceHashValueRef(hasher, op.payload_ref);
-                    traceHashU64(hasher, try fingerprintExecutableValueForRef(op.payload_ref, op.payload));
+                    traceHashU64(hasher, snapshot.payload_value_fingerprint);
                     traceHashValueRef(hasher, op.resume_ref);
                     traceHashValueRef(hasher, op.result_ref);
                     traceHashBool(hasher, op.has_after);
@@ -6972,7 +7570,7 @@ pub fn ExecutableSessionForPlan(
             traceHashUsize(&hasher, self.next_turn_index);
             traceHashUsize(&hasher, self.remaining_steps);
             traceHashBool(&hasher, self.done_consumed);
-            try traceHashPending(&hasher, pending);
+            try self.traceHashPending(&hasher, pending);
 
             traceHashUsize(&hasher, self.frames.len());
             var frame_index: usize = 0;
@@ -8582,6 +9180,58 @@ test "Program.Session cloneState preserves last_return aliases into cloned scrat
         frame.last_return,
     );
     try std.testing.expectEqualStrings("restored", last_return.items[0]);
+}
+
+test "Program.Session decoded operation pending requires a resumable active frame" {
+    const compiled_plan = supportOpPlan(.unit, .i32);
+    const Core = ExecutableSessionForPlan(
+        error{ProgramContractViolation},
+        "session-op-pending-frame-validation",
+        compiled_plan,
+        .{},
+        &.{},
+        struct {},
+        struct {},
+    );
+
+    var core = try Core.start(std.testing.allocator, &.{});
+    defer core.deinit();
+    _ = switch (try core.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+
+    try core.validateDecodedPendingState();
+
+    {
+        const original_next_turn_index = core.next_turn_index;
+        core.next_turn_index = std.math.maxInt(usize);
+        defer core.next_turn_index = original_next_turn_index;
+        try std.testing.expectError(error.ProgramContractViolation, core.validateDecodedPendingState());
+    }
+
+    {
+        const original_next_turn_index = core.next_turn_index;
+        core.next_turn_index += 1;
+        defer core.next_turn_index = original_next_turn_index;
+        try std.testing.expectError(error.ProgramContractViolation, core.validateDecodedPendingState());
+    }
+
+    {
+        const top = core.frames.top();
+        const original_function_index = top.function_index;
+        top.function_index = original_function_index + 1;
+        defer top.function_index = original_function_index;
+        try std.testing.expectError(error.ProgramContractViolation, core.validateDecodedPendingState());
+    }
+
+    {
+        const top = core.frames.top();
+        top.waiting_helper_dst = 0;
+        defer top.waiting_helper_dst = null;
+        try std.testing.expectError(error.ProgramContractViolation, core.validateDecodedPendingState());
+    }
 }
 
 test "ability.program executable support rejects terminal nested target result mismatches" {

@@ -6,6 +6,370 @@ const std = @import("std");
 
 const interpreter_step_budget = 10_000;
 
+fn testHashU32(hasher: *std.hash.Wyhash, value: u32) void {
+    var buffer: [4]u8 = undefined;
+    std.mem.writeInt(u32, &buffer, value, .little);
+    hasher.update(&buffer);
+}
+
+fn testHashUsize(hasher: *std.hash.Wyhash, value: usize) void {
+    var buffer: [8]u8 = undefined;
+    std.mem.writeInt(u64, &buffer, @intCast(value), .little);
+    hasher.update(&buffer);
+}
+
+fn testHashBytes(hasher: *std.hash.Wyhash, bytes: []const u8) void {
+    testHashUsize(hasher, bytes.len);
+    hasher.update(bytes);
+}
+
+fn testCapsulePayloadFingerprint(comptime Program: type, payload: []const u8) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    testHashBytes(&hasher, "ability.session.capsule.image.payload");
+    testHashU32(&hasher, Program.Session.capsule_image_fingerprint_version);
+    testHashBytes(&hasher, payload);
+    return hasher.final();
+}
+
+fn testProgramCapsuleImageFingerprint(comptime Program: type, image_bytes: []const u8) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    testHashBytes(&hasher, "ability.program.capsule.image");
+    testHashU32(&hasher, Program.Session.capsule_image_fingerprint_version);
+    testHashBytes(&hasher, image_bytes);
+    return hasher.final();
+}
+
+const TestImageCursor = struct {
+    bytes: []const u8,
+    index: usize = 0,
+
+    fn skip(self: *@This(), len: usize) !void {
+        const end = std.math.add(usize, self.index, len) catch return error.ProgramContractViolation;
+        if (end > self.bytes.len) return error.ProgramContractViolation;
+        self.index = end;
+    }
+
+    fn readU8(self: *@This()) !u8 {
+        if (self.index >= self.bytes.len) return error.ProgramContractViolation;
+        const value = self.bytes[self.index];
+        self.index += 1;
+        return value;
+    }
+
+    fn readU16(self: *@This()) !u16 {
+        if (self.index + 2 > self.bytes.len) return error.ProgramContractViolation;
+        const value = std.mem.readInt(u16, self.bytes[self.index..][0..2], .little);
+        self.index += 2;
+        return value;
+    }
+
+    fn readUsize(self: *@This()) !usize {
+        if (self.index + 8 > self.bytes.len) return error.ProgramContractViolation;
+        const value = std.mem.readInt(u64, self.bytes[self.index..][0..8], .little);
+        self.index += 8;
+        return @intCast(value);
+    }
+
+    fn skipLenBytes(self: *@This()) !void {
+        try self.skip(try self.readUsize());
+    }
+
+    fn skipOptionalUsize(self: *@This()) !void {
+        if (try self.readU8() != 0) try self.skip(8);
+    }
+
+    fn readValueCodec(self: *@This()) !ability.ir.ValueCodec {
+        return switch (try self.readU8()) {
+            @intFromEnum(ability.ir.ValueCodec.unit) => .unit,
+            @intFromEnum(ability.ir.ValueCodec.bool) => .bool,
+            @intFromEnum(ability.ir.ValueCodec.i32) => .i32,
+            @intFromEnum(ability.ir.ValueCodec.product) => .product,
+            @intFromEnum(ability.ir.ValueCodec.usize) => .usize,
+            @intFromEnum(ability.ir.ValueCodec.string) => .string,
+            @intFromEnum(ability.ir.ValueCodec.string_list) => .string_list,
+            @intFromEnum(ability.ir.ValueCodec.sum) => .sum,
+            else => error.ProgramContractViolation,
+        };
+    }
+
+    fn skipValueRef(self: *@This()) !void {
+        _ = try self.readValueCodec();
+        if (try self.readU8() != 0) try self.skip(2);
+    }
+
+    fn readValueRefCodec(self: *@This()) !ability.ir.ValueCodec {
+        const codec = try self.readValueCodec();
+        if (try self.readU8() != 0) try self.skip(2);
+        return codec;
+    }
+
+    fn skipValueForCodec(self: *@This(), codec: ability.ir.ValueCodec) !void {
+        switch (codec) {
+            .unit => {},
+            .bool => try self.skip(1),
+            .i32 => try self.skip(4),
+            .usize => try self.skip(8),
+            .string => switch (try self.readU8()) {
+                0 => try self.skipLenBytes(),
+                1 => try self.skip(8),
+                else => return error.ProgramContractViolation,
+            },
+            .string_list => switch (try self.readU8()) {
+                0 => {
+                    const item_count = try self.readUsize();
+                    for (0..item_count) |_| switch (try self.readU8()) {
+                        0 => try self.skipLenBytes(),
+                        1 => try self.skip(8),
+                        else => return error.ProgramContractViolation,
+                    };
+                },
+                1 => try self.skip(8),
+                else => return error.ProgramContractViolation,
+            },
+            .product, .sum => return error.ProgramContractViolation,
+        }
+    }
+
+    fn skipMaybeValueForCodec(self: *@This(), codec: ability.ir.ValueCodec) !void {
+        if (try self.readU8() != 0) try self.skipValueForCodec(codec);
+    }
+
+    fn skipImageValueForCodec(self: *@This(), codec: ability.ir.ValueCodec) !void {
+        switch (try self.readU8()) {
+            0 => try self.skipValueForCodec(codec),
+            1 => try self.skip(8),
+            else => return error.ProgramContractViolation,
+        }
+    }
+
+    fn skipMaybeImageValueForCodec(self: *@This(), codec: ability.ir.ValueCodec) !void {
+        switch (try self.readU8()) {
+            0 => {},
+            1 => try self.skipValueForCodec(codec),
+            2 => try self.skip(8),
+            else => return error.ProgramContractViolation,
+        }
+    }
+};
+
+fn firstCapsuleFrameAfterStartOffset(image_bytes: []const u8) !usize {
+    var cursor = TestImageCursor{ .bytes = image_bytes };
+    try cursor.skip("ABL_CAP1".len);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skipLenBytes();
+    try cursor.skipLenBytes();
+    try cursor.skip(8);
+    try cursor.skip(4);
+    try cursor.skip(1);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skipOptionalUsize();
+    try cursor.skipOptionalUsize();
+    try cursor.skipOptionalUsize();
+    try cursor.skipValueRef();
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skipOptionalUsize();
+    try cursor.skipOptionalUsize();
+    try cursor.skipOptionalUsize();
+    try cursor.skip(2);
+    try cursor.skip(8);
+
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(1);
+    const after_stack_len = try cursor.readUsize();
+    try cursor.skip(after_stack_len * 6);
+    const frame_count = try cursor.readUsize();
+    if (frame_count == 0) return error.ProgramContractViolation;
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    return cursor.index;
+}
+
+fn capsuleCoreRemainingStepsOffset(image_bytes: []const u8) !usize {
+    var cursor = TestImageCursor{ .bytes = image_bytes };
+    try cursor.skip("ABL_CAP1".len);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skipLenBytes();
+    try cursor.skipLenBytes();
+    try cursor.skip(8);
+    try cursor.skip(4);
+    try cursor.skip(1);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skipOptionalUsize();
+    try cursor.skipOptionalUsize();
+    try cursor.skipOptionalUsize();
+    try cursor.skipValueRef();
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skipOptionalUsize();
+    try cursor.skipOptionalUsize();
+    try cursor.skipOptionalUsize();
+    try cursor.skip(2);
+    try cursor.skip(8);
+    return cursor.index;
+}
+
+fn capsuleCoreDoneConsumedOffset(image_bytes: []const u8) !usize {
+    return (try capsuleCoreRemainingStepsOffset(image_bytes)) + 16;
+}
+
+fn firstCapsuleAfterStackAfterSiteOffset(image_bytes: []const u8) !usize {
+    var cursor = TestImageCursor{ .bytes = image_bytes };
+    cursor.index = try capsuleCoreRemainingStepsOffset(image_bytes);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(1);
+    const after_stack_len = try cursor.readUsize();
+    if (after_stack_len == 0) return error.ProgramContractViolation;
+    try cursor.skip(2);
+    try cursor.skip(2);
+    return cursor.index;
+}
+
+fn pendingOpDstOffset(image_bytes: []const u8) !usize {
+    var cursor = TestImageCursor{ .bytes = image_bytes };
+    cursor.index = try capsuleCoreRemainingStepsOffset(image_bytes);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(1);
+    const after_stack_len = try cursor.readUsize();
+    try cursor.skip(after_stack_len * 6);
+    const frame_count = try cursor.readUsize();
+    if (frame_count != 1) return error.ProgramContractViolation;
+    try cursor.skip(8 * 6);
+    try cursor.skip(1);
+    if (try cursor.readU8() != 0) try cursor.skip(2);
+    const local_count = try cursor.readUsize();
+    for (0..local_count) |_| {
+        const codec = try cursor.readValueRefCodec();
+        try cursor.skipMaybeImageValueForCodec(codec);
+    }
+    if (try cursor.readU8() != 0) return error.ProgramContractViolation;
+    if (try cursor.readU8() == 0) return error.ProgramContractViolation;
+    if (try cursor.readU8() != 0) return error.ProgramContractViolation;
+    try cursor.skip(8 * 3);
+    return cursor.index;
+}
+
+fn pendingOpAfterEntryOperationSiteOffset(image_bytes: []const u8) !usize {
+    var cursor = TestImageCursor{ .bytes = image_bytes };
+    cursor.index = try capsulePendingOffset(image_bytes);
+    if (try cursor.readU8() == 0) return error.ProgramContractViolation;
+    if (try cursor.readU8() != 0) return error.ProgramContractViolation;
+    try cursor.skip(8 * 3);
+    try cursor.skip(2);
+    try cursor.skip(2);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    const payload_codec = try cursor.readValueRefCodec();
+    try cursor.skip(2);
+    try cursor.skipImageValueForCodec(payload_codec);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(1);
+    try cursor.skipValueRef();
+    try cursor.skipValueRef();
+    if (try cursor.readU8() == 0) return error.ProgramContractViolation;
+    try cursor.skip(2);
+    return cursor.index;
+}
+
+fn capsulePendingOffset(image_bytes: []const u8) !usize {
+    var cursor = TestImageCursor{ .bytes = image_bytes };
+    cursor.index = try capsuleCoreRemainingStepsOffset(image_bytes);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(1);
+    const after_stack_len = try cursor.readUsize();
+    try cursor.skip(after_stack_len * 6);
+    const frame_count = try cursor.readUsize();
+    for (0..frame_count) |_| {
+        try cursor.skip(8 * 6);
+        try cursor.skip(1);
+        if (try cursor.readU8() != 0) try cursor.skip(2);
+        const local_count = try cursor.readUsize();
+        for (0..local_count) |_| {
+            const codec = try cursor.readValueRefCodec();
+            try cursor.skipMaybeImageValueForCodec(codec);
+        }
+        switch (try cursor.readU8()) {
+            0 => {},
+            1 => try cursor.skip(4),
+            2 => try cursor.skip(2),
+            else => return error.ProgramContractViolation,
+        }
+    }
+    return cursor.index;
+}
+
+fn pendingAfterRemainingOffset(image_bytes: []const u8) !usize {
+    var cursor = TestImageCursor{ .bytes = image_bytes };
+    cursor.index = try capsulePendingOffset(image_bytes);
+    if (try cursor.readU8() == 0) return error.ProgramContractViolation;
+    if (try cursor.readU8() != 1) return error.ProgramContractViolation;
+    try cursor.skip(8 * 3);
+    try cursor.skip(2);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    const value_codec = try cursor.readValueRefCodec();
+    try cursor.skipImageValueForCodec(value_codec);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skipValueRef();
+    try cursor.skipValueRef();
+    return cursor.index;
+}
+
+fn pendingAfterOutputRefOffset(image_bytes: []const u8) !usize {
+    var cursor = TestImageCursor{ .bytes = image_bytes };
+    cursor.index = try capsulePendingOffset(image_bytes);
+    if (try cursor.readU8() == 0) return error.ProgramContractViolation;
+    if (try cursor.readU8() != 1) return error.ProgramContractViolation;
+    try cursor.skip(8 * 3);
+    try cursor.skip(2);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    const value_codec = try cursor.readValueRefCodec();
+    try cursor.skipImageValueForCodec(value_codec);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    return cursor.index;
+}
+
+fn corruptLastU64Occurrence(image_bytes: []u8, value: u64) !void {
+    var encoded = [_]u8{0} ** 8;
+    std.mem.writeInt(u64, &encoded, value, .little);
+    const payload = image_bytes[0 .. image_bytes.len - 8];
+    var offset: ?usize = null;
+    var index: usize = 0;
+    while (std.mem.findPos(u8, payload, index, &encoded)) |found| {
+        offset = found;
+        index = found + 1;
+    }
+    const found_offset = offset orelse return error.ProgramContractViolation;
+    image_bytes[found_offset] ^= 0x01;
+}
+
+fn rewriteCapsuleImageChecksum(comptime Program: type, image_bytes: []u8) void {
+    const payload = image_bytes[0 .. image_bytes.len - 8];
+    std.mem.writeInt(u64, image_bytes[image_bytes.len - 8 ..][0..8], testCapsulePayloadFingerprint(Program, payload), .little);
+}
+
 fn expectRuntimeParked(runtime: *const ability.Runtime) !void {
     try std.testing.expectEqual(@as(usize, 0), runtime.core.active_reset_count);
 }
@@ -2221,6 +2585,82 @@ fn duplicateSchemaPayloadPlan(comptime Payload: type, comptime label: []const u8
     }) catch unreachable;
 }
 
+fn duplicateSchemaResumePlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const resumed = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .product,
+        .value_schema_index = 1,
+        .result_codec = .product,
+        .result_schema_index = 1,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "round_trip",
+        .mode = .transform,
+        .payload_codec = .product,
+        .payload_schema_index = 1,
+        .resume_codec = .product,
+        .resume_schema_index = 1,
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+        .{
+            .label = @typeName(Payload),
+            .codec = .product,
+            .first_field = 0,
+            .field_count = 1,
+        },
+        .{
+            .label = @typeName(Payload),
+            .codec = .product,
+            .first_field = 1,
+            .field_count = 1,
+        },
+    };
+    const value_fields = [_]ability.ir.ValueFieldPlan{
+        .{ .name = "amount", .codec = .i32 },
+        .{ .name = "amount", .codec = .i32 },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 35,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &.{ .{ .codec = .product, .schema_index = 1 }, .{ .codec = .product, .schema_index = 1 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn duplicateSchemaAfterResultPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const resumed = ability.ir.builder.local(root, 0);
@@ -4425,10 +4865,9 @@ test "Program.Interpreter handles transform requests and records response traces
     var recorder = Recorder{};
     var journal = Program.Session.Journal.init(std.testing.allocator);
     defer journal.deinit();
-    var journal_recorder = journal.recorder();
     var result = try Interpreter.run(&runtime, .{}, &host, .{
         .trace_recorder = &recorder,
-        .journal_recorder = &journal_recorder,
+        .journal_recorder = journal.recorder(),
     });
     switch (result) {
         .done => |*done| {
@@ -4461,18 +4900,109 @@ test "Program.Interpreter handles transform requests and records response traces
     const manual_response = try (try manual_request.as(Decide)).responseTrace(.@"resume", @as(i32, 41));
     try std.testing.expectEqual(manual_request.fingerprint(), recorder.request_fingerprint);
     try std.testing.expectEqual(manual_response.fingerprint, recorder.response_fingerprint);
+
+    var inconsistent_request_trace = manual_request.trace();
+    inconsistent_request_trace.has_payload = false;
+    var inconsistent_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer inconsistent_journal.deinit();
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        inconsistent_journal.appendRequest(.{ .operation = inconsistent_request_trace }),
+    );
+
+    var forged_payload_flag = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
+    defer forged_payload_flag.deinit();
+    switch (forged_payload_flag.entries.items[0]) {
+        .request => |request_entry| switch (request_entry) {
+            .operation => |operation| {
+                var changed = operation;
+                changed.has_payload = false;
+                forged_payload_flag.entries.items[0] = .{ .request = .{ .operation = changed } };
+            },
+            .after => return error.ExpectedOperation,
+        },
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expectError(error.ProgramContractViolation, forged_payload_flag.encode(std.testing.allocator));
+
+    var rollback_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer rollback_journal.deinit();
+    var rollback_recorder = rollback_journal.recorder();
+    var mismatched_response = manual_response;
+    mismatched_response.request_fingerprint ^= 1;
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        rollback_recorder.record(manual_request.trace(), mismatched_response),
+    );
+    try std.testing.expectEqual(@as(usize, 0), rollback_journal.entries.items.len);
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        rollback_recorder.recordValue(manual_request.trace(), manual_response, true),
+    );
+    try std.testing.expectEqual(@as(usize, 0), rollback_journal.entries.items.len);
+
     var replayer = decoded_journal.replayer();
     const replay_response = try replayer.expectCurrent(try manual_session.current());
     try std.testing.expectEqual(manual_response.fingerprint, replay_response.fingerprint);
     var value_replayer = decoded_journal.replayer();
     const replay_value = try value_replayer.expectCurrentValue(try manual_session.current(), i32);
     try std.testing.expectEqual(@as(i32, 41), replay_value);
+    var traced_value_replayer = decoded_journal.replayer();
+    const traced_value = try traced_value_replayer.expectCurrentResponseValue(try manual_session.current(), i32);
+    try std.testing.expectEqual(Program.Session.Trace.ResponseKind.@"resume", traced_value.trace.kind);
+    try std.testing.expectEqual(@as(i32, 41), traced_value.value);
+
+    const ChoiceBody = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "journal-choice-return-now");
+    };
+    const ChoiceProgram = ability.program("journal-choice-return-now", struct {}, ChoiceBody);
+    const Choice = ChoiceProgram.protocol.operationSite("session", "decide", 0);
+    var choice_session = try ChoiceProgram.Session.start(&runtime, .{});
+    defer choice_session.deinit();
+    const choice_request = switch (try choice_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    const return_now_trace = try (try choice_request.as(Choice)).responseTrace(.return_now, @as(i32, 77));
+    var return_now_journal = ChoiceProgram.Session.Journal.init(std.testing.allocator);
+    defer return_now_journal.deinit();
+    try return_now_journal.appendRequest(.{ .operation = choice_request.trace() });
+    try return_now_journal.appendResponseValue(return_now_trace, @as(i32, 77));
+    var return_now_replayer = return_now_journal.replayer();
+    const return_now_value = try return_now_replayer.expectCurrentValue(try choice_session.current(), i32);
+    try std.testing.expectEqual(@as(i32, 77), return_now_value);
+    try choice_session.returnNowTyped(try choice_request.as(Choice), return_now_value);
+    var return_now_result = switch (try choice_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer return_now_result.deinit();
+    try std.testing.expectEqual(@as(i32, 77), return_now_result.value);
 
     var missing_response = Program.Session.Journal.init(std.testing.allocator);
     defer missing_response.deinit();
     try missing_response.appendRequest(.{ .operation = manual_request.trace() });
     var missing_replayer = missing_response.replayer();
     try std.testing.expectError(error.ProgramContractViolation, missing_replayer.expectCurrent(try manual_session.current()));
+
+    var forged_request_trace = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
+    defer forged_request_trace.deinit();
+    switch (forged_request_trace.entries.items[0]) {
+        .request => |request_entry| switch (request_entry) {
+            .operation => |operation| {
+                const changed = operation;
+                @constCast(changed.op_name)[0] ^= 1;
+                forged_request_trace.entries.items[0] = .{ .request = .{ .operation = changed } };
+            },
+            .after => return error.ExpectedOperation,
+        },
+        else => return error.ExpectedRequest,
+    }
+    const forged_request_bytes = try forged_request_trace.encode(std.testing.allocator);
+    defer std.testing.allocator.free(forged_request_bytes);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Journal.decode(std.testing.allocator, forged_request_bytes));
 
     var wrong_response = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
     defer wrong_response.deinit();
@@ -4487,6 +5017,32 @@ test "Program.Interpreter handles transform requests and records response traces
     var wrong_replayer = wrong_response.replayer();
     try std.testing.expectError(error.ProgramContractViolation, wrong_replayer.expectCurrent(try manual_session.current()));
 
+    var wrong_response_kind = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
+    defer wrong_response_kind.deinit();
+    switch (wrong_response_kind.entries.items[1]) {
+        .response => |response| {
+            var changed = response;
+            changed.trace.kind = .resume_after;
+            wrong_response_kind.entries.items[1] = .{ .response = changed };
+        },
+        else => return error.ExpectedResponse,
+    }
+    var wrong_kind_replayer = wrong_response_kind.replayer();
+    try std.testing.expectError(error.ProgramContractViolation, wrong_kind_replayer.expectCurrent(try manual_session.current()));
+
+    var wrong_response_ref = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
+    defer wrong_response_ref.deinit();
+    switch (wrong_response_ref.entries.items[1]) {
+        .response => |response| {
+            var changed = response;
+            changed.trace.response_ref = .{ .codec = .unit };
+            wrong_response_ref.entries.items[1] = .{ .response = changed };
+        },
+        else => return error.ExpectedResponse,
+    }
+    var wrong_ref_replayer = wrong_response_ref.replayer();
+    try std.testing.expectError(error.ProgramContractViolation, wrong_ref_replayer.expectCurrent(try manual_session.current()));
+
     var wrong_value = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
     defer wrong_value.deinit();
     switch (wrong_value.entries.items[1]) {
@@ -4499,6 +5055,430 @@ test "Program.Interpreter handles transform requests and records response traces
     }
     var wrong_value_replayer = wrong_value.replayer();
     try std.testing.expectError(error.ProgramContractViolation, wrong_value_replayer.expectCurrentValue(try manual_session.current(), i32));
+
+    var corrupt_value_image = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
+    defer corrupt_value_image.deinit();
+    switch (corrupt_value_image.entries.items[1]) {
+        .response => |*response| {
+            const image = response.value_image orelse return error.ExpectedResponseValue;
+            if (image.len == 0) return error.ExpectedResponseValue;
+            image[image.len - 1] ^= 1;
+        },
+        else => return error.ExpectedResponse,
+    }
+    const corrupt_value_image_bytes = try corrupt_value_image.encode(std.testing.allocator);
+    defer std.testing.allocator.free(corrupt_value_image_bytes);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Journal.decode(std.testing.allocator, corrupt_value_image_bytes));
+
+    var forged_response_trace = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
+    defer forged_response_trace.deinit();
+    switch (forged_response_trace.entries.items[1]) {
+        .response => |response| {
+            var changed = response;
+            changed.trace.fingerprint ^= 1;
+            forged_response_trace.entries.items[1] = .{ .response = changed };
+        },
+        else => return error.ExpectedResponse,
+    }
+    const forged_response_bytes = try forged_response_trace.encode(std.testing.allocator);
+    defer std.testing.allocator.free(forged_response_bytes);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Journal.decode(std.testing.allocator, forged_response_bytes));
+
+    var done_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer done_journal.deinit();
+    try done_journal.appendRequest(.{ .operation = manual_request.trace() });
+    try done_journal.appendResponseValue(manual_response, @as(i32, 41));
+    try done_journal.appendDone(manual_response.response_value_fingerprint);
+    const done_journal_bytes = try done_journal.encode(std.testing.allocator);
+    defer std.testing.allocator.free(done_journal_bytes);
+    var decoded_done_journal = try Program.Session.Journal.decode(std.testing.allocator, done_journal_bytes);
+    defer decoded_done_journal.deinit();
+    var done_session = try Program.Session.start(&runtime, .{});
+    defer done_session.deinit();
+    const done_request = switch (try done_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    var done_replayer = decoded_done_journal.replayer();
+    const done_value = try done_replayer.expectCurrentValue(try done_session.current(), i32);
+    try done_session.resumeTyped(try done_request.as(Decide), done_value);
+    var done_result = switch (try done_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer done_result.deinit();
+    try done_replayer.expectDone(manual_response.response_value_fingerprint);
+
+    var wrong_done_replayer = decoded_done_journal.replayer();
+    wrong_done_replayer.index = 2;
+    try std.testing.expectError(error.ProgramContractViolation, wrong_done_replayer.expectDone(manual_response.response_value_fingerprint ^ 1));
+
+    var extra_done = try Program.Session.Journal.decode(std.testing.allocator, done_journal_bytes);
+    defer extra_done.deinit();
+    try extra_done.appendDone(manual_response.response_value_fingerprint);
+    var extra_done_replayer = extra_done.replayer();
+    extra_done_replayer.index = 2;
+    try std.testing.expectError(error.ProgramContractViolation, extra_done_replayer.expectDone(manual_response.response_value_fingerprint));
+}
+
+test "Program.Session journal replays structured response values" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const ProductPayload = struct {
+        amount: i32,
+    };
+    const EmptyHandlers = struct {};
+    const ProductBody = struct {
+        pub const value_schema_types = .{ProductPayload};
+        pub const compiled_plan = sessionProductTransformPlan(ProductPayload, "session-journal-product");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{ProductPayload{ .amount = 11 }}) {
+            return .{ProductPayload{ .amount = 11 }};
+        }
+    };
+    const ProductProgram = ability.program("session-journal-product", EmptyHandlers, ProductBody);
+    const ProductSite = ProductProgram.protocol.operationSite("structured", "round_trip", 0);
+    var product_session = try ProductProgram.Session.start(&runtime, .{});
+    defer product_session.deinit();
+    const product_request = switch (try product_session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    const product_typed = try product_request.as(ProductSite);
+    const product_response = ProductPayload{ .amount = 34 };
+    const product_trace = try product_typed.responseTrace(.@"resume", product_response);
+    var product_journal = ProductProgram.Session.Journal.init(std.testing.allocator);
+    defer product_journal.deinit();
+    try product_journal.appendRequest(.{ .operation = product_request.trace() });
+    try product_journal.appendResponseValue(product_trace, product_response);
+    const product_bytes = try product_journal.encode(std.testing.allocator);
+    defer std.testing.allocator.free(product_bytes);
+    var decoded_product = try ProductProgram.Session.Journal.decode(std.testing.allocator, product_bytes);
+    defer decoded_product.deinit();
+
+    var product_replay_session = try ProductProgram.Session.start(&runtime, .{});
+    defer product_replay_session.deinit();
+    _ = try product_replay_session.next();
+    var product_replayer = decoded_product.replayer();
+    defer product_replayer.deinit();
+    const replayed_product = try product_replayer.expectCurrentValue(try product_replay_session.current(), ProductPayload);
+    try std.testing.expectEqual(@as(i32, 34), replayed_product.amount);
+
+    const SumPayload = ?i32;
+    const SumBody = struct {
+        pub const value_schema_types = .{SumPayload};
+        pub const compiled_plan = sessionSumTransformPlan(SumPayload, "session-journal-sum");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{@as(SumPayload, 21)}) {
+            return .{@as(SumPayload, 21)};
+        }
+    };
+    const SumProgram = ability.program("session-journal-sum", EmptyHandlers, SumBody);
+    const SumSite = SumProgram.protocol.operationSite("structured", "round_trip", 0);
+    var sum_session = try SumProgram.Session.start(&runtime, .{});
+    defer sum_session.deinit();
+    const sum_request = switch (try sum_session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    const sum_typed = try sum_request.as(SumSite);
+    const sum_response: SumPayload = 55;
+    const sum_trace = try sum_typed.responseTrace(.@"resume", sum_response);
+    var sum_journal = SumProgram.Session.Journal.init(std.testing.allocator);
+    defer sum_journal.deinit();
+    try sum_journal.appendRequest(.{ .operation = sum_request.trace() });
+    try sum_journal.appendResponseValue(sum_trace, sum_response);
+    const sum_bytes = try sum_journal.encode(std.testing.allocator);
+    defer std.testing.allocator.free(sum_bytes);
+    var decoded_sum = try SumProgram.Session.Journal.decode(std.testing.allocator, sum_bytes);
+    defer decoded_sum.deinit();
+
+    var sum_replay_session = try SumProgram.Session.start(&runtime, .{});
+    defer sum_replay_session.deinit();
+    _ = try sum_replay_session.next();
+    var sum_replayer = decoded_sum.replayer();
+    defer sum_replayer.deinit();
+    const replayed_sum = try sum_replayer.expectCurrentValue(try sum_replay_session.current(), SumPayload);
+    try std.testing.expectEqual(@as(i32, 55), replayed_sum.?);
+}
+
+test "Program.Session journal replays structured response aliases" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const AliasPair = struct {
+        first: [][]const u8,
+        second: [][]const u8,
+    };
+    const AliasHandlers = struct {
+        payload: AliasPair,
+    };
+    const Body = struct {
+        pub const value_schema_types = .{AliasPair};
+        pub const compiled_plan = sessionStringListPairTransformPlan(AliasPair, "session-journal-structured-alias");
+
+        pub fn encodeArgs(handlers: AliasHandlers) struct { AliasPair } {
+            return .{handlers.payload};
+        }
+    };
+    const Program = ability.program("session-journal-structured-alias", AliasHandlers, Body);
+    const Site = Program.protocol.operationSite("structured", "round_trip", 0);
+
+    var seed_items = [_][]const u8{ "seed", "right" };
+    var session = try Program.Session.start(&runtime, .{ .payload = .{ .first = seed_items[0..], .second = seed_items[0..] } });
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    const typed = try request.as(Site);
+    var response_items = [_][]const u8{ "left", "right" };
+    const response = AliasPair{ .first = response_items[0..], .second = response_items[0..] };
+    const response_trace = try typed.responseTrace(.@"resume", response);
+
+    var journal = Program.Session.Journal.init(std.testing.allocator);
+    defer journal.deinit();
+    try journal.appendRequest(.{ .operation = request.trace() });
+    try journal.appendResponseValue(response_trace, response);
+    const bytes = try journal.encode(std.testing.allocator);
+    defer std.testing.allocator.free(bytes);
+    var decoded = try Program.Session.Journal.decode(std.testing.allocator, bytes);
+    defer decoded.deinit();
+
+    var replay_seed_items = [_][]const u8{ "seed", "right" };
+    var replay_session = try Program.Session.start(&runtime, .{ .payload = .{ .first = replay_seed_items[0..], .second = replay_seed_items[0..] } });
+    defer replay_session.deinit();
+    _ = try replay_session.next();
+    var replayer = decoded.replayer();
+    defer replayer.deinit();
+    var replayed = try replayer.expectCurrentValue(try replay_session.current(), AliasPair);
+    replayed.first[0] = "changed";
+    try std.testing.expectEqualStrings("changed", replayed.second[0]);
+}
+
+test "Program.Session journal preserves duplicate schema response refs" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Payload = struct {
+        amount: i32,
+    };
+    const EmptyHandlers = struct {};
+    const Body = struct {
+        pub const value_schema_types = .{ Payload, Payload };
+        pub const compiled_plan = duplicateSchemaResumePlan(Payload, "session-journal-duplicate-schema-response");
+
+        pub fn encodeArgs(_: EmptyHandlers) struct { Payload } {
+            return .{.{ .amount = 1 }};
+        }
+    };
+    const Program = ability.program("session-journal-duplicate-schema-response", EmptyHandlers, Body);
+    const Site = Program.protocol.operationSite("structured", "round_trip", 0);
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    const typed = try request.as(Site);
+    const response = Payload{ .amount = 91 };
+    const response_trace = try typed.responseTrace(.@"resume", response);
+    try std.testing.expectEqual(@as(?u16, 1), response_trace.response_ref.schema_index);
+
+    var journal = Program.Session.Journal.init(std.testing.allocator);
+    defer journal.deinit();
+    try journal.appendRequest(.{ .operation = request.trace() });
+    try journal.appendResponseValue(response_trace, response);
+    const bytes = try journal.encode(std.testing.allocator);
+    defer std.testing.allocator.free(bytes);
+    var decoded = try Program.Session.Journal.decode(std.testing.allocator, bytes);
+    defer decoded.deinit();
+
+    var replay_session = try Program.Session.start(&runtime, .{});
+    defer replay_session.deinit();
+    _ = try replay_session.next();
+    var replayer = decoded.replayer();
+    defer replayer.deinit();
+    const replayed = try replayer.expectCurrentValue(try replay_session.current(), Payload);
+    try std.testing.expectEqual(@as(i32, 91), replayed.amount);
+}
+
+test "Program.Session journal replays string-list response values" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = resolvedNestedWithStringListPlan("session-journal-string-list");
+        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+            .metadata = nested_with_metadata,
+            .function_index = 1,
+        }};
+    };
+    const Program = ability.program("session-journal-string-list", struct {}, Body);
+    const Operation = Program.protocol.operationSite("authored", "dispatch", 0);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    const response_items = [_][]const u8{ "left", "right" };
+    const response_value: []const []const u8 = response_items[0..];
+    const typed = try request.as(Operation);
+    const response_trace = try typed.responseTrace(.@"resume", response_value);
+    var journal = Program.Session.Journal.init(std.testing.allocator);
+    defer journal.deinit();
+    try journal.appendRequest(.{ .operation = request.trace() });
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    var image = try capsule.encode(std.testing.allocator);
+    defer image.deinit();
+    try journal.appendCapsuleImage(image);
+    try journal.appendResponseValue(response_trace, response_value);
+    const journal_bytes = try journal.encode(std.testing.allocator);
+    defer std.testing.allocator.free(journal_bytes);
+    var decoded = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
+    defer decoded.deinit();
+
+    var bad_capsule_entry = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
+    defer bad_capsule_entry.deinit();
+    switch (bad_capsule_entry.entries.items[1]) {
+        .capsule_image => |entry| {
+            var changed = entry;
+            changed.image_fingerprint ^= 1;
+            bad_capsule_entry.entries.items[1] = .{ .capsule_image = changed };
+        },
+        else => return error.ExpectedCapsuleImage,
+    }
+    const bad_capsule_entry_bytes = try bad_capsule_entry.encode(std.testing.allocator);
+    defer std.testing.allocator.free(bad_capsule_entry_bytes);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Journal.decode(std.testing.allocator, bad_capsule_entry_bytes));
+
+    var bad_capsule_bytes = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
+    defer bad_capsule_bytes.deinit();
+    switch (bad_capsule_bytes.entries.items[1]) {
+        .capsule_image => |entry| {
+            var changed = entry;
+            changed.bytes[changed.bytes.len - 9] ^= 1;
+            changed.image_fingerprint = testProgramCapsuleImageFingerprint(Program, changed.bytes);
+            bad_capsule_bytes.entries.items[1] = .{ .capsule_image = changed };
+        },
+        else => return error.ExpectedCapsuleImage,
+    }
+    const bad_capsule_bytes_image = try bad_capsule_bytes.encode(std.testing.allocator);
+    defer std.testing.allocator.free(bad_capsule_bytes_image);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Journal.decode(std.testing.allocator, bad_capsule_bytes_image));
+
+    var replay_session = try Program.Session.start(&runtime, .{});
+    defer replay_session.deinit();
+    _ = try replay_session.next();
+    var replayer = decoded.replayer();
+    defer replayer.deinit();
+    const replayed = try replayer.expectCurrentValue(try replay_session.current(), []const []const u8);
+    try std.testing.expectEqual(@as(usize, 2), replayed.len);
+    try std.testing.expectEqualStrings("left", replayed[0]);
+    try std.testing.expectEqualStrings("right", replayed[1]);
+
+    var mutable_replay_session = try Program.Session.start(&runtime, .{});
+    defer mutable_replay_session.deinit();
+    _ = try mutable_replay_session.next();
+    var mutable_replayer = decoded.replayer();
+    defer mutable_replayer.deinit();
+    const mutable_replayed = try mutable_replayer.expectCurrentValue(try mutable_replay_session.current(), [][]const u8);
+    try std.testing.expectEqual(@as(usize, 2), mutable_replayed.len);
+    mutable_replayed[0] = "changed";
+    try std.testing.expectEqualStrings("changed", mutable_replayed[0]);
+    try std.testing.expectEqualStrings("right", mutable_replayed[1]);
+}
+
+test "Program.Interpreter journal records after response values" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const FinalAfterHandlers = struct {
+        step: struct {
+            pub fn afterDispatch(_: *const @This(), value: i32) !bool {
+                return value == 1;
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = finalAfterOutputMismatchPlan("interpreter-journal-after-values");
+    };
+    const Program = ability.program("interpreter-journal-after-values", FinalAfterHandlers, Body);
+    const Operation = Program.protocol.operationSite("step", "step", 0);
+    const After = Program.protocol.afterSite("step", "step", 0);
+    const DynamicAfterHandler = struct {
+        fn handle(ctx: anytype, request: anytype, _: Program.Handler.Control) !Program.Handler.Outcome(After) {
+            ctx.after_count += 1;
+            try std.testing.expectEqual(@as(i32, 1), try request.value());
+            return Program.Handler.resumeAfter(After, @as([]const u8, "ok"));
+        }
+    };
+    const Interpreter = Program.Interpreter(.{
+        Program.Handler.operation(Operation, ResumeI32OperationHandler(Program, Operation, 1).handle),
+        Program.Handler.after(After, DynamicAfterHandler.handle),
+    });
+    Interpreter.assertCoversAll();
+
+    const Host = struct {
+        operation_count: usize = 0,
+        after_count: usize = 0,
+    };
+    var host = Host{};
+    var journal = Program.Session.Journal.init(std.testing.allocator);
+    defer journal.deinit();
+    var recorder = journal.recorder();
+    var result = try Interpreter.run(&runtime, .{ .step = .{} }, &host, .{ .journal_recorder = &recorder });
+    switch (result) {
+        .done => |*done| {
+            defer done.deinit();
+            try std.testing.expectEqualStrings("ok", done.value);
+        },
+        else => return error.ExpectedDone,
+    }
+    try std.testing.expectEqual(@as(usize, 4), journal.entries.items.len);
+
+    const journal_bytes = try journal.encode(std.testing.allocator);
+    defer std.testing.allocator.free(journal_bytes);
+    var decoded = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
+    defer decoded.deinit();
+    var replayer = decoded.replayer();
+    defer replayer.deinit();
+
+    var replay_session = try Program.Session.start(&runtime, .{ .step = .{} });
+    defer replay_session.deinit();
+    const replay_request = switch (try replay_session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    const replay_resume = try replayer.expectCurrentValue(try replay_session.current(), i32);
+    try replay_session.resumeTyped(try replay_request.as(Operation), replay_resume);
+    const replay_after = switch (try replay_session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    const after_value = try replayer.expectCurrentValue(try replay_session.current(), []const u8);
+    try std.testing.expectEqualStrings("ok", after_value);
+    try replay_session.resumeAfterTyped(try replay_after.as(After), after_value);
+    var replay_result = switch (try replay_session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer replay_result.deinit();
+    try std.testing.expectEqualStrings("ok", replay_result.value);
 }
 
 test "Program.Morphism and ProtocolRequest preserve source capsule metadata" {
@@ -7717,6 +8697,23 @@ test "Program.Session capsule image round trips deterministic bytes and restores
     try std.testing.expectEqual(first_image.image_fingerprint, second_image.image_fingerprint);
     try std.testing.expectEqualSlices(u8, first_image.bytes, second_image.bytes);
 
+    var other_runtime = ability.Runtime.init(std.testing.allocator);
+    defer other_runtime.deinit();
+    var other_session = try Program.Session.start(&other_runtime, .{});
+    defer other_session.deinit();
+    const other_request = switch (try other_session.next()) {
+        .request => |current| current,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var other_capsule = try other_session.capture(std.testing.allocator);
+    defer other_capsule.deinit();
+    var other_image = try other_capsule.encode(std.testing.allocator);
+    defer other_image.deinit();
+    try std.testing.expectEqual(request.fingerprint(), other_request.fingerprint());
+    try std.testing.expectEqual(first_image.image_fingerprint, other_image.image_fingerprint);
+    try std.testing.expectEqualSlices(u8, first_image.bytes, other_image.bytes);
+
     var decoded = try Program.Session.Capsule.decode(std.testing.allocator, first_image.bytes);
     defer decoded.deinit();
     var restored = try Program.Session.restore(&runtime, .{}, &decoded);
@@ -7742,8 +8739,134 @@ test "Program.Session capsule image round trips deterministic bytes and restores
     corrupted[corrupted.len - 9] ^= 0x01;
     try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, corrupted));
 
+    var excessive_steps = try std.testing.allocator.dupe(u8, first_image.bytes);
+    defer std.testing.allocator.free(excessive_steps);
+    const remaining_steps_offset = try capsuleCoreRemainingStepsOffset(excessive_steps);
+    std.mem.writeInt(u64, excessive_steps[remaining_steps_offset..][0..8], interpreter_step_budget + 1, .little);
+    rewriteCapsuleImageChecksum(Program, excessive_steps);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, excessive_steps));
+
+    var done_consumed = try std.testing.allocator.dupe(u8, first_image.bytes);
+    defer std.testing.allocator.free(done_consumed);
+    done_consumed[try capsuleCoreDoneConsumedOffset(done_consumed)] = 1;
+    rewriteCapsuleImageChecksum(Program, done_consumed);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, done_consumed));
+
+    const forged_request_fingerprint = try std.testing.allocator.dupe(u8, first_image.bytes);
+    defer std.testing.allocator.free(forged_request_fingerprint);
+    try corruptLastU64Occurrence(forged_request_fingerprint, request.fingerprint());
+    rewriteCapsuleImageChecksum(Program, forged_request_fingerprint);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, forged_request_fingerprint));
+
+    var bad_dst = try std.testing.allocator.dupe(u8, first_image.bytes);
+    defer std.testing.allocator.free(bad_dst);
+    const dst_offset = try pendingOpDstOffset(bad_dst);
+    std.mem.writeInt(u16, bad_dst[dst_offset..][0..2], std.math.maxInt(u16) - 1, .little);
+    rewriteCapsuleImageChecksum(Program, bad_dst);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, bad_dst));
+
+    var malformed_frame = try std.testing.allocator.dupe(u8, first_image.bytes);
+    defer std.testing.allocator.free(malformed_frame);
+    const after_start_offset = try firstCapsuleFrameAfterStartOffset(malformed_frame);
+    std.mem.writeInt(u64, malformed_frame[after_start_offset..][0..8], std.math.maxInt(u64), .little);
+    rewriteCapsuleImageChecksum(Program, malformed_frame);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, malformed_frame));
+
+    var wrong_program_counter = try std.testing.allocator.dupe(u8, first_image.bytes);
+    defer std.testing.allocator.free(wrong_program_counter);
+    const frame_instruction_offset = (try firstCapsuleFrameAfterStartOffset(wrong_program_counter)) - 24;
+    std.mem.writeInt(u64, wrong_program_counter[frame_instruction_offset..][0..8], 1, .little);
+    rewriteCapsuleImageChecksum(Program, wrong_program_counter);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, wrong_program_counter));
+
     const OtherProgram = ability.program("session-capsule-image-foreign", struct {}, Body);
     try std.testing.expectError(error.ProgramContractViolation, OtherProgram.Session.Capsule.decode(std.testing.allocator, first_image.bytes));
+}
+
+test "Program.Session capsule rejects invalid pending after remaining counts" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = compiledTransformPlan("session-capsule-after-remaining");
+    };
+    const Program = ability.program("session-capsule-after-remaining", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |current| current,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.@"resume"(request, @as(i32, 30));
+    switch (try session.next()) {
+        .after => {},
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    }
+
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    var image = try capsule.encode(std.testing.allocator);
+    defer image.deinit();
+
+    var bad_after_stack_entry = try std.testing.allocator.dupe(u8, image.bytes);
+    defer std.testing.allocator.free(bad_after_stack_entry);
+    const after_stack_after_site_offset = try firstCapsuleAfterStackAfterSiteOffset(bad_after_stack_entry);
+    std.mem.writeInt(u16, bad_after_stack_entry[after_stack_after_site_offset..][0..2], std.math.maxInt(u16), .little);
+    rewriteCapsuleImageChecksum(Program, bad_after_stack_entry);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, bad_after_stack_entry));
+
+    var zero_remaining = try std.testing.allocator.dupe(u8, image.bytes);
+    defer std.testing.allocator.free(zero_remaining);
+    const remaining_offset = try pendingAfterRemainingOffset(zero_remaining);
+    std.mem.writeInt(u64, zero_remaining[remaining_offset..][0..8], 0, .little);
+    rewriteCapsuleImageChecksum(Program, zero_remaining);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, zero_remaining));
+
+    var excessive_remaining = try std.testing.allocator.dupe(u8, image.bytes);
+    defer std.testing.allocator.free(excessive_remaining);
+    std.mem.writeInt(u64, excessive_remaining[remaining_offset..][0..8], 2, .little);
+    rewriteCapsuleImageChecksum(Program, excessive_remaining);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, excessive_remaining));
+
+    var wrong_output_ref = try std.testing.allocator.dupe(u8, image.bytes);
+    defer std.testing.allocator.free(wrong_output_ref);
+    const output_ref_offset = try pendingAfterOutputRefOffset(wrong_output_ref);
+    wrong_output_ref[output_ref_offset] = @intFromEnum(ability.ir.ValueCodec.unit);
+    rewriteCapsuleImageChecksum(Program, wrong_output_ref);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, wrong_output_ref));
+}
+
+test "Program.Session capsule image binds pending after entry to operation site" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = repeatedCallSiteSameOpPlan("session-capsule-pending-after-site-bind", true);
+    };
+    const Program = ability.program("session-capsule-pending-after-site-bind", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    _ = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    var image = try capsule.encode(std.testing.allocator);
+    defer image.deinit();
+
+    var mismatched_after_entry = try std.testing.allocator.dupe(u8, image.bytes);
+    defer std.testing.allocator.free(mismatched_after_entry);
+    const operation_site_offset = try pendingOpAfterEntryOperationSiteOffset(mismatched_after_entry);
+    std.mem.writeInt(u16, mismatched_after_entry[operation_site_offset..][0..2], 1, .little);
+    std.mem.writeInt(u16, mismatched_after_entry[operation_site_offset + 2 ..][0..2], 1, .little);
+    rewriteCapsuleImageChecksum(Program, mismatched_after_entry);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, mismatched_after_entry));
 }
 
 test "Program.Session capsule rejects invalid lifecycle and destroyed runtime restore" {
@@ -8719,12 +9842,23 @@ test "Program.Session capsule fingerprint rehashes mutable current payload views
 
     var payload = try request.payload(Payload);
     payload.items[0] = "captured";
+    const updated_request = switch (try session.current()) {
+        .request => |current| current,
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    };
+    try std.testing.expect(request.fingerprint() != updated_request.fingerprint());
+    try std.testing.expectEqualStrings("captured", (try updated_request.payload(Payload)).items[0]);
 
     var after = try session.capture(std.testing.allocator);
     defer after.deinit();
     try std.testing.expect(before.fingerprint() != after.fingerprint());
+    var image = try after.encode(std.testing.allocator);
+    defer image.deinit();
+    var decoded = try Program.Session.Capsule.decode(std.testing.allocator, image.bytes);
+    defer decoded.deinit();
 
-    var restored = try Program.Session.restore(&runtime, .{ .payload = .{ .items = items[0..] } }, &after);
+    var restored = try Program.Session.restore(&runtime, .{ .payload = .{ .items = items[0..] } }, &decoded);
     defer restored.deinit();
     const restored_request = switch (try restored.current()) {
         .request => |current| current,
@@ -8782,8 +9916,12 @@ test "Program.Session capsule preserves helper payload alias groups" {
     };
     var capsule = try session.capture(std.testing.allocator);
     defer capsule.deinit();
+    var image = try capsule.encode(std.testing.allocator);
+    defer image.deinit();
+    var decoded = try Program.Session.Capsule.decode(std.testing.allocator, image.bytes);
+    defer decoded.deinit();
 
-    var restored = try Program.Session.restore(&runtime, .{ .payload = .{ .items = items[0..] } }, &capsule);
+    var restored = try Program.Session.restore(&runtime, .{ .payload = .{ .items = items[0..] } }, &decoded);
     defer restored.deinit();
     const restored_request = switch (try restored.current()) {
         .request => |request| request,
@@ -8804,6 +9942,54 @@ test "Program.Session capsule preserves helper payload alias groups" {
     try std.testing.expectEqual(@as(usize, 2), result.value.items.len);
     try std.testing.expectEqualStrings("restored", result.value.items[0]);
     try std.testing.expectEqualStrings("right", result.value.items[1]);
+}
+
+test "Program.Session capsule image preserves structured string-list aliases" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const AliasPair = struct {
+        first: [][]const u8,
+        second: [][]const u8,
+    };
+    const AliasHandlers = struct {
+        payload: AliasPair,
+    };
+    const Body = struct {
+        pub const value_schema_types = .{AliasPair};
+        pub const compiled_plan = sessionStringListPairTransformPlan(AliasPair, "session-capsule-image-structured-alias");
+
+        pub fn encodeArgs(handlers: AliasHandlers) struct { AliasPair } {
+            return .{handlers.payload};
+        }
+    };
+    const Program = ability.program("session-capsule-image-structured-alias", AliasHandlers, Body);
+
+    var items = [_][]const u8{ "left", "right" };
+    var session = try Program.Session.start(&runtime, .{ .payload = .{ .first = items[0..], .second = items[0..] } });
+    defer session.deinit();
+    _ = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    var image = try capsule.encode(std.testing.allocator);
+    defer image.deinit();
+    var decoded = try Program.Session.Capsule.decode(std.testing.allocator, image.bytes);
+    defer decoded.deinit();
+
+    var restored = try Program.Session.restore(&runtime, .{ .payload = .{ .first = items[0..], .second = items[0..] } }, &decoded);
+    defer restored.deinit();
+    const restored_request = switch (try restored.current()) {
+        .request => |request| request,
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    };
+    var restored_payload = try restored_request.payload(AliasPair);
+    restored_payload.first[0] = "restored";
+    try std.testing.expectEqualStrings("restored", restored_payload.second[0]);
 }
 
 test "Program.Session capsule preserves nested string-list aliases across schema clones" {
@@ -8863,6 +10049,64 @@ test "Program.Session capsule preserves nested string-list aliases across schema
 
     try std.testing.expectEqualStrings("restored", result.value.payload.items[0]);
     try std.testing.expectEqualStrings("right", result.value.payload.items[1]);
+}
+
+test "Program.Session capsule image decodes mutable string-list sum payloads" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const SumPayload = ?[][]const u8;
+    const SumListHandlers = struct {
+        items: [][]const u8,
+    };
+    const Body = struct {
+        pub const value_schema_types = .{SumPayload};
+        pub const compiled_plan = sessionMutableStringListSumTransformPlan(SumPayload, "session-capsule-mutable-sum-list");
+
+        pub fn encodeArgs(handlers: SumListHandlers) struct { SumPayload } {
+            return .{handlers.items};
+        }
+    };
+    const Program = ability.program("session-capsule-mutable-sum-list", SumListHandlers, Body);
+
+    var left = [_]u8{ 'l', 'e', 'f', 't' };
+    var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
+    var items = [_][]const u8{ left[0..], right[0..] };
+    var session = try Program.Session.start(&runtime, .{ .items = items[0..] });
+    defer session.deinit();
+
+    _ = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    var image = try capsule.encode(std.testing.allocator);
+    defer image.deinit();
+    var decoded = try Program.Session.Capsule.decode(std.testing.allocator, image.bytes);
+    defer decoded.deinit();
+
+    var restored = try Program.Session.restore(&runtime, .{ .items = items[0..] }, &decoded);
+    defer restored.deinit();
+    const restored_request = switch (try restored.current()) {
+        .request => |request| request,
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    };
+    var restored_payload = try restored_request.payload(SumPayload);
+    restored_payload.?[0] = "restored";
+
+    try restored.@"resume"(restored_request, restored_payload);
+    var result = switch (try restored.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+
+    try std.testing.expectEqualStrings("restored", result.value.?[0]);
+    try std.testing.expectEqualStrings("right", result.value.?[1]);
 }
 
 test "Program.Session structured request payloads survive session deinit" {
@@ -11021,6 +12265,74 @@ fn sessionProductTransformPlan(comptime Payload: type, comptime label: []const u
     }) catch unreachable;
 }
 
+fn sessionStringListPairTransformPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const resumed = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .product,
+        .value_schema_index = 0,
+        .result_codec = .product,
+        .result_schema_index = 0,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "round_trip",
+        .mode = .transform,
+        .payload_codec = .product,
+        .payload_schema_index = 0,
+        .resume_codec = .product,
+        .resume_schema_index = 0,
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(Payload),
+        .codec = .product,
+        .first_field = 0,
+        .field_count = 2,
+    }};
+    const value_fields = [_]ability.ir.ValueFieldPlan{
+        .{ .name = "first", .codec = .string_list },
+        .{ .name = "second", .codec = .string_list },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 125,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &.{ .{ .codec = .product, .schema_index = 0 }, .{ .codec = .product, .schema_index = 0 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn sessionSumTransformPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const payload = ability.ir.builder.local(root, 0);
@@ -11074,6 +12386,74 @@ fn sessionSumTransformPlan(comptime Payload: type, comptime label: []const u8) a
     return ability.ir.builder.finish(.{
         .label = label,
         .ir_hash = 104,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &.{},
+        .value_variants = &value_variants,
+        .locals = &.{ .{ .codec = .sum, .schema_index = 0 }, .{ .codec = .sum, .schema_index = 0 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn sessionMutableStringListSumTransformPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const resumed = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .sum,
+        .value_schema_index = 0,
+        .result_codec = .sum,
+        .result_schema_index = 0,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "round_trip",
+        .mode = .transform,
+        .payload_codec = .sum,
+        .payload_schema_index = 0,
+        .resume_codec = .sum,
+        .resume_schema_index = 0,
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+        .label = @typeName(Payload),
+        .codec = .sum,
+        .first_variant = 0,
+        .variant_count = 2,
+    }};
+    const value_variants = [_]ability.ir.ValueVariantPlan{
+        .{ .name = "none", .codec = .unit },
+        .{ .name = "some", .codec = .string_list },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 144,
         .entry = root,
         .functions = &functions,
         .requirements = &requirements,
