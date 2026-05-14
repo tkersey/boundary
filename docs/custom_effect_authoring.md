@@ -311,7 +311,9 @@ manually.
   language, public VM API, Artifact API, async runtime, or persistence backend.
 - No VM, Artifact, parser, compiler, or source-language API.
 - No async runtime, network, or LLM integration.
-- No durable session snapshot/restore.
+- No persistence backend or serializable request tokens; durable support is
+  limited to explicit `Program.Session` v1 capsule images and interaction
+  journals that hosts persist themselves.
 - No serializable request tokens.
 - No public root widening.
 - No `ProgramValue` widening.

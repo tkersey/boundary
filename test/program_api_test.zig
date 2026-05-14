@@ -4423,7 +4423,13 @@ test "Program.Interpreter handles transform requests and records response traces
 
     var host = Host{};
     var recorder = Recorder{};
-    var result = try Interpreter.run(&runtime, .{}, &host, .{ .trace_recorder = &recorder });
+    var journal = Program.Session.Journal.init(std.testing.allocator);
+    defer journal.deinit();
+    var journal_recorder = journal.recorder();
+    var result = try Interpreter.run(&runtime, .{}, &host, .{
+        .trace_recorder = &recorder,
+        .journal_recorder = &journal_recorder,
+    });
     switch (result) {
         .done => |*done| {
             defer done.deinit();
@@ -4433,6 +4439,17 @@ test "Program.Interpreter handles transform requests and records response traces
     }
     try std.testing.expectEqual(@as(usize, 1), host.operation_count);
     try std.testing.expectEqual(@as(usize, 1), recorder.count);
+    try std.testing.expectEqual(@as(usize, 2), journal.entries.items.len);
+
+    const journal_bytes = try journal.encode(std.testing.allocator);
+    defer std.testing.allocator.free(journal_bytes);
+    var decoded_journal = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
+    defer decoded_journal.deinit();
+    try std.testing.expectEqual(@as(usize, 2), decoded_journal.entries.items.len);
+    const decoded_journal_bytes = try decoded_journal.encode(std.testing.allocator);
+    defer std.testing.allocator.free(decoded_journal_bytes);
+    try std.testing.expectEqualSlices(u8, journal_bytes, decoded_journal_bytes);
+    try std.testing.expectEqual(try journal.fingerprint(), try decoded_journal.fingerprint());
 
     var manual_session = try Program.Session.start(&runtime, .{});
     defer manual_session.deinit();
@@ -4444,6 +4461,44 @@ test "Program.Interpreter handles transform requests and records response traces
     const manual_response = try (try manual_request.as(Decide)).responseTrace(.@"resume", @as(i32, 41));
     try std.testing.expectEqual(manual_request.fingerprint(), recorder.request_fingerprint);
     try std.testing.expectEqual(manual_response.fingerprint, recorder.response_fingerprint);
+    var replayer = decoded_journal.replayer();
+    const replay_response = try replayer.expectCurrent(try manual_session.current());
+    try std.testing.expectEqual(manual_response.fingerprint, replay_response.fingerprint);
+    var value_replayer = decoded_journal.replayer();
+    const replay_value = try value_replayer.expectCurrentValue(try manual_session.current(), i32);
+    try std.testing.expectEqual(@as(i32, 41), replay_value);
+
+    var missing_response = Program.Session.Journal.init(std.testing.allocator);
+    defer missing_response.deinit();
+    try missing_response.appendRequest(.{ .operation = manual_request.trace() });
+    var missing_replayer = missing_response.replayer();
+    try std.testing.expectError(error.ProgramContractViolation, missing_replayer.expectCurrent(try manual_session.current()));
+
+    var wrong_response = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
+    defer wrong_response.deinit();
+    switch (wrong_response.entries.items[1]) {
+        .response => |response| {
+            var changed = response;
+            changed.trace.request_fingerprint ^= 1;
+            wrong_response.entries.items[1] = .{ .response = changed };
+        },
+        else => return error.ExpectedResponse,
+    }
+    var wrong_replayer = wrong_response.replayer();
+    try std.testing.expectError(error.ProgramContractViolation, wrong_replayer.expectCurrent(try manual_session.current()));
+
+    var wrong_value = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
+    defer wrong_value.deinit();
+    switch (wrong_value.entries.items[1]) {
+        .response => |response| {
+            var changed = response;
+            changed.trace.response_value_fingerprint ^= 1;
+            wrong_value.entries.items[1] = .{ .response = changed };
+        },
+        else => return error.ExpectedResponse,
+    }
+    var wrong_value_replayer = wrong_value.replayer();
+    try std.testing.expectError(error.ProgramContractViolation, wrong_value_replayer.expectCurrentValue(try manual_session.current(), i32));
 }
 
 test "Program.Morphism and ProtocolRequest preserve source capsule metadata" {
@@ -7630,6 +7685,65 @@ test "Program.Session capsule captures current request and restores reusable bra
     };
     defer return_result.deinit();
     try std.testing.expectEqual(@as(i32, 99), return_result.value);
+}
+
+test "Program.Session capsule image round trips deterministic bytes and restores fresh tokens" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "session-capsule-image-roundtrip");
+    };
+    const Program = ability.program("session-capsule-image-roundtrip", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+
+    var first_image = try capsule.encode(std.testing.allocator);
+    defer first_image.deinit();
+    var second_image = try Program.Session.Capsule.Image.fromCapsule(std.testing.allocator, &capsule);
+    defer second_image.deinit();
+    try std.testing.expectEqual(Program.capsule_image_format_version, first_image.image_version);
+    try std.testing.expectEqual(Program.Session.capsule_image_format_version, first_image.image_version);
+    try std.testing.expectEqual(capsule.fingerprint(), first_image.capsule_fingerprint);
+    try std.testing.expectEqual(request.fingerprint(), first_image.current_request_fingerprint);
+    try std.testing.expectEqual(first_image.image_fingerprint, second_image.image_fingerprint);
+    try std.testing.expectEqualSlices(u8, first_image.bytes, second_image.bytes);
+
+    var decoded = try Program.Session.Capsule.decode(std.testing.allocator, first_image.bytes);
+    defer decoded.deinit();
+    var restored = try Program.Session.restore(&runtime, .{}, &decoded);
+    defer restored.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, restored.@"resume"(request, @as(i32, 9)));
+    const restored_request = switch (try restored.current()) {
+        .request => |current| current,
+        .after => return error.UnexpectedAfter,
+        .none => return error.UnexpectedDone,
+    };
+    try std.testing.expectEqual(request.fingerprint(), restored_request.fingerprint());
+    try restored.@"resume"(restored_request, @as(i32, 51));
+    var restored_result = switch (try restored.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer restored_result.deinit();
+    try std.testing.expectEqual(@as(i32, 51), restored_result.value);
+
+    var corrupted = try std.testing.allocator.dupe(u8, first_image.bytes);
+    defer std.testing.allocator.free(corrupted);
+    corrupted[corrupted.len - 9] ^= 0x01;
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, corrupted));
+
+    const OtherProgram = ability.program("session-capsule-image-foreign", struct {}, Body);
+    try std.testing.expectError(error.ProgramContractViolation, OtherProgram.Session.Capsule.decode(std.testing.allocator, first_image.bytes));
 }
 
 test "Program.Session capsule rejects invalid lifecycle and destroyed runtime restore" {

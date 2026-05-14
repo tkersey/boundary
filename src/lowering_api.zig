@@ -4183,7 +4183,893 @@ pub fn ExecutableSessionForPlan(
                     .metadata_value = self.metadata_value,
                 };
             }
+
+            pub fn encode(self: *const @This(), allocator: std.mem.Allocator) anyerror![]u8 {
+                if (self.deinitialized) return error.ProgramContractViolation;
+                try validateCapsuleMetadata(self.metadata_value);
+                try self.core.validateCapsuleShape(self.metadata_value);
+                var writer = DurableWriter.init(allocator);
+                errdefer writer.deinit();
+                try writer.writeBytes(capsule_image_magic);
+                try writer.writeU32(capsule_image_format_version);
+                try writer.writeU32(capsule_image_fingerprint_version);
+                try writeCapsuleMetadata(&writer, self.metadata_value);
+                try writeCoreImage(&writer, &self.core);
+                const payload = writer.bytes.items;
+                const checksum = durableFingerprint("ability.session.capsule.image.payload", payload);
+                try writer.writeU64(checksum);
+                return writer.toOwnedSlice();
+            }
+
+            pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!@This() {
+                if (bytes.len < capsule_image_magic.len + 4 + 4 + 8) return error.ProgramContractViolation;
+                const stored_checksum = std.mem.readInt(u64, bytes[bytes.len - 8 ..][0..8], .little);
+                const payload = bytes[0 .. bytes.len - 8];
+                if (stored_checksum != durableFingerprint("ability.session.capsule.image.payload", payload)) {
+                    return error.ProgramContractViolation;
+                }
+                var reader = DurableReader.init(payload);
+                try reader.expectBytes(capsule_image_magic);
+                if (try reader.readU32() != capsule_image_format_version) return error.ProgramContractViolation;
+                if (try reader.readU32() != capsule_image_fingerprint_version) return error.ProgramContractViolation;
+                const metadata_value = try readCapsuleMetadata(&reader);
+                try validateCapsuleMetadata(metadata_value);
+                var core = try readCoreImage(allocator, &reader);
+                errdefer core.deinit();
+                if (!reader.eof()) return error.ProgramContractViolation;
+                try core.validateCapsuleShape(metadata_value);
+                return .{
+                    .core = core,
+                    .metadata_value = metadata_value,
+                };
+            }
         };
+
+        // zlinter-disable declaration_naming - public durable format constants intentionally use stable API names.
+        pub const capsule_image_format_version: u32 = 1;
+        pub const capsule_image_fingerprint_version: u32 = 1;
+        pub const journal_format_version: u32 = 1;
+        pub const journal_fingerprint_version: u32 = 1;
+        // zlinter-enable declaration_naming
+
+        const capsule_image_magic = "ABL_CAP1";
+
+        const DurableWriter = struct {
+            allocator: std.mem.Allocator,
+            bytes: std.ArrayList(u8) = .empty,
+
+            fn init(allocator: std.mem.Allocator) @This() {
+                return .{ .allocator = allocator };
+            }
+
+            fn deinit(self: *@This()) void {
+                self.bytes.deinit(self.allocator);
+            }
+
+            fn toOwnedSlice(self: *@This()) std.mem.Allocator.Error![]u8 {
+                return self.bytes.toOwnedSlice(self.allocator);
+            }
+
+            fn writeBytes(self: *@This(), value: []const u8) std.mem.Allocator.Error!void {
+                try self.bytes.appendSlice(self.allocator, value);
+            }
+
+            fn writeLenBytes(self: *@This(), value: []const u8) std.mem.Allocator.Error!void {
+                try self.writeUsize(value.len);
+                try self.writeBytes(value);
+            }
+
+            fn writeBool(self: *@This(), value: bool) std.mem.Allocator.Error!void {
+                try self.bytes.append(self.allocator, @intFromBool(value));
+            }
+
+            fn writeU8(self: *@This(), value: u8) std.mem.Allocator.Error!void {
+                try self.bytes.append(self.allocator, value);
+            }
+
+            fn writeU16(self: *@This(), value: u16) std.mem.Allocator.Error!void {
+                var buffer: [2]u8 = undefined;
+                std.mem.writeInt(u16, &buffer, value, .little);
+                try self.writeBytes(&buffer);
+            }
+
+            fn writeU32(self: *@This(), value: u32) std.mem.Allocator.Error!void {
+                var buffer: [4]u8 = undefined;
+                std.mem.writeInt(u32, &buffer, value, .little);
+                try self.writeBytes(&buffer);
+            }
+
+            fn writeU64(self: *@This(), value: u64) std.mem.Allocator.Error!void {
+                var buffer: [8]u8 = undefined;
+                std.mem.writeInt(u64, &buffer, value, .little);
+                try self.writeBytes(&buffer);
+            }
+
+            fn writeUsize(self: *@This(), value: usize) std.mem.Allocator.Error!void {
+                try self.writeU64(@intCast(value));
+            }
+
+            fn writeI32(self: *@This(), value: i32) std.mem.Allocator.Error!void {
+                try self.writeU32(@bitCast(value));
+            }
+        };
+
+        const DurableReader = struct {
+            bytes: []const u8,
+            index: usize = 0,
+
+            fn init(bytes: []const u8) @This() {
+                return .{ .bytes = bytes };
+            }
+
+            fn eof(self: @This()) bool {
+                return self.index == self.bytes.len;
+            }
+
+            fn readBytes(self: *@This(), len: usize) error{ProgramContractViolation}![]const u8 {
+                const end = std.math.add(usize, self.index, len) catch return error.ProgramContractViolation;
+                if (end > self.bytes.len) return error.ProgramContractViolation;
+                const slice = self.bytes[self.index..end];
+                self.index = end;
+                return slice;
+            }
+
+            fn expectBytes(self: *@This(), expected: []const u8) error{ProgramContractViolation}!void {
+                const actual = try self.readBytes(expected.len);
+                if (!std.mem.eql(u8, actual, expected)) return error.ProgramContractViolation;
+            }
+
+            fn readLenBytes(self: *@This()) error{ProgramContractViolation}![]const u8 {
+                const len = try self.readUsize();
+                return self.readBytes(len);
+            }
+
+            fn readBool(self: *@This()) error{ProgramContractViolation}!bool {
+                return switch (try self.readU8()) {
+                    0 => false,
+                    1 => true,
+                    else => error.ProgramContractViolation,
+                };
+            }
+
+            fn readU8(self: *@This()) error{ProgramContractViolation}!u8 {
+                return (try self.readBytes(1))[0];
+            }
+
+            fn readU16(self: *@This()) error{ProgramContractViolation}!u16 {
+                return std.mem.readInt(u16, (try self.readBytes(2))[0..2], .little);
+            }
+
+            fn readU32(self: *@This()) error{ProgramContractViolation}!u32 {
+                return std.mem.readInt(u32, (try self.readBytes(4))[0..4], .little);
+            }
+
+            fn readU64(self: *@This()) error{ProgramContractViolation}!u64 {
+                return std.mem.readInt(u64, (try self.readBytes(8))[0..8], .little);
+            }
+
+            fn readUsize(self: *@This()) error{ProgramContractViolation}!usize {
+                const value = try self.readU64();
+                if (value > std.math.maxInt(usize)) return error.ProgramContractViolation;
+                return @intCast(value);
+            }
+
+            fn readI32(self: *@This()) error{ProgramContractViolation}!i32 {
+                return @bitCast(try self.readU32());
+            }
+        };
+
+        fn durableFingerprint(domain: []const u8, bytes: []const u8) u64 {
+            var hasher = std.hash.Wyhash.init(0);
+            traceHashBytes(&hasher, domain);
+            traceHashU32(&hasher, capsule_image_fingerprint_version);
+            traceHashBytes(&hasher, bytes);
+            return hasher.final();
+        }
+
+        fn writeOptionalUsize(writer: *DurableWriter, value: ?usize) std.mem.Allocator.Error!void {
+            try writer.writeBool(value != null);
+            if (value) |actual| try writer.writeUsize(actual);
+        }
+
+        fn readOptionalUsize(reader: *DurableReader) error{ProgramContractViolation}!?usize {
+            if (!try reader.readBool()) return null;
+            return try reader.readUsize();
+        }
+
+        fn writeValueRef(writer: *DurableWriter, ref: program_plan.ValueRef) std.mem.Allocator.Error!void {
+            try writer.writeU8(@intFromEnum(ref.codec));
+            try writer.writeBool(ref.schema_index != null);
+            if (ref.schema_index) |schema_index| try writer.writeU16(schema_index);
+        }
+
+        fn readCodec(reader: *DurableReader) error{ProgramContractViolation}!program_plan.ValueCodec {
+            return switch (try reader.readU8()) {
+                @intFromEnum(program_plan.ValueCodec.unit) => .unit,
+                @intFromEnum(program_plan.ValueCodec.bool) => .bool,
+                @intFromEnum(program_plan.ValueCodec.i32) => .i32,
+                @intFromEnum(program_plan.ValueCodec.product) => .product,
+                @intFromEnum(program_plan.ValueCodec.usize) => .usize,
+                @intFromEnum(program_plan.ValueCodec.string) => .string,
+                @intFromEnum(program_plan.ValueCodec.string_list) => .string_list,
+                @intFromEnum(program_plan.ValueCodec.sum) => .sum,
+                else => error.ProgramContractViolation,
+            };
+        }
+
+        fn readValueRef(reader: *DurableReader) error{ProgramContractViolation}!program_plan.ValueRef {
+            const codec = try readCodec(reader);
+            const schema_index = if (try reader.readBool()) try reader.readU16() else null;
+            return .{ .codec = codec, .schema_index = schema_index };
+        }
+
+        fn writeParkedKind(writer: *DurableWriter, parked: ParkedKind) std.mem.Allocator.Error!void {
+            try writer.writeU8(switch (parked) {
+                .operation => 0,
+                .after => 1,
+            });
+        }
+
+        fn readParkedKind(reader: *DurableReader) error{ProgramContractViolation}!ParkedKind {
+            return switch (try reader.readU8()) {
+                0 => .operation,
+                1 => .after,
+                else => error.ProgramContractViolation,
+            };
+        }
+
+        fn writeControlMode(writer: *DurableWriter, mode: program_plan.ControlMode) std.mem.Allocator.Error!void {
+            try writer.writeU8(switch (mode) {
+                .abort => 0,
+                .choice => 1,
+                .transform => 2,
+            });
+        }
+
+        fn readControlMode(reader: *DurableReader) error{ProgramContractViolation}!program_plan.ControlMode {
+            return switch (try reader.readU8()) {
+                0 => .abort,
+                1 => .choice,
+                2 => .transform,
+                else => error.ProgramContractViolation,
+            };
+        }
+
+        fn writeCapsuleMetadata(writer: *DurableWriter, metadata: CapsuleMetadata) std.mem.Allocator.Error!void {
+            try writer.writeU32(metadata.version);
+            try writer.writeU32(metadata.continuation_fingerprint_version);
+            try writer.writeLenBytes(metadata.program_label);
+            try writer.writeLenBytes(metadata.plan_label);
+            try writer.writeU64(metadata.plan_hash);
+            try writer.writeU32(metadata.trace_fingerprint_version);
+            try writeParkedKind(writer, metadata.parked_kind);
+            try writer.writeUsize(metadata.current_turn_index);
+            try writer.writeU64(metadata.current_request_fingerprint);
+            try writeOptionalUsize(writer, metadata.current_operation_site_index);
+            try writeOptionalUsize(writer, metadata.current_after_site_index);
+            try writeOptionalUsize(writer, metadata.source_operation_site_index);
+            try writeValueRef(writer, metadata.result_ref);
+            try writer.writeUsize(metadata.frame_count);
+            try writer.writeUsize(metadata.pending_after_count);
+            try writeOptionalUsize(writer, metadata.function_index);
+            try writeOptionalUsize(writer, metadata.block_index);
+            try writeOptionalUsize(writer, metadata.instruction_index);
+            try writer.writeBool(metadata.owns_copied_values);
+            try writer.writeBool(metadata.reusable);
+            try writer.writeU64(metadata.continuation_fingerprint);
+        }
+
+        fn readCapsuleMetadata(reader: *DurableReader) error{ProgramContractViolation}!CapsuleMetadata {
+            const version = try reader.readU32();
+            const continuation_version = try reader.readU32();
+            const actual_program_label = try reader.readLenBytes();
+            const actual_plan_label = try reader.readLenBytes();
+            const actual_plan_hash = try reader.readU64();
+            const trace_version = try reader.readU32();
+            const parked_kind = try readParkedKind(reader);
+            const current_turn_index = try reader.readUsize();
+            const current_request_fingerprint = try reader.readU64();
+            const current_operation_site_index = try readOptionalUsize(reader);
+            const current_after_site_index = try readOptionalUsize(reader);
+            const source_operation_site_index = try readOptionalUsize(reader);
+            const result_ref = try readValueRef(reader);
+            const frame_count = try reader.readUsize();
+            const pending_after_count = try reader.readUsize();
+            const function_index = try readOptionalUsize(reader);
+            const block_index = try readOptionalUsize(reader);
+            const instruction_index = try readOptionalUsize(reader);
+            const owns_copied_values = try reader.readBool();
+            const reusable = try reader.readBool();
+            const continuation_fingerprint = try reader.readU64();
+            if (!std.mem.eql(u8, actual_program_label, program_label)) return error.ProgramContractViolation;
+            if (!std.mem.eql(u8, actual_plan_label, compiled_plan.label)) return error.ProgramContractViolation;
+            return .{
+                .version = version,
+                .continuation_fingerprint_version = continuation_version,
+                .program_label = program_label,
+                .plan_label = compiled_plan.label,
+                .plan_hash = actual_plan_hash,
+                .trace_fingerprint_version = trace_version,
+                .parked_kind = parked_kind,
+                .current_turn_index = current_turn_index,
+                .current_request_fingerprint = current_request_fingerprint,
+                .current_operation_site_index = current_operation_site_index,
+                .current_after_site_index = current_after_site_index,
+                .source_operation_site_index = source_operation_site_index,
+                .result_ref = result_ref,
+                .frame_count = frame_count,
+                .pending_after_count = pending_after_count,
+                .function_index = function_index,
+                .block_index = block_index,
+                .instruction_index = instruction_index,
+                .owns_copied_values = owns_copied_values,
+                .reusable = reusable,
+                .continuation_fingerprint = continuation_fingerprint,
+            };
+        }
+
+        fn writeTypedValue(
+            writer: *DurableWriter,
+            comptime ref: program_plan.ValueRef,
+            value: anytype,
+        ) anyerror!void {
+            if (!typeMatchesRuntimeRef(schema_types, ref, @TypeOf(value))) return error.ProgramContractViolation;
+            switch (comptime ref.codec) {
+                .unit => {},
+                .bool => try writer.writeBool(value),
+                .i32 => try writer.writeI32(value),
+                .usize => try writer.writeUsize(value),
+                .string => try writer.writeLenBytes(value),
+                .string_list => {
+                    try writer.writeUsize(value.len);
+                    for (value) |item| try writer.writeLenBytes(item);
+                },
+                .product => try writeProductValue(writer, ref.schema_index orelse return error.ProgramContractViolation, @TypeOf(value), value),
+                .sum => try writeSumValue(writer, ref.schema_index orelse return error.ProgramContractViolation, @TypeOf(value), value),
+            }
+        }
+
+        fn writeProductValue(
+            writer: *DurableWriter,
+            comptime schema_index: usize,
+            comptime T: type,
+            value: T,
+        ) anyerror!void {
+            if (schema_index >= compiled_plan.value_schemas.len) return error.ProgramContractViolation;
+            const schema = compiled_plan.value_schemas[schema_index];
+            if (schema.codec != .product) return error.ProgramContractViolation;
+            const fields = std.meta.fields(T);
+            if (fields.len != schema.field_count) return error.ProgramContractViolation;
+            try writer.writeU16(schema.first_field);
+            try writer.writeU16(schema.field_count);
+            inline for (0..schema.field_count) |field_offset| {
+                const field = compiled_plan.value_fields[@as(usize, schema.first_field) + field_offset];
+                const FieldType = @TypeOf(@field(value, field.name));
+                const field_ref: program_plan.ValueRef = .{ .codec = field.codec, .schema_index = field.schema_index };
+                try writer.writeLenBytes(field.name);
+                try writeValueRef(writer, field_ref);
+                try writeTypedValue(writer, field_ref, @as(FieldType, @field(value, field.name)));
+            }
+        }
+
+        fn writeSumValue(
+            writer: *DurableWriter,
+            comptime schema_index: usize,
+            comptime T: type,
+            value: T,
+        ) anyerror!void {
+            if (schema_index >= compiled_plan.value_schemas.len) return error.ProgramContractViolation;
+            const schema = compiled_plan.value_schemas[schema_index];
+            if (schema.codec != .sum) return error.ProgramContractViolation;
+            const active = try activeVariantOrdinalForTyped(T, value);
+            if (active >= schema.variant_count) return error.ProgramContractViolation;
+            try writer.writeU16(schema.first_variant);
+            try writer.writeU16(schema.variant_count);
+            try writer.writeU16(active);
+            const variant = compiled_plan.value_variants[@as(usize, schema.first_variant) + active];
+            const variant_ref: program_plan.ValueRef = .{ .codec = variant.codec, .schema_index = variant.schema_index };
+            try writer.writeLenBytes(variant.name);
+            try writeValueRef(writer, variant_ref);
+            switch (@typeInfo(T)) {
+                .@"enum" => try writeTypedValue(writer, variant_ref, {}),
+                .optional => {
+                    if (active == 0) try writeTypedValue(writer, variant_ref, {}) else try writeTypedValue(writer, variant_ref, value.?);
+                },
+                .@"union" => |union_info| {
+                    const Tag = union_info.tag_type orelse return error.ProgramContractViolation;
+                    const tag = std.meta.activeTag(value);
+                    inline for (union_info.fields, 0..) |field, field_index| {
+                        if (active == field_index and tag == @field(Tag, field.name)) {
+                            if (field.type == void) {
+                                try writeTypedValue(writer, variant_ref, {});
+                            } else {
+                                try writeTypedValue(writer, variant_ref, @field(value, field.name));
+                            }
+                            return;
+                        }
+                    }
+                    return error.ProgramContractViolation;
+                },
+                else => return error.ProgramContractViolation,
+            }
+        }
+
+        fn readTypedValue(
+            reader: *DurableReader,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            comptime ref: program_plan.ValueRef,
+        ) anyerror!ValueTypeForRef(compiled_plan, schema_types, ref) {
+            const T = ValueTypeForRef(compiled_plan, schema_types, ref);
+            return switch (comptime ref.codec) {
+                .unit => {},
+                .bool => try reader.readBool(),
+                .i32 => try reader.readI32(),
+                .usize => try reader.readUsize(),
+                .string => try scratch.storeOwnedString(try reader.readLenBytes()),
+                .string_list => try readStringList(reader, scratch),
+                .product => try readProductValue(reader, scratch, ref.schema_index orelse return error.ProgramContractViolation, T),
+                .sum => try readSumValue(reader, scratch, ref.schema_index orelse return error.ProgramContractViolation, T),
+            };
+        }
+
+        fn readStringList(
+            reader: *DurableReader,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+        ) anyerror![]const []const u8 {
+            const count = try reader.readUsize();
+            const items = try scratch.allocator.alloc([]const u8, count);
+            errdefer scratch.allocator.free(items);
+            for (items) |*item| {
+                item.* = try scratch.storeOwnedString(try reader.readLenBytes());
+            }
+            try scratch.owned_string_lists.append(scratch.allocator, items);
+            return items;
+        }
+
+        fn readProductValue(
+            reader: *DurableReader,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            comptime schema_index: usize,
+            comptime T: type,
+        ) anyerror!T {
+            const schema = compiled_plan.value_schemas[schema_index];
+            if (schema.codec != .product) return error.ProgramContractViolation;
+            if (try reader.readU16() != schema.first_field) return error.ProgramContractViolation;
+            if (try reader.readU16() != schema.field_count) return error.ProgramContractViolation;
+            var value: T = undefined;
+            inline for (0..schema.field_count) |field_offset| {
+                const field = compiled_plan.value_fields[@as(usize, schema.first_field) + field_offset];
+                const actual_name = try reader.readLenBytes();
+                if (!std.mem.eql(u8, actual_name, field.name)) return error.ProgramContractViolation;
+                const field_ref: program_plan.ValueRef = .{ .codec = field.codec, .schema_index = field.schema_index };
+                if (!(try readValueRef(reader)).eql(field_ref)) return error.ProgramContractViolation;
+                @field(value, field.name) = try readTypedValue(reader, scratch, field_ref);
+            }
+            return value;
+        }
+
+        fn readSumValue(
+            reader: *DurableReader,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            comptime schema_index: usize,
+            comptime T: type,
+        ) anyerror!T {
+            const schema = compiled_plan.value_schemas[schema_index];
+            if (schema.codec != .sum) return error.ProgramContractViolation;
+            if (try reader.readU16() != schema.first_variant) return error.ProgramContractViolation;
+            if (try reader.readU16() != schema.variant_count) return error.ProgramContractViolation;
+            const active = try reader.readU16();
+            if (active >= schema.variant_count) return error.ProgramContractViolation;
+            const variant = compiled_plan.value_variants[@as(usize, schema.first_variant) + active];
+            const actual_name = try reader.readLenBytes();
+            if (!std.mem.eql(u8, actual_name, variant.name)) return error.ProgramContractViolation;
+            const variant_ref: program_plan.ValueRef = .{ .codec = variant.codec, .schema_index = variant.schema_index };
+            if (!(try readValueRef(reader)).eql(variant_ref)) return error.ProgramContractViolation;
+            return switch (@typeInfo(T)) {
+                .@"enum" => blk: {
+                    _ = try readTypedValue(reader, scratch, variant_ref);
+                    inline for (std.meta.fields(T), 0..) |field, field_index| {
+                        if (active == field_index) break :blk @field(T, field.name);
+                    }
+                    return error.ProgramContractViolation;
+                },
+                .optional => if (active == 0) blk: {
+                    _ = try readTypedValue(reader, scratch, variant_ref);
+                    break :blk null;
+                } else try readTypedValue(reader, scratch, variant_ref),
+                .@"union" => |union_info| blk: {
+                    inline for (union_info.fields, 0..) |field, field_index| {
+                        if (active == field_index) {
+                            if (field.type == void) {
+                                _ = try readTypedValue(reader, scratch, variant_ref);
+                                break :blk @unionInit(T, field.name, {});
+                            }
+                            break :blk @unionInit(T, field.name, try readTypedValue(reader, scratch, variant_ref));
+                        }
+                    }
+                    return error.ProgramContractViolation;
+                },
+                else => error.ProgramContractViolation,
+            };
+        }
+
+        fn writeExecutableValueForRef(
+            writer: *DurableWriter,
+            ref: program_plan.ValueRef,
+            value: ExecutableValue,
+        ) anyerror!void {
+            if (!valueMatchesRef(ref, value)) return error.ProgramContractViolation;
+            switch (ref.codec) {
+                .unit => {},
+                .bool => try writer.writeBool(try decodeArg(.bool, value)),
+                .i32 => try writer.writeI32(try decodeArg(.i32, value)),
+                .usize => try writer.writeUsize(try decodeArg(.usize, value)),
+                .string => try writer.writeLenBytes(try decodeArg(.string, value)),
+                .string_list => {
+                    const items = try decodeArg(.string_list, value);
+                    try writer.writeUsize(items.len);
+                    for (items) |item| try writer.writeLenBytes(item);
+                },
+                .product, .sum => switch (value) {
+                    .schema => |schema| {
+                        const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
+                        if (schema.schema_index != schema_index) return error.ProgramContractViolation;
+                        inline for (schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                const static_ref: program_plan.ValueRef = comptime .{
+                                    .codec = compiled_plan.value_schemas[index].codec,
+                                    .schema_index = @intCast(index),
+                                };
+                                if (!static_ref.eql(ref)) return error.ProgramContractViolation;
+                                const typed: *const SchemaType = @ptrCast(@alignCast(schema.ptr));
+                                return writeTypedValue(writer, static_ref, typed.*);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                    else => return error.ProgramContractViolation,
+                },
+            }
+        }
+
+        fn readExecutableValueForRef(
+            reader: *DurableReader,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            ref: program_plan.ValueRef,
+        ) anyerror!ExecutableValue {
+            return switch (ref.codec) {
+                .unit => .none,
+                .bool => .{ .bool = try reader.readBool() },
+                .i32 => .{ .i32 = try reader.readI32() },
+                .usize => .{ .usize = try reader.readUsize() },
+                .string => .{ .string = try scratch.storeOwnedString(try reader.readLenBytes()) },
+                .string_list => .{ .string_list = try readStringList(reader, scratch) },
+                .product, .sum => blk: {
+                    const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
+                    inline for (schema_types, 0..) |SchemaType, index| {
+                        if (schema_index == index) {
+                            const static_ref: program_plan.ValueRef = comptime .{
+                                .codec = compiled_plan.value_schemas[index].codec,
+                                .schema_index = @intCast(index),
+                            };
+                            if (!static_ref.eql(ref)) return error.ProgramContractViolation;
+                            const typed = try readTypedValue(reader, scratch, static_ref);
+                            break :blk try scratch.storeSchemaValue(SchemaType, schema_index, typed);
+                        }
+                    }
+                    return error.ProgramContractViolation;
+                },
+            };
+        }
+
+        fn writeMaybeExecutableValueForRef(
+            writer: *DurableWriter,
+            ref: program_plan.ValueRef,
+            value: ExecutableValue,
+        ) anyerror!void {
+            const absent = false;
+            const present = true;
+            if (!valueMatchesRef(ref, value)) {
+                switch (value) {
+                    .none => {},
+                    else => return error.ProgramContractViolation,
+                }
+                try writer.writeBool(absent);
+                return;
+            }
+            try writer.writeBool(present);
+            try writeExecutableValueForRef(writer, ref, value);
+        }
+
+        fn readMaybeExecutableValueForRef(
+            reader: *DurableReader,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            ref: program_plan.ValueRef,
+        ) anyerror!ExecutableValue {
+            if (!try reader.readBool()) return .none;
+            return readExecutableValueForRef(reader, scratch, ref);
+        }
+
+        fn writeSessionAfterEntry(writer: *DurableWriter, entry_value: SessionAfterStackEntry) std.mem.Allocator.Error!void {
+            try writer.writeU16(entry_value.op_index);
+            try writer.writeU16(entry_value.operation_site_index);
+            try writer.writeU16(entry_value.after_site_index);
+        }
+
+        fn readSessionAfterEntry(reader: *DurableReader) error{ProgramContractViolation}!SessionAfterStackEntry {
+            return .{
+                .op_index = try reader.readU16(),
+                .operation_site_index = try reader.readU16(),
+                .after_site_index = try reader.readU16(),
+            };
+        }
+
+        fn writePending(writer: *DurableWriter, pending: ?Pending) anyerror!void {
+            try writer.writeBool(pending != null);
+            if (pending == null) return;
+            switch (pending.?) {
+                .op => |op| {
+                    try writer.writeU8(0);
+                    try writer.writeUsize(op.session_id);
+                    try writer.writeU64(op.token);
+                    try writer.writeUsize(op.function_index);
+                    try writer.writeUsize(op.block_index);
+                    try writer.writeUsize(op.instruction_index);
+                    try writer.writeU16(op.dst);
+                    try writer.writeU16(op.op_index);
+                    try writer.writeUsize(op.operation_site_index);
+                    try writer.writeU64(op.operation_site_fingerprint);
+                    try writer.writeUsize(op.turn_index);
+                    try writeValueRef(writer, op.payload_ref);
+                    try writer.writeU16(op.payload_local_id);
+                    try writeExecutableValueForRef(writer, op.payload_ref, op.payload);
+                    try writer.writeU64(op.payload_value_fingerprint);
+                    try writer.writeU64(op.request_fingerprint);
+                    try writeControlMode(writer, op.mode);
+                    try writeValueRef(writer, op.resume_ref);
+                    try writeValueRef(writer, op.result_ref);
+                    try writer.writeBool(op.has_after);
+                    try writeSessionAfterEntry(writer, op.after_stack_entry);
+                },
+                .after => |after| {
+                    try writer.writeU8(1);
+                    try writer.writeUsize(after.session_id);
+                    try writer.writeU64(after.token);
+                    try writer.writeUsize(after.function_index);
+                    try writer.writeUsize(after.block_index);
+                    try writer.writeUsize(after.instruction_index);
+                    try writer.writeU16(after.op_index);
+                    try writer.writeUsize(after.after_site_index);
+                    try writer.writeU64(after.after_site_fingerprint);
+                    try writer.writeUsize(after.source_operation_site_index);
+                    try writer.writeU64(after.source_operation_site_fingerprint);
+                    try writer.writeUsize(after.turn_index);
+                    try writeValueRef(writer, after.value_ref);
+                    try writeExecutableValueForRef(writer, after.value_ref, after.value);
+                    try writer.writeU64(after.value_fingerprint);
+                    try writer.writeU64(after.request_fingerprint);
+                    try writeValueRef(writer, after.output_ref);
+                    try writeValueRef(writer, after.result_ref);
+                    try writer.writeUsize(after.remaining);
+                },
+            }
+        }
+
+        fn readPending(
+            reader: *DurableReader,
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+        ) anyerror!?Pending {
+            if (!try reader.readBool()) return null;
+            return switch (try reader.readU8()) {
+                0 => blk: {
+                    const session_id = try reader.readUsize();
+                    const token = try reader.readU64();
+                    const function_index = try reader.readUsize();
+                    const block_index = try reader.readUsize();
+                    const instruction_index = try reader.readUsize();
+                    const dst = try reader.readU16();
+                    const op_index = try reader.readU16();
+                    const operation_site_index = try reader.readUsize();
+                    const operation_site_fingerprint = try reader.readU64();
+                    const turn_index = try reader.readUsize();
+                    const payload_ref = try readValueRef(reader);
+                    const payload_local_id = try reader.readU16();
+                    const payload = try readExecutableValueForRef(reader, scratch, payload_ref);
+                    break :blk .{ .op = .{
+                        .session_id = session_id,
+                        .token = token,
+                        .function_index = function_index,
+                        .block_index = block_index,
+                        .instruction_index = instruction_index,
+                        .dst = dst,
+                        .op_index = op_index,
+                        .operation_site_index = operation_site_index,
+                        .operation_site_fingerprint = operation_site_fingerprint,
+                        .turn_index = turn_index,
+                        .payload_ref = payload_ref,
+                        .payload_local_id = payload_local_id,
+                        .payload = payload,
+                        .payload_value_fingerprint = try reader.readU64(),
+                        .request_fingerprint = try reader.readU64(),
+                        .mode = try readControlMode(reader),
+                        .resume_ref = try readValueRef(reader),
+                        .result_ref = try readValueRef(reader),
+                        .has_after = try reader.readBool(),
+                        .after_stack_entry = try readSessionAfterEntry(reader),
+                    } };
+                },
+                1 => blk: {
+                    const session_id = try reader.readUsize();
+                    const token = try reader.readU64();
+                    const function_index = try reader.readUsize();
+                    const block_index = try reader.readUsize();
+                    const instruction_index = try reader.readUsize();
+                    const op_index = try reader.readU16();
+                    const after_site_index = try reader.readUsize();
+                    const after_site_fingerprint = try reader.readU64();
+                    const source_operation_site_index = try reader.readUsize();
+                    const source_op_site_fingerprint = try reader.readU64();
+                    const turn_index = try reader.readUsize();
+                    const value_ref = try readValueRef(reader);
+                    const value = try readExecutableValueForRef(reader, scratch, value_ref);
+                    break :blk .{ .after = .{
+                        .session_id = session_id,
+                        .token = token,
+                        .function_index = function_index,
+                        .block_index = block_index,
+                        .instruction_index = instruction_index,
+                        .op_index = op_index,
+                        .after_site_index = after_site_index,
+                        .after_site_fingerprint = after_site_fingerprint,
+                        .source_operation_site_index = source_operation_site_index,
+                        .source_operation_site_fingerprint = source_op_site_fingerprint,
+                        .turn_index = turn_index,
+                        .value = value,
+                        .value_fingerprint = try reader.readU64(),
+                        .request_fingerprint = try reader.readU64(),
+                        .value_ref = value_ref,
+                        .output_ref = try readValueRef(reader),
+                        .result_ref = try readValueRef(reader),
+                        .remaining = try reader.readUsize(),
+                    } };
+                },
+                else => error.ProgramContractViolation,
+            };
+        }
+
+        fn writeCoreImage(writer: *DurableWriter, self: *const Self) anyerror!void {
+            try writer.writeUsize(self.remaining_steps);
+            try writer.writeUsize(self.next_turn_index);
+            try writer.writeBool(self.done_consumed);
+            try writer.writeUsize(self.scratch.after_stack_len);
+            for (self.scratch.after_stack[0..self.scratch.after_stack_len]) |entry_value| {
+                try writeSessionAfterEntry(writer, entry_value);
+            }
+
+            try writer.writeUsize(self.frames.len());
+            var frame_index: usize = 0;
+            while (frame_index < self.frames.len()) : (frame_index += 1) {
+                const frame = self.frames.at(frame_index) orelse return error.ProgramContractViolation;
+                try writer.writeUsize(frame.function_index);
+                try writer.writeUsize(frame.block_index);
+                try writer.writeUsize(frame.instruction_index);
+                try writer.writeUsize(frame.instruction_end);
+                try writer.writeUsize(frame.frame.call_args_start);
+                try writer.writeUsize(frame.frame.after_start);
+                try writer.writeBool(frame.last_condition);
+                try writer.writeBool(frame.waiting_helper_dst != null);
+                if (frame.waiting_helper_dst) |dst| try writer.writeU16(dst);
+                const function = compiled_plan.functions[frame.function_index];
+                const result_ref = program_plan.functionResultRef(function);
+                try writeMaybeExecutableValueForRef(writer, result_ref, frame.last_return);
+                const locals = self.scratch.frameLocalsConst(frame.frame);
+                try writer.writeUsize(locals.len);
+                for (locals, 0..) |value, local_index| {
+                    const local_ref = localRefForFunctionIndex(compiled_plan, frame.function_index, @intCast(local_index)) orelse
+                        return error.ProgramContractViolation;
+                    try writeValueRef(writer, local_ref);
+                    try writeMaybeExecutableValueForRef(writer, local_ref, value);
+                }
+            }
+
+            try writePending(writer, self.pending);
+            try writer.writeBool(self.unwinding_after != null);
+            if (self.unwinding_after) |unwind| {
+                try writer.writeUsize(unwind.function_index);
+                try writeValueRef(writer, unwind.current_ref);
+                try writeExecutableValueForRef(writer, unwind.current_ref, unwind.value);
+                try writeValueRef(writer, unwind.final_ref);
+                try writer.writeUsize(unwind.remaining);
+            }
+        }
+
+        fn readCoreImage(allocator: std.mem.Allocator, reader: *DurableReader) anyerror!Self {
+            var scratch = try InterpreterScratch(session_after_stack_capacity).init(
+                allocator,
+                analysis.max_active_local_slots,
+                analysis.max_active_call_arg_slots,
+            );
+            errdefer scratch.deinit();
+
+            var frames = try ActiveFrameStack.init(allocator, analysis.max_active_frame_depth);
+            errdefer frames.deinit(allocator);
+
+            var core: Self = .{
+                .allocator = allocator,
+                .scratch = scratch,
+                .frames = frames,
+                .session_id = nextSessionId(),
+                .remaining_steps = try reader.readUsize(),
+                .next_turn_index = try reader.readUsize(),
+                .done_consumed = try reader.readBool(),
+            };
+            scratch = .{ .allocator = allocator };
+            frames = .{};
+            errdefer core.deinit();
+
+            const after_stack_len = try reader.readUsize();
+            if (after_stack_len > core.scratch.after_stack.len) return error.ProgramContractViolation;
+            core.scratch.after_stack_len = after_stack_len;
+            for (core.scratch.after_stack[0..after_stack_len]) |*entry_value| {
+                entry_value.* = try readSessionAfterEntry(reader);
+            }
+
+            const frame_count = try reader.readUsize();
+            for (0..frame_count) |_| {
+                const function_index = try reader.readUsize();
+                const block_index = try reader.readUsize();
+                const instruction_index = try reader.readUsize();
+                const instruction_end = try reader.readUsize();
+                const call_args_start = try reader.readUsize();
+                const after_start = try reader.readUsize();
+                const last_condition = try reader.readBool();
+                const waiting_helper_dst = if (try reader.readBool()) try reader.readU16() else null;
+                if (function_index >= compiled_plan.functions.len) return error.ProgramContractViolation;
+                const function = compiled_plan.functions[function_index];
+                const result_ref = program_plan.functionResultRef(function);
+                const last_return = try readMaybeExecutableValueForRef(reader, &core.scratch, result_ref);
+                const local_count = try reader.readUsize();
+                const locals_start = core.scratch.locals.items.len;
+                try core.scratch.locals.resize(core.scratch.allocator, locals_start + local_count);
+                for (core.scratch.locals.items[locals_start..][0..local_count], 0..) |*slot, local_index| {
+                    const local_ref = localRefForFunctionIndex(compiled_plan, function_index, @intCast(local_index)) orelse
+                        return error.ProgramContractViolation;
+                    if (!(try readValueRef(reader)).eql(local_ref)) return error.ProgramContractViolation;
+                    slot.* = try readMaybeExecutableValueForRef(reader, &core.scratch, local_ref);
+                }
+                try core.frames.append(core.allocator, .{
+                    .function_index = function_index,
+                    .frame = .{
+                        .locals_start = locals_start,
+                        .locals_len = local_count,
+                        .call_args_start = call_args_start,
+                        .after_start = after_start,
+                    },
+                    .block_index = block_index,
+                    .instruction_index = instruction_index,
+                    .instruction_end = instruction_end,
+                    .last_return = last_return,
+                    .last_condition = last_condition,
+                    .waiting_helper_dst = waiting_helper_dst,
+                });
+            }
+
+            core.pending = try readPending(reader, &core.scratch);
+            if (try reader.readBool()) {
+                const function_index = try reader.readUsize();
+                const current_ref = try readValueRef(reader);
+                const value = try readExecutableValueForRef(reader, &core.scratch, current_ref);
+                core.unwinding_after = .{
+                    .function_index = function_index,
+                    .value = value,
+                    .current_ref = current_ref,
+                    .final_ref = try readValueRef(reader),
+                    .remaining = try reader.readUsize(),
+                };
+            }
+
+            return core;
+        }
 
         fn operationSiteForInstruction(instruction_index: usize) ?SessionOperationYieldSite {
             inline for (operation_yield_sites) |site| {
@@ -5954,7 +6840,7 @@ pub fn ExecutableSessionForPlan(
             if (!metadata.owns_copied_values or !metadata.reusable) return error.ProgramContractViolation;
         }
 
-        fn validateCapsuleShape(self: *Self, metadata: CapsuleMetadata) error{ProgramContractViolation}!void {
+        fn validateCapsuleShape(self: *const Self, metadata: CapsuleMetadata) error{ProgramContractViolation}!void {
             try validateCapsuleMetadata(metadata);
             var actual = try self.capsuleMetadata();
             actual.continuation_fingerprint = try self.continuationFingerprint();
