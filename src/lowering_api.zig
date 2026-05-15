@@ -5525,6 +5525,7 @@ pub fn ExecutableSessionForPlan(
             }
 
             const frame_count = try reader.readUsize();
+            if (frame_count == 0 or frame_count > analysis.max_active_frame_depth) return error.ProgramContractViolation;
             for (0..frame_count) |_| {
                 const function_index = try reader.readUsize();
                 const block_index = try reader.readUsize();

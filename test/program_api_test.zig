@@ -191,6 +191,17 @@ fn firstCapsuleFrameAfterStartOffset(image_bytes: []const u8) !usize {
     return cursor.index;
 }
 
+fn capsuleCoreFrameCountOffset(image_bytes: []const u8) !usize {
+    var cursor = TestImageCursor{ .bytes = image_bytes };
+    cursor.index = try capsuleCoreRemainingStepsOffset(image_bytes);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(1);
+    const after_stack_len = try cursor.readUsize();
+    try cursor.skip(after_stack_len * 6);
+    return cursor.index;
+}
+
 fn capsuleCoreRemainingStepsOffset(image_bytes: []const u8) !usize {
     var cursor = TestImageCursor{ .bytes = image_bytes };
     try cursor.skip("ABL_CAP1".len);
@@ -8778,6 +8789,13 @@ test "Program.Session capsule image round trips deterministic bytes and restores
     std.mem.writeInt(u64, wrong_program_counter[frame_instruction_offset..][0..8], 1, .little);
     rewriteCapsuleImageChecksum(Program, wrong_program_counter);
     try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, wrong_program_counter));
+
+    var impossible_frame_depth = try std.testing.allocator.dupe(u8, first_image.bytes);
+    defer std.testing.allocator.free(impossible_frame_depth);
+    const frame_count_offset = try capsuleCoreFrameCountOffset(impossible_frame_depth);
+    std.mem.writeInt(u64, impossible_frame_depth[frame_count_offset..][0..8], 2, .little);
+    rewriteCapsuleImageChecksum(Program, impossible_frame_depth);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, impossible_frame_depth));
 
     const OtherProgram = ability.program("session-capsule-image-foreign", struct {}, Body);
     try std.testing.expectError(error.ProgramContractViolation, OtherProgram.Session.Capsule.decode(std.testing.allocator, first_image.bytes));
