@@ -100,7 +100,7 @@ pub fn run(writer: anytype) !void {
         .response_value_fingerprint = response.response_value_fingerprint,
         .fingerprint = response.response_trace_fingerprint,
     }, @as(i32, 64));
-    try ApprovalProgram.Exchange.applyResponse(&restored, response, .{});
+    try ApprovalProgram.Exchange.applyResponse(&restored, response, .{ .request_envelope_fingerprint = decoded_request.fingerprint });
     var result = switch (try restored.next()) {
         .done => |done| done,
         .request => return error.UnexpectedRequest,

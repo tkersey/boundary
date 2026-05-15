@@ -1060,6 +1060,26 @@ fn deinitBodyOwnedResultValue(allocator: std.mem.Allocator, value: anytype) void
     }
 }
 
+fn typeMayBorrowExchangeStorage(comptime T: type) bool {
+    if (T == []const u8 or T == []const []const u8 or T == [][]const u8) return true;
+    return switch (@typeInfo(T)) {
+        .optional => |optional| typeMayBorrowExchangeStorage(optional.child),
+        .@"struct" => |info| {
+            inline for (info.fields) |field| {
+                if (typeMayBorrowExchangeStorage(field.type)) return true;
+            }
+            return false;
+        },
+        .@"union" => |info| {
+            inline for (info.fields) |field| {
+                if (typeMayBorrowExchangeStorage(field.type)) return true;
+            }
+            return false;
+        },
+        else => false,
+    };
+}
+
 const TrackedAllocation = struct {
     memory: []u8,
     alignment: std.mem.Alignment,
@@ -1376,6 +1396,80 @@ pub fn program(
             core: Core,
             lifecycle: Lifecycle = .ready,
             live_registered: bool = true,
+            exchange_response_storage: ?*TrackedBodyResultStorage = null,
+
+            const ExchangeSessionResultStorage = struct {
+                allocator: std.mem.Allocator,
+                core: ?ResultOwnedStorage,
+                exchange: *TrackedBodyResultStorage,
+
+                fn deinit(self: *@This()) void {
+                    if (self.core) |*storage| storage.deinit();
+                    self.exchange.deinit();
+                    self.allocator.destroy(self.exchange);
+                }
+            };
+
+            fn deinitExchangeResponseStorage(allocator: std.mem.Allocator, storage: *?*TrackedBodyResultStorage) void {
+                if (storage.*) |owned| {
+                    owned.deinit();
+                    allocator.destroy(owned);
+                    storage.* = null;
+                }
+            }
+
+            fn takeExchangeResponseStorage(self: *Session) ?*TrackedBodyResultStorage {
+                const storage = self.exchange_response_storage;
+                self.exchange_response_storage = null;
+                return storage;
+            }
+
+            fn attachExchangeResponseStorageToResult(
+                allocator: std.mem.Allocator,
+                result: *Result,
+                storage: *?*TrackedBodyResultStorage,
+            ) Error!void {
+                const exchange = storage.* orelse return;
+                const boxed = allocator.create(ExchangeSessionResultStorage) catch |err| return mapProgramRunError(Error, err);
+                boxed.* = .{
+                    .allocator = allocator,
+                    .core = result._session_storage,
+                    .exchange = exchange,
+                };
+                armExchangeResponseCleanupAllocator(result, exchange);
+                result._session_storage = .{
+                    .allocator = allocator,
+                    .ptr = boxed,
+                    .destroy = ResultStorageDestroyer(ExchangeSessionResultStorage).destroy,
+                };
+                storage.* = null;
+            }
+
+            fn armExchangeResponseCleanupAllocator(result: *Result, exchange: *TrackedBodyResultStorage) void {
+                if (comptime bodyDeinitResultMode(Body, Value, ProgramOutputs) != .none) {
+                    if (result._result_cleanup_allocator == null) {
+                        result._result_cleanup_allocator = exchange.tracker.allocator();
+                    }
+                }
+            }
+
+            fn ensureExchangeResponseStorage(self: *Session, allocator: std.mem.Allocator) Error!*TrackedBodyResultStorage {
+                if (self.exchange_response_storage) |storage| return storage;
+                const storage = allocator.create(TrackedBodyResultStorage) catch |err| return mapProgramRunError(Error, err);
+                storage.* = .{ .tracker = TrackedResultAllocator.init(allocator) };
+                self.exchange_response_storage = storage;
+                return storage;
+            }
+
+            fn storeExchangeResponseValue(self: *Session, value: anytype) Error!@TypeOf(value) {
+                const ValueType = @TypeOf(value);
+                if (comptime !typeMayBorrowExchangeStorage(ValueType)) return value;
+
+                const allocator = lowered_machine.runtimeAllocator(self.runtime);
+                const storage = try self.ensureExchangeResponseStorage(allocator);
+                const cleanup_allocator = storage.tracker.allocator();
+                return cloneBodyOwnedResultValue(cleanup_allocator, value) catch |err| return mapProgramRunError(Error, err);
+            }
 
             fn boxResultStorage(
                 allocator: std.mem.Allocator,
@@ -1392,7 +1486,12 @@ pub fn program(
                 };
             }
 
-            fn finishSessionResult(allocator: std.mem.Allocator, handlers: anytype, raw: *Core.RawResult) Error!Result {
+            fn finishSessionResult(
+                allocator: std.mem.Allocator,
+                handlers: anytype,
+                raw: *Core.RawResult,
+                result_cleanup_allocator: ?std.mem.Allocator,
+            ) Error!Result {
                 const result_cleanup = comptime bodyDeinitResultMode(Body, Value, ProgramOutputs);
                 if (result_cleanup != .none) {
                     var storage = raw.takeStorage();
@@ -1401,7 +1500,7 @@ pub fn program(
                         const owned = cloneBodyOwnedResultWithTrackedStorage(Value, allocator, raw.value) catch |err| return mapProgramRunError(Error, err);
                         return finishResultWithStorage(allocator, handlers, owned.value, owned.storage, owned.cleanup_allocator);
                     }
-                    return finishResultWithStorage(allocator, handlers, raw.value, null, null);
+                    return finishResultWithStorage(allocator, handlers, raw.value, null, result_cleanup_allocator);
                 }
                 const storage = try boxResultStorage(allocator, raw.takeStorage());
                 return finishResultWithStorage(allocator, handlers, raw.value, storage, null);
@@ -1808,6 +1907,16 @@ pub fn program(
                     } }) catch |err| return mapProgramRunError(Error, err);
                 }
 
+                fn appendValidatedResponseValueImage(self: *@This(), trace: Trace.Response, value_image: []const u8) Error!void {
+                    try validateJournalResponseTrace(trace);
+                    const owned = self.allocator.dupe(u8, value_image) catch |err| return mapProgramRunError(Error, err);
+                    errdefer self.allocator.free(owned);
+                    self.entries.append(self.allocator, .{ .response = .{
+                        .trace = trace,
+                        .value_image = owned,
+                    } }) catch |err| return mapProgramRunError(Error, err);
+                }
+
                 /// Append an owned copy of a durable capsule image.
                 pub fn appendCapsuleImage(self: *@This(), image: Capsule.Image) Error!void {
                     try validateJournalCapsuleImage(self.allocator, image);
@@ -1876,9 +1985,17 @@ pub fn program(
                 allocator: std.mem.Allocator,
                 strings: std.ArrayList([]const u8) = .empty,
                 string_lists: std.ArrayList([]const []const u8) = .empty,
+                content_canonicalization: bool = false,
 
                 fn init(allocator: std.mem.Allocator) @This() {
                     return .{ .allocator = allocator };
+                }
+
+                fn initCanonical(allocator: std.mem.Allocator) @This() {
+                    return .{
+                        .allocator = allocator,
+                        .content_canonicalization = true,
+                    };
                 }
 
                 fn deinit(self: *@This()) void {
@@ -1888,18 +2005,34 @@ pub fn program(
 
                 fn stringIndex(self: *const @This(), value: []const u8) ?usize {
                     for (self.strings.items, 0..) |existing, index| {
-                        if (existing.ptr == value.ptr and existing.len == value.len) return index;
+                        if (self.content_canonicalization) {
+                            if (std.mem.eql(u8, existing, value)) return index;
+                        } else if (existing.ptr == value.ptr and existing.len == value.len) {
+                            return index;
+                        }
                     }
                     return null;
                 }
 
                 fn stringListIndex(self: *const @This(), value: []const []const u8) ?usize {
                     for (self.string_lists.items, 0..) |existing, index| {
-                        if (existing.ptr == value.ptr and existing.len == value.len) return index;
+                        if (self.content_canonicalization) {
+                            if (stringListsEql(existing, value)) return index;
+                        } else if (existing.ptr == value.ptr and existing.len == value.len) {
+                            return index;
+                        }
                     }
                     return null;
                 }
             };
+
+            fn stringListsEql(a: []const []const u8, b: []const []const u8) bool {
+                if (a.len != b.len) return false;
+                for (a, b) |a_item, b_item| {
+                    if (!std.mem.eql(u8, a_item, b_item)) return false;
+                }
+                return true;
+            }
 
             // Canonical deterministic byte helpers shared by journals and Effect Exchange envelopes.
             const ExchangeByteWriter = struct {
@@ -3091,15 +3224,21 @@ pub fn program(
                     .done => |raw_result| done: {
                         var raw = raw_result;
                         const allocator = lowered_machine.runtimeAllocator(self.runtime);
+                        var exchange_storage = self.takeExchangeResponseStorage();
+                        errdefer deinitExchangeResponseStorage(allocator, &exchange_storage);
+                        const exchange_cleanup_allocator = if (exchange_storage) |exchange| exchange.tracker.allocator() else null;
                         const result = if (comptime @typeInfo(HandlersType) == .pointer)
-                            finishSessionResult(allocator, self.handlers, &raw)
+                            finishSessionResult(allocator, self.handlers, &raw, exchange_cleanup_allocator)
                         else
-                            finishSessionResult(allocator, &self.handlers, &raw);
-                        const finished = result catch |err| {
+                            finishSessionResult(allocator, &self.handlers, &raw, exchange_cleanup_allocator);
+                        var finished = result catch |err| {
                             raw.deinit();
                             self.closeAs(.deinitialized);
                             return err;
                         };
+                        if (exchange_storage) |exchange| armExchangeResponseCleanupAllocator(&finished, exchange);
+                        errdefer finished.deinit();
+                        try attachExchangeResponseStorageToResult(allocator, &finished, &exchange_storage);
                         self.closeAs(.done);
                         break :done .{ .done = finished };
                     },
@@ -3204,6 +3343,9 @@ pub fn program(
             }
 
             fn deinitCompletedResult(self: *Session) void {
+                const allocator = lowered_machine.runtimeAllocator(self.runtime);
+                var exchange_storage = self.takeExchangeResponseStorage();
+                defer deinitExchangeResponseStorage(allocator, &exchange_storage);
                 const completed = self.core.takeCompleted() catch |err|
                     std.debug.panic("completed session result decode failed during deinit: {s}", .{@errorName(err)});
                 if (completed) |raw_result| {
@@ -3213,7 +3355,6 @@ pub fn program(
                     if (result_cleanup == .none) return;
                     var storage = raw.takeStorage();
                     defer if (storage) |*owned| owned.deinit();
-                    const allocator = lowered_machine.runtimeAllocator(self.runtime);
                     if (storage != null) {
                         var owned = cloneBodyOwnedResultWithTrackedStorage(Value, allocator, raw.value) catch |err|
                             std.debug.panic("completed session result clone failed during deinit: {s}", .{@errorName(err)});
@@ -3221,6 +3362,14 @@ pub fn program(
                         deinitBodyResult(Body, Value, ProgramOutputs, .{
                             .allocator = owned.cleanup_allocator,
                             .value = owned.value,
+                            .outputs = null,
+                        });
+                        return;
+                    }
+                    if (exchange_storage) |exchange| {
+                        deinitBodyResult(Body, Value, ProgramOutputs, .{
+                            .allocator = exchange.tracker.allocator(),
+                            .value = raw.value,
                             .outputs = null,
                         });
                         return;
@@ -3298,6 +3447,10 @@ pub fn program(
                     try reader.expectBytes(manifest_magic);
                     if (try reader.readU32() != exchange_manifest_format_version) return error.ProgramContractViolation;
                     if (try reader.readU32() != exchange_manifest_fingerprint_version) return error.ProgramContractViolation;
+                    if (try reader.readU32() != exchange_request_format_version) return error.ProgramContractViolation;
+                    if (try reader.readU32() != exchange_request_fingerprint_version) return error.ProgramContractViolation;
+                    if (try reader.readU32() != exchange_response_format_version) return error.ProgramContractViolation;
+                    if (try reader.readU32() != exchange_response_fingerprint_version) return error.ProgramContractViolation;
                     if (!std.mem.eql(u8, try reader.readLenBytes(), label)) return error.ProgramContractViolation;
                     if (!std.mem.eql(u8, try reader.readLenBytes(), body_compiled_plan.label)) return error.ProgramContractViolation;
                     if (try reader.readU64() != body_compiled_plan_hash) return error.ProgramContractViolation;
@@ -3314,7 +3467,7 @@ pub fn program(
                     return .{
                         .allocator = allocator,
                         .bytes = owned,
-                        .fingerprint = bytesFingerprint(bytes),
+                        .fingerprint = try checkedBytesFingerprint(bytes, "ability.exchange.manifest", exchange_manifest_fingerprint_version),
                     };
                 }
 
@@ -3418,11 +3571,7 @@ pub fn program(
                     const value_image = try encodeRequestValueImage(allocator, request);
                     defer allocator.free(value_image);
                     const manifest_image = try manifestFingerprintForCurrentProgram(allocator);
-                    if (options.journal) |journal| {
-                        try journal.appendRequest(.{ .operation = trace });
-                        if (options.capsule) |capsule| try journal.appendCapsuleImage(capsule);
-                    }
-                    return encodeRequestEnvelope(allocator, .{
+                    var envelope = try encodeRequestEnvelope(allocator, .{
                         .kind = .operation,
                         .manifest_fingerprint = manifest_image,
                         .request_fingerprint = trace.fingerprint,
@@ -3443,6 +3592,15 @@ pub fn program(
                         .capsule = options.capsule,
                         .journal_branch_id = options.journal_branch_id,
                     });
+                    errdefer envelope.deinit();
+                    try envelope.validate();
+                    if (options.journal) |journal| {
+                        const start_len = journal.entries.items.len;
+                        errdefer journal.truncateEntries(start_len);
+                        try journal.appendRequest(.{ .operation = trace });
+                        if (options.capsule) |capsule| try journal.appendCapsuleImage(capsule);
+                    }
+                    return envelope;
                 }
 
                 /// Encode an after-continuation request yielded by Program.Session.
@@ -3451,11 +3609,7 @@ pub fn program(
                     const value_image = try encodeAfterValueImage(allocator, request);
                     defer allocator.free(value_image);
                     const manifest_image = try manifestFingerprintForCurrentProgram(allocator);
-                    if (options.journal) |journal| {
-                        try journal.appendRequest(.{ .after = trace });
-                        if (options.capsule) |capsule| try journal.appendCapsuleImage(capsule);
-                    }
-                    return encodeRequestEnvelope(allocator, .{
+                    var envelope = try encodeRequestEnvelope(allocator, .{
                         .kind = .after,
                         .manifest_fingerprint = manifest_image,
                         .request_fingerprint = trace.fingerprint,
@@ -3476,6 +3630,15 @@ pub fn program(
                         .capsule = options.capsule,
                         .journal_branch_id = options.journal_branch_id,
                     });
+                    errdefer envelope.deinit();
+                    try envelope.validate();
+                    if (options.journal) |journal| {
+                        const start_len = journal.entries.items.len;
+                        errdefer journal.truncateEntries(start_len);
+                        try journal.appendRequest(.{ .after = trace });
+                        if (options.capsule) |capsule| try journal.appendCapsuleImage(capsule);
+                    }
+                    return envelope;
                 }
 
                 /// Decode and validate a request envelope for this Program.
@@ -3486,10 +3649,11 @@ pub fn program(
                     if (try reader.readU32() != exchange_request_format_version) return error.ProgramContractViolation;
                     if (try reader.readU32() != exchange_request_fingerprint_version) return error.ProgramContractViolation;
                     const manifest_fingerprint = try reader.readU64();
+                    var envelope_owned = false;
                     const program_label_owned = try dupeExpectedString(allocator, &reader, label);
-                    errdefer allocator.free(program_label_owned);
+                    errdefer if (!envelope_owned) allocator.free(program_label_owned);
                     const plan = try dupeExpectedString(allocator, &reader, body_compiled_plan.label);
-                    errdefer allocator.free(plan);
+                    errdefer if (!envelope_owned) allocator.free(plan);
                     const decoded_plan_hash = try reader.readU64();
                     if (decoded_plan_hash != body_compiled_plan_hash) return error.ProgramContractViolation;
                     const kind_value = try readRequestKind(&reader);
@@ -3499,37 +3663,37 @@ pub fn program(
                     const site_index = try reader.readUsize();
                     const site_fingerprint = try reader.readU64();
                     const semantic_label = try readOptionalOwnedBytes(allocator, &reader);
-                    errdefer if (semantic_label) |value| allocator.free(value);
+                    errdefer if (!envelope_owned) if (semantic_label) |value| allocator.free(value);
                     const name_value = try allocator.dupe(u8, try reader.readLenBytes());
-                    errdefer allocator.free(name_value);
+                    errdefer if (!envelope_owned) allocator.free(name_value);
                     const mode = try readExchangeControlMode(&reader);
                     const value_ref = try readExchangeValueRef(&reader);
                     const value_fingerprint = try reader.readU64();
                     const value_image = try allocator.dupe(u8, try reader.readLenBytes());
-                    errdefer allocator.free(value_image);
+                    errdefer if (!envelope_owned) allocator.free(value_image);
                     const expected_resume_ref = try readOptionalValueRef(&reader);
                     const expected_return_ref = try readOptionalValueRef(&reader);
                     const expected_after_ref = try readOptionalValueRef(&reader);
                     const result_ref = try readExchangeValueRef(&reader);
                     const capsule_image = if (try reader.readBool()) blk: {
                         const capsule_bytes = try allocator.dupe(u8, try reader.readLenBytes());
-                        errdefer allocator.free(capsule_bytes);
+                        errdefer if (!envelope_owned) allocator.free(capsule_bytes);
                         const fingerprint = Session.capsuleImageFingerprint(capsule_bytes);
                         const encoded_fingerprint = try reader.readU64();
                         if (fingerprint != encoded_fingerprint) return error.ProgramContractViolation;
                         break :blk capsule_bytes;
                     } else null;
-                    errdefer if (capsule_image) |image| allocator.free(image);
+                    errdefer if (!envelope_owned) if (capsule_image) |image| allocator.free(image);
                     const capsule_fingerprint = if (capsule_image != null) Session.capsuleImageFingerprint(capsule_image.?) else null;
                     const branch_id = try readOptionalOwnedBytes(allocator, &reader);
-                    errdefer if (branch_id) |value| allocator.free(value);
+                    errdefer if (!envelope_owned) if (branch_id) |value| allocator.free(value);
                     if (!reader.eof()) return error.ProgramContractViolation;
                     const owned = allocator.dupe(u8, bytes) catch |err| return mapProgramRunError(Error, err);
-                    errdefer allocator.free(owned);
+                    errdefer if (!envelope_owned) allocator.free(owned);
                     var envelope = RequestEnvelope{
                         .allocator = allocator,
                         .bytes = owned,
-                        .fingerprint = bytesFingerprint(bytes),
+                        .fingerprint = try checkedBytesFingerprint(bytes, "ability.exchange.request", exchange_request_fingerprint_version),
                         .manifest_fingerprint = manifest_fingerprint,
                         .program_label = program_label_owned,
                         .plan_label = plan,
@@ -3554,25 +3718,18 @@ pub fn program(
                         .capsule_image_fingerprint = capsule_fingerprint,
                         .journal_branch_id = branch_id,
                     };
-                    try envelope.validate();
+                    envelope_owned = true;
+                    validateRequestEnvelopeFields(envelope) catch |err| {
+                        envelope.deinit();
+                        return err;
+                    };
                     return envelope;
                 }
 
                 /// Validate manifest, plan, site, value image, and capsule compatibility.
                 pub fn validate(self: @This()) Error!void {
-                    if (self.manifest_fingerprint != try manifestFingerprintForCurrentProgram(self.allocator)) return error.ProgramContractViolation;
-                    if (!std.mem.eql(u8, self.program_label, label)) return error.ProgramContractViolation;
-                    if (!std.mem.eql(u8, self.plan_label, body_compiled_plan.label)) return error.ProgramContractViolation;
-                    if (self.plan_hash != body_compiled_plan_hash) return error.ProgramContractViolation;
-                    if (self.fingerprint != bytesFingerprint(self.bytes)) return error.ProgramContractViolation;
-                    switch (self.kind) {
-                        .operation => try validateOperationEnvelopeSite(self),
-                        .after => try validateAfterEnvelopeSite(self),
-                    }
-                    try validateExchangeValueImage(self.allocator, self.value_ref, self.value_fingerprint, self.value_image);
-                    if (self.capsule_image) |image_bytes| {
-                        if (self.capsule_image_fingerprint.? != Session.capsuleImageFingerprint(image_bytes)) return error.ProgramContractViolation;
-                    }
+                    try validateRequestEnvelopeFields(self);
+                    try validateRequestEnvelopeFieldsBoundToBytes(self);
                 }
 
                 /// Release request envelope storage.
@@ -3592,6 +3749,7 @@ pub fn program(
             /// Options used while applying response envelopes.
             pub const ResponseOptions = struct {
                 journal: ?*Session.Journal = null,
+                request_envelope_fingerprint: ?u64 = null,
             };
 
             /// Canonical typed response envelope for host-supplied answers.
@@ -3640,13 +3798,16 @@ pub fn program(
                     const value_image = try allocator.dupe(u8, try reader.readLenBytes());
                     errdefer allocator.free(value_image);
                     if (!reader.eof()) return error.ProgramContractViolation;
+                    if (manifest_fingerprint != try manifestFingerprintForCurrentProgram(allocator)) return error.ProgramContractViolation;
+                    const trace = responseTraceFromEnvelope(request_fingerprint, kind_value, response_ref, value_fingerprint);
+                    if (trace.fingerprint != response_trace_fingerprint) return error.ProgramContractViolation;
                     try validateExchangeValueImage(allocator, response_ref, value_fingerprint, value_image);
                     const owned = allocator.dupe(u8, bytes) catch |err| return mapProgramRunError(Error, err);
                     errdefer allocator.free(owned);
                     return .{
                         .allocator = allocator,
                         .bytes = owned,
-                        .fingerprint = bytesFingerprint(bytes),
+                        .fingerprint = try checkedBytesFingerprint(bytes, "ability.exchange.response", exchange_response_fingerprint_version),
                         .manifest_fingerprint = manifest_fingerprint,
                         .request_envelope_fingerprint = request_envelope_fingerprint,
                         .request_fingerprint = request_fingerprint,
@@ -3664,7 +3825,7 @@ pub fn program(
                     if (self.manifest_fingerprint != request.manifest_fingerprint) return error.ProgramContractViolation;
                     if (self.request_envelope_fingerprint != request.fingerprint) return error.ProgramContractViolation;
                     if (self.request_fingerprint != request.request_fingerprint) return error.ProgramContractViolation;
-                    if (self.fingerprint != bytesFingerprint(self.bytes)) return error.ProgramContractViolation;
+                    try validateResponseEnvelopeFieldsBoundToBytes(self);
                     const expected_ref = try expectedResponseRef(request, self.kind);
                     if (!self.response_ref.eql(expected_ref)) return error.ProgramContractViolation;
                     const trace = responseTraceFromEnvelope(request.request_fingerprint, self.kind, self.response_ref, self.response_value_fingerprint);
@@ -3692,6 +3853,12 @@ pub fn program(
                     running,
                 };
 
+                fn appendOutboxEnvelope(allocator: std.mem.Allocator, outbox: anytype, envelope: RequestEnvelope) Error!void {
+                    var outbox_envelope = RequestEnvelope.decode(allocator, envelope.bytes) catch |err| return mapProgramRunError(Error, err);
+                    errdefer outbox_envelope.deinit();
+                    outbox.append(outbox_envelope) catch |err| return mapProgramRunError(Error, err);
+                }
+
                 /// Advance one host turn, appending yielded requests and consuming one response if present.
                 pub fn runStep(
                     self: *@This(),
@@ -3708,7 +3875,7 @@ pub fn program(
                         var response = response_value;
                         defer response.deinit();
                         try options.policy.validateResponse(response);
-                        try applyResponse(session, response, .{});
+                        try applyResponse(session, response, .{ .request_envelope_fingerprint = self.last_request_envelope_fingerprint });
                         return .running;
                     }
                     const current_value = try session.current();
@@ -3717,8 +3884,8 @@ pub fn program(
                             var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .request = request }, options.capsule);
                             errdefer envelope.deinit();
                             try options.policy.validateRequest(envelope);
-                            if (self.last_request_fingerprint != envelope.request_fingerprint) {
-                                try outbox.append(envelope);
+                            if (self.last_request_envelope_fingerprint != envelope.fingerprint) {
+                                try appendOutboxEnvelope(options.allocator, outbox, envelope);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
                             }
@@ -3728,8 +3895,8 @@ pub fn program(
                             var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .after = after }, options.capsule);
                             errdefer envelope.deinit();
                             try options.policy.validateRequest(envelope);
-                            if (self.last_request_fingerprint != envelope.request_fingerprint) {
-                                try outbox.append(envelope);
+                            if (self.last_request_envelope_fingerprint != envelope.fingerprint) {
+                                try appendOutboxEnvelope(options.allocator, outbox, envelope);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
                             }
@@ -3740,7 +3907,7 @@ pub fn program(
                                 var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .request = request }, options.capsule);
                                 errdefer envelope.deinit();
                                 try options.policy.validateRequest(envelope);
-                                try outbox.append(envelope);
+                                try appendOutboxEnvelope(options.allocator, outbox, envelope);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
                                 break :blk .{ .parked = envelope };
@@ -3749,7 +3916,7 @@ pub fn program(
                                 var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .after = after }, options.capsule);
                                 errdefer envelope.deinit();
                                 try options.policy.validateRequest(envelope);
-                                try outbox.append(envelope);
+                                try appendOutboxEnvelope(options.allocator, outbox, envelope);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
                                 break :blk .{ .parked = envelope };
@@ -3770,29 +3937,91 @@ pub fn program(
                 };
                 var owned_request = request_envelope;
                 defer owned_request.deinit();
-                try validateResponseForCurrentRequest(response, owned_request);
-                if (options.journal) |journal| {
-                    try journal.appendResponse(.{
-                        .request_fingerprint = response.request_fingerprint,
-                        .kind = response.kind,
-                        .response_ref = response.response_ref,
-                        .response_value_fingerprint = response.response_value_fingerprint,
-                        .fingerprint = response.response_trace_fingerprint,
-                    });
-                }
+                try validateResponseForCurrentRequest(response, owned_request, options.request_envelope_fingerprint);
+                const response_trace: Session.Trace.Response = .{
+                    .request_fingerprint = response.request_fingerprint,
+                    .kind = response.kind,
+                    .response_ref = response.response_ref,
+                    .response_value_fingerprint = response.response_value_fingerprint,
+                    .fingerprint = response.response_trace_fingerprint,
+                };
+                const journal_checkpoint = if (options.journal) |journal| checkpoint: {
+                    const start_len = journal.entries.items.len;
+                    try journal.appendValidatedResponseValueImage(response_trace, response.value_image);
+                    break :checkpoint .{ .journal = journal, .start_len = start_len };
+                } else null;
+                errdefer if (journal_checkpoint) |checkpoint| checkpoint.journal.truncateEntries(checkpoint.start_len);
                 try applyResponseValue(session, current_value, response);
             }
 
-            fn validateResponseForCurrentRequest(response: ResponseEnvelope, request: RequestEnvelope) Error!void {
+            fn validateResponseForCurrentRequest(response: ResponseEnvelope, request: RequestEnvelope, request_envelope_fingerprint: ?u64) Error!void {
                 try request.validate();
                 if (response.manifest_fingerprint != request.manifest_fingerprint) return error.ProgramContractViolation;
+                if (response.request_envelope_fingerprint != (request_envelope_fingerprint orelse request.fingerprint)) return error.ProgramContractViolation;
                 if (response.request_fingerprint != request.request_fingerprint) return error.ProgramContractViolation;
-                if (response.fingerprint != bytesFingerprint(response.bytes)) return error.ProgramContractViolation;
+                try validateResponseEnvelopeFieldsBoundToBytes(response);
                 const expected_ref = try expectedResponseRef(request, response.kind);
                 if (!response.response_ref.eql(expected_ref)) return error.ProgramContractViolation;
                 const trace = responseTraceFromEnvelope(request.request_fingerprint, response.kind, response.response_ref, response.response_value_fingerprint);
                 if (trace.fingerprint != response.response_trace_fingerprint) return error.ProgramContractViolation;
                 try validateExchangeValueImage(response.allocator, response.response_ref, response.response_value_fingerprint, response.value_image);
+            }
+
+            fn validateRequestEnvelopeFields(envelope: RequestEnvelope) Error!void {
+                if (envelope.manifest_fingerprint != try manifestFingerprintForCurrentProgram(envelope.allocator)) return error.ProgramContractViolation;
+                if (!std.mem.eql(u8, envelope.program_label, label)) return error.ProgramContractViolation;
+                if (!std.mem.eql(u8, envelope.plan_label, body_compiled_plan.label)) return error.ProgramContractViolation;
+                if (envelope.plan_hash != body_compiled_plan_hash) return error.ProgramContractViolation;
+                if (envelope.fingerprint != try checkedBytesFingerprint(envelope.bytes, "ability.exchange.request", exchange_request_fingerprint_version)) return error.ProgramContractViolation;
+                switch (envelope.kind) {
+                    .operation => try validateOperationEnvelopeSite(envelope),
+                    .after => try validateAfterEnvelopeSite(envelope),
+                }
+                try validateExchangeValueImage(envelope.allocator, envelope.value_ref, envelope.value_fingerprint, envelope.value_image);
+                try validateCapsuleImageForEnvelope(envelope);
+            }
+
+            fn validateRequestEnvelopeFieldsBoundToBytes(envelope: RequestEnvelope) Error!void {
+                var decoded = try RequestEnvelope.decode(envelope.allocator, envelope.bytes);
+                defer decoded.deinit();
+                if (envelope.fingerprint != decoded.fingerprint) return error.ProgramContractViolation;
+                if (envelope.manifest_fingerprint != decoded.manifest_fingerprint) return error.ProgramContractViolation;
+                if (!std.mem.eql(u8, envelope.program_label, decoded.program_label)) return error.ProgramContractViolation;
+                if (!std.mem.eql(u8, envelope.plan_label, decoded.plan_label)) return error.ProgramContractViolation;
+                if (envelope.plan_hash != decoded.plan_hash) return error.ProgramContractViolation;
+                if (envelope.kind != decoded.kind) return error.ProgramContractViolation;
+                if (envelope.request_fingerprint != decoded.request_fingerprint) return error.ProgramContractViolation;
+                if (envelope.trace_fingerprint != decoded.trace_fingerprint) return error.ProgramContractViolation;
+                if (envelope.turn_index != decoded.turn_index) return error.ProgramContractViolation;
+                if (envelope.site_index != decoded.site_index) return error.ProgramContractViolation;
+                if (envelope.site_fingerprint != decoded.site_fingerprint) return error.ProgramContractViolation;
+                if (!optionalBytesEql(envelope.semantic_label, decoded.semantic_label)) return error.ProgramContractViolation;
+                if (!std.mem.eql(u8, envelope.name, decoded.name)) return error.ProgramContractViolation;
+                if (envelope.mode != decoded.mode) return error.ProgramContractViolation;
+                if (!envelope.value_ref.eql(decoded.value_ref)) return error.ProgramContractViolation;
+                if (envelope.value_fingerprint != decoded.value_fingerprint) return error.ProgramContractViolation;
+                if (!std.mem.eql(u8, envelope.value_image, decoded.value_image)) return error.ProgramContractViolation;
+                if (!optionalValueRefEql(envelope.expected_resume_ref, decoded.expected_resume_ref)) return error.ProgramContractViolation;
+                if (!optionalValueRefEql(envelope.expected_return_ref, decoded.expected_return_ref)) return error.ProgramContractViolation;
+                if (!optionalValueRefEql(envelope.expected_after_ref, decoded.expected_after_ref)) return error.ProgramContractViolation;
+                if (!envelope.result_ref.eql(decoded.result_ref)) return error.ProgramContractViolation;
+                if (!optionalBytesEql(envelope.capsule_image, decoded.capsule_image)) return error.ProgramContractViolation;
+                if (envelope.capsule_image_fingerprint != decoded.capsule_image_fingerprint) return error.ProgramContractViolation;
+                if (!optionalBytesEql(envelope.journal_branch_id, decoded.journal_branch_id)) return error.ProgramContractViolation;
+            }
+
+            fn validateResponseEnvelopeFieldsBoundToBytes(response: ResponseEnvelope) Error!void {
+                var decoded = try ResponseEnvelope.decode(response.allocator, response.bytes);
+                defer decoded.deinit();
+                if (response.fingerprint != decoded.fingerprint) return error.ProgramContractViolation;
+                if (response.manifest_fingerprint != decoded.manifest_fingerprint) return error.ProgramContractViolation;
+                if (response.request_envelope_fingerprint != decoded.request_envelope_fingerprint) return error.ProgramContractViolation;
+                if (response.request_fingerprint != decoded.request_fingerprint) return error.ProgramContractViolation;
+                if (response.kind != decoded.kind) return error.ProgramContractViolation;
+                if (!response.response_ref.eql(decoded.response_ref)) return error.ProgramContractViolation;
+                if (response.response_value_fingerprint != decoded.response_value_fingerprint) return error.ProgramContractViolation;
+                if (response.response_trace_fingerprint != decoded.response_trace_fingerprint) return error.ProgramContractViolation;
+                if (!std.mem.eql(u8, response.value_image, decoded.value_image)) return error.ProgramContractViolation;
             }
 
             /// Restore a session from an embedded request capsule image.
@@ -3801,6 +4030,7 @@ pub fn program(
                 handlers: HandlersType,
                 request: RequestEnvelope,
             ) Error!Session {
+                try request.validate();
                 const image_bytes = request.capsule_image orelse return error.ProgramContractViolation;
                 var capsule = try Session.Capsule.decode(request.allocator, image_bytes);
                 defer capsule.deinit();
@@ -3823,11 +4053,10 @@ pub fn program(
                 include_capsule: bool,
             ) Error!RequestEnvelope {
                 var capsule_image: ?Session.Capsule.Image = null;
-                var capsule: ?Session.Capsule = null;
                 if (include_capsule) {
-                    capsule = try session.capture(allocator);
-                    capsule_image = try capsule.?.encode(allocator);
-                    capsule.?.deinit();
+                    var capsule = try session.capture(allocator);
+                    defer capsule.deinit();
+                    capsule_image = try capsule.encode(allocator);
                 }
                 defer if (capsule_image) |*image| image.deinit();
                 return switch (current_value) {
@@ -3844,6 +4073,10 @@ pub fn program(
                 try writer.writeBytes(manifest_magic);
                 try writer.writeU32(exchange_manifest_format_version);
                 try writer.writeU32(exchange_manifest_fingerprint_version);
+                try writer.writeU32(exchange_request_format_version);
+                try writer.writeU32(exchange_request_fingerprint_version);
+                try writer.writeU32(exchange_response_format_version);
+                try writer.writeU32(exchange_response_fingerprint_version);
                 try writer.writeLenBytes(label);
                 try writer.writeLenBytes(body_compiled_plan.label);
                 try writer.writeU64(body_compiled_plan_hash);
@@ -4010,13 +4243,17 @@ pub fn program(
                 errdefer allocator.free(name_value);
                 const semantic_label = if (args.semantic_label) |semantic| try allocator.dupe(u8, semantic) else null;
                 errdefer if (semantic_label) |semantic| allocator.free(semantic);
+                const program_label = try allocator.dupe(u8, label);
+                errdefer allocator.free(program_label);
+                const plan_label = try allocator.dupe(u8, body_compiled_plan.label);
+                errdefer allocator.free(plan_label);
                 return .{
                     .allocator = allocator,
                     .bytes = owned,
                     .fingerprint = fingerprint,
                     .manifest_fingerprint = args.manifest_fingerprint,
-                    .program_label = try allocator.dupe(u8, label),
-                    .plan_label = try allocator.dupe(u8, body_compiled_plan.label),
+                    .program_label = program_label,
+                    .plan_label = plan_label,
                     .plan_hash = body_compiled_plan_hash,
                     .kind = args.kind,
                     .request_fingerprint = args.request_fingerprint,
@@ -4082,17 +4319,17 @@ pub fn program(
 
             fn applyResponseValue(session: *Session, current_value: Session.Current, response: ResponseEnvelope) Error!void {
                 return switch (response.response_ref.codec) {
-                    .unit => try applyTypedResponse(session, current_value, response, {}),
-                    .bool => try applyTypedResponse(session, current_value, response, try decodeExchangeValueImage(response.allocator, response.response_ref, response.response_value_fingerprint, response.value_image, bool)),
-                    .i32 => try applyTypedResponse(session, current_value, response, try decodeExchangeValueImage(response.allocator, response.response_ref, response.response_value_fingerprint, response.value_image, i32)),
-                    .usize => try applyTypedResponse(session, current_value, response, try decodeExchangeValueImage(response.allocator, response.response_ref, response.response_value_fingerprint, response.value_image, usize)),
-                    .string => try applyTypedResponse(session, current_value, response, try decodeExchangeValueImage(response.allocator, response.response_ref, response.response_value_fingerprint, response.value_image, []const u8)),
-                    .string_list => try applyTypedResponse(session, current_value, response, try decodeExchangeValueImage(response.allocator, response.response_ref, response.response_value_fingerprint, response.value_image, []const []const u8)),
+                    .unit => try applyDecodedExchangeValueImage(session, current_value, response, void),
+                    .bool => try applyDecodedExchangeValueImage(session, current_value, response, bool),
+                    .i32 => try applyDecodedExchangeValueImage(session, current_value, response, i32),
+                    .usize => try applyDecodedExchangeValueImage(session, current_value, response, usize),
+                    .string => try applyDecodedExchangeValueImage(session, current_value, response, []const u8),
+                    .string_list => try applyDecodedExchangeValueImage(session, current_value, response, []const []const u8),
                     .product, .sum => blk: {
                         const schema_index = response.response_ref.schema_index orelse return error.ProgramContractViolation;
                         inline for (body_value_schema_types, 0..) |SchemaType, index| {
                             if (schema_index == index) {
-                                break :blk try applyTypedResponse(session, current_value, response, try decodeExchangeValueImage(response.allocator, response.response_ref, response.response_value_fingerprint, response.value_image, SchemaType));
+                                break :blk try applyDecodedExchangeValueImage(session, current_value, response, SchemaType);
                             }
                         }
                         return error.ProgramContractViolation;
@@ -4100,15 +4337,42 @@ pub fn program(
                 };
             }
 
+            fn applyDecodedExchangeValueImage(
+                session: *Session,
+                current_value: Session.Current,
+                response: ResponseEnvelope,
+                comptime ValueType: type,
+            ) Error!void {
+                const expected_ref = comptime ProgramValueRefForType(body_value_schema_types, ValueType);
+                if (!response.response_ref.eql(expected_ref)) return error.ProgramContractViolation;
+                var journal = Session.Journal.init(response.allocator);
+                defer journal.deinit();
+                var replayer = journal.replayer();
+                defer replayer.deinit();
+                var reader = Reader.init(response.value_image);
+                const encoded_ref = try readExchangeValueRef(&reader);
+                if (!encoded_ref.eql(expected_ref)) return error.ProgramContractViolation;
+                var context = Session.ValueImageContext.init(response.allocator);
+                defer context.deinit();
+                const value = Session.readTypedValueImage(&reader, &replayer, &context, expected_ref, ValueType) catch |err| return mapProgramRunError(Error, err);
+                if (!reader.eof()) return error.ProgramContractViolation;
+                if (try Session.fingerprintTypedValueImage(expected_ref, value) != response.response_value_fingerprint) return error.ProgramContractViolation;
+                const canonical = try encodeExchangeValueImage(response.allocator, response.response_ref, response.response_value_fingerprint, value);
+                defer response.allocator.free(canonical);
+                if (!std.mem.eql(u8, response.value_image, canonical)) return error.ProgramContractViolation;
+                try applyTypedResponse(session, current_value, response, value);
+            }
+
             fn applyTypedResponse(session: *Session, current_value: Session.Current, response: ResponseEnvelope, value: anytype) Error!void {
+                const stable_value = try session.storeExchangeResponseValue(value);
                 return switch (current_value) {
                     .request => |request| switch (response.kind) {
-                        .@"resume" => try session.@"resume"(request, value),
-                        .return_now => try session.returnNow(request, value),
+                        .@"resume" => try session.@"resume"(request, stable_value),
+                        .return_now => try session.returnNow(request, stable_value),
                         .resume_after => error.ProgramContractViolation,
                     },
                     .after => |after| switch (response.kind) {
-                        .resume_after => try session.resumeAfter(after, value),
+                        .resume_after => try session.resumeAfter(after, stable_value),
                         else => error.ProgramContractViolation,
                     },
                     .none => error.ProgramContractViolation,
@@ -4157,7 +4421,7 @@ pub fn program(
                 if (try Session.fingerprintTypedValueImage(expected_ref, value) != expected_fingerprint) return error.ProgramContractViolation;
                 var writer = Writer.init(allocator);
                 errdefer writer.deinit();
-                var context = Session.ValueImageContext.init(allocator);
+                var context = Session.ValueImageContext.initCanonical(allocator);
                 defer context.deinit();
                 try writeExchangeValueRef(&writer, expected_ref);
                 Session.writeTypedValueImage(&writer, &context, expected_ref, value) catch |err| return mapProgramRunError(Error, err);
@@ -4170,7 +4434,7 @@ pub fn program(
                 expected_fingerprint: u64,
                 image: []const u8,
                 comptime ValueType: type,
-            ) Error!ValueType {
+            ) Error!void {
                 const expected_ref = comptime ProgramValueRefForType(body_value_schema_types, ValueType);
                 if (!ref.eql(expected_ref)) return error.ProgramContractViolation;
                 var journal = Session.Journal.init(allocator);
@@ -4185,22 +4449,24 @@ pub fn program(
                 const value = Session.readTypedValueImage(&reader, &replayer, &context, expected_ref, ValueType) catch |err| return mapProgramRunError(Error, err);
                 if (!reader.eof()) return error.ProgramContractViolation;
                 if (try Session.fingerprintTypedValueImage(expected_ref, value) != expected_fingerprint) return error.ProgramContractViolation;
-                return value;
+                const canonical = try encodeExchangeValueImage(allocator, ref, expected_fingerprint, value);
+                defer allocator.free(canonical);
+                if (!std.mem.eql(u8, image, canonical)) return error.ProgramContractViolation;
             }
 
             fn validateExchangeValueImage(allocator: std.mem.Allocator, ref: lowering_api.ValueRef, expected_fingerprint: u64, image: []const u8) Error!void {
                 switch (ref.codec) {
-                    .unit => _ = try decodeExchangeValueImage(allocator, ref, expected_fingerprint, image, void),
-                    .bool => _ = try decodeExchangeValueImage(allocator, ref, expected_fingerprint, image, bool),
-                    .i32 => _ = try decodeExchangeValueImage(allocator, ref, expected_fingerprint, image, i32),
-                    .usize => _ = try decodeExchangeValueImage(allocator, ref, expected_fingerprint, image, usize),
-                    .string => _ = try decodeExchangeValueImage(allocator, ref, expected_fingerprint, image, []const u8),
-                    .string_list => _ = try decodeExchangeValueImage(allocator, ref, expected_fingerprint, image, []const []const u8),
+                    .unit => try decodeExchangeValueImage(allocator, ref, expected_fingerprint, image, void),
+                    .bool => try decodeExchangeValueImage(allocator, ref, expected_fingerprint, image, bool),
+                    .i32 => try decodeExchangeValueImage(allocator, ref, expected_fingerprint, image, i32),
+                    .usize => try decodeExchangeValueImage(allocator, ref, expected_fingerprint, image, usize),
+                    .string => try decodeExchangeValueImage(allocator, ref, expected_fingerprint, image, []const u8),
+                    .string_list => try decodeExchangeValueImage(allocator, ref, expected_fingerprint, image, []const []const u8),
                     .product, .sum => {
                         const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
                         inline for (body_value_schema_types, 0..) |SchemaType, index| {
                             if (schema_index == index) {
-                                _ = try decodeExchangeValueImage(allocator, ref, expected_fingerprint, image, SchemaType);
+                                try decodeExchangeValueImage(allocator, ref, expected_fingerprint, image, SchemaType);
                                 return;
                             }
                         }
@@ -4238,8 +4504,40 @@ pub fn program(
                 inline for (protocol.operation_site_metadata) |site| {
                     if (site.index == envelope.site_index) {
                         if (site.fingerprint != envelope.site_fingerprint) return error.ProgramContractViolation;
+                        if (!optionalBytesEql(envelope.semantic_label, site.semantic_label)) return error.ProgramContractViolation;
+                        if (!std.mem.eql(u8, envelope.name, site.op_name)) return error.ProgramContractViolation;
+                        if (envelope.mode != site.op_mode) return error.ProgramContractViolation;
                         if (!site.payload_ref.eql(envelope.value_ref)) return error.ProgramContractViolation;
                         if (!site.result_ref.eql(envelope.result_ref)) return error.ProgramContractViolation;
+                        if (!optionalValueRefEql(envelope.expected_resume_ref, if (site.op_mode == .abort) null else site.resume_ref)) return error.ProgramContractViolation;
+                        if (!optionalValueRefEql(envelope.expected_return_ref, if (site.op_mode == .transform) null else site.result_ref)) return error.ProgramContractViolation;
+                        if (envelope.expected_after_ref != null) return error.ProgramContractViolation;
+                        const trace: Session.Trace.OperationRequest = .{
+                            .program_label = label,
+                            .plan_label = body_compiled_plan.label,
+                            .plan_hash = body_compiled_plan_hash,
+                            .turn_index = envelope.turn_index,
+                            .operation_site_index = site.index,
+                            .operation_site_fingerprint = site.fingerprint,
+                            .semantic_label = site.semantic_label,
+                            .function_index = site.function_index,
+                            .block_index = site.block_index,
+                            .instruction_index = site.instruction_index,
+                            .requirement_index = site.requirement_index,
+                            .requirement_label = site.requirement_label,
+                            .op_index = site.op_index,
+                            .op_name = site.op_name,
+                            .mode = site.op_mode,
+                            .payload_ref = site.payload_ref,
+                            .has_payload = site.payload_ref.codec != .unit,
+                            .payload_value_fingerprint = envelope.value_fingerprint,
+                            .resume_ref = site.resume_ref,
+                            .result_ref = site.result_ref,
+                            .has_after = site.has_after,
+                            .fingerprint = 0,
+                        };
+                        const expected_fingerprint = Session.fingerprintJournalOperationRequestTrace(trace);
+                        if (envelope.request_fingerprint != expected_fingerprint or envelope.trace_fingerprint != expected_fingerprint) return error.ProgramContractViolation;
                         return;
                     }
                 }
@@ -4250,11 +4548,85 @@ pub fn program(
                 inline for (protocol.after_site_metadata) |site| {
                     if (site.index == envelope.site_index) {
                         if (site.fingerprint != envelope.site_fingerprint) return error.ProgramContractViolation;
+                        if (!optionalBytesEql(envelope.semantic_label, site.semantic_label)) return error.ProgramContractViolation;
+                        if (!std.mem.eql(u8, envelope.name, site.original_op_name)) return error.ProgramContractViolation;
+                        if (envelope.mode != .transform) return error.ProgramContractViolation;
                         if (!site.result_ref.eql(envelope.result_ref)) return error.ProgramContractViolation;
-                        return;
+                        if (envelope.expected_resume_ref != null or envelope.expected_return_ref != null) return error.ProgramContractViolation;
+                        if (envelope.expected_after_ref == null) return error.ProgramContractViolation;
+                        inline for (protocol.operation_site_metadata) |operation_site| {
+                            if (operation_site.index == site.source_operation_site_index) {
+                                if (operation_site.fingerprint != site.source_operation_site_fingerprint) return error.ProgramContractViolation;
+                                const expected_input_ref = comptime lowering_api.sessionAfterProtocolInputRefForOperationSite(body_compiled_plan, body_value_schema_types, HandlersType, operation_site);
+                                if (expected_input_ref) |input_ref| {
+                                    if (!envelope.value_ref.eql(input_ref)) return error.ProgramContractViolation;
+                                }
+                                const expected_output_ref = comptime lowering_api.sessionAfterProtocolOutputRefForOperationSite(body_compiled_plan, body_value_schema_types, HandlersType, operation_site);
+                                if (!envelope.expected_after_ref.?.eql(expected_output_ref)) return error.ProgramContractViolation;
+                                const trace: Session.Trace.AfterRequest = .{
+                                    .program_label = label,
+                                    .plan_label = body_compiled_plan.label,
+                                    .plan_hash = body_compiled_plan_hash,
+                                    .turn_index = envelope.turn_index,
+                                    .after_site_index = site.index,
+                                    .after_site_fingerprint = site.fingerprint,
+                                    .semantic_label = site.semantic_label,
+                                    .source_operation_site_index = site.source_operation_site_index,
+                                    .source_operation_site_fingerprint = site.source_operation_site_fingerprint,
+                                    .function_index = site.source_function_index,
+                                    .block_index = site.source_block_index,
+                                    .instruction_index = site.source_instruction_index,
+                                    .original_requirement_index = site.original_requirement_index,
+                                    .original_requirement_label = site.original_requirement_label,
+                                    .original_op_index = site.original_op_index,
+                                    .original_op_name = site.original_op_name,
+                                    .current_value_ref = envelope.value_ref,
+                                    .current_value_fingerprint = envelope.value_fingerprint,
+                                    .expected_output_ref = expected_output_ref,
+                                    .result_ref = site.result_ref,
+                                    .fingerprint = 0,
+                                };
+                                const expected_fingerprint = Session.fingerprintJournalAfterRequestTrace(trace);
+                                if (envelope.request_fingerprint != expected_fingerprint or envelope.trace_fingerprint != expected_fingerprint) return error.ProgramContractViolation;
+                                return;
+                            }
+                        }
+                        return error.ProgramContractViolation;
                     }
                 }
                 return error.ProgramContractViolation;
+            }
+
+            fn optionalValueRefEql(actual: ?lowering_api.ValueRef, expected: ?lowering_api.ValueRef) bool {
+                if (actual == null and expected == null) return true;
+                if (actual == null or expected == null) return false;
+                return actual.?.eql(expected.?);
+            }
+
+            fn optionalBytesEql(actual: ?[]const u8, expected: ?[]const u8) bool {
+                if (actual == null and expected == null) return true;
+                if (actual == null or expected == null) return false;
+                return std.mem.eql(u8, actual.?, expected.?);
+            }
+
+            fn validateCapsuleImageForEnvelope(envelope: RequestEnvelope) Error!void {
+                const image_bytes = envelope.capsule_image orelse return;
+                const image_fingerprint = envelope.capsule_image_fingerprint orelse return error.ProgramContractViolation;
+                if (image_fingerprint != Session.capsuleImageFingerprint(image_bytes)) return error.ProgramContractViolation;
+                var capsule = try Session.Capsule.decode(envelope.allocator, image_bytes);
+                defer capsule.deinit();
+                const metadata = capsule.metadata();
+                if (metadata.current_request_fingerprint != envelope.request_fingerprint) return error.ProgramContractViolation;
+                switch (envelope.kind) {
+                    .operation => {
+                        if (metadata.parked_kind != .operation) return error.ProgramContractViolation;
+                        if (metadata.current_operation_site_index == null or metadata.current_operation_site_index.? != envelope.site_index) return error.ProgramContractViolation;
+                    },
+                    .after => {
+                        if (metadata.parked_kind != .after) return error.ProgramContractViolation;
+                        if (metadata.current_after_site_index == null or metadata.current_after_site_index.? != envelope.site_index) return error.ProgramContractViolation;
+                    },
+                }
             }
 
             fn exchangeFingerprint(domain: []const u8, version: u32, bytes: []const u8) u64 {
@@ -4273,8 +4645,9 @@ pub fn program(
                 return payload;
             }
 
-            fn bytesFingerprint(bytes: []const u8) u64 {
-                return std.mem.readInt(u64, bytes[bytes.len - 8 ..][0..8], .little);
+            fn checkedBytesFingerprint(bytes: []const u8, domain: []const u8, version: u32) Error!u64 {
+                const payload = try checkedPayload(bytes, domain, version);
+                return exchangeFingerprint(domain, version, payload);
             }
 
             fn writeExchangeValueRef(writer: *Writer, ref: lowering_api.ValueRef) std.mem.Allocator.Error!void {

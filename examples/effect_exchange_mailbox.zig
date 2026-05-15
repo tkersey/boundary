@@ -71,7 +71,7 @@ const Outbox = struct {
     }
 
     pub fn append(self: *@This(), envelope: ApprovalProgram.Exchange.RequestEnvelope) !void {
-        try self.items.append(self.allocator, try ApprovalProgram.Exchange.RequestEnvelope.decode(self.allocator, envelope.bytes));
+        try self.items.append(self.allocator, envelope);
     }
 };
 
