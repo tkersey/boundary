@@ -39,6 +39,22 @@ fn testProgramCapsuleImageFingerprint(comptime Program: type, image_bytes: []con
     return hasher.final();
 }
 
+fn testProgramJournalFingerprint(comptime Program: type, image_bytes: []const u8) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    testHashBytes(&hasher, "ability.program.session.journal");
+    testHashU32(&hasher, Program.Session.journal_fingerprint_version);
+    testHashBytes(&hasher, image_bytes);
+    return hasher.final();
+}
+
+fn testExchangeFingerprint(domain: []const u8, version: u32, image_bytes: []const u8) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    testHashBytes(&hasher, domain);
+    testHashU32(&hasher, version);
+    testHashBytes(&hasher, image_bytes);
+    return hasher.final();
+}
+
 const TestImageCursor = struct {
     bytes: []const u8,
     index: usize = 0,
@@ -4990,6 +5006,15 @@ test "Program.Interpreter handles transform requests and records response traces
     defer std.testing.allocator.free(decoded_journal_bytes);
     try std.testing.expectEqualSlices(u8, journal_bytes, decoded_journal_bytes);
     try std.testing.expectEqual(try journal.fingerprint(), try decoded_journal.fingerprint());
+
+    var legacy_v1_journal = try std.testing.allocator.dupe(u8, journal_bytes);
+    defer std.testing.allocator.free(legacy_v1_journal);
+    std.mem.writeInt(u32, legacy_v1_journal["ABL_JRN1".len..][0..4], 1, .little);
+    const legacy_payload = legacy_v1_journal[0 .. legacy_v1_journal.len - 8];
+    std.mem.writeInt(u64, legacy_v1_journal[legacy_v1_journal.len - 8 ..][0..8], testProgramJournalFingerprint(Program, legacy_payload), .little);
+    var decoded_legacy_v1 = try Program.Session.Journal.decode(std.testing.allocator, legacy_v1_journal);
+    defer decoded_legacy_v1.deinit();
+    try std.testing.expectEqual(@as(usize, 2), decoded_legacy_v1.entries.items.len);
 
     var manual_session = try Program.Session.start(&runtime, .{});
     defer manual_session.deinit();
@@ -11438,6 +11463,57 @@ fn sessionStringOpPlan(comptime mode: ability.ir.PlanControlMode, comptime label
     }) catch unreachable;
 }
 
+fn sessionUnitStringOpPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const resumed = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .string,
+        .result_codec = .string,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "decide",
+        .mode = .transform,
+        .payload_codec = .unit,
+        .resume_codec = .string,
+        .has_after = false,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 102,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn parameterizedSessionStringOpPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const payload = ability.ir.builder.local(root, 0);
@@ -15150,7 +15226,7 @@ test "Program.Session trace operation metadata and replay fingerprint helpers" {
     try std.testing.expectEqual(first_request.fingerprint(), second_request.fingerprint());
 }
 
-test "Program.Exchange exposes v1 format domains" {
+test "Program.Exchange exposes exchange v1 domains and journal v2 route events" {
     const Body = struct {
         pub const compiled_plan = wideLocalPlan("exchange-version-domains");
     };
@@ -15168,6 +15244,8 @@ test "Program.Exchange exposes v1 format domains" {
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_capability_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_authorization_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_route_fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 2), Program.journal_format_version);
+    try std.testing.expectEqual(@as(u32, 2), Program.Session.journal_format_version);
     try std.testing.expectEqual(Program.exchange_manifest_format_version, Program.Exchange.manifest_format_version);
     try std.testing.expectEqual(Program.exchange_manifest_fingerprint_version, Program.Exchange.manifest_fingerprint_version);
     try std.testing.expectEqual(Program.exchange_request_format_version, Program.Exchange.request_format_version);
@@ -15180,6 +15258,23 @@ test "Program.Exchange exposes v1 format domains" {
     try std.testing.expectEqual(Program.exchange_capability_fingerprint_version, Program.Exchange.capability_fingerprint_version);
     try std.testing.expectEqual(Program.exchange_authorization_fingerprint_version, Program.Exchange.authorization_fingerprint_version);
     try std.testing.expectEqual(Program.exchange_route_fingerprint_version, Program.Exchange.route_fingerprint_version);
+
+    var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
+    defer manifest.deinit();
+    var legacy_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
+    defer std.testing.allocator.free(legacy_manifest);
+    var index: usize = "ABL_EXM1".len + 6 * 4;
+    const program_label_len = std.mem.readInt(u64, legacy_manifest[index..][0..8], .little);
+    index += 8 + @as(usize, @intCast(program_label_len));
+    const plan_label_len = std.mem.readInt(u64, legacy_manifest[index..][0..8], .little);
+    index += 8 + @as(usize, @intCast(plan_label_len));
+    index += 8 + 4 + 4 + 4;
+    std.mem.writeInt(u32, legacy_manifest[index..][0..4], 1, .little);
+    const legacy_payload = legacy_manifest[0 .. legacy_manifest.len - 8];
+    std.mem.writeInt(u64, legacy_manifest[legacy_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_payload), .little);
+    var decoded_legacy = try Program.Exchange.Manifest.decode(std.testing.allocator, legacy_manifest);
+    defer decoded_legacy.deinit();
+    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_payload), decoded_legacy.fingerprint);
 }
 
 test "Program.Session trace after metadata and current value fingerprint stability" {
@@ -18195,7 +18290,7 @@ test "Program.Exchange provider manifest encodes supports and rejects malformed 
     var provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
         .label = "policy-provider",
         .supported_program_manifest_fingerprints = &[_]u64{manifest.fingerprint},
-        .supported_protocol_labels = &[_][]const u8{"approval"},
+        .supported_protocol_labels = &[_][]const u8{"session"},
         .supported_operation_sites = &[_]usize{envelope.site_index},
         .supported_protocol_op_fingerprints = &[_]u64{envelope.site_fingerprint},
         .allowed_response_kinds = .{ .return_now = false, .resume_after = false },
@@ -18213,11 +18308,82 @@ test "Program.Exchange provider manifest encodes supports and rejects malformed 
     try std.testing.expect(decoded.supportsRequest(envelope));
     try std.testing.expect(decoded.allowed_response_kinds.allows(.@"resume"));
     try std.testing.expect(!decoded.allowed_response_kinds.allows(.return_now));
+    var widened_provider = decoded;
+    widened_provider.supported_operation_sites = &.{};
+    try std.testing.expect(!widened_provider.supportsRequest(envelope));
+    var label_only = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "label-only-provider",
+        .supported_program_manifest_fingerprints = &[_]u64{manifest.fingerprint},
+        .supported_protocol_labels = &[_][]const u8{"session"},
+        .allowed_response_kinds = .{ .return_now = false, .resume_after = false },
+        .max_request_envelope_bytes = envelope.bytes.len,
+        .max_response_envelope_bytes = 4096,
+    });
+    defer label_only.deinit();
+    try std.testing.expect(label_only.supportsRequest(envelope));
+    var site_only = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "site-only-provider",
+        .supported_program_manifest_fingerprints = &[_]u64{manifest.fingerprint},
+        .supported_protocol_labels = &[_][]const u8{"session"},
+        .supported_operation_sites = &[_]usize{envelope.site_index},
+        .allowed_response_kinds = .{ .return_now = false, .resume_after = false },
+        .max_request_envelope_bytes = envelope.bytes.len,
+        .max_response_envelope_bytes = 4096,
+    });
+    defer site_only.deinit();
+    try std.testing.expect(site_only.supportsRequest(envelope));
+    var wrong_site_only = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "wrong-site-provider",
+        .supported_program_manifest_fingerprints = &[_]u64{manifest.fingerprint},
+        .supported_protocol_labels = &[_][]const u8{"session"},
+        .supported_operation_sites = &[_]usize{999},
+        .allowed_response_kinds = .{ .return_now = false, .resume_after = false },
+        .max_request_envelope_bytes = envelope.bytes.len,
+        .max_response_envelope_bytes = 4096,
+    });
+    defer wrong_site_only.deinit();
+    try std.testing.expect(!wrong_site_only.supportsRequest(envelope));
+    var wrong_protocol = decoded;
+    wrong_protocol.supported_protocol_labels = &[_][]const u8{"other"};
+    try std.testing.expect(!wrong_protocol.supportsRequest(envelope));
 
     var forged = try std.testing.allocator.dupe(u8, provider.bytes);
     defer std.testing.allocator.free(forged);
     forged[forged.len - 1] ^= 1;
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.ProviderManifest.decode(std.testing.allocator, forged));
+
+    var huge_list_count = try std.testing.allocator.dupe(u8, provider.bytes);
+    defer std.testing.allocator.free(huge_list_count);
+    const provider_first_list_count_offset = "ABL_EXP1".len + 4 + 4 + 8 + 8 + "policy-provider".len;
+    std.mem.writeInt(u64, huge_list_count[provider_first_list_count_offset..][0..8], std.math.maxInt(u64), .little);
+    const provider_huge_payload = huge_list_count[0 .. huge_list_count.len - 8];
+    std.mem.writeInt(u64, huge_list_count[huge_list_count.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.provider", Program.Exchange.provider_fingerprint_version, provider_huge_payload), .little);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.ProviderManifest.decode(std.testing.allocator, huge_list_count));
+
+    var provider_reached_success = false;
+    for (0..64) |fail_index| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = fail_index });
+        var failed_provider = Program.Exchange.ProviderManifest.encode(failing.allocator(), .{
+            .label = "policy-provider",
+            .supported_program_manifest_fingerprints = &[_]u64{manifest.fingerprint},
+            .supported_protocol_labels = &[_][]const u8{"session"},
+            .supported_operation_sites = &[_]usize{envelope.site_index},
+            .supported_protocol_op_fingerprints = &[_]u64{envelope.site_fingerprint},
+            .allowed_response_kinds = .{ .return_now = false, .resume_after = false },
+            .max_request_envelope_bytes = envelope.bytes.len,
+            .max_response_envelope_bytes = 4096,
+            .semantic_tags = &[_][]const u8{"test"},
+            .metadata = "provider-meta",
+        }) catch |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            try std.testing.expect(failing.has_induced_failure);
+            continue;
+        };
+        failed_provider.deinit();
+        provider_reached_success = true;
+        break;
+    }
+    try std.testing.expect(provider_reached_success);
 }
 
 test "Program.Exchange capability validates matching requests and structured blockers" {
@@ -18262,6 +18428,7 @@ test "Program.Exchange capability validates matching requests and structured blo
         .allowed_plan_hashes = &[_]u64{envelope.plan_hash},
         .allowed_operation_sites = &[_]usize{envelope.site_index},
         .allowed_protocol_op_fingerprints = &[_]u64{envelope.site_fingerprint},
+        .allowed_requirement_labels = &[_][]const u8{"session"},
         .allowed_op_names = &[_][]const u8{envelope.name},
         .allowed_response_kinds = .{},
         .max_request_bytes = envelope.bytes.len,
@@ -18275,6 +18442,27 @@ test "Program.Exchange capability validates matching requests and structured blo
     try std.testing.expectEqual(capability.fingerprint, decoded.fingerprint);
     try std.testing.expect(decoded.allowsRequest(envelope, provider).allowed());
 
+    var mutated_request = envelope;
+    mutated_request.site_index = 999;
+    try std.testing.expectError(error.ProgramContractViolation, mutated_request.validate());
+    try std.testing.expect(capability.allowsRequest(mutated_request, provider).has(.invalid_envelope));
+
+    var future_version = try std.testing.allocator.dupe(u8, capability.bytes);
+    defer std.testing.allocator.free(future_version);
+    const capability_version_offset = "ABL_EXC1".len + 4 + 4;
+    std.mem.writeInt(u32, future_version[capability_version_offset..][0..4], 2, .little);
+    const future_payload = future_version[0 .. future_version.len - 8];
+    std.mem.writeInt(u64, future_version[future_version.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.capability", Program.Exchange.capability_fingerprint_version, future_payload), .little);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Capability.decode(std.testing.allocator, future_version));
+
+    var huge_capability_list_count = try std.testing.allocator.dupe(u8, capability.bytes);
+    defer std.testing.allocator.free(huge_capability_list_count);
+    const capability_first_list_count_offset = "ABL_EXC1".len + 4 + 4 + 4 + 8 + "host".len + 8 + 8 + 2;
+    std.mem.writeInt(u64, huge_capability_list_count[capability_first_list_count_offset..][0..8], std.math.maxInt(u64), .little);
+    const capability_huge_payload = huge_capability_list_count[0 .. huge_capability_list_count.len - 8];
+    std.mem.writeInt(u64, huge_capability_list_count[huge_capability_list_count.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.capability", Program.Exchange.capability_fingerprint_version, capability_huge_payload), .little);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Capability.decode(std.testing.allocator, huge_capability_list_count));
+
     var wrong_provider = provider;
     wrong_provider.provider_fingerprint ^= 1;
     try std.testing.expect(decoded.allowsRequest(envelope, wrong_provider).has(.wrong_provider));
@@ -18283,19 +18471,36 @@ test "Program.Exchange capability validates matching requests and structured blo
     wrong_manifest.manifest_fingerprint ^= 1;
     try std.testing.expect(wrong_manifest.allowsRequest(envelope, provider).has(.wrong_manifest));
 
-    var wrong_program = decoded;
-    wrong_program.allowed_program_labels = &[_][]const u8{"capability-request"};
-    var forged_label = envelope;
-    forged_label.program_label = "other";
-    try std.testing.expect(wrong_program.allowsRequest(forged_label, provider).has(.wrong_program_label));
+    var wrong_program = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "host",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &[_][]const u8{"other"},
+        .allowed_operation_sites = &[_]usize{envelope.site_index},
+        .allowed_protocol_op_fingerprints = &[_]u64{envelope.site_fingerprint},
+    });
+    defer wrong_program.deinit();
+    try std.testing.expect(wrong_program.allowsRequest(envelope, provider).has(.wrong_program_label));
 
     var wrong_plan = decoded;
     wrong_plan.allowed_plan_hashes = &[_]u64{0};
     try std.testing.expect(wrong_plan.allowsRequest(envelope, provider).has(.wrong_plan_hash));
 
+    var widened_grant = decoded;
+    widened_grant.allowed_operation_sites = &.{};
+    try std.testing.expect(widened_grant.allowsRequest(envelope, provider).has(.wrong_capability));
+
+    var wrong_fingerprint = decoded;
+    wrong_fingerprint.fingerprint ^= 1;
+    try std.testing.expect(wrong_fingerprint.allowsRequest(envelope, provider).has(.wrong_capability));
+
     var wrong_site = decoded;
     wrong_site.allowed_operation_sites = &[_]usize{999};
     try std.testing.expect(wrong_site.allowsRequest(envelope, provider).has(.operation_site));
+
+    var wrong_requirement = decoded;
+    wrong_requirement.allowed_requirement_labels = &[_][]const u8{"other"};
+    try std.testing.expect(wrong_requirement.allowsRequest(envelope, provider).has(.protocol_operation));
 
     var oversized = decoded;
     oversized.max_request_bytes = envelope.bytes.len - 1;
@@ -18304,6 +18509,127 @@ test "Program.Exchange capability validates matching requests and structured blo
     var no_capsule = decoded;
     no_capsule.allow_embedded_capsule_response_handling = false;
     try std.testing.expect(no_capsule.allowsRequest(envelope, provider).has(.embedded_capsule));
+
+    var capability_reached_success = false;
+    for (0..128) |fail_index| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = fail_index });
+        var failed_capability = Program.Exchange.Capability.encode(failing.allocator(), .{
+            .issuer_label = "host",
+            .provider_fingerprint = provider.provider_fingerprint,
+            .manifest_fingerprint = manifest.fingerprint,
+            .allowed_program_labels = &[_][]const u8{"capability-request"},
+            .allowed_plan_hashes = &[_]u64{envelope.plan_hash},
+            .allowed_operation_sites = &[_]usize{envelope.site_index},
+            .allowed_protocol_op_fingerprints = &[_]u64{envelope.site_fingerprint},
+            .allowed_requirement_labels = &[_][]const u8{"session"},
+            .allowed_op_names = &[_][]const u8{envelope.name},
+            .allowed_response_kinds = .{},
+            .max_request_bytes = envelope.bytes.len,
+            .max_payload_bytes = envelope.value_image.len,
+            .max_capsule_image_bytes = envelope.capsule_image.?.len,
+        }) catch |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            try std.testing.expect(failing.has_induced_failure);
+            continue;
+        };
+        failed_capability.deinit();
+        capability_reached_success = true;
+        break;
+    }
+    try std.testing.expect(capability_reached_success);
+}
+
+test "Program.Exchange capability allows after scope with operation fingerprint grant" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = compiledTransformPlan("capability-after-scope");
+    };
+    const Program = ability.program("capability-after-scope", struct {}, Body);
+    var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
+    defer manifest.deinit();
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var request_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer request_envelope.deinit();
+    var response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, request_envelope, @as(i32, 7));
+    defer response.deinit();
+    try Program.Exchange.applyResponse(&session, response, .{});
+    const after = switch (try session.next()) {
+        .after => |value| value,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    var after_envelope = try Program.Exchange.RequestEnvelope.fromAfter(std.testing.allocator, after, .{});
+    defer after_envelope.deinit();
+
+    var provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "after-provider",
+        .supported_program_manifest_fingerprints = &[_]u64{manifest.fingerprint},
+        .supported_after_sites = &[_]usize{after_envelope.site_index},
+        .supported_protocol_op_fingerprints = &[_]u64{request_envelope.site_fingerprint},
+        .max_request_envelope_bytes = after_envelope.bytes.len,
+    });
+    defer provider.deinit();
+    var capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "host",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &[_][]const u8{"capability-after-scope"},
+        .allowed_plan_hashes = &[_]u64{after_envelope.plan_hash},
+        .allowed_after_sites = &[_]usize{after_envelope.site_index},
+        .allowed_protocol_op_fingerprints = &[_]u64{request_envelope.site_fingerprint},
+        .allowed_response_kinds = .{ .return_now = false, .@"resume" = false },
+        .max_request_bytes = after_envelope.bytes.len,
+        .max_payload_bytes = after_envelope.value_image.len,
+    });
+    defer capability.deinit();
+
+    try std.testing.expect(after_envelope.site_fingerprint != request_envelope.site_fingerprint);
+    try std.testing.expect(capability.allowsRequest(after_envelope, provider).allowed());
+
+    var operation_only_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "host",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_operation_sites = &[_]usize{request_envelope.site_index},
+        .allowed_protocol_op_fingerprints = &[_]u64{request_envelope.site_fingerprint},
+    });
+    defer operation_only_capability.deinit();
+    try std.testing.expect(operation_only_capability.allowed_request_kinds.operation);
+    try std.testing.expect(!operation_only_capability.allowed_request_kinds.after);
+    try std.testing.expect(operation_only_capability.allowsRequest(after_envelope, provider).has(.request_kind));
+
+    var wrong_source_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "host",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &[_][]const u8{"capability-after-scope"},
+        .allowed_plan_hashes = &[_]u64{after_envelope.plan_hash},
+        .allowed_after_sites = &[_]usize{after_envelope.site_index},
+        .allowed_protocol_op_fingerprints = &[_]u64{request_envelope.site_fingerprint ^ 1},
+        .allowed_response_kinds = .{ .return_now = false, .@"resume" = false },
+        .max_request_bytes = after_envelope.bytes.len,
+        .max_payload_bytes = after_envelope.value_image.len,
+    });
+    defer wrong_source_capability.deinit();
+    try std.testing.expect(wrong_source_capability.allowsRequest(after_envelope, provider).has(.protocol_operation));
+
+    var wrong_source_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "after-provider",
+        .supported_program_manifest_fingerprints = &[_]u64{manifest.fingerprint},
+        .supported_after_sites = &[_]usize{after_envelope.site_index},
+        .supported_protocol_op_fingerprints = &[_]u64{request_envelope.site_fingerprint ^ 1},
+        .max_request_envelope_bytes = after_envelope.bytes.len,
+    });
+    defer wrong_source_provider.deinit();
+    try std.testing.expect(!wrong_source_provider.supportsRequest(after_envelope));
 }
 
 test "Program.Exchange capability attenuation narrows authority and rejects broadening" {
@@ -18344,6 +18670,7 @@ test "Program.Exchange capability attenuation narrows authority and rejects broa
         .max_response_bytes = 4096,
         .max_payload_bytes = 2048,
         .max_capsule_image_bytes = 2048,
+        .expires_at_generation = 10,
     });
     defer parent.deinit();
 
@@ -18359,6 +18686,18 @@ test "Program.Exchange capability attenuation narrows authority and rejects broa
     try std.testing.expect(!child.allowed_response_kinds.allows(.return_now));
     try std.testing.expectEqual(@as(usize, 1024), child.max_payload_bytes);
 
+    var expired = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "host",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_operation_sites = &[_]usize{envelope.site_index},
+        .allowed_protocol_op_fingerprints = &[_]u64{envelope.site_fingerprint},
+        .expires_at_generation = @intCast(envelope.turn_index),
+    });
+    defer expired.deinit();
+    const expired_report = expired.allowsRequest(envelope, provider);
+    try std.testing.expect(expired_report.has(.expired_capability));
+
     var same_child = try parent.attenuate(std.testing.allocator, .{
         .allowed_operation_sites = &[_]usize{envelope.site_index},
         .allowed_response_kinds = .{ .return_now = false, .resume_after = false },
@@ -18366,9 +18705,39 @@ test "Program.Exchange capability attenuation narrows authority and rejects broa
     });
     defer same_child.deinit();
     try std.testing.expectEqual(child.attenuation_path_fingerprint, same_child.attenuation_path_fingerprint);
+    try std.testing.expectEqual(@as(?u64, 10), same_child.expires_at_generation);
+
+    var sibling = try parent.attenuate(std.testing.allocator, .{
+        .allowed_operation_sites = &[_]usize{envelope.site_index},
+        .allowed_response_kinds = .{ .return_now = false, .resume_after = false },
+        .max_payload_bytes = 512,
+    });
+    defer sibling.deinit();
+    try std.testing.expect(sibling.attenuation_path_fingerprint != child.attenuation_path_fingerprint);
+
+    var grandchild = try child.attenuate(std.testing.allocator, .{
+        .max_payload_bytes = 512,
+    });
+    defer grandchild.deinit();
+    try std.testing.expectEqual(child.fingerprint, grandchild.parent_capability_fingerprint.?);
+    try std.testing.expect(grandchild.attenuation_path_fingerprint != child.attenuation_path_fingerprint);
+    try std.testing.expect(grandchild.attenuation_path_fingerprint != sibling.attenuation_path_fingerprint);
+
+    var shorter_child = try parent.attenuate(std.testing.allocator, .{
+        .allowed_operation_sites = &[_]usize{envelope.site_index},
+        .expires_at_generation = 9,
+    });
+    defer shorter_child.deinit();
+    try std.testing.expectEqual(@as(?u64, 9), shorter_child.expires_at_generation);
 
     try std.testing.expectError(error.ProgramContractViolation, child.attenuate(std.testing.allocator, .{
         .allowed_operation_sites = &[_]usize{999},
+    }));
+    try std.testing.expectError(error.ProgramContractViolation, parent.attenuate(std.testing.allocator, .{
+        .allowed_operation_sites = &.{},
+    }));
+    try std.testing.expectError(error.ProgramContractViolation, parent.attenuate(std.testing.allocator, .{
+        .allowed_protocol_op_fingerprints = &.{},
     }));
     try std.testing.expectError(error.ProgramContractViolation, child.attenuate(std.testing.allocator, .{
         .allowed_response_kinds = .{ .return_now = true },
@@ -18378,6 +18747,9 @@ test "Program.Exchange capability attenuation narrows authority and rejects broa
     }));
     try std.testing.expectError(error.ProgramContractViolation, parent.attenuate(std.testing.allocator, .{
         .allow_capsule_restore = true,
+    }));
+    try std.testing.expectError(error.ProgramContractViolation, parent.attenuate(std.testing.allocator, .{
+        .expires_at_generation = 11,
     }));
 }
 
@@ -18440,17 +18812,136 @@ test "Program.Exchange response authorization validates capability route sidecar
     wrong_cap.authorization.?.capability_fingerprint ^= 1;
     try std.testing.expect(Program.Exchange.validateResponseCapability(capability, envelope, wrong_cap).has(.wrong_capability));
 
+    var wrong_site_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "host",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_operation_sites = &[_]usize{999},
+        .allowed_protocol_op_fingerprints = &[_]u64{envelope.site_fingerprint},
+        .allowed_response_refs = allowed_response_refs[0..],
+        .max_response_bytes = 4096,
+        .max_payload_bytes = 4096,
+    });
+    defer wrong_site_capability.deinit();
+    const wrong_site_route = Program.Exchange.Route.from(envelope, provider, wrong_site_capability, .{});
+    try std.testing.expect(!wrong_site_route.valid());
+    var out_of_scope_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 41));
+    defer out_of_scope_response.deinit();
+    try out_of_scope_response.authorize(wrong_site_route);
+    try std.testing.expect(Program.Exchange.validateResponseCapability(wrong_site_capability, envelope, out_of_scope_response).has(.operation_site));
+
     var return_now = try Program.Exchange.ResponseEnvelope.returnNow(std.testing.allocator, envelope, @as(i32, 7));
     defer return_now.deinit();
     try return_now.authorize(route);
-    var resume_only_capability = capability;
-    resume_only_capability.allowed_response_kinds.return_now = false;
+    var resume_only_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "host",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_operation_sites = &[_]usize{envelope.site_index},
+        .allowed_protocol_op_fingerprints = &[_]u64{envelope.site_fingerprint},
+        .allowed_response_kinds = .{ .return_now = false },
+        .allowed_response_refs = allowed_response_refs[0..],
+        .max_response_bytes = 4096,
+        .max_payload_bytes = 4096,
+    });
+    defer resume_only_capability.deinit();
+    const resume_only_route = Program.Exchange.Route.from(envelope, provider, resume_only_capability, .{});
+    try std.testing.expect(resume_only_route.valid());
     const return_now_report = Program.Exchange.validateResponseCapability(resume_only_capability, envelope, return_now);
     try std.testing.expect(return_now_report.has(.response_kind));
+
+    var no_resume_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "auth-provider-no-resume",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .supported_program_manifest_fingerprints = &[_]u64{manifest.fingerprint},
+        .supported_operation_sites = &[_]usize{envelope.site_index},
+        .supported_protocol_op_fingerprints = &[_]u64{envelope.site_fingerprint},
+        .allowed_response_kinds = .{ .@"resume" = false, .resume_after = false },
+        .max_response_envelope_bytes = 4096,
+    });
+    defer no_resume_provider.deinit();
+    const no_resume_route = Program.Exchange.Route.from(envelope, no_resume_provider, capability, .{});
+    try std.testing.expect(no_resume_route.valid());
+    var blocked_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 44));
+    defer blocked_response.deinit();
+    try blocked_response.authorize(no_resume_route);
+    const blocked_report = Program.Exchange.validateRoutedResponseCapability(no_resume_route, capability, envelope, blocked_response);
+    try std.testing.expect(blocked_report.has(.response_kind));
+    var tampered_route = no_resume_route;
+    tampered_route.allowed_response_kinds.@"resume" = true;
+    const tampered_report = Program.Exchange.validateRoutedResponseCapability(tampered_route, capability, envelope, blocked_response);
+    try std.testing.expect(tampered_report.has(.wrong_route));
+
+    var limited_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "auth-provider-limited",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .supported_program_manifest_fingerprints = &[_]u64{manifest.fingerprint},
+        .supported_operation_sites = &[_]usize{envelope.site_index},
+        .supported_protocol_op_fingerprints = &[_]u64{envelope.site_fingerprint},
+        .max_response_envelope_bytes = response.bytes.len - 1,
+    });
+    defer limited_provider.deinit();
+    const limited_route = Program.Exchange.Route.from(envelope, limited_provider, capability, .{});
+    try std.testing.expect(limited_route.valid());
+    var limited_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 43));
+    defer limited_response.deinit();
+    try limited_response.authorize(limited_route);
+    const limited_report = Program.Exchange.validateRoutedResponseCapability(limited_route, capability, envelope, limited_response);
+    try std.testing.expect(limited_report.has(.response_too_large));
 
     var wrong_request = response;
     wrong_request.authorization.?.request_envelope_fingerprint ^= 1;
     try std.testing.expect(Program.Exchange.validateResponseCapability(capability, envelope, wrong_request).has(.wrong_request));
+}
+
+test "Program.Exchange routed validation enforces policy payload limits" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionUnitStringOpPlan("route-payload-policy");
+    };
+    const Program = ability.program("route-payload-policy", struct {}, Body);
+    var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
+    defer manifest.deinit();
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+    var provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "payload-policy-provider",
+        .supported_program_manifest_fingerprints = &[_]u64{manifest.fingerprint},
+        .supported_operation_sites = &[_]usize{envelope.site_index},
+        .supported_protocol_op_fingerprints = &[_]u64{envelope.site_fingerprint},
+    });
+    defer provider.deinit();
+    const allowed_response_refs = [_]@TypeOf(envelope.expected_resume_ref.?){envelope.expected_resume_ref.?};
+    var capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "host",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_operation_sites = &[_]usize{envelope.site_index},
+        .allowed_protocol_op_fingerprints = &[_]u64{envelope.site_fingerprint},
+        .allowed_response_refs = allowed_response_refs[0..],
+        .max_response_bytes = 4096,
+        .max_payload_bytes = 4096,
+    });
+    defer capability.deinit();
+
+    const response_payload: []const u8 = "response-payload-too-large";
+    var response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, response_payload);
+    defer response.deinit();
+    const route = Program.Exchange.Route.from(envelope, provider, capability, .{ .max_payload_bytes = envelope.value_image.len });
+    try std.testing.expect(route.valid());
+    try std.testing.expect(response.value_image.len > route.max_payload_bytes);
+    try response.authorize(route);
+    const report = Program.Exchange.validateRoutedResponseCapability(route, capability, envelope, response);
+    try std.testing.expect(report.has(.payload_too_large));
 }
 
 test "Program.Exchange router reports single no route ambiguous and blockers deterministically" {
@@ -18497,6 +18988,60 @@ test "Program.Exchange router reports single no route ambiguous and blockers det
     try std.testing.expect(planned.route.?.valid());
     const route_again = Program.Exchange.Route.from(envelope, provider, capability, .{});
     try std.testing.expectEqual(planned.route.?.fingerprint, route_again.fingerprint);
+
+    const denied_site_router = Program.Exchange.Router{
+        .providers = providers[0..],
+        .capabilities = capabilities[0..],
+        .policy = .{ .allowed_operation_sites = &[_]usize{999} },
+    };
+    const denied_site_plan = denied_site_router.plan(envelope);
+    try std.testing.expectEqual(Program.Exchange.Router.Status.blocked_routes, denied_site_plan.status);
+    try std.testing.expect(denied_site_plan.blocked.has(.operation_site));
+
+    const denied_response_plan = router.planWithPolicy(envelope, .{ .allowed_response_kinds = .{ .@"resume" = false } });
+    try std.testing.expectEqual(Program.Exchange.Router.Status.blocked_routes, denied_response_plan.status);
+    try std.testing.expect(denied_response_plan.blocked.has(.response_kind));
+    try std.testing.expect(!denied_response_plan.route.?.allowed_response_kinds.allows(.@"resume"));
+
+    const disjoint_policy_router = Program.Exchange.Router{
+        .providers = providers[0..],
+        .capabilities = capabilities[0..],
+        .policy = .{ .allowed_response_kinds = .{ .return_now = false, .resume_after = false } },
+    };
+    const disjoint_policy_plan = disjoint_policy_router.planWithPolicy(envelope, .{ .allowed_response_kinds = .{ .@"resume" = false, .resume_after = false } });
+    try std.testing.expectEqual(Program.Exchange.Router.Status.blocked_routes, disjoint_policy_plan.status);
+    try std.testing.expect(disjoint_policy_plan.blocked.has(.response_kind));
+
+    var no_applicable_response_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "router-provider-no-resume",
+        .supported_program_manifest_fingerprints = &[_]u64{manifest.fingerprint},
+        .supported_operation_sites = &[_]usize{envelope.site_index},
+        .supported_protocol_op_fingerprints = &[_]u64{envelope.site_fingerprint},
+        .allowed_response_kinds = .{ .@"resume" = false, .resume_after = false },
+    });
+    defer no_applicable_response_provider.deinit();
+    const no_applicable_response_route = Program.Exchange.Route.from(envelope, no_applicable_response_provider, capability, .{});
+    try std.testing.expect(!no_applicable_response_route.valid());
+    try std.testing.expect(no_applicable_response_route.blockers.has(.response_kind));
+
+    var mutated_provider = provider;
+    mutated_provider.supported_operation_sites = &.{};
+    const mutated_provider_route = Program.Exchange.Route.from(envelope, mutated_provider, capability, .{});
+    try std.testing.expect(!mutated_provider_route.valid());
+    try std.testing.expect(mutated_provider_route.blockers.has(.wrong_provider));
+
+    var wrong_response_ref_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "host",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_operation_sites = &[_]usize{envelope.site_index},
+        .allowed_protocol_op_fingerprints = &[_]u64{envelope.site_fingerprint},
+        .allowed_response_refs = &[_]ability.ir.ValueRef{.{ .codec = .unit }},
+    });
+    defer wrong_response_ref_capability.deinit();
+    const wrong_response_ref_route = Program.Exchange.Route.from(envelope, provider, wrong_response_ref_capability, .{});
+    try std.testing.expect(!wrong_response_ref_route.valid());
+    try std.testing.expect(wrong_response_ref_route.blockers.has(.response_ref));
 
     var wrong_capability = capability;
     wrong_capability.allowed_operation_sites = &[_]usize{999};
@@ -18566,6 +19111,25 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
             try self.items.append(self.allocator, envelope);
         }
     };
+    const PartialRoutedOutbox = struct {
+        allocator: std.mem.Allocator,
+        items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
+
+        fn deinit(self: *@This()) void {
+            for (self.items.items) |*item| item.deinit();
+            self.items.deinit(self.allocator);
+        }
+
+        pub fn appendRouted(self: *@This(), envelope: Program.Exchange.RequestEnvelope, route: Program.Exchange.Route) !void {
+            _ = route;
+            try self.items.append(self.allocator, envelope);
+            return error.OutOfMemory;
+        }
+
+        pub fn append(self: *@This(), envelope: Program.Exchange.RequestEnvelope) !void {
+            try self.items.append(self.allocator, envelope);
+        }
+    };
     const Inbox = struct {
         response: ?Program.Exchange.ResponseEnvelope = null,
 
@@ -18613,6 +19177,7 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
 
     var step = try runner.runStep(&session, &outbox, &inbox, .{
         .allocator = std.testing.allocator,
+        .capsule = true,
         .router = router,
         .journal = &journal,
         .policy = .{ .require_route = true, .require_response_capability = true },
@@ -18630,6 +19195,7 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
     try inbox.response.?.authorize(outbox.routes.items[0]);
     _ = try runner.runStep(&session, &outbox, &inbox, .{
         .allocator = std.testing.allocator,
+        .capsule = true,
         .router = router,
         .journal = &journal,
         .policy = .{ .require_route = true, .require_response_capability = true },
@@ -18641,6 +19207,252 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
     };
     defer done.deinit();
     try std.testing.expectEqual(@as(i32, 42), done.value);
+
+    var denied_policy_session = try Program.Session.start(&runtime, .{});
+    defer denied_policy_session.deinit();
+    var denied_policy_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer denied_policy_outbox.deinit();
+    var denied_policy_inbox = Inbox{};
+    defer denied_policy_inbox.deinit();
+    var denied_policy_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer denied_policy_journal.deinit();
+    var denied_policy_runner = Program.Exchange.MailboxRunner{};
+    const denied_providers = [_]u64{provider.provider_fingerprint ^ 1};
+    try std.testing.expectError(error.ProgramContractViolation, denied_policy_runner.runStep(&denied_policy_session, &denied_policy_outbox, &denied_policy_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .journal = &denied_policy_journal,
+        .policy = .{
+            .require_route = true,
+            .allowed_provider_fingerprints = denied_providers[0..],
+        },
+    }));
+    try std.testing.expectEqual(@as(usize, 0), denied_policy_outbox.items.items.len);
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.route_blocked, denied_policy_journal.entries.items[0].exchange_event.kind);
+    try std.testing.expectEqualStrings("provider_not_allowed", denied_policy_journal.entries.items[0].exchange_event.blocker_tag.?);
+
+    var best_effort_denied_session = try Program.Session.start(&runtime, .{});
+    defer best_effort_denied_session.deinit();
+    var best_effort_denied_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer best_effort_denied_outbox.deinit();
+    var best_effort_denied_inbox = Inbox{};
+    defer best_effort_denied_inbox.deinit();
+    var best_effort_denied_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer best_effort_denied_journal.deinit();
+    var best_effort_denied_runner = Program.Exchange.MailboxRunner{};
+    try std.testing.expectError(error.ProgramContractViolation, best_effort_denied_runner.runStep(&best_effort_denied_session, &best_effort_denied_outbox, &best_effort_denied_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .journal = &best_effort_denied_journal,
+        .policy = .{ .allowed_provider_fingerprints = denied_providers[0..] },
+    }));
+    try std.testing.expectEqual(@as(usize, 0), best_effort_denied_outbox.items.items.len);
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.route_blocked, best_effort_denied_journal.entries.items[0].exchange_event.kind);
+    try std.testing.expectEqualStrings("provider_not_allowed", best_effort_denied_journal.entries.items[0].exchange_event.blocker_tag.?);
+
+    var ambiguous_session = try Program.Session.start(&runtime, .{});
+    defer ambiguous_session.deinit();
+    var ambiguous_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer ambiguous_outbox.deinit();
+    var ambiguous_inbox = Inbox{};
+    defer ambiguous_inbox.deinit();
+    var ambiguous_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer ambiguous_journal.deinit();
+    var ambiguous_runner = Program.Exchange.MailboxRunner{};
+    const duplicate_providers = [_]Program.Exchange.ProviderManifest{ provider, provider };
+    const ambiguous_router = Program.Exchange.Router{ .providers = duplicate_providers[0..], .capabilities = capabilities[0..] };
+    try std.testing.expectError(error.ProgramContractViolation, ambiguous_runner.runStep(&ambiguous_session, &ambiguous_outbox, &ambiguous_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = ambiguous_router,
+        .journal = &ambiguous_journal,
+    }));
+    try std.testing.expectEqual(@as(usize, 0), ambiguous_outbox.items.items.len);
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.route_blocked, ambiguous_journal.entries.items[0].exchange_event.kind);
+    try std.testing.expectEqualStrings("ambiguous_route", ambiguous_journal.entries.items[0].exchange_event.blocker_tag.?);
+
+    var ambiguous_allowed_session = try Program.Session.start(&runtime, .{});
+    defer ambiguous_allowed_session.deinit();
+    var ambiguous_allowed_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer ambiguous_allowed_outbox.deinit();
+    var ambiguous_allowed_inbox = Inbox{};
+    defer ambiguous_allowed_inbox.deinit();
+    var ambiguous_allowed_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer ambiguous_allowed_journal.deinit();
+    var ambiguous_allowed_runner = Program.Exchange.MailboxRunner{};
+    const ambiguous_allowed_router = Program.Exchange.Router{
+        .providers = duplicate_providers[0..],
+        .capabilities = capabilities[0..],
+        .policy = .{ .reject_ambiguous_routes = false },
+    };
+    try std.testing.expectError(error.ProgramContractViolation, ambiguous_allowed_runner.runStep(&ambiguous_allowed_session, &ambiguous_allowed_outbox, &ambiguous_allowed_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = ambiguous_allowed_router,
+        .journal = &ambiguous_allowed_journal,
+    }));
+    try std.testing.expectEqual(@as(usize, 0), ambiguous_allowed_outbox.items.items.len);
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.route_blocked, ambiguous_allowed_journal.entries.items[0].exchange_event.kind);
+    try std.testing.expectEqualStrings("ambiguous_route", ambiguous_allowed_journal.entries.items[0].exchange_event.blocker_tag.?);
+
+    var ambiguous_opt_out_session = try Program.Session.start(&runtime, .{});
+    defer ambiguous_opt_out_session.deinit();
+    var ambiguous_opt_out_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer ambiguous_opt_out_outbox.deinit();
+    var ambiguous_opt_out_inbox = Inbox{};
+    defer ambiguous_opt_out_inbox.deinit();
+    var ambiguous_opt_out_runner = Program.Exchange.MailboxRunner{};
+    var ambiguous_allowed_step = try ambiguous_opt_out_runner.runStep(&ambiguous_opt_out_session, &ambiguous_opt_out_outbox, &ambiguous_opt_out_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = ambiguous_allowed_router,
+        .policy = .{ .reject_ambiguous_routes = false },
+    });
+    switch (ambiguous_allowed_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 1), ambiguous_opt_out_outbox.items.items.len);
+    try std.testing.expectEqual(@as(usize, 1), ambiguous_opt_out_outbox.routes.items.len);
+
+    var denied_response_policy_session = try Program.Session.start(&runtime, .{});
+    defer denied_response_policy_session.deinit();
+    var denied_response_policy_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer denied_response_policy_outbox.deinit();
+    var denied_response_policy_inbox = Inbox{};
+    defer denied_response_policy_inbox.deinit();
+    var denied_response_policy_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer denied_response_policy_journal.deinit();
+    var denied_response_policy_runner = Program.Exchange.MailboxRunner{};
+    var denied_response_policy_step = try denied_response_policy_runner.runStep(&denied_response_policy_session, &denied_response_policy_outbox, &denied_response_policy_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .journal = &denied_response_policy_journal,
+        .policy = .{ .require_route = true, .require_response_capability = true },
+    });
+    switch (denied_response_policy_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    denied_response_policy_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, denied_response_policy_outbox.items.items[0], @as(i32, 13));
+    try denied_response_policy_inbox.response.?.authorize(denied_response_policy_outbox.routes.items[0]);
+    try std.testing.expectError(error.ProgramContractViolation, denied_response_policy_runner.runStep(&denied_response_policy_session, &denied_response_policy_outbox, &denied_response_policy_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .journal = &denied_response_policy_journal,
+        .policy = .{
+            .require_route = true,
+            .require_response_capability = true,
+            .allowed_provider_fingerprints = denied_providers[0..],
+        },
+    }));
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.response_rejected, denied_response_policy_journal.entries.items[1].exchange_event.kind);
+    try std.testing.expectEqualStrings("provider_not_allowed", denied_response_policy_journal.entries.items[1].exchange_event.blocker_tag.?);
+
+    var partial_outbox_session = try Program.Session.start(&runtime, .{});
+    defer partial_outbox_session.deinit();
+    var partial_outbox = PartialRoutedOutbox{ .allocator = std.testing.allocator };
+    defer partial_outbox.deinit();
+    var partial_outbox_inbox = Inbox{};
+    defer partial_outbox_inbox.deinit();
+    var partial_outbox_runner = Program.Exchange.MailboxRunner{};
+    var partial_outbox_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer partial_outbox_journal.deinit();
+    try std.testing.expectError(error.OutOfMemory, partial_outbox_runner.runStep(&partial_outbox_session, &partial_outbox, &partial_outbox_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .journal = &partial_outbox_journal,
+        .policy = .{ .require_route = true },
+    }));
+    try std.testing.expectEqual(@as(usize, 1), partial_outbox.items.items.len);
+    try std.testing.expectEqual(@as(usize, 0), partial_outbox_journal.entries.items.len);
+
+    var rerouted_session = try Program.Session.start(&runtime, .{});
+    defer rerouted_session.deinit();
+    var rerouted_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer rerouted_outbox.deinit();
+    var rerouted_inbox = Inbox{};
+    defer rerouted_inbox.deinit();
+    var rerouted_runner = Program.Exchange.MailboxRunner{};
+    var unrouted_step = try rerouted_runner.runStep(&rerouted_session, &rerouted_outbox, &rerouted_inbox, .{
+        .allocator = std.testing.allocator,
+    });
+    switch (unrouted_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 1), rerouted_outbox.items.items.len);
+    try std.testing.expectEqual(@as(usize, 0), rerouted_outbox.routes.items.len);
+    var rerouted_step = try rerouted_runner.runStep(&rerouted_session, &rerouted_outbox, &rerouted_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .policy = .{ .require_route = true },
+    });
+    switch (rerouted_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 2), rerouted_outbox.items.items.len);
+    try std.testing.expectEqual(@as(usize, 1), rerouted_outbox.routes.items.len);
+    try std.testing.expect(rerouted_runner.last_route != null);
+
+    var auth_rerouted_session = try Program.Session.start(&runtime, .{});
+    defer auth_rerouted_session.deinit();
+    var auth_rerouted_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer auth_rerouted_outbox.deinit();
+    var auth_rerouted_inbox = Inbox{};
+    defer auth_rerouted_inbox.deinit();
+    var auth_rerouted_runner = Program.Exchange.MailboxRunner{};
+    var auth_unrouted_step = try auth_rerouted_runner.runStep(&auth_rerouted_session, &auth_rerouted_outbox, &auth_rerouted_inbox, .{
+        .allocator = std.testing.allocator,
+    });
+    switch (auth_unrouted_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    var auth_rerouted_step = try auth_rerouted_runner.runStep(&auth_rerouted_session, &auth_rerouted_outbox, &auth_rerouted_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .policy = .{ .require_response_capability = true },
+    });
+    switch (auth_rerouted_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 2), auth_rerouted_outbox.items.items.len);
+    try std.testing.expectEqual(@as(usize, 1), auth_rerouted_outbox.routes.items.len);
+    try std.testing.expect(auth_rerouted_runner.last_route != null);
+
+    var router_policy_auth_session = try Program.Session.start(&runtime, .{});
+    defer router_policy_auth_session.deinit();
+    var router_policy_auth_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer router_policy_auth_outbox.deinit();
+    var router_policy_auth_inbox = Inbox{};
+    defer router_policy_auth_inbox.deinit();
+    var router_policy_auth_runner = Program.Exchange.MailboxRunner{};
+    var router_policy_auth_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer router_policy_auth_journal.deinit();
+    const router_policy_auth_router = Program.Exchange.Router{
+        .providers = providers[0..],
+        .capabilities = capabilities[0..],
+        .policy = .{ .require_response_capability = true },
+    };
+    var router_policy_auth_step = try router_policy_auth_runner.runStep(&router_policy_auth_session, &router_policy_auth_outbox, &router_policy_auth_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router_policy_auth_router,
+        .journal = &router_policy_auth_journal,
+    });
+    switch (router_policy_auth_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 1), router_policy_auth_outbox.items.items.len);
+    try std.testing.expectEqual(@as(usize, 1), router_policy_auth_outbox.routes.items.len);
+    router_policy_auth_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, router_policy_auth_outbox.items.items[0], @as(i32, 9));
+    try std.testing.expectError(error.ProgramContractViolation, router_policy_auth_runner.runStep(&router_policy_auth_session, &router_policy_auth_outbox, &router_policy_auth_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router_policy_auth_router,
+        .journal = &router_policy_auth_journal,
+    }));
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.response_rejected, router_policy_auth_journal.entries.items[1].exchange_event.kind);
+    try std.testing.expectEqualStrings("missing_capability_fingerprint", router_policy_auth_journal.entries.items[1].exchange_event.blocker_tag.?);
 
     var rejected_session = try Program.Session.start(&runtime, .{});
     defer rejected_session.deinit();
@@ -18669,6 +19481,109 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
         .policy = .{ .require_route = true, .require_response_capability = true },
     }));
     try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.response_rejected, rejected_journal.entries.items[1].exchange_event.kind);
+
+    var optional_auth_session = try Program.Session.start(&runtime, .{});
+    defer optional_auth_session.deinit();
+    var optional_auth_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer optional_auth_outbox.deinit();
+    var optional_auth_inbox = Inbox{};
+    defer optional_auth_inbox.deinit();
+    var optional_auth_runner = Program.Exchange.MailboxRunner{};
+    var optional_auth_step = try optional_auth_runner.runStep(&optional_auth_session, &optional_auth_outbox, &optional_auth_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .policy = .{ .require_route = true },
+    });
+    switch (optional_auth_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    optional_auth_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, optional_auth_outbox.items.items[0], @as(i32, 11));
+    _ = try optional_auth_runner.runStep(&optional_auth_session, &optional_auth_outbox, &optional_auth_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .policy = .{ .require_route = true },
+    });
+    var optional_auth_done = switch (try optional_auth_runner.runStep(&optional_auth_session, &optional_auth_outbox, &optional_auth_inbox, .{ .allocator = std.testing.allocator })) {
+        .done => |value| value,
+        else => return error.ExpectedDone,
+    };
+    defer optional_auth_done.deinit();
+    try std.testing.expectEqual(@as(i32, 11), optional_auth_done.value);
+
+    var optional_route_session = try Program.Session.start(&runtime, .{});
+    defer optional_route_session.deinit();
+    var optional_route_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer optional_route_outbox.deinit();
+    var optional_route_inbox = Inbox{};
+    defer optional_route_inbox.deinit();
+    var optional_route_runner = Program.Exchange.MailboxRunner{};
+    const empty_router = Program.Exchange.Router{ .providers = &.{}, .capabilities = &.{} };
+    var optional_route_step = try optional_route_runner.runStep(&optional_route_session, &optional_route_outbox, &optional_route_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = empty_router,
+        .policy = .{},
+    });
+    switch (optional_route_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 1), optional_route_outbox.items.items.len);
+    try std.testing.expectEqual(@as(usize, 0), optional_route_outbox.routes.items.len);
+    try std.testing.expect(optional_route_runner.last_route == null);
+    optional_route_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, optional_route_outbox.items.items[0], @as(i32, 12));
+    _ = try optional_route_runner.runStep(&optional_route_session, &optional_route_outbox, &optional_route_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = empty_router,
+        .policy = .{},
+    });
+    var optional_route_done = switch (try optional_route_runner.runStep(&optional_route_session, &optional_route_outbox, &optional_route_inbox, .{ .allocator = std.testing.allocator })) {
+        .done => |value| value,
+        else => return error.ExpectedDone,
+    };
+    defer optional_route_done.deinit();
+    try std.testing.expectEqual(@as(i32, 12), optional_route_done.value);
+
+    var router_policy_required_session = try Program.Session.start(&runtime, .{});
+    defer router_policy_required_session.deinit();
+    var router_policy_required_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer router_policy_required_outbox.deinit();
+    var router_policy_required_inbox = Inbox{};
+    defer router_policy_required_inbox.deinit();
+    var router_policy_required_runner = Program.Exchange.MailboxRunner{};
+    var router_policy_required_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer router_policy_required_journal.deinit();
+    const required_empty_router = Program.Exchange.Router{
+        .providers = &.{},
+        .capabilities = &.{},
+        .policy = .{ .require_response_capability = true },
+    };
+    try std.testing.expectError(error.ProgramContractViolation, router_policy_required_runner.runStep(&router_policy_required_session, &router_policy_required_outbox, &router_policy_required_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = required_empty_router,
+        .journal = &router_policy_required_journal,
+    }));
+    try std.testing.expectEqual(@as(usize, 0), router_policy_required_outbox.items.items.len);
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.route_blocked, router_policy_required_journal.entries.items[0].exchange_event.kind);
+    try std.testing.expectEqualStrings("no_route", router_policy_required_journal.entries.items[0].exchange_event.blocker_tag.?);
+
+    var required_auth_no_route_session = try Program.Session.start(&runtime, .{});
+    defer required_auth_no_route_session.deinit();
+    var required_auth_no_route_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer required_auth_no_route_outbox.deinit();
+    var required_auth_no_route_inbox = Inbox{};
+    defer required_auth_no_route_inbox.deinit();
+    var required_auth_no_route_runner = Program.Exchange.MailboxRunner{};
+    var required_auth_no_route_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer required_auth_no_route_journal.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, required_auth_no_route_runner.runStep(&required_auth_no_route_session, &required_auth_no_route_outbox, &required_auth_no_route_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = empty_router,
+        .journal = &required_auth_no_route_journal,
+        .policy = .{ .require_response_capability = true },
+    }));
+    try std.testing.expectEqual(@as(usize, 0), required_auth_no_route_outbox.items.items.len);
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.route_blocked, required_auth_no_route_journal.entries.items[0].exchange_event.kind);
 }
 
 test "Program.Exchange journal events encode decode and replay skips exchange metadata" {
@@ -18706,6 +19621,13 @@ test "Program.Exchange journal events encode decode and replay skips exchange me
     defer decoded.deinit();
     try std.testing.expectEqual(@as(usize, 3), decoded.entries.items.len);
     try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.route_selected, decoded.entries.items[1].exchange_event.kind);
+
+    var forged_v1_exchange = try std.testing.allocator.dupe(u8, journal_bytes);
+    defer std.testing.allocator.free(forged_v1_exchange);
+    std.mem.writeInt(u32, forged_v1_exchange["ABL_JRN1".len..][0..4], 1, .little);
+    const forged_payload = forged_v1_exchange[0 .. forged_v1_exchange.len - 8];
+    std.mem.writeInt(u64, forged_v1_exchange[forged_v1_exchange.len - 8 ..][0..8], testProgramJournalFingerprint(Program, forged_payload), .little);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Journal.decode(std.testing.allocator, forged_v1_exchange));
 
     var replay_session = try Program.Session.start(&runtime, .{});
     defer replay_session.deinit();
@@ -18757,7 +19679,9 @@ test "Program.Exchange capsule restore requires capability permission" {
     defer denied.deinit();
     var restore_runtime = ability.Runtime.init(std.testing.allocator);
     defer restore_runtime.deinit();
-    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.restoreFromRequestEnvelopeWithCapability(&restore_runtime, .{}, envelope, denied));
+    const denied_route = Program.Exchange.Route.from(envelope, provider, denied, .{});
+    try std.testing.expect(!denied_route.capsule_restore_allowed);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.restoreFromRequestEnvelopeWithCapability(&restore_runtime, .{}, envelope, denied_route, denied));
 
     var broad = try Program.Exchange.Capability.encode(std.testing.allocator, .{
         .issuer_label = "host",
@@ -18768,7 +19692,23 @@ test "Program.Exchange capsule restore requires capability permission" {
         .max_capsule_image_bytes = envelope.capsule_image.?.len,
     });
     defer broad.deinit();
-    var restored = try Program.Exchange.restoreFromRequestEnvelopeWithCapability(&restore_runtime, .{}, envelope, broad);
+    var wrong_site_restore = broad;
+    wrong_site_restore.allowed_operation_sites = &[_]usize{999};
+    const wrong_site_route = Program.Exchange.Route.from(envelope, provider, wrong_site_restore, .{});
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.restoreFromRequestEnvelopeWithCapability(&restore_runtime, .{}, envelope, wrong_site_route, wrong_site_restore));
+    var provider_restore_denied = provider;
+    provider_restore_denied.accepts_capsule_restore = false;
+    const provider_denied_route = Program.Exchange.Route.from(envelope, provider_restore_denied, broad, .{});
+    try std.testing.expect(!provider_denied_route.capsule_restore_allowed);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.restoreFromRequestEnvelopeWithCapability(&restore_runtime, .{}, envelope, provider_denied_route, broad));
+    const policy_denied_route = Program.Exchange.Route.from(envelope, provider, broad, .{ .allow_capsule_restore = false });
+    try std.testing.expect(!policy_denied_route.capsule_restore_allowed);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.restoreFromRequestEnvelopeWithCapability(&restore_runtime, .{}, envelope, policy_denied_route, broad));
+
+    const restore_route = Program.Exchange.Route.from(envelope, provider, broad, .{});
+    try std.testing.expect(restore_route.valid());
+    try std.testing.expect(restore_route.capsule_restore_allowed);
+    var restored = try Program.Exchange.restoreFromRequestEnvelopeWithCapability(&restore_runtime, .{}, envelope, restore_route, broad);
     defer restored.deinit();
     try std.testing.expectEqual(envelope.request_fingerprint, switch (try restored.current()) {
         .request => |current| current.fingerprint(),
@@ -18934,6 +19874,16 @@ test "Program.Exchange policy rejects capsules and disallowed response kinds" {
         try std.testing.expectError(error.ProgramContractViolation, (Program.Exchange.Policy{
             .max_payload_bytes = envelope.value_image.len,
         }).validateRequest(envelope));
+        try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decodeWithPolicy(std.testing.allocator, envelope.bytes, .{
+            .max_payload_bytes = envelope.value_image.len,
+            .max_capsule_image_bytes = capsule_bytes.len - 1,
+        }));
+        var decoded_capsule_policy = try Program.Exchange.RequestEnvelope.decodeWithPolicy(std.testing.allocator, envelope.bytes, .{
+            .max_payload_bytes = envelope.value_image.len,
+            .max_capsule_image_bytes = capsule_bytes.len,
+        });
+        defer decoded_capsule_policy.deinit();
+        try std.testing.expectEqual(envelope.fingerprint, decoded_capsule_policy.fingerprint);
     } else return error.ExpectedCapsule;
 
     var response = try Program.Exchange.ResponseEnvelope.returnNow(std.testing.allocator, envelope, @as(i32, 9));

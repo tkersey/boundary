@@ -98,8 +98,12 @@ pub fn run(writer: anytype) !void {
     defer envelope.deinit();
     const allowed = child.allowsRequest(envelope, provider);
 
-    var disallowed_site = child;
-    disallowed_site.allowed_operation_sites = &[_]usize{999};
+    var disallowed_site = try parent.attenuate(allocator, .{
+        .allowed_operation_sites = &[_]usize{999},
+        .allowed_response_kinds = .{ .return_now = false, .resume_after = false },
+        .max_payload_bytes = 1024,
+    });
+    defer disallowed_site.deinit();
     const site_block = disallowed_site.allowsRequest(envelope, provider);
 
     const broaden_response_rejected = if (child.attenuate(allocator, .{
