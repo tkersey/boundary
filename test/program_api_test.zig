@@ -191,6 +191,11 @@ fn firstCapsuleFrameAfterStartOffset(image_bytes: []const u8) !usize {
     return cursor.index;
 }
 
+fn firstCapsuleFrameWaitingFlagOffset(image_bytes: []const u8) !usize {
+    const after_start_offset = try firstCapsuleFrameAfterStartOffset(image_bytes);
+    return after_start_offset + 8 + 1;
+}
+
 fn capsuleCoreFrameCountOffset(image_bytes: []const u8) !usize {
     var cursor = TestImageCursor{ .bytes = image_bytes };
     cursor.index = try capsuleCoreRemainingStepsOffset(image_bytes);
@@ -8799,6 +8804,34 @@ test "Program.Session capsule image round trips deterministic bytes and restores
 
     const OtherProgram = ability.program("session-capsule-image-foreign", struct {}, Body);
     try std.testing.expectError(error.ProgramContractViolation, OtherProgram.Session.Capsule.decode(std.testing.allocator, first_image.bytes));
+}
+
+test "Program.Session capsule image rejects unreachable helper frame chains" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = helperTransformPlan("session-capsule-helper-frame-chain");
+    };
+    const Program = ability.program("session-capsule-helper-frame-chain", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    _ = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    var image = try capsule.encode(std.testing.allocator);
+    defer image.deinit();
+
+    var missing_parent_wait = try std.testing.allocator.dupe(u8, image.bytes);
+    defer std.testing.allocator.free(missing_parent_wait);
+    missing_parent_wait[try firstCapsuleFrameWaitingFlagOffset(missing_parent_wait)] = 0;
+    rewriteCapsuleImageChecksum(Program, missing_parent_wait);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, missing_parent_wait));
 }
 
 test "Program.Session capsule rejects invalid pending after remaining counts" {

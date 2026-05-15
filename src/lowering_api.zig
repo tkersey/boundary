@@ -5581,6 +5581,7 @@ pub fn ExecutableSessionForPlan(
                     .waiting_helper_dst = waiting_helper_dst,
                 });
             }
+            try core.validateDecodedFrameStack();
 
             core.pending = try readPending(reader, &core.scratch, &context, &core.frames, core.session_id);
             if (try reader.readBool()) {
@@ -5598,6 +5599,78 @@ pub fn ExecutableSessionForPlan(
             try core.validateDecodedPendingState();
 
             return core;
+        }
+
+        fn validateDecodedFrameStack(self: *const Self) error{ProgramContractViolation}!void {
+            const frame_count = self.frames.len();
+            if (frame_count == 0 or frame_count > analysis.max_active_frame_depth) return error.ProgramContractViolation;
+            var expected_locals_start: usize = 0;
+            var frame_index: usize = 0;
+            while (frame_index < frame_count) : (frame_index += 1) {
+                const frame = self.frames.at(frame_index) orelse return error.ProgramContractViolation;
+                if (frame.function_index >= compiled_plan.functions.len) return error.ProgramContractViolation;
+                const function = compiled_plan.functions[frame.function_index];
+                if (frame.frame.locals_start != expected_locals_start) return error.ProgramContractViolation;
+                if (frame.frame.locals_len != function.local_count) return error.ProgramContractViolation;
+                expected_locals_start = std.math.add(usize, expected_locals_start, frame.frame.locals_len) catch
+                    return error.ProgramContractViolation;
+                if (expected_locals_start > self.scratch.locals.items.len) return error.ProgramContractViolation;
+                if (frame.frame.call_args_start > self.scratch.call_args.items.len) return error.ProgramContractViolation;
+                if (frame.frame.after_start > self.scratch.after_stack_len) return error.ProgramContractViolation;
+
+                if (frame_index == 0) {
+                    if (frame.function_index != compiled_plan.entry_index) return error.ProgramContractViolation;
+                } else {
+                    const parent = self.frames.at(frame_index - 1) orelse return error.ProgramContractViolation;
+                    if (frame.frame.call_args_start != parent.frame.call_args_start) return error.ProgramContractViolation;
+                    if (frame.frame.after_start < parent.frame.after_start) return error.ProgramContractViolation;
+                    try validateDecodedChildFrame(parent, frame);
+                }
+            }
+            if (expected_locals_start != self.scratch.locals.items.len) return error.ProgramContractViolation;
+            const active = self.frames.at(frame_count - 1) orelse return error.ProgramContractViolation;
+            if (active.waiting_helper_dst != null) return error.ProgramContractViolation;
+        }
+
+        fn validateDecodedChildFrame(parent: ActiveInterpreterFrame, child: ActiveInterpreterFrame) error{ProgramContractViolation}!void {
+            const dst = parent.waiting_helper_dst orelse return error.ProgramContractViolation;
+            const parent_bounds = try blockInstructionBounds(compiled_plan, parent.function_index, parent.block_index);
+            if (parent.instruction_index <= parent_bounds.first or parent.instruction_index > parent_bounds.end) return error.ProgramContractViolation;
+            const call_instruction_index = parent.instruction_index - 1;
+            const instruction = compiled_plan.instructions[call_instruction_index];
+            if (instruction.dst != dst) return error.ProgramContractViolation;
+            switch (instruction.kind) {
+                .call_helper => {
+                    if (instruction.operand >= compiled_plan.functions.len) return error.ProgramContractViolation;
+                    if (child.function_index != instruction.operand) return error.ProgramContractViolation;
+                    const callee = compiled_plan.functions[instruction.operand];
+                    if (callee.parameter_count > child.frame.locals_len) return error.ProgramContractViolation;
+                    if (callee.parameter_count != 0) {
+                        if (instruction.aux == std.math.maxInt(u16)) return error.ProgramContractViolation;
+                        const parent_function = compiled_plan.functions[parent.function_index];
+                        var arg_index: usize = 0;
+                        while (arg_index < callee.parameter_count) : (arg_index += 1) {
+                            const local_id = planCallArgAt(compiled_plan, instruction.aux + arg_index);
+                            if (local_id >= parent_function.local_count) return error.ProgramContractViolation;
+                            const parent_ref = localRefForFunctionIndex(compiled_plan, parent.function_index, local_id) orelse
+                                return error.ProgramContractViolation;
+                            const child_ref = localRefForFunctionIndex(compiled_plan, child.function_index, @intCast(arg_index)) orelse
+                                return error.ProgramContractViolation;
+                            if (!parent_ref.eql(child_ref)) return error.ProgramContractViolation;
+                        }
+                    }
+                },
+                .call_nested_with => {
+                    const target_index = nestedWithTargetIndexForMetadata(compiled_plan, nested_with_targets, instruction.string_literal) orelse
+                        return error.ProgramContractViolation;
+                    if (child.function_index != target_index) return error.ProgramContractViolation;
+                    const target = compiled_plan.functions[target_index];
+                    if (target.parameter_count != 0) return error.ProgramContractViolation;
+                    const result_codec = program_plan.valueCodecFromInstructionAux(instruction.aux) catch return error.ProgramContractViolation;
+                    if (result_codec != .unit and dst == std.math.maxInt(u16)) return error.ProgramContractViolation;
+                },
+                else => return error.ProgramContractViolation,
+            }
         }
 
         fn validateDecodedPendingState(self: *Self) error{ProgramContractViolation}!void {
