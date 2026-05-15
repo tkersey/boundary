@@ -238,6 +238,38 @@ it like any other plan:
   `Program.protocol` descriptors, dynamic request traces, and after traces when
   the body exposes `site_metadata`.
 
+## Effect Exchange
+
+Schema-first custom protocols can cross host boundaries through
+`Program.Exchange` without changing the public root or adding a transport
+stack. A manifest image describes the compiled Program exchange surface:
+program and plan labels, ProgramPlan hash, exchange/trace/capsule/journal
+versions, value schemas with field and variant rows, operation sites, after
+sites, semantic labels, modes, refs, and site fingerprints.
+
+When a `Program.Session` parks on a custom operation or after hook,
+`Exchange.RequestEnvelope.fromRequest` and `fromAfter` encode the yielded data
+as canonical typed bytes. The envelope carries the manifest fingerprint, static
+site identity, request fingerprint, trace metadata, payload or current-value
+image, expected response refs, result ref, and optional capsule image. Request
+tokens remain local misuse guards and are never serialized.
+
+Hosts answer with `Exchange.ResponseEnvelope.resume`, `returnNow`, or
+`resumeAfter`. Decode and validation fail closed on malformed bytes,
+fingerprint/checksum drift, manifest or ProgramPlan mismatch, wrong request
+fingerprint, unsupported response kind, mismatched refs, invalid typed value
+images, and unexpected trailing bytes. `Exchange.applyResponse` resumes the
+parked session through the existing typed session paths, and
+`Exchange.restoreFromRequestEnvelope` can restore a fresh parked session from an
+embedded capsule image before applying a compatible response.
+
+The mailbox runner is intentionally synchronous and transport-neutral: hosts
+own queues, files, brokers, networks, schedulers, async runtimes, databases,
+tools, humans, models, and persistence. Ability owns the envelope format,
+schema/ref validation, fingerprints, capsule compatibility checks, policy
+guardrails, and journal-recordable exchange facts. Exchange fingerprints are
+semantic witnesses, not security tokens or cryptographic authorization.
+
 `examples/custom_approval_workflow.zig` is the reference example. It defines a
 custom `workflow` protocol with transform, choice, and abort operations, lowers
 it to rows with a registry-derived schema ref map, authors control flow with the
@@ -294,8 +326,10 @@ manually.
     is declarative enough to compile into a residual ProgramPlan.
 11. Use `Program.Pipeline` when residualization, goals, blockers, and trace
     correspondence should be planned and certified together.
-12. Inspect effect rows, source maps, trace maps, certificates, capsules, and
-    fingerprints.
+12. Use `Program.Exchange` when yielded custom protocol requests or after hooks
+    must leave the process as typed manifest/request/response envelopes.
+13. Inspect effect rows, source maps, trace maps, certificates, capsules,
+    envelopes, and fingerprints.
 
 ## Non-Goals
 

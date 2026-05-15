@@ -647,6 +647,46 @@ are added. Request tokens remain in-process misuse guards, not durable ids;
 site, request, response, value, continuation, capsule-image, and journal
 fingerprints are audit and replay-verification metadata.
 
+## Effect Exchange
+
+`Program.Exchange` adds a transport-neutral ABI over the existing session
+surface. A manifest image is a deterministic contract for a compiled `Program`:
+it names the program/plan labels, ProgramPlan hash, exchange/trace/capsule and
+journal versions, value schema rows, operation sites, after sites, semantic
+labels, refs, modes, and site fingerprints. It does not contain mutable plan
+tables, runtime state, request tokens, handlers, host context, source-language
+data, allocator state, VM bytecode, or Artifact package data.
+
+Request envelopes are created from yielded operation and after requests with
+`Exchange.RequestEnvelope.fromRequest` and `fromAfter`. They carry the request
+kind, manifest fingerprint, request and site fingerprints, trace metadata,
+typed payload or current-value image, expected response refs, result ref, turn
+index, optional capsule image bytes, optional journal branch id, and an envelope
+fingerprint. Response envelopes are built with
+`Exchange.ResponseEnvelope.resume`, `returnNow`, and `resumeAfter`; they carry
+the matching request envelope fingerprint, request fingerprint, response kind,
+response ref, typed response value image, response trace fingerprint, and
+response envelope fingerprint.
+
+Decode and validation fail closed on wrong magic, unsupported version,
+truncation, malformed lengths, checksum/fingerprint mismatch, invalid value
+image, schema-ref mismatch, unexpected trailing bytes, unsupported response kind,
+manifest mismatch, request mismatch, and program/plan hash mismatch.
+`Exchange.applyResponse` resumes a parked session only when the current yielded
+request fingerprint and response ref/kind/value are compatible with the
+envelope. Request tokens remain local misuse guards and are never serialized.
+
+Capsule embedding is optional. If a request envelope contains a capsule image,
+`Exchange.restoreFromRequestEnvelope` decodes it, restores a fresh parked
+session, and verifies that the restored current request fingerprint matches the
+envelope before a response is applied. `Exchange.MailboxRunner` is deliberately
+small and nonblocking: it writes request envelopes to a host-owned outbox, reads
+response envelopes from a host-owned inbox, and returns parked/running/done
+without adding async, network, scheduler, broker, database, RPC, or tool/LLM
+integration. `Exchange.Policy` is a local guardrail for allowed sites, response
+kinds, capsule embedding, response value images, and byte limits; it is not a
+cryptographic security layer.
+
 ## Effect schema row lowering
 
 Built-in effect schemas can lower to ProgramPlan requirement, operation, and

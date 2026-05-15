@@ -12,6 +12,8 @@ examples/agent_loop.zig
 examples/continuation_branching.zig
 examples/custom_approval_workflow.zig
 examples/durable_capsule_replay.zig
+examples/effect_exchange_mailbox.zig
+examples/effect_exchange_restart.zig
 examples/effect_pipeline.zig
 examples/interpreter_branching.zig
 examples/journal_replay.zig
@@ -93,8 +95,8 @@ test/compile_fail/interpreter_elimination_missing_protocol_operation.zig
 test/compile_fail/interpreter_foreign_site.zig
 test/compile_fail/interpreter_invalid_transform_return_now.zig
 test/compile_fail/interpreter_plain_operation_reinterpret.zig
-test/compile_fail/interpreter_protocol_handler_nested_mutable_payload.zig
 test/compile_fail/interpreter_protocol_handler_mutable_payload.zig
+test/compile_fail/interpreter_protocol_handler_nested_mutable_payload.zig
 test/compile_fail/interpreter_reinterpreted_mutable_payload.zig
 test/compile_fail/invalid_output_cleanup_hook.zig
 test/compile_fail/invalid_result_cleanup_with_outputs.zig

@@ -3330,6 +3330,59 @@ fn resolvedNestedWithStringListPlan(comptime label: []const u8) ability.ir.Progr
     }) catch unreachable;
 }
 
+fn sessionStringListResponsePlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    return sessionStringListResponsePlanWithMode(label, .transform);
+}
+
+fn sessionStringListResponsePlanWithMode(comptime label: []const u8, comptime mode: ability.ir.PlanControlMode) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const resumed = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .string_list,
+        .result_codec = .string_list,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "string_list_response",
+        .mode = mode,
+        .payload_codec = .unit,
+        .resume_codec = .string_list,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 52,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string_list }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn stringListIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const value = ability.ir.builder.local(root, 0);
@@ -5474,6 +5527,51 @@ test "Program.Session journal replays string-list response values" {
     mutable_replayed[0] = "changed";
     try std.testing.expectEqualStrings("changed", mutable_replayed[0]);
     try std.testing.expectEqualStrings("right", mutable_replayed[1]);
+}
+
+test "Program.Session journal keeps identity-based string-list value image compatibility" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringListResponsePlan("session-journal-string-list-identity");
+    };
+    const Program = ability.program("session-journal-string-list-identity", struct {}, Body);
+    const Operation = Program.protocol.operationSite("session", "string_list_response", 0);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    const typed = try request.as(Operation);
+
+    const shared = "same";
+    var aliased_items = [_][]const u8{ shared, shared };
+    const aliased_response_trace = try typed.responseTrace(.@"resume", @as([]const []const u8, aliased_items[0..]));
+    var aliased_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer aliased_journal.deinit();
+    try aliased_journal.appendRequest(.{ .operation = request.trace() });
+    try aliased_journal.appendResponseValue(aliased_response_trace, @as([]const []const u8, aliased_items[0..]));
+    const aliased_bytes = try aliased_journal.encode(std.testing.allocator);
+    defer std.testing.allocator.free(aliased_bytes);
+
+    const first = try std.testing.allocator.dupe(u8, "same");
+    defer std.testing.allocator.free(first);
+    const second = try std.testing.allocator.dupe(u8, "same");
+    defer std.testing.allocator.free(second);
+    var independent_items = [_][]const u8{ first, second };
+    const independent_response_trace = try typed.responseTrace(.@"resume", @as([]const []const u8, independent_items[0..]));
+    try std.testing.expectEqual(aliased_response_trace.response_value_fingerprint, independent_response_trace.response_value_fingerprint);
+    var independent_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer independent_journal.deinit();
+    try independent_journal.appendRequest(.{ .operation = request.trace() });
+    try independent_journal.appendResponseValue(independent_response_trace, @as([]const []const u8, independent_items[0..]));
+    const independent_bytes = try independent_journal.encode(std.testing.allocator);
+    defer std.testing.allocator.free(independent_bytes);
+
+    try std.testing.expect(!std.mem.eql(u8, aliased_bytes, independent_bytes));
 }
 
 test "Program.Interpreter journal records after response values" {
@@ -15052,6 +15150,26 @@ test "Program.Session trace operation metadata and replay fingerprint helpers" {
     try std.testing.expectEqual(first_request.fingerprint(), second_request.fingerprint());
 }
 
+test "Program.Exchange exposes v1 format domains" {
+    const Body = struct {
+        pub const compiled_plan = wideLocalPlan("exchange-version-domains");
+    };
+    const Program = ability.program("exchange-version-domains", struct {}, Body);
+
+    try std.testing.expectEqual(@as(u32, 1), Program.exchange_manifest_format_version);
+    try std.testing.expectEqual(@as(u32, 1), Program.exchange_manifest_fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 1), Program.exchange_request_format_version);
+    try std.testing.expectEqual(@as(u32, 1), Program.exchange_request_fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 1), Program.exchange_response_format_version);
+    try std.testing.expectEqual(@as(u32, 1), Program.exchange_response_fingerprint_version);
+    try std.testing.expectEqual(Program.exchange_manifest_format_version, Program.Exchange.manifest_format_version);
+    try std.testing.expectEqual(Program.exchange_manifest_fingerprint_version, Program.Exchange.manifest_fingerprint_version);
+    try std.testing.expectEqual(Program.exchange_request_format_version, Program.Exchange.request_format_version);
+    try std.testing.expectEqual(Program.exchange_request_fingerprint_version, Program.Exchange.request_fingerprint_version);
+    try std.testing.expectEqual(Program.exchange_response_format_version, Program.Exchange.response_format_version);
+    try std.testing.expectEqual(Program.exchange_response_fingerprint_version, Program.Exchange.response_fingerprint_version);
+}
+
 test "Program.Session trace after metadata and current value fingerprint stability" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -18003,4 +18121,957 @@ test "ability.ir builder validates supported scalar GAE matrix" {
             _ = matrixPlan(.abort, payload_codec, .unit);
         }
     }
+}
+
+test "Program.Exchange manifest and operation envelopes round trip" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "exchange-transform");
+    };
+    const Program = ability.program("exchange-transform", struct {}, Body);
+
+    var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
+    defer manifest.deinit();
+    var decoded_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, manifest.bytes);
+    defer decoded_manifest.deinit();
+    try std.testing.expectEqual(manifest.fingerprint, decoded_manifest.fingerprint);
+    try std.testing.expectEqual(@as(usize, 1), decoded_manifest.operation_site_count);
+    try std.testing.expectEqual(@as(usize, 0), decoded_manifest.after_site_count);
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+    try std.testing.expectEqual(manifest.fingerprint, envelope.manifest_fingerprint);
+    try std.testing.expectEqual(request.fingerprint(), envelope.request_fingerprint);
+    try std.testing.expect(envelope.value_image.len != 0);
+
+    var decoded = try Program.Exchange.RequestEnvelope.decode(std.testing.allocator, envelope.bytes);
+    defer decoded.deinit();
+    try std.testing.expectEqual(envelope.fingerprint, decoded.fingerprint);
+    try std.testing.expectEqual(envelope.request_fingerprint, decoded.request_fingerprint);
+}
+
+test "Program.Exchange response envelope applies to parked transform request" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "exchange-apply");
+    };
+    const Program = ability.program("exchange-apply", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+    var response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 42));
+    defer response.deinit();
+    var decoded_response = try Program.Exchange.ResponseEnvelope.decode(std.testing.allocator, response.bytes);
+    defer decoded_response.deinit();
+    try decoded_response.validateForRequest(envelope);
+
+    var other_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 7));
+    defer other_response.deinit();
+    var forged_response_fields = decoded_response;
+    forged_response_fields.value_image = other_response.value_image;
+    forged_response_fields.response_value_fingerprint = other_response.response_value_fingerprint;
+    forged_response_fields.response_trace_fingerprint = other_response.response_trace_fingerprint;
+    try std.testing.expectError(error.ProgramContractViolation, forged_response_fields.validateForRequest(envelope));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.applyResponse(&session, forged_response_fields, .{}));
+
+    var corrupt_response_bytes = decoded_response;
+    corrupt_response_bytes.bytes = try std.testing.allocator.dupe(u8, decoded_response.bytes);
+    defer std.testing.allocator.free(corrupt_response_bytes.bytes);
+    corrupt_response_bytes.bytes[corrupt_response_bytes.bytes.len - 9] ^= 1;
+    try std.testing.expectError(error.ProgramContractViolation, corrupt_response_bytes.validateForRequest(envelope));
+
+    try Program.Exchange.applyResponse(&session, decoded_response, .{});
+
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+}
+
+test "Program.Exchange after envelope applies through resume_after" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const StackedHandlers = struct {
+        outer: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 1;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: bool) ![]const u8 {
+                return if (value) "outer:true" else "outer:false";
+            }
+        },
+        inner: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 7;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: i32) !bool {
+                return value == 7;
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = stackedAfterPlan("exchange-after");
+    };
+    const Program = ability.program("exchange-after", StackedHandlers, Body);
+    var session = try Program.Session.start(&runtime, .{ .outer = .{}, .inner = .{} });
+    defer session.deinit();
+
+    const outer_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.resumeTyped(try outer_request.as(Program.protocol.operationSite("outer", "outer", 0)), @as(i32, 1));
+    const inner_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.resumeTyped(try inner_request.as(Program.protocol.operationSite("inner", "inner", 0)), @as(i32, 7));
+
+    const inner_after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromAfter(std.testing.allocator, inner_after, .{});
+    defer envelope.deinit();
+    var response = try Program.Exchange.ResponseEnvelope.resumeAfter(std.testing.allocator, envelope, true);
+    defer response.deinit();
+    try Program.Exchange.applyResponse(&session, response, .{});
+
+    const outer_after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try session.resumeAfterTyped(try outer_after.as(Program.protocol.afterSite("outer", "outer", 0)), @as([]const u8, "outer:true"));
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqualStrings("outer:true", result.value);
+}
+
+test "Program.Exchange policy rejects capsules and disallowed response kinds" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-policy");
+    };
+    const Program = ability.program("exchange-policy", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    var image = try capsule.encode(std.testing.allocator);
+    defer image.deinit();
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{ .capsule = image });
+    defer envelope.deinit();
+
+    try std.testing.expectError(error.ProgramContractViolation, (Program.Exchange.Policy{ .allow_capsules = false }).validateRequest(envelope));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decodeWithPolicy(std.testing.allocator, envelope.bytes, .{
+        .allow_capsules = false,
+    }));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decodeWithPolicy(std.testing.allocator, envelope.bytes, .{
+        .max_envelope_bytes = envelope.bytes.len - 1,
+    }));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decodeWithPolicy(std.testing.allocator, envelope.bytes, .{
+        .max_payload_bytes = envelope.value_image.len - 1,
+    }));
+    if (envelope.capsule_image) |capsule_bytes| {
+        try std.testing.expect(capsule_bytes.len > envelope.value_image.len);
+        try std.testing.expectError(error.ProgramContractViolation, (Program.Exchange.Policy{
+            .max_payload_bytes = envelope.value_image.len,
+        }).validateRequest(envelope));
+    } else return error.ExpectedCapsule;
+
+    var response = try Program.Exchange.ResponseEnvelope.returnNow(std.testing.allocator, envelope, @as(i32, 9));
+    defer response.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, (Program.Exchange.Policy{
+        .allowed_response_kinds = .{ .return_now = false },
+    }).validateResponse(response));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.ResponseEnvelope.decodeWithPolicy(std.testing.allocator, response.bytes, .{
+        .allowed_response_kinds = .{ .return_now = false },
+    }));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.ResponseEnvelope.decodeWithPolicy(std.testing.allocator, response.bytes, .{
+        .allow_response_value_images = false,
+    }));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.ResponseEnvelope.decodeWithPolicy(std.testing.allocator, response.bytes, .{
+        .max_payload_bytes = response.value_image.len - 1,
+    }));
+}
+
+test "Program.Exchange journals applied response value images for replay" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "exchange-journal-response-value");
+    };
+    const Program = ability.program("exchange-journal-response-value", struct {}, Body);
+    var journal = Program.Session.Journal.init(std.testing.allocator);
+    defer journal.deinit();
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{ .journal = &journal });
+    defer envelope.deinit();
+
+    var response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 42));
+    defer response.deinit();
+    try Program.Exchange.applyResponse(&session, response, .{ .journal = &journal });
+    try std.testing.expectEqual(@as(usize, 2), journal.entries.items.len);
+
+    var replay_session = try Program.Session.start(&runtime, .{});
+    defer replay_session.deinit();
+    _ = try replay_session.next();
+    var replayer = journal.replayer();
+    const replayed = try replayer.expectCurrentValue(try replay_session.current(), i32);
+    try std.testing.expectEqual(@as(i32, 42), replayed);
+}
+
+test "Program.Exchange response journal failure preserves parked session" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "exchange-journal-failure-preserves-session");
+    };
+    const Program = ability.program("exchange-journal-failure-preserves-session", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+    var response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 42));
+    defer response.deinit();
+
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    var journal = Program.Session.Journal.init(failing.allocator());
+    defer journal.deinit();
+    try std.testing.expectError(error.OutOfMemory, Program.Exchange.applyResponse(&session, response, .{ .journal = &journal }));
+    try std.testing.expect(failing.has_induced_failure);
+    try std.testing.expectEqual(request.fingerprint(), switch (try session.current()) {
+        .request => |current| current.fingerprint(),
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    });
+
+    try Program.Exchange.applyResponse(&session, response, .{});
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+}
+
+test "Program.Exchange request envelope failures leave journal and allocator clean" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-request-failure-cleanup");
+    };
+    const Program = ability.program("exchange-request-failure-cleanup", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    var image = try capsule.encode(std.testing.allocator);
+    defer image.deinit();
+    var forged_image = image;
+    forged_image.image_fingerprint ^= 1;
+
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{ .capsule = forged_image }),
+    );
+
+    var journal = Program.Session.Journal.init(std.testing.allocator);
+    defer journal.deinit();
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{
+            .capsule = forged_image,
+            .journal = &journal,
+        }),
+    );
+    try std.testing.expectEqual(@as(usize, 0), journal.entries.items.len);
+
+    var reached_success = false;
+    for (0..256) |fail_index| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = fail_index });
+        var envelope = Program.Exchange.RequestEnvelope.fromRequest(failing.allocator(), request, .{}) catch |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            try std.testing.expect(failing.has_induced_failure);
+            continue;
+        };
+        envelope.deinit();
+        reached_success = true;
+        break;
+    }
+    try std.testing.expect(reached_success);
+}
+
+test "Program.Exchange request envelope validates decoded route fields" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-route-field-validation");
+    };
+    const Program = ability.program("exchange-route-field-validation", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+    try envelope.validate();
+
+    var forged_name = envelope;
+    forged_name.name = "other";
+    try std.testing.expectError(error.ProgramContractViolation, forged_name.validate());
+
+    var forged_mode = envelope;
+    forged_mode.mode = .transform;
+    try std.testing.expectError(error.ProgramContractViolation, forged_mode.validate());
+
+    var forged_resume = envelope;
+    forged_resume.expected_resume_ref = null;
+    try std.testing.expectError(error.ProgramContractViolation, forged_resume.validate());
+
+    var forged_return = envelope;
+    forged_return.expected_return_ref = null;
+    try std.testing.expectError(error.ProgramContractViolation, forged_return.validate());
+
+    var forged_request_fingerprint = envelope;
+    forged_request_fingerprint.request_fingerprint ^= 1;
+    forged_request_fingerprint.trace_fingerprint ^= 1;
+    try std.testing.expectError(error.ProgramContractViolation, forged_request_fingerprint.validate());
+
+    var forged_branch = envelope;
+    forged_branch.journal_branch_id = "other";
+    try std.testing.expectError(error.ProgramContractViolation, forged_branch.validate());
+
+    var truncated = envelope;
+    truncated.bytes = truncated.bytes[0..4];
+    try std.testing.expectError(error.ProgramContractViolation, truncated.validate());
+
+    var corrupt_request_bytes = envelope;
+    corrupt_request_bytes.bytes = try std.testing.allocator.dupe(u8, envelope.bytes);
+    defer std.testing.allocator.free(corrupt_request_bytes.bytes);
+    corrupt_request_bytes.bytes[corrupt_request_bytes.bytes.len - 9] ^= 1;
+    try std.testing.expectError(error.ProgramContractViolation, corrupt_request_bytes.validate());
+}
+
+test "Program.Exchange applyResponse binds exact request envelope fingerprint" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-exact-envelope-binding");
+    };
+    const Program = ability.program("exchange-exact-envelope-binding", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var left = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{ .journal_branch_id = "left" });
+    defer left.deinit();
+    var right = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{ .journal_branch_id = "right" });
+    defer right.deinit();
+    try std.testing.expect(left.fingerprint != right.fingerprint);
+
+    var response = try Program.Exchange.ResponseEnvelope.returnNow(std.testing.allocator, right, @as(i32, 42));
+    defer response.deinit();
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        Program.Exchange.applyResponse(&session, response, .{ .request_envelope_fingerprint = left.fingerprint }),
+    );
+    try std.testing.expectEqual(request.fingerprint(), switch (try session.current()) {
+        .request => |current| current.fingerprint(),
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    });
+
+    try Program.Exchange.applyResponse(&session, response, .{ .request_envelope_fingerprint = right.fingerprint });
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+}
+
+test "Program.Exchange mailbox capsule encode failures clean captured sessions" {
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-mailbox-capsule-failure-cleanup");
+    };
+    const Program = ability.program("exchange-mailbox-capsule-failure-cleanup", struct {}, Body);
+    const Outbox = struct {
+        pub fn append(_: *@This(), envelope: Program.Exchange.RequestEnvelope) !void {
+            var owned = envelope;
+            owned.deinit();
+        }
+    };
+    const Inbox = struct {
+        pub fn nextResponse(_: *@This()) !?Program.Exchange.ResponseEnvelope {
+            return null;
+        }
+    };
+
+    var reached_success = false;
+    for (0..256) |fail_index| {
+        var runtime = ability.Runtime.init(std.testing.allocator);
+        defer runtime.deinit();
+        var session = try Program.Session.start(&runtime, .{});
+        defer session.deinit();
+        var outbox = Outbox{};
+        var inbox = Inbox{};
+        var runner = Program.Exchange.MailboxRunner{};
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = fail_index });
+
+        var step = runner.runStep(&session, &outbox, &inbox, .{
+            .allocator = failing.allocator(),
+            .capsule = true,
+        }) catch |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            try std.testing.expect(failing.has_induced_failure);
+            continue;
+        };
+        switch (step) {
+            .parked => |*envelope| envelope.deinit(),
+            .running, .done => return error.ExpectedRequest,
+        }
+        reached_success = true;
+        break;
+    }
+    try std.testing.expect(reached_success);
+}
+
+test "Program.Exchange mailbox deduplicates by envelope fingerprint" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-mailbox-envelope-dedup");
+    };
+    const Program = ability.program("exchange-mailbox-envelope-dedup", struct {}, Body);
+    const Outbox = struct {
+        allocator: std.mem.Allocator,
+        items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
+
+        fn deinit(self: *@This()) void {
+            for (self.items.items) |*item| item.deinit();
+            self.items.deinit(self.allocator);
+        }
+
+        pub fn append(self: *@This(), envelope: Program.Exchange.RequestEnvelope) !void {
+            try self.items.append(self.allocator, envelope);
+        }
+    };
+    const Inbox = struct {
+        pub fn nextResponse(_: *@This()) !?Program.Exchange.ResponseEnvelope {
+            return null;
+        }
+    };
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    var outbox = Outbox{ .allocator = std.testing.allocator };
+    defer outbox.deinit();
+    var inbox = Inbox{};
+    var runner = Program.Exchange.MailboxRunner{};
+
+    var first = try runner.runStep(&session, &outbox, &inbox, .{ .allocator = std.testing.allocator });
+    const first_fingerprint = switch (first) {
+        .parked => |*envelope| blk: {
+            defer envelope.deinit();
+            break :blk envelope.fingerprint;
+        },
+        else => return error.ExpectedRequest,
+    };
+    try std.testing.expectEqual(@as(usize, 1), outbox.items.items.len);
+
+    var second = try runner.runStep(&session, &outbox, &inbox, .{ .allocator = std.testing.allocator, .capsule = true });
+    const second_fingerprint = switch (second) {
+        .parked => |*envelope| blk: {
+            defer envelope.deinit();
+            break :blk envelope.fingerprint;
+        },
+        else => return error.ExpectedRequest,
+    };
+    try std.testing.expect(first_fingerprint != second_fingerprint);
+    try std.testing.expectEqual(@as(usize, 2), outbox.items.items.len);
+    try std.testing.expectEqual(second_fingerprint, runner.last_request_envelope_fingerprint.?);
+}
+
+test "Program.Exchange mailbox validates request policy before queued responses" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-mailbox-response-policy");
+    };
+    const Program = ability.program("exchange-mailbox-response-policy", struct {}, Body);
+    const Outbox = struct {
+        pub fn append(_: *@This(), envelope: Program.Exchange.RequestEnvelope) !void {
+            var owned = envelope;
+            owned.deinit();
+        }
+    };
+    const Inbox = struct {
+        response: ?Program.Exchange.ResponseEnvelope,
+
+        pub fn nextResponse(self: *@This()) !?Program.Exchange.ResponseEnvelope {
+            const response = self.response orelse return null;
+            self.response = null;
+            return response;
+        }
+    };
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+    const response = try Program.Exchange.ResponseEnvelope.returnNow(std.testing.allocator, envelope, @as(i32, 42));
+
+    var outbox = Outbox{};
+    var inbox = Inbox{ .response = response };
+    var runner = Program.Exchange.MailboxRunner{};
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        runner.runStep(&session, &outbox, &inbox, .{
+            .allocator = std.testing.allocator,
+            .policy = .{ .allowed_operation_sites = &[_]usize{999} },
+        }),
+    );
+    try std.testing.expect(inbox.response == null);
+    try std.testing.expectEqual(request.fingerprint(), switch (try session.current()) {
+        .request => |current| current.fingerprint(),
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    });
+}
+
+test "Program.Exchange mailbox validates emitted request policy when options change" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-mailbox-emitted-request-policy");
+    };
+    const Program = ability.program("exchange-mailbox-emitted-request-policy", struct {}, Body);
+    const Outbox = struct {
+        allocator: std.mem.Allocator,
+        items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
+
+        fn deinit(self: *@This()) void {
+            for (self.items.items) |*item| item.deinit();
+            self.items.deinit(self.allocator);
+        }
+
+        pub fn append(self: *@This(), envelope: Program.Exchange.RequestEnvelope) !void {
+            try self.items.append(self.allocator, envelope);
+        }
+    };
+    const Inbox = struct {
+        response: ?Program.Exchange.ResponseEnvelope = null,
+
+        fn deinit(self: *@This()) void {
+            if (self.response) |*response| response.deinit();
+            self.response = null;
+        }
+
+        pub fn nextResponse(self: *@This()) !?Program.Exchange.ResponseEnvelope {
+            const response = self.response orelse return null;
+            self.response = null;
+            return response;
+        }
+    };
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    var outbox = Outbox{ .allocator = std.testing.allocator };
+    defer outbox.deinit();
+    var inbox = Inbox{};
+    defer inbox.deinit();
+    var runner = Program.Exchange.MailboxRunner{};
+
+    var step = try runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .capsule = true,
+    });
+    switch (step) {
+        .parked => |*envelope| envelope.deinit(),
+        .running, .done => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 1), outbox.items.items.len);
+    try std.testing.expect(outbox.items.items[0].capsule_image != null);
+
+    inbox.response = try Program.Exchange.ResponseEnvelope.returnNow(std.testing.allocator, outbox.items.items[0], @as(i32, 42));
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        runner.runStep(&session, &outbox, &inbox, .{
+            .allocator = std.testing.allocator,
+            .policy = .{ .allow_capsules = false },
+            .capsule = false,
+        }),
+    );
+    try std.testing.expect(inbox.response == null);
+    try std.testing.expectEqual(outbox.items.items[0].request_fingerprint, switch (try session.current()) {
+        .request => |current| current.fingerprint(),
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    });
+}
+
+test "Program.Exchange request envelope with capsule restores and resumes" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-restart");
+    };
+    const Program = ability.program("exchange-restart", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    var capsule_image = try capsule.encode(std.testing.allocator);
+    defer capsule_image.deinit();
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{ .capsule = capsule_image });
+    defer envelope.deinit();
+    try std.testing.expect(envelope.capsule_image != null);
+
+    session.deinit();
+    var restored_runtime = ability.Runtime.init(std.testing.allocator);
+    defer restored_runtime.deinit();
+
+    var forged_envelope = envelope;
+    forged_envelope.journal_branch_id = "forged";
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.restoreFromRequestEnvelope(&restored_runtime, .{}, forged_envelope));
+
+    var restored = try Program.Exchange.restoreFromRequestEnvelope(&restored_runtime, .{}, envelope);
+    defer restored.deinit();
+    var response = try Program.Exchange.ResponseEnvelope.returnNow(std.testing.allocator, envelope, @as(i32, 77));
+    defer response.deinit();
+    try Program.Exchange.applyResponse(&restored, response, .{ .request_envelope_fingerprint = envelope.fingerprint });
+
+    var result = switch (try restored.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 77), result.value);
+}
+
+test "Program.Exchange response payload storage outlives response envelope" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringListResponsePlan("exchange-response-storage");
+    };
+    const Program = ability.program("exchange-response-storage", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+
+    var response_items = [_][]const u8{ "left", "right" };
+    var response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as([]const []const u8, response_items[0..response_items.len]));
+    defer response.deinit();
+    var decoded_response = try Program.Exchange.ResponseEnvelope.decode(std.testing.allocator, response.bytes);
+    try Program.Exchange.applyResponse(&session, decoded_response, .{});
+    decoded_response.deinit();
+
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 2), result.value.len);
+    try std.testing.expectEqualStrings("left", result.value[0]);
+    try std.testing.expectEqualStrings("right", result.value[1]);
+}
+
+test "Program.Exchange value images are canonical for equal string lists" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringListResponsePlan("exchange-canonical-string-list");
+    };
+    const Program = ability.program("exchange-canonical-string-list", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+
+    const shared = "same";
+    var aliased_items = [_][]const u8{ shared, shared };
+    const first = try std.testing.allocator.dupe(u8, "same");
+    defer std.testing.allocator.free(first);
+    const second = try std.testing.allocator.dupe(u8, "same");
+    defer std.testing.allocator.free(second);
+    var independent_items = [_][]const u8{ first, second };
+
+    var aliased = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as([]const []const u8, aliased_items[0..]));
+    defer aliased.deinit();
+    var independent = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as([]const []const u8, independent_items[0..]));
+    defer independent.deinit();
+    try std.testing.expectEqualSlices(u8, aliased.value_image, independent.value_image);
+    try std.testing.expectEqual(aliased.response_value_fingerprint, independent.response_value_fingerprint);
+    try std.testing.expectEqual(aliased.fingerprint, independent.fingerprint);
+}
+
+test "Program.Exchange final response storage cooperates with result cleanup hook" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CleanupState = struct {
+        var result_deinit_called = false;
+    };
+    const Body = struct {
+        pub const compiled_plan = sessionStringListResponsePlan("exchange-response-cleanup");
+
+        pub fn deinitResult(allocator: std.mem.Allocator, value: []const []const u8) void {
+            CleanupState.result_deinit_called = true;
+            if (value.len != 0) allocator.free(value[0]);
+        }
+    };
+    const Program = ability.program("exchange-response-cleanup", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+
+    var response_items = [_][]const u8{ "left", "right" };
+    var response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as([]const []const u8, response_items[0..response_items.len]));
+    defer response.deinit();
+    var decoded_response = try Program.Exchange.ResponseEnvelope.decode(std.testing.allocator, response.bytes);
+    defer decoded_response.deinit();
+    try Program.Exchange.applyResponse(&session, decoded_response, .{});
+
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqualStrings("left", result.value[0]);
+    try std.testing.expectEqualStrings("right", result.value[1]);
+    try std.testing.expect(!CleanupState.result_deinit_called);
+    result.deinit();
+    try std.testing.expect(CleanupState.result_deinit_called);
+}
+
+test "Program.Exchange completed return_now storage cleans up with session" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CleanupState = struct {
+        var result_deinit_called = false;
+    };
+    const Body = struct {
+        pub const compiled_plan = sessionStringListResponsePlanWithMode("exchange-return-now-cleanup", .choice);
+
+        pub fn deinitResult(allocator: std.mem.Allocator, value: []const []const u8) void {
+            CleanupState.result_deinit_called = true;
+            if (value.len != 0) allocator.free(value[0]);
+        }
+    };
+    const Program = ability.program("exchange-return-now-cleanup", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+
+    var response_items = [_][]const u8{ "left", "right" };
+    var response = try Program.Exchange.ResponseEnvelope.returnNow(std.testing.allocator, envelope, @as([]const []const u8, response_items[0..response_items.len]));
+    defer response.deinit();
+    try Program.Exchange.applyResponse(&session, response, .{});
+    try std.testing.expect(!CleanupState.result_deinit_called);
+    session.deinit();
+    try std.testing.expect(CleanupState.result_deinit_called);
+}
+
+test "Program.Exchange output failure cleans exchange result storage with tracked allocator" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CleanupState = struct {
+        var result_deinit_called = false;
+    };
+    const EmptyHandlers = struct {};
+    const Body = struct {
+        pub const Error = error{OutputFailed};
+        pub const Outputs = []i32;
+        pub const compiled_plan = sessionStringListResponsePlanWithMode("exchange-output-failure-cleanup", .choice);
+
+        pub fn collectOutputs(_: std.mem.Allocator, _: *EmptyHandlers) Error!Outputs {
+            return error.OutputFailed;
+        }
+
+        pub fn deinitResult(allocator: std.mem.Allocator, value: []const []const u8) void {
+            CleanupState.result_deinit_called = true;
+            if (value.len != 0) allocator.free(value[0]);
+        }
+    };
+    const Program = ability.program("exchange-output-failure-cleanup", EmptyHandlers, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+
+    var response_items = [_][]const u8{ "left", "right" };
+    var response = try Program.Exchange.ResponseEnvelope.returnNow(std.testing.allocator, envelope, @as([]const []const u8, response_items[0..response_items.len]));
+    defer response.deinit();
+    try Program.Exchange.applyResponse(&session, response, .{});
+    try std.testing.expectError(error.OutputFailed, session.next());
+    try std.testing.expect(CleanupState.result_deinit_called);
+}
+
+test "Program.Exchange request envelope validates embedded capsule compatibility" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-capsule-compat");
+    };
+    const Program = ability.program("exchange-capsule-compat", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    var image = try capsule.encode(std.testing.allocator);
+    defer image.deinit();
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{ .capsule = image });
+    defer envelope.deinit();
+    try envelope.validate();
+
+    const OtherBody = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-capsule-foreign");
+    };
+    const OtherProgram = ability.program("exchange-capsule-foreign", struct {}, OtherBody);
+    var other_session = try OtherProgram.Session.start(&runtime, .{});
+    defer other_session.deinit();
+    _ = try other_session.next();
+    var other_capsule = try other_session.capture(std.testing.allocator);
+    defer other_capsule.deinit();
+    var other_image = try other_capsule.encode(std.testing.allocator);
+    defer other_image.deinit();
+
+    var forged = envelope;
+    forged.capsule_image = try std.testing.allocator.dupe(u8, other_image.bytes);
+    defer std.testing.allocator.free(forged.capsule_image.?);
+    forged.capsule_image_fingerprint = other_image.image_fingerprint;
+    try std.testing.expectError(error.ProgramContractViolation, forged.validate());
 }
