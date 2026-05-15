@@ -626,20 +626,26 @@ fingerprints remain audit and replay witnesses. Request and after request payloa
 views remain ordinary session request views; inspect them while the parked
 session that produced them is still live.
 
-Capsules are first-class in-process continuation snapshots, not `ProgramPlan`
-artifacts, VM bytecode, source-language values, or a stable cross-version byte
-serialization format. Hosts own persistence if they choose to serialize capsule
-metadata or their own capsule-adjacent records.
+Capsules are first-class continuation snapshots. `Session.Capsule.Image` adds a
+narrow v1 durable byte image for the same `Program` and plan; decode rebuilds an
+owned capsule candidate and `Session.restore` remains the validation and
+fresh-token authority. Capsule images are not `ProgramPlan` artifacts, VM
+bytecode, or source-language values, and compatibility is scoped to the explicit
+v1 format and fingerprint policy.
+
+`Session.Journal` is the matching host transcript surface. It records
+request/response/capsule/done entries, encodes deterministic bytes, and exposes
+a replay cursor that checks the fresh yielded request fingerprint before the
+host applies the corresponding decoded typed response. The journal recorder can
+be provided as `.journal_recorder` alongside an existing `.trace_recorder`.
 
 The session surface does not add an async runtime, parser, compiler, VM,
 Artifact API, source-language API, network client, LLM client, public generated
-custom effect API, or public root export. Capsules are an in-process branching
-surface, not a durable wire format; hosts still own persistence and external
-orchestration. Trace metadata is not a snapshot/restore mechanism and is not a
-serialization format. `ProgramValue` remains scalar, and no new value codecs are
-added. Request tokens remain in-process misuse guards, not durable ids; site,
-request, response, value, and continuation fingerprints are audit and
-replay-verification metadata.
+custom effect API, or public root export. Hosts still own persistence and
+external orchestration. `ProgramValue` remains scalar, and no new value codecs
+are added. Request tokens remain in-process misuse guards, not durable ids;
+site, request, response, value, continuation, capsule-image, and journal
+fingerprints are audit and replay-verification metadata.
 
 ## Effect schema row lowering
 

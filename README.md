@@ -330,9 +330,10 @@ trace or typed resume helper is used.
 
 Trace fingerprints are audit/replay witnesses, not request tokens. Request
 tokens remain in-process misuse guards for the active session and should not be
-serialized as durable ids. Trace metadata is also not a session snapshot or a
-prescribed serialization format. Hosts own persistence, external orchestration,
-and any replay transcript encoding.
+serialized as durable ids. Trace metadata is also not a session snapshot.
+Hosts that need restart-like handoff can use the explicit v1 capsule image and
+journal codecs under `Program.Session`; hosts still own persistence backends and
+external orchestration.
 
 ### Continuation capsules
 
@@ -353,10 +354,20 @@ remain in-process misuse guards, not durable ids. Request and after request
 payload views are ordinary session request views; inspect them while the parked
 session that produced them is still live.
 
-Capsules are owned Zig values for the same process; they are not `ProgramPlan`
-artifacts, VM bytecode, source-language values, or a stable cross-version
-serialization format. Hosts own any persistence if they serialize capsule
-metadata themselves.
+Capsules are owned Zig values for the same process. `capsule.encode(allocator)`
+or `Session.Capsule.Image.fromCapsule` produces deterministic v1 bytes, and
+`Session.Capsule.decode(allocator, bytes)` reconstructs an owned reusable
+capsule for the same `Program` and plan before `Session.restore` mints fresh
+request tokens. Capsule images are not `ProgramPlan` artifacts, VM bytecode, or
+source-language values, and compatibility is limited to the explicit v1 format
+and fingerprint policy.
+
+`Session.Journal` records deterministic request/response/capsule/done entries.
+Its recorder can run alongside existing interpreter trace recorders through
+`.journal_recorder`, and its replayer validates that a fresh session yields the
+recorded request fingerprint before exposing the decoded typed response value.
+Journals replay by fingerprints and typed response images, never by request
+tokens.
 
 This is the foundation for agentic loops. The library does not bundle an async
 runtime, parser, compiler, VM, Artifact API, source language, network client, or
@@ -416,6 +427,11 @@ authoring and public plan-native helpers:
   is dynamically reinterpreted to `rules.lookup`, the certificate prints
   residualized/emitted/residual effect metadata, and a partial run returns an
   inspectable target request plus capsule.
+- `examples/durable_capsule_replay.zig` demonstrates v1 capsule image
+  encode/decode, restored fresh request tokens, and reusable approve/deny
+  branches.
+- `examples/journal_replay.zig` demonstrates deterministic journal
+  encode/decode and replay-cursor validation before applying a typed response.
 - `examples/custom_approval_workflow.zig` demonstrates transform, choice, and
   abort operations declared through a schema-first custom protocol family,
   schema registry, semantic builder, and both synchronous and host-driven

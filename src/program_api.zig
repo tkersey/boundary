@@ -309,6 +309,19 @@ fn ProgramValueRefCompatibleWithType(ref: lowering_api.ValueRef, comptime ValueT
     };
 }
 
+fn ProgramValueRefMatchesType(comptime schema_types: anytype, comptime ref: lowering_api.ValueRef, comptime ValueType: type) bool {
+    const codec = comptime ProgramValueCodecForType(ValueType);
+    if (ref.codec != codec) return false;
+    return switch (codec) {
+        .product, .sum => {
+            const schema_index = ref.schema_index orelse return false;
+            if (schema_index >= schema_types.len) return false;
+            return schema_types[schema_index] == ValueType;
+        },
+        else => ref.schema_index == null,
+    };
+}
+
 fn ProgramValueStandaloneRefForType(comptime ValueType: type) lowering_api.ValueRef {
     const codec = comptime ProgramValueCodecForType(ValueType);
     return .{ .codec = codec };
@@ -1245,6 +1258,14 @@ pub fn program(
         pub const residual_fingerprint_version: u32 = 1;
         /// Separate fingerprint domain for proof-carrying effect pipeline metadata.
         pub const pipeline_fingerprint_version: u32 = 1;
+        /// Stable format version for Program.Session.Capsule durable images.
+        pub const capsule_image_format_version: u32 = 1;
+        /// Stable fingerprint version for Program.Session.Capsule durable images.
+        pub const capsule_image_fingerprint_version: u32 = 1;
+        /// Stable format version for Program.Session interaction journals.
+        pub const journal_format_version: u32 = 1;
+        /// Stable fingerprint version for Program.Session interaction journals.
+        pub const journal_fingerprint_version: u32 = 1;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {
@@ -1397,11 +1418,63 @@ pub fn program(
             pub const capsule_version = Core.capsule_version;
             /// Continuation fingerprint version for capsule fingerprints.
             pub const continuation_fingerprint_version = Core.continuation_fingerprint_version;
+            /// Durable capsule image format version.
+            pub const capsule_image_format_version = Core.capsule_image_format_version;
+            /// Durable capsule image fingerprint version.
+            pub const capsule_image_fingerprint_version = Core.capsule_image_fingerprint_version;
+            /// Durable interaction journal format version.
+            pub const journal_format_version = Core.journal_format_version;
+            /// Durable interaction journal fingerprint version.
+            pub const journal_fingerprint_version = Core.journal_fingerprint_version;
             /// Current parked request view without advancing the interpreter.
             pub const Current = Core.Current;
             /// First-class in-process snapshot of a parked continuation.
             pub const Capsule = struct {
                 _core: Core.Capsule,
+
+                /// Owned deterministic byte image of a reusable parked continuation capsule.
+                pub const Image = struct {
+                    allocator: std.mem.Allocator,
+                    bytes: []u8,
+                    image_fingerprint: u64,
+                    image_version: u32 = Core.capsule_image_format_version,
+                    capsule_version: u32 = Session.capsule_version,
+                    continuation_fingerprint_version: u32 = Session.continuation_fingerprint_version,
+                    trace_fingerprint_version: u32 = Trace.fingerprint_version,
+                    program_label: []const u8 = label,
+                    plan_label: []const u8 = body_compiled_plan.label,
+                    plan_hash: u64 = body_compiled_plan_hash,
+                    capsule_fingerprint: u64,
+                    continuation_fingerprint: u64,
+                    parked_kind: ParkedKind,
+                    current_request_fingerprint: u64,
+                    semantic_label: ?[]const u8 = null,
+                    metadata: CapsuleMetadata,
+
+                    /// Encode an owned image from an in-process capsule.
+                    pub fn fromCapsule(allocator: std.mem.Allocator, capsule: *const Capsule) Error!@This() {
+                        const bytes = capsule._core.encode(allocator) catch |err| return mapProgramRunError(Error, err);
+                        errdefer allocator.free(bytes);
+                        const capsule_metadata = capsule.metadata();
+                        return .{
+                            .allocator = allocator,
+                            .bytes = bytes,
+                            .image_fingerprint = capsuleImageFingerprint(bytes),
+                            .capsule_fingerprint = capsule.fingerprint(),
+                            .continuation_fingerprint = capsule_metadata.continuation_fingerprint,
+                            .parked_kind = capsule_metadata.parked_kind,
+                            .current_request_fingerprint = capsule_metadata.current_request_fingerprint,
+                            .semantic_label = semanticLabelForCapsuleMetadata(capsule_metadata),
+                            .metadata = capsule_metadata,
+                        };
+                    }
+
+                    /// Release image-owned bytes.
+                    pub fn deinit(self: *@This()) void {
+                        self.allocator.free(self.bytes);
+                        self.bytes = &.{};
+                    }
+                };
 
                 /// Release capsule-owned continuation values.
                 pub fn deinit(self: *@This()) void {
@@ -1424,13 +1497,1482 @@ pub fn program(
                         ._core = self._core.clone(allocator) catch |err| return mapProgramRunError(Error, err),
                     };
                 }
+
+                /// Encode this reusable capsule into deterministic owned bytes plus metadata.
+                pub fn encode(self: *const @This(), allocator: std.mem.Allocator) Error!Image {
+                    return Image.fromCapsule(allocator, self);
+                }
+
+                /// Decode deterministic capsule image bytes into an owned reusable capsule.
+                pub fn decode(allocator: std.mem.Allocator, image_bytes: []const u8) Error!@This() {
+                    return .{
+                        ._core = Core.Capsule.decode(allocator, image_bytes) catch |err| return mapProgramRunError(Error, err),
+                    };
+                }
             };
+
+            fn capsuleImageFingerprint(image_bytes: []const u8) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.program.capsule.image");
+                hashU32(&hasher, Core.capsule_image_fingerprint_version);
+                hashBytes(&hasher, image_bytes);
+                return hasher.final();
+            }
+
+            fn semanticLabelForCapsuleMetadata(metadata: CapsuleMetadata) ?[]const u8 {
+                return switch (metadata.parked_kind) {
+                    .operation => blk: {
+                        const site_index = metadata.current_operation_site_index orelse break :blk null;
+                        inline for (protocol.operation_site_metadata) |site| {
+                            if (site.index == site_index) break :blk site.semantic_label;
+                        }
+                        break :blk null;
+                    },
+                    .after => blk: {
+                        const site_index = metadata.current_after_site_index orelse break :blk null;
+                        inline for (protocol.after_site_metadata) |site| {
+                            if (site.index == site_index) break :blk site.semantic_label;
+                        }
+                        break :blk null;
+                    },
+                };
+            }
+
             /// One session step: either a terminal result, yielded operation request, or yielded after continuation.
             pub const Step = union(enum) {
                 after: AfterRequest,
                 done: Result,
                 request: Request,
             };
+
+            /// Deterministic host-owned interaction transcript for request/response replay validation.
+            pub const Journal = struct {
+                allocator: std.mem.Allocator,
+                entries: std.ArrayList(Entry) = .empty,
+
+                /// Request-side trace entry recorded before a host response.
+                pub const RequestTrace = union(enum) {
+                    operation: Trace.OperationRequest,
+                    after: Trace.AfterRequest,
+
+                    /// Return the request fingerprint for operation or after entries.
+                    pub fn fingerprint(self: @This()) u64 {
+                        return switch (self) {
+                            .operation => |trace| trace.fingerprint,
+                            .after => |trace| trace.fingerprint,
+                        };
+                    }
+                };
+
+                /// One deterministic journal entry.
+                pub const Entry = union(enum) {
+                    request: RequestTrace,
+                    response: ResponseEntry,
+                    capsule_image: CapsuleImageEntry,
+                    done: u64,
+                };
+
+                /// Response trace plus an optional replayable typed value image.
+                pub const ResponseEntry = struct {
+                    trace: Trace.Response,
+                    value_image: ?[]u8 = null,
+                };
+
+                /// Owned capsule image entry copied into a journal.
+                pub const CapsuleImageEntry = struct {
+                    image_fingerprint: u64,
+                    capsule_fingerprint: u64,
+                    current_request_fingerprint: u64,
+                    bytes: []u8,
+                };
+
+                /// Append-only recorder used by interpreters and host code.
+                pub const Recorder = struct {
+                    journal: *Journal,
+
+                    /// Record a request/response pair without a typed response value image.
+                    pub fn record(self: *@This(), request_trace: anytype, response_trace: Trace.Response) Error!void {
+                        const request = requestTraceFromAny(request_trace);
+                        try validateJournalResponseForRequest(request, response_trace);
+                        const start_len = self.journal.entries.items.len;
+                        errdefer self.journal.truncateEntries(start_len);
+                        try self.journal.appendRequest(request);
+                        try self.journal.appendResponse(response_trace);
+                    }
+
+                    /// Record a request/response pair with a replayable typed response value image.
+                    pub fn recordValue(self: *@This(), request_trace: anytype, response_trace: Trace.Response, value: anytype) Error!void {
+                        const request = requestTraceFromAny(request_trace);
+                        try validateJournalResponseForRequest(request, response_trace);
+                        const start_len = self.journal.entries.items.len;
+                        errdefer self.journal.truncateEntries(start_len);
+                        try self.journal.appendRequest(request);
+                        try self.journal.appendResponseValue(response_trace, value);
+                    }
+                };
+
+                /// Cursor that validates fresh yielded requests against recorded journal entries.
+                pub const Replayer = struct {
+                    journal: *const Journal,
+                    index: usize = 0,
+                    string_lists: std.ArrayList([]const []const u8) = .empty,
+
+                    /// Release replay-owned decoded slice tables.
+                    pub fn deinit(self: *@This()) void {
+                        for (self.string_lists.items) |items| self.journal.allocator.free(items);
+                        self.string_lists.deinit(self.journal.allocator);
+                    }
+
+                    /// Validate the current request and return the matching recorded response trace.
+                    pub fn expectCurrent(self: *@This(), current_value: Current) Error!Trace.Response {
+                        return (try self.expectCurrentEntry(current_value)).trace;
+                    }
+
+                    /// Validate the current request and decode the matching recorded response value.
+                    pub fn expectCurrentValue(self: *@This(), current_value: Current, comptime ValueType: type) Error!ValueType {
+                        const replayed = try self.expectCurrentResponseValue(current_value, ValueType);
+                        return replayed.value;
+                    }
+
+                    /// Validate the current request and decode its recorded response trace and value.
+                    pub fn expectCurrentResponseValue(
+                        self: *@This(),
+                        current_value: Current,
+                        comptime ValueType: type,
+                    ) Error!struct { trace: Trace.Response, value: ValueType } {
+                        const response = try self.expectCurrentEntry(current_value);
+                        const value_image = response.value_image orelse return error.ProgramContractViolation;
+                        return .{
+                            .trace = response.trace,
+                            .value = decodeJournalResponseValue(self, ValueType, response.trace, value_image) catch |err| return mapProgramRunError(Error, err),
+                        };
+                    }
+
+                    /// Validate the recorded terminal result fingerprint and require replay EOF.
+                    pub fn expectDone(self: *@This(), result_fingerprint: u64) Error!void {
+                        const done_entry = self.nextReplayEntry() orelse return error.ProgramContractViolation;
+                        const recorded = switch (done_entry) {
+                            .done => |recorded_fingerprint| recorded_fingerprint,
+                            else => return error.ProgramContractViolation,
+                        };
+                        if (recorded != result_fingerprint) return error.ProgramContractViolation;
+                        if (self.index != self.journal.entries.items.len) return error.ProgramContractViolation;
+                    }
+
+                    fn expectCurrentEntry(self: *@This(), current_value: Current) Error!ResponseEntry {
+                        const request_entry = self.nextReplayEntry() orelse return error.ProgramContractViolation;
+                        const request_trace = switch (request_entry) {
+                            .request => |request_trace| request_trace,
+                            else => return error.ProgramContractViolation,
+                        };
+                        const expected = request_trace.fingerprint();
+                        const actual = switch (current_value) {
+                            .request => |request| request.fingerprint(),
+                            .after => |after_request| after_request.fingerprint(),
+                            .none => return error.ProgramContractViolation,
+                        };
+                        if (actual != expected) return error.ProgramContractViolation;
+                        const response_entry = self.nextReplayEntry() orelse return error.ProgramContractViolation;
+                        const response = switch (response_entry) {
+                            .response => |response| response,
+                            else => return error.ProgramContractViolation,
+                        };
+                        try validateJournalResponseForRequest(request_trace, response.trace);
+                        return response;
+                    }
+
+                    fn nextReplayEntry(self: *@This()) ?Entry {
+                        if (self.index >= self.journal.entries.items.len) return null;
+                        while (self.index < self.journal.entries.items.len) {
+                            const entry = self.journal.entries.items[self.index];
+                            self.index += 1;
+                            switch (entry) {
+                                .capsule_image => continue,
+                                else => return entry,
+                            }
+                        }
+                        return null;
+                    }
+                };
+
+                const JournalValueImageContext = struct {
+                    allocator: std.mem.Allocator,
+                    strings: std.ArrayList([]const u8) = .empty,
+                    string_lists: std.ArrayList([]const []const u8) = .empty,
+
+                    fn init(allocator: std.mem.Allocator) @This() {
+                        return .{ .allocator = allocator };
+                    }
+
+                    fn deinit(self: *@This()) void {
+                        self.strings.deinit(self.allocator);
+                        self.string_lists.deinit(self.allocator);
+                    }
+
+                    fn stringIndex(self: *const @This(), value: []const u8) ?usize {
+                        for (self.strings.items, 0..) |existing, index| {
+                            if (existing.ptr == value.ptr and existing.len == value.len) return index;
+                        }
+                        return null;
+                    }
+
+                    fn stringListIndex(self: *const @This(), value: []const []const u8) ?usize {
+                        for (self.string_lists.items, 0..) |existing, index| {
+                            if (existing.ptr == value.ptr and existing.len == value.len) return index;
+                        }
+                        return null;
+                    }
+                };
+
+                fn validateJournalResponseForRequest(request_trace: RequestTrace, response: Trace.Response) Error!void {
+                    if (response.request_fingerprint != request_trace.fingerprint()) return error.ProgramContractViolation;
+                    try validateJournalResponseTrace(response);
+                    switch (request_trace) {
+                        .operation => |request| switch (response.kind) {
+                            .@"resume" => {
+                                if (request.mode == .abort) return error.ProgramContractViolation;
+                                if (!response.response_ref.eql(request.resume_ref)) return error.ProgramContractViolation;
+                            },
+                            .return_now => {
+                                if (request.mode == .transform) return error.ProgramContractViolation;
+                                if (!response.response_ref.eql(request.result_ref)) return error.ProgramContractViolation;
+                            },
+                            .resume_after => return error.ProgramContractViolation,
+                        },
+                        .after => |request| {
+                            if (response.kind != .resume_after) return error.ProgramContractViolation;
+                            if (!response.response_ref.eql(request.expected_output_ref)) return error.ProgramContractViolation;
+                        },
+                    }
+                }
+
+                fn validateJournalResponseTrace(response: Trace.Response) Error!void {
+                    if (response.fingerprint != fingerprintJournalResponseTrace(response)) return error.ProgramContractViolation;
+                }
+
+                fn validateJournalCapsuleImage(allocator: std.mem.Allocator, image: Capsule.Image) Error!void {
+                    if (image.image_fingerprint != capsuleImageFingerprint(image.bytes)) return error.ProgramContractViolation;
+                    var decoded = Core.Capsule.decode(allocator, image.bytes) catch |err| return mapProgramRunError(Error, err);
+                    defer decoded.deinit();
+                    const metadata = decoded.metadata();
+                    if (image.capsule_fingerprint != decoded.fingerprint() or
+                        image.current_request_fingerprint != metadata.current_request_fingerprint)
+                    {
+                        return error.ProgramContractViolation;
+                    }
+                }
+
+                fn validateJournalRequestTrace(request_trace: RequestTrace) Error!void {
+                    switch (request_trace) {
+                        .operation => |request| {
+                            if (request.has_payload != (request.payload_ref.codec != .unit)) return error.ProgramContractViolation;
+                            if (request.fingerprint != fingerprintJournalOperationRequestTrace(request)) return error.ProgramContractViolation;
+                        },
+                        .after => |request| {
+                            if (request.fingerprint != fingerprintJournalAfterRequestTrace(request)) return error.ProgramContractViolation;
+                        },
+                    }
+                }
+
+                /// Create an empty host-owned journal.
+                pub fn init(allocator: std.mem.Allocator) @This() {
+                    return .{ .allocator = allocator };
+                }
+
+                /// Release all journal-owned entries and byte images.
+                pub fn deinit(self: *@This()) void {
+                    for (self.entries.items) |*entry| deinitJournalEntry(self.allocator, entry);
+                    self.entries.deinit(self.allocator);
+                }
+
+                fn truncateEntries(self: *@This(), len: usize) void {
+                    for (self.entries.items[len..]) |*entry| deinitJournalEntry(self.allocator, entry);
+                    self.entries.shrinkRetainingCapacity(len);
+                }
+
+                /// Return an interpreter-compatible journal recorder.
+                pub fn recorder(self: *@This()) Recorder {
+                    return .{ .journal = self };
+                }
+
+                /// Return a replay cursor starting at the first entry.
+                pub fn replayer(self: *const @This()) Replayer {
+                    return .{ .journal = self };
+                }
+
+                /// Append an owned copy of a request trace.
+                pub fn appendRequest(self: *@This(), trace: RequestTrace) Error!void {
+                    try validateJournalRequestTrace(trace);
+                    var owned = cloneJournalRequestTrace(self.allocator, trace) catch |err| return mapProgramRunError(Error, err);
+                    errdefer deinitJournalRequestTrace(self.allocator, &owned);
+                    self.entries.append(self.allocator, .{ .request = owned }) catch |err| return mapProgramRunError(Error, err);
+                }
+
+                /// Append a response trace without a typed value image.
+                pub fn appendResponse(self: *@This(), trace: Trace.Response) Error!void {
+                    try validateJournalResponseTrace(trace);
+                    self.entries.append(self.allocator, .{ .response = .{ .trace = trace } }) catch |err| return mapProgramRunError(Error, err);
+                }
+
+                /// Append a response trace with a deterministic typed value image.
+                pub fn appendResponseValue(self: *@This(), trace: Trace.Response, value: anytype) Error!void {
+                    try validateJournalResponseTrace(trace);
+                    const value_image = encodeJournalResponseValue(self.allocator, trace, value) catch |err| return mapProgramRunError(Error, err);
+                    errdefer self.allocator.free(value_image);
+                    self.entries.append(self.allocator, .{ .response = .{
+                        .trace = trace,
+                        .value_image = value_image,
+                    } }) catch |err| return mapProgramRunError(Error, err);
+                }
+
+                /// Append an owned copy of a durable capsule image.
+                pub fn appendCapsuleImage(self: *@This(), image: Capsule.Image) Error!void {
+                    try validateJournalCapsuleImage(self.allocator, image);
+                    const bytes = self.allocator.dupe(u8, image.bytes) catch |err| return mapProgramRunError(Error, err);
+                    errdefer self.allocator.free(bytes);
+                    self.entries.append(self.allocator, .{ .capsule_image = .{
+                        .image_fingerprint = image.image_fingerprint,
+                        .capsule_fingerprint = image.capsule_fingerprint,
+                        .current_request_fingerprint = image.current_request_fingerprint,
+                        .bytes = bytes,
+                    } }) catch |err| return mapProgramRunError(Error, err);
+                }
+
+                /// Append a terminal result fingerprint.
+                pub fn appendDone(self: *@This(), result_fingerprint: u64) Error!void {
+                    self.entries.append(self.allocator, .{ .done = result_fingerprint }) catch |err| return mapProgramRunError(Error, err);
+                }
+
+                /// Encode the journal to deterministic owned bytes.
+                pub fn encode(self: *const @This(), allocator: std.mem.Allocator) Error![]u8 {
+                    var writer = JournalWriter.init(allocator);
+                    errdefer writer.deinit();
+                    writer.writeBytes("ABL_JRN1") catch |err| return mapProgramRunError(Error, err);
+                    writer.writeU32(Core.journal_format_version) catch |err| return mapProgramRunError(Error, err);
+                    writer.writeU32(Core.journal_fingerprint_version) catch |err| return mapProgramRunError(Error, err);
+                    writer.writeUsize(self.entries.items.len) catch |err| return mapProgramRunError(Error, err);
+                    for (self.entries.items) |entry| {
+                        writeJournalEntry(&writer, entry) catch |err| return mapProgramRunError(Error, err);
+                    }
+                    const payload = writer.bytes.items;
+                    writer.writeU64(journalFingerprintBytes(payload)) catch |err| return mapProgramRunError(Error, err);
+                    return writer.toOwnedSlice() catch |err| return mapProgramRunError(Error, err);
+                }
+
+                /// Decode deterministic journal bytes into an owned journal.
+                pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) Error!@This() {
+                    if (bytes.len < "ABL_JRN1".len + 4 + 4 + 8) return error.ProgramContractViolation;
+                    const payload = bytes[0 .. bytes.len - 8];
+                    const checksum = std.mem.readInt(u64, bytes[bytes.len - 8 ..][0..8], .little);
+                    if (checksum != journalFingerprintBytes(payload)) return error.ProgramContractViolation;
+                    var reader = JournalReader.init(payload);
+                    try reader.expectBytes("ABL_JRN1");
+                    if (try reader.readU32() != Core.journal_format_version) return error.ProgramContractViolation;
+                    if (try reader.readU32() != Core.journal_fingerprint_version) return error.ProgramContractViolation;
+                    var journal = Journal.init(allocator);
+                    errdefer journal.deinit();
+                    const count = try reader.readUsize();
+                    for (0..count) |_| {
+                        var entry = readJournalEntry(&reader, allocator) catch |err| return mapProgramRunError(Error, err);
+                        errdefer deinitJournalEntry(allocator, &entry);
+                        journal.entries.append(allocator, entry) catch |err| return mapProgramRunError(Error, err);
+                    }
+                    if (!reader.eof()) return error.ProgramContractViolation;
+                    return journal;
+                }
+
+                /// Compute the journal fingerprint from its deterministic byte image.
+                pub fn fingerprint(self: *const @This()) Error!u64 {
+                    const bytes = try self.encode(self.allocator);
+                    defer self.allocator.free(bytes);
+                    return journalFingerprintBytes(bytes);
+                }
+            };
+
+            const JournalWriter = struct {
+                allocator: std.mem.Allocator,
+                bytes: std.ArrayList(u8) = .empty,
+
+                fn init(allocator: std.mem.Allocator) @This() {
+                    return .{ .allocator = allocator };
+                }
+
+                fn deinit(self: *@This()) void {
+                    self.bytes.deinit(self.allocator);
+                }
+
+                fn toOwnedSlice(self: *@This()) std.mem.Allocator.Error![]u8 {
+                    return self.bytes.toOwnedSlice(self.allocator);
+                }
+
+                fn writeBytes(self: *@This(), bytes: []const u8) std.mem.Allocator.Error!void {
+                    try self.bytes.appendSlice(self.allocator, bytes);
+                }
+
+                fn writeLenBytes(self: *@This(), bytes: []const u8) std.mem.Allocator.Error!void {
+                    try self.writeUsize(bytes.len);
+                    try self.writeBytes(bytes);
+                }
+
+                fn writeBool(self: *@This(), value: bool) std.mem.Allocator.Error!void {
+                    try self.bytes.append(self.allocator, @intFromBool(value));
+                }
+
+                fn writeU8(self: *@This(), value: u8) std.mem.Allocator.Error!void {
+                    try self.bytes.append(self.allocator, value);
+                }
+
+                fn writeU16(self: *@This(), value: u16) std.mem.Allocator.Error!void {
+                    var buffer: [2]u8 = undefined;
+                    std.mem.writeInt(u16, &buffer, value, .little);
+                    try self.writeBytes(&buffer);
+                }
+
+                fn writeU32(self: *@This(), value: u32) std.mem.Allocator.Error!void {
+                    var buffer: [4]u8 = undefined;
+                    std.mem.writeInt(u32, &buffer, value, .little);
+                    try self.writeBytes(&buffer);
+                }
+
+                fn writeU64(self: *@This(), value: u64) std.mem.Allocator.Error!void {
+                    var buffer: [8]u8 = undefined;
+                    std.mem.writeInt(u64, &buffer, value, .little);
+                    try self.writeBytes(&buffer);
+                }
+
+                fn writeUsize(self: *@This(), value: usize) std.mem.Allocator.Error!void {
+                    try self.writeU64(@intCast(value));
+                }
+            };
+
+            const JournalReader = struct {
+                bytes: []const u8,
+                index: usize = 0,
+
+                fn init(bytes: []const u8) @This() {
+                    return .{ .bytes = bytes };
+                }
+
+                fn eof(self: @This()) bool {
+                    return self.index == self.bytes.len;
+                }
+
+                fn remaining(self: @This()) usize {
+                    return self.bytes.len - self.index;
+                }
+
+                fn readBytes(self: *@This(), len: usize) error{ProgramContractViolation}![]const u8 {
+                    const end = std.math.add(usize, self.index, len) catch return error.ProgramContractViolation;
+                    if (end > self.bytes.len) return error.ProgramContractViolation;
+                    const slice = self.bytes[self.index..end];
+                    self.index = end;
+                    return slice;
+                }
+
+                fn expectBytes(self: *@This(), expected: []const u8) error{ProgramContractViolation}!void {
+                    if (!std.mem.eql(u8, try self.readBytes(expected.len), expected)) return error.ProgramContractViolation;
+                }
+
+                fn readLenBytes(self: *@This()) error{ProgramContractViolation}![]const u8 {
+                    return self.readBytes(try self.readUsize());
+                }
+
+                fn readBool(self: *@This()) error{ProgramContractViolation}!bool {
+                    return switch (try self.readU8()) {
+                        0 => false,
+                        1 => true,
+                        else => error.ProgramContractViolation,
+                    };
+                }
+
+                fn readU8(self: *@This()) error{ProgramContractViolation}!u8 {
+                    return (try self.readBytes(1))[0];
+                }
+
+                fn readU16(self: *@This()) error{ProgramContractViolation}!u16 {
+                    return std.mem.readInt(u16, (try self.readBytes(2))[0..2], .little);
+                }
+
+                fn readU32(self: *@This()) error{ProgramContractViolation}!u32 {
+                    return std.mem.readInt(u32, (try self.readBytes(4))[0..4], .little);
+                }
+
+                fn readU64(self: *@This()) error{ProgramContractViolation}!u64 {
+                    return std.mem.readInt(u64, (try self.readBytes(8))[0..8], .little);
+                }
+
+                fn readUsize(self: *@This()) error{ProgramContractViolation}!usize {
+                    const value = try self.readU64();
+                    if (value > std.math.maxInt(usize)) return error.ProgramContractViolation;
+                    return @intCast(value);
+                }
+            };
+
+            fn journalFingerprintBytes(bytes: []const u8) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.program.session.journal");
+                hashU32(&hasher, Core.journal_fingerprint_version);
+                hashBytes(&hasher, bytes);
+                return hasher.final();
+            }
+
+            fn requestTraceFromAny(trace: anytype) Journal.RequestTrace {
+                if (@TypeOf(trace) == Trace.OperationRequest) return .{ .operation = trace };
+                if (@TypeOf(trace) == Trace.AfterRequest) return .{ .after = trace };
+                @compileError("Journal recorder expected a Program.Session request or after trace");
+            }
+
+            fn cloneOptionalJournalLabel(allocator: std.mem.Allocator, label_value: ?[]const u8) std.mem.Allocator.Error!?[]u8 {
+                if (label_value) |value| return try allocator.dupe(u8, value);
+                return null;
+            }
+
+            fn cloneJournalRequestTrace(allocator: std.mem.Allocator, trace: Journal.RequestTrace) std.mem.Allocator.Error!Journal.RequestTrace {
+                return switch (trace) {
+                    .operation => |operation| blk: {
+                        var owned = operation;
+                        owned.semantic_label = try cloneOptionalJournalLabel(allocator, operation.semantic_label);
+                        errdefer if (owned.semantic_label) |semantic_label| allocator.free(semantic_label);
+                        owned.requirement_label = try allocator.dupe(u8, operation.requirement_label);
+                        errdefer allocator.free(owned.requirement_label);
+                        owned.op_name = try allocator.dupe(u8, operation.op_name);
+                        break :blk .{ .operation = owned };
+                    },
+                    .after => |after| blk: {
+                        var owned = after;
+                        owned.semantic_label = try cloneOptionalJournalLabel(allocator, after.semantic_label);
+                        errdefer if (owned.semantic_label) |semantic_label| allocator.free(semantic_label);
+                        owned.original_requirement_label = try allocator.dupe(u8, after.original_requirement_label);
+                        errdefer allocator.free(owned.original_requirement_label);
+                        owned.original_op_name = try allocator.dupe(u8, after.original_op_name);
+                        break :blk .{ .after = owned };
+                    },
+                };
+            }
+
+            fn deinitJournalRequestTrace(allocator: std.mem.Allocator, trace: *Journal.RequestTrace) void {
+                switch (trace.*) {
+                    .operation => |*operation| {
+                        if (operation.semantic_label) |semantic_label| allocator.free(semantic_label);
+                        allocator.free(operation.requirement_label);
+                        allocator.free(operation.op_name);
+                    },
+                    .after => |*after| {
+                        if (after.semantic_label) |semantic_label| allocator.free(semantic_label);
+                        allocator.free(after.original_requirement_label);
+                        allocator.free(after.original_op_name);
+                    },
+                }
+            }
+
+            fn deinitJournalEntry(allocator: std.mem.Allocator, entry: *Journal.Entry) void {
+                switch (entry.*) {
+                    .request => |*trace| deinitJournalRequestTrace(allocator, trace),
+                    .response => |*response| if (response.value_image) |value_image| allocator.free(value_image),
+                    .capsule_image => |*image| allocator.free(image.bytes),
+                    else => {},
+                }
+            }
+
+            fn encodeJournalResponseValue(
+                allocator: std.mem.Allocator,
+                response_trace: Trace.Response,
+                value: anytype,
+            ) anyerror![]u8 {
+                const ValueType = @TypeOf(value);
+                return switch (response_trace.response_ref.codec) {
+                    .unit => encodeJournalResponseValueAs(allocator, response_trace, .{ .codec = .unit }, value),
+                    .bool => encodeJournalResponseValueAs(allocator, response_trace, .{ .codec = .bool }, value),
+                    .i32 => encodeJournalResponseValueAs(allocator, response_trace, .{ .codec = .i32 }, value),
+                    .usize => encodeJournalResponseValueAs(allocator, response_trace, .{ .codec = .usize }, value),
+                    .string => encodeJournalResponseValueAs(allocator, response_trace, .{ .codec = .string }, value),
+                    .string_list => encodeJournalResponseValueAs(allocator, response_trace, .{ .codec = .string_list }, value),
+                    .product, .sum => blk: {
+                        const schema_index = response_trace.response_ref.schema_index orelse return error.ProgramContractViolation;
+                        inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                if (ValueType != SchemaType) return error.ProgramContractViolation;
+                                const expected_ref: lowering_api.ValueRef = comptime .{
+                                    .codec = compiled_plan.value_schemas[index].codec,
+                                    .schema_index = @intCast(index),
+                                };
+                                break :blk encodeJournalResponseValueAs(allocator, response_trace, expected_ref, value);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                };
+            }
+
+            fn encodeJournalResponseValueAs(
+                allocator: std.mem.Allocator,
+                response_trace: Trace.Response,
+                comptime expected_ref: lowering_api.ValueRef,
+                value: anytype,
+            ) anyerror![]u8 {
+                if (!response_trace.response_ref.eql(expected_ref)) return error.ProgramContractViolation;
+                if (try fingerprintJournalTypedValue(expected_ref, value) != response_trace.response_value_fingerprint) return error.ProgramContractViolation;
+                var writer = JournalWriter.init(allocator);
+                errdefer writer.deinit();
+                var context = Journal.JournalValueImageContext.init(allocator);
+                defer context.deinit();
+                try writeJournalValueRef(&writer, expected_ref);
+                try writeJournalTypedValue(&writer, &context, expected_ref, value);
+                return writer.toOwnedSlice();
+            }
+
+            fn decodeJournalResponseValue(
+                replayer: *Journal.Replayer,
+                comptime ValueType: type,
+                response_trace: Trace.Response,
+                value_image: []const u8,
+            ) anyerror!ValueType {
+                return switch (response_trace.response_ref.codec) {
+                    .unit => decodeJournalResponseValueAs(replayer, ValueType, response_trace, value_image, .{ .codec = .unit }),
+                    .bool => decodeJournalResponseValueAs(replayer, ValueType, response_trace, value_image, .{ .codec = .bool }),
+                    .i32 => decodeJournalResponseValueAs(replayer, ValueType, response_trace, value_image, .{ .codec = .i32 }),
+                    .usize => decodeJournalResponseValueAs(replayer, ValueType, response_trace, value_image, .{ .codec = .usize }),
+                    .string => decodeJournalResponseValueAs(replayer, ValueType, response_trace, value_image, .{ .codec = .string }),
+                    .string_list => decodeJournalResponseValueAs(replayer, ValueType, response_trace, value_image, .{ .codec = .string_list }),
+                    .product, .sum => blk: {
+                        const schema_index = response_trace.response_ref.schema_index orelse return error.ProgramContractViolation;
+                        inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                if (ValueType != SchemaType) return error.ProgramContractViolation;
+                                const expected_ref: lowering_api.ValueRef = comptime .{
+                                    .codec = compiled_plan.value_schemas[index].codec,
+                                    .schema_index = @intCast(index),
+                                };
+                                break :blk decodeJournalResponseValueAs(replayer, ValueType, response_trace, value_image, expected_ref);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                };
+            }
+
+            fn decodeJournalResponseValueAs(
+                replayer: *Journal.Replayer,
+                comptime ValueType: type,
+                response_trace: Trace.Response,
+                value_image: []const u8,
+                comptime expected_ref: lowering_api.ValueRef,
+            ) anyerror!ValueType {
+                if (!response_trace.response_ref.eql(expected_ref)) return error.ProgramContractViolation;
+                var reader = JournalReader.init(value_image);
+                const encoded_ref = try readJournalValueRef(&reader);
+                if (!encoded_ref.eql(expected_ref)) return error.ProgramContractViolation;
+                var context = Journal.JournalValueImageContext.init(replayer.journal.allocator);
+                defer context.deinit();
+                const value = try readJournalTypedValue(&reader, replayer, &context, expected_ref, ValueType);
+                if (!reader.eof()) return error.ProgramContractViolation;
+                if (try fingerprintJournalTypedValue(expected_ref, value) != response_trace.response_value_fingerprint) return error.ProgramContractViolation;
+                return value;
+            }
+
+            fn validateJournalResponseValueImage(
+                allocator: std.mem.Allocator,
+                response_trace: Trace.Response,
+                value_image: []const u8,
+            ) anyerror!void {
+                var validation_journal = Journal.init(allocator);
+                defer validation_journal.deinit();
+                var replayer = validation_journal.replayer();
+                defer replayer.deinit();
+
+                var reader = JournalReader.init(value_image);
+                const encoded_ref = try readJournalValueRef(&reader);
+                if (!encoded_ref.eql(response_trace.response_ref)) return error.ProgramContractViolation;
+                return switch (response_trace.response_ref.codec) {
+                    .unit => validateJournalResponseValueImageAs(&reader, &replayer, response_trace, .{ .codec = .unit }, void),
+                    .bool => validateJournalResponseValueImageAs(&reader, &replayer, response_trace, .{ .codec = .bool }, bool),
+                    .i32 => validateJournalResponseValueImageAs(&reader, &replayer, response_trace, .{ .codec = .i32 }, i32),
+                    .usize => validateJournalResponseValueImageAs(&reader, &replayer, response_trace, .{ .codec = .usize }, usize),
+                    .string => validateJournalResponseValueImageAs(&reader, &replayer, response_trace, .{ .codec = .string }, []const u8),
+                    .string_list => validateJournalResponseValueImageAs(&reader, &replayer, response_trace, .{ .codec = .string_list }, []const []const u8),
+                    .product, .sum => blk: {
+                        const schema_index = response_trace.response_ref.schema_index orelse return error.ProgramContractViolation;
+                        inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                const expected_ref: lowering_api.ValueRef = comptime .{
+                                    .codec = compiled_plan.value_schemas[index].codec,
+                                    .schema_index = @intCast(index),
+                                };
+                                if (!response_trace.response_ref.eql(expected_ref)) return error.ProgramContractViolation;
+                                break :blk validateJournalResponseValueImageAs(&reader, &replayer, response_trace, expected_ref, SchemaType);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                };
+            }
+
+            fn validateJournalResponseValueImageAs(
+                reader: *JournalReader,
+                replayer: *Journal.Replayer,
+                response_trace: Trace.Response,
+                comptime expected_ref: lowering_api.ValueRef,
+                comptime ValueType: type,
+            ) anyerror!void {
+                var context = Journal.JournalValueImageContext.init(replayer.journal.allocator);
+                defer context.deinit();
+                const value = try readJournalTypedValue(reader, replayer, &context, expected_ref, ValueType);
+                if (!reader.eof()) return error.ProgramContractViolation;
+                if (try fingerprintJournalTypedValue(expected_ref, value) != response_trace.response_value_fingerprint) {
+                    return error.ProgramContractViolation;
+                }
+            }
+
+            fn fingerprintJournalResponseTrace(trace: Trace.Response) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.session.response");
+                hashU32(&hasher, Trace.fingerprint_version);
+                hashU64(&hasher, trace.request_fingerprint);
+                hashBytes(&hasher, @tagName(trace.kind));
+                hashJournalTraceValueRef(&hasher, trace.response_ref);
+                hashU64(&hasher, trace.response_value_fingerprint);
+                return hasher.final();
+            }
+
+            fn hashJournalRequestPrefix(hasher: *std.hash.Wyhash, turn_index: usize, kind: Trace.RequestKind) void {
+                hashBytes(hasher, "ability.session.request");
+                hashU32(hasher, Trace.fingerprint_version);
+                hashBytes(hasher, label);
+                hashBytes(hasher, body_compiled_plan.label);
+                hashU64(hasher, body_compiled_plan_hash);
+                hashUsize(hasher, turn_index);
+                hashBytes(hasher, @tagName(kind));
+            }
+
+            fn fingerprintJournalOperationRequestTrace(trace: Trace.OperationRequest) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashJournalRequestPrefix(&hasher, trace.turn_index, .operation);
+                hashUsize(&hasher, trace.operation_site_index);
+                hashU64(&hasher, trace.operation_site_fingerprint);
+                hashUsize(&hasher, trace.function_index);
+                hashUsize(&hasher, trace.block_index);
+                hashUsize(&hasher, trace.instruction_index);
+                hashU16(&hasher, trace.requirement_index);
+                hashBytes(&hasher, trace.requirement_label);
+                hashU16(&hasher, trace.op_index);
+                hashBytes(&hasher, trace.op_name);
+                hashBytes(&hasher, @tagName(trace.mode));
+                hashJournalTraceValueRef(&hasher, trace.payload_ref);
+                hashU64(&hasher, trace.payload_value_fingerprint);
+                hashJournalTraceValueRef(&hasher, trace.resume_ref);
+                hashJournalTraceValueRef(&hasher, trace.result_ref);
+                hashBool(&hasher, trace.has_after);
+                return hasher.final();
+            }
+
+            fn fingerprintJournalAfterRequestTrace(trace: Trace.AfterRequest) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashJournalRequestPrefix(&hasher, trace.turn_index, .after);
+                hashUsize(&hasher, trace.after_site_index);
+                hashU64(&hasher, trace.after_site_fingerprint);
+                hashUsize(&hasher, trace.source_operation_site_index);
+                hashU64(&hasher, trace.source_operation_site_fingerprint);
+                hashUsize(&hasher, trace.function_index);
+                hashUsize(&hasher, trace.block_index);
+                hashUsize(&hasher, trace.instruction_index);
+                hashU16(&hasher, trace.original_requirement_index);
+                hashBytes(&hasher, trace.original_requirement_label);
+                hashU16(&hasher, trace.original_op_index);
+                hashBytes(&hasher, trace.original_op_name);
+                hashJournalTraceValueRef(&hasher, trace.current_value_ref);
+                hashU64(&hasher, trace.current_value_fingerprint);
+                hashJournalTraceValueRef(&hasher, trace.expected_output_ref);
+                hashJournalTraceValueRef(&hasher, trace.result_ref);
+                return hasher.final();
+            }
+
+            fn hashJournalTraceValueRef(hasher: *std.hash.Wyhash, ref: lowering_api.ValueRef) void {
+                hasher.update(&[_]u8{@intFromEnum(ref.codec)});
+                hashBool(hasher, ref.schema_index != null);
+                if (ref.schema_index) |schema_index| hashU16(hasher, schema_index);
+            }
+
+            fn hashJournalCodec(hasher: *std.hash.Wyhash, codec: lowering_api.ValueCodec) void {
+                hasher.update(&[_]u8{@intFromEnum(codec)});
+            }
+
+            fn fingerprintJournalTypedValue(comptime ref: lowering_api.ValueRef, value: anytype) Error!u64 {
+                const ValueType = @TypeOf(value);
+                if (comptime !ProgramValueRefMatchesType(body_value_schema_types, ref, ValueType)) return error.ProgramContractViolation;
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.session.value");
+                hashU32(&hasher, Trace.fingerprint_version);
+                hashJournalTraceValueRef(&hasher, ref);
+                try hashJournalTypedValuePayload(&hasher, ref, value);
+                return hasher.final();
+            }
+
+            fn hashJournalTypedValuePayload(hasher: *std.hash.Wyhash, comptime ref: lowering_api.ValueRef, value: anytype) Error!void {
+                const ValueType = @TypeOf(value);
+                if (comptime !ProgramValueRefMatchesType(body_value_schema_types, ref, ValueType)) return error.ProgramContractViolation;
+                switch (comptime ref.codec) {
+                    .unit => {},
+                    .bool => hashBool(hasher, value),
+                    .i32 => hashI32(hasher, value),
+                    .usize => hashUsize(hasher, value),
+                    .string => hashBytes(hasher, value),
+                    .string_list => {
+                        hashUsize(hasher, value.len);
+                        for (value) |item| hashBytes(hasher, item);
+                    },
+                    .product => try hashJournalProductValuePayload(hasher, ref, ValueType, value),
+                    .sum => try hashJournalSumValuePayload(hasher, ref, ValueType, value),
+                }
+            }
+
+            fn hashJournalStructuredSchemaPrefix(
+                hasher: *std.hash.Wyhash,
+                comptime ref: lowering_api.ValueRef,
+                comptime ValueType: type,
+                comptime schema_index: usize,
+            ) Error!void {
+                inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                    if (schema_index == index) {
+                        if (SchemaType != ValueType) return error.ProgramContractViolation;
+                        const schema = compiled_plan.value_schemas[index];
+                        if (schema.codec != ref.codec) return error.ProgramContractViolation;
+                        hashU16(hasher, @intCast(index));
+                        hashBytes(hasher, schema.label);
+                        hashJournalCodec(hasher, schema.codec);
+                        return;
+                    }
+                }
+                return error.ProgramContractViolation;
+            }
+
+            fn hashJournalProductValuePayload(
+                hasher: *std.hash.Wyhash,
+                comptime ref: lowering_api.ValueRef,
+                comptime ValueType: type,
+                value: ValueType,
+            ) Error!void {
+                const schema_index = comptime ref.schema_index orelse return error.ProgramContractViolation;
+                try hashJournalStructuredSchemaPrefix(hasher, ref, ValueType, schema_index);
+                const schema = compiled_plan.value_schemas[schema_index];
+                if (schema.codec != .product) return error.ProgramContractViolation;
+                const fields = std.meta.fields(ValueType);
+                if (fields.len != schema.field_count) return error.ProgramContractViolation;
+                hashU16(hasher, schema.first_field);
+                hashU16(hasher, schema.field_count);
+                inline for (0..schema.field_count) |field_offset| {
+                    const field = compiled_plan.value_fields[@as(usize, schema.first_field) + field_offset];
+                    const field_ref: lowering_api.ValueRef = .{
+                        .codec = field.codec,
+                        .schema_index = field.schema_index,
+                    };
+                    hashU16(hasher, @intCast(field_offset));
+                    hashBytes(hasher, field.name);
+                    hashJournalTraceValueRef(hasher, field_ref);
+                    const field_fingerprint = try fingerprintJournalTypedValue(field_ref, @field(value, field.name));
+                    hashU64(hasher, field_fingerprint);
+                }
+            }
+
+            fn activeJournalVariantOrdinal(comptime ValueType: type, value: ValueType) Error!u16 {
+                return switch (@typeInfo(ValueType)) {
+                    .@"enum" => |enum_info| {
+                        inline for (enum_info.fields, 0..) |field, field_index| {
+                            if (value == @field(ValueType, field.name)) return @intCast(field_index);
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                    .@"union" => |union_info| {
+                        const Tag = union_info.tag_type orelse return error.ProgramContractViolation;
+                        const active = std.meta.activeTag(value);
+                        inline for (union_info.fields, 0..) |field, field_index| {
+                            if (active == @field(Tag, field.name)) return @intCast(field_index);
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                    .optional => if (value == null) 0 else 1,
+                    else => error.ProgramContractViolation,
+                };
+            }
+
+            fn hashJournalSumValuePayload(
+                hasher: *std.hash.Wyhash,
+                comptime ref: lowering_api.ValueRef,
+                comptime ValueType: type,
+                value: ValueType,
+            ) Error!void {
+                const schema_index = comptime ref.schema_index orelse return error.ProgramContractViolation;
+                try hashJournalStructuredSchemaPrefix(hasher, ref, ValueType, schema_index);
+                const schema = compiled_plan.value_schemas[schema_index];
+                if (schema.codec != .sum) return error.ProgramContractViolation;
+                const active = try activeJournalVariantOrdinal(ValueType, value);
+                if (active >= schema.variant_count) return error.ProgramContractViolation;
+                hashU16(hasher, schema.first_variant);
+                hashU16(hasher, schema.variant_count);
+                hashU16(hasher, active);
+                inline for (0..schema.variant_count) |variant_offset| {
+                    if (active == variant_offset) {
+                        const variant = compiled_plan.value_variants[@as(usize, schema.first_variant) + variant_offset];
+                        const variant_ref: lowering_api.ValueRef = .{
+                            .codec = variant.codec,
+                            .schema_index = variant.schema_index,
+                        };
+                        hashBytes(hasher, variant.name);
+                        hashJournalTraceValueRef(hasher, variant_ref);
+                        const payload_fingerprint = try journalSumVariantPayloadFingerprint(variant_offset, variant_ref, ValueType, value);
+                        hashU64(hasher, payload_fingerprint);
+                        return;
+                    }
+                }
+                return error.ProgramContractViolation;
+            }
+
+            fn journalSumVariantPayloadFingerprint(
+                comptime variant_offset: usize,
+                comptime variant_ref: lowering_api.ValueRef,
+                comptime ValueType: type,
+                value: ValueType,
+            ) Error!u64 {
+                return switch (@typeInfo(ValueType)) {
+                    .@"enum" => fingerprintJournalTypedValue(variant_ref, {}),
+                    .optional => if (variant_offset == 0)
+                        fingerprintJournalTypedValue(variant_ref, {})
+                    else
+                        fingerprintJournalTypedValue(variant_ref, value.?),
+                    .@"union" => |union_info| blk: {
+                        inline for (union_info.fields, 0..) |field, field_index| {
+                            if (variant_offset == field_index) {
+                                if (field.type == void) break :blk fingerprintJournalTypedValue(variant_ref, {});
+                                break :blk fingerprintJournalTypedValue(variant_ref, @field(value, field.name));
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                    else => error.ProgramContractViolation,
+                };
+            }
+
+            fn writeJournalValueRef(writer: *JournalWriter, ref: lowering_api.ValueRef) std.mem.Allocator.Error!void {
+                try writer.writeU8(@intFromEnum(ref.codec));
+                try writer.writeBool(ref.schema_index != null);
+                if (ref.schema_index) |schema_index| try writer.writeU16(schema_index);
+            }
+
+            fn readJournalCodec(reader: *JournalReader) error{ProgramContractViolation}!lowering_api.ValueCodec {
+                return switch (try reader.readU8()) {
+                    @intFromEnum(lowering_api.ValueCodec.unit) => .unit,
+                    @intFromEnum(lowering_api.ValueCodec.bool) => .bool,
+                    @intFromEnum(lowering_api.ValueCodec.i32) => .i32,
+                    @intFromEnum(lowering_api.ValueCodec.product) => .product,
+                    @intFromEnum(lowering_api.ValueCodec.usize) => .usize,
+                    @intFromEnum(lowering_api.ValueCodec.string) => .string,
+                    @intFromEnum(lowering_api.ValueCodec.string_list) => .string_list,
+                    @intFromEnum(lowering_api.ValueCodec.sum) => .sum,
+                    else => error.ProgramContractViolation,
+                };
+            }
+
+            fn readJournalValueRef(reader: *JournalReader) error{ProgramContractViolation}!lowering_api.ValueRef {
+                return .{
+                    .codec = try readJournalCodec(reader),
+                    .schema_index = if (try reader.readBool()) try reader.readU16() else null,
+                };
+            }
+
+            fn writeJournalResponseKind(writer: *JournalWriter, kind: Trace.ResponseKind) std.mem.Allocator.Error!void {
+                try writer.writeU8(switch (kind) {
+                    .@"resume" => 0,
+                    .return_now => 1,
+                    .resume_after => 2,
+                });
+            }
+
+            fn readJournalResponseKind(reader: *JournalReader) error{ProgramContractViolation}!Trace.ResponseKind {
+                return switch (try reader.readU8()) {
+                    0 => .@"resume",
+                    1 => .return_now,
+                    2 => .resume_after,
+                    else => error.ProgramContractViolation,
+                };
+            }
+
+            fn writeJournalControlMode(writer: *JournalWriter, mode: plan_types.ControlMode) std.mem.Allocator.Error!void {
+                try writer.writeU8(switch (mode) {
+                    .abort => 0,
+                    .choice => 1,
+                    .transform => 2,
+                });
+            }
+
+            fn readJournalControlMode(reader: *JournalReader) error{ProgramContractViolation}!plan_types.ControlMode {
+                return switch (try reader.readU8()) {
+                    0 => .abort,
+                    1 => .choice,
+                    2 => .transform,
+                    else => error.ProgramContractViolation,
+                };
+            }
+
+            fn writeJournalImageString(
+                writer: *JournalWriter,
+                context: *Journal.JournalValueImageContext,
+                value: []const u8,
+            ) std.mem.Allocator.Error!void {
+                if (context.stringIndex(value)) |index| {
+                    try writer.writeU8(1);
+                    try writer.writeUsize(index);
+                    return;
+                }
+                try writer.writeU8(0);
+                try context.strings.append(context.allocator, value);
+                try writer.writeLenBytes(value);
+            }
+
+            fn readJournalImageString(
+                reader: *JournalReader,
+                context: *Journal.JournalValueImageContext,
+            ) anyerror![]const u8 {
+                return switch (try reader.readU8()) {
+                    0 => blk: {
+                        const value = try reader.readLenBytes();
+                        try context.strings.append(context.allocator, value);
+                        break :blk value;
+                    },
+                    1 => blk: {
+                        const index = try reader.readUsize();
+                        if (index >= context.strings.items.len) return error.ProgramContractViolation;
+                        break :blk context.strings.items[index];
+                    },
+                    else => error.ProgramContractViolation,
+                };
+            }
+
+            fn writeJournalImageStringList(
+                writer: *JournalWriter,
+                context: *Journal.JournalValueImageContext,
+                value: []const []const u8,
+            ) anyerror!void {
+                if (context.stringListIndex(value)) |index| {
+                    try writer.writeU8(1);
+                    try writer.writeUsize(index);
+                    return;
+                }
+                try writer.writeU8(0);
+                try context.string_lists.append(context.allocator, value);
+                try writer.writeUsize(value.len);
+                for (value) |item| try writeJournalImageString(writer, context, item);
+            }
+
+            fn writeJournalTypedValue(
+                writer: *JournalWriter,
+                context: *Journal.JournalValueImageContext,
+                comptime ref: lowering_api.ValueRef,
+                value: anytype,
+            ) anyerror!void {
+                const ValueType = @TypeOf(value);
+                if (comptime !ProgramValueRefMatchesType(body_value_schema_types, ref, ValueType)) return error.ProgramContractViolation;
+                switch (comptime ref.codec) {
+                    .unit => {},
+                    .bool => try writer.writeBool(value),
+                    .i32 => try writer.writeU32(@bitCast(value)),
+                    .usize => try writer.writeUsize(value),
+                    .string => try writeJournalImageString(writer, context, value),
+                    .string_list => try writeJournalImageStringList(writer, context, value),
+                    .product => {
+                        const schema_index = comptime ref.schema_index orelse return error.ProgramContractViolation;
+                        const schema = compiled_plan.value_schemas[schema_index];
+                        if (schema.codec != .product) return error.ProgramContractViolation;
+                        const info = @typeInfo(ValueType).@"struct";
+                        if (info.fields.len != schema.field_count) return error.ProgramContractViolation;
+                        inline for (0..schema.field_count) |field_offset| {
+                            const field = compiled_plan.value_fields[@as(usize, schema.first_field) + field_offset];
+                            try writer.writeLenBytes(field.name);
+                            const field_ref: lowering_api.ValueRef = comptime .{ .codec = field.codec, .schema_index = field.schema_index };
+                            try writeJournalValueRef(writer, field_ref);
+                            const FieldType = @TypeOf(@field(value, field.name));
+                            try writeJournalTypedValue(writer, context, field_ref, @as(FieldType, @field(value, field.name)));
+                        }
+                    },
+                    .sum => switch (@typeInfo(ValueType)) {
+                        .@"enum" => try writer.writeLenBytes(@tagName(value)),
+                        .optional => {
+                            const schema_index = comptime ref.schema_index orelse return error.ProgramContractViolation;
+                            const schema = compiled_plan.value_schemas[schema_index];
+                            if (schema.codec != .sum or schema.variant_count != 2) return error.ProgramContractViolation;
+                            if (value) |payload| {
+                                const variant = compiled_plan.value_variants[@as(usize, schema.first_variant) + 1];
+                                try writer.writeLenBytes(variant.name);
+                                const payload_ref: lowering_api.ValueRef = comptime .{ .codec = variant.codec, .schema_index = variant.schema_index };
+                                try writeJournalValueRef(writer, payload_ref);
+                                try writeJournalTypedValue(writer, context, payload_ref, payload);
+                            } else {
+                                const variant = compiled_plan.value_variants[schema.first_variant];
+                                try writer.writeLenBytes(variant.name);
+                            }
+                        },
+                        .@"union" => |union_info| {
+                            const schema_index = comptime ref.schema_index orelse return error.ProgramContractViolation;
+                            const schema = compiled_plan.value_schemas[schema_index];
+                            if (schema.codec != .sum) return error.ProgramContractViolation;
+                            const tag = std.meta.activeTag(value);
+                            inline for (union_info.fields, 0..) |field, field_index| {
+                                if (tag == @field(union_info.tag_type.?, field.name)) {
+                                    const variant = compiled_plan.value_variants[@as(usize, schema.first_variant) + field_index];
+                                    try writer.writeLenBytes(variant.name);
+                                    if (field.type == void) return;
+                                    const payload_ref: lowering_api.ValueRef = comptime .{ .codec = variant.codec, .schema_index = variant.schema_index };
+                                    try writeJournalValueRef(writer, payload_ref);
+                                    try writeJournalTypedValue(writer, context, payload_ref, @field(value, field.name));
+                                    return;
+                                }
+                            }
+                            return error.ProgramContractViolation;
+                        },
+                        else => return error.ProgramContractViolation,
+                    },
+                }
+            }
+
+            fn readJournalTypedValue(
+                reader: *JournalReader,
+                replayer: *Journal.Replayer,
+                context: *Journal.JournalValueImageContext,
+                comptime ref: lowering_api.ValueRef,
+                comptime ValueType: type,
+            ) anyerror!ValueType {
+                if (comptime !ProgramValueRefMatchesType(body_value_schema_types, ref, ValueType)) return error.ProgramContractViolation;
+                return switch (comptime ref.codec) {
+                    .unit => {},
+                    .bool => try reader.readBool(),
+                    .i32 => @as(i32, @bitCast(try reader.readU32())),
+                    .usize => try reader.readUsize(),
+                    .string => try readJournalImageString(reader, context),
+                    .string_list => blk: {
+                        const items = try readJournalStringList(reader, replayer, context);
+                        if (ValueType == []const []const u8) break :blk items;
+                        if (ValueType == [][]const u8) break :blk @constCast(items);
+                        return error.ProgramContractViolation;
+                    },
+                    .product => blk: {
+                        var value: ValueType = undefined;
+                        const schema_index = comptime ref.schema_index orelse return error.ProgramContractViolation;
+                        const schema = compiled_plan.value_schemas[schema_index];
+                        if (schema.codec != .product) return error.ProgramContractViolation;
+                        const info = @typeInfo(ValueType).@"struct";
+                        if (info.fields.len != schema.field_count) return error.ProgramContractViolation;
+                        inline for (0..schema.field_count) |field_offset| {
+                            const field = compiled_plan.value_fields[@as(usize, schema.first_field) + field_offset];
+                            if (!std.mem.eql(u8, try reader.readLenBytes(), field.name)) return error.ProgramContractViolation;
+                            const field_ref: lowering_api.ValueRef = comptime .{ .codec = field.codec, .schema_index = field.schema_index };
+                            const encoded_ref = try readJournalValueRef(reader);
+                            if (!encoded_ref.eql(field_ref)) return error.ProgramContractViolation;
+                            const struct_field = std.meta.fields(ValueType)[field_offset];
+                            const decoded_field = try readJournalTypedValue(reader, replayer, context, field_ref, struct_field.type);
+                            if (comptime field.codec == .string_list and struct_field.type == [][]const u8) {
+                                @field(value, field.name) = @constCast(decoded_field);
+                            } else {
+                                @field(value, field.name) = decoded_field;
+                            }
+                        }
+                        break :blk value;
+                    },
+                    .sum => switch (@typeInfo(ValueType)) {
+                        .@"enum" => blk: {
+                            const tag_name = try reader.readLenBytes();
+                            inline for (@typeInfo(ValueType).@"enum".fields) |field| {
+                                if (std.mem.eql(u8, tag_name, field.name)) break :blk @field(ValueType, field.name);
+                            }
+                            return error.ProgramContractViolation;
+                        },
+                        .optional => |optional| blk: {
+                            const schema_index = comptime ref.schema_index orelse return error.ProgramContractViolation;
+                            const schema = compiled_plan.value_schemas[schema_index];
+                            if (schema.codec != .sum or schema.variant_count != 2) return error.ProgramContractViolation;
+                            const tag_name = try reader.readLenBytes();
+                            const none_variant = compiled_plan.value_variants[schema.first_variant];
+                            const some_variant = compiled_plan.value_variants[@as(usize, schema.first_variant) + 1];
+                            if (std.mem.eql(u8, tag_name, none_variant.name)) break :blk null;
+                            if (!std.mem.eql(u8, tag_name, some_variant.name)) return error.ProgramContractViolation;
+                            const variant = compiled_plan.value_variants[@as(usize, schema.first_variant) + 1];
+                            const payload_ref: lowering_api.ValueRef = comptime .{ .codec = variant.codec, .schema_index = variant.schema_index };
+                            const encoded_ref = try readJournalValueRef(reader);
+                            if (!encoded_ref.eql(payload_ref)) return error.ProgramContractViolation;
+                            break :blk try readJournalTypedValue(reader, replayer, context, payload_ref, optional.child);
+                        },
+                        .@"union" => |union_info| blk: {
+                            const schema_index = comptime ref.schema_index orelse return error.ProgramContractViolation;
+                            const schema = compiled_plan.value_schemas[schema_index];
+                            if (schema.codec != .sum) return error.ProgramContractViolation;
+                            const tag_name = try reader.readLenBytes();
+                            inline for (union_info.fields, 0..) |field, field_index| {
+                                if (std.mem.eql(u8, tag_name, field.name)) {
+                                    if (field.type == void) break :blk @unionInit(ValueType, field.name, {});
+                                    const variant = compiled_plan.value_variants[@as(usize, schema.first_variant) + field_index];
+                                    const payload_ref: lowering_api.ValueRef = comptime .{ .codec = variant.codec, .schema_index = variant.schema_index };
+                                    const encoded_ref = try readJournalValueRef(reader);
+                                    if (!encoded_ref.eql(payload_ref)) return error.ProgramContractViolation;
+                                    break :blk @unionInit(ValueType, field.name, try readJournalTypedValue(reader, replayer, context, payload_ref, field.type));
+                                }
+                            }
+                            return error.ProgramContractViolation;
+                        },
+                        else => return error.ProgramContractViolation,
+                    },
+                };
+            }
+
+            fn readJournalStringList(
+                reader: *JournalReader,
+                replayer: *Journal.Replayer,
+                context: *Journal.JournalValueImageContext,
+            ) anyerror![]const []const u8 {
+                return switch (try reader.readU8()) {
+                    0 => blk: {
+                        const count = try reader.readUsize();
+                        if (count > reader.remaining() / 8) return error.ProgramContractViolation;
+                        const items = try replayer.journal.allocator.alloc([]const u8, count);
+                        var items_owned = false;
+                        errdefer if (!items_owned) replayer.journal.allocator.free(items);
+                        for (items) |*item| item.* = try readJournalImageString(reader, context);
+                        try context.string_lists.append(context.allocator, items);
+                        try replayer.string_lists.append(replayer.journal.allocator, items);
+                        items_owned = true;
+                        break :blk items;
+                    },
+                    1 => blk: {
+                        const index = try reader.readUsize();
+                        if (index >= context.string_lists.items.len) return error.ProgramContractViolation;
+                        break :blk context.string_lists.items[index];
+                    },
+                    else => error.ProgramContractViolation,
+                };
+            }
+
+            fn writeJournalRequestTrace(writer: *JournalWriter, trace: Journal.RequestTrace) anyerror!void {
+                try Journal.validateJournalRequestTrace(trace);
+                switch (trace) {
+                    .operation => |operation| {
+                        try writer.writeU8(0);
+                        try writer.writeU64(operation.fingerprint);
+                        try writer.writeUsize(operation.turn_index);
+                        try writer.writeUsize(operation.operation_site_index);
+                        try writer.writeU64(operation.operation_site_fingerprint);
+                        try writer.writeBool(operation.semantic_label != null);
+                        if (operation.semantic_label) |semantic_label| try writer.writeLenBytes(semantic_label);
+                        try writer.writeUsize(operation.function_index);
+                        try writer.writeUsize(operation.block_index);
+                        try writer.writeUsize(operation.instruction_index);
+                        try writer.writeU16(operation.requirement_index);
+                        try writer.writeLenBytes(operation.requirement_label);
+                        try writer.writeU16(operation.op_index);
+                        try writer.writeLenBytes(operation.op_name);
+                        try writeJournalControlMode(writer, operation.mode);
+                        try writeJournalValueRef(writer, operation.payload_ref);
+                        try writer.writeBool(operation.has_payload);
+                        try writer.writeU64(operation.payload_value_fingerprint);
+                        try writeJournalValueRef(writer, operation.resume_ref);
+                        try writeJournalValueRef(writer, operation.result_ref);
+                        try writer.writeBool(operation.has_after);
+                    },
+                    .after => |after| {
+                        try writer.writeU8(1);
+                        try writer.writeU64(after.fingerprint);
+                        try writer.writeUsize(after.turn_index);
+                        try writer.writeUsize(after.after_site_index);
+                        try writer.writeU64(after.after_site_fingerprint);
+                        try writer.writeUsize(after.source_operation_site_index);
+                        try writer.writeU64(after.source_operation_site_fingerprint);
+                        try writer.writeBool(after.semantic_label != null);
+                        if (after.semantic_label) |semantic_label| try writer.writeLenBytes(semantic_label);
+                        try writer.writeUsize(after.function_index);
+                        try writer.writeUsize(after.block_index);
+                        try writer.writeUsize(after.instruction_index);
+                        try writer.writeU16(after.original_requirement_index);
+                        try writer.writeLenBytes(after.original_requirement_label);
+                        try writer.writeU16(after.original_op_index);
+                        try writer.writeLenBytes(after.original_op_name);
+                        try writeJournalValueRef(writer, after.current_value_ref);
+                        try writer.writeU64(after.current_value_fingerprint);
+                        try writeJournalValueRef(writer, after.expected_output_ref);
+                        try writeJournalValueRef(writer, after.result_ref);
+                    },
+                }
+            }
+
+            fn readJournalRequestTrace(reader: *JournalReader, allocator: std.mem.Allocator) anyerror!Journal.RequestTrace {
+                return switch (try reader.readU8()) {
+                    0 => blk: {
+                        const fingerprint = try reader.readU64();
+                        const turn_index = try reader.readUsize();
+                        const operation_site_index = try reader.readUsize();
+                        const operation_site_fingerprint = try reader.readU64();
+                        const semantic_label = if (try reader.readBool()) try allocator.dupe(u8, try reader.readLenBytes()) else null;
+                        errdefer if (semantic_label) |label_bytes| allocator.free(label_bytes);
+                        const function_index = try reader.readUsize();
+                        const block_index = try reader.readUsize();
+                        const instruction_index = try reader.readUsize();
+                        const requirement_index = try reader.readU16();
+                        const requirement_label = try allocator.dupe(u8, try reader.readLenBytes());
+                        errdefer allocator.free(requirement_label);
+                        const op_index = try reader.readU16();
+                        const op_name = try allocator.dupe(u8, try reader.readLenBytes());
+                        errdefer allocator.free(op_name);
+                        const mode = try readJournalControlMode(reader);
+                        const trace: Trace.OperationRequest = .{
+                            .program_label = label,
+                            .plan_label = body_compiled_plan.label,
+                            .plan_hash = body_compiled_plan_hash,
+                            .fingerprint = fingerprint,
+                            .turn_index = turn_index,
+                            .operation_site_index = operation_site_index,
+                            .operation_site_fingerprint = operation_site_fingerprint,
+                            .semantic_label = semantic_label,
+                            .function_index = function_index,
+                            .block_index = block_index,
+                            .instruction_index = instruction_index,
+                            .requirement_index = requirement_index,
+                            .requirement_label = requirement_label,
+                            .op_index = op_index,
+                            .op_name = op_name,
+                            .mode = mode,
+                            .payload_ref = try readJournalValueRef(reader),
+                            .has_payload = try reader.readBool(),
+                            .payload_value_fingerprint = try reader.readU64(),
+                            .resume_ref = try readJournalValueRef(reader),
+                            .result_ref = try readJournalValueRef(reader),
+                            .has_after = try reader.readBool(),
+                        };
+                        try Journal.validateJournalRequestTrace(.{ .operation = trace });
+                        if (trace.fingerprint != fingerprintJournalOperationRequestTrace(trace)) return error.ProgramContractViolation;
+                        break :blk .{ .operation = trace };
+                    },
+                    1 => blk: {
+                        const fingerprint = try reader.readU64();
+                        const turn_index = try reader.readUsize();
+                        const after_site_index = try reader.readUsize();
+                        const after_site_fingerprint = try reader.readU64();
+                        const source_operation_site_index = try reader.readUsize();
+                        const source_operation_site_fingerprint = try reader.readU64();
+                        const semantic_label = if (try reader.readBool()) try allocator.dupe(u8, try reader.readLenBytes()) else null;
+                        errdefer if (semantic_label) |label_bytes| allocator.free(label_bytes);
+                        const function_index = try reader.readUsize();
+                        const block_index = try reader.readUsize();
+                        const instruction_index = try reader.readUsize();
+                        const original_requirement_index = try reader.readU16();
+                        const original_requirement_label = try allocator.dupe(u8, try reader.readLenBytes());
+                        errdefer allocator.free(original_requirement_label);
+                        const original_op_index = try reader.readU16();
+                        const original_op_name = try allocator.dupe(u8, try reader.readLenBytes());
+                        errdefer allocator.free(original_op_name);
+                        const trace: Trace.AfterRequest = .{
+                            .program_label = label,
+                            .plan_label = body_compiled_plan.label,
+                            .plan_hash = body_compiled_plan_hash,
+                            .fingerprint = fingerprint,
+                            .turn_index = turn_index,
+                            .after_site_index = after_site_index,
+                            .after_site_fingerprint = after_site_fingerprint,
+                            .source_operation_site_index = source_operation_site_index,
+                            .source_operation_site_fingerprint = source_operation_site_fingerprint,
+                            .semantic_label = semantic_label,
+                            .function_index = function_index,
+                            .block_index = block_index,
+                            .instruction_index = instruction_index,
+                            .original_requirement_index = original_requirement_index,
+                            .original_requirement_label = original_requirement_label,
+                            .original_op_index = original_op_index,
+                            .original_op_name = original_op_name,
+                            .current_value_ref = try readJournalValueRef(reader),
+                            .current_value_fingerprint = try reader.readU64(),
+                            .expected_output_ref = try readJournalValueRef(reader),
+                            .result_ref = try readJournalValueRef(reader),
+                        };
+                        if (trace.fingerprint != fingerprintJournalAfterRequestTrace(trace)) return error.ProgramContractViolation;
+                        break :blk .{ .after = trace };
+                    },
+                    else => error.ProgramContractViolation,
+                };
+            }
+
+            fn writeJournalEntry(writer: *JournalWriter, entry: Journal.Entry) anyerror!void {
+                switch (entry) {
+                    .request => |trace| {
+                        try writer.writeU8(0);
+                        try writeJournalRequestTrace(writer, trace);
+                    },
+                    .response => |response| {
+                        try writer.writeU8(1);
+                        try writer.writeU64(response.trace.request_fingerprint);
+                        try writeJournalResponseKind(writer, response.trace.kind);
+                        try writeJournalValueRef(writer, response.trace.response_ref);
+                        try writer.writeU64(response.trace.response_value_fingerprint);
+                        try writer.writeU64(response.trace.fingerprint);
+                        try writer.writeBool(response.value_image != null);
+                        if (response.value_image) |value_image| try writer.writeLenBytes(value_image);
+                    },
+                    .capsule_image => |image| {
+                        try writer.writeU8(2);
+                        try writer.writeU64(image.image_fingerprint);
+                        try writer.writeU64(image.capsule_fingerprint);
+                        try writer.writeU64(image.current_request_fingerprint);
+                        try writer.writeLenBytes(image.bytes);
+                    },
+                    .done => |fingerprint| {
+                        try writer.writeU8(3);
+                        try writer.writeU64(fingerprint);
+                    },
+                }
+            }
+
+            fn readJournalEntry(reader: *JournalReader, allocator: std.mem.Allocator) anyerror!Journal.Entry {
+                return switch (try reader.readU8()) {
+                    0 => .{ .request = try readJournalRequestTrace(reader, allocator) },
+                    1 => blk: {
+                        const trace: Trace.Response = .{
+                            .request_fingerprint = try reader.readU64(),
+                            .kind = try readJournalResponseKind(reader),
+                            .response_ref = try readJournalValueRef(reader),
+                            .response_value_fingerprint = try reader.readU64(),
+                            .fingerprint = try reader.readU64(),
+                        };
+                        if (trace.fingerprint != fingerprintJournalResponseTrace(trace)) return error.ProgramContractViolation;
+                        const value_image = if (try reader.readBool()) blk_value: {
+                            const image = try allocator.dupe(u8, try reader.readLenBytes());
+                            errdefer allocator.free(image);
+                            try validateJournalResponseValueImage(allocator, trace, image);
+                            break :blk_value image;
+                        } else null;
+                        break :blk .{ .response = .{
+                            .trace = trace,
+                            .value_image = value_image,
+                        } };
+                    },
+                    2 => blk: {
+                        const image_fingerprint = try reader.readU64();
+                        const capsule_fingerprint = try reader.readU64();
+                        const current_request_fingerprint = try reader.readU64();
+                        const source = try reader.readLenBytes();
+                        const bytes = try allocator.dupe(u8, source);
+                        errdefer allocator.free(bytes);
+                        if (image_fingerprint != capsuleImageFingerprint(bytes)) return error.ProgramContractViolation;
+                        var decoded = Core.Capsule.decode(allocator, bytes) catch |err| return mapProgramRunError(Error, err);
+                        defer decoded.deinit();
+                        const metadata = decoded.metadata();
+                        if (capsule_fingerprint != decoded.fingerprint() or
+                            current_request_fingerprint != metadata.current_request_fingerprint)
+                        {
+                            return error.ProgramContractViolation;
+                        }
+                        break :blk .{ .capsule_image = .{
+                            .image_fingerprint = image_fingerprint,
+                            .capsule_fingerprint = capsule_fingerprint,
+                            .current_request_fingerprint = current_request_fingerprint,
+                            .bytes = bytes,
+                        } };
+                    },
+                    3 => .{ .done = try reader.readU64() },
+                    else => error.ProgramContractViolation,
+                };
+            }
 
             /// Start a host-driven execution session without leaving runtime execution active.
             pub fn start(runtime: *lowered_machine.Runtime, handlers: HandlersType) Error!Session {
@@ -5154,14 +6696,14 @@ pub fn program(
                         .@"resume" => |value| resume_branch: {
                             if (!Site.may_resume) return error.ProgramContractViolation;
                             const response_trace = typed.responseTrace(.@"resume", value) catch |err| return mapProgramRunError(Error, err);
-                            try recordTrace(options, (try traceFor(current)).operation, response_trace);
+                            try recordTraceValue(options, (try traceFor(current)).operation, response_trace, value);
                             try session.resumeTyped(typed, value);
                             break :resume_branch null;
                         },
                         .return_now => |value| return_now: {
                             if (!Site.may_return_now) return error.ProgramContractViolation;
                             const response_trace = typed.responseTrace(.return_now, value) catch |err| return mapProgramRunError(Error, err);
-                            try recordTrace(options, (try traceFor(current)).operation, response_trace);
+                            try recordTraceValue(options, (try traceFor(current)).operation, response_trace, value);
                             try session.returnNowTyped(typed, value);
                             break :return_now null;
                         },
@@ -5188,14 +6730,14 @@ pub fn program(
                         .@"resume" => |value| resume_branch: {
                             if (!Site.may_resume) return error.ProgramContractViolation;
                             const response_trace = typed.responseTrace(.@"resume", value) catch |err| return mapProgramRunError(Error, err);
-                            try recordTrace(options, (try traceFor(current)).operation, response_trace);
+                            try recordTraceValue(options, (try traceFor(current)).operation, response_trace, value);
                             try session.resumeTyped(typed, value);
                             break :resume_branch null;
                         },
                         .return_now => |value| return_now: {
                             if (!Site.may_return_now) return error.ProgramContractViolation;
                             const response_trace = typed.responseTrace(.return_now, value) catch |err| return mapProgramRunError(Error, err);
-                            try recordTrace(options, (try traceFor(current)).operation, response_trace);
+                            try recordTraceValue(options, (try traceFor(current)).operation, response_trace, value);
                             try session.returnNowTyped(typed, value);
                             break :return_now null;
                         },
@@ -5393,7 +6935,7 @@ pub fn program(
                     return switch (outcome) {
                         .resume_after => |value| resume_after: {
                             const response_trace = afterResponseTraceForValue(typed, value) catch |err| return mapProgramRunError(Error, err);
-                            try recordTrace(options, (try traceFor(current)).after, response_trace);
+                            try recordTraceDynamicValue(options, (try traceFor(current)).after, response_trace, value);
                             try resumeAfterWithValue(session, typed, value);
                             break :resume_after null;
                         },
@@ -5411,6 +6953,61 @@ pub fn program(
                             _ = options.trace_recorder.record(request_trace, response_trace);
                         }
                     }
+                    if (comptime @typeInfo(@TypeOf(options)) == .@"struct" and @hasField(@TypeOf(options), "journal_recorder")) {
+                        var journal_recorder = options.journal_recorder;
+                        if (comptime @typeInfo(@TypeOf(journal_recorder.record(request_trace, response_trace))) == .error_union) {
+                            journal_recorder.record(request_trace, response_trace) catch |err| return mapProgramRunError(Error, err);
+                        } else {
+                            _ = journal_recorder.record(request_trace, response_trace);
+                        }
+                    }
+                }
+
+                fn recordTraceValue(options: anytype, request_trace: anytype, response_trace: Session.Trace.Response, value: anytype) Error!void {
+                    if (comptime @typeInfo(@TypeOf(options)) == .@"struct" and @hasField(@TypeOf(options), "trace_recorder")) {
+                        if (comptime @typeInfo(@TypeOf(options.trace_recorder.record(request_trace, response_trace))) == .error_union) {
+                            options.trace_recorder.record(request_trace, response_trace) catch |err| return mapProgramRunError(Error, err);
+                        } else {
+                            _ = options.trace_recorder.record(request_trace, response_trace);
+                        }
+                    }
+                    if (comptime @typeInfo(@TypeOf(options)) == .@"struct" and @hasField(@TypeOf(options), "journal_recorder")) {
+                        var journal_recorder = options.journal_recorder;
+                        const JournalRecorderType = @TypeOf(journal_recorder);
+                        const JournalRecorderDeclType = switch (@typeInfo(JournalRecorderType)) {
+                            .pointer => |pointer| pointer.child,
+                            else => JournalRecorderType,
+                        };
+                        if (comptime @hasDecl(JournalRecorderDeclType, "recordValue")) {
+                            if (comptime @typeInfo(@TypeOf(journal_recorder.recordValue(request_trace, response_trace, value))) == .error_union) {
+                                journal_recorder.recordValue(request_trace, response_trace, value) catch |err| return mapProgramRunError(Error, err);
+                            } else {
+                                _ = journal_recorder.recordValue(request_trace, response_trace, value);
+                            }
+                        } else if (comptime @typeInfo(@TypeOf(journal_recorder.record(request_trace, response_trace))) == .error_union) {
+                            journal_recorder.record(request_trace, response_trace) catch |err| return mapProgramRunError(Error, err);
+                        } else {
+                            _ = journal_recorder.record(request_trace, response_trace);
+                        }
+                    }
+                }
+
+                fn recordTraceDynamicValue(options: anytype, request_trace: anytype, response_trace: Session.Trace.Response, value: Handler.DynamicValue) Error!void {
+                    return switch (value.ref.codec) {
+                        .unit => try recordTraceValue(options, request_trace, response_trace, try value.as(void)),
+                        .bool => try recordTraceValue(options, request_trace, response_trace, try value.as(bool)),
+                        .i32 => try recordTraceValue(options, request_trace, response_trace, try value.as(i32)),
+                        .usize => try recordTraceValue(options, request_trace, response_trace, try value.as(usize)),
+                        .string => try recordTraceValue(options, request_trace, response_trace, try value.as([]const u8)),
+                        .string_list => try recordTraceValue(options, request_trace, response_trace, try value.as([]const []const u8)),
+                        .product, .sum => {
+                            const schema_index = value.ref.schema_index orelse return error.ProgramContractViolation;
+                            inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                                if (schema_index == index) return try recordTraceValue(options, request_trace, response_trace, try value.as(SchemaType));
+                            }
+                            return error.ProgramContractViolation;
+                        },
+                    };
                 }
 
                 fn buildReinterpreted(
