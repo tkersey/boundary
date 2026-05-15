@@ -4788,9 +4788,12 @@ pub fn ExecutableSessionForPlan(
                     if (!(try readValueRef(reader)).eql(variant_ref)) return error.ProgramContractViolation;
                     return switch (@typeInfo(T)) {
                         .@"enum" => blk: {
-                            _ = try readTypedValue(reader, scratch, context, variant_ref);
                             inline for (std.meta.fields(T), 0..) |field, field_index| {
-                                if (active == field_index) break :blk @field(T, field.name);
+                                if (active == field_index) {
+                                    if (!std.mem.eql(u8, field.name, variant.name)) return error.ProgramContractViolation;
+                                    _ = try readTypedValue(reader, scratch, context, variant_ref);
+                                    break :blk @field(T, field.name);
+                                }
                             }
                             return error.ProgramContractViolation;
                         },
@@ -4807,6 +4810,7 @@ pub fn ExecutableSessionForPlan(
                         .@"union" => |union_info| blk: {
                             inline for (union_info.fields, 0..) |field, field_index| {
                                 if (variant_offset == field_index) {
+                                    if (!std.mem.eql(u8, field.name, variant.name)) return error.ProgramContractViolation;
                                     if (field.type == void) {
                                         _ = try readTypedValue(reader, scratch, context, variant_ref);
                                         break :blk @unionInit(T, field.name, {});
@@ -8059,6 +8063,68 @@ fn supportLastReturnAliasedPayloadPlan(comptime Payload: type) program_plan.Prog
     }) catch |err| supportPlanError(err);
 }
 
+fn supportLastReturnSumPayloadPlan(comptime Payload: type) program_plan.ProgramPlan {
+    const root = program_plan.program_plan_builder.function(0);
+    const payload = program_plan.program_plan_builder.local(root, 0);
+    const resumed = program_plan.program_plan_builder.local(root, 1);
+    const instructions = [_]program_plan.Instruction{
+        program_plan.program_plan_builder.returnValue(root, payload) catch |err| supportPlanError(err),
+        program_plan.program_plan_builder.callOp(root, resumed, program_plan.program_plan_builder.op(root, 0), payload) catch |err| supportPlanError(err),
+        program_plan.program_plan_builder.returnValue(root, payload) catch |err| supportPlanError(err),
+    };
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .value_codec = .sum,
+        .value_schema_index = 0,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 2,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]program_plan.RequirementPlan{.{ .label = "mutable", .first_op = 0, .op_count = 1 }};
+    const ops = [_]program_plan.OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "payload",
+        .mode = .transform,
+        .payload_codec = .sum,
+        .payload_schema_index = 0,
+        .resume_codec = .i32,
+    }};
+    const schema = ValueSchemaRegistryForTypes(.{Payload});
+    const blocks = [_]program_plan.BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 2, .terminator_index = 1 },
+    };
+    const terminators = [_]program_plan.Terminator{
+        .{ .kind = .jump, .primary = 1 },
+        .{ .kind = .return_value },
+    };
+    return program_plan.program_plan_builder.finish(.{
+        .label = "session-last-return-sum-payload",
+        .ir_hash = 122,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .value_schemas = schema.value_schemas,
+        .value_fields = schema.value_fields,
+        .value_variants = schema.value_variants,
+        .locals = &.{ .{ .codec = .sum, .schema_index = 0 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch |err| supportPlanError(err);
+}
+
 fn supportUnitPlan(comptime label: []const u8) program_plan.ProgramPlan {
     const root = program_plan.program_plan_builder.function(0);
     const functions = [_]program_plan.FunctionPlan{.{
@@ -9461,6 +9527,64 @@ test "Program.Session capsule image rejects product carrier field drift" {
 
     var items = [_][]const u8{ "left", "right" };
     var session = try StoredSession.start(std.testing.allocator, .{StoredPayload{ .items = items[0..] }});
+    defer session.deinit();
+    _ = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    const image = try capsule.encode(std.testing.allocator);
+    defer std.testing.allocator.free(image);
+
+    try std.testing.expectError(error.ProgramContractViolation, DriftedSession.Capsule.decode(std.testing.allocator, image));
+}
+
+test "Program.Session capsule image rejects enum carrier variant drift" {
+    const StoredPayload = enum {
+        approved,
+        denied,
+    };
+    const DriftedPayload = enum {
+        accepted,
+        denied,
+    };
+    const plan = supportLastReturnSumPayloadPlan(StoredPayload);
+    const owner = struct {};
+    const StoredSession = ExecutableSessionForPlan(error{}, "capsule-enum-variant-drift", plan, &.{StoredPayload}, &.{}, struct {}, owner);
+    const DriftedSession = ExecutableSessionForPlan(error{}, "capsule-enum-variant-drift", plan, &.{DriftedPayload}, &.{}, struct {}, owner);
+
+    var session = try StoredSession.start(std.testing.allocator, .{StoredPayload.approved});
+    defer session.deinit();
+    _ = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    const image = try capsule.encode(std.testing.allocator);
+    defer std.testing.allocator.free(image);
+
+    try std.testing.expectError(error.ProgramContractViolation, DriftedSession.Capsule.decode(std.testing.allocator, image));
+}
+
+test "Program.Session capsule image rejects union carrier variant drift" {
+    const StoredPayload = union(enum) {
+        approved: i32,
+        denied,
+    };
+    const DriftedPayload = union(enum) {
+        accepted: i32,
+        denied,
+    };
+    const plan = supportLastReturnSumPayloadPlan(StoredPayload);
+    const owner = struct {};
+    const StoredSession = ExecutableSessionForPlan(error{}, "capsule-union-variant-drift", plan, &.{StoredPayload}, &.{}, struct {}, owner);
+    const DriftedSession = ExecutableSessionForPlan(error{}, "capsule-union-variant-drift", plan, &.{DriftedPayload}, &.{}, struct {}, owner);
+
+    var session = try StoredSession.start(std.testing.allocator, .{StoredPayload{ .approved = 7 }});
     defer session.deinit();
     _ = switch (try session.next()) {
         .request => |request| request,
