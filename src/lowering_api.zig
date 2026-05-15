@@ -4744,6 +4744,8 @@ pub fn ExecutableSessionForPlan(
         ) anyerror!T {
             const schema = compiled_plan.value_schemas[schema_index];
             if (schema.codec != .product) return error.ProgramContractViolation;
+            const fields = std.meta.fields(T);
+            if (fields.len != schema.field_count) return error.ProgramContractViolation;
             if (try reader.readU16() != schema.first_field) return error.ProgramContractViolation;
             if (try reader.readU16() != schema.field_count) return error.ProgramContractViolation;
             var value: T = undefined;
@@ -4754,7 +4756,7 @@ pub fn ExecutableSessionForPlan(
                 const field_ref: program_plan.ValueRef = .{ .codec = field.codec, .schema_index = field.schema_index };
                 if (!(try readValueRef(reader)).eql(field_ref)) return error.ProgramContractViolation;
                 const decoded_field = try readTypedValue(reader, scratch, context, field_ref);
-                const struct_field = std.meta.fields(T)[field_offset];
+                const struct_field = fields[field_offset];
                 if (comptime field.codec == .string_list and struct_field.type == [][]const u8) {
                     @field(value, field.name) = @constCast(decoded_field);
                 } else {
@@ -5431,7 +5433,7 @@ pub fn ExecutableSessionForPlan(
         }
 
         fn writeCoreImage(writer: *DurableWriter, self: *const Self) anyerror!void {
-            var context = DurableValueImageContext.init(self.allocator);
+            var context = DurableValueImageContext.init(writer.allocator);
             defer context.deinit();
 
             try writer.writeUsize(self.remaining_steps);
@@ -9422,4 +9424,33 @@ test "Program.Session terminal precheck preserves frames on caller result mismat
         validateSessionTerminalPropagation(plan, &scratch, &frames, .{ .string = "terminal" }),
     );
     try std.testing.expectEqual(@as(usize, 2), frames.len());
+}
+
+test "Program.Session capsule image rejects product carrier field drift" {
+    const StoredPayload = struct {
+        items: [][]const u8,
+    };
+    const DriftedPayload = struct {
+        items: [][]const u8,
+        extra: i32,
+    };
+    const plan = supportLastReturnAliasedPayloadPlan(StoredPayload);
+    const owner = struct {};
+    const StoredSession = ExecutableSessionForPlan(error{}, "capsule-product-field-drift", plan, &.{StoredPayload}, &.{}, struct {}, owner);
+    const DriftedSession = ExecutableSessionForPlan(error{}, "capsule-product-field-drift", plan, &.{DriftedPayload}, &.{}, struct {}, owner);
+
+    var items = [_][]const u8{ "left", "right" };
+    var session = try StoredSession.start(std.testing.allocator, .{StoredPayload{ .items = items[0..] }});
+    defer session.deinit();
+    _ = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    const image = try capsule.encode(std.testing.allocator);
+    defer std.testing.allocator.free(image);
+
+    try std.testing.expectError(error.ProgramContractViolation, DriftedSession.Capsule.decode(std.testing.allocator, image));
 }

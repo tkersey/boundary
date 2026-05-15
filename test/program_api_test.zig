@@ -8834,6 +8834,33 @@ test "Program.Session capsule image rejects unreachable helper frame chains" {
     try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, missing_parent_wait));
 }
 
+test "Program.Session capsule image encode uses caller allocator for scratch" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "session-capsule-image-encode-allocator");
+    };
+    const Program = ability.program("session-capsule-image-encode-allocator", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    _ = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+
+    var capsule_allocator = CountingAllocator.init(std.testing.allocator);
+    var capsule = try session.capture(capsule_allocator.allocator());
+    defer capsule.deinit();
+    const capsule_allocator_events = capsule_allocator.allocationEvents();
+
+    var image = try capsule.encode(std.testing.allocator);
+    defer image.deinit();
+    try std.testing.expectEqual(capsule_allocator_events, capsule_allocator.allocationEvents());
+}
+
 test "Program.Session capsule rejects invalid pending after remaining counts" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
