@@ -1,58 +1,32 @@
-Iteration: 3
-# Effect Exchange ABI Implementation Plan
+Iteration: 7
+
+# Capability-Routed Effect Exchange Implementation Plan
 
 ## Summary
-Add a transport-neutral Effect Exchange ABI under the existing `Program` namespace. The exchange surface must make a compiled program's effect protocol manifest, yielded operation/after requests, host responses, continuation capsule images, and journal references exchangeable as deterministic typed data without adding transport, async, network, persistence, scheduler, VM, source-language, Artifact, or request-token serialization responsibilities.
+Build capability-routed Effect Exchange by extending the existing nested `Program.Exchange` surface with provider manifests, capability grants, deterministic attenuation, route witnesses, routing catalogs, response authorization metadata, mailbox integration, and journal event records. First wave is the pure data/validation layer under `Program.Exchange`; completion requires both new examples to run and the full requested Zig proof bundle to pass without public-root widening or `Program.Session` semantic changes.
 
-The implementation is additive:
-- Keep public root exports unchanged: `ability.effect`, `ability.ir`, `ability.program`, and `ability.Runtime`.
-- Add version constants for exchange manifest/request/response formats and fingerprints.
-- Add `Program.Exchange.Manifest`, `Program.Exchange.RequestEnvelope`, `Program.Exchange.ResponseEnvelope`, `Program.Exchange.Policy`, `Program.Exchange.MailboxRunner`, response-apply helpers, and capsule restore helpers.
-- Reuse existing `Program.contract`, `Program.protocol`, `Program.Session`, `Program.Session.Capsule.Image`, and `Program.Session.Journal` as the authority for sites, schemas, parked execution, continuation images, and durable interaction logs.
-- Preserve all existing version domains unless their bytes actually change.
+Chosen strategy: keep Ability as a typed validation/calculus layer, not a transport, security, async, or broker layer. Hosts still own identity, signing, encryption, transport, storage, scheduling, persistence, and provider execution.
 
-## Execution Waves
-1. Baseline and byte authority: confirm latest main, recall local constraints, add exchange version constants, and factor shared deterministic value-image/envelope byte helpers with fail-closed decode behavior.
-2. Manifest and request envelopes: encode/decode program manifests and operation/after request envelopes with typed payload/current value images, schema/site metadata, optional capsule image, policy validation, and stable fingerprints.
-3. Response envelopes and resume: encode/decode resume, return_now, and resume_after envelopes; validate them against matching request/manifest/session state; apply through existing typed session paths; restore from embedded capsule images when requested.
-4. Mailbox, journal, examples, docs: add nonblocking transport-neutral mailbox runner, exchange-aware journal append helpers, the mailbox/restart examples and build steps, path manifest updates, and Effect Exchange docs.
-5. Fixed-point closure and ship: run the requested proof bundle, repair any findings, record durable proof, commit, push, and open a PR with concise proof and API/non-goal summary.
+## Non-Goals/Out of Scope
+No cryptographic authentication, security claims, network stack, async runtime, broker, persistence backend, RPC framework, LLM/tool integration, scheduler, parser/source language, public VM API, Artifact API, public-root widening, `ProgramValue` widening, serializable request tokens, cross-thread sessions, arbitrary host serialization, host context serialization, or allocator/thread serialization.
 
-## Non-Goals
-- Do not change `Program.run` semantics or primitive `Program.Session` stepping semantics.
-- Do not remove manual Session, Capsule, Journal, Handler, Interpreter, Morphism, Residualize, or Pipeline APIs.
-- Do not add parser/source language, VM APIs, Artifact APIs, async runtime, network/LLM integration, persistence backend, message broker, scheduler, public root widening, or `ProgramValue` widening.
-- Do not serialize request tokens, arbitrary host handlers, host context, allocator/runtime/thread state, or cross-thread sessions.
-- Do not claim cryptographic security.
-
-## Version Policy
-- Add `Program.exchange_manifest_format_version = 1`.
-- Add `Program.exchange_manifest_fingerprint_version = 1`.
-- Add `Program.exchange_request_format_version = 1`.
-- Add `Program.exchange_request_fingerprint_version = 1`.
-- Add `Program.exchange_response_format_version = 1`.
-- Add `Program.exchange_response_fingerprint_version = 1`.
-- Leave trace fingerprint version at 2, capsule image format/fingerprint at 1, journal format/fingerprint at 1, reinterpretation fingerprint at 2, residualization fingerprint at 1, and pipeline fingerprint at 1.
-
-## Acceptance
-- Manifest images encode/decode, fingerprint stably, include operation/after/value schema metadata, and reject malformed bytes or mismatches.
-- Request envelopes encode/decode operation and after yields, include typed payload/current value images and optional capsules, omit request tokens, fingerprint stably, and reject malformed bytes.
-- Response envelopes encode/decode resume, return_now, and resume_after, validate expected response kind/ref/value/request/manifest/program-plan compatibility, and reject malformed bytes.
-- Applying response envelopes works for parked transform, choice, abort, and after requests; wrong or stale responses fail closed; request tokens remain local.
-- A request envelope with embedded capsule image can restore a fresh session and accept a matching response after the original runtime/session is gone.
-- Mailbox runner writes one outbox request per parked yield, consumes matching inbox responses, rejects mismatches, respects policy, returns parked without blocking, and returns done when final result is ready.
-- Journal integration records request/response/capsule exchange fingerprints while preserving the v1 journal wire format unless a deliberate version change is justified.
-- Pipeline/residual programs can expose optional source/residual mapping and manifest pipeline fingerprints when those metadata are available.
-- Examples `run-effect-exchange-mailbox` and `run-effect-exchange-restart` demonstrate in-memory outbox/inbox, embedded capsules, restart restore, journal encode/decode/replay, and printed fingerprints without network or async.
+## Interfaces/Types/APIs Impacted
+- `Program` constants: add `exchange_provider_format_version = 1`, `exchange_provider_fingerprint_version = 1`, `exchange_capability_format_version = 1`, `exchange_capability_fingerprint_version = 1`, `exchange_authorization_fingerprint_version = 1`, `exchange_route_fingerprint_version = 1`; mirror aliases under `Program.Exchange`.
+- `Program.Exchange.ProviderManifest`: deterministic encode/decode, `fingerprint`, provider label, supported manifest fingerprints, protocol labels, operation/after sites, protocol op fingerprints, response kinds, byte/capsule limits, tags, metadata bytes.
+- `Program.Exchange.Capability`: deterministic encode/decode, `fingerprint`, issuer, subject provider fingerprint, manifest fingerprint, request-kind/site/protocol/program/response/ref/byte/capsule scopes, logical generation expiry, parent fingerprint, attenuation path fingerprint.
+- `Program.Exchange.Authorization`: separate metadata sidecar, not part of core `ResponseEnvelope.bytes`; fields include provider/capability/path/route/request/response fingerprints and `authorization_fingerprint`.
+- `Program.Exchange.Route` and `Program.Exchange.Router`: deterministic route witnesses and runtime-data catalog selection with no-route, one-route, ambiguous, and blocked results.
+- `Program.Exchange.Policy`, `MailboxRunner`, and `Session.Journal`: add route/auth constraints, routed outbox support, response authorization checks, and optional skippable exchange ledger events.
 
 ## Implementation Brief
-- step=baseline and exchange plan sync; owner=lead; success_criteria=`git status`, `git rev-parse`, `zig version`, `$st` projection, and negative-ledger/learnings recall establish the current baseline before edits.
-- step=add byte authority and versions; owner=core implementer; success_criteria=exchange version constants and shared deterministic envelope/value-image helpers compile and fail closed for corrupt bytes.
-- step=add manifest/request envelopes; owner=core implementer; success_criteria=manifest and request image APIs validate against `Program.contract`/`Program.protocol`, include schema/site metadata and optional capsule bytes, and omit request tokens.
-- step=add response/apply/restore APIs; owner=core implementer; success_criteria=response envelopes validate expected refs/kinds and resume or restore sessions through existing typed paths.
-- step=add mailbox/journal/policy integration; owner=integration implementer; success_criteria=mailbox runner is nonblocking/transport-neutral, policy guards enforce allow-lists and sizes, and journal append helpers reference exchange fingerprints.
-- step=add examples/docs/build manifests; owner=examples/docs implementer; success_criteria=mailbox and restart examples, build steps, repo path manifest, README, `docs/program_plan.md`, and `docs/custom_effect_authoring.md` describe the ABI and non-goals.
-- step=run fixed-point proof and ship; owner=lead; success_criteria=all requested fmt, diff, build, example, full-test, filtered-test, and lint commands pass; PR contains proof plus API/non-goal summary.
+1. step=constants-and-helpers; owner=implementation; success_criteria=new version aliases, deterministic set/limit/blocker/fingerprint helpers compile and existing exchange tests still pass.
+2. step=provider-manifest; owner=implementation; success_criteria=provider manifest encode/decode/support/malformed tests pass.
+3. step=capability-and-attenuation; owner=implementation; success_criteria=grant, request validation, structured blockers, and broadening-failure tests pass.
+4. step=response-authorization; owner=implementation; success_criteria=authorization sidecar encode/decode, valid auth pass, missing/wrong auth reject, existing response fingerprint tests unchanged.
+5. step=route-and-router; owner=implementation; success_criteria=single/no/ambiguous/blocker/priority and duplicate-op route tests pass.
+6. step=policy-mailbox-journal; owner=implementation; success_criteria=routed outbox, authorized apply, unauthorized reject, journal event encode/decode/replay tests pass.
+7. step=examples-docs-build; owner=implementation; success_criteria=new examples and run steps work, docs updated, path/lint manifest updated if required.
+8. step=closure-proof-and-ship; owner=implementation; success_criteria=all proof commands from the spec pass, durable proof is recorded, branch is pushed, and PR is opened with proof summary.
 
 ## Proof Commands
 ```bash
@@ -60,6 +34,8 @@ zig version
 zig fmt --check build.zig src examples test bench
 git diff --check
 zig build --summary all
+zig build run-effect-capability-routing
+zig build run-effect-capability-attenuation
 zig build run-effect-exchange-mailbox
 zig build run-effect-exchange-restart
 zig build run-durable-capsule-replay
@@ -73,14 +49,17 @@ zig build run-custom-approval-workflow
 zig build run-agent-loop
 zig build run-typed-program-plan
 zig build test --summary all
+zig build test --summary none -- --test-filter "capability"
+zig build test --summary none -- --test-filter "provider"
+zig build test --summary none -- --test-filter "attenuation"
+zig build test --summary none -- --test-filter "route"
+zig build test --summary none -- --test-filter "authorization"
 zig build test --summary none -- --test-filter "exchange"
-zig build test --summary none -- --test-filter "manifest"
-zig build test --summary none -- --test-filter "envelope"
 zig build test --summary none -- --test-filter "mailbox"
 zig build test --summary none -- --test-filter "journal"
 zig build test --summary none -- --test-filter "capsule image"
-zig build test --summary none -- --test-filter "replay"
-zig build test --summary none -- --test-filter "pipeline"
 zig build test --summary none -- --test-filter "session"
 zig build lint -- --max-warnings 0
 ```
+
+Iteration: 7
