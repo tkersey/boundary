@@ -327,6 +327,38 @@ fn capsulePendingOffset(image_bytes: []const u8) !usize {
     return cursor.index;
 }
 
+fn capsuleFrameLocalImageOffset(image_bytes: []const u8, target_frame: usize, target_local: usize) !usize {
+    var cursor = TestImageCursor{ .bytes = image_bytes };
+    cursor.index = try capsuleCoreRemainingStepsOffset(image_bytes);
+    try cursor.skip(8);
+    try cursor.skip(8);
+    try cursor.skip(1);
+    const after_stack_len = try cursor.readUsize();
+    try cursor.skip(after_stack_len * 6);
+    const frame_count = try cursor.readUsize();
+    if (target_frame >= frame_count) return error.ProgramContractViolation;
+    for (0..frame_count) |frame_index| {
+        try cursor.skip(8 * 6);
+        try cursor.skip(1);
+        if (try cursor.readU8() != 0) try cursor.skip(2);
+        const local_count = try cursor.readUsize();
+        if (frame_index == target_frame and target_local >= local_count) return error.ProgramContractViolation;
+        for (0..local_count) |local_index| {
+            const codec = try cursor.readValueRefCodec();
+            const value_offset = cursor.index;
+            if (frame_index == target_frame and local_index == target_local) return value_offset;
+            try cursor.skipMaybeImageValueForCodec(codec);
+        }
+        switch (try cursor.readU8()) {
+            0 => {},
+            1 => try cursor.skip(4),
+            2 => try cursor.skip(8),
+            else => return error.ProgramContractViolation,
+        }
+    }
+    return error.ProgramContractViolation;
+}
+
 fn pendingAfterRemainingOffset(image_bytes: []const u8) !usize {
     var cursor = TestImageCursor{ .bytes = image_bytes };
     cursor.index = try capsulePendingOffset(image_bytes);
@@ -4917,6 +4949,20 @@ test "Program.Interpreter handles transform requests and records response traces
     try std.testing.expectEqual(manual_request.fingerprint(), recorder.request_fingerprint);
     try std.testing.expectEqual(manual_response.fingerprint, recorder.response_fingerprint);
 
+    var forged_manual_response = manual_response;
+    forged_manual_response.fingerprint ^= 1;
+    var direct_append_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer direct_append_journal.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, direct_append_journal.appendResponse(forged_manual_response));
+    try std.testing.expectEqual(@as(usize, 0), direct_append_journal.entries.items.len);
+    try std.testing.expectError(error.ProgramContractViolation, direct_append_journal.appendResponseValue(forged_manual_response, @as(i32, 41)));
+    try std.testing.expectEqual(@as(usize, 0), direct_append_journal.entries.items.len);
+
+    var forged_manual_request = manual_request.trace();
+    forged_manual_request.fingerprint ^= 1;
+    try std.testing.expectError(error.ProgramContractViolation, direct_append_journal.appendRequest(.{ .operation = forged_manual_request }));
+    try std.testing.expectEqual(@as(usize, 0), direct_append_journal.entries.items.len);
+
     var inconsistent_request_trace = manual_request.trace();
     inconsistent_request_trace.has_payload = false;
     var inconsistent_journal = Program.Session.Journal.init(std.testing.allocator);
@@ -5016,9 +5062,7 @@ test "Program.Interpreter handles transform requests and records response traces
         },
         else => return error.ExpectedRequest,
     }
-    const forged_request_bytes = try forged_request_trace.encode(std.testing.allocator);
-    defer std.testing.allocator.free(forged_request_bytes);
-    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Journal.decode(std.testing.allocator, forged_request_bytes));
+    try std.testing.expectError(error.ProgramContractViolation, forged_request_trace.encode(std.testing.allocator));
 
     var wrong_response = try Program.Session.Journal.decode(std.testing.allocator, journal_bytes);
     defer wrong_response.deinit();
@@ -5358,6 +5402,22 @@ test "Program.Session journal replays string-list response values" {
     defer capsule.deinit();
     var image = try capsule.encode(std.testing.allocator);
     defer image.deinit();
+    var stale_image_fingerprint = image;
+    stale_image_fingerprint.image_fingerprint ^= 1;
+    try std.testing.expectError(error.ProgramContractViolation, journal.appendCapsuleImage(stale_image_fingerprint));
+    var stale_capsule_fingerprint = image;
+    stale_capsule_fingerprint.capsule_fingerprint ^= 1;
+    try std.testing.expectError(error.ProgramContractViolation, journal.appendCapsuleImage(stale_capsule_fingerprint));
+    var stale_request_fingerprint = image;
+    stale_request_fingerprint.current_request_fingerprint ^= 1;
+    try std.testing.expectError(error.ProgramContractViolation, journal.appendCapsuleImage(stale_request_fingerprint));
+    var bad_append_image = image;
+    bad_append_image.bytes = try std.testing.allocator.dupe(u8, image.bytes);
+    defer std.testing.allocator.free(bad_append_image.bytes);
+    bad_append_image.bytes[bad_append_image.bytes.len - 9] ^= 1;
+    bad_append_image.image_fingerprint = testProgramCapsuleImageFingerprint(Program, bad_append_image.bytes);
+    try std.testing.expectError(error.ProgramContractViolation, journal.appendCapsuleImage(bad_append_image));
+    try std.testing.expectEqual(@as(usize, 1), journal.entries.items.len);
     try journal.appendCapsuleImage(image);
     try journal.appendResponseValue(response_trace, response_value);
     const journal_bytes = try journal.encode(std.testing.allocator);
@@ -8834,6 +8894,42 @@ test "Program.Session capsule image rejects unreachable helper frame chains" {
     try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, missing_parent_wait));
 }
 
+test "Program.Session capsule image rejects forged helper argument values" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const EmptyHandlers = struct {};
+    const Body = struct {
+        pub const compiled_plan = sessionParameterizedHelperYieldPlan("session-capsule-helper-arg-bind");
+
+        pub fn encodeArgs(_: EmptyHandlers) @TypeOf(.{@as(i32, 12)}) {
+            return .{@as(i32, 12)};
+        }
+    };
+    const Program = ability.program("session-capsule-helper-arg-bind", EmptyHandlers, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |current| current,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try std.testing.expectEqual(@as(i32, 12), try request.payload(i32));
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    var image = try capsule.encode(std.testing.allocator);
+    defer image.deinit();
+
+    var forged_child_arg = try std.testing.allocator.dupe(u8, image.bytes);
+    defer std.testing.allocator.free(forged_child_arg);
+    const child_arg_image_offset = try capsuleFrameLocalImageOffset(forged_child_arg, 1, 0);
+    try std.testing.expectEqual(@as(u8, 1), forged_child_arg[child_arg_image_offset]);
+    std.mem.writeInt(i32, forged_child_arg[child_arg_image_offset + 1 ..][0..4], 99, .little);
+    rewriteCapsuleImageChecksum(Program, forged_child_arg);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, forged_child_arg));
+}
+
 test "Program.Session capsule image encode uses caller allocator for scratch" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -12163,6 +12259,91 @@ fn sessionHelperYieldPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .ops = &ops,
         .outputs = &.{},
         .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn sessionParameterizedHelperYieldPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const helper = ability.ir.builder.function(1);
+    const root_arg = ability.ir.builder.local(root, 0);
+    const root_result = ability.ir.builder.local(root, 1);
+    const helper_arg = ability.ir.builder.local(helper, 0);
+    const helper_result = ability.ir.builder.local(helper, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callHelper(root, root_result, helper, 0) catch unreachable,
+        ability.ir.builder.returnValue(root, root_result) catch unreachable,
+        ability.ir.builder.callOp(helper, helper_result, ability.ir.builder.op(helper, 0), helper_arg) catch unreachable,
+        ability.ir.builder.returnValue(helper, helper_result) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{
+        .{
+            .symbol_name = "run",
+            .value_codec = .i32,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 2,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "helper",
+            .value_codec = .i32,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 2,
+            .local_count = 2,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 2,
+        },
+    };
+    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "helper", .first_op = 0, .op_count = 1 }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "yield_arg",
+        .mode = .transform,
+        .payload_codec = .i32,
+        .resume_codec = .i32,
+    }};
+    const blocks = [_]ability.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+    };
+    const terminators = [_]ability.ir.plan.Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 124,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{
+            .{ .codec = .i32 },
+            .{ .codec = .i32 },
+            .{ .codec = .i32 },
+            .{ .codec = .i32 },
+        },
+        .call_args = &.{root_arg.index},
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,

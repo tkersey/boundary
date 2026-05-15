@@ -5626,7 +5626,7 @@ pub fn ExecutableSessionForPlan(
                     const parent = self.frames.at(frame_index - 1) orelse return error.ProgramContractViolation;
                     if (frame.frame.call_args_start != parent.frame.call_args_start) return error.ProgramContractViolation;
                     if (frame.frame.after_start < parent.frame.after_start) return error.ProgramContractViolation;
-                    try validateDecodedChildFrame(parent, frame);
+                    try self.validateDecodedChildFrame(parent, frame);
                 }
             }
             if (expected_locals_start != self.scratch.locals.items.len) return error.ProgramContractViolation;
@@ -5634,7 +5634,7 @@ pub fn ExecutableSessionForPlan(
             if (active.waiting_helper_dst != null) return error.ProgramContractViolation;
         }
 
-        fn validateDecodedChildFrame(parent: ActiveInterpreterFrame, child: ActiveInterpreterFrame) error{ProgramContractViolation}!void {
+        fn validateDecodedChildFrame(self: *const Self, parent: ActiveInterpreterFrame, child: ActiveInterpreterFrame) error{ProgramContractViolation}!void {
             const dst = parent.waiting_helper_dst orelse return error.ProgramContractViolation;
             const parent_bounds = try blockInstructionBounds(compiled_plan, parent.function_index, parent.block_index);
             if (parent.instruction_index <= parent_bounds.first or parent.instruction_index > parent_bounds.end) return error.ProgramContractViolation;
@@ -5650,6 +5650,8 @@ pub fn ExecutableSessionForPlan(
                     if (callee.parameter_count != 0) {
                         if (instruction.aux == std.math.maxInt(u16)) return error.ProgramContractViolation;
                         const parent_function = compiled_plan.functions[parent.function_index];
+                        const parent_locals = self.scratch.frameLocalsConst(parent.frame);
+                        const child_locals = self.scratch.frameLocalsConst(child.frame);
                         var arg_index: usize = 0;
                         while (arg_index < callee.parameter_count) : (arg_index += 1) {
                             const local_id = planCallArgAt(compiled_plan, instruction.aux + arg_index);
@@ -5659,6 +5661,8 @@ pub fn ExecutableSessionForPlan(
                             const child_ref = localRefForFunctionIndex(compiled_plan, child.function_index, @intCast(arg_index)) orelse
                                 return error.ProgramContractViolation;
                             if (!parent_ref.eql(child_ref)) return error.ProgramContractViolation;
+                            if (local_id >= parent_locals.len or arg_index >= child_locals.len) return error.ProgramContractViolation;
+                            try validateDecodedArgumentValue(parent_ref, parent_locals[local_id], child_locals[arg_index]);
                         }
                     }
                 },
@@ -5672,6 +5676,22 @@ pub fn ExecutableSessionForPlan(
                     if (result_codec != .unit and dst == std.math.maxInt(u16)) return error.ProgramContractViolation;
                 },
                 else => return error.ProgramContractViolation,
+            }
+        }
+
+        fn validateDecodedArgumentValue(
+            ref: program_plan.ValueRef,
+            parent_value: ExecutableValue,
+            child_value: ExecutableValue,
+        ) error{ProgramContractViolation}!void {
+            const parent_fingerprint = try Self.fingerprintExecutableValueForRef(ref, parent_value);
+            const child_fingerprint = try Self.fingerprintExecutableValueForRef(ref, child_value);
+            if (parent_fingerprint != child_fingerprint) return error.ProgramContractViolation;
+            switch (ref.codec) {
+                .unit, .bool, .i32, .usize => {},
+                .string, .string_list, .product, .sum => {
+                    if (!executableValuesShareIdentity(parent_value, child_value)) return error.ProgramContractViolation;
+                },
             }
         }
 

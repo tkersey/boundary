@@ -1726,7 +1726,7 @@ pub fn program(
 
                 fn validateJournalResponseForRequest(request_trace: RequestTrace, response: Trace.Response) Error!void {
                     if (response.request_fingerprint != request_trace.fingerprint()) return error.ProgramContractViolation;
-                    if (response.fingerprint != fingerprintJournalResponseTrace(response)) return error.ProgramContractViolation;
+                    try validateJournalResponseTrace(response);
                     switch (request_trace) {
                         .operation => |request| switch (response.kind) {
                             .@"resume" => {
@@ -1746,12 +1746,31 @@ pub fn program(
                     }
                 }
 
+                fn validateJournalResponseTrace(response: Trace.Response) Error!void {
+                    if (response.fingerprint != fingerprintJournalResponseTrace(response)) return error.ProgramContractViolation;
+                }
+
+                fn validateJournalCapsuleImage(allocator: std.mem.Allocator, image: Capsule.Image) Error!void {
+                    if (image.image_fingerprint != capsuleImageFingerprint(image.bytes)) return error.ProgramContractViolation;
+                    var decoded = Core.Capsule.decode(allocator, image.bytes) catch |err| return mapProgramRunError(Error, err);
+                    defer decoded.deinit();
+                    const metadata = decoded.metadata();
+                    if (image.capsule_fingerprint != decoded.fingerprint() or
+                        image.current_request_fingerprint != metadata.current_request_fingerprint)
+                    {
+                        return error.ProgramContractViolation;
+                    }
+                }
+
                 fn validateJournalRequestTrace(request_trace: RequestTrace) Error!void {
                     switch (request_trace) {
                         .operation => |request| {
                             if (request.has_payload != (request.payload_ref.codec != .unit)) return error.ProgramContractViolation;
+                            if (request.fingerprint != fingerprintJournalOperationRequestTrace(request)) return error.ProgramContractViolation;
                         },
-                        .after => {},
+                        .after => |request| {
+                            if (request.fingerprint != fingerprintJournalAfterRequestTrace(request)) return error.ProgramContractViolation;
+                        },
                     }
                 }
 
@@ -1791,11 +1810,13 @@ pub fn program(
 
                 /// Append a response trace without a typed value image.
                 pub fn appendResponse(self: *@This(), trace: Trace.Response) Error!void {
+                    try validateJournalResponseTrace(trace);
                     self.entries.append(self.allocator, .{ .response = .{ .trace = trace } }) catch |err| return mapProgramRunError(Error, err);
                 }
 
                 /// Append a response trace with a deterministic typed value image.
                 pub fn appendResponseValue(self: *@This(), trace: Trace.Response, value: anytype) Error!void {
+                    try validateJournalResponseTrace(trace);
                     const value_image = encodeJournalResponseValue(self.allocator, trace, value) catch |err| return mapProgramRunError(Error, err);
                     errdefer self.allocator.free(value_image);
                     self.entries.append(self.allocator, .{ .response = .{
@@ -1806,6 +1827,7 @@ pub fn program(
 
                 /// Append an owned copy of a durable capsule image.
                 pub fn appendCapsuleImage(self: *@This(), image: Capsule.Image) Error!void {
+                    try validateJournalCapsuleImage(self.allocator, image);
                     const bytes = self.allocator.dupe(u8, image.bytes) catch |err| return mapProgramRunError(Error, err);
                     errdefer self.allocator.free(bytes);
                     self.entries.append(self.allocator, .{ .capsule_image = .{
