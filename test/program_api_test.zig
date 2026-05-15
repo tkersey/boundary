@@ -18302,12 +18302,36 @@ test "Program.Exchange policy rejects capsules and disallowed response kinds" {
     defer envelope.deinit();
 
     try std.testing.expectError(error.ProgramContractViolation, (Program.Exchange.Policy{ .allow_capsules = false }).validateRequest(envelope));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decodeWithPolicy(std.testing.allocator, envelope.bytes, .{
+        .allow_capsules = false,
+    }));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decodeWithPolicy(std.testing.allocator, envelope.bytes, .{
+        .max_envelope_bytes = envelope.bytes.len - 1,
+    }));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decodeWithPolicy(std.testing.allocator, envelope.bytes, .{
+        .max_payload_bytes = envelope.value_image.len - 1,
+    }));
+    if (envelope.capsule_image) |capsule_bytes| {
+        try std.testing.expect(capsule_bytes.len > envelope.value_image.len);
+        try std.testing.expectError(error.ProgramContractViolation, (Program.Exchange.Policy{
+            .max_payload_bytes = envelope.value_image.len,
+        }).validateRequest(envelope));
+    } else return error.ExpectedCapsule;
 
     var response = try Program.Exchange.ResponseEnvelope.returnNow(std.testing.allocator, envelope, @as(i32, 9));
     defer response.deinit();
     try std.testing.expectError(error.ProgramContractViolation, (Program.Exchange.Policy{
         .allowed_response_kinds = .{ .return_now = false },
     }).validateResponse(response));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.ResponseEnvelope.decodeWithPolicy(std.testing.allocator, response.bytes, .{
+        .allowed_response_kinds = .{ .return_now = false },
+    }));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.ResponseEnvelope.decodeWithPolicy(std.testing.allocator, response.bytes, .{
+        .allow_response_value_images = false,
+    }));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.ResponseEnvelope.decodeWithPolicy(std.testing.allocator, response.bytes, .{
+        .max_payload_bytes = response.value_image.len - 1,
+    }));
 }
 
 test "Program.Exchange journals applied response value images for replay" {
@@ -18639,6 +18663,131 @@ test "Program.Exchange mailbox deduplicates by envelope fingerprint" {
     try std.testing.expect(first_fingerprint != second_fingerprint);
     try std.testing.expectEqual(@as(usize, 2), outbox.items.items.len);
     try std.testing.expectEqual(second_fingerprint, runner.last_request_envelope_fingerprint.?);
+}
+
+test "Program.Exchange mailbox validates request policy before queued responses" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-mailbox-response-policy");
+    };
+    const Program = ability.program("exchange-mailbox-response-policy", struct {}, Body);
+    const Outbox = struct {
+        pub fn append(_: *@This(), envelope: Program.Exchange.RequestEnvelope) !void {
+            var owned = envelope;
+            owned.deinit();
+        }
+    };
+    const Inbox = struct {
+        response: ?Program.Exchange.ResponseEnvelope,
+
+        pub fn nextResponse(self: *@This()) !?Program.Exchange.ResponseEnvelope {
+            const response = self.response orelse return null;
+            self.response = null;
+            return response;
+        }
+    };
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+    const response = try Program.Exchange.ResponseEnvelope.returnNow(std.testing.allocator, envelope, @as(i32, 42));
+
+    var outbox = Outbox{};
+    var inbox = Inbox{ .response = response };
+    var runner = Program.Exchange.MailboxRunner{};
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        runner.runStep(&session, &outbox, &inbox, .{
+            .allocator = std.testing.allocator,
+            .policy = .{ .allowed_operation_sites = &[_]usize{999} },
+        }),
+    );
+    try std.testing.expect(inbox.response == null);
+    try std.testing.expectEqual(request.fingerprint(), switch (try session.current()) {
+        .request => |current| current.fingerprint(),
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    });
+}
+
+test "Program.Exchange mailbox validates emitted request policy when options change" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-mailbox-emitted-request-policy");
+    };
+    const Program = ability.program("exchange-mailbox-emitted-request-policy", struct {}, Body);
+    const Outbox = struct {
+        allocator: std.mem.Allocator,
+        items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
+
+        fn deinit(self: *@This()) void {
+            for (self.items.items) |*item| item.deinit();
+            self.items.deinit(self.allocator);
+        }
+
+        pub fn append(self: *@This(), envelope: Program.Exchange.RequestEnvelope) !void {
+            try self.items.append(self.allocator, envelope);
+        }
+    };
+    const Inbox = struct {
+        response: ?Program.Exchange.ResponseEnvelope = null,
+
+        fn deinit(self: *@This()) void {
+            if (self.response) |*response| response.deinit();
+            self.response = null;
+        }
+
+        pub fn nextResponse(self: *@This()) !?Program.Exchange.ResponseEnvelope {
+            const response = self.response orelse return null;
+            self.response = null;
+            return response;
+        }
+    };
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    var outbox = Outbox{ .allocator = std.testing.allocator };
+    defer outbox.deinit();
+    var inbox = Inbox{};
+    defer inbox.deinit();
+    var runner = Program.Exchange.MailboxRunner{};
+
+    var step = try runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .capsule = true,
+    });
+    switch (step) {
+        .parked => |*envelope| envelope.deinit(),
+        .running, .done => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 1), outbox.items.items.len);
+    try std.testing.expect(outbox.items.items[0].capsule_image != null);
+
+    inbox.response = try Program.Exchange.ResponseEnvelope.returnNow(std.testing.allocator, outbox.items.items[0], @as(i32, 42));
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        runner.runStep(&session, &outbox, &inbox, .{
+            .allocator = std.testing.allocator,
+            .policy = .{ .allow_capsules = false },
+            .capsule = false,
+        }),
+    );
+    try std.testing.expect(inbox.response == null);
+    try std.testing.expectEqual(outbox.items.items[0].request_fingerprint, switch (try session.current()) {
+        .request => |current| current.fingerprint(),
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    });
 }
 
 test "Program.Exchange request envelope with capsule restores and resumes" {

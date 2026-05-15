@@ -3508,6 +3508,9 @@ pub fn program(
                     if (envelope.bytes.len > self.max_envelope_bytes) return error.ProgramContractViolation;
                     if (envelope.value_image.len > self.max_payload_bytes) return error.ProgramContractViolation;
                     if (!self.allow_capsules and envelope.capsule_image != null) return error.ProgramContractViolation;
+                    if (envelope.capsule_image) |image| {
+                        if (image.len > self.max_payload_bytes) return error.ProgramContractViolation;
+                    }
                     switch (envelope.kind) {
                         .operation => if (!policyAllowsSite(self.allowed_operation_sites, envelope.site_index)) return error.ProgramContractViolation,
                         .after => if (!policyAllowsSite(self.allowed_after_sites, envelope.site_index)) return error.ProgramContractViolation,
@@ -3643,6 +3646,12 @@ pub fn program(
 
                 /// Decode and validate a request envelope for this Program.
                 pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) Error!@This() {
+                    return decodeWithPolicy(allocator, bytes, .{});
+                }
+
+                /// Decode and validate a request envelope after applying policy limits before payload copies.
+                pub fn decodeWithPolicy(allocator: std.mem.Allocator, bytes: []const u8, policy: Policy) Error!@This() {
+                    if (bytes.len > policy.max_envelope_bytes) return error.ProgramContractViolation;
                     const payload = try checkedPayload(bytes, "ability.exchange.request", exchange_request_fingerprint_version);
                     var reader = Reader.init(payload);
                     try reader.expectBytes(request_magic);
@@ -3662,6 +3671,10 @@ pub fn program(
                     const turn_index = try reader.readUsize();
                     const site_index = try reader.readUsize();
                     const site_fingerprint = try reader.readU64();
+                    switch (kind_value) {
+                        .operation => if (!Policy.policyAllowsSite(policy.allowed_operation_sites, site_index)) return error.ProgramContractViolation,
+                        .after => if (!Policy.policyAllowsSite(policy.allowed_after_sites, site_index)) return error.ProgramContractViolation,
+                    }
                     const semantic_label = try readOptionalOwnedBytes(allocator, &reader);
                     errdefer if (!envelope_owned) if (semantic_label) |value| allocator.free(value);
                     const name_value = try allocator.dupe(u8, try reader.readLenBytes());
@@ -3669,14 +3682,19 @@ pub fn program(
                     const mode = try readExchangeControlMode(&reader);
                     const value_ref = try readExchangeValueRef(&reader);
                     const value_fingerprint = try reader.readU64();
-                    const value_image = try allocator.dupe(u8, try reader.readLenBytes());
+                    const value_image_slice = try reader.readLenBytes();
+                    if (value_image_slice.len > policy.max_payload_bytes) return error.ProgramContractViolation;
+                    const value_image = try allocator.dupe(u8, value_image_slice);
                     errdefer if (!envelope_owned) allocator.free(value_image);
                     const expected_resume_ref = try readOptionalValueRef(&reader);
                     const expected_return_ref = try readOptionalValueRef(&reader);
                     const expected_after_ref = try readOptionalValueRef(&reader);
                     const result_ref = try readExchangeValueRef(&reader);
                     const capsule_image = if (try reader.readBool()) blk: {
-                        const capsule_bytes = try allocator.dupe(u8, try reader.readLenBytes());
+                        if (!policy.allow_capsules) return error.ProgramContractViolation;
+                        const capsule_slice = try reader.readLenBytes();
+                        if (capsule_slice.len > policy.max_payload_bytes) return error.ProgramContractViolation;
+                        const capsule_bytes = try allocator.dupe(u8, capsule_slice);
                         errdefer if (!envelope_owned) allocator.free(capsule_bytes);
                         const fingerprint = Session.capsuleImageFingerprint(capsule_bytes);
                         const encoded_fingerprint = try reader.readU64();
@@ -3783,6 +3801,12 @@ pub fn program(
 
                 /// Decode and validate response bytes that are self-contained in the envelope.
                 pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) Error!@This() {
+                    return decodeWithPolicy(allocator, bytes, .{});
+                }
+
+                /// Decode and validate response bytes after applying policy limits before payload copies.
+                pub fn decodeWithPolicy(allocator: std.mem.Allocator, bytes: []const u8, policy: Policy) Error!@This() {
+                    if (bytes.len > policy.max_envelope_bytes) return error.ProgramContractViolation;
                     const payload = try checkedPayload(bytes, "ability.exchange.response", exchange_response_fingerprint_version);
                     var reader = Reader.init(payload);
                     try reader.expectBytes(response_magic);
@@ -3792,10 +3816,14 @@ pub fn program(
                     const request_envelope_fingerprint = try reader.readU64();
                     const request_fingerprint = try reader.readU64();
                     const kind_value = try readExchangeResponseKind(&reader);
+                    if (!policy.allowed_response_kinds.allows(kind_value)) return error.ProgramContractViolation;
                     const response_ref = try readExchangeValueRef(&reader);
                     const value_fingerprint = try reader.readU64();
                     const response_trace_fingerprint = try reader.readU64();
-                    const value_image = try allocator.dupe(u8, try reader.readLenBytes());
+                    const value_image_slice = try reader.readLenBytes();
+                    if (value_image_slice.len > policy.max_payload_bytes) return error.ProgramContractViolation;
+                    if (!policy.allow_response_value_images and value_image_slice.len != 0) return error.ProgramContractViolation;
+                    const value_image = try allocator.dupe(u8, value_image_slice);
                     errdefer allocator.free(value_image);
                     if (!reader.eof()) return error.ProgramContractViolation;
                     if (manifest_fingerprint != try manifestFingerprintForCurrentProgram(allocator)) return error.ProgramContractViolation;
@@ -3845,6 +3873,7 @@ pub fn program(
             pub const MailboxRunner = struct {
                 last_request_fingerprint: ?u64 = null,
                 last_request_envelope_fingerprint: ?u64 = null,
+                last_request_included_capsule: ?bool = null,
 
                 /// One nonblocking mailbox runner outcome.
                 pub const Step = union(enum) {
@@ -3859,6 +3888,28 @@ pub fn program(
                     outbox.append(outbox_envelope) catch |err| return mapProgramRunError(Error, err);
                 }
 
+                fn validateCurrentRequestPolicy(
+                    allocator: std.mem.Allocator,
+                    session: *Session,
+                    current_value: Session.Current,
+                    policy: Policy,
+                    include_capsule: bool,
+                ) Error!void {
+                    switch (current_value) {
+                        .request => |request| {
+                            var envelope = try requestEnvelopeForCurrent(allocator, session, .{ .request = request }, include_capsule);
+                            defer envelope.deinit();
+                            try policy.validateRequest(envelope);
+                        },
+                        .after => |after| {
+                            var envelope = try requestEnvelopeForCurrent(allocator, session, .{ .after = after }, include_capsule);
+                            defer envelope.deinit();
+                            try policy.validateRequest(envelope);
+                        },
+                        .none => {},
+                    }
+                }
+
                 /// Advance one host turn, appending yielded requests and consuming one response if present.
                 pub fn runStep(
                     self: *@This(),
@@ -3871,14 +3922,19 @@ pub fn program(
                         capsule: bool = false,
                     },
                 ) Error!Step {
+                    const current_value = try session.current();
                     if (try inbox.nextResponse()) |response_value| {
                         var response = response_value;
                         defer response.deinit();
+                        const request_included_capsule = self.last_request_included_capsule orelse options.capsule;
+                        try validateCurrentRequestPolicy(options.allocator, session, current_value, options.policy, request_included_capsule);
                         try options.policy.validateResponse(response);
                         try applyResponse(session, response, .{ .request_envelope_fingerprint = self.last_request_envelope_fingerprint });
+                        self.last_request_fingerprint = null;
+                        self.last_request_envelope_fingerprint = null;
+                        self.last_request_included_capsule = null;
                         return .running;
                     }
-                    const current_value = try session.current();
                     return switch (current_value) {
                         .request => |request| blk: {
                             var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .request = request }, options.capsule);
@@ -3888,6 +3944,7 @@ pub fn program(
                                 try appendOutboxEnvelope(options.allocator, outbox, envelope);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
+                                self.last_request_included_capsule = options.capsule;
                             }
                             break :blk .{ .parked = envelope };
                         },
@@ -3899,6 +3956,7 @@ pub fn program(
                                 try appendOutboxEnvelope(options.allocator, outbox, envelope);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
+                                self.last_request_included_capsule = options.capsule;
                             }
                             break :blk .{ .parked = envelope };
                         },
@@ -3910,6 +3968,7 @@ pub fn program(
                                 try appendOutboxEnvelope(options.allocator, outbox, envelope);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
+                                self.last_request_included_capsule = options.capsule;
                                 break :blk .{ .parked = envelope };
                             },
                             .after => |after| blk: {
@@ -3919,6 +3978,7 @@ pub fn program(
                                 try appendOutboxEnvelope(options.allocator, outbox, envelope);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
+                                self.last_request_included_capsule = options.capsule;
                                 break :blk .{ .parked = envelope };
                             },
                             .done => |result| .{ .done = result },
