@@ -15052,6 +15052,26 @@ test "Program.Session trace operation metadata and replay fingerprint helpers" {
     try std.testing.expectEqual(first_request.fingerprint(), second_request.fingerprint());
 }
 
+test "Program.Exchange exposes v1 format domains" {
+    const Body = struct {
+        pub const compiled_plan = wideLocalPlan("exchange-version-domains");
+    };
+    const Program = ability.program("exchange-version-domains", struct {}, Body);
+
+    try std.testing.expectEqual(@as(u32, 1), Program.exchange_manifest_format_version);
+    try std.testing.expectEqual(@as(u32, 1), Program.exchange_manifest_fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 1), Program.exchange_request_format_version);
+    try std.testing.expectEqual(@as(u32, 1), Program.exchange_request_fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 1), Program.exchange_response_format_version);
+    try std.testing.expectEqual(@as(u32, 1), Program.exchange_response_fingerprint_version);
+    try std.testing.expectEqual(Program.exchange_manifest_format_version, Program.Exchange.manifest_format_version);
+    try std.testing.expectEqual(Program.exchange_manifest_fingerprint_version, Program.Exchange.manifest_fingerprint_version);
+    try std.testing.expectEqual(Program.exchange_request_format_version, Program.Exchange.request_format_version);
+    try std.testing.expectEqual(Program.exchange_request_fingerprint_version, Program.Exchange.request_fingerprint_version);
+    try std.testing.expectEqual(Program.exchange_response_format_version, Program.Exchange.response_format_version);
+    try std.testing.expectEqual(Program.exchange_response_fingerprint_version, Program.Exchange.response_fingerprint_version);
+}
+
 test "Program.Session trace after metadata and current value fingerprint stability" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -18003,4 +18023,217 @@ test "ability.ir builder validates supported scalar GAE matrix" {
             _ = matrixPlan(.abort, payload_codec, .unit);
         }
     }
+}
+
+test "Program.Exchange manifest and operation envelopes round trip" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "exchange-transform");
+    };
+    const Program = ability.program("exchange-transform", struct {}, Body);
+
+    var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
+    defer manifest.deinit();
+    var decoded_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, manifest.bytes);
+    defer decoded_manifest.deinit();
+    try std.testing.expectEqual(manifest.fingerprint, decoded_manifest.fingerprint);
+    try std.testing.expectEqual(@as(usize, 1), decoded_manifest.operation_site_count);
+    try std.testing.expectEqual(@as(usize, 0), decoded_manifest.after_site_count);
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+    try std.testing.expectEqual(manifest.fingerprint, envelope.manifest_fingerprint);
+    try std.testing.expectEqual(request.fingerprint(), envelope.request_fingerprint);
+    try std.testing.expect(envelope.value_image.len != 0);
+
+    var decoded = try Program.Exchange.RequestEnvelope.decode(std.testing.allocator, envelope.bytes);
+    defer decoded.deinit();
+    try std.testing.expectEqual(envelope.fingerprint, decoded.fingerprint);
+    try std.testing.expectEqual(envelope.request_fingerprint, decoded.request_fingerprint);
+}
+
+test "Program.Exchange response envelope applies to parked transform request" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "exchange-apply");
+    };
+    const Program = ability.program("exchange-apply", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+    var response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 42));
+    defer response.deinit();
+    var decoded_response = try Program.Exchange.ResponseEnvelope.decode(std.testing.allocator, response.bytes);
+    defer decoded_response.deinit();
+    try decoded_response.validateForRequest(envelope);
+    try Program.Exchange.applyResponse(&session, decoded_response, .{});
+
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+}
+
+test "Program.Exchange after envelope applies through resume_after" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const StackedHandlers = struct {
+        outer: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 1;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: bool) ![]const u8 {
+                return if (value) "outer:true" else "outer:false";
+            }
+        },
+        inner: struct {
+            pub fn dispatch(_: *const @This()) !i32 {
+                return 7;
+            }
+
+            pub fn afterDispatch(_: *const @This(), value: i32) !bool {
+                return value == 7;
+            }
+        },
+    };
+    const Body = struct {
+        pub const compiled_plan = stackedAfterPlan("exchange-after");
+    };
+    const Program = ability.program("exchange-after", StackedHandlers, Body);
+    var session = try Program.Session.start(&runtime, .{ .outer = .{}, .inner = .{} });
+    defer session.deinit();
+
+    const outer_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.resumeTyped(try outer_request.as(Program.protocol.operationSite("outer", "outer", 0)), @as(i32, 1));
+    const inner_request = switch (try session.next()) {
+        .request => |request| request,
+        .done => return error.ExpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    try session.resumeTyped(try inner_request.as(Program.protocol.operationSite("inner", "inner", 0)), @as(i32, 7));
+
+    const inner_after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromAfter(std.testing.allocator, inner_after, .{});
+    defer envelope.deinit();
+    var response = try Program.Exchange.ResponseEnvelope.resumeAfter(std.testing.allocator, envelope, true);
+    defer response.deinit();
+    try Program.Exchange.applyResponse(&session, response, .{});
+
+    const outer_after = switch (try session.next()) {
+        .after => |after| after,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    try session.resumeAfterTyped(try outer_after.as(Program.protocol.afterSite("outer", "outer", 0)), @as([]const u8, "outer:true"));
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqualStrings("outer:true", result.value);
+}
+
+test "Program.Exchange policy rejects capsules and disallowed response kinds" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-policy");
+    };
+    const Program = ability.program("exchange-policy", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    var image = try capsule.encode(std.testing.allocator);
+    defer image.deinit();
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{ .capsule = image });
+    defer envelope.deinit();
+
+    try std.testing.expectError(error.ProgramContractViolation, (Program.Exchange.Policy{ .allow_capsules = false }).validateRequest(envelope));
+
+    var response = try Program.Exchange.ResponseEnvelope.returnNow(std.testing.allocator, envelope, @as(i32, 9));
+    defer response.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, (Program.Exchange.Policy{
+        .allowed_response_kinds = .{ .return_now = false },
+    }).validateResponse(response));
+}
+
+test "Program.Exchange request envelope with capsule restores and resumes" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-restart");
+    };
+    const Program = ability.program("exchange-restart", struct {}, Body);
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var capsule = try session.capture(std.testing.allocator);
+    defer capsule.deinit();
+    var capsule_image = try capsule.encode(std.testing.allocator);
+    defer capsule_image.deinit();
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{ .capsule = capsule_image });
+    defer envelope.deinit();
+    try std.testing.expect(envelope.capsule_image != null);
+
+    session.deinit();
+    var restored_runtime = ability.Runtime.init(std.testing.allocator);
+    defer restored_runtime.deinit();
+    var restored = try Program.Exchange.restoreFromRequestEnvelope(&restored_runtime, .{}, envelope);
+    defer restored.deinit();
+    var response = try Program.Exchange.ResponseEnvelope.returnNow(std.testing.allocator, envelope, @as(i32, 77));
+    defer response.deinit();
+    try Program.Exchange.applyResponse(&restored, response, .{});
+
+    var result = switch (try restored.next()) {
+        .done => |done| done,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 77), result.value);
 }

@@ -369,14 +369,45 @@ recorded request fingerprint before exposing the decoded typed response value.
 Journals replay by fingerprints and typed response images, never by request
 tokens.
 
+### Effect Exchange
+
+`Program.Exchange` is the transport-neutral ABI for moving yielded effects
+across host boundaries as canonical typed data. `Exchange.Manifest.encode`
+describes the compiled program's exchange surface: program and plan labels,
+ProgramPlan hash, trace/capsule/journal/exchange versions, operation sites,
+after sites, semantic labels, value schemas, refs, modes, and site
+fingerprints. It is a protocol contract, not a VM artifact or package format.
+
+`Exchange.RequestEnvelope.fromRequest` and `fromAfter` encode the currently
+yielded operation or after-continuation request with trace metadata, static site
+identity, typed payload/current-value image, expected response refs, optional
+capsule image, and envelope fingerprint. Request tokens, runtime pointers,
+allocator state, thread IDs, handlers, and host context are never serialized.
+
+`Exchange.ResponseEnvelope.resume`, `returnNow`, and `resumeAfter` encode a
+host answer for a specific request envelope. Decode and validation fail closed
+on bad magic/version, truncation, malformed lengths, trailing bytes,
+fingerprint mismatch, manifest/request mismatch, unsupported response kind,
+wrong response ref, or invalid typed value image. `Exchange.applyResponse`
+applies a validated response to the currently parked `Program.Session` through
+the existing typed resume/return/resume-after paths. If a request envelope
+contains a capsule image, `Exchange.restoreFromRequestEnvelope` restores a fresh
+parked session and verifies the current request fingerprint before resuming.
+
+`Exchange.Policy` provides local guardrails for allowed sites, response kinds,
+capsule embedding, response value images, and envelope/payload sizes. The policy
+is not cryptographic security. `Exchange.MailboxRunner` is a small nonblocking
+pattern over host-owned outbox/inbox storage; Ability owns canonical bytes and
+validation, while hosts own transport, persistence, scheduling, network, async,
+RPC, message brokers, databases, tools, humans, and models.
+
 This is the foundation for agentic loops. The library does not bundle an async
 runtime, parser, compiler, VM, Artifact API, source language, network client, or
 LLM integration, and it does not widen the public root. `ProgramValue` remains
 the scalar public carrier; typed product and sum payloads and resumes use the
 existing `Body.value_schema_types` schema registry, including after-continuation
 values. Result, output, and cleanup rules are the same `Program.Result` rules
-used by `Program.run`. Durable session serialization remains a future direction;
-in-process capsules are the public branching surface.
+used by `Program.run`.
 
 ## Effects
 
