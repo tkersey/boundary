@@ -4688,6 +4688,7 @@ pub fn program(
             pub const ResponseOptions = struct {
                 journal: ?*Session.Journal = null,
                 request_envelope_fingerprint: ?u64 = null,
+                request_manifest_fingerprint: ?u64 = null,
             };
 
             /// Canonical typed response envelope for host-supplied answers.
@@ -4799,6 +4800,7 @@ pub fn program(
             pub const MailboxRunner = struct {
                 last_request_fingerprint: ?u64 = null,
                 last_request_envelope_fingerprint: ?u64 = null,
+                last_request_manifest_fingerprint: ?u64 = null,
                 last_request_included_capsule: ?bool = null,
                 last_request_journal_branch_id: ?[]u8 = null,
                 last_request_journal_branch_allocator: ?std.mem.Allocator = null,
@@ -5073,9 +5075,13 @@ pub fn program(
                                 response_authorized_checkpoint = .{ .ledger = ledger, .start_len = start_len };
                             }
                         }
-                        try applyResponse(session, response, .{ .request_envelope_fingerprint = self.last_request_envelope_fingerprint });
+                        try applyResponse(session, response, .{
+                            .request_envelope_fingerprint = self.last_request_envelope_fingerprint,
+                            .request_manifest_fingerprint = self.last_request_manifest_fingerprint,
+                        });
                         self.last_request_fingerprint = null;
                         self.last_request_envelope_fingerprint = null;
+                        self.last_request_manifest_fingerprint = null;
                         self.last_request_included_capsule = null;
                         self.clearLastRequestJournalBranch();
                         self.last_route = null;
@@ -5097,6 +5103,7 @@ pub fn program(
                                 self.last_route = try appendRouteAwareOutboxEnvelope(options.allocator, outbox, envelope, options.router, options.policy, options.journal, self.last_route != null);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
+                                self.last_request_manifest_fingerprint = envelope.manifest_fingerprint;
                                 self.last_request_included_capsule = options.capsule;
                                 self.adoptLastRequestJournalBranch(options.allocator, owned_branch);
                                 owned_branch = null;
@@ -5120,6 +5127,7 @@ pub fn program(
                                 self.last_route = try appendRouteAwareOutboxEnvelope(options.allocator, outbox, envelope, options.router, options.policy, options.journal, self.last_route != null);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
+                                self.last_request_manifest_fingerprint = envelope.manifest_fingerprint;
                                 self.last_request_included_capsule = options.capsule;
                                 self.adoptLastRequestJournalBranch(options.allocator, owned_branch);
                                 owned_branch = null;
@@ -5140,6 +5148,7 @@ pub fn program(
                                 self.last_route = try appendRouteAwareOutboxEnvelope(options.allocator, outbox, envelope, options.router, options.policy, options.journal, require_routed_result);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
+                                self.last_request_manifest_fingerprint = envelope.manifest_fingerprint;
                                 self.last_request_included_capsule = options.capsule;
                                 self.adoptLastRequestJournalBranch(options.allocator, owned_branch);
                                 owned_branch = null;
@@ -5156,6 +5165,7 @@ pub fn program(
                                 self.last_route = try appendRouteAwareOutboxEnvelope(options.allocator, outbox, envelope, options.router, options.policy, options.journal, require_routed_result);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
+                                self.last_request_manifest_fingerprint = envelope.manifest_fingerprint;
                                 self.last_request_included_capsule = options.capsule;
                                 self.adoptLastRequestJournalBranch(options.allocator, owned_branch);
                                 owned_branch = null;
@@ -5178,7 +5188,7 @@ pub fn program(
                 };
                 var owned_request = request_envelope;
                 defer owned_request.deinit();
-                try validateResponseForCurrentRequest(response, owned_request, options.request_envelope_fingerprint);
+                try validateResponseForCurrentRequest(response, owned_request, options.request_envelope_fingerprint, options.request_manifest_fingerprint);
                 const response_trace: Session.Trace.Response = .{
                     .request_fingerprint = response.request_fingerprint,
                     .kind = response.kind,
@@ -5195,13 +5205,10 @@ pub fn program(
                 try applyResponseValue(session, current_value, response);
             }
 
-            fn validateResponseForCurrentRequest(response: ResponseEnvelope, request: RequestEnvelope, request_envelope_fingerprint: ?u64) Error!void {
+            fn validateResponseForCurrentRequest(response: ResponseEnvelope, request: RequestEnvelope, request_envelope_fingerprint: ?u64, request_manifest_fingerprint: ?u64) Error!void {
                 try request.validate();
                 if (response.request_envelope_fingerprint != (request_envelope_fingerprint orelse request.fingerprint)) return error.ProgramContractViolation;
-                if (response.manifest_fingerprint != request.manifest_fingerprint) {
-                    if (request_envelope_fingerprint == null) return error.ProgramContractViolation;
-                    if (!try manifestFingerprintMatchesSupportedRequestVersion(request.allocator, response.manifest_fingerprint)) return error.ProgramContractViolation;
-                }
+                if (response.manifest_fingerprint != (request_manifest_fingerprint orelse request.manifest_fingerprint)) return error.ProgramContractViolation;
                 if (response.request_fingerprint != request.request_fingerprint) return error.ProgramContractViolation;
                 try validateResponseEnvelopeFieldsBoundToBytes(response);
                 const expected_ref = try expectedResponseRef(request, response.kind);

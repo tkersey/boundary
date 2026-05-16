@@ -15351,7 +15351,13 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     try std.testing.expectEqual(decoded_legacy_manifest.fingerprint, decoded_legacy_response.manifest_fingerprint);
     try legacy_response.validateForRequest(decoded_legacy_request);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.applyResponse(&session, legacy_response, .{}));
-    try Program.Exchange.applyResponse(&session, legacy_response, .{ .request_envelope_fingerprint = decoded_legacy_request.fingerprint });
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.applyResponse(&session, legacy_response, .{
+        .request_envelope_fingerprint = decoded_legacy_request.fingerprint,
+    }));
+    try Program.Exchange.applyResponse(&session, legacy_response, .{
+        .request_envelope_fingerprint = decoded_legacy_request.fingerprint,
+        .request_manifest_fingerprint = decoded_legacy_request.manifest_fingerprint,
+    });
     var legacy_result = switch (try session.next()) {
         .done => |value| value,
         .request => return error.ExpectedDone,
