@@ -292,6 +292,33 @@ a broker. Hosts own identity, signing, encryption, transport, persistence,
 scheduling, network/async integration, tools, humans, and models. Request
 tokens remain in-process guards and are never serialized.
 
+### Linear Effect Sessions
+
+Continuations can be copied; the world often cannot. Linear Effect Sessions add
+an explicit usage discipline to exchanged custom effects without changing
+`Program.Session` stepping. Use `Program.Exchange.Usage` to classify effects as
+copyable, replayable, affine, linear, or ephemeral. Use `ResponseUse` to mark
+fresh responses, journal replay, deterministic replay, or policy overrides. Use
+`BranchPolicy` to describe whether an embedded capsule is unrestricted,
+replay-only, single-live-branch, split-required, no-branch, or host-owned.
+
+`EffectSessionSpec` describes the state machine. `Capability` is still a grant;
+`CapabilityInstance` is the actual consumable branch-local authority.
+`Obligation` connects a request envelope to that instance and records open,
+consumed, replayed, canceled, or abandoned status, plus branch id, allowed
+response kinds/refs, capsule image fingerprint, and response fingerprints.
+Affine and linear effects reject duplicate fresh responses, and linear effects
+close by consume or explicit cancellation unless policy records host-owned
+abandonment.
+
+Request envelopes can carry optional session, instance, obligation, usage,
+branch, replay, ephemeral, and cancelability metadata. Response authorization
+can be validated together with an obligation transition, and
+`ObligationLedger.validate` catches duplicate consumption and unresolved linear
+obligations. This remains deterministic validation metadata; hosts still own
+identity, signing, encryption, transport, storage, scheduling, network,
+persistence, provider execution, tools, humans, and models.
+
 `examples/custom_approval_workflow.zig` is the reference example. It defines a
 custom `workflow` protocol with transform, choice, and abort operations, lowers
 it to rows with a registry-derived schema ref map, authors control flow with the

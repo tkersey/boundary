@@ -1283,7 +1283,7 @@ pub fn program(
         /// Stable fingerprint version for Program.Session.Capsule durable images.
         pub const capsule_image_fingerprint_version: u32 = 1;
         /// Stable format version for Program.Session interaction journals.
-        pub const journal_format_version: u32 = 2;
+        pub const journal_format_version: u32 = 3;
         /// Stable fingerprint version for Program.Session interaction journals.
         pub const journal_fingerprint_version: u32 = 1;
         /// Stable format version for Program.Exchange manifest images.
@@ -1291,10 +1291,10 @@ pub fn program(
         /// Stable fingerprint version for Program.Exchange manifest images.
         pub const exchange_manifest_fingerprint_version: u32 = 1;
         /// Stable format version for Program.Exchange request envelopes.
-        /// Version 2 preserves v1 fields and assigns current requests a new fingerprint domain.
-        pub const exchange_request_format_version: u32 = 2;
+        /// Version 3 preserves v2 fields and adds optional linear-session metadata.
+        pub const exchange_request_format_version: u32 = 3;
         /// Stable fingerprint version for Program.Exchange request envelopes.
-        pub const exchange_request_fingerprint_version: u32 = 2;
+        pub const exchange_request_fingerprint_version: u32 = 3;
         /// Stable format version for Program.Exchange response envelopes.
         pub const exchange_response_format_version: u32 = 1;
         /// Stable fingerprint version for Program.Exchange response envelopes.
@@ -1311,6 +1311,20 @@ pub fn program(
         pub const exchange_authorization_fingerprint_version: u32 = 1;
         /// Stable fingerprint version for Program.Exchange route witnesses.
         pub const exchange_route_fingerprint_version: u32 = 1;
+        /// Stable format version for Program.Exchange effect-session specs.
+        pub const exchange_effect_session_format_version: u32 = 1;
+        /// Stable fingerprint version for Program.Exchange effect-session specs.
+        pub const exchange_effect_session_fingerprint_version: u32 = 1;
+        /// Stable format version for Program.Exchange capability instances.
+        pub const exchange_capability_instance_format_version: u32 = 1;
+        /// Stable fingerprint version for Program.Exchange capability instances.
+        pub const exchange_capability_instance_fingerprint_version: u32 = 1;
+        /// Stable format version for Program.Exchange obligations.
+        pub const exchange_obligation_format_version: u32 = 1;
+        /// Stable fingerprint version for Program.Exchange obligations.
+        pub const exchange_obligation_fingerprint_version: u32 = 1;
+        /// Stable fingerprint version for Program.Exchange obligation transitions.
+        pub const exchange_obligation_transition_fingerprint_version: u32 = 1;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {
@@ -1546,7 +1560,7 @@ pub fn program(
             pub const capsule_image_format_version = Core.capsule_image_format_version;
             /// Durable capsule image fingerprint version.
             pub const capsule_image_fingerprint_version = Core.capsule_image_fingerprint_version;
-            const session_journal_format_version: u32 = 2;
+            const session_journal_format_version: u32 = 3;
             const session_journal_fingerprint_version = Core.journal_fingerprint_version;
             /// Durable interaction journal format version.
             pub const journal_format_version = session_journal_format_version;
@@ -1722,6 +1736,12 @@ pub fn program(
                     authorization_fingerprint: ?u64 = null,
                     request_envelope_fingerprint: ?u64 = null,
                     response_envelope_fingerprint: ?u64 = null,
+                    capability_instance_fingerprint: ?u64 = null,
+                    obligation_fingerprint: ?u64 = null,
+                    obligation_transition_fingerprint: ?u64 = null,
+                    branch_id: ?u64 = null,
+                    previous_state_fingerprint: ?u64 = null,
+                    next_state_fingerprint: ?u64 = null,
                     blocker_tag: ?[]const u8 = null,
 
                     /// Exchange ledger event kind.
@@ -1733,6 +1753,17 @@ pub fn program(
                         route_blocked,
                         response_authorized,
                         response_rejected,
+                        effect_session_opened,
+                        capability_instance_created,
+                        capability_instance_split,
+                        capability_instance_consumed,
+                        obligation_opened,
+                        obligation_consumed,
+                        obligation_replayed,
+                        obligation_canceled,
+                        obligation_rejected,
+                        branch_policy_checked,
+                        branch_rejected,
                     };
                 };
 
@@ -2042,7 +2073,7 @@ pub fn program(
                     var reader = ExchangeByteReader.init(payload);
                     try reader.expectBytes("ABL_JRN1");
                     const format_version = try reader.readU32();
-                    if (format_version != 1 and format_version != session_journal_format_version) return error.ProgramContractViolation;
+                    if (format_version != 1 and format_version != 2 and format_version != session_journal_format_version) return error.ProgramContractViolation;
                     if (try reader.readU32() != session_journal_fingerprint_version) return error.ProgramContractViolation;
                     var journal = Journal.init(allocator);
                     errdefer journal.deinit();
@@ -3205,7 +3236,7 @@ pub fn program(
                     },
                     3 => .{ .done = try reader.readU64() },
                     4 => if (format_version >= 2)
-                        .{ .exchange_event = try readJournalExchangeEvent(reader, allocator) }
+                        .{ .exchange_event = try readJournalExchangeEvent(reader, allocator, format_version) }
                     else
                         error.ProgramContractViolation,
                     else => error.ProgramContractViolation,
@@ -3231,6 +3262,17 @@ pub fn program(
                     .route_blocked => 4,
                     .response_authorized => 5,
                     .response_rejected => 6,
+                    .effect_session_opened => 7,
+                    .capability_instance_created => 8,
+                    .capability_instance_split => 9,
+                    .capability_instance_consumed => 10,
+                    .obligation_opened => 11,
+                    .obligation_consumed => 12,
+                    .obligation_replayed => 13,
+                    .obligation_canceled => 14,
+                    .obligation_rejected => 15,
+                    .branch_policy_checked => 16,
+                    .branch_rejected => 17,
                 });
             }
 
@@ -3243,6 +3285,17 @@ pub fn program(
                     4 => .route_blocked,
                     5 => .response_authorized,
                     6 => .response_rejected,
+                    7 => .effect_session_opened,
+                    8 => .capability_instance_created,
+                    9 => .capability_instance_split,
+                    10 => .capability_instance_consumed,
+                    11 => .obligation_opened,
+                    12 => .obligation_consumed,
+                    13 => .obligation_replayed,
+                    14 => .obligation_canceled,
+                    15 => .obligation_rejected,
+                    16 => .branch_policy_checked,
+                    17 => .branch_rejected,
                     else => error.ProgramContractViolation,
                 };
             }
@@ -3255,11 +3308,17 @@ pub fn program(
                 try writeOptionalJournalU64(writer, event.authorization_fingerprint);
                 try writeOptionalJournalU64(writer, event.request_envelope_fingerprint);
                 try writeOptionalJournalU64(writer, event.response_envelope_fingerprint);
+                try writeOptionalJournalU64(writer, event.capability_instance_fingerprint);
+                try writeOptionalJournalU64(writer, event.obligation_fingerprint);
+                try writeOptionalJournalU64(writer, event.obligation_transition_fingerprint);
+                try writeOptionalJournalU64(writer, event.branch_id);
+                try writeOptionalJournalU64(writer, event.previous_state_fingerprint);
+                try writeOptionalJournalU64(writer, event.next_state_fingerprint);
                 try writer.writeBool(event.blocker_tag != null);
                 if (event.blocker_tag) |tag| try writer.writeLenBytes(tag);
             }
 
-            fn readJournalExchangeEvent(reader: *ExchangeByteReader, allocator: std.mem.Allocator) anyerror!Journal.ExchangeEvent {
+            fn readJournalExchangeEvent(reader: *ExchangeByteReader, allocator: std.mem.Allocator, format_version: u32) anyerror!Journal.ExchangeEvent {
                 const kind = try readJournalExchangeEventKind(reader);
                 const provider_fingerprint = try readOptionalJournalU64(reader);
                 const capability_fingerprint = try readOptionalJournalU64(reader);
@@ -3267,6 +3326,12 @@ pub fn program(
                 const authorization_fingerprint = try readOptionalJournalU64(reader);
                 const request_envelope_fingerprint = try readOptionalJournalU64(reader);
                 const response_envelope_fingerprint = try readOptionalJournalU64(reader);
+                const capability_instance_fingerprint = if (format_version >= 3) try readOptionalJournalU64(reader) else null;
+                const obligation_fingerprint = if (format_version >= 3) try readOptionalJournalU64(reader) else null;
+                const obligation_transition_fingerprint = if (format_version >= 3) try readOptionalJournalU64(reader) else null;
+                const branch_id = if (format_version >= 3) try readOptionalJournalU64(reader) else null;
+                const previous_state_fingerprint = if (format_version >= 3) try readOptionalJournalU64(reader) else null;
+                const next_state_fingerprint = if (format_version >= 3) try readOptionalJournalU64(reader) else null;
                 const blocker_tag = if (try reader.readBool()) blk: {
                     const tag = try allocator.dupe(u8, try reader.readLenBytes());
                     break :blk tag;
@@ -3279,6 +3344,12 @@ pub fn program(
                     .authorization_fingerprint = authorization_fingerprint,
                     .request_envelope_fingerprint = request_envelope_fingerprint,
                     .response_envelope_fingerprint = response_envelope_fingerprint,
+                    .capability_instance_fingerprint = capability_instance_fingerprint,
+                    .obligation_fingerprint = obligation_fingerprint,
+                    .obligation_transition_fingerprint = obligation_transition_fingerprint,
+                    .branch_id = branch_id,
+                    .previous_state_fingerprint = previous_state_fingerprint,
+                    .next_state_fingerprint = next_state_fingerprint,
                     .blocker_tag = blocker_tag,
                 };
             }
@@ -3579,6 +3650,20 @@ pub fn program(
             pub const authorization_fingerprint_version = exchange_authorization_fingerprint_version;
             /// Current route witness fingerprint domain version.
             pub const route_fingerprint_version = exchange_route_fingerprint_version;
+            /// Current effect-session spec image format version.
+            pub const effect_session_format_version = exchange_effect_session_format_version;
+            /// Current effect-session spec fingerprint domain version.
+            pub const effect_session_fingerprint_version = exchange_effect_session_fingerprint_version;
+            /// Current capability-instance image format version.
+            pub const capability_instance_format_version = exchange_capability_instance_format_version;
+            /// Current capability-instance fingerprint domain version.
+            pub const capability_instance_fingerprint_version = exchange_capability_instance_fingerprint_version;
+            /// Current obligation image format version.
+            pub const obligation_format_version = exchange_obligation_format_version;
+            /// Current obligation fingerprint domain version.
+            pub const obligation_fingerprint_version = exchange_obligation_fingerprint_version;
+            /// Current obligation transition fingerprint domain version.
+            pub const obligation_transition_fingerprint_version = exchange_obligation_transition_fingerprint_version;
 
             /// Stable fingerprint for scoping capability grants to a journal branch id.
             pub fn journalPolicyFingerprint(journal_branch_id: []const u8) u64 {
@@ -3593,6 +3678,415 @@ pub fn program(
 
             /// Dynamic exchange response kind accepted by a parked session.
             pub const ResponseKind = Session.Trace.ResponseKind;
+
+            /// Usage discipline for an externalized exchanged effect.
+            pub const Usage = enum {
+                copyable,
+                replayable,
+                affine,
+                linear,
+                ephemeral,
+            };
+
+            /// Class of response use when satisfying an exchange obligation.
+            pub const ResponseUse = enum {
+                fresh,
+                replayed,
+                deterministic_replay,
+                override,
+            };
+
+            /// Branch discipline applied to reusable capsules while an effect is open.
+            pub const BranchPolicy = enum {
+                unrestricted,
+                replay_only,
+                single_live_branch,
+                split_required,
+                no_branch,
+                host_owned,
+            };
+
+            /// Lifecycle status for an exchange obligation.
+            pub const ObligationStatus = enum {
+                open,
+                consumed,
+                canceled,
+                replayed,
+                abandoned,
+            };
+
+            /// Declarative state-machine descriptor for exchanged effect usage.
+            pub const EffectSessionSpec = struct {
+                label: []const u8,
+                initial_state: []const u8,
+                states: []const []const u8,
+                terminal_states: []const []const u8 = &.{},
+                transitions: []const Transition = &.{},
+                usage: Usage = .copyable,
+                branch_policy: BranchPolicy = .unrestricted,
+                replay_policy: ResponseUse = .fresh,
+                provider_fingerprint: ?u64 = null,
+                capability_fingerprint: ?u64 = null,
+
+                /// One request, response, or cancel transition in an effect session spec.
+                pub const Transition = struct {
+                    kind: Kind,
+                    from: []const u8,
+                    to: []const u8,
+                    site_fingerprint: ?u64 = null,
+                    response_kind: ?ResponseKind = null,
+                    response_ref: ?lowering_api.ValueRef = null,
+
+                    /// Transition class.
+                    pub const Kind = enum {
+                        request,
+                        response,
+                        cancel,
+                    };
+                };
+
+                /// Validate that labels, states, and transitions are internally coherent.
+                pub fn validate(self: @This()) Error!void {
+                    if (self.label.len == 0 or self.initial_state.len == 0) return error.ProgramContractViolation;
+                    if (!self.hasState(self.initial_state)) return error.ProgramContractViolation;
+                    for (self.terminal_states) |state| if (!self.hasState(state)) return error.ProgramContractViolation;
+                    for (self.transitions) |transition| {
+                        if (!self.hasState(transition.from) or !self.hasState(transition.to)) return error.ProgramContractViolation;
+                        if (transition.kind == .response and transition.response_kind == null) return error.ProgramContractViolation;
+                    }
+                }
+
+                /// Deterministic fingerprint for this session spec.
+                pub fn fingerprint(self: @This()) u64 {
+                    return fingerprintEffectSessionSpec(self);
+                }
+
+                /// Return true when this state is terminal.
+                pub fn terminal(self: @This(), state: []const u8) bool {
+                    for (self.terminal_states) |terminal_state| {
+                        if (std.mem.eql(u8, terminal_state, state)) return true;
+                    }
+                    return false;
+                }
+
+                /// Return the target state for a valid response transition.
+                pub fn responseTarget(self: @This(), from: []const u8, kind_value: ResponseKind, response_ref: lowering_api.ValueRef) Error![]const u8 {
+                    try self.validate();
+                    for (self.transitions) |transition| {
+                        if (transition.kind != .response) continue;
+                        if (!std.mem.eql(u8, transition.from, from)) continue;
+                        if (transition.response_kind != null and transition.response_kind.? != kind_value) continue;
+                        if (transition.response_ref) |ref| {
+                            if (!ref.eql(response_ref)) continue;
+                        }
+                        return transition.to;
+                    }
+                    return error.ProgramContractViolation;
+                }
+
+                /// Return the target state for a valid cancellation transition.
+                pub fn cancelTarget(self: @This(), from: []const u8) Error![]const u8 {
+                    try self.validate();
+                    for (self.transitions) |transition| {
+                        if (transition.kind == .cancel and std.mem.eql(u8, transition.from, from)) return transition.to;
+                    }
+                    return error.ProgramContractViolation;
+                }
+
+                fn hasState(self: @This(), state: []const u8) bool {
+                    for (self.states) |known| if (std.mem.eql(u8, known, state)) return true;
+                    return false;
+                }
+            };
+
+            /// Deterministic metadata for one live consumable capability instance.
+            pub const CapabilityInstance = struct {
+                instance_version: u32 = exchange_capability_instance_format_version,
+                instance_fingerprint: u64 = 0,
+                parent_capability_fingerprint: u64,
+                provider_fingerprint: u64,
+                manifest_fingerprint: u64,
+                effect_session_spec_fingerprint: u64,
+                current_state: []const u8,
+                usage: Usage,
+                branch_id: u64 = 0,
+                opened_request_fingerprint: ?u64 = null,
+                consumed_response_fingerprint: ?u64 = null,
+                canceled: bool = false,
+                replay_source_fingerprint: ?u64 = null,
+                logical_generation: u64 = 0,
+                parent_instance_fingerprint: ?u64 = null,
+                path_fingerprint: u64 = 0,
+                branch_policy: BranchPolicy = .unrestricted,
+
+                /// Options for creating a capability instance.
+                pub const CreateOptions = struct {
+                    branch_id: u64 = 0,
+                    initial_state: ?[]const u8 = null,
+                    usage: ?Usage = null,
+                    branch_policy: ?BranchPolicy = null,
+                };
+
+                /// Options for splitting a capability instance.
+                pub const SplitOptions = struct {
+                    branch_id: u64,
+                    policy: BranchPolicy = .single_live_branch,
+                };
+
+                /// Create a consumable instance from a capability grant and session spec.
+                pub fn create(capability: Capability, provider: ProviderManifest, spec: EffectSessionSpec, options: CreateOptions) Error!@This() {
+                    try spec.validate();
+                    if (capability.provider_fingerprint != provider.provider_fingerprint) return error.ProgramContractViolation;
+                    var instance = CapabilityInstance{
+                        .parent_capability_fingerprint = capability.fingerprint,
+                        .provider_fingerprint = provider.provider_fingerprint,
+                        .manifest_fingerprint = capability.manifest_fingerprint,
+                        .effect_session_spec_fingerprint = spec.fingerprint(),
+                        .current_state = options.initial_state orelse spec.initial_state,
+                        .usage = options.usage orelse spec.usage,
+                        .branch_id = options.branch_id,
+                        .path_fingerprint = capability.attenuation_path_fingerprint,
+                        .branch_policy = options.branch_policy orelse spec.branch_policy,
+                    };
+                    instance.instance_fingerprint = fingerprintCapabilityInstance(instance);
+                    return instance;
+                }
+
+                /// Return true once this instance can no longer accept a fresh response.
+                pub fn closed(self: @This()) bool {
+                    return self.canceled or self.consumed_response_fingerprint != null;
+                }
+
+                /// Split or delegate this live capability instance for another branch.
+                pub fn split(self: @This(), options: SplitOptions) Error!@This() {
+                    if (self.closed()) return error.ProgramContractViolation;
+                    if (self.branch_policy == .no_branch or options.policy == .no_branch) return error.ProgramContractViolation;
+                    if ((self.usage == .linear or self.usage == .affine) and options.policy == .unrestricted) return error.ProgramContractViolation;
+                    if ((self.usage == .linear or self.usage == .affine) and options.policy != .replay_only) return error.ProgramContractViolation;
+                    var child = self;
+                    child.branch_id = options.branch_id;
+                    child.logical_generation = self.logical_generation + 1;
+                    child.parent_instance_fingerprint = self.instance_fingerprint;
+                    child.branch_policy = options.policy;
+                    child.path_fingerprint = capabilityInstancePathFingerprint(self.instance_fingerprint, self.path_fingerprint, options.branch_id, options.policy);
+                    child.instance_fingerprint = 0;
+                    child.instance_fingerprint = fingerprintCapabilityInstance(child);
+                    return child;
+                }
+
+                /// Mark the capability instance as having opened a request.
+                pub fn opened(self: @This(), request_fingerprint: u64) @This() {
+                    var next = self;
+                    next.opened_request_fingerprint = request_fingerprint;
+                    next.instance_fingerprint = 0;
+                    next.instance_fingerprint = fingerprintCapabilityInstance(next);
+                    return next;
+                }
+
+                /// Mark this instance consumed by a response fingerprint.
+                pub fn consume(self: @This(), response_fingerprint: u64) Error!@This() {
+                    if (self.closed()) return error.ProgramContractViolation;
+                    var next = self;
+                    next.consumed_response_fingerprint = response_fingerprint;
+                    next.instance_fingerprint = 0;
+                    next.instance_fingerprint = fingerprintCapabilityInstance(next);
+                    return next;
+                }
+
+                /// Mark this instance canceled.
+                pub fn cancel(self: @This()) Error!@This() {
+                    if (self.closed()) return error.ProgramContractViolation;
+                    var next = self;
+                    next.canceled = true;
+                    next.instance_fingerprint = 0;
+                    next.instance_fingerprint = fingerprintCapabilityInstance(next);
+                    return next;
+                }
+            };
+
+            /// Ledgered bridge between a request envelope and an external effect usage rule.
+            pub const Obligation = struct {
+                obligation_version: u32 = exchange_obligation_format_version,
+                obligation_fingerprint: u64 = 0,
+                effect_session_instance_fingerprint: u64,
+                request_envelope_fingerprint: u64,
+                request_fingerprint: u64,
+                site_fingerprint: u64,
+                usage: Usage,
+                branch_id: u64 = 0,
+                state_at_open: []const u8,
+                allowed_response_kinds: Policy.ResponseKindSet = .{},
+                allowed_response_refs: []const lowering_api.ValueRef = &.{},
+                capsule_image_fingerprint: ?u64 = null,
+                status: ObligationStatus = .open,
+                consumed_response_fingerprint: ?u64 = null,
+                replay_source_response_fingerprint: ?u64 = null,
+                provider_fingerprint: ?u64 = null,
+                capability_instance_fingerprint: ?u64 = null,
+                branch_policy: BranchPolicy = .unrestricted,
+
+                /// Empty runner-owned obligation slot for MailboxRunner opening.
+                pub fn placeholder() @This() {
+                    return .{
+                        .effect_session_instance_fingerprint = 0,
+                        .request_envelope_fingerprint = 0,
+                        .request_fingerprint = 0,
+                        .site_fingerprint = 0,
+                        .usage = .copyable,
+                        .state_at_open = "",
+                    };
+                }
+
+                /// Open an obligation from a request envelope and capability instance.
+                pub fn open(instance: CapabilityInstance, request: RequestEnvelope, allowed_response_kinds: Policy.ResponseKindSet, allowed_response_refs: []const lowering_api.ValueRef) Error!@This() {
+                    if (instance.closed()) return error.ProgramContractViolation;
+                    if (instance.usage == .ephemeral and request.capsule_image != null) return error.ProgramContractViolation;
+                    if (instance.branch_policy == .no_branch and request.capsule_image != null) return error.ProgramContractViolation;
+                    var obligation = Obligation{
+                        .effect_session_instance_fingerprint = instance.instance_fingerprint,
+                        .request_envelope_fingerprint = request.fingerprint,
+                        .request_fingerprint = request.request_fingerprint,
+                        .site_fingerprint = request.site_fingerprint,
+                        .usage = instance.usage,
+                        .branch_id = instance.branch_id,
+                        .state_at_open = instance.current_state,
+                        .allowed_response_kinds = allowed_response_kinds,
+                        .allowed_response_refs = allowed_response_refs,
+                        .capsule_image_fingerprint = request.capsule_image_fingerprint,
+                        .provider_fingerprint = instance.provider_fingerprint,
+                        .capability_instance_fingerprint = instance.instance_fingerprint,
+                        .branch_policy = instance.branch_policy,
+                    };
+                    obligation.obligation_fingerprint = fingerprintObligation(obligation);
+                    return obligation;
+                }
+
+                /// Consume an open obligation with a fresh response.
+                pub fn consume(self: @This(), response: ResponseEnvelope, use_value: ResponseUse) Error!ObligationTransition {
+                    if (use_value != .fresh and use_value != .override) return error.ProgramContractViolation;
+                    if (self.status != .open) return error.ProgramContractViolation;
+                    if (!self.allowed_response_kinds.allows(response.kind)) return error.ProgramContractViolation;
+                    if (!listAllowsValueRef(self.allowed_response_refs, response.response_ref)) return error.ProgramContractViolation;
+                    return obligationTransition(self, .consumed, response.fingerprint, null, use_value);
+                }
+
+                /// Replay an obligation from a recorded response fingerprint.
+                pub fn replay(self: @This(), response: ResponseEnvelope, source_response_fingerprint: u64, use_value: ResponseUse) Error!ObligationTransition {
+                    if (use_value != .replayed and use_value != .deterministic_replay) return error.ProgramContractViolation;
+                    if (self.usage == .ephemeral) return error.ProgramContractViolation;
+                    if (self.status != .open and self.status != .consumed and self.status != .replayed) return error.ProgramContractViolation;
+                    if (!self.allowed_response_kinds.allows(response.kind)) return error.ProgramContractViolation;
+                    if (!listAllowsValueRef(self.allowed_response_refs, response.response_ref)) return error.ProgramContractViolation;
+                    return obligationTransition(self, .replayed, response.fingerprint, source_response_fingerprint, use_value);
+                }
+
+                /// Cancel an open affine or linear obligation.
+                pub fn cancel(self: @This()) Error!ObligationTransition {
+                    if (self.status != .open) return error.ProgramContractViolation;
+                    if (!(self.usage == .affine or self.usage == .linear)) return error.ProgramContractViolation;
+                    return obligationTransition(self, .canceled, null, null, .fresh);
+                }
+
+                /// Abandon an open obligation when policy allows host-owned abandonment.
+                pub fn abandon(self: @This()) Error!ObligationTransition {
+                    if (self.status != .open) return error.ProgramContractViolation;
+                    if (self.usage == .linear and self.branch_policy != .host_owned) return error.ProgramContractViolation;
+                    return obligationTransition(self, .abandoned, null, null, .fresh);
+                }
+            };
+
+            /// Deterministic transition applied to an obligation/session pair.
+            pub const ObligationTransition = struct {
+                transition_fingerprint: u64 = 0,
+                obligation_fingerprint: u64,
+                previous_obligation_status: ObligationStatus,
+                next_obligation_status: ObligationStatus,
+                previous_session_state: []const u8,
+                next_session_state: []const u8,
+                response_use: ResponseUse,
+                response_fingerprint: ?u64 = null,
+                replay_source_response_fingerprint: ?u64 = null,
+                capability_instance_consumed: bool = false,
+                branch_remains_open: bool = true,
+                branch_id: u64 = 0,
+            };
+
+            /// Result of validating response authority and obligation transition together.
+            pub const AuthorizationResult = struct {
+                authorization_fingerprint: u64,
+                obligation_transition_fingerprint: u64,
+                previous_obligation_status: ObligationStatus,
+                next_obligation_status: ObligationStatus,
+                previous_session_state: []const u8,
+                next_session_state: []const u8,
+                response_use: ResponseUse,
+                capability_instance_consumed: bool,
+                branch_remains_open: bool,
+            };
+
+            /// Journal/ledger validator for linear effect obligations.
+            pub const ObligationLedger = struct {
+                obligations: []const Obligation = &.{},
+                transitions: []const ObligationTransition = &.{},
+                expected_provider_fingerprint: ?u64 = null,
+                expected_capability_instance_fingerprint: ?u64 = null,
+
+                /// Validate obligation transitions for duplicate consumption and unresolved linear effects.
+                pub fn validate(self: @This()) ValidationReport {
+                    var report: ValidationReport = .{};
+                    for (self.transitions, 0..) |transition, index| {
+                        var has_obligation = false;
+                        for (self.obligations) |obligation| {
+                            if (obligation.obligation_fingerprint == transition.obligation_fingerprint) {
+                                has_obligation = true;
+                                if (obligation.branch_id != transition.branch_id) report.add(.branch_policy);
+                                if (obligation.branch_policy == .replay_only and (transition.response_use == .fresh or transition.response_use == .override)) report.add(.replay_policy);
+                                break;
+                            }
+                        }
+                        if (!has_obligation) report.add(.wrong_obligation);
+                        if (transition.previous_obligation_status == .canceled and
+                            (transition.next_obligation_status == .consumed or transition.next_obligation_status == .replayed))
+                        {
+                            report.add(.response_after_cancel);
+                        }
+                        if (transition.previous_obligation_status != .open and
+                            (transition.next_obligation_status == .consumed or transition.next_obligation_status == .canceled))
+                        {
+                            report.add(.obligation_not_open);
+                        }
+                        for (self.transitions[0..index]) |prior| {
+                            if (prior.obligation_fingerprint == transition.obligation_fingerprint and
+                                prior.next_obligation_status == .consumed and transition.next_obligation_status == .consumed)
+                            {
+                                report.add(.duplicate_obligation_consume);
+                            }
+                        }
+                        if (transition.transition_fingerprint != fingerprintObligationTransition(transition)) report.add(.invalid_obligation_transition);
+                    }
+                    for (self.obligations) |obligation| {
+                        if (obligation.capability_instance_fingerprint) |fingerprint| {
+                            if (fingerprint != obligation.effect_session_instance_fingerprint) report.add(.wrong_capability_instance);
+                        }
+                        if (self.expected_provider_fingerprint) |fingerprint| {
+                            if (obligation.provider_fingerprint == null or obligation.provider_fingerprint.? != fingerprint) report.add(.wrong_provider);
+                        }
+                        if (self.expected_capability_instance_fingerprint) |fingerprint| {
+                            if (obligation.capability_instance_fingerprint == null or obligation.capability_instance_fingerprint.? != fingerprint) report.add(.wrong_capability_instance);
+                        }
+                        var closed = obligation.status != .open;
+                        for (self.transitions) |transition| {
+                            if (transition.obligation_fingerprint == obligation.obligation_fingerprint and
+                                (transition.next_obligation_status == .consumed or transition.next_obligation_status == .canceled or transition.next_obligation_status == .abandoned))
+                            {
+                                closed = true;
+                            }
+                        }
+                        if (obligation.usage == .linear and !closed) report.add(.unresolved_linear_obligation);
+                    }
+                    return report;
+                }
+            };
 
             /// Canonical image of the Program exchange surface.
             pub const Manifest = struct {
@@ -3642,7 +4136,7 @@ pub fn program(
                     if (try reader.readU32() != capsule_image_format_version) return error.ProgramContractViolation;
                     if (try reader.readU32() != capsule_image_fingerprint_version) return error.ProgramContractViolation;
                     const manifest_journal_format = try reader.readU32();
-                    if (manifest_journal_format != 1 and manifest_journal_format != journal_format_version) return error.ProgramContractViolation;
+                    if (manifest_journal_format != 1 and manifest_journal_format != 2 and manifest_journal_format != journal_format_version) return error.ProgramContractViolation;
                     if (try reader.readU32() != journal_fingerprint_version) return error.ProgramContractViolation;
                     try readManifestValueSchemas(&reader);
                     try readManifestOperationSites(&reader);
@@ -3679,6 +4173,10 @@ pub fn program(
                 allowed_provider_fingerprints: ?[]const u64 = null,
                 allowed_capability_fingerprints: ?[]const u64 = null,
                 allow_capsule_restore: bool = true,
+                usage: ?Usage = null,
+                branch_policy: ?BranchPolicy = null,
+                replay_policy: ?ResponseUse = null,
+                allow_abandon_linear: bool = false,
 
                 /// Response-kind allow list used by Policy.
                 pub const ResponseKindSet = struct {
@@ -3703,6 +4201,20 @@ pub fn program(
                     if (!self.allow_capsules and envelope.capsule_image != null) return error.ProgramContractViolation;
                     if (envelope.capsule_image) |image| {
                         if (image.len > (self.max_capsule_image_bytes orelse self.max_payload_bytes)) return error.ProgramContractViolation;
+                    }
+                    if (self.usage) |usage_value| {
+                        if (envelope.usage_metadata == null or envelope.usage_metadata.?.usage != usage_value) return error.ProgramContractViolation;
+                    }
+                    if (envelope.usage_metadata) |metadata| {
+                        if (metadata.ephemeral and envelope.capsule_image != null) return error.ProgramContractViolation;
+                        if (metadata.usage == .ephemeral and envelope.capsule_image != null) return error.ProgramContractViolation;
+                        if (metadata.branch_policy == .no_branch and envelope.capsule_image != null) return error.ProgramContractViolation;
+                        if (self.branch_policy) |policy_value| {
+                            if (metadata.branch_policy != policy_value) return error.ProgramContractViolation;
+                        }
+                        if (self.replay_policy) |policy_value| {
+                            if (metadata.replay_policy != policy_value) return error.ProgramContractViolation;
+                        }
                     }
                     switch (envelope.kind) {
                         .operation => if (!policyAllowsSite(self.allowed_operation_sites, envelope.site_index)) return error.ProgramContractViolation,
@@ -3756,6 +4268,16 @@ pub fn program(
                 no_route,
                 broadened_authority,
                 expired_capability,
+                usage_mode,
+                branch_policy,
+                replay_policy,
+                duplicate_obligation_consume,
+                unresolved_linear_obligation,
+                invalid_obligation_transition,
+                obligation_not_open,
+                response_after_cancel,
+                wrong_obligation,
+                wrong_capability_instance,
             };
 
             /// Fixed-capacity structured validation report. Extra blockers are saturated, not allocated.
@@ -4443,11 +4965,25 @@ pub fn program(
                 }
             };
 
+            /// Optional linear-session metadata carried by durable request envelopes.
+            pub const RequestUsageMetadata = struct {
+                effect_session_spec_fingerprint: ?u64 = null,
+                capability_instance_fingerprint: ?u64 = null,
+                obligation_fingerprint: ?u64 = null,
+                usage: Usage = .copyable,
+                branch_id: u64 = 0,
+                branch_policy: BranchPolicy = .unrestricted,
+                replay_policy: ResponseUse = .fresh,
+                ephemeral: bool = false,
+                cancelable: bool = false,
+            };
+
             /// Options used while producing request envelopes.
             pub const RequestOptions = struct {
                 capsule: ?Session.Capsule.Image = null,
                 journal: ?*Session.Journal = null,
                 journal_branch_id: ?[]const u8 = null,
+                usage_metadata: ?RequestUsageMetadata = null,
             };
 
             /// Canonical typed request envelope for a yielded operation or after hook.
@@ -4480,6 +5016,7 @@ pub fn program(
                 capsule_image: ?[]u8 = null,
                 capsule_image_fingerprint: ?u64 = null,
                 journal_branch_id: ?[]const u8 = null,
+                usage_metadata: ?RequestUsageMetadata = null,
 
                 /// Encode an operation request yielded by Program.Session.
                 pub fn fromRequest(allocator: std.mem.Allocator, request: Session.Request, options: RequestOptions) Error!@This() {
@@ -4507,6 +5044,7 @@ pub fn program(
                         .result_ref = trace.result_ref,
                         .capsule = options.capsule,
                         .journal_branch_id = options.journal_branch_id,
+                        .usage_metadata = options.usage_metadata,
                     });
                     errdefer envelope.deinit();
                     try envelope.validate();
@@ -4545,6 +5083,7 @@ pub fn program(
                         .result_ref = trace.result_ref,
                         .capsule = options.capsule,
                         .journal_branch_id = options.journal_branch_id,
+                        .usage_metadata = options.usage_metadata,
                     });
                     errdefer envelope.deinit();
                     try envelope.validate();
@@ -4623,6 +5162,10 @@ pub fn program(
                     else
                         try readOptionalOwnedBytes(allocator, &reader);
                     errdefer if (!envelope_owned) if (branch_id) |value| allocator.free(value);
+                    const usage_metadata = if (decoded_request_format_version >= 3)
+                        try readRequestUsageMetadata(&reader)
+                    else
+                        null;
                     if (!reader.eof()) return error.ProgramContractViolation;
                     const owned = allocator.dupe(u8, bytes) catch |err| return mapProgramRunError(Error, err);
                     errdefer if (!envelope_owned) allocator.free(owned);
@@ -4655,6 +5198,7 @@ pub fn program(
                         .capsule_image = capsule_image,
                         .capsule_image_fingerprint = capsule_fingerprint,
                         .journal_branch_id = branch_id,
+                        .usage_metadata = usage_metadata,
                     };
                     envelope_owned = true;
                     validateRequestEnvelopeFields(envelope) catch |err| {
@@ -4959,6 +5503,32 @@ pub fn program(
                     return null;
                 }
 
+                fn openConfiguredObligation(
+                    instance: ?*CapabilityInstance,
+                    obligation: ?*Obligation,
+                    envelope: RequestEnvelope,
+                    route: ?Route,
+                    allowed_response_refs: []const lowering_api.ValueRef,
+                    journal: ?*Session.Journal,
+                ) Error!void {
+                    const instance_ptr = instance orelse return;
+                    const obligation_ptr = obligation orelse return;
+                    if (obligation_ptr.obligation_fingerprint == 0) {
+                        const response_kinds = if (route) |selected_route| selected_route.allowed_response_kinds else Policy.ResponseKindSet{};
+                        obligation_ptr.* = try Obligation.open(instance_ptr.*, envelope, response_kinds, allowed_response_refs);
+                        instance_ptr.* = instance_ptr.*.opened(envelope.request_fingerprint);
+                        if (journal) |ledger| try ledger.appendExchangeEvent(.{
+                            .kind = .obligation_opened,
+                            .request_envelope_fingerprint = envelope.fingerprint,
+                            .capability_instance_fingerprint = instance_ptr.instance_fingerprint,
+                            .obligation_fingerprint = obligation_ptr.obligation_fingerprint,
+                            .branch_id = obligation_ptr.branch_id,
+                            .previous_state_fingerprint = stateLabelFingerprint(obligation_ptr.state_at_open),
+                            .next_state_fingerprint = stateLabelFingerprint(obligation_ptr.state_at_open),
+                        });
+                    }
+                }
+
                 fn validateCurrentRequestPolicy(
                     allocator: std.mem.Allocator,
                     session: *Session,
@@ -4966,15 +5536,16 @@ pub fn program(
                     policy: Policy,
                     include_capsule: bool,
                     journal_branch_id: ?[]const u8,
+                    usage_metadata: ?RequestUsageMetadata,
                 ) Error!void {
                     switch (current_value) {
                         .request => |request| {
-                            var envelope = try requestEnvelopeForCurrent(allocator, session, .{ .request = request }, include_capsule, journal_branch_id);
+                            var envelope = try requestEnvelopeForCurrent(allocator, session, .{ .request = request }, include_capsule, journal_branch_id, usage_metadata);
                             defer envelope.deinit();
                             try policy.validateRequest(envelope);
                         },
                         .after => |after| {
-                            var envelope = try requestEnvelopeForCurrent(allocator, session, .{ .after = after }, include_capsule, journal_branch_id);
+                            var envelope = try requestEnvelopeForCurrent(allocator, session, .{ .after = after }, include_capsule, journal_branch_id, usage_metadata);
                             defer envelope.deinit();
                             try policy.validateRequest(envelope);
                         },
@@ -4995,6 +5566,11 @@ pub fn program(
                         journal_branch_id: ?[]const u8 = null,
                         router: ?Router = null,
                         journal: ?*Session.Journal = null,
+                        usage_metadata: ?RequestUsageMetadata = null,
+                        capability_instance: ?*CapabilityInstance = null,
+                        obligation: ?*Obligation = null,
+                        response_use: ResponseUse = .fresh,
+                        allowed_response_refs: []const lowering_api.ValueRef = &.{},
                     },
                 ) Error!Step {
                     const current_value = try session.current();
@@ -5003,8 +5579,8 @@ pub fn program(
                         defer response.deinit();
                         const request_included_capsule = self.last_request_included_capsule orelse options.capsule;
                         const request_journal_branch_id = self.activeRequestJournalBranchId(options.journal_branch_id);
-                        try validateCurrentRequestPolicy(options.allocator, session, current_value, options.policy, request_included_capsule, request_journal_branch_id);
-                        if (options.router) |router| try validateCurrentRequestPolicy(options.allocator, session, current_value, router.policy, request_included_capsule, request_journal_branch_id);
+                        try validateCurrentRequestPolicy(options.allocator, session, current_value, options.policy, request_included_capsule, request_journal_branch_id, options.usage_metadata);
+                        if (options.router) |router| try validateCurrentRequestPolicy(options.allocator, session, current_value, router.policy, request_included_capsule, request_journal_branch_id, options.usage_metadata);
                         try options.policy.validateResponse(response);
                         if (options.router) |router| try router.policy.validateResponse(response);
                         var response_authorized_checkpoint: ?JournalCheckpoint = null;
@@ -5012,7 +5588,7 @@ pub fn program(
                         if (self.last_route) |route| {
                             var route_policy_report = validateRouteResponse(route, response);
                             route_policy_report.merge(validateRoutePolicies(route, options.router, options.policy));
-                            var owned_current = try requestEnvelopeForCurrent(options.allocator, session, current_value, request_included_capsule, request_journal_branch_id);
+                            var owned_current = try requestEnvelopeForCurrent(options.allocator, session, current_value, request_included_capsule, request_journal_branch_id, options.usage_metadata);
                             defer owned_current.deinit();
                             route_policy_report.merge(validateRouteCurrentPlan(route, options.router, options.policy, owned_current));
                             if (!route_policy_report.allowed()) {
@@ -5028,7 +5604,7 @@ pub fn program(
                                 return error.ProgramContractViolation;
                             }
                         } else {
-                            var owned_current = try requestEnvelopeForCurrent(options.allocator, session, current_value, request_included_capsule, request_journal_branch_id);
+                            var owned_current = try requestEnvelopeForCurrent(options.allocator, session, current_value, request_included_capsule, request_journal_branch_id, options.usage_metadata);
                             defer owned_current.deinit();
                             const unrouted_report = validateUnroutedResponsePlan(options.router, options.policy, owned_current);
                             if (!unrouted_report.allowed()) {
@@ -5045,7 +5621,7 @@ pub fn program(
                             const route = self.last_route orelse return error.ProgramContractViolation;
                             const router = options.router orelse return error.ProgramContractViolation;
                             const capability = router.capabilityByFingerprint(route.capability_fingerprint) orelse return error.ProgramContractViolation;
-                            var owned_current = try requestEnvelopeForCurrent(options.allocator, session, current_value, request_included_capsule, request_journal_branch_id);
+                            var owned_current = try requestEnvelopeForCurrent(options.allocator, session, current_value, request_included_capsule, request_journal_branch_id, options.usage_metadata);
                             defer owned_current.deinit();
                             var report = validateRoutedResponseCapability(route, capability.*, owned_current, response);
                             report.merge(validateRoutePolicies(route, options.router, options.policy));
@@ -5075,6 +5651,28 @@ pub fn program(
                                 response_authorized_checkpoint = .{ .ledger = ledger, .start_len = start_len };
                             }
                         }
+                        if (options.obligation) |obligation_ptr| {
+                            const transition = switch (options.response_use) {
+                                .fresh, .override => try obligation_ptr.*.consume(response, options.response_use),
+                                .replayed, .deterministic_replay => try obligation_ptr.*.replay(response, response.fingerprint, options.response_use),
+                            };
+                            obligation_ptr.status = transition.next_obligation_status;
+                            obligation_ptr.consumed_response_fingerprint = transition.response_fingerprint;
+                            obligation_ptr.replay_source_response_fingerprint = transition.replay_source_response_fingerprint;
+                            obligation_ptr.obligation_fingerprint = fingerprintObligation(obligation_ptr.*);
+                            if (options.capability_instance) |instance| {
+                                if (transition.capability_instance_consumed) instance.* = try instance.*.consume(response.fingerprint);
+                            }
+                            if (options.journal) |ledger| try ledger.appendExchangeEvent(.{
+                                .kind = if (transition.next_obligation_status == .replayed) .obligation_replayed else .obligation_consumed,
+                                .request_envelope_fingerprint = response.request_envelope_fingerprint,
+                                .response_envelope_fingerprint = response.fingerprint,
+                                .capability_instance_fingerprint = if (options.capability_instance) |instance| instance.instance_fingerprint else null,
+                                .obligation_fingerprint = obligation_ptr.obligation_fingerprint,
+                                .obligation_transition_fingerprint = transition.transition_fingerprint,
+                                .branch_id = transition.branch_id,
+                            });
+                        }
                         try applyResponse(session, response, .{
                             .request_envelope_fingerprint = self.last_request_envelope_fingerprint,
                             .request_manifest_fingerprint = self.last_request_manifest_fingerprint,
@@ -5091,7 +5689,7 @@ pub fn program(
                     return switch (current_value) {
                         .request => |request| blk: {
                             const request_journal_branch_id = self.activeRequestJournalBranchId(options.journal_branch_id);
-                            var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .request = request }, options.capsule, request_journal_branch_id);
+                            var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .request = request }, options.capsule, request_journal_branch_id, options.usage_metadata);
                             errdefer envelope.deinit();
                             try options.policy.validateRequest(envelope);
                             const response_capability_required = self.last_response_capability_required or
@@ -5101,6 +5699,7 @@ pub fn program(
                                 var owned_branch = try cloneJournalBranch(options.allocator, request_journal_branch_id);
                                 errdefer if (owned_branch) |branch| options.allocator.free(branch);
                                 self.last_route = try appendRouteAwareOutboxEnvelope(options.allocator, outbox, envelope, options.router, options.policy, options.journal, self.last_route != null);
+                                try openConfiguredObligation(options.capability_instance, options.obligation, envelope, self.last_route, options.allowed_response_refs, options.journal);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
                                 self.last_request_manifest_fingerprint = envelope.manifest_fingerprint;
@@ -5115,7 +5714,7 @@ pub fn program(
                         },
                         .after => |after| blk: {
                             const request_journal_branch_id = self.activeRequestJournalBranchId(options.journal_branch_id);
-                            var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .after = after }, options.capsule, request_journal_branch_id);
+                            var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .after = after }, options.capsule, request_journal_branch_id, options.usage_metadata);
                             errdefer envelope.deinit();
                             try options.policy.validateRequest(envelope);
                             const response_capability_required = self.last_response_capability_required or
@@ -5125,6 +5724,7 @@ pub fn program(
                                 var owned_branch = try cloneJournalBranch(options.allocator, request_journal_branch_id);
                                 errdefer if (owned_branch) |branch| options.allocator.free(branch);
                                 self.last_route = try appendRouteAwareOutboxEnvelope(options.allocator, outbox, envelope, options.router, options.policy, options.journal, self.last_route != null);
+                                try openConfiguredObligation(options.capability_instance, options.obligation, envelope, self.last_route, options.allowed_response_refs, options.journal);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
                                 self.last_request_manifest_fingerprint = envelope.manifest_fingerprint;
@@ -5139,13 +5739,14 @@ pub fn program(
                         },
                         .none => switch (try session.next()) {
                             .request => |request| blk: {
-                                var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .request = request }, options.capsule, options.journal_branch_id);
+                                var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .request = request }, options.capsule, options.journal_branch_id, options.usage_metadata);
                                 errdefer envelope.deinit();
                                 try options.policy.validateRequest(envelope);
                                 var owned_branch = try cloneJournalBranch(options.allocator, options.journal_branch_id);
                                 errdefer if (owned_branch) |branch| options.allocator.free(branch);
                                 const require_routed_result = self.last_route != null;
                                 self.last_route = try appendRouteAwareOutboxEnvelope(options.allocator, outbox, envelope, options.router, options.policy, options.journal, require_routed_result);
+                                try openConfiguredObligation(options.capability_instance, options.obligation, envelope, self.last_route, options.allowed_response_refs, options.journal);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
                                 self.last_request_manifest_fingerprint = envelope.manifest_fingerprint;
@@ -5156,13 +5757,14 @@ pub fn program(
                                 break :blk .{ .parked = envelope };
                             },
                             .after => |after| blk: {
-                                var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .after = after }, options.capsule, options.journal_branch_id);
+                                var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .after = after }, options.capsule, options.journal_branch_id, options.usage_metadata);
                                 errdefer envelope.deinit();
                                 try options.policy.validateRequest(envelope);
                                 var owned_branch = try cloneJournalBranch(options.allocator, options.journal_branch_id);
                                 errdefer if (owned_branch) |branch| options.allocator.free(branch);
                                 const require_routed_result = self.last_route != null;
                                 self.last_route = try appendRouteAwareOutboxEnvelope(options.allocator, outbox, envelope, options.router, options.policy, options.journal, require_routed_result);
+                                try openConfiguredObligation(options.capability_instance, options.obligation, envelope, self.last_route, options.allowed_response_refs, options.journal);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
                                 self.last_request_manifest_fingerprint = envelope.manifest_fingerprint;
@@ -5343,6 +5945,90 @@ pub fn program(
                 return report;
             }
 
+            /// Validate response capability and consume/replay an obligation in one deterministic result.
+            pub fn authorizeObligationResponse(
+                route: Route,
+                capability: Capability,
+                instance: CapabilityInstance,
+                obligation: Obligation,
+                spec: EffectSessionSpec,
+                request: RequestEnvelope,
+                response: ResponseEnvelope,
+                use_value: ResponseUse,
+            ) Error!AuthorizationResult {
+                try spec.validate();
+                const spec_fingerprint = spec.fingerprint();
+                if (instance.parent_capability_fingerprint != capability.fingerprint) return error.ProgramContractViolation;
+                if (instance.effect_session_spec_fingerprint != spec_fingerprint) return error.ProgramContractViolation;
+                if (instance.instance_fingerprint != obligation.effect_session_instance_fingerprint) return error.ProgramContractViolation;
+                if (instance.provider_fingerprint != capability.provider_fingerprint) return error.ProgramContractViolation;
+                if (instance.usage != obligation.usage) return error.ProgramContractViolation;
+                if (instance.branch_id != obligation.branch_id) return error.ProgramContractViolation;
+                if (obligation.provider_fingerprint) |provider_fingerprint| {
+                    if (provider_fingerprint != instance.provider_fingerprint) return error.ProgramContractViolation;
+                }
+                if (obligation.capability_instance_fingerprint) |instance_fingerprint| {
+                    if (instance_fingerprint != instance.instance_fingerprint) return error.ProgramContractViolation;
+                }
+                if (request.fingerprint != obligation.request_envelope_fingerprint) return error.ProgramContractViolation;
+                if (response.request_envelope_fingerprint != request.fingerprint) return error.ProgramContractViolation;
+                if (request.usage_metadata) |metadata| {
+                    if (metadata.effect_session_spec_fingerprint) |fingerprint| {
+                        if (fingerprint != spec_fingerprint) return error.ProgramContractViolation;
+                    }
+                    if (metadata.capability_instance_fingerprint) |fingerprint| {
+                        if (fingerprint != instance.instance_fingerprint) return error.ProgramContractViolation;
+                    }
+                    if (metadata.obligation_fingerprint) |fingerprint| {
+                        if (fingerprint != obligation.obligation_fingerprint) return error.ProgramContractViolation;
+                    }
+                    if (metadata.usage != obligation.usage or metadata.branch_id != obligation.branch_id) return error.ProgramContractViolation;
+                }
+                var report = validateRoutedResponseCapability(route, capability, request, response);
+                const branch_report = validateBranchPolicy(instance.branch_policy, obligation.usage, use_value, obligation.status == .open, request.capsule_image != null);
+                for (branch_report.blockers[0..branch_report.count]) |blocker| report.add(blocker);
+                if (!report.allowed()) return error.ProgramContractViolation;
+                var transition = switch (use_value) {
+                    .fresh, .override => try obligation.consume(response, use_value),
+                    .replayed, .deterministic_replay => try obligation.replay(response, response.fingerprint, use_value),
+                };
+                transition.next_session_state = try spec.responseTarget(obligation.state_at_open, response.kind, response.response_ref);
+                transition.transition_fingerprint = 0;
+                transition.transition_fingerprint = fingerprintObligationTransition(transition);
+                const authorization = response.authorization orelse return error.ProgramContractViolation;
+                return .{
+                    .authorization_fingerprint = authorization.authorization_fingerprint,
+                    .obligation_transition_fingerprint = transition.transition_fingerprint,
+                    .previous_obligation_status = transition.previous_obligation_status,
+                    .next_obligation_status = transition.next_obligation_status,
+                    .previous_session_state = transition.previous_session_state,
+                    .next_session_state = transition.next_session_state,
+                    .response_use = transition.response_use,
+                    .capability_instance_consumed = transition.capability_instance_consumed,
+                    .branch_remains_open = transition.branch_remains_open,
+                };
+            }
+
+            /// Validate whether a branch action is allowed for an obligation policy.
+            pub fn validateBranchPolicy(policy_value: BranchPolicy, usage: Usage, response_use: ResponseUse, has_open_obligation: bool, has_capsule_image: bool) ValidationReport {
+                var report: ValidationReport = .{};
+                switch (policy_value) {
+                    .unrestricted => {},
+                    .replay_only => if (response_use == .fresh or response_use == .override) report.add(.replay_policy),
+                    .single_live_branch => {},
+                    .split_required => if (has_open_obligation) report.add(.branch_policy),
+                    .no_branch => if (has_open_obligation or has_capsule_image) report.add(.branch_policy),
+                    .host_owned => {},
+                }
+                if (usage == .ephemeral and has_capsule_image) report.add(.embedded_capsule);
+                return report;
+            }
+
+            /// Validate a deterministic obligation transition ledger.
+            pub fn validateObligations(ledger: ObligationLedger) ValidationReport {
+                return ledger.validate();
+            }
+
             /// Restore from a request capsule only when the route/capability permits restoration.
             pub fn restoreFromRequestEnvelopeWithCapability(
                 runtime: *lowered_machine.Runtime,
@@ -5382,6 +6068,11 @@ pub fn program(
                 }
                 try validateExchangeValueImage(envelope.allocator, envelope.value_ref, envelope.value_fingerprint, envelope.value_image);
                 try validateCapsuleImageForEnvelope(envelope);
+                if (envelope.usage_metadata) |metadata| {
+                    if ((metadata.ephemeral or metadata.usage == .ephemeral) and envelope.capsule_image != null) return error.ProgramContractViolation;
+                    if (metadata.branch_policy == .no_branch and envelope.capsule_image != null) return error.ProgramContractViolation;
+                    if (metadata.obligation_fingerprint != null and metadata.capability_instance_fingerprint == null) return error.ProgramContractViolation;
+                }
             }
 
             fn validateRequestEnvelopeFieldsBoundToBytes(envelope: RequestEnvelope) Error!void {
@@ -5413,6 +6104,7 @@ pub fn program(
                 if (!optionalBytesEql(envelope.capsule_image, decoded.capsule_image)) return error.ProgramContractViolation;
                 if (envelope.capsule_image_fingerprint != decoded.capsule_image_fingerprint) return error.ProgramContractViolation;
                 if (!optionalBytesEql(envelope.journal_branch_id, decoded.journal_branch_id)) return error.ProgramContractViolation;
+                if (!requestUsageMetadataEql(envelope.usage_metadata, decoded.usage_metadata)) return error.ProgramContractViolation;
             }
 
             fn validateResponseEnvelopeFieldsBoundToBytes(response: ResponseEnvelope) Error!void {
@@ -5457,6 +6149,7 @@ pub fn program(
                 current_value: Session.Current,
                 include_capsule: bool,
                 journal_branch_id: ?[]const u8,
+                usage_metadata: ?RequestUsageMetadata,
             ) Error!RequestEnvelope {
                 var capsule_image: ?Session.Capsule.Image = null;
                 if (include_capsule) {
@@ -5466,8 +6159,8 @@ pub fn program(
                 }
                 defer if (capsule_image) |*image| image.deinit();
                 return switch (current_value) {
-                    .request => |request| RequestEnvelope.fromRequest(allocator, request, .{ .capsule = capsule_image, .journal_branch_id = journal_branch_id }),
-                    .after => |after| RequestEnvelope.fromAfter(allocator, after, .{ .capsule = capsule_image, .journal_branch_id = journal_branch_id }),
+                    .request => |request| RequestEnvelope.fromRequest(allocator, request, .{ .capsule = capsule_image, .journal_branch_id = journal_branch_id, .usage_metadata = usage_metadata }),
+                    .after => |after| RequestEnvelope.fromAfter(allocator, after, .{ .capsule = capsule_image, .journal_branch_id = journal_branch_id, .usage_metadata = usage_metadata }),
                     .none => error.ProgramContractViolation,
                 };
             }
@@ -5663,6 +6356,7 @@ pub fn program(
                     try writer.writeU64(capsule.image_fingerprint);
                 }
                 try writeOptionalBytes(&writer, args.journal_branch_id);
+                try writeRequestUsageMetadata(&writer, args.usage_metadata);
                 const payload = writer.bytes.items;
                 const fingerprint = exchangeFingerprint("ability.exchange.request", exchange_request_fingerprint_version, payload);
                 try writer.writeU64(fingerprint);
@@ -5711,6 +6405,7 @@ pub fn program(
                     .capsule_image = capsule_image,
                     .capsule_image_fingerprint = if (args.capsule) |capsule| capsule.image_fingerprint else null,
                     .journal_branch_id = branch_id,
+                    .usage_metadata = args.usage_metadata,
                 };
             }
 
@@ -6075,6 +6770,22 @@ pub fn program(
                 return std.mem.eql(u8, actual.?, expected.?);
             }
 
+            fn requestUsageMetadataEql(actual: ?RequestUsageMetadata, expected: ?RequestUsageMetadata) bool {
+                if (actual == null and expected == null) return true;
+                if (actual == null or expected == null) return false;
+                const left = actual.?;
+                const right = expected.?;
+                return left.effect_session_spec_fingerprint == right.effect_session_spec_fingerprint and
+                    left.capability_instance_fingerprint == right.capability_instance_fingerprint and
+                    left.obligation_fingerprint == right.obligation_fingerprint and
+                    left.usage == right.usage and
+                    left.branch_id == right.branch_id and
+                    left.branch_policy == right.branch_policy and
+                    left.replay_policy == right.replay_policy and
+                    left.ephemeral == right.ephemeral and
+                    left.cancelable == right.cancelable;
+            }
+
             fn validateCapsuleImageForEnvelope(envelope: RequestEnvelope) Error!void {
                 const image_bytes = envelope.capsule_image orelse return;
                 const image_fingerprint = envelope.capsule_image_fingerprint orelse return error.ProgramContractViolation;
@@ -6122,6 +6833,7 @@ pub fn program(
 
             fn supportedRequestEnvelopeVersions(format_version: u32, fingerprint_version: u32) bool {
                 return (format_version == 1 and fingerprint_version == 1) or
+                    (format_version == 2 and fingerprint_version == 2) or
                     (format_version == exchange_request_format_version and fingerprint_version == exchange_request_fingerprint_version);
             }
 
@@ -6171,6 +6883,99 @@ pub fn program(
             fn readOptionalOwnedBytes(allocator: std.mem.Allocator, reader: *Reader) Error!?[]u8 {
                 if (!try reader.readBool()) return null;
                 return allocator.dupe(u8, try reader.readLenBytes()) catch |err| return mapProgramRunError(Error, err);
+            }
+
+            fn writeUsage(writer: *Writer, usage: Usage) std.mem.Allocator.Error!void {
+                try writer.writeU8(switch (usage) {
+                    .copyable => 0,
+                    .replayable => 1,
+                    .affine => 2,
+                    .linear => 3,
+                    .ephemeral => 4,
+                });
+            }
+
+            fn readUsage(reader: *Reader) Error!Usage {
+                return switch (try reader.readU8()) {
+                    0 => .copyable,
+                    1 => .replayable,
+                    2 => .affine,
+                    3 => .linear,
+                    4 => .ephemeral,
+                    else => error.ProgramContractViolation,
+                };
+            }
+
+            fn writeResponseUse(writer: *Writer, use_value: ResponseUse) std.mem.Allocator.Error!void {
+                try writer.writeU8(switch (use_value) {
+                    .fresh => 0,
+                    .replayed => 1,
+                    .deterministic_replay => 2,
+                    .override => 3,
+                });
+            }
+
+            fn readResponseUse(reader: *Reader) Error!ResponseUse {
+                return switch (try reader.readU8()) {
+                    0 => .fresh,
+                    1 => .replayed,
+                    2 => .deterministic_replay,
+                    3 => .override,
+                    else => error.ProgramContractViolation,
+                };
+            }
+
+            fn writeBranchPolicy(writer: *Writer, policy_value: BranchPolicy) std.mem.Allocator.Error!void {
+                try writer.writeU8(switch (policy_value) {
+                    .unrestricted => 0,
+                    .replay_only => 1,
+                    .single_live_branch => 2,
+                    .split_required => 3,
+                    .no_branch => 4,
+                    .host_owned => 5,
+                });
+            }
+
+            fn readBranchPolicy(reader: *Reader) Error!BranchPolicy {
+                return switch (try reader.readU8()) {
+                    0 => .unrestricted,
+                    1 => .replay_only,
+                    2 => .single_live_branch,
+                    3 => .split_required,
+                    4 => .no_branch,
+                    5 => .host_owned,
+                    else => error.ProgramContractViolation,
+                };
+            }
+
+            fn writeRequestUsageMetadata(writer: *Writer, metadata: ?RequestUsageMetadata) std.mem.Allocator.Error!void {
+                try writer.writeBool(metadata != null);
+                if (metadata) |value| {
+                    try writeOptionalU64(writer, value.effect_session_spec_fingerprint);
+                    try writeOptionalU64(writer, value.capability_instance_fingerprint);
+                    try writeOptionalU64(writer, value.obligation_fingerprint);
+                    try writeUsage(writer, value.usage);
+                    try writer.writeU64(value.branch_id);
+                    try writeBranchPolicy(writer, value.branch_policy);
+                    try writeResponseUse(writer, value.replay_policy);
+                    try writer.writeBool(value.ephemeral);
+                    try writer.writeBool(value.cancelable);
+                }
+            }
+
+            fn readRequestUsageMetadata(reader: *Reader) Error!?RequestUsageMetadata {
+                if (!try reader.readBool()) return null;
+                return .{
+                    .effect_session_spec_fingerprint = try readOptionalU64(reader),
+                    .capability_instance_fingerprint = try readOptionalU64(reader),
+                    .obligation_fingerprint = try readOptionalU64(reader),
+                    .usage = try readUsage(reader),
+                    .branch_id = try reader.readU64(),
+                    .branch_policy = try readBranchPolicy(reader),
+                    .replay_policy = try readResponseUse(reader),
+                    .ephemeral = try reader.readBool(),
+                    .cancelable = try reader.readBool(),
+                };
             }
 
             fn expectOptionalBytes(reader: *Reader, expected: ?[]const u8) Error!void {
@@ -6596,6 +7401,152 @@ pub fn program(
                 return hasher.final();
             }
 
+            fn hashOptionalExchangeU64(hasher: *std.hash.Wyhash, value: ?u64) void {
+                hashBool(hasher, value != null);
+                if (value) |actual| hashU64(hasher, actual);
+            }
+
+            fn hashOptionalExchangeValueRef(hasher: *std.hash.Wyhash, value: ?lowering_api.ValueRef) void {
+                hashBool(hasher, value != null);
+                if (value) |actual| hashValueRef(hasher, actual);
+            }
+
+            fn stateLabelFingerprint(state: []const u8) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.exchange.effect_session.state");
+                hashU32(&hasher, exchange_effect_session_fingerprint_version);
+                hashBytes(&hasher, state);
+                return hasher.final();
+            }
+
+            fn fingerprintEffectSessionSpec(spec: EffectSessionSpec) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.exchange.effect_session");
+                hashU32(&hasher, exchange_effect_session_fingerprint_version);
+                hashBytes(&hasher, spec.label);
+                hashBytes(&hasher, spec.initial_state);
+                for (spec.states) |state| hashBytes(&hasher, state);
+                hashBytes(&hasher, "terminal");
+                for (spec.terminal_states) |state| hashBytes(&hasher, state);
+                hashBytes(&hasher, @tagName(spec.usage));
+                hashBytes(&hasher, @tagName(spec.branch_policy));
+                hashBytes(&hasher, @tagName(spec.replay_policy));
+                hashOptionalExchangeU64(&hasher, spec.provider_fingerprint);
+                hashOptionalExchangeU64(&hasher, spec.capability_fingerprint);
+                for (spec.transitions) |transition| {
+                    hashBytes(&hasher, @tagName(transition.kind));
+                    hashBytes(&hasher, transition.from);
+                    hashBytes(&hasher, transition.to);
+                    hashOptionalExchangeU64(&hasher, transition.site_fingerprint);
+                    hashBool(&hasher, transition.response_kind != null);
+                    if (transition.response_kind) |kind_value| hashBytes(&hasher, @tagName(kind_value));
+                    hashOptionalExchangeValueRef(&hasher, transition.response_ref);
+                }
+                return hasher.final();
+            }
+
+            fn fingerprintCapabilityInstance(instance: CapabilityInstance) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.exchange.capability_instance");
+                hashU32(&hasher, exchange_capability_instance_fingerprint_version);
+                hashU32(&hasher, instance.instance_version);
+                hashU64(&hasher, instance.parent_capability_fingerprint);
+                hashU64(&hasher, instance.provider_fingerprint);
+                hashU64(&hasher, instance.manifest_fingerprint);
+                hashU64(&hasher, instance.effect_session_spec_fingerprint);
+                hashBytes(&hasher, instance.current_state);
+                hashBytes(&hasher, @tagName(instance.usage));
+                hashU64(&hasher, instance.branch_id);
+                hashOptionalExchangeU64(&hasher, instance.opened_request_fingerprint);
+                hashOptionalExchangeU64(&hasher, instance.consumed_response_fingerprint);
+                hashBool(&hasher, instance.canceled);
+                hashOptionalExchangeU64(&hasher, instance.replay_source_fingerprint);
+                hashU64(&hasher, instance.logical_generation);
+                hashOptionalExchangeU64(&hasher, instance.parent_instance_fingerprint);
+                hashU64(&hasher, instance.path_fingerprint);
+                hashBytes(&hasher, @tagName(instance.branch_policy));
+                return hasher.final();
+            }
+
+            fn capabilityInstancePathFingerprint(parent_instance_fingerprint: u64, prior_path_fingerprint: u64, branch_id: u64, policy: BranchPolicy) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.exchange.capability_instance.path");
+                hashU32(&hasher, exchange_capability_instance_fingerprint_version);
+                hashU64(&hasher, parent_instance_fingerprint);
+                hashU64(&hasher, prior_path_fingerprint);
+                hashU64(&hasher, branch_id);
+                hashBytes(&hasher, @tagName(policy));
+                return hasher.final();
+            }
+
+            fn fingerprintObligation(obligation: Obligation) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.exchange.obligation");
+                hashU32(&hasher, exchange_obligation_fingerprint_version);
+                hashU32(&hasher, obligation.obligation_version);
+                hashU64(&hasher, obligation.effect_session_instance_fingerprint);
+                hashU64(&hasher, obligation.request_envelope_fingerprint);
+                hashU64(&hasher, obligation.request_fingerprint);
+                hashU64(&hasher, obligation.site_fingerprint);
+                hashBytes(&hasher, @tagName(obligation.usage));
+                hashU64(&hasher, obligation.branch_id);
+                hashBytes(&hasher, obligation.state_at_open);
+                hashBool(&hasher, obligation.allowed_response_kinds.@"resume");
+                hashBool(&hasher, obligation.allowed_response_kinds.return_now);
+                hashBool(&hasher, obligation.allowed_response_kinds.resume_after);
+                hashValueRefList(&hasher, obligation.allowed_response_refs);
+                hashOptionalExchangeU64(&hasher, obligation.capsule_image_fingerprint);
+                hashBytes(&hasher, @tagName(obligation.status));
+                hashOptionalExchangeU64(&hasher, obligation.consumed_response_fingerprint);
+                hashOptionalExchangeU64(&hasher, obligation.replay_source_response_fingerprint);
+                hashOptionalExchangeU64(&hasher, obligation.provider_fingerprint);
+                hashOptionalExchangeU64(&hasher, obligation.capability_instance_fingerprint);
+                hashBytes(&hasher, @tagName(obligation.branch_policy));
+                return hasher.final();
+            }
+
+            fn fingerprintObligationTransition(transition: ObligationTransition) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.exchange.obligation.transition");
+                hashU32(&hasher, exchange_obligation_transition_fingerprint_version);
+                hashU64(&hasher, transition.obligation_fingerprint);
+                hashBytes(&hasher, @tagName(transition.previous_obligation_status));
+                hashBytes(&hasher, @tagName(transition.next_obligation_status));
+                hashBytes(&hasher, transition.previous_session_state);
+                hashBytes(&hasher, transition.next_session_state);
+                hashBytes(&hasher, @tagName(transition.response_use));
+                hashOptionalExchangeU64(&hasher, transition.response_fingerprint);
+                hashOptionalExchangeU64(&hasher, transition.replay_source_response_fingerprint);
+                hashBool(&hasher, transition.capability_instance_consumed);
+                hashBool(&hasher, transition.branch_remains_open);
+                hashU64(&hasher, transition.branch_id);
+                return hasher.final();
+            }
+
+            fn obligationTransition(
+                obligation: Obligation,
+                next_status: ObligationStatus,
+                response_fingerprint: ?u64,
+                replay_source_response_fingerprint: ?u64,
+                use_value: ResponseUse,
+            ) Error!ObligationTransition {
+                var transition = ObligationTransition{
+                    .obligation_fingerprint = obligation.obligation_fingerprint,
+                    .previous_obligation_status = obligation.status,
+                    .next_obligation_status = next_status,
+                    .previous_session_state = obligation.state_at_open,
+                    .next_session_state = obligation.state_at_open,
+                    .response_use = use_value,
+                    .response_fingerprint = response_fingerprint,
+                    .replay_source_response_fingerprint = replay_source_response_fingerprint,
+                    .capability_instance_consumed = next_status == .consumed and (obligation.usage == .linear or obligation.usage == .affine),
+                    .branch_remains_open = next_status == .open or next_status == .replayed,
+                    .branch_id = obligation.branch_id,
+                };
+                transition.transition_fingerprint = fingerprintObligationTransition(transition);
+                return transition;
+            }
+
             fn fingerprintAuthorization(value: Authorization) u64 {
                 var hasher = std.hash.Wyhash.init(0);
                 hashBytes(&hasher, "ability.exchange.authorization");
@@ -6834,6 +7785,16 @@ pub fn program(
                     .invalid_envelope,
                     .expired_capability,
                     .broadened_authority,
+                    .usage_mode,
+                    .branch_policy,
+                    .replay_policy,
+                    .duplicate_obligation_consume,
+                    .unresolved_linear_obligation,
+                    .invalid_obligation_transition,
+                    .obligation_not_open,
+                    .response_after_cancel,
+                    .wrong_obligation,
+                    .wrong_capability_instance,
                     .ambiguous_route,
                     .no_route,
                     => return false,
@@ -8553,6 +9514,8 @@ pub fn program(
             exposed_residual_operations: usize,
             handled_after_sites: usize,
             residual_after_sites: usize,
+            source_linear_effects: usize = 0,
+            residual_linear_effects: usize = 0,
             blockers: usize,
             fingerprint_version: u32 = pipeline_fingerprint_version,
         };
