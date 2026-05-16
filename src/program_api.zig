@@ -1291,7 +1291,7 @@ pub fn program(
         /// Stable fingerprint version for Program.Exchange manifest images.
         pub const exchange_manifest_fingerprint_version: u32 = 1;
         /// Stable format version for Program.Exchange request envelopes.
-        pub const exchange_request_format_version: u32 = 1;
+        pub const exchange_request_format_version: u32 = 2;
         /// Stable fingerprint version for Program.Exchange request envelopes.
         pub const exchange_request_fingerprint_version: u32 = 1;
         /// Stable format version for Program.Exchange response envelopes.
@@ -1805,6 +1805,7 @@ pub fn program(
                             else => return error.ProgramContractViolation,
                         };
                         if (recorded != result_fingerprint) return error.ProgramContractViolation;
+                        try self.drainSkippableReplayEntries();
                         if (self.index != self.journal.entries.items.len) return error.ProgramContractViolation;
                     }
 
@@ -1842,6 +1843,15 @@ pub fn program(
                             }
                         }
                         return null;
+                    }
+
+                    fn drainSkippableReplayEntries(self: *@This()) Error!void {
+                        while (self.index < self.journal.entries.items.len) {
+                            switch (self.journal.entries.items[self.index]) {
+                                .capsule_image, .exchange_event => self.index += 1,
+                                else => return error.ProgramContractViolation,
+                            }
+                        }
                     }
                 };
 
@@ -3569,6 +3579,11 @@ pub fn program(
             /// Current route witness fingerprint domain version.
             pub const route_fingerprint_version = exchange_route_fingerprint_version;
 
+            /// Stable fingerprint for scoping capability grants to a journal branch id.
+            pub fn journalPolicyFingerprint(journal_branch_id: []const u8) u64 {
+                return journalBranchPolicyFingerprint(journal_branch_id);
+            }
+
             /// Dynamic exchange request kind yielded by a parked session.
             pub const RequestKind = enum {
                 operation,
@@ -3714,6 +3729,7 @@ pub fn program(
                 wrong_manifest,
                 wrong_program_label,
                 wrong_plan_hash,
+                wrong_journal_policy,
                 request_kind,
                 operation_site,
                 after_site,
@@ -3950,6 +3966,7 @@ pub fn program(
                 /// Return true when the provider claim covers the request envelope.
                 pub fn supportsRequest(self: @This(), request: RequestEnvelope) bool {
                     if (!providerFieldsBoundToBytes(self)) return false;
+                    request.validate() catch return false;
                     const requirement_label = requestRequirementLabel(request) orelse return false;
                     const protocol_op_fingerprint = requestProtocolOperationFingerprint(request) orelse return false;
                     if (!listAllowsString(self.supported_protocol_labels, requirement_label)) return false;
@@ -3957,13 +3974,17 @@ pub fn program(
                     if (request.bytes.len > self.max_request_envelope_bytes) return false;
                     if (request.capsule_image != null and !self.accepts_embedded_capsules) return false;
                     if (self.supported_protocol_op_fingerprints.len != 0 and !listAllowsU64(self.supported_protocol_op_fingerprints, protocol_op_fingerprint)) return false;
+                    const operation_sites_constrained = self.supported_operation_sites.len != 0;
+                    const after_sites_constrained = self.supported_after_sites.len != 0;
                     switch (request.kind) {
                         .operation => {
-                            if (self.supported_operation_sites.len != 0 and !listAllowsUsize(self.supported_operation_sites, request.site_index)) return false;
+                            if (!operation_sites_constrained and after_sites_constrained) return false;
+                            if (operation_sites_constrained and !listAllowsUsize(self.supported_operation_sites, request.site_index)) return false;
                             return true;
                         },
                         .after => {
-                            if (self.supported_after_sites.len != 0 and !listAllowsUsize(self.supported_after_sites, request.site_index)) return false;
+                            if (!after_sites_constrained and operation_sites_constrained) return false;
+                            if (after_sites_constrained and !listAllowsUsize(self.supported_after_sites, request.site_index)) return false;
                             return true;
                         },
                     }
@@ -4154,6 +4175,7 @@ pub fn program(
 
                 /// Return a child capability whose authority is a subset of this capability.
                 pub fn attenuate(self: @This(), allocator: std.mem.Allocator, args: Attenuation) Error!@This() {
+                    if (!capabilityFieldsBoundToBytes(self)) return error.ProgramContractViolation;
                     const request_kinds = args.allowed_request_kinds orelse if (args.allowed_operation_sites != null or args.allowed_after_sites != null) RequestKindSet{
                         .operation = args.allowed_operation_sites != null,
                         .after = args.allowed_after_sites != null,
@@ -4302,10 +4324,10 @@ pub fn program(
                 pub fn from(request: RequestEnvelope, provider: ProviderManifest, capability: Capability, policy: Policy) @This() {
                     var blockers = validateRequestCapability(capability, provider, request);
                     blockers.merge(validatePolicyRequestScope(policy, request));
-                    const allowed_response_kinds = responseKindSetIntersection(
+                    const allowed_response_kinds = responseKindSetRestrictRefs(request, responseKindSetIntersection(
                         responseKindSetIntersection(provider.allowed_response_kinds, capability.allowed_response_kinds),
                         policy.allowed_response_kinds,
-                    );
+                    ), capability.allowed_response_refs);
                     if (!requestAcceptsAnyResponseKind(request, allowed_response_kinds)) blockers.add(.response_kind);
                     if (!requestAcceptsAnyResponseRef(request, allowed_response_kinds, capability.allowed_response_refs)) blockers.add(.response_ref);
                     if (!policyProviderAllowed(policy, provider.provider_fingerprint)) blockers.add(.provider_not_allowed);
@@ -4322,7 +4344,7 @@ pub fn program(
                         .site_fingerprint = request.site_fingerprint,
                         .allowed_response_kinds = allowed_response_kinds,
                         .max_response_bytes = @min(@min(provider.max_response_envelope_bytes, capability.max_response_bytes), policy.max_envelope_bytes),
-                        .max_payload_bytes = @min(capability.max_payload_bytes, policy.max_payload_bytes),
+                        .max_payload_bytes = if (policy.allow_response_value_images) @min(capability.max_payload_bytes, policy.max_payload_bytes) else 0,
                         .capsule_restore_allowed = capability.allow_capsule_restore and provider.accepts_capsule_restore and policy.allow_capsule_restore,
                         .blockers = blockers,
                     };
@@ -4368,10 +4390,12 @@ pub fn program(
                 pub fn planWithPolicy(self: @This(), request: RequestEnvelope, policy: Policy) Plan {
                     var first_valid: ?Route = null;
                     var first_blocked: ?Route = null;
+                    var blocked_report: ValidationReport = .{};
                     var valid_count: usize = 0;
                     var blocked_count: usize = 0;
                     for (self.providers) |provider| {
-                        for (self.capabilities) |capability| {
+                        capabilities_loop: for (self.capabilities) |capability| {
+                            if (capability.provider_fingerprint != provider.provider_fingerprint) continue :capabilities_loop;
                             var route = Route.from(request, provider, capability, self.policy);
                             const caller_route = Route.from(request, provider, capability, policy);
                             route.blockers.merge(caller_route.blockers);
@@ -4386,6 +4410,7 @@ pub fn program(
                                 if (first_valid == null) first_valid = route;
                             } else {
                                 blocked_count += 1;
+                                blocked_report.merge(route.blockers);
                                 if (first_blocked == null) first_blocked = route;
                             }
                         }
@@ -4396,15 +4421,15 @@ pub fn program(
                         blocked.add(.ambiguous_route);
                         return .{ .status = .ambiguous_routes, .route = first_valid, .blocked = blocked, .candidate_count = valid_count, .blocked_count = blocked_count };
                     }
-                    if (blocked_count > 0) return .{ .status = .blocked_routes, .route = first_blocked, .blocked = first_blocked.?.blockers, .blocked_count = blocked_count };
+                    if (blocked_count > 0) return .{ .status = .blocked_routes, .route = first_blocked, .blocked = blocked_report, .blocked_count = blocked_count };
                     var blocked: ValidationReport = .{};
                     blocked.add(.no_route);
                     return .{ .status = .no_route, .blocked = blocked };
                 }
 
                 /// Look up a capability by fingerprint.
-                pub fn capabilityByFingerprint(self: @This(), fingerprint: u64) ?Capability {
-                    for (self.capabilities) |capability| if (capability.fingerprint == fingerprint) return capability;
+                pub fn capabilityByFingerprint(self: @This(), fingerprint: u64) ?*const Capability {
+                    for (self.capabilities) |*capability| if (capability.fingerprint == fingerprint) return capability;
                     return null;
                 }
             };
@@ -4758,6 +4783,8 @@ pub fn program(
                 last_request_fingerprint: ?u64 = null,
                 last_request_envelope_fingerprint: ?u64 = null,
                 last_request_included_capsule: ?bool = null,
+                last_request_journal_branch_id: ?[]u8 = null,
+                last_request_journal_branch_allocator: ?std.mem.Allocator = null,
                 last_route: ?Route = null,
                 last_response_capability_required: bool = false,
 
@@ -4768,6 +4795,30 @@ pub fn program(
                     running,
                 };
 
+                /// Release runner-owned pending request state.
+                pub fn deinit(self: *@This()) void {
+                    self.clearLastRequestJournalBranch();
+                }
+
+                fn clearLastRequestJournalBranch(self: *@This()) void {
+                    if (self.last_request_journal_branch_id) |branch| {
+                        self.last_request_journal_branch_allocator.?.free(branch);
+                    }
+                    self.last_request_journal_branch_id = null;
+                    self.last_request_journal_branch_allocator = null;
+                }
+
+                fn cloneJournalBranch(allocator: std.mem.Allocator, branch: ?[]const u8) Error!?[]u8 {
+                    const value = branch orelse return null;
+                    return allocator.dupe(u8, value) catch |err| return mapProgramRunError(Error, err);
+                }
+
+                fn adoptLastRequestJournalBranch(self: *@This(), allocator: std.mem.Allocator, branch: ?[]u8) void {
+                    self.clearLastRequestJournalBranch();
+                    self.last_request_journal_branch_id = branch;
+                    self.last_request_journal_branch_allocator = if (branch != null) allocator else null;
+                }
+
                 fn appendOutboxEnvelope(allocator: std.mem.Allocator, outbox: anytype, envelope: RequestEnvelope) Error!void {
                     var outbox_envelope = RequestEnvelope.decode(allocator, envelope.bytes) catch |err| return mapProgramRunError(Error, err);
                     errdefer outbox_envelope.deinit();
@@ -4776,15 +4827,33 @@ pub fn program(
 
                 fn appendRoutedOutboxEnvelope(allocator: std.mem.Allocator, outbox: anytype, envelope: RequestEnvelope, route: Route) Error!void {
                     var outbox_envelope = RequestEnvelope.decode(allocator, envelope.bytes) catch |err| return mapProgramRunError(Error, err);
+                    errdefer outbox_envelope.deinit();
                     const OutboxType = @TypeOf(outbox.*);
                     if (comptime @hasDecl(OutboxType, "appendRouted")) {
-                        // appendRouted owns the envelope once called: implementations may append
-                        // the envelope before failing to append route metadata.
+                        // appendRouted mirrors append: it takes envelope ownership only
+                        // after success, so failures leave cleanup with the runner.
                         outbox.appendRouted(outbox_envelope, route) catch |err| return mapProgramRunError(Error, err);
                     } else {
-                        errdefer outbox_envelope.deinit();
                         outbox.append(outbox_envelope) catch |err| return mapProgramRunError(Error, err);
                     }
+                }
+
+                const JournalCheckpoint = struct {
+                    ledger: *Session.Journal,
+                    start_len: usize,
+                };
+
+                fn appendRouteSelectedJournal(journal: ?*Session.Journal, route: Route) Error!?JournalCheckpoint {
+                    const ledger = journal orelse return null;
+                    const start_len = ledger.entries.items.len;
+                    try ledger.appendExchangeEvent(.{
+                        .kind = .route_selected,
+                        .provider_fingerprint = route.provider_fingerprint,
+                        .capability_fingerprint = route.capability_fingerprint,
+                        .route_fingerprint = route.fingerprint,
+                        .request_envelope_fingerprint = route.request_envelope_fingerprint,
+                    });
+                    return .{ .ledger = ledger, .start_len = start_len };
                 }
 
                 fn appendRouteAwareOutboxEnvelope(
@@ -4799,30 +4868,29 @@ pub fn program(
                         const route_plan = catalog.planWithPolicy(envelope, policy);
                         const route_required = policyRequiresRoute(policy) or policyRequiresRoute(catalog.policy);
                         const reject_ambiguous_routes = policy.reject_ambiguous_routes or catalog.policy.reject_ambiguous_routes;
+                        const router_request_policy = validatePolicyRequestScope(catalog.policy, envelope);
+                        if (!router_request_policy.allowed()) {
+                            if (journal) |ledger| try ledger.appendExchangeEvent(.{
+                                .kind = .route_blocked,
+                                .request_envelope_fingerprint = envelope.fingerprint,
+                                .blocker_tag = router_request_policy.firstTagName(),
+                            });
+                            return error.ProgramContractViolation;
+                        }
                         switch (route_plan.status) {
                             .one_route => {
                                 const route = route_plan.route.?;
+                                const journal_checkpoint = try appendRouteSelectedJournal(journal, route);
+                                errdefer if (journal_checkpoint) |checkpoint| checkpoint.ledger.truncateEntries(checkpoint.start_len);
                                 try appendRoutedOutboxEnvelope(allocator, outbox, envelope, route);
-                                if (journal) |ledger| try ledger.appendExchangeEvent(.{
-                                    .kind = .route_selected,
-                                    .provider_fingerprint = route.provider_fingerprint,
-                                    .capability_fingerprint = route.capability_fingerprint,
-                                    .route_fingerprint = route.fingerprint,
-                                    .request_envelope_fingerprint = route.request_envelope_fingerprint,
-                                });
                                 return route;
                             },
                             .ambiguous_routes => {
                                 if (!reject_ambiguous_routes and route_plan.route != null) {
                                     const route = route_plan.route.?;
+                                    const journal_checkpoint = try appendRouteSelectedJournal(journal, route);
+                                    errdefer if (journal_checkpoint) |checkpoint| checkpoint.ledger.truncateEntries(checkpoint.start_len);
                                     try appendRoutedOutboxEnvelope(allocator, outbox, envelope, route);
-                                    if (journal) |ledger| try ledger.appendExchangeEvent(.{
-                                        .kind = .route_selected,
-                                        .provider_fingerprint = route.provider_fingerprint,
-                                        .capability_fingerprint = route.capability_fingerprint,
-                                        .route_fingerprint = route.fingerprint,
-                                        .request_envelope_fingerprint = route.request_envelope_fingerprint,
-                                    });
                                     return route;
                                 }
                                 if (journal) |ledger| try ledger.appendExchangeEvent(.{
@@ -4833,12 +4901,14 @@ pub fn program(
                                 return error.ProgramContractViolation;
                             },
                             .blocked_routes => {
-                                if (journal) |ledger| try ledger.appendExchangeEvent(.{
-                                    .kind = .route_blocked,
-                                    .request_envelope_fingerprint = envelope.fingerprint,
-                                    .blocker_tag = route_plan.blocked.firstTagName(),
-                                });
-                                return error.ProgramContractViolation;
+                                if (!route_required and blockedRoutesAllowOptionalFallback(route_plan.blocked)) {} else {
+                                    if (journal) |ledger| try ledger.appendExchangeEvent(.{
+                                        .kind = .route_blocked,
+                                        .request_envelope_fingerprint = envelope.fingerprint,
+                                        .blocker_tag = route_plan.blocked.firstTagName(),
+                                    });
+                                    return error.ProgramContractViolation;
+                                }
                             },
                             .no_route => {},
                         }
@@ -4861,15 +4931,16 @@ pub fn program(
                     current_value: Session.Current,
                     policy: Policy,
                     include_capsule: bool,
+                    journal_branch_id: ?[]const u8,
                 ) Error!void {
                     switch (current_value) {
                         .request => |request| {
-                            var envelope = try requestEnvelopeForCurrent(allocator, session, .{ .request = request }, include_capsule);
+                            var envelope = try requestEnvelopeForCurrent(allocator, session, .{ .request = request }, include_capsule, journal_branch_id);
                             defer envelope.deinit();
                             try policy.validateRequest(envelope);
                         },
                         .after => |after| {
-                            var envelope = try requestEnvelopeForCurrent(allocator, session, .{ .after = after }, include_capsule);
+                            var envelope = try requestEnvelopeForCurrent(allocator, session, .{ .after = after }, include_capsule, journal_branch_id);
                             defer envelope.deinit();
                             try policy.validateRequest(envelope);
                         },
@@ -4887,6 +4958,7 @@ pub fn program(
                         allocator: std.mem.Allocator,
                         policy: Policy = .{},
                         capsule: bool = false,
+                        journal_branch_id: ?[]const u8 = null,
                         router: ?Router = null,
                         journal: ?*Session.Journal = null,
                     },
@@ -4896,17 +4968,53 @@ pub fn program(
                         var response = response_value;
                         defer response.deinit();
                         const request_included_capsule = self.last_request_included_capsule orelse options.capsule;
-                        try validateCurrentRequestPolicy(options.allocator, session, current_value, options.policy, request_included_capsule);
+                        const request_journal_branch_id = if (self.last_request_envelope_fingerprint != null) self.last_request_journal_branch_id else options.journal_branch_id;
+                        try validateCurrentRequestPolicy(options.allocator, session, current_value, options.policy, request_included_capsule, request_journal_branch_id);
+                        if (options.router) |router| try validateCurrentRequestPolicy(options.allocator, session, current_value, router.policy, request_included_capsule, request_journal_branch_id);
                         try options.policy.validateResponse(response);
+                        if (options.router) |router| try router.policy.validateResponse(response);
+                        var response_authorized_checkpoint: ?JournalCheckpoint = null;
+                        errdefer if (response_authorized_checkpoint) |checkpoint| checkpoint.ledger.truncateEntries(checkpoint.start_len);
+                        if (self.last_route) |route| {
+                            var route_policy_report = validateRouteResponse(route, response);
+                            route_policy_report.merge(validateRoutePolicies(route, options.router, options.policy));
+                            var owned_current = try requestEnvelopeForCurrent(options.allocator, session, current_value, request_included_capsule, request_journal_branch_id);
+                            defer owned_current.deinit();
+                            route_policy_report.merge(validateRouteCurrentPlan(route, options.router, options.policy, owned_current));
+                            if (!route_policy_report.allowed()) {
+                                if (options.journal) |ledger| try ledger.appendExchangeEvent(.{
+                                    .kind = .response_rejected,
+                                    .provider_fingerprint = route.provider_fingerprint,
+                                    .capability_fingerprint = route.capability_fingerprint,
+                                    .route_fingerprint = route.fingerprint,
+                                    .request_envelope_fingerprint = route.request_envelope_fingerprint,
+                                    .response_envelope_fingerprint = response.fingerprint,
+                                    .blocker_tag = route_policy_report.firstTagName(),
+                                });
+                                return error.ProgramContractViolation;
+                            }
+                        } else {
+                            var owned_current = try requestEnvelopeForCurrent(options.allocator, session, current_value, request_included_capsule, request_journal_branch_id);
+                            defer owned_current.deinit();
+                            const unrouted_report = validateUnroutedResponsePlan(options.router, options.policy, owned_current);
+                            if (!unrouted_report.allowed()) {
+                                if (options.journal) |ledger| try ledger.appendExchangeEvent(.{
+                                    .kind = .response_rejected,
+                                    .request_envelope_fingerprint = owned_current.fingerprint,
+                                    .response_envelope_fingerprint = response.fingerprint,
+                                    .blocker_tag = unrouted_report.firstTagName(),
+                                });
+                                return error.ProgramContractViolation;
+                            }
+                        }
                         if (self.last_response_capability_required or responseCapabilityRequiredFor(options.router, options.policy)) {
                             const route = self.last_route orelse return error.ProgramContractViolation;
                             const router = options.router orelse return error.ProgramContractViolation;
                             const capability = router.capabilityByFingerprint(route.capability_fingerprint) orelse return error.ProgramContractViolation;
-                            var owned_current = try requestEnvelopeForCurrent(options.allocator, session, current_value, request_included_capsule);
+                            var owned_current = try requestEnvelopeForCurrent(options.allocator, session, current_value, request_included_capsule, request_journal_branch_id);
                             defer owned_current.deinit();
-                            var report = validateRoutedResponseCapability(route, capability, owned_current, response);
-                            report.merge(validateRoutePolicy(route, options.policy));
-                            report.merge(validateRoutePolicy(route, router.policy));
+                            var report = validateRoutedResponseCapability(route, capability.*, owned_current, response);
+                            report.merge(validateRoutePolicies(route, options.router, options.policy));
                             if (!report.allowed()) {
                                 if (options.journal) |ledger| try ledger.appendExchangeEvent(.{
                                     .kind = .response_rejected,
@@ -4919,75 +5027,100 @@ pub fn program(
                                 });
                                 return error.ProgramContractViolation;
                             }
-                            if (options.journal) |ledger| try ledger.appendExchangeEvent(.{
-                                .kind = .response_authorized,
-                                .provider_fingerprint = route.provider_fingerprint,
-                                .capability_fingerprint = route.capability_fingerprint,
-                                .route_fingerprint = route.fingerprint,
-                                .authorization_fingerprint = response.authorization.?.authorization_fingerprint,
-                                .request_envelope_fingerprint = route.request_envelope_fingerprint,
-                                .response_envelope_fingerprint = response.fingerprint,
-                            });
+                            if (options.journal) |ledger| {
+                                const start_len = ledger.entries.items.len;
+                                try ledger.appendExchangeEvent(.{
+                                    .kind = .response_authorized,
+                                    .provider_fingerprint = route.provider_fingerprint,
+                                    .capability_fingerprint = route.capability_fingerprint,
+                                    .route_fingerprint = route.fingerprint,
+                                    .authorization_fingerprint = response.authorization.?.authorization_fingerprint,
+                                    .request_envelope_fingerprint = route.request_envelope_fingerprint,
+                                    .response_envelope_fingerprint = response.fingerprint,
+                                });
+                                response_authorized_checkpoint = .{ .ledger = ledger, .start_len = start_len };
+                            }
                         }
                         try applyResponse(session, response, .{ .request_envelope_fingerprint = self.last_request_envelope_fingerprint });
                         self.last_request_fingerprint = null;
                         self.last_request_envelope_fingerprint = null;
                         self.last_request_included_capsule = null;
+                        self.clearLastRequestJournalBranch();
                         self.last_route = null;
                         self.last_response_capability_required = false;
                         return .running;
                     }
                     return switch (current_value) {
                         .request => |request| blk: {
-                            var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .request = request }, options.capsule);
+                            var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .request = request }, options.capsule, options.journal_branch_id);
                             errdefer envelope.deinit();
                             try options.policy.validateRequest(envelope);
-                            const route_refresh_required = routeRequiredFor(options.router, options.policy) and
-                                (self.last_route == null or !validateRoutePolicy(self.last_route.?, options.policy).allowed());
+                            const response_capability_required = responseCapabilityRequiredFor(options.router, options.policy);
+                            const route_refresh_required = routeRefreshRequiredFor(self.last_route, options.router, options.policy, envelope, self.last_response_capability_required, response_capability_required);
                             if (self.last_request_envelope_fingerprint != envelope.fingerprint or route_refresh_required) {
+                                var owned_branch = try cloneJournalBranch(options.allocator, options.journal_branch_id);
+                                errdefer if (owned_branch) |branch| options.allocator.free(branch);
                                 self.last_route = try appendRouteAwareOutboxEnvelope(options.allocator, outbox, envelope, options.router, options.policy, options.journal);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
                                 self.last_request_included_capsule = options.capsule;
-                                self.last_response_capability_required = responseCapabilityRequiredFor(options.router, options.policy);
+                                self.adoptLastRequestJournalBranch(options.allocator, owned_branch);
+                                owned_branch = null;
+                                self.last_response_capability_required = response_capability_required;
+                            } else {
+                                self.last_response_capability_required = response_capability_required;
                             }
                             break :blk .{ .parked = envelope };
                         },
                         .after => |after| blk: {
-                            var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .after = after }, options.capsule);
+                            var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .after = after }, options.capsule, options.journal_branch_id);
                             errdefer envelope.deinit();
                             try options.policy.validateRequest(envelope);
-                            const route_refresh_required = routeRequiredFor(options.router, options.policy) and
-                                (self.last_route == null or !validateRoutePolicy(self.last_route.?, options.policy).allowed());
+                            const response_capability_required = responseCapabilityRequiredFor(options.router, options.policy);
+                            const route_refresh_required = routeRefreshRequiredFor(self.last_route, options.router, options.policy, envelope, self.last_response_capability_required, response_capability_required);
                             if (self.last_request_envelope_fingerprint != envelope.fingerprint or route_refresh_required) {
+                                var owned_branch = try cloneJournalBranch(options.allocator, options.journal_branch_id);
+                                errdefer if (owned_branch) |branch| options.allocator.free(branch);
                                 self.last_route = try appendRouteAwareOutboxEnvelope(options.allocator, outbox, envelope, options.router, options.policy, options.journal);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
                                 self.last_request_included_capsule = options.capsule;
-                                self.last_response_capability_required = responseCapabilityRequiredFor(options.router, options.policy);
+                                self.adoptLastRequestJournalBranch(options.allocator, owned_branch);
+                                owned_branch = null;
+                                self.last_response_capability_required = response_capability_required;
+                            } else {
+                                self.last_response_capability_required = response_capability_required;
                             }
                             break :blk .{ .parked = envelope };
                         },
                         .none => switch (try session.next()) {
                             .request => |request| blk: {
-                                var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .request = request }, options.capsule);
+                                var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .request = request }, options.capsule, options.journal_branch_id);
                                 errdefer envelope.deinit();
                                 try options.policy.validateRequest(envelope);
+                                var owned_branch = try cloneJournalBranch(options.allocator, options.journal_branch_id);
+                                errdefer if (owned_branch) |branch| options.allocator.free(branch);
                                 self.last_route = try appendRouteAwareOutboxEnvelope(options.allocator, outbox, envelope, options.router, options.policy, options.journal);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
                                 self.last_request_included_capsule = options.capsule;
+                                self.adoptLastRequestJournalBranch(options.allocator, owned_branch);
+                                owned_branch = null;
                                 self.last_response_capability_required = responseCapabilityRequiredFor(options.router, options.policy);
                                 break :blk .{ .parked = envelope };
                             },
                             .after => |after| blk: {
-                                var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .after = after }, options.capsule);
+                                var envelope = try requestEnvelopeForCurrent(options.allocator, session, .{ .after = after }, options.capsule, options.journal_branch_id);
                                 errdefer envelope.deinit();
                                 try options.policy.validateRequest(envelope);
+                                var owned_branch = try cloneJournalBranch(options.allocator, options.journal_branch_id);
+                                errdefer if (owned_branch) |branch| options.allocator.free(branch);
                                 self.last_route = try appendRouteAwareOutboxEnvelope(options.allocator, outbox, envelope, options.router, options.policy, options.journal);
                                 self.last_request_fingerprint = envelope.request_fingerprint;
                                 self.last_request_envelope_fingerprint = envelope.fingerprint;
                                 self.last_request_included_capsule = options.capsule;
+                                self.adoptLastRequestJournalBranch(options.allocator, owned_branch);
+                                owned_branch = null;
                                 self.last_response_capability_required = responseCapabilityRequiredFor(options.router, options.policy);
                                 break :blk .{ .parked = envelope };
                             },
@@ -5058,6 +5191,10 @@ pub fn program(
 
             fn validateCapabilityRequestScope(capability: Capability, request: RequestEnvelope) ValidationReport {
                 var report: ValidationReport = .{};
+                request.validate() catch {
+                    report.add(.invalid_envelope);
+                    return report;
+                };
                 if (!capabilityFieldsBoundToBytes(capability)) report.add(.wrong_capability);
                 const requirement_label = requestRequirementLabel(request) orelse {
                     report.add(.invalid_envelope);
@@ -5074,6 +5211,13 @@ pub fn program(
                 }
                 if (!listAllowsString(capability.allowed_program_labels, request.program_label)) report.add(.wrong_program_label);
                 if (!listAllowsU64(capability.allowed_plan_hashes, request.plan_hash)) report.add(.wrong_plan_hash);
+                if (capability.journal_policy_fingerprint) |expected_policy| {
+                    const branch_id = request.journal_branch_id orelse {
+                        report.add(.wrong_journal_policy);
+                        return report;
+                    };
+                    if (journalBranchPolicyFingerprint(branch_id) != expected_policy) report.add(.wrong_journal_policy);
+                }
                 switch (request.kind) {
                     .operation => if (!listAllowsUsize(capability.allowed_operation_sites, request.site_index)) report.add(.operation_site),
                     .after => if (!listAllowsUsize(capability.allowed_after_sites, request.site_index)) report.add(.after_site),
@@ -5155,11 +5299,15 @@ pub fn program(
                 handlers: HandlersType,
                 request: RequestEnvelope,
                 route: Route,
+                provider: ProviderManifest,
                 capability: Capability,
+                policy: Policy,
             ) Error!Session {
                 if (route.fingerprint != fingerprintRoute(route)) return error.ProgramContractViolation;
-                if (!route.valid()) return error.ProgramContractViolation;
-                if (!route.capsule_restore_allowed) return error.ProgramContractViolation;
+                const expected_route = Route.from(request, provider, capability, policy);
+                if (expected_route.fingerprint != route.fingerprint) return error.ProgramContractViolation;
+                if (!expected_route.valid()) return error.ProgramContractViolation;
+                if (!expected_route.capsule_restore_allowed) return error.ProgramContractViolation;
                 if (route.request_envelope_fingerprint != request.fingerprint) return error.ProgramContractViolation;
                 if (route.capability_fingerprint != capability.fingerprint) return error.ProgramContractViolation;
                 if (!capability.allow_capsule_restore) return error.ProgramContractViolation;
@@ -5256,6 +5404,7 @@ pub fn program(
                 session: *Session,
                 current_value: Session.Current,
                 include_capsule: bool,
+                journal_branch_id: ?[]const u8,
             ) Error!RequestEnvelope {
                 var capsule_image: ?Session.Capsule.Image = null;
                 if (include_capsule) {
@@ -5265,8 +5414,8 @@ pub fn program(
                 }
                 defer if (capsule_image) |*image| image.deinit();
                 return switch (current_value) {
-                    .request => |request| RequestEnvelope.fromRequest(allocator, request, .{ .capsule = capsule_image }),
-                    .after => |after| RequestEnvelope.fromAfter(allocator, after, .{ .capsule = capsule_image }),
+                    .request => |request| RequestEnvelope.fromRequest(allocator, request, .{ .capsule = capsule_image, .journal_branch_id = journal_branch_id }),
+                    .after => |after| RequestEnvelope.fromAfter(allocator, after, .{ .capsule = capsule_image, .journal_branch_id = journal_branch_id }),
                     .none => error.ProgramContractViolation,
                 };
             }
@@ -5871,6 +6020,10 @@ pub fn program(
                 return hasher.final();
             }
 
+            fn journalBranchPolicyFingerprint(journal_branch_id: []const u8) u64 {
+                return exchangeFingerprint("ability.exchange.journal.policy", exchange_capability_fingerprint_version, journal_branch_id);
+            }
+
             fn checkedPayload(bytes: []const u8, domain: []const u8, version: u32) Error![]const u8 {
                 if (bytes.len < 8) return error.ProgramContractViolation;
                 const payload = bytes[0 .. bytes.len - 8];
@@ -6457,6 +6610,14 @@ pub fn program(
                 return false;
             }
 
+            fn responseKindSetRestrictRefs(request: RequestEnvelope, set: Policy.ResponseKindSet, refs: []const lowering_api.ValueRef) Policy.ResponseKindSet {
+                return .{
+                    .@"resume" = set.@"resume" and request.expected_resume_ref != null and (refs.len == 0 or listAllowsValueRef(refs, request.expected_resume_ref.?)),
+                    .return_now = set.return_now and request.expected_return_ref != null and (refs.len == 0 or listAllowsValueRef(refs, request.expected_return_ref.?)),
+                    .resume_after = set.resume_after and request.expected_after_ref != null and (refs.len == 0 or listAllowsValueRef(refs, request.expected_after_ref.?)),
+                };
+            }
+
             fn policyRequiresRoute(policy: Policy) bool {
                 return policy.require_route or policy.require_response_capability;
             }
@@ -6465,6 +6626,118 @@ pub fn program(
                 if (policyRequiresRoute(policy)) return true;
                 const catalog = router orelse return false;
                 return policyRequiresRoute(catalog.policy);
+            }
+
+            fn routeMatchesCurrentPlan(route: Route, router: ?Router, policy: Policy, request: RequestEnvelope) bool {
+                return validateRouteCurrentPlan(route, router, policy, request).allowed();
+            }
+
+            fn validateRouteCurrentPlan(route: Route, router: ?Router, policy: Policy, request: RequestEnvelope) ValidationReport {
+                var report: ValidationReport = .{};
+                const catalog = router orelse {
+                    report.add(.no_route);
+                    return report;
+                };
+                const route_plan = catalog.planWithPolicy(request, policy);
+                const reject_ambiguous_routes = policy.reject_ambiguous_routes or catalog.policy.reject_ambiguous_routes;
+                switch (route_plan.status) {
+                    .one_route => {
+                        if (route_plan.route != null and route_plan.route.?.fingerprint == route.fingerprint) return report;
+                        report.add(.wrong_route);
+                    },
+                    .ambiguous_routes => {
+                        if (!reject_ambiguous_routes and route_plan.route != null and route_plan.route.?.fingerprint == route.fingerprint) return report;
+                        report.merge(route_plan.blocked);
+                    },
+                    .blocked_routes, .no_route => report.merge(route_plan.blocked),
+                }
+                if (report.allowed()) report.add(.wrong_route);
+                return report;
+            }
+
+            fn validateUnroutedResponsePlan(router: ?Router, policy: Policy, request: RequestEnvelope) ValidationReport {
+                var report: ValidationReport = .{};
+                const catalog = router orelse {
+                    if (policyRequiresRoute(policy)) report.add(.no_route);
+                    return report;
+                };
+                const route_plan = catalog.planWithPolicy(request, policy);
+                const reject_ambiguous_routes = policy.reject_ambiguous_routes or catalog.policy.reject_ambiguous_routes;
+                switch (route_plan.status) {
+                    .one_route => report.add(.wrong_route),
+                    .ambiguous_routes => {
+                        if (reject_ambiguous_routes or route_plan.route != null) report.merge(route_plan.blocked);
+                    },
+                    .blocked_routes => if (routeRequiredFor(router, policy) or !blockedRoutesAllowOptionalFallback(route_plan.blocked)) report.merge(route_plan.blocked),
+                    .no_route => if (routeRequiredFor(router, policy)) report.merge(route_plan.blocked),
+                }
+                if (!report.allowed()) return report;
+                if (routeRequiredFor(router, policy)) report.add(.no_route);
+                return report;
+            }
+
+            fn blockedRoutesAllowOptionalFallback(report: ValidationReport) bool {
+                if (report.allowed()) return true;
+                for (report.blockers[0..report.count]) |tag| switch (tag) {
+                    .wrong_provider,
+                    .wrong_manifest,
+                    .wrong_program_label,
+                    .wrong_plan_hash,
+                    .request_kind,
+                    .operation_site,
+                    .after_site,
+                    .protocol_operation,
+                    .response_kind,
+                    .response_ref,
+                    .embedded_capsule,
+                    .capsule_restore,
+                    .request_too_large,
+                    .response_too_large,
+                    .payload_too_large,
+                    .capsule_too_large,
+                    .missing_capability_fingerprint,
+                    .wrong_capability_path,
+                    .wrong_route,
+                    .wrong_request,
+                    => {},
+                    .provider_not_allowed,
+                    .capability_not_allowed,
+                    .wrong_journal_policy,
+                    .wrong_capability,
+                    .invalid_envelope,
+                    .expired_capability,
+                    .broadened_authority,
+                    .ambiguous_route,
+                    .no_route,
+                    => return false,
+                };
+                return true;
+            }
+
+            fn routeRefreshRequiredFor(
+                last_route: ?Route,
+                router: ?Router,
+                policy: Policy,
+                request: RequestEnvelope,
+                last_response_capability_required: bool,
+                response_capability_required: bool,
+            ) bool {
+                if (last_route) |route| {
+                    return !validateRoutePolicies(route, router, policy).allowed() or
+                        !routeMatchesCurrentPlan(route, router, policy, request) or
+                        last_response_capability_required != response_capability_required;
+                }
+                if (routeRequiredFor(router, policy)) return true;
+                const catalog = router orelse return false;
+                if (!validatePolicyRequestScope(catalog.policy, request).allowed()) return true;
+                const route_plan = catalog.planWithPolicy(request, policy);
+                const reject_ambiguous_routes = policy.reject_ambiguous_routes or catalog.policy.reject_ambiguous_routes;
+                return switch (route_plan.status) {
+                    .one_route => true,
+                    .blocked_routes => routeRequiredFor(router, policy) or !blockedRoutesAllowOptionalFallback(route_plan.blocked),
+                    .ambiguous_routes => reject_ambiguous_routes or route_plan.route != null,
+                    .no_route => false,
+                };
             }
 
             fn responseCapabilityRequiredFor(router: ?Router, policy: Policy) bool {
@@ -6489,6 +6762,25 @@ pub fn program(
                 var report: ValidationReport = .{};
                 if (!policyProviderAllowed(policy, route.provider_fingerprint)) report.add(.provider_not_allowed);
                 if (!policyCapabilityAllowed(policy, route.capability_fingerprint)) report.add(.capability_not_allowed);
+                if (!responseKindSetSubset(route.allowed_response_kinds, policy.allowed_response_kinds)) report.add(.response_kind);
+                if (route.max_response_bytes > policy.max_envelope_bytes) report.add(.response_too_large);
+                if (route.max_payload_bytes > policy.max_payload_bytes) report.add(.payload_too_large);
+                return report;
+            }
+
+            fn validateRoutePolicies(route: Route, router: ?Router, policy: Policy) ValidationReport {
+                var report = validateRoutePolicy(route, policy);
+                if (router) |catalog| report.merge(validateRoutePolicy(route, catalog.policy));
+                return report;
+            }
+
+            fn validateRouteResponse(route: Route, response: ResponseEnvelope) ValidationReport {
+                var report: ValidationReport = .{};
+                if (!route.valid()) report.merge(route.blockers);
+                if (route.request_envelope_fingerprint != response.request_envelope_fingerprint) report.add(.wrong_request);
+                if (!route.allowed_response_kinds.allows(response.kind)) report.add(.response_kind);
+                if (response.bytes.len > route.max_response_bytes) report.add(.response_too_large);
+                if (response.value_image.len > route.max_payload_bytes) report.add(.payload_too_large);
                 return report;
             }
 

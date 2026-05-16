@@ -98,8 +98,10 @@ const Outbox = struct {
     }
 
     pub fn appendRouted(self: *@This(), request: Program.Exchange.RequestEnvelope, route: Program.Exchange.Route) !void {
-        try self.requests.append(self.allocator, request);
-        try self.routes.append(self.allocator, route);
+        try self.requests.ensureUnusedCapacity(self.allocator, 1);
+        try self.routes.ensureUnusedCapacity(self.allocator, 1);
+        self.requests.appendAssumeCapacity(request);
+        self.routes.appendAssumeCapacity(route);
     }
 };
 
