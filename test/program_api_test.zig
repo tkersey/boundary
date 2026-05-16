@@ -15236,16 +15236,16 @@ test "Program.Session trace operation metadata and replay fingerprint helpers" {
     try std.testing.expectEqual(first_request.fingerprint(), second_request.fingerprint());
 }
 
-test "Program.Exchange exposes exchange request v2 format and stable fingerprint domains" {
+test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     const Body = struct {
-        pub const compiled_plan = wideLocalPlan("exchange-version-domains");
+        pub const compiled_plan = sessionStringOpPlan(.transform, "exchange-version-domains");
     };
     const Program = ability.program("exchange-version-domains", struct {}, Body);
 
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_manifest_format_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_manifest_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 2), Program.exchange_request_format_version);
-    try std.testing.expectEqual(@as(u32, 1), Program.exchange_request_fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 2), Program.exchange_request_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_response_format_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_response_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_provider_format_version);
@@ -15271,20 +15271,94 @@ test "Program.Exchange exposes exchange request v2 format and stable fingerprint
 
     var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
     defer manifest.deinit();
+    var decoded_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, manifest.bytes);
+    defer decoded_manifest.deinit();
+    try std.testing.expectEqual(manifest.fingerprint, decoded_manifest.fingerprint);
+
     var legacy_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
     defer std.testing.allocator.free(legacy_manifest);
-    var index: usize = "ABL_EXM1".len + 6 * 4;
-    const program_label_len = std.mem.readInt(u64, legacy_manifest[index..][0..8], .little);
-    index += 8 + @as(usize, @intCast(program_label_len));
-    const plan_label_len = std.mem.readInt(u64, legacy_manifest[index..][0..8], .little);
-    index += 8 + @as(usize, @intCast(plan_label_len));
-    index += 8 + 4 + 4 + 4;
-    std.mem.writeInt(u32, legacy_manifest[index..][0..4], 1, .little);
-    const legacy_payload = legacy_manifest[0 .. legacy_manifest.len - 8];
-    std.mem.writeInt(u64, legacy_manifest[legacy_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_payload), .little);
-    var decoded_legacy = try Program.Exchange.Manifest.decode(std.testing.allocator, legacy_manifest);
-    defer decoded_legacy.deinit();
-    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_payload), decoded_legacy.fingerprint);
+    const legacy_manifest_request_version: u32 = 1;
+    const manifest_request_format_offset = "ABL_EXM1".len + 2 * 4;
+    const manifest_request_fingerprint_offset = "ABL_EXM1".len + 3 * 4;
+    std.mem.writeInt(u32, legacy_manifest[manifest_request_format_offset..][0..4], legacy_manifest_request_version, .little);
+    std.mem.writeInt(u32, legacy_manifest[manifest_request_fingerprint_offset..][0..4], legacy_manifest_request_version, .little);
+    var legacy_manifest_index: usize = "ABL_EXM1".len + 6 * 4;
+    const legacy_manifest_program_label_len = std.mem.readInt(u64, legacy_manifest[legacy_manifest_index..][0..8], .little);
+    legacy_manifest_index += 8 + @as(usize, @intCast(legacy_manifest_program_label_len));
+    const legacy_manifest_plan_label_len = std.mem.readInt(u64, legacy_manifest[legacy_manifest_index..][0..8], .little);
+    legacy_manifest_index += 8 + @as(usize, @intCast(legacy_manifest_plan_label_len));
+    legacy_manifest_index += 8 + 4 + 4 + 4;
+    std.mem.writeInt(u32, legacy_manifest[legacy_manifest_index..][0..4], legacy_manifest_request_version, .little);
+    const legacy_manifest_payload = legacy_manifest[0 .. legacy_manifest.len - 8];
+    std.mem.writeInt(u64, legacy_manifest[legacy_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_manifest_payload), .little);
+    var decoded_legacy_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, legacy_manifest);
+    defer decoded_legacy_manifest.deinit();
+    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_manifest_payload), decoded_legacy_manifest.fingerprint);
+
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var request_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer request_envelope.deinit();
+    try std.testing.expect(request_envelope.journal_branch_id == null);
+    const request_manifest_fingerprint_offset = "ABL_EXQ1".len + 2 * 4;
+
+    var mismatched_manifest_request = try std.testing.allocator.dupe(u8, request_envelope.bytes);
+    defer std.testing.allocator.free(mismatched_manifest_request);
+    const mismatched_payload_len = mismatched_manifest_request.len - 8;
+    std.mem.writeInt(u64, mismatched_manifest_request[request_manifest_fingerprint_offset..][0..8], decoded_legacy_manifest.fingerprint, .little);
+    std.mem.writeInt(u64, mismatched_manifest_request[mismatched_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", Program.Exchange.request_fingerprint_version, mismatched_manifest_request[0..mismatched_payload_len]), .little);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decode(std.testing.allocator, mismatched_manifest_request));
+
+    const v2_payload_len = request_envelope.bytes.len - 8;
+    const legacy_payload_len = v2_payload_len - 1;
+    var legacy_request = try std.testing.allocator.alloc(u8, legacy_payload_len + 8);
+    defer std.testing.allocator.free(legacy_request);
+    @memcpy(legacy_request[0..legacy_payload_len], request_envelope.bytes[0..legacy_payload_len]);
+    const legacy_request_version: u32 = 1;
+    std.mem.writeInt(u32, legacy_request["ABL_EXQ1".len..][0..4], legacy_request_version, .little);
+    std.mem.writeInt(u32, legacy_request["ABL_EXQ1".len + 4 ..][0..4], legacy_request_version, .little);
+    std.mem.writeInt(u64, legacy_request[request_manifest_fingerprint_offset..][0..8], decoded_legacy_manifest.fingerprint, .little);
+    std.mem.writeInt(u64, legacy_request[legacy_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", legacy_request_version, legacy_request[0..legacy_payload_len]), .little);
+    var decoded_legacy_request = try Program.Exchange.RequestEnvelope.decode(std.testing.allocator, legacy_request);
+    defer decoded_legacy_request.deinit();
+    try std.testing.expect(decoded_legacy_request.journal_branch_id == null);
+    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.request", legacy_request_version, legacy_request[0..legacy_payload_len]), decoded_legacy_request.fingerprint);
+
+    var branch_request_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{ .journal_branch_id = "legacy-left" });
+    defer branch_request_envelope.deinit();
+    var legacy_branch_request = try std.testing.allocator.dupe(u8, branch_request_envelope.bytes);
+    defer std.testing.allocator.free(legacy_branch_request);
+    const legacy_branch_payload_len = legacy_branch_request.len - 8;
+    std.mem.writeInt(u32, legacy_branch_request["ABL_EXQ1".len..][0..4], legacy_request_version, .little);
+    std.mem.writeInt(u32, legacy_branch_request["ABL_EXQ1".len + 4 ..][0..4], legacy_request_version, .little);
+    std.mem.writeInt(u64, legacy_branch_request[request_manifest_fingerprint_offset..][0..8], decoded_legacy_manifest.fingerprint, .little);
+    std.mem.writeInt(u64, legacy_branch_request[legacy_branch_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", legacy_request_version, legacy_branch_request[0..legacy_branch_payload_len]), .little);
+    var decoded_legacy_branch_request = try Program.Exchange.RequestEnvelope.decode(std.testing.allocator, legacy_branch_request);
+    defer decoded_legacy_branch_request.deinit();
+    try std.testing.expectEqualStrings("legacy-left", decoded_legacy_branch_request.journal_branch_id.?);
+
+    var legacy_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, decoded_legacy_request, @as(i32, 7));
+    defer legacy_response.deinit();
+    var decoded_legacy_response = try Program.Exchange.ResponseEnvelope.decode(std.testing.allocator, legacy_response.bytes);
+    defer decoded_legacy_response.deinit();
+    try std.testing.expectEqual(decoded_legacy_manifest.fingerprint, decoded_legacy_response.manifest_fingerprint);
+    try legacy_response.validateForRequest(decoded_legacy_request);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.applyResponse(&session, legacy_response, .{}));
+    try Program.Exchange.applyResponse(&session, legacy_response, .{ .request_envelope_fingerprint = decoded_legacy_request.fingerprint });
+    var legacy_result = switch (try session.next()) {
+        .done => |value| value,
+        .request => return error.ExpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+    defer legacy_result.deinit();
+    try std.testing.expectEqual(@as(i32, 7), legacy_result.value);
 }
 
 test "Program.Session trace after metadata and current value fingerprint stability" {
@@ -18451,6 +18525,13 @@ test "Program.Exchange capability validates matching requests and structured blo
     defer decoded.deinit();
     try std.testing.expectEqual(capability.fingerprint, decoded.fingerprint);
     try std.testing.expect(decoded.allowsRequest(envelope, provider).allowed());
+    var no_response_kind = decoded;
+    no_response_kind.allowed_response_kinds = .{ .@"resume" = false, .return_now = false, .resume_after = false };
+    try std.testing.expect(no_response_kind.allowsRequest(envelope, provider).has(.response_kind));
+    var wrong_response_ref = decoded;
+    var wrong_response_refs = [_]ability.ir.ValueRef{.{ .codec = .unit }};
+    wrong_response_ref.allowed_response_refs = wrong_response_refs[0..];
+    try std.testing.expect(wrong_response_ref.allowsRequest(envelope, provider).has(.response_ref));
 
     var mutated_request = envelope;
     mutated_request.site_index = 999;
@@ -18483,8 +18564,14 @@ test "Program.Exchange capability validates matching requests and structured blo
     const capability_version_offset = "ABL_EXC1".len + 4 + 4;
     std.mem.writeInt(u32, future_version[capability_version_offset..][0..4], 2, .little);
     const future_payload = future_version[0 .. future_version.len - 8];
-    std.mem.writeInt(u64, future_version[future_version.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.capability", Program.Exchange.capability_fingerprint_version, future_payload), .little);
+    const future_fingerprint = testExchangeFingerprint("ability.exchange.capability", Program.Exchange.capability_fingerprint_version, future_payload);
+    std.mem.writeInt(u64, future_version[future_version.len - 8 ..][0..8], future_fingerprint, .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Capability.decode(std.testing.allocator, future_version));
+    var future_direct = decoded;
+    future_direct.bytes = future_version;
+    future_direct.version = 2;
+    future_direct.fingerprint = future_fingerprint;
+    try std.testing.expect(future_direct.allowsRequest(envelope, provider).has(.wrong_capability));
 
     var huge_capability_list_count = try std.testing.allocator.dupe(u8, capability.bytes);
     defer std.testing.allocator.free(huge_capability_list_count);
@@ -18568,6 +18655,42 @@ test "Program.Exchange capability validates matching requests and structured blo
         break;
     }
     try std.testing.expect(capability_reached_success);
+}
+
+test "Program.Exchange validation report records saturation" {
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "validation-report-saturation");
+    };
+    const Program = ability.program("validation-report-saturation", struct {}, Body);
+    var report: Program.Exchange.ValidationReport = .{};
+    const soft_blockers = [_]Program.Exchange.BlockerTag{
+        .wrong_provider,
+        .wrong_manifest,
+        .wrong_program_label,
+        .wrong_plan_hash,
+        .request_kind,
+        .operation_site,
+        .after_site,
+        .protocol_operation,
+        .response_kind,
+        .response_ref,
+        .embedded_capsule,
+        .capsule_restore,
+        .request_too_large,
+        .response_too_large,
+        .payload_too_large,
+        .capsule_too_large,
+    };
+    for (soft_blockers) |tag| report.add(tag);
+    try std.testing.expectEqual(@as(usize, 16), report.count);
+    try std.testing.expect(!report.saturated);
+    try std.testing.expect(!report.has(.provider_not_allowed));
+    report.add(.provider_not_allowed);
+    try std.testing.expect(report.saturated);
+    try std.testing.expect(!report.has(.provider_not_allowed));
+    var merged: Program.Exchange.ValidationReport = .{};
+    merged.merge(report);
+    try std.testing.expect(merged.saturated);
 }
 
 test "Program.Exchange capability allows after scope with operation fingerprint grant" {
@@ -18766,6 +18889,26 @@ test "Program.Exchange capability attenuation narrows authority and rejects broa
     });
     defer shorter_child.deinit();
     try std.testing.expectEqual(@as(?u64, 9), shorter_child.expires_at_generation);
+
+    const branch_id = "attenuated-branch";
+    const branch_policy = Program.Exchange.journalPolicyFingerprint(branch_id);
+    var branch_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{ .journal_branch_id = branch_id });
+    defer branch_envelope.deinit();
+    var wrong_branch_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{ .journal_branch_id = "other-branch" });
+    defer wrong_branch_envelope.deinit();
+    var branch_child = try parent.attenuate(std.testing.allocator, .{
+        .allowed_operation_sites = &[_]usize{envelope.site_index},
+        .journal_policy_fingerprint = branch_policy,
+    });
+    defer branch_child.deinit();
+    try std.testing.expectEqual(parent.fingerprint, branch_child.parent_capability_fingerprint.?);
+    try std.testing.expectEqual(@as(?u64, branch_policy), branch_child.journal_policy_fingerprint);
+    try std.testing.expect(branch_child.allowsRequest(branch_envelope, provider).allowed());
+    try std.testing.expect(branch_child.allowsRequest(envelope, provider).has(.wrong_journal_policy));
+    try std.testing.expect(branch_child.allowsRequest(wrong_branch_envelope, provider).has(.wrong_journal_policy));
+    try std.testing.expectError(error.ProgramContractViolation, branch_child.attenuate(std.testing.allocator, .{
+        .journal_policy_fingerprint = Program.Exchange.journalPolicyFingerprint("other-branch"),
+    }));
 
     try std.testing.expectError(error.ProgramContractViolation, child.attenuate(std.testing.allocator, .{
         .allowed_operation_sites = &[_]usize{999},
@@ -19215,6 +19358,16 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
 
     var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
     defer manifest.deinit();
+    var legacy_request_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
+    defer std.testing.allocator.free(legacy_request_manifest);
+    const legacy_manifest_request_version: u32 = 1;
+    const manifest_request_format_offset = "ABL_EXM1".len + 2 * 4;
+    const manifest_request_fingerprint_offset = "ABL_EXM1".len + 3 * 4;
+    std.mem.writeInt(u32, legacy_request_manifest[manifest_request_format_offset..][0..4], legacy_manifest_request_version, .little);
+    std.mem.writeInt(u32, legacy_request_manifest[manifest_request_fingerprint_offset..][0..4], legacy_manifest_request_version, .little);
+    const legacy_request_manifest_payload = legacy_request_manifest[0 .. legacy_request_manifest.len - 8];
+    const legacy_request_manifest_fingerprint = testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_request_manifest_payload);
+    std.mem.writeInt(u64, legacy_request_manifest[legacy_request_manifest.len - 8 ..][0..8], legacy_request_manifest_fingerprint, .little);
     var provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
         .label = "mailbox-provider",
         .supported_program_manifest_fingerprints = &[_]u64{manifest.fingerprint},
@@ -19258,10 +19411,30 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
         .journal_branch_id = mailbox_branch_id,
         .policy = .{ .require_route = true },
     });
-    switch (branch_step) {
-        .parked => |*envelope| envelope.deinit(),
+    const branch_envelope_fingerprint = switch (branch_step) {
+        .parked => |*envelope| blk: {
+            defer envelope.deinit();
+            break :blk envelope.fingerprint;
+        },
         else => return error.ExpectedRequest,
-    }
+    };
+    try std.testing.expectEqual(@as(usize, 1), branch_outbox.items.items.len);
+    try std.testing.expectEqual(@as(usize, 1), branch_outbox.routes.items.len);
+    try std.testing.expect(branch_outbox.routes.items[0].valid());
+
+    var branch_repeat = try branch_runner.runStep(&branch_session, &branch_outbox, &branch_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = branch_router,
+        .policy = .{ .require_route = true },
+    });
+    const branch_repeat_fingerprint = switch (branch_repeat) {
+        .parked => |*envelope| blk: {
+            defer envelope.deinit();
+            break :blk envelope.fingerprint;
+        },
+        else => return error.ExpectedRequest,
+    };
+    try std.testing.expectEqual(branch_envelope_fingerprint, branch_repeat_fingerprint);
     try std.testing.expectEqual(@as(usize, 1), branch_outbox.items.items.len);
     try std.testing.expectEqual(@as(usize, 1), branch_outbox.routes.items.len);
     try std.testing.expect(branch_outbox.routes.items[0].valid());
@@ -19369,6 +19542,43 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
         else => return error.ExpectedRunning,
     }
 
+    var limited_response_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "host",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_operation_sites = &[_]usize{0},
+        .allowed_response_kinds = .{ .return_now = false, .resume_after = false },
+        .max_response_bytes = 1,
+    });
+    defer limited_response_capability.deinit();
+    const limited_capabilities = [_]Program.Exchange.Capability{limited_response_capability};
+    const limited_router = Program.Exchange.Router{ .providers = providers[0..], .capabilities = limited_capabilities[0..] };
+    var tampered_route_session = try Program.Session.start(&runtime, .{});
+    defer tampered_route_session.deinit();
+    var tampered_route_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer tampered_route_outbox.deinit();
+    var tampered_route_inbox = Inbox{};
+    defer tampered_route_inbox.deinit();
+    var tampered_route_runner = Program.Exchange.MailboxRunner{};
+    var tampered_route_step = try tampered_route_runner.runStep(&tampered_route_session, &tampered_route_outbox, &tampered_route_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = limited_router,
+        .policy = .{ .require_route = true },
+    });
+    switch (tampered_route_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    tampered_route_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, tampered_route_outbox.items.items[0], @as(i32, 24));
+    if (tampered_route_runner.last_route) |*last_route| {
+        last_route.max_response_bytes = tampered_route_inbox.response.?.bytes.len;
+    } else return error.ExpectedRoute;
+    try std.testing.expectError(error.ProgramContractViolation, tampered_route_runner.runStep(&tampered_route_session, &tampered_route_outbox, &tampered_route_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = limited_router,
+        .policy = .{ .require_route = true },
+    }));
+
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
     var outbox = Outbox{ .allocator = std.testing.allocator };
@@ -19412,6 +19622,42 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
     defer done.deinit();
     try std.testing.expectEqual(@as(i32, 42), done.value);
 
+    var route_only_manifest_session = try Program.Session.start(&runtime, .{});
+    defer route_only_manifest_session.deinit();
+    var route_only_manifest_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer route_only_manifest_outbox.deinit();
+    var route_only_manifest_inbox = Inbox{};
+    defer route_only_manifest_inbox.deinit();
+    var route_only_manifest_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer route_only_manifest_journal.deinit();
+    var route_only_manifest_runner = Program.Exchange.MailboxRunner{};
+    var route_only_manifest_step = try route_only_manifest_runner.runStep(&route_only_manifest_session, &route_only_manifest_outbox, &route_only_manifest_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .journal = &route_only_manifest_journal,
+        .policy = .{ .require_route = true },
+    });
+    switch (route_only_manifest_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    route_only_manifest_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, route_only_manifest_outbox.items.items[0], @as(i32, 43));
+    const response_manifest_fingerprint_offset = "ABL_EXR1".len + 2 * 4;
+    std.mem.writeInt(u64, route_only_manifest_inbox.response.?.bytes[response_manifest_fingerprint_offset..][0..8], legacy_request_manifest_fingerprint, .little);
+    const response_payload = route_only_manifest_inbox.response.?.bytes[0 .. route_only_manifest_inbox.response.?.bytes.len - 8];
+    const response_fingerprint = testExchangeFingerprint("ability.exchange.response", Program.Exchange.response_fingerprint_version, response_payload);
+    std.mem.writeInt(u64, route_only_manifest_inbox.response.?.bytes[route_only_manifest_inbox.response.?.bytes.len - 8 ..][0..8], response_fingerprint, .little);
+    route_only_manifest_inbox.response.?.manifest_fingerprint = legacy_request_manifest_fingerprint;
+    route_only_manifest_inbox.response.?.fingerprint = response_fingerprint;
+    try std.testing.expectError(error.ProgramContractViolation, route_only_manifest_runner.runStep(&route_only_manifest_session, &route_only_manifest_outbox, &route_only_manifest_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .journal = &route_only_manifest_journal,
+        .policy = .{ .require_route = true },
+    }));
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.response_rejected, route_only_manifest_journal.entries.items[1].exchange_event.kind);
+    try std.testing.expectEqualStrings("wrong_manifest", route_only_manifest_journal.entries.items[1].exchange_event.blocker_tag.?);
+
     var denied_policy_session = try Program.Session.start(&runtime, .{});
     defer denied_policy_session.deinit();
     var denied_policy_outbox = Outbox{ .allocator = std.testing.allocator };
@@ -19422,6 +19668,28 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
     defer denied_policy_journal.deinit();
     var denied_policy_runner = Program.Exchange.MailboxRunner{};
     const denied_providers = [_]u64{provider.provider_fingerprint ^ 1};
+    const denied_capabilities = [_]u64{capability.fingerprint ^ 1};
+    var no_router_provider_policy_session = try Program.Session.start(&runtime, .{});
+    defer no_router_provider_policy_session.deinit();
+    var no_router_provider_policy_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer no_router_provider_policy_outbox.deinit();
+    var no_router_provider_policy_inbox = Inbox{};
+    defer no_router_provider_policy_inbox.deinit();
+    var no_router_provider_policy_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer no_router_provider_policy_journal.deinit();
+    var no_router_provider_policy_runner = Program.Exchange.MailboxRunner{};
+    try std.testing.expectError(error.ProgramContractViolation, no_router_provider_policy_runner.runStep(&no_router_provider_policy_session, &no_router_provider_policy_outbox, &no_router_provider_policy_inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &no_router_provider_policy_journal,
+        .policy = .{
+            .allowed_provider_fingerprints = denied_providers[0..],
+            .allowed_capability_fingerprints = denied_capabilities[0..],
+        },
+    }));
+    try std.testing.expectEqual(@as(usize, 0), no_router_provider_policy_outbox.items.items.len);
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.route_blocked, no_router_provider_policy_journal.entries.items[0].exchange_event.kind);
+    try std.testing.expectEqualStrings("no_route", no_router_provider_policy_journal.entries.items[0].exchange_event.blocker_tag.?);
+
     try std.testing.expectError(error.ProgramContractViolation, denied_policy_runner.runStep(&denied_policy_session, &denied_policy_outbox, &denied_policy_inbox, .{
         .allocator = std.testing.allocator,
         .router = router,
@@ -19989,6 +20257,82 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
     try std.testing.expectEqual(@as(usize, 1), auth_rerouted_outbox.routes.items.len);
     try std.testing.expect(auth_rerouted_runner.last_route != null);
 
+    var pending_route_downgrade_session = try Program.Session.start(&runtime, .{});
+    defer pending_route_downgrade_session.deinit();
+    var pending_route_downgrade_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer pending_route_downgrade_outbox.deinit();
+    var pending_route_downgrade_inbox = Inbox{};
+    defer pending_route_downgrade_inbox.deinit();
+    var pending_route_downgrade_runner = Program.Exchange.MailboxRunner{};
+    var pending_route_downgrade_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer pending_route_downgrade_journal.deinit();
+    var pending_route_downgrade_step = try pending_route_downgrade_runner.runStep(&pending_route_downgrade_session, &pending_route_downgrade_outbox, &pending_route_downgrade_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .journal = &pending_route_downgrade_journal,
+        .policy = .{ .require_response_capability = true },
+    });
+    switch (pending_route_downgrade_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 1), pending_route_downgrade_outbox.items.items.len);
+    try std.testing.expectEqual(@as(usize, 1), pending_route_downgrade_outbox.routes.items.len);
+    try std.testing.expect(pending_route_downgrade_runner.last_route != null);
+    try std.testing.expect(pending_route_downgrade_runner.last_response_capability_required);
+    try std.testing.expectError(error.ProgramContractViolation, pending_route_downgrade_runner.runStep(&pending_route_downgrade_session, &pending_route_downgrade_outbox, &pending_route_downgrade_inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &pending_route_downgrade_journal,
+    }));
+    try std.testing.expectEqual(@as(usize, 1), pending_route_downgrade_outbox.items.items.len);
+    try std.testing.expectEqual(@as(usize, 1), pending_route_downgrade_outbox.routes.items.len);
+    try std.testing.expect(pending_route_downgrade_runner.last_route != null);
+    try std.testing.expect(pending_route_downgrade_runner.last_response_capability_required);
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.route_blocked, pending_route_downgrade_journal.entries.items[1].exchange_event.kind);
+    try std.testing.expectEqualStrings("no_route", pending_route_downgrade_journal.entries.items[1].exchange_event.blocker_tag.?);
+
+    var pending_auth_sticky_session = try Program.Session.start(&runtime, .{});
+    defer pending_auth_sticky_session.deinit();
+    var pending_auth_sticky_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer pending_auth_sticky_outbox.deinit();
+    var pending_auth_sticky_inbox = Inbox{};
+    defer pending_auth_sticky_inbox.deinit();
+    var pending_auth_sticky_runner = Program.Exchange.MailboxRunner{};
+    var pending_auth_sticky_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer pending_auth_sticky_journal.deinit();
+    var pending_auth_sticky_step = try pending_auth_sticky_runner.runStep(&pending_auth_sticky_session, &pending_auth_sticky_outbox, &pending_auth_sticky_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .journal = &pending_auth_sticky_journal,
+        .policy = .{ .require_response_capability = true },
+    });
+    switch (pending_auth_sticky_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    var pending_auth_sticky_repeat = try pending_auth_sticky_runner.runStep(&pending_auth_sticky_session, &pending_auth_sticky_outbox, &pending_auth_sticky_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .journal = &pending_auth_sticky_journal,
+        .policy = .{},
+    });
+    switch (pending_auth_sticky_repeat) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 1), pending_auth_sticky_outbox.items.items.len);
+    try std.testing.expectEqual(@as(usize, 1), pending_auth_sticky_outbox.routes.items.len);
+    try std.testing.expect(pending_auth_sticky_runner.last_response_capability_required);
+    pending_auth_sticky_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, pending_auth_sticky_outbox.items.items[0], @as(i32, 9));
+    try std.testing.expectError(error.ProgramContractViolation, pending_auth_sticky_runner.runStep(&pending_auth_sticky_session, &pending_auth_sticky_outbox, &pending_auth_sticky_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .journal = &pending_auth_sticky_journal,
+        .policy = .{},
+    }));
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.response_rejected, pending_auth_sticky_journal.entries.items[1].exchange_event.kind);
+    try std.testing.expectEqualStrings("missing_capability_fingerprint", pending_auth_sticky_journal.entries.items[1].exchange_event.blocker_tag.?);
+
     var router_policy_auth_session = try Program.Session.start(&runtime, .{});
     defer router_policy_auth_session.deinit();
     var router_policy_auth_outbox = Outbox{ .allocator = std.testing.allocator };
@@ -20178,6 +20522,126 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
     }));
     try std.testing.expectEqual(@as(usize, 0), required_auth_no_route_outbox.items.items.len);
     try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.route_blocked, required_auth_no_route_journal.entries.items[0].exchange_event.kind);
+}
+
+test "Program.Exchange mailbox preserves branch id while polling parked after request" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = compiledTransformPlan("exchange-mailbox-after-branch-repoll");
+    };
+    const Program = ability.program("exchange-mailbox-after-branch-repoll", struct {}, Body);
+    const Outbox = struct {
+        allocator: std.mem.Allocator,
+        items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
+        routes: std.ArrayList(Program.Exchange.Route) = .empty,
+
+        fn deinit(self: *@This()) void {
+            for (self.items.items) |*item| item.deinit();
+            self.items.deinit(self.allocator);
+            self.routes.deinit(self.allocator);
+        }
+
+        pub fn appendRouted(self: *@This(), envelope: Program.Exchange.RequestEnvelope, route: Program.Exchange.Route) !void {
+            try self.items.ensureUnusedCapacity(self.allocator, 1);
+            try self.routes.ensureUnusedCapacity(self.allocator, 1);
+            self.items.appendAssumeCapacity(envelope);
+            self.routes.appendAssumeCapacity(route);
+        }
+
+        pub fn append(self: *@This(), envelope: Program.Exchange.RequestEnvelope) !void {
+            try self.items.append(self.allocator, envelope);
+        }
+    };
+    const Inbox = struct {
+        response: ?Program.Exchange.ResponseEnvelope = null,
+
+        fn deinit(self: *@This()) void {
+            if (self.response) |*response| response.deinit();
+            self.response = null;
+        }
+
+        pub fn nextResponse(self: *@This()) !?Program.Exchange.ResponseEnvelope {
+            const response = self.response orelse return null;
+            self.response = null;
+            return response;
+        }
+    };
+
+    var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
+    defer manifest.deinit();
+    var provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "after-branch-provider",
+        .supported_program_manifest_fingerprints = &[_]u64{manifest.fingerprint},
+    });
+    defer provider.deinit();
+    const branch_id = "after-policy-branch";
+    var capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "host",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .journal_policy_fingerprint = Program.Exchange.journalPolicyFingerprint(branch_id),
+    });
+    defer capability.deinit();
+    const providers = [_]Program.Exchange.ProviderManifest{provider};
+    const capabilities = [_]Program.Exchange.Capability{capability};
+    const router = Program.Exchange.Router{ .providers = providers[0..], .capabilities = capabilities[0..] };
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    var outbox = Outbox{ .allocator = std.testing.allocator };
+    defer outbox.deinit();
+    var inbox = Inbox{};
+    defer inbox.deinit();
+    var runner = Program.Exchange.MailboxRunner{};
+    defer runner.deinit();
+
+    var operation_step = try runner.runStep(&session, &outbox, &inbox, .{ .allocator = std.testing.allocator });
+    switch (operation_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 1), outbox.items.items.len);
+
+    inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, outbox.items.items[0], @as(i32, 7));
+    const response_step = try runner.runStep(&session, &outbox, &inbox, .{ .allocator = std.testing.allocator });
+    switch (response_step) {
+        .running => {},
+        else => return error.ExpectedRunning,
+    }
+
+    var after_step = try runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .journal_branch_id = branch_id,
+        .policy = .{ .require_route = true },
+    });
+    const after_fingerprint = switch (after_step) {
+        .parked => |*envelope| blk: {
+            defer envelope.deinit();
+            break :blk envelope.fingerprint;
+        },
+        else => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(@as(usize, 2), outbox.items.items.len);
+    try std.testing.expectEqual(@as(usize, 1), outbox.routes.items.len);
+
+    var after_repeat = try runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .router = router,
+        .policy = .{ .require_route = true },
+    });
+    const after_repeat_fingerprint = switch (after_repeat) {
+        .parked => |*envelope| blk: {
+            defer envelope.deinit();
+            break :blk envelope.fingerprint;
+        },
+        else => return error.ExpectedAfter,
+    };
+    try std.testing.expectEqual(after_fingerprint, after_repeat_fingerprint);
+    try std.testing.expectEqual(@as(usize, 2), outbox.items.items.len);
+    try std.testing.expectEqual(@as(usize, 1), outbox.routes.items.len);
 }
 
 test "Program.Exchange journal events encode decode and replay skips exchange metadata" {
