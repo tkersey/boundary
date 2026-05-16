@@ -687,6 +687,42 @@ integration. `Exchange.Policy` is a local guardrail for allowed sites, response
 kinds, capsule embedding, response value images, and byte limits; it is not a
 cryptographic security layer.
 
+### Capability-routed Effect Exchange
+
+The exchange layer also exposes a typed capability calculus under
+`Program.Exchange`. `ProviderManifest` is a deterministic provider claim: label
+and provider fingerprint, supported program manifests, protocol labels,
+operation and after sites, protocol-op fingerprints, response kinds, request and
+response size limits, capsule acceptance/restore policy, semantic tags, and
+metadata bytes. It is a capability target, not identity, authentication, or a
+network address.
+
+`Capability` grants one provider authority to answer a narrowed set of request
+envelopes: request kind, program labels or plan hashes, operation/after sites,
+protocol-op fingerprints, requirement/op labels when site indexes are not
+available, response kinds and refs, capsule policy, byte limits, optional
+journal/branch policy fingerprint, optional logical expiry generation, parent
+capability fingerprint, and attenuation path fingerprint. Attenuation is
+monotone: child sets must be subsets, byte limits must shrink or stay equal,
+and capsule permissions cannot be enabled by a child when disabled by a parent.
+
+`Route` witnesses the deterministic result of matching request envelope,
+provider manifest, capability, and optional policy. `Router` returns a single
+route, no route, blocked routes with structured blocker tags, or ambiguous
+routes; ambiguity fails closed by default. Response envelopes may cite an
+`Authorization` sidecar containing provider, capability, capability-path, route,
+request, response, and authorization fingerprints. The sidecar preserves the v1
+response envelope fingerprint domain and is validation metadata only.
+
+`MailboxRunner` can route yielded request envelopes to routed outboxes and can
+require capability authorization before applying responses. `Session.Journal`
+has exchange event entries for provider manifests, granted or attenuated
+capabilities, selected or blocked routes, and authorized or rejected responses.
+Hosts still own identity, signing, encryption, transport, storage, scheduling,
+networking, persistence, brokers, tools, humans, and models. Request tokens are
+still not serialized; capability fingerprints are deterministic audit metadata,
+not cryptographic authorization.
+
 ## Effect schema row lowering
 
 Built-in effect schemas can lower to ProgramPlan requirement, operation, and

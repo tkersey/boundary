@@ -401,6 +401,33 @@ pattern over host-owned outbox/inbox storage; Ability owns canonical bytes and
 validation, while hosts own transport, persistence, scheduling, network, async,
 RPC, message brokers, databases, tools, humans, and models.
 
+### Capability-routed Effect Exchange
+
+`Exchange.ProviderManifest` records what a host/provider claims it can handle:
+provider label/fingerprint, supported program manifests, protocol labels, sites
+or protocol-op fingerprints, response kinds, byte limits, capsule policy, tags,
+and metadata. `Exchange.Capability` grants one provider permission to answer a
+subset of request shapes. Capabilities can be attenuated deterministically:
+child grants may remove sites, response kinds, refs, capsule permissions, or
+byte budget, but attempts to add authority fail closed.
+
+`Exchange.Router` matches a request envelope against host-owned provider and
+capability catalogs and returns a route witness or a no-route, blocked, or
+ambiguous result. Response envelopes can carry an `Exchange.Authorization`
+sidecar citing provider, capability, capability-path, route, request, and
+response fingerprints. This sidecar deliberately preserves existing response
+envelope byte/fingerprint semantics; it adds validation metadata rather than
+changing the transport ABI.
+
+`Exchange.MailboxRunner` can use a router to append routed requests to
+host-owned outboxes and can require capability authorization before applying an
+inbox response. `Session.Journal` can record provider/capability/route and
+authorization events for route selection, blocked routes, authorized responses,
+and rejected responses. These capabilities are deterministic validation data,
+not secret bearer tokens, identity, signing, encryption, transport security, or
+network authentication. Hosts that need those properties wrap Ability’s data in
+their own security and transport systems.
+
 This is the foundation for agentic loops. The library does not bundle an async
 runtime, parser, compiler, VM, Artifact API, source language, network client, or
 LLM integration, and it does not widen the public root. `ProgramValue` remains

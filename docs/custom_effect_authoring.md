@@ -270,6 +270,28 @@ schema/ref validation, fingerprints, capsule compatibility checks, policy
 guardrails, and journal-recordable exchange facts. Exchange fingerprints are
 semantic witnesses, not security tokens or cryptographic authorization.
 
+### Capability-routed Effect Exchange
+
+For defunctionalized custom effects, handler scope can be represented as data
+with `Program.Exchange.ProviderManifest`, `Capability`, `Route`, `Router`, and
+`Authorization`. Provider manifests say which protocol labels, sites, protocol
+operation fingerprints, response kinds, byte budgets, and capsule policies a
+host-side provider claims. Capabilities grant that provider authority over a
+subset of request envelopes, and attenuation can only narrow that authority.
+
+Routers match request envelopes against host-owned provider/capability catalogs
+and return deterministic route witnesses or structured blockers for no-route,
+blocked, or ambiguous cases. Response envelopes can carry an authorization
+sidecar that cites the capability path and route that allowed the answer, while
+leaving existing response bytes and fingerprints stable. The mailbox runner can
+write routed requests and reject inbox responses that do not cite an allowed
+capability.
+
+This layer is inspectable validation data, not cryptographic authentication or
+a broker. Hosts own identity, signing, encryption, transport, persistence,
+scheduling, network/async integration, tools, humans, and models. Request
+tokens remain in-process guards and are never serialized.
+
 `examples/custom_approval_workflow.zig` is the reference example. It defines a
 custom `workflow` protocol with transform, choice, and abort operations, lowers
 it to rows with a registry-derived schema ref map, authors control flow with the
