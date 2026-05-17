@@ -139,25 +139,41 @@ pub fn run(writer: anytype) !void {
     });
     defer charge_envelope.deinit();
 
-    var instance = Program.Exchange.CapabilityInstance{
-        .instance_fingerprint = 0x101,
-        .parent_capability_fingerprint = 0x201,
-        .provider_fingerprint = 0x301,
-        .manifest_fingerprint = charge_envelope.manifest_fingerprint,
-        .effect_session_spec_fingerprint = 0x401,
-        .current_state = "pending",
+    var manifest = try Program.Exchange.Manifest.encode(allocator);
+    defer manifest.deinit();
+    var provider = try Program.Exchange.ProviderManifest.encode(allocator, .{
+        .label = "payment-provider",
+        .supported_program_manifest_fingerprints = &[_]u64{manifest.fingerprint},
+    });
+    defer provider.deinit();
+    var capability = try Program.Exchange.Capability.encode(allocator, .{
+        .issuer_label = "host",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &[_][]const u8{Program.contract.label},
+    });
+    defer capability.deinit();
+    const states = [_][]const u8{ "pending", "charged" };
+    const spec = Program.Exchange.EffectSessionSpec{
+        .label = "payment-session",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = states[1..],
         .usage = .linear,
-        .branch_id = 10,
-        .path_fingerprint = 0x501,
         .branch_policy = .single_live_branch,
     };
+    var instance = try Program.Exchange.CapabilityInstance.create(capability, provider, spec, .{ .snapshot_allocator = allocator, .branch_id = 10 });
     const refs = [_]@TypeOf(charge_envelope.expected_resume_ref.?){charge_envelope.expected_resume_ref.?};
-    var obligation = try Program.Exchange.Obligation.open(instance, charge_envelope, .{}, refs[0..]);
+    var obligation = try Program.Exchange.Obligation.open(&instance, charge_envelope, .{}, refs[0..]);
     var charge_response = try Program.Exchange.ResponseEnvelope.@"resume"(allocator, charge_envelope, @as(i32, 7));
     defer charge_response.deinit();
     const consumed = try obligation.consume(charge_response, .fresh);
-    obligation.status = consumed.next_obligation_status;
-    instance = try instance.consume(charge_response.fingerprint);
+    const consumed_obligation = try obligation.applyTransition(consumed);
+    obligation.deinit();
+    obligation = consumed_obligation;
+    const consumed_instance = try instance.consume(charge_response.fingerprint);
+    instance.deinit();
+    instance = consumed_instance;
     try Program.Exchange.applyResponse(&session, charge_response, .{ .request_envelope_fingerprint = charge_envelope.fingerprint });
     const final_result = try doneValue(&session);
 

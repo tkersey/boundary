@@ -15302,12 +15302,36 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     const legacy_manifest_plan_label_len = std.mem.readInt(u64, legacy_manifest[legacy_manifest_index..][0..8], .little);
     legacy_manifest_index += 8 + @as(usize, @intCast(legacy_manifest_plan_label_len));
     legacy_manifest_index += 8 + 4 + 4 + 4;
+    const manifest_journal_format_offset = legacy_manifest_index;
     std.mem.writeInt(u32, legacy_manifest[legacy_manifest_index..][0..4], legacy_manifest_request_version, .little);
     const legacy_manifest_payload = legacy_manifest[0 .. legacy_manifest.len - 8];
     std.mem.writeInt(u64, legacy_manifest[legacy_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_manifest_payload), .little);
     var decoded_legacy_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, legacy_manifest);
     defer decoded_legacy_manifest.deinit();
     try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_manifest_payload), decoded_legacy_manifest.fingerprint);
+
+    var v2_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
+    defer std.testing.allocator.free(v2_manifest);
+    const v2_request_version: u32 = 2;
+    std.mem.writeInt(u32, v2_manifest[manifest_request_format_offset..][0..4], v2_request_version, .little);
+    std.mem.writeInt(u32, v2_manifest[manifest_request_fingerprint_offset..][0..4], v2_request_version, .little);
+    std.mem.writeInt(u32, v2_manifest[manifest_journal_format_offset..][0..4], v2_request_version, .little);
+    const v2_manifest_payload = v2_manifest[0 .. v2_manifest.len - 8];
+    std.mem.writeInt(u64, v2_manifest[v2_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v2_manifest_payload), .little);
+    var decoded_v2_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, v2_manifest);
+    defer decoded_v2_manifest.deinit();
+    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v2_manifest_payload), decoded_v2_manifest.fingerprint);
+
+    var legacy_request_v2_journal_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
+    defer std.testing.allocator.free(legacy_request_v2_journal_manifest);
+    std.mem.writeInt(u32, legacy_request_v2_journal_manifest[manifest_request_format_offset..][0..4], legacy_manifest_request_version, .little);
+    std.mem.writeInt(u32, legacy_request_v2_journal_manifest[manifest_request_fingerprint_offset..][0..4], legacy_manifest_request_version, .little);
+    std.mem.writeInt(u32, legacy_request_v2_journal_manifest[manifest_journal_format_offset..][0..4], v2_request_version, .little);
+    const legacy_request_v2_journal_payload = legacy_request_v2_journal_manifest[0 .. legacy_request_v2_journal_manifest.len - 8];
+    std.mem.writeInt(u64, legacy_request_v2_journal_manifest[legacy_request_v2_journal_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_request_v2_journal_payload), .little);
+    var decoded_legacy_request_v2_journal_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, legacy_request_v2_journal_manifest);
+    defer decoded_legacy_request_v2_journal_manifest.deinit();
+    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_request_v2_journal_payload), decoded_legacy_request_v2_journal_manifest.fingerprint);
 
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -15344,6 +15368,36 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     defer decoded_legacy_request.deinit();
     try std.testing.expect(decoded_legacy_request.journal_branch_id == null);
     try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.request", legacy_request_version, legacy_request[0..legacy_payload_len]), decoded_legacy_request.fingerprint);
+
+    var legacy_request_v2_journal = try std.testing.allocator.alloc(u8, legacy_payload_len + 8);
+    defer std.testing.allocator.free(legacy_request_v2_journal);
+    @memcpy(legacy_request_v2_journal[0..legacy_payload_len], request_envelope.bytes[0..legacy_payload_len]);
+    std.mem.writeInt(u32, legacy_request_v2_journal["ABL_EXQ1".len..][0..4], legacy_request_version, .little);
+    std.mem.writeInt(u32, legacy_request_v2_journal["ABL_EXQ1".len + 4 ..][0..4], legacy_request_version, .little);
+    std.mem.writeInt(u64, legacy_request_v2_journal[request_manifest_fingerprint_offset..][0..8], decoded_legacy_request_v2_journal_manifest.fingerprint, .little);
+    std.mem.writeInt(u64, legacy_request_v2_journal[legacy_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", legacy_request_version, legacy_request_v2_journal[0..legacy_payload_len]), .little);
+    var decoded_legacy_request_v2_journal = try Program.Exchange.RequestEnvelope.decode(std.testing.allocator, legacy_request_v2_journal);
+    defer decoded_legacy_request_v2_journal.deinit();
+    try std.testing.expect(decoded_legacy_request_v2_journal.usage_metadata == null);
+    try std.testing.expectEqual(decoded_legacy_request_v2_journal_manifest.fingerprint, decoded_legacy_request_v2_journal.manifest_fingerprint);
+
+    const v2_payload_len = v3_payload_len - 1;
+    var v2_request = try std.testing.allocator.alloc(u8, v2_payload_len + 8);
+    defer std.testing.allocator.free(v2_request);
+    @memcpy(v2_request[0..v2_payload_len], request_envelope.bytes[0..v2_payload_len]);
+    std.mem.writeInt(u32, v2_request["ABL_EXQ1".len..][0..4], v2_request_version, .little);
+    std.mem.writeInt(u32, v2_request["ABL_EXQ1".len + 4 ..][0..4], v2_request_version, .little);
+    std.mem.writeInt(u64, v2_request[request_manifest_fingerprint_offset..][0..8], decoded_v2_manifest.fingerprint, .little);
+    std.mem.writeInt(u64, v2_request[v2_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", v2_request_version, v2_request[0..v2_payload_len]), .little);
+    var decoded_v2_request = try Program.Exchange.RequestEnvelope.decode(std.testing.allocator, v2_request);
+    defer decoded_v2_request.deinit();
+    try std.testing.expect(decoded_v2_request.usage_metadata == null);
+    try std.testing.expectEqual(decoded_v2_manifest.fingerprint, decoded_v2_request.manifest_fingerprint);
+    var v2_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, decoded_v2_request, @as(i32, 11));
+    defer v2_response.deinit();
+    var decoded_v2_response = try Program.Exchange.ResponseEnvelope.decode(std.testing.allocator, v2_response.bytes);
+    defer decoded_v2_response.deinit();
+    try std.testing.expectEqual(decoded_v2_manifest.fingerprint, decoded_v2_response.manifest_fingerprint);
 
     var branch_request_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{ .journal_branch_id = "legacy-left" });
     defer branch_request_envelope.deinit();
@@ -15447,12 +15501,14 @@ test "Program.Exchange capability instance obligation lifecycle rejects duplicat
     };
     const trace = request.trace();
     const response_refs = [_]@TypeOf(trace.resume_ref){trace.resume_ref};
+    const wrong_site_fingerprint = trace.operation_site_fingerprint ^ 0xabcdef;
     const transitions = [_]Program.Exchange.EffectSessionSpec.Transition{
-        .{ .kind = .response, .from = "pending", .to = "approved", .response_kind = .@"resume", .response_ref = trace.resume_ref },
+        .{ .kind = .response, .from = "pending", .to = "wrong-site", .site_fingerprint = wrong_site_fingerprint, .response_kind = .@"resume", .response_ref = trace.resume_ref },
+        .{ .kind = .response, .from = "pending", .to = "approved", .site_fingerprint = trace.operation_site_fingerprint, .response_kind = .@"resume", .response_ref = trace.resume_ref },
         .{ .kind = .cancel, .from = "pending", .to = "canceled" },
     };
-    const states = [_][]const u8{ "pending", "approved", "canceled" };
-    const terminals = [_][]const u8{ "approved", "canceled" };
+    const states = [_][]const u8{ "pending", "approved", "canceled", "wrong-site" };
+    const terminals = [_][]const u8{ "approved", "canceled", "wrong-site" };
     const spec = Program.Exchange.EffectSessionSpec{
         .label = "approval-session",
         .initial_state = "pending",
@@ -15464,6 +15520,37 @@ test "Program.Exchange capability instance obligation lifecycle rejects duplicat
     };
     try spec.validate();
     try std.testing.expectEqual(spec.fingerprint(), spec.fingerprint());
+    const duplicate_cancel_transitions = [_]Program.Exchange.EffectSessionSpec.Transition{
+        .{ .kind = .cancel, .from = "pending", .to = "canceled" },
+        .{ .kind = .cancel, .from = "pending", .to = "wrong-site" },
+    };
+    const duplicate_cancel_spec = Program.Exchange.EffectSessionSpec{
+        .label = "duplicate-cancel-session",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = terminals[0..],
+        .transitions = duplicate_cancel_transitions[0..],
+        .usage = .linear,
+        .branch_policy = .single_live_branch,
+    };
+    try std.testing.expectError(error.ProgramContractViolation, duplicate_cancel_spec.validate());
+    const collision_states_a = [_][]const u8{ "pending", "terminal", "terminal" };
+    const collision_states_b = [_][]const u8{ "pending", "terminal" };
+    const collision_terminals = [_][]const u8{"terminal"};
+    const collision_a = Program.Exchange.EffectSessionSpec{
+        .label = "approval-session",
+        .initial_state = "pending",
+        .states = collision_states_a[0..],
+    };
+    const collision_b = Program.Exchange.EffectSessionSpec{
+        .label = "approval-session",
+        .initial_state = "pending",
+        .states = collision_states_b[0..],
+        .terminal_states = collision_terminals[0..],
+    };
+    try collision_a.validate();
+    try collision_b.validate();
+    try std.testing.expect(collision_a.fingerprint() != collision_b.fingerprint());
 
     var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
     defer manifest.deinit();
@@ -15484,11 +15571,169 @@ test "Program.Exchange capability instance obligation lifecycle rejects duplicat
     });
     defer capability.deinit();
 
-    var instance = try Program.Exchange.CapabilityInstance.create(capability, provider, spec, .{ .branch_id = 1 });
+    var instance = try Program.Exchange.CapabilityInstance.create(capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 });
+    const original_capability_site = capability.allowed_operation_sites[0];
+    @constCast(capability.allowed_operation_sites)[0] = trace.operation_site_index + 99;
+    try std.testing.expect(instance.validFingerprint());
+    try std.testing.expectEqual(trace.operation_site_index, instance.allowed_operation_sites[0]);
+    @constCast(capability.allowed_operation_sites)[0] = original_capability_site;
+    var operation_only_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "operation-only-provider",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
+        .supported_operation_sites = &.{trace.operation_site_index},
+        .supported_after_sites = &.{0},
+        .allowed_response_kinds = .{},
+    });
+    defer operation_only_provider.deinit();
+    var operation_only_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = operation_only_provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true, .after = false },
+        .allowed_program_labels = &.{Program.contract.label},
+        .allowed_operation_sites = &.{trace.operation_site_index},
+        .allowed_after_sites = &.{},
+        .allowed_response_refs = response_refs[0..],
+    });
+    defer operation_only_capability.deinit();
+    _ = try Program.Exchange.CapabilityInstance.create(operation_only_capability, operation_only_provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 });
+    var wrong_program_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &.{"other-program"},
+        .allowed_operation_sites = &.{trace.operation_site_index},
+        .allowed_response_refs = response_refs[0..],
+    });
+    defer wrong_program_capability.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.CapabilityInstance.create(wrong_program_capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 }));
+    var wrong_plan_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &.{Program.contract.label},
+        .allowed_plan_hashes = &.{Program.compiled_plan.hash() +% 1},
+        .allowed_operation_sites = &.{trace.operation_site_index},
+        .allowed_response_refs = response_refs[0..],
+    });
+    defer wrong_plan_capability.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.CapabilityInstance.create(wrong_plan_capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 }));
+    var wrong_site_provider_scope = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "wrong-site-scope-provider",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
+        .supported_operation_sites = &.{trace.operation_site_index + 1},
+        .allowed_response_kinds = .{},
+    });
+    defer wrong_site_provider_scope.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.CapabilityInstance.create(capability, wrong_site_provider_scope, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 }));
+    var narrowed_response_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "narrowed-response-provider",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
+        .supported_operation_sites = &.{trace.operation_site_index},
+        .allowed_response_kinds = .{ .@"resume" = false },
+    });
+    defer narrowed_response_provider.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.CapabilityInstance.create(capability, narrowed_response_provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 }));
+    var small_request_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "small-request-provider",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
+        .supported_operation_sites = &.{trace.operation_site_index},
+        .allowed_response_kinds = .{},
+        .max_request_envelope_bytes = 1,
+    });
+    defer small_request_provider.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.CapabilityInstance.create(capability, small_request_provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 }));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.CapabilityInstance.create(capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .usage = .copyable }));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.CapabilityInstance.create(capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_policy = .unrestricted }));
+    var tampered_capability = capability;
+    tampered_capability.max_request_bytes = 1;
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.CapabilityInstance.create(tampered_capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 }));
+    var tampered_provider = provider;
+    tampered_provider.accepts_embedded_capsules = false;
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.CapabilityInstance.create(capability, tampered_provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 }));
+    var unsupported_manifest_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "unsupported-manifest-provider",
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint +% 1},
+        .supported_operation_sites = &.{trace.operation_site_index},
+        .allowed_response_kinds = .{},
+    });
+    defer unsupported_manifest_provider.deinit();
+    var unsupported_manifest_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = unsupported_manifest_provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &.{Program.contract.label},
+        .allowed_operation_sites = &.{trace.operation_site_index},
+        .allowed_response_refs = response_refs[0..],
+    });
+    defer unsupported_manifest_capability.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.CapabilityInstance.create(unsupported_manifest_capability, unsupported_manifest_provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 }));
+    const no_branch_spec = Program.Exchange.EffectSessionSpec{
+        .label = "approval-session",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = terminals[0..],
+        .transitions = transitions[0..],
+        .usage = .linear,
+        .branch_policy = .no_branch,
+    };
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.CapabilityInstance.create(capability, provider, no_branch_spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_policy = .single_live_branch }));
+    var forged_instance = instance;
+    forged_instance.provider_fingerprint +%= 1;
+    const scoped_spec = Program.Exchange.EffectSessionSpec{
+        .label = "approval-session",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = terminals[0..],
+        .transitions = transitions[0..],
+        .usage = .linear,
+        .branch_policy = .single_live_branch,
+        .provider_fingerprint = provider.provider_fingerprint,
+        .capability_fingerprint = capability.fingerprint,
+    };
+    _ = try Program.Exchange.CapabilityInstance.create(capability, provider, scoped_spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 });
+    var other_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "other-approval-provider",
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
+        .supported_operation_sites = &.{trace.operation_site_index},
+    });
+    defer other_provider.deinit();
+    var other_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = other_provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &.{Program.contract.label},
+        .allowed_operation_sites = &.{trace.operation_site_index},
+        .allowed_response_refs = response_refs[0..],
+    });
+    defer other_capability.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.CapabilityInstance.create(other_capability, other_provider, scoped_spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 }));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.CapabilityInstance.create(capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .initial_state = "missing" }));
     try std.testing.expectError(error.ProgramContractViolation, instance.split(.{ .branch_id = 2, .policy = .unrestricted }));
     try std.testing.expectError(error.ProgramContractViolation, instance.split(.{ .branch_id = 2, .policy = .single_live_branch }));
-    const child = try instance.split(.{ .branch_id = 2, .policy = .replay_only });
+    var child = try instance.split(.{ .branch_id = 2, .policy = .replay_only });
     try std.testing.expectEqual(instance.instance_fingerprint, child.parent_instance_fingerprint.?);
+    var child_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{
+        .usage_metadata = .{
+            .effect_session_spec_fingerprint = spec.fingerprint(),
+            .capability_instance_fingerprint = child.instance_fingerprint,
+            .usage = .linear,
+            .branch_id = 2,
+            .branch_policy = .replay_only,
+        },
+    });
+    defer child_envelope.deinit();
+    var child_obligation = try Program.Exchange.Obligation.open(&child, child_envelope, .{}, response_refs[0..]);
+    var child_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, child_envelope, @as(i32, 41));
+    defer child_response.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, child_obligation.consume(child_response, .fresh));
+    try std.testing.expectError(error.ProgramContractViolation, forged_instance.opened(request.fingerprint()));
+    try std.testing.expectError(error.ProgramContractViolation, forged_instance.consume(0xbeef));
+    try std.testing.expectError(error.ProgramContractViolation, forged_instance.cancel());
 
     var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{
         .usage_metadata = .{
@@ -15503,27 +15748,372 @@ test "Program.Exchange capability instance obligation lifecycle rejects duplicat
     defer envelope.deinit();
     const route = Program.Exchange.Route.from(envelope, provider, capability, .{ .require_response_capability = true });
     try std.testing.expect(route.valid());
-    var obligation = try Program.Exchange.Obligation.open(instance, envelope, route.allowed_response_kinds, response_refs[0..]);
+    const stale_manifest_fingerprint = manifest.fingerprint +% 1;
+    var stale_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "stale-manifest-provider",
+        .supported_program_manifest_fingerprints = &.{stale_manifest_fingerprint},
+    });
+    defer stale_provider.deinit();
+    var stale_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = stale_provider.provider_fingerprint,
+        .manifest_fingerprint = stale_manifest_fingerprint,
+        .allowed_program_labels = &.{Program.contract.label},
+    });
+    defer stale_capability.deinit();
+    var stale_instance = try Program.Exchange.CapabilityInstance.create(stale_capability, stale_provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 });
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Obligation.open(&stale_instance, envelope, route.allowed_response_kinds, response_refs[0..]));
+    var wrong_site_instance_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &.{Program.contract.label},
+        .allowed_operation_sites = &.{trace.operation_site_index + 1},
+        .allowed_response_refs = response_refs[0..],
+    });
+    defer wrong_site_instance_capability.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.CapabilityInstance.create(wrong_site_instance_capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 }));
+    var wrong_response_ref_instance_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &.{Program.contract.label},
+        .allowed_operation_sites = &.{trace.operation_site_index},
+        .allowed_response_refs = &[_]ability.ir.ValueRef{.{ .codec = .unit }},
+    });
+    defer wrong_response_ref_instance_capability.deinit();
+    var wrong_response_ref_instance = try Program.Exchange.CapabilityInstance.create(wrong_response_ref_instance_capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 });
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Obligation.open(&wrong_response_ref_instance, envelope, route.allowed_response_kinds, response_refs[0..]));
+    var small_response_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &.{Program.contract.label},
+        .allowed_operation_sites = &.{trace.operation_site_index},
+        .allowed_response_refs = response_refs[0..],
+        .max_response_bytes = 1,
+    });
+    defer small_response_capability.deinit();
+    var small_response_instance = try Program.Exchange.CapabilityInstance.create(small_response_capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 });
+    var small_response_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{
+        .usage_metadata = .{
+            .effect_session_spec_fingerprint = spec.fingerprint(),
+            .capability_instance_fingerprint = small_response_instance.instance_fingerprint,
+            .usage = .linear,
+            .branch_id = 1,
+            .branch_policy = .single_live_branch,
+            .cancelable = true,
+        },
+    });
+    defer small_response_envelope.deinit();
+    const small_response_route = Program.Exchange.Route.from(small_response_envelope, provider, small_response_capability, .{ .require_response_capability = true });
+    try std.testing.expect(small_response_route.valid());
+    var small_response_obligation = try Program.Exchange.Obligation.open(&small_response_instance, small_response_envelope, small_response_route.allowed_response_kinds, response_refs[0..]);
+    var small_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, small_response_envelope, @as(i32, 42));
+    defer small_response.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, small_response_obligation.consume(small_response, .fresh));
+    var forged_scope_instance = instance;
+    forged_scope_instance.allowed_operation_sites = &.{};
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Obligation.open(&forged_scope_instance, envelope, route.allowed_response_kinds, response_refs[0..]));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Obligation.open(&forged_instance, envelope, route.allowed_response_kinds, response_refs[0..]));
+    const original_instance_fingerprint = instance.instance_fingerprint;
+    const copied_unopened_instance = try instance.clone();
+    var mutable_response_refs = [_]@TypeOf(trace.resume_ref){trace.resume_ref};
+    var obligation = try Program.Exchange.Obligation.open(&instance, envelope, route.allowed_response_kinds, mutable_response_refs[0..]);
+    mutable_response_refs[0] = .{ .codec = .unit };
+    try std.testing.expect(obligation.validFingerprint());
+    try std.testing.expect(obligation.allowed_response_refs[0].eql(trace.resume_ref));
+    try std.testing.expect(instance.instance_fingerprint != original_instance_fingerprint);
+    try std.testing.expectEqual(instance.instance_fingerprint, obligation.effect_session_instance_fingerprint);
+    try std.testing.expectError(error.ProgramContractViolation, instance.opened(request.fingerprint() +% 1));
+    var duplicate_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{
+        .journal_branch_id = "duplicate-linear-open",
+        .usage_metadata = .{
+            .effect_session_spec_fingerprint = spec.fingerprint(),
+            .capability_instance_fingerprint = original_instance_fingerprint,
+            .usage = .linear,
+            .branch_id = 1,
+            .branch_policy = .single_live_branch,
+            .cancelable = true,
+        },
+    });
+    defer duplicate_envelope.deinit();
+    try std.testing.expect(duplicate_envelope.fingerprint != envelope.fingerprint);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Obligation.open(&instance, duplicate_envelope, route.allowed_response_kinds, response_refs[0..]));
+    var copied_instance = copied_unopened_instance;
+    var copied_obligation = try Program.Exchange.Obligation.open(&copied_instance, duplicate_envelope, route.allowed_response_kinds, response_refs[0..]);
+    try std.testing.expectEqual(obligation.effect_session_instance_fingerprint, copied_obligation.effect_session_instance_fingerprint);
+    try std.testing.expect(obligation.obligation_fingerprint != copied_obligation.obligation_fingerprint);
     var response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 42));
     defer response.deinit();
+    var copied_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, duplicate_envelope, @as(i32, 42));
+    defer copied_response.deinit();
+    var tampered_obligation = obligation;
+    tampered_obligation.allowed_response_refs = &.{};
+    try std.testing.expectError(error.ProgramContractViolation, tampered_obligation.consume(response, .fresh));
+    var tampered_response = response;
+    tampered_response.response_value_fingerprint +%= 1;
+    try std.testing.expectError(error.ProgramContractViolation, obligation.consume(tampered_response, .fresh));
     try response.authorize(route);
     const auth = try Program.Exchange.authorizeObligationResponse(route, capability, instance, obligation, spec, envelope, response, .fresh);
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, auth.previous_obligation_status);
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, auth.next_obligation_status);
+    try std.testing.expectEqualStrings("approved", auth.next_session_state);
     try std.testing.expect(auth.capability_instance_consumed);
+    const authorized_instance = try instance.applyAuthorization(response.fingerprint, auth);
+    try std.testing.expectEqualStrings("approved", authorized_instance.current_state);
+    try std.testing.expect(authorized_instance.validFingerprint());
+    try std.testing.expect(authorized_instance.closed());
+    var forged_state_auth = auth;
+    forged_state_auth.next_session_state = "forged";
+    try std.testing.expectError(error.ProgramContractViolation, instance.applyAuthorization(response.fingerprint, forged_state_auth));
+    var forged_response_auth = auth;
+    forged_response_auth.response_fingerprint +%= 1;
+    try std.testing.expectError(error.ProgramContractViolation, instance.applyAuthorization(response.fingerprint, forged_response_auth));
+    var forged_fresh_auth = auth;
+    forged_fresh_auth.capability_instance_consumed = false;
+    try std.testing.expectError(error.ProgramContractViolation, instance.applyAuthorization(response.fingerprint, forged_fresh_auth));
+    var forged_override_auth = auth;
+    forged_override_auth.response_use = .override;
+    forged_override_auth.capability_instance_consumed = false;
+    try std.testing.expectError(error.ProgramContractViolation, instance.applyAuthorization(response.fingerprint, forged_override_auth));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.authorizeObligationResponse(route, capability, instance, obligation, spec, envelope, response, .replayed));
+    var tampered_auth_obligation = obligation;
+    tampered_auth_obligation.usage = .copyable;
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.authorizeObligationResponse(route, capability, instance, tampered_auth_obligation, spec, envelope, response, .fresh));
+    const replay_required_spec = Program.Exchange.EffectSessionSpec{
+        .label = "approval-session",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = terminals[0..],
+        .transitions = transitions[0..],
+        .usage = .linear,
+        .branch_policy = .single_live_branch,
+        .replay_policy = .replayed,
+    };
+    var replay_required_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, replay_required_spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 12 });
+    var replay_required_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer replay_required_envelope.deinit();
+    const replay_required_route = Program.Exchange.Route.from(replay_required_envelope, provider, capability, .{ .require_response_capability = true });
+    try std.testing.expect(replay_required_route.valid());
+    const replay_required_obligation = try Program.Exchange.Obligation.open(&replay_required_instance, replay_required_envelope, replay_required_route.allowed_response_kinds, response_refs[0..]);
+    var replay_required_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, replay_required_envelope, @as(i32, 45));
+    defer replay_required_response.deinit();
+    try replay_required_response.authorize(replay_required_route);
+    try std.testing.expectError(error.ProgramContractViolation, replay_required_obligation.consume(replay_required_response, .fresh));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.authorizeObligationResponse(replay_required_route, capability, replay_required_instance, replay_required_obligation, replay_required_spec, replay_required_envelope, replay_required_response, .fresh));
+    const request_response_transitions = [_]Program.Exchange.EffectSessionSpec.Transition{
+        .{ .kind = .request, .from = "pending", .to = "requested", .site_fingerprint = trace.operation_site_fingerprint },
+        .{ .kind = .response, .from = "requested", .to = "approved", .site_fingerprint = trace.operation_site_fingerprint, .response_kind = .@"resume", .response_ref = trace.resume_ref },
+        .{ .kind = .cancel, .from = "requested", .to = "canceled" },
+    };
+    const request_response_states = [_][]const u8{ "pending", "requested", "approved", "canceled" };
+    const request_response_spec = Program.Exchange.EffectSessionSpec{
+        .label = "request-response-session",
+        .initial_state = "pending",
+        .states = request_response_states[0..],
+        .terminal_states = request_response_states[2..],
+        .transitions = request_response_transitions[0..],
+        .usage = .linear,
+        .branch_policy = .single_live_branch,
+    };
+    var request_response_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, request_response_spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 14 });
+    var request_response_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{
+        .usage_metadata = .{
+            .effect_session_spec_fingerprint = request_response_spec.fingerprint(),
+            .capability_instance_fingerprint = request_response_instance.instance_fingerprint,
+            .usage = .linear,
+            .branch_id = 14,
+            .branch_policy = .single_live_branch,
+        },
+    });
+    defer request_response_envelope.deinit();
+    const request_response_route = Program.Exchange.Route.from(request_response_envelope, provider, capability, .{ .require_response_capability = true });
+    try std.testing.expect(request_response_route.valid());
+    const request_response_obligation = try Program.Exchange.Obligation.open(&request_response_instance, request_response_envelope, request_response_route.allowed_response_kinds, response_refs[0..]);
+    const request_response_cancel = try request_response_obligation.cancelWithSpec(request_response_spec);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.canceled, request_response_cancel.next_obligation_status);
+    try std.testing.expectEqualStrings("requested", request_response_cancel.previous_session_state);
+    try std.testing.expectEqualStrings("canceled", request_response_cancel.next_session_state);
+    const request_response_canceled_instance = try request_response_instance.cancelWithState(request_response_cancel.next_session_state);
+    try std.testing.expectEqualStrings("canceled", request_response_canceled_instance.current_state);
+    try std.testing.expect(request_response_canceled_instance.closed());
+    const stale_request_response_cancel = try request_response_obligation.cancel();
+    try std.testing.expectEqualStrings("pending", stale_request_response_cancel.next_session_state);
+    try std.testing.expect(stale_request_response_cancel.transition_fingerprint != request_response_cancel.transition_fingerprint);
+    var request_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, request_response_envelope, @as(i32, 47));
+    defer request_response.deinit();
+    try request_response.authorize(request_response_route);
+    const request_response_auth = try Program.Exchange.authorizeObligationResponse(request_response_route, capability, request_response_instance, request_response_obligation, request_response_spec, request_response_envelope, request_response, .fresh);
+    try std.testing.expectEqual(request_response_instance.instance_fingerprint, request_response_auth.capability_instance_fingerprint);
+    try std.testing.expectEqualStrings("requested", request_response_auth.previous_session_state);
+    try std.testing.expectEqualStrings("approved", request_response_auth.next_session_state);
+    const request_response_consumed = try request_response_obligation.consume(request_response, .fresh);
+    const request_response_consumed_obligation = try request_response_obligation.applyTransition(request_response_consumed);
+    const request_response_live_instance = request_response_instance;
+    request_response_instance = try request_response_instance.applyAuthorization(request_response.fingerprint, request_response_auth);
+    try std.testing.expectEqualStrings("approved", request_response_instance.current_state);
+    try std.testing.expect(request_response_instance.validFingerprint());
+    try std.testing.expect(request_response_instance.closed());
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.authorizeObligationResponse(request_response_route, capability, request_response_instance, request_response_consumed_obligation, request_response_spec, request_response_envelope, request_response, .replayed));
+    const request_response_replay_auth = try Program.Exchange.authorizeObligationResponseWithReplaySource(
+        request_response_route,
+        capability,
+        request_response_instance,
+        request_response_consumed_obligation,
+        request_response_spec,
+        request_response_envelope,
+        request_response,
+        .replayed,
+        request_response_consumed_obligation.consumed_response_fingerprint.?,
+    );
+    try std.testing.expectEqual(request_response_instance.instance_fingerprint, request_response_replay_auth.capability_instance_fingerprint);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, request_response_replay_auth.previous_obligation_status);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, request_response_replay_auth.next_obligation_status);
+    try std.testing.expectEqualStrings("requested", request_response_replay_auth.previous_session_state);
+    try std.testing.expectEqualStrings("approved", request_response_replay_auth.next_session_state);
+    try std.testing.expectError(error.ProgramContractViolation, request_response_live_instance.applyAuthorization(request_response.fingerprint, request_response_replay_auth));
+    const request_response_replayed_instance = try request_response_instance.applyAuthorization(request_response.fingerprint, request_response_replay_auth);
+    try std.testing.expect(request_response_replayed_instance.validFingerprint());
+    try std.testing.expect(request_response_replayed_instance.closed());
 
+    const replayable_request_response_spec = Program.Exchange.EffectSessionSpec{
+        .label = "replayable-request-response-session",
+        .initial_state = "pending",
+        .states = request_response_states[0..],
+        .terminal_states = request_response_states[2..],
+        .transitions = request_response_transitions[0..],
+        .usage = .replayable,
+        .branch_policy = .unrestricted,
+    };
+    var replayable_request_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, replayable_request_response_spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 15 });
+    var other_replayable_request_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, replayable_request_response_spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 16 });
+    var replayable_request_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{
+        .usage_metadata = .{
+            .effect_session_spec_fingerprint = replayable_request_response_spec.fingerprint(),
+            .capability_instance_fingerprint = replayable_request_instance.instance_fingerprint,
+            .usage = .replayable,
+            .branch_id = 15,
+            .branch_policy = .unrestricted,
+        },
+    });
+    defer replayable_request_envelope.deinit();
+    const replayable_request_route = Program.Exchange.Route.from(replayable_request_envelope, provider, capability, .{ .require_response_capability = true });
+    try std.testing.expect(replayable_request_route.valid());
+    const replayable_request_obligation = try Program.Exchange.Obligation.open(&replayable_request_instance, replayable_request_envelope, replayable_request_route.allowed_response_kinds, response_refs[0..]);
+    var replayable_request_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, replayable_request_envelope, @as(i32, 48));
+    defer replayable_request_response.deinit();
+    try replayable_request_response.authorize(replayable_request_route);
+    const replayable_request_auth = try Program.Exchange.authorizeObligationResponse(replayable_request_route, capability, replayable_request_instance, replayable_request_obligation, replayable_request_response_spec, replayable_request_envelope, replayable_request_response, .fresh);
+    try std.testing.expectEqual(replayable_request_instance.instance_fingerprint, replayable_request_auth.capability_instance_fingerprint);
+    try std.testing.expectError(error.ProgramContractViolation, other_replayable_request_instance.applyAuthorization(replayable_request_response.fingerprint, replayable_request_auth));
+    replayable_request_instance = try replayable_request_instance.applyAuthorization(replayable_request_response.fingerprint, replayable_request_auth);
+    try std.testing.expectEqualStrings("approved", replayable_request_instance.current_state);
+    try std.testing.expect(replayable_request_instance.validFingerprint());
+    try std.testing.expectError(error.ProgramContractViolation, replayable_request_instance.applyAuthorization(replayable_request_response.fingerprint, replayable_request_auth));
+
+    var wrong_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{
+        .usage_metadata = .{
+            .effect_session_spec_fingerprint = spec.fingerprint(),
+            .capability_instance_fingerprint = instance.instance_fingerprint,
+            .usage = .linear,
+            .branch_id = 2,
+            .branch_policy = .single_live_branch,
+            .cancelable = true,
+        },
+    });
+    defer wrong_envelope.deinit();
+    var wrong_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, wrong_envelope, @as(i32, 43));
+    defer wrong_response.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Obligation.open(&instance, wrong_envelope, route.allowed_response_kinds, response_refs[0..]));
+    try std.testing.expectError(error.ProgramContractViolation, obligation.consume(wrong_response, .fresh));
+    try std.testing.expectError(error.ProgramContractViolation, obligation.replay(wrong_response, wrong_response.fingerprint, .replayed));
+
+    const split_required_spec = Program.Exchange.EffectSessionSpec{
+        .label = "approval-session",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = terminals[0..],
+        .transitions = transitions[0..],
+        .usage = .linear,
+        .branch_policy = .split_required,
+    };
+    var split_required_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, split_required_spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 3 });
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.CapabilityInstance.create(capability, provider, split_required_spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_policy = .no_branch }));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Obligation.open(&split_required_instance, envelope, route.allowed_response_kinds, response_refs[0..]));
+    try std.testing.expectError(error.ProgramContractViolation, split_required_instance.split(.{ .branch_id = 4, .policy = .unrestricted }));
+    const split_required_parent_fingerprint = split_required_instance.instance_fingerprint;
+    var split_required_child = try split_required_instance.split(.{ .branch_id = 4 });
+    try std.testing.expectEqual(Program.Exchange.BranchPolicy.replay_only, split_required_instance.branch_policy);
+    try std.testing.expect(split_required_instance.instance_fingerprint != split_required_parent_fingerprint);
+    try std.testing.expectError(error.ProgramContractViolation, split_required_instance.split(.{ .branch_id = 5, .policy = .single_live_branch }));
+    try std.testing.expectEqual(split_required_parent_fingerprint, split_required_child.parent_instance_fingerprint.?);
+    try std.testing.expectEqual(Program.Exchange.BranchPolicy.single_live_branch, split_required_child.branch_policy);
+    var split_required_child_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{
+        .usage_metadata = .{
+            .effect_session_spec_fingerprint = split_required_spec.fingerprint(),
+            .capability_instance_fingerprint = split_required_child.instance_fingerprint,
+            .usage = .linear,
+            .branch_id = 4,
+            .branch_policy = .single_live_branch,
+            .cancelable = true,
+        },
+    });
+    defer split_required_child_envelope.deinit();
+    const split_required_child_route = Program.Exchange.Route.from(split_required_child_envelope, provider, capability, .{ .require_response_capability = true });
+    try std.testing.expect(split_required_child_route.valid());
+    var split_required_child_obligation = try Program.Exchange.Obligation.open(&split_required_child, split_required_child_envelope, split_required_child_route.allowed_response_kinds, response_refs[0..]);
+    var split_required_child_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, split_required_child_envelope, @as(i32, 46));
+    defer split_required_child_response.deinit();
+    try split_required_child_response.authorize(split_required_child_route);
+    const split_required_child_consumed = try split_required_child_obligation.consume(split_required_child_response, .fresh);
+    try std.testing.expect(split_required_child_consumed.capability_instance_consumed);
+
+    var no_branch_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_policy = .no_branch });
+    var no_branch_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{
+        .usage_metadata = .{
+            .effect_session_spec_fingerprint = spec.fingerprint(),
+            .capability_instance_fingerprint = no_branch_instance.instance_fingerprint,
+            .usage = .linear,
+            .branch_id = 0,
+            .branch_policy = .no_branch,
+            .cancelable = true,
+        },
+    });
+    defer no_branch_envelope.deinit();
+    const no_branch_route = Program.Exchange.Route.from(no_branch_envelope, provider, capability, .{ .require_response_capability = true });
+    try std.testing.expect(no_branch_route.valid());
+    const no_branch_obligation = try Program.Exchange.Obligation.open(&no_branch_instance, no_branch_envelope, no_branch_route.allowed_response_kinds, response_refs[0..]);
+    var no_branch_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, no_branch_envelope, @as(i32, 44));
+    defer no_branch_response.deinit();
+    try no_branch_response.authorize(no_branch_route);
+    const no_branch_auth = try Program.Exchange.authorizeObligationResponse(no_branch_route, capability, no_branch_instance, no_branch_obligation, spec, no_branch_envelope, no_branch_response, .fresh);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, no_branch_auth.next_obligation_status);
+
+    const open_obligation = try obligation.clone();
     const consumed = try obligation.consume(response, .fresh);
-    obligation.status = consumed.next_obligation_status;
+    const copied_consumed = try copied_obligation.consume(copied_response, .fresh);
+    obligation = try obligation.applyTransition(consumed);
     try std.testing.expectError(error.ProgramContractViolation, obligation.consume(response, .fresh));
 
     const duplicate_transitions = [_]Program.Exchange.ObligationTransition{ consumed, consumed };
-    const duplicate_report = Program.Exchange.validateObligations(.{ .obligations = &.{obligation}, .transitions = duplicate_transitions[0..] });
+    const duplicate_report = Program.Exchange.validateObligations(.{ .obligations = &.{open_obligation}, .transitions = duplicate_transitions[0..] });
     try std.testing.expect(duplicate_report.has(.duplicate_obligation_consume));
+    const copied_duplicate_report = Program.Exchange.validateObligations(.{
+        .obligations = &.{ open_obligation, copied_obligation },
+        .transitions = &.{ consumed, copied_consumed },
+    });
+    try std.testing.expect(copied_duplicate_report.has(.duplicate_obligation_consume));
 
-    var unresolved = obligation;
+    var unresolved = open_obligation;
     unresolved.status = .open;
     const unresolved_report = Program.Exchange.validateObligations(.{ .obligations = &.{unresolved} });
     try std.testing.expect(unresolved_report.has(.unresolved_linear_obligation));
+    var tampered_closed = open_obligation;
+    tampered_closed.status = .consumed;
+    const tampered_closed_report = Program.Exchange.validateObligations(.{ .obligations = &.{tampered_closed} });
+    try std.testing.expect(tampered_closed_report.has(.invalid_obligation_transition));
+    try std.testing.expect(tampered_closed_report.has(.unresolved_linear_obligation));
 
     var canceled_obligation = unresolved;
     canceled_obligation.status = .canceled;
@@ -15532,18 +16122,29 @@ test "Program.Exchange capability instance obligation lifecycle rejects duplicat
     response_after_cancel.next_obligation_status = .consumed;
     const canceled_report = Program.Exchange.validateObligations(.{ .obligations = &.{canceled_obligation}, .transitions = &.{response_after_cancel} });
     try std.testing.expect(canceled_report.has(.response_after_cancel));
+    const out_of_order_cancel = try unresolved.cancel();
+    const order_report = Program.Exchange.validateObligations(.{ .obligations = &.{open_obligation}, .transitions = &.{ consumed, out_of_order_cancel } });
+    try std.testing.expect(order_report.has(.invalid_obligation_transition));
 
     var wrong_branch = consumed;
     wrong_branch.branch_id = 99;
-    const wrong_branch_report = Program.Exchange.validateObligations(.{ .obligations = &.{obligation}, .transitions = &.{wrong_branch} });
+    const wrong_branch_report = Program.Exchange.validateObligations(.{ .obligations = &.{open_obligation}, .transitions = &.{wrong_branch} });
     try std.testing.expect(wrong_branch_report.has(.branch_policy));
 
-    var replay_only_obligation = obligation;
+    var replay_only_obligation = open_obligation;
     replay_only_obligation.branch_policy = .replay_only;
     const replay_policy_report = Program.Exchange.validateObligations(.{ .obligations = &.{replay_only_obligation}, .transitions = &.{consumed} });
     try std.testing.expect(replay_policy_report.has(.replay_policy));
+    var forged_abandon = consumed;
+    forged_abandon.next_obligation_status = .abandoned;
+    forged_abandon.response_fingerprint = null;
+    forged_abandon.capability_instance_consumed = false;
+    forged_abandon.branch_remains_open = false;
+    const forged_abandon_report = Program.Exchange.validateObligations(.{ .obligations = &.{open_obligation}, .transitions = &.{forged_abandon} });
+    try std.testing.expect(forged_abandon_report.has(.branch_policy));
+    try std.testing.expect(forged_abandon_report.has(.unresolved_linear_obligation));
 
-    var wrong_provider_obligation = obligation;
+    var wrong_provider_obligation = open_obligation;
     wrong_provider_obligation.provider_fingerprint = provider.provider_fingerprint + 1;
     wrong_provider_obligation.capability_instance_fingerprint = obligation.effect_session_instance_fingerprint + 1;
     const wrong_authority_report = Program.Exchange.validateObligations(.{
@@ -15577,24 +16178,111 @@ test "Program.Exchange replayable affine and branch policy obligation rules" {
     var response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 1));
     defer response.deinit();
 
-    const replayable_obligation = Program.Exchange.Obligation{
-        .obligation_fingerprint = 1,
-        .effect_session_instance_fingerprint = 2,
-        .request_envelope_fingerprint = envelope.fingerprint,
-        .request_fingerprint = envelope.request_fingerprint,
-        .site_fingerprint = envelope.site_fingerprint,
-        .usage = .replayable,
-        .state_at_open = "pending",
+    var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
+    defer manifest.deinit();
+    var provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "branch-policy-provider",
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
+        .allowed_response_kinds = .{},
+    });
+    defer provider.deinit();
+    var capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &.{Program.contract.label},
         .allowed_response_refs = response_refs[0..],
+    });
+    defer capability.deinit();
+    const states = [_][]const u8{ "pending", "done" };
+    const replayable_spec = Program.Exchange.EffectSessionSpec{
+        .label = "branch-policy-replayable",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = states[1..],
+        .usage = .replayable,
+        .replay_policy = .replayed,
     };
-    const replay = try replayable_obligation.replay(response, response.fingerprint, .replayed);
+    var replayable_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, replayable_spec, .{ .snapshot_allocator = std.heap.page_allocator });
+    var replayable_obligation = try Program.Exchange.Obligation.open(&replayable_instance, envelope, .{}, response_refs[0..]);
+    const recorded_replay_source = response.fingerprint;
+    const replay = try replayable_obligation.replay(response, recorded_replay_source, .replayed);
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, replay.next_obligation_status);
     try std.testing.expectError(error.ProgramContractViolation, replayable_obligation.consume(response, .replayed));
+    try std.testing.expectError(error.ProgramContractViolation, replayable_obligation.consume(response, .fresh));
+    const replayable_fresh_spec = Program.Exchange.EffectSessionSpec{
+        .label = "branch-policy-replayable-fresh",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = states[1..],
+        .usage = .replayable,
+    };
+    var replayable_fresh_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, replayable_fresh_spec, .{ .snapshot_allocator = std.heap.page_allocator });
+    var replayable_fresh_obligation = try Program.Exchange.Obligation.open(&replayable_fresh_instance, envelope, .{}, response_refs[0..]);
+    const replayable_consumed = try replayable_fresh_obligation.consume(response, .fresh);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, replayable_consumed.next_obligation_status);
+    try std.testing.expect(!replayable_consumed.capability_instance_consumed);
+    try std.testing.expect(replayable_consumed.branch_remains_open);
+    const replayable_consumed_obligation = try replayable_fresh_obligation.applyTransition(replayable_consumed);
+    var different_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 2));
+    defer different_response.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, replayable_consumed_obligation.replay(different_response, replayable_consumed_obligation.consumed_response_fingerprint.?, .replayed));
+    const replayable_replay = try replayable_consumed_obligation.replay(response, replayable_consumed_obligation.consumed_response_fingerprint.?, .replayed);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, replayable_replay.next_obligation_status);
+    var replay_only_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, replayable_fresh_spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_policy = .replay_only });
+    try std.testing.expectError(error.ProgramContractViolation, replay_only_instance.split(.{ .branch_id = 12, .policy = .unrestricted }));
+    const replay_only_child = try replay_only_instance.split(.{ .branch_id = 12, .policy = .replay_only });
+    try std.testing.expectEqual(Program.Exchange.BranchPolicy.replay_only, replay_only_child.branch_policy);
 
-    var affine_obligation = replayable_obligation;
-    affine_obligation.usage = .affine;
+    const affine_spec = Program.Exchange.EffectSessionSpec{
+        .label = "branch-policy-affine",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = states[1..],
+        .usage = .affine,
+    };
+    var affine_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, affine_spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 });
+    const affine_obligation = try Program.Exchange.Obligation.open(&affine_instance, envelope, .{}, response_refs[0..]);
+    try std.testing.expectError(error.ProgramContractViolation, affine_obligation.replay(response, response.fingerprint, .replayed));
+    const affine_consumed = try affine_obligation.consume(response, .fresh);
+    try std.testing.expect(affine_consumed.capability_instance_consumed);
+    try std.testing.expect(!affine_consumed.branch_remains_open);
     const canceled = try affine_obligation.cancel();
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.canceled, canceled.next_obligation_status);
+    try std.testing.expect(!canceled.branch_remains_open);
+    try std.testing.expectError(error.ProgramContractViolation, affine_obligation.abandon());
+    const host_owned_spec = Program.Exchange.EffectSessionSpec{
+        .label = "branch-policy-host-owned",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = states[1..],
+        .usage = .affine,
+        .branch_policy = .host_owned,
+    };
+    var host_owned_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, host_owned_spec, .{ .snapshot_allocator = std.heap.page_allocator });
+    try std.testing.expectError(error.ProgramContractViolation, host_owned_instance.split(.{ .branch_id = 2, .policy = .unrestricted }));
+    const host_owned_affine = try Program.Exchange.Obligation.open(&host_owned_instance, envelope, .{}, response_refs[0..]);
+    const abandoned = try host_owned_affine.abandon();
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.abandoned, abandoned.next_obligation_status);
+    try std.testing.expect(!abandoned.branch_remains_open);
+    var forged_abandoned = abandoned;
+    forged_abandoned.previous_obligation_status = .consumed;
+    const forged_abandoned_report = Program.Exchange.validateObligations(.{
+        .obligations = &.{host_owned_affine},
+        .transitions = &.{forged_abandoned},
+    });
+    try std.testing.expect(forged_abandoned_report.has(.obligation_not_open));
+
+    const linear_spec = Program.Exchange.EffectSessionSpec{
+        .label = "branch-policy-linear",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = states[1..],
+        .usage = .linear,
+    };
+    var linear_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, linear_spec, .{ .snapshot_allocator = std.heap.page_allocator });
+    const linear_obligation = try Program.Exchange.Obligation.open(&linear_instance, envelope, .{}, response_refs[0..]);
+    try std.testing.expectError(error.ProgramContractViolation, linear_obligation.replay(response, response.fingerprint, .replayed));
 
     const branch_report = Program.Exchange.validateBranchPolicy(.replay_only, .linear, .fresh, true, true);
     try std.testing.expect(branch_report.has(.replay_policy));
@@ -15649,12 +16337,6 @@ test "Program.Exchange mailbox runner consumes obligation and journals transitio
     var runner = Program.Exchange.MailboxRunner{};
     var journal = Program.Session.Journal.init(std.testing.allocator);
     defer journal.deinit();
-    const metadata = Program.Exchange.RequestUsageMetadata{
-        .usage = .linear,
-        .branch_id = 7,
-        .branch_policy = .single_live_branch,
-        .cancelable = true,
-    };
     var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
     defer manifest.deinit();
     var provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
@@ -15671,45 +16353,795 @@ test "Program.Exchange mailbox runner consumes obligation and journals transitio
     });
     defer capability.deinit();
     const states = [_][]const u8{ "pending", "done" };
+    const transitions = [_]Program.Exchange.EffectSessionSpec.Transition{
+        .{ .kind = .response, .from = "pending", .to = "done", .response_kind = .@"resume" },
+    };
     const spec = Program.Exchange.EffectSessionSpec{
         .label = "linear-mailbox-session",
         .initial_state = "pending",
         .states = states[0..],
         .terminal_states = states[1..],
+        .transitions = transitions[0..],
         .usage = .linear,
         .branch_policy = .single_live_branch,
     };
-    var instance = try Program.Exchange.CapabilityInstance.create(capability, provider, spec, .{ .branch_id = 7 });
+    var instance = try Program.Exchange.CapabilityInstance.create(capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 7 });
+    const metadata = Program.Exchange.RequestUsageMetadata{
+        .capability_instance_fingerprint = instance.instance_fingerprint,
+        .usage = .linear,
+        .branch_id = 7,
+        .branch_policy = .single_live_branch,
+        .cancelable = true,
+    };
     var opened_obligation = Program.Exchange.Obligation.placeholder();
     var step = try runner.runStep(&session, &outbox, &inbox, .{
         .allocator = std.testing.allocator,
         .journal = &journal,
+        .policy = .{ .allowed_response_kinds = .{ .return_now = false, .resume_after = false } },
         .usage_metadata = metadata,
         .capability_instance = &instance,
         .obligation = &opened_obligation,
+        .effect_session_spec = spec,
     });
     switch (step) {
         .parked => |*envelope| envelope.deinit(),
         else => return error.ExpectedRequest,
     }
     try std.testing.expect(opened_obligation.obligation_fingerprint != 0);
+    const opened_obligation_fingerprint = opened_obligation.obligation_fingerprint;
+    const initially_opened_obligation = try opened_obligation.clone();
+    try std.testing.expectEqual(instance.instance_fingerprint, opened_obligation.effect_session_instance_fingerprint);
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, opened_obligation.status);
     try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.obligation_opened, journal.entries.items[journal.entries.items.len - 1].exchange_event.kind);
+    var repoll_step = try runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &journal,
+        .policy = .{ .allowed_response_kinds = .{ .return_now = false, .resume_after = false } },
+        .capability_instance = &instance,
+        .obligation = &opened_obligation,
+        .effect_session_spec = spec,
+    });
+    switch (repoll_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 1), outbox.items.items.len);
+    try std.testing.expectEqual(opened_obligation_fingerprint, opened_obligation.obligation_fingerprint);
+    var other_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "other-linear-mailbox-provider",
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
+        .allowed_response_kinds = .{},
+    });
+    defer other_provider.deinit();
+    var other_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "other-issuer",
+        .provider_fingerprint = other_provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &.{Program.contract.label},
+    });
+    defer other_capability.deinit();
+    var other_instance = try Program.Exchange.CapabilityInstance.create(other_capability, other_provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 9 });
+    const other_metadata = Program.Exchange.RequestUsageMetadata{
+        .capability_instance_fingerprint = other_instance.instance_fingerprint,
+        .usage = .linear,
+        .branch_id = 9,
+        .branch_policy = .single_live_branch,
+    };
+    var mismatch_session = try Program.Session.start(&runtime, .{});
+    defer mismatch_session.deinit();
+    var mismatch_runner = Program.Exchange.MailboxRunner{};
+    var mismatch_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer mismatch_outbox.deinit();
+    var mismatch_obligation = Program.Exchange.Obligation.placeholder();
+    try std.testing.expectError(error.ProgramContractViolation, mismatch_runner.runStep(&mismatch_session, &mismatch_outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .router = .{ .providers = &.{provider}, .capabilities = &.{capability} },
+        .policy = .{ .require_route = true },
+        .journal = &journal,
+        .usage_metadata = other_metadata,
+        .capability_instance = &other_instance,
+        .obligation = &mismatch_obligation,
+        .effect_session_spec = spec,
+    }));
+    try std.testing.expectEqual(@as(usize, 0), mismatch_outbox.items.items.len);
+    try std.testing.expectEqual(@as(u64, 0), mismatch_obligation.obligation_fingerprint);
+    try std.testing.expectError(error.ProgramContractViolation, runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .router = .{ .providers = &.{other_provider}, .capabilities = &.{other_capability} },
+        .policy = .{ .require_route = true },
+        .journal = &journal,
+        .capability_instance = &other_instance,
+        .obligation = &opened_obligation,
+        .effect_session_spec = spec,
+    }));
+    try std.testing.expectEqual(@as(usize, 1), outbox.items.items.len);
+    try std.testing.expectEqual(opened_obligation_fingerprint, opened_obligation.obligation_fingerprint);
+    try std.testing.expectError(error.ProgramContractViolation, runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &journal,
+        .capsule = true,
+        .usage_metadata = metadata,
+        .capability_instance = &instance,
+        .obligation = &opened_obligation,
+        .effect_session_spec = spec,
+    }));
+    try std.testing.expectEqual(@as(usize, 1), outbox.items.items.len);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, opened_obligation.status);
+    try std.testing.expectEqual(opened_obligation_fingerprint, opened_obligation.obligation_fingerprint);
+    opened_obligation.branch_policy = .replay_only;
     inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, outbox.items.items[0], @as(i32, 5));
-    const response_step = try runner.runStep(&session, &outbox, &inbox, .{
+    try std.testing.expectError(error.ProgramContractViolation, runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &journal,
+        .usage_metadata = metadata,
+        .capability_instance = &instance,
+        .obligation = &opened_obligation,
+        .effect_session_spec = spec,
+    }));
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, opened_obligation.status);
+    try std.testing.expectEqual(opened_obligation_fingerprint, opened_obligation.obligation_fingerprint);
+    opened_obligation.branch_policy = .single_live_branch;
+    var wrong_live_instance = try instance.split(.{ .branch_id = 8, .policy = .replay_only });
+    inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, outbox.items.items[0], @as(i32, 5));
+    try std.testing.expectError(error.ProgramContractViolation, runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &journal,
+        .usage_metadata = metadata,
+        .capability_instance = &wrong_live_instance,
+        .obligation = &opened_obligation,
+        .effect_session_spec = spec,
+    }));
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, opened_obligation.status);
+    try std.testing.expectEqual(opened_obligation_fingerprint, opened_obligation.obligation_fingerprint);
+    var stale_instance = try instance.consume(0xfeed);
+    inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, outbox.items.items[0], @as(i32, 5));
+    try std.testing.expectError(error.ProgramContractViolation, runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &journal,
+        .usage_metadata = metadata,
+        .capability_instance = &stale_instance,
+        .obligation = &opened_obligation,
+        .effect_session_spec = spec,
+    }));
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, opened_obligation.status);
+    try std.testing.expectEqual(opened_obligation_fingerprint, opened_obligation.obligation_fingerprint);
+    opened_obligation.usage = .copyable;
+    inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, outbox.items.items[0], @as(i32, 5));
+    try std.testing.expectError(error.ProgramContractViolation, runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &journal,
+        .usage_metadata = metadata,
+        .capability_instance = &instance,
+        .obligation = &opened_obligation,
+        .effect_session_spec = spec,
+    }));
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, opened_obligation.status);
+    opened_obligation.usage = .linear;
+    try std.testing.expectEqual(opened_obligation_fingerprint, opened_obligation.obligation_fingerprint);
+    inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, outbox.items.items[0], @as(i32, 5));
+    try std.testing.expectError(error.ProgramContractViolation, runner.runStep(&session, &outbox, &inbox, .{
         .allocator = std.testing.allocator,
         .journal = &journal,
         .usage_metadata = metadata,
         .obligation = &opened_obligation,
+        .effect_session_spec = spec,
+    }));
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, opened_obligation.status);
+    try std.testing.expectEqual(opened_obligation_fingerprint, opened_obligation.obligation_fingerprint);
+    inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, outbox.items.items[0], @as(i32, 5));
+    try std.testing.expectError(error.ProgramContractViolation, runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &journal,
+        .usage_metadata = metadata,
+        .capability_instance = &instance,
+        .obligation = &opened_obligation,
+        .effect_session_spec = spec,
+        .response_use = .replayed,
+    }));
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, opened_obligation.status);
+    try std.testing.expectEqual(opened_obligation_fingerprint, opened_obligation.obligation_fingerprint);
+    inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, outbox.items.items[0], @as(i32, 5));
+    const response_step = try runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &journal,
+        .capability_instance = &instance,
+        .obligation = &opened_obligation,
+        .effect_session_spec = spec,
     });
     switch (response_step) {
         .running => {},
         else => return error.ExpectedRunning,
     }
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, opened_obligation.status);
+    try std.testing.expect(opened_obligation.obligation_fingerprint != opened_obligation_fingerprint);
+    try std.testing.expect(opened_obligation.validFingerprint());
+    try std.testing.expectEqualStrings("done", instance.current_state);
     try std.testing.expect(journal.entries.items.len >= 1);
     try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.obligation_consumed, journal.entries.items[journal.entries.items.len - 1].exchange_event.kind);
+    try std.testing.expectEqual(opened_obligation_fingerprint, journal.entries.items[journal.entries.items.len - 1].exchange_event.obligation_fingerprint.?);
     try std.testing.expectEqual(@as(u64, 7), journal.entries.items[journal.entries.items.len - 1].exchange_event.branch_id.?);
+
+    var reusable_session = try Program.Session.start(&runtime, .{});
+    defer reusable_session.deinit();
+    var reusable_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer reusable_outbox.deinit();
+    var reusable_inbox = Inbox{};
+    defer reusable_inbox.deinit();
+    var reusable_runner = Program.Exchange.MailboxRunner{};
+    const reusable_spec = Program.Exchange.EffectSessionSpec{
+        .label = "replayable-mailbox-session",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = states[1..],
+        .transitions = transitions[0..],
+        .usage = .replayable,
+        .branch_policy = .unrestricted,
+    };
+    var reusable_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, reusable_spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 17 });
+    var reusable_obligation = Program.Exchange.Obligation.placeholder();
+    var reusable_poll = try reusable_runner.runStep(&reusable_session, &reusable_outbox, &reusable_inbox, .{
+        .allocator = std.testing.allocator,
+        .usage_metadata = .{
+            .capability_instance_fingerprint = reusable_instance.instance_fingerprint,
+            .usage = .replayable,
+            .branch_id = 17,
+            .branch_policy = .unrestricted,
+        },
+        .capability_instance = &reusable_instance,
+        .obligation = &reusable_obligation,
+        .effect_session_spec = reusable_spec,
+    });
+    switch (reusable_poll) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    reusable_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, reusable_outbox.items.items[0], @as(i32, 8));
+    const reusable_response_step = try reusable_runner.runStep(&reusable_session, &reusable_outbox, &reusable_inbox, .{
+        .allocator = std.testing.allocator,
+        .capability_instance = &reusable_instance,
+        .obligation = &reusable_obligation,
+        .effect_session_spec = reusable_spec,
+    });
+    switch (reusable_response_step) {
+        .running => {},
+        else => return error.ExpectedRunning,
+    }
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, reusable_obligation.status);
+    try std.testing.expect(!reusable_instance.closed());
+    try std.testing.expectEqualStrings("done", reusable_instance.current_state);
+
+    var replay_session = try Program.Session.start(&runtime, .{});
+    defer replay_session.deinit();
+    var replay_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer replay_outbox.deinit();
+    var replay_inbox = Inbox{};
+    defer replay_inbox.deinit();
+    var replay_runner = Program.Exchange.MailboxRunner{};
+    var replay_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer replay_journal.deinit();
+    var replay_poll = try replay_runner.runStep(&replay_session, &replay_outbox, &replay_inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &replay_journal,
+        .usage_metadata = metadata,
+        .capability_instance = &instance,
+        .obligation = &opened_obligation,
+        .effect_session_spec = spec,
+    });
+    switch (replay_poll) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 1), replay_outbox.items.items.len);
+    replay_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, replay_outbox.items.items[0], @as(i32, 6));
+    try std.testing.expectError(error.ProgramContractViolation, replay_runner.runStep(&replay_session, &replay_outbox, &replay_inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &replay_journal,
+        .usage_metadata = metadata,
+        .capability_instance = &instance,
+        .obligation = &opened_obligation,
+        .effect_session_spec = spec,
+        .response_use = .replayed,
+        .replay_source_response_fingerprint = opened_obligation.consumed_response_fingerprint.?,
+    }));
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, opened_obligation.status);
+    const consumed_obligation_snapshot = try opened_obligation.clone();
+    replay_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, replay_outbox.items.items[0], @as(i32, 5));
+    const replay_route = Program.Exchange.Route.from(replay_outbox.items.items[0], provider, capability, .{ .require_response_capability = true });
+    try std.testing.expect(replay_route.valid());
+    try replay_inbox.response.?.authorize(replay_route);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.authorizeObligationResponse(replay_route, capability, instance, consumed_obligation_snapshot, spec, replay_outbox.items.items[0], replay_inbox.response.?, .replayed));
+    const replay_auth = try Program.Exchange.authorizeObligationResponseWithReplaySource(
+        replay_route,
+        capability,
+        instance,
+        consumed_obligation_snapshot,
+        spec,
+        replay_outbox.items.items[0],
+        replay_inbox.response.?,
+        .replayed,
+        consumed_obligation_snapshot.consumed_response_fingerprint.?,
+    );
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, replay_auth.next_obligation_status);
+    const expected_replay_transition = try consumed_obligation_snapshot.replay(replay_inbox.response.?, consumed_obligation_snapshot.consumed_response_fingerprint.?, .replayed);
+    var consumed_response_for_ledger = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, outbox.items.items[0], @as(i32, 5));
+    defer consumed_response_for_ledger.deinit();
+    const expected_consumed_transition = try initially_opened_obligation.consume(consumed_response_for_ledger, .fresh);
+    const consume_then_replay_report = Program.Exchange.validateObligations(.{
+        .obligations = &.{initially_opened_obligation},
+        .transitions = &.{ expected_consumed_transition, expected_replay_transition },
+    });
+    try std.testing.expect(!consume_then_replay_report.has(.wrong_obligation));
+    try std.testing.expect(!consume_then_replay_report.has(.invalid_obligation_transition));
+    try std.testing.expect(!consume_then_replay_report.has(.unresolved_linear_obligation));
+    const replay_step = try replay_runner.runStep(&replay_session, &replay_outbox, &replay_inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &replay_journal,
+        .usage_metadata = metadata,
+        .capability_instance = &instance,
+        .obligation = &opened_obligation,
+        .effect_session_spec = spec,
+        .response_use = .replayed,
+        .replay_source_response_fingerprint = consumed_obligation_snapshot.consumed_response_fingerprint.?,
+    });
+    switch (replay_step) {
+        .running => {},
+        else => return error.ExpectedRunning,
+    }
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, opened_obligation.status);
+    try std.testing.expect(opened_obligation.validFingerprint());
+    try std.testing.expect(instance.closed());
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.obligation_replayed, replay_journal.entries.items[replay_journal.entries.items.len - 1].exchange_event.kind);
+    const replay_ledger_report = Program.Exchange.validateObligations(.{
+        .obligations = &.{opened_obligation},
+        .transitions = &.{expected_replay_transition},
+    });
+    try std.testing.expect(!replay_ledger_report.has(.wrong_obligation));
+    try std.testing.expect(!replay_ledger_report.has(.unresolved_linear_obligation));
+    const forged_replay_report = Program.Exchange.validateObligations(.{
+        .obligations = &.{initially_opened_obligation},
+        .transitions = &.{expected_replay_transition},
+    });
+    try std.testing.expect(forged_replay_report.has(.invalid_obligation_transition));
+}
+
+test "Program.Exchange mailbox obligation journal failure preserves parked session" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "linear-mailbox-obligation-journal-failure");
+    };
+    const Program = ability.program("linear-mailbox-obligation-journal-failure", struct {}, Body);
+    const Outbox = struct {
+        allocator: std.mem.Allocator,
+        items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
+
+        fn deinit(self: *@This()) void {
+            for (self.items.items) |*item| item.deinit();
+            self.items.deinit(self.allocator);
+        }
+
+        pub fn append(self: *@This(), envelope: Program.Exchange.RequestEnvelope) !void {
+            try self.items.append(self.allocator, envelope);
+        }
+    };
+    const Inbox = struct {
+        response: ?Program.Exchange.ResponseEnvelope = null,
+
+        fn deinit(self: *@This()) void {
+            if (self.response) |*response| response.deinit();
+            self.response = null;
+        }
+
+        pub fn nextResponse(self: *@This()) !?Program.Exchange.ResponseEnvelope {
+            const response = self.response orelse return null;
+            self.response = null;
+            return response;
+        }
+    };
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    var outbox = Outbox{ .allocator = std.testing.allocator };
+    defer outbox.deinit();
+    var inbox = Inbox{};
+    defer inbox.deinit();
+    var runner = Program.Exchange.MailboxRunner{};
+    const metadata = Program.Exchange.RequestUsageMetadata{
+        .usage = .linear,
+        .branch_id = 11,
+        .branch_policy = .single_live_branch,
+    };
+    var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
+    defer manifest.deinit();
+    var provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "linear-mailbox-journal-failure-provider",
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
+    });
+    defer provider.deinit();
+    var capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &.{Program.contract.label},
+    });
+    defer capability.deinit();
+    const states = [_][]const u8{ "pending", "done" };
+    const transitions = [_]Program.Exchange.EffectSessionSpec.Transition{
+        .{ .kind = .response, .from = "pending", .to = "done", .response_kind = .@"resume" },
+    };
+    const spec = Program.Exchange.EffectSessionSpec{
+        .label = "linear-mailbox-journal-failure-session",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = states[1..],
+        .transitions = transitions[0..],
+        .usage = .linear,
+        .branch_policy = .single_live_branch,
+    };
+    var instance = try Program.Exchange.CapabilityInstance.create(capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 11 });
+    var obligation = Program.Exchange.Obligation.placeholder();
+
+    var step = try runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .usage_metadata = metadata,
+        .capability_instance = &instance,
+        .obligation = &obligation,
+        .effect_session_spec = spec,
+    });
+    switch (step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    const request_fingerprint = outbox.items.items[0].request_fingerprint;
+    const obligation_fingerprint = obligation.obligation_fingerprint;
+
+    inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, outbox.items.items[0], @as(i32, 5));
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    var failing_journal = Program.Session.Journal.init(failing.allocator());
+    defer failing_journal.deinit();
+    try std.testing.expectError(error.OutOfMemory, runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &failing_journal,
+        .usage_metadata = metadata,
+        .capability_instance = &instance,
+        .obligation = &obligation,
+        .effect_session_spec = spec,
+    }));
+    try std.testing.expect(failing.has_induced_failure);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, obligation.status);
+    try std.testing.expectEqual(obligation_fingerprint, obligation.obligation_fingerprint);
+    try std.testing.expectEqual(request_fingerprint, switch (try session.current()) {
+        .request => |current| current.fingerprint(),
+        .after => return error.UnexpectedAfter,
+        .none => return error.ExpectedRequest,
+    });
+
+    inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, outbox.items.items[0], @as(i32, 6));
+    var journal = Program.Session.Journal.init(std.testing.allocator);
+    defer journal.deinit();
+    const retry_step = try runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &journal,
+        .usage_metadata = metadata,
+        .capability_instance = &instance,
+        .obligation = &obligation,
+        .effect_session_spec = spec,
+    });
+    switch (retry_step) {
+        .running => {},
+        else => return error.ExpectedRunning,
+    }
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, obligation.status);
+    try std.testing.expectEqualStrings("done", instance.current_state);
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.obligation_consumed, journal.entries.items[0].exchange_event.kind);
+}
+
+test "Program.Exchange mailbox unrouted obligation preserves response kind policy" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "linear-mailbox-unrouted-response-policy");
+    };
+    const Program = ability.program("linear-mailbox-unrouted-response-policy", struct {}, Body);
+    const Outbox = struct {
+        allocator: std.mem.Allocator,
+        items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
+
+        fn deinit(self: *@This()) void {
+            for (self.items.items) |*item| item.deinit();
+            self.items.deinit(self.allocator);
+        }
+
+        pub fn append(self: *@This(), envelope: Program.Exchange.RequestEnvelope) !void {
+            try self.items.append(self.allocator, envelope);
+        }
+    };
+    const Inbox = struct {
+        response: ?Program.Exchange.ResponseEnvelope = null,
+
+        fn deinit(self: *@This()) void {
+            if (self.response) |*response| response.deinit();
+            self.response = null;
+        }
+
+        pub fn nextResponse(self: *@This()) !?Program.Exchange.ResponseEnvelope {
+            const response = self.response orelse return null;
+            self.response = null;
+            return response;
+        }
+    };
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    var outbox = Outbox{ .allocator = std.testing.allocator };
+    defer outbox.deinit();
+    var inbox = Inbox{};
+    defer inbox.deinit();
+    var runner = Program.Exchange.MailboxRunner{};
+    const metadata = Program.Exchange.RequestUsageMetadata{
+        .usage = .linear,
+        .branch_id = 12,
+        .branch_policy = .single_live_branch,
+    };
+    var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
+    defer manifest.deinit();
+    var provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "linear-mailbox-unrouted-policy-provider",
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
+    });
+    defer provider.deinit();
+    var capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &.{Program.contract.label},
+    });
+    defer capability.deinit();
+    const states = [_][]const u8{ "pending", "done" };
+    const spec = Program.Exchange.EffectSessionSpec{
+        .label = "linear-mailbox-unrouted-policy-session",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = states[1..],
+        .usage = .linear,
+        .branch_policy = .single_live_branch,
+    };
+    var instance = try Program.Exchange.CapabilityInstance.create(capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 12 });
+    var obligation = Program.Exchange.Obligation.placeholder();
+
+    try std.testing.expectError(error.ProgramContractViolation, runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .policy = .{ .allowed_response_kinds = .{ .@"resume" = false } },
+        .usage_metadata = metadata,
+        .capability_instance = &instance,
+        .obligation = &obligation,
+    }));
+    try std.testing.expectEqual(@as(usize, 0), outbox.items.items.len);
+    try std.testing.expectEqual(@as(u64, 0), obligation.obligation_fingerprint);
+}
+
+test "Program.Exchange mailbox runner reopens reused obligation slot for next request" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = repeatedCallSiteSameOpPlan("mailbox-obligation-reopen", false);
+    };
+    const Program = ability.program("mailbox-obligation-reopen", struct {}, Body);
+    const Outbox = struct {
+        allocator: std.mem.Allocator,
+        items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
+
+        fn deinit(self: *@This()) void {
+            for (self.items.items) |*item| item.deinit();
+            self.items.deinit(self.allocator);
+        }
+
+        pub fn append(self: *@This(), envelope: Program.Exchange.RequestEnvelope) !void {
+            try self.items.append(self.allocator, envelope);
+        }
+    };
+    const Inbox = struct {
+        response: ?Program.Exchange.ResponseEnvelope = null,
+
+        fn deinit(self: *@This()) void {
+            if (self.response) |*response| response.deinit();
+            self.response = null;
+        }
+
+        pub fn nextResponse(self: *@This()) !?Program.Exchange.ResponseEnvelope {
+            const response = self.response orelse return null;
+            self.response = null;
+            return response;
+        }
+    };
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    var outbox = Outbox{ .allocator = std.testing.allocator };
+    defer outbox.deinit();
+    var inbox = Inbox{};
+    defer inbox.deinit();
+    var runner = Program.Exchange.MailboxRunner{};
+    var journal = Program.Session.Journal.init(std.testing.allocator);
+    defer journal.deinit();
+    var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
+    defer manifest.deinit();
+    var provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "mailbox-reopen-provider",
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
+    });
+    defer provider.deinit();
+    var capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &.{Program.contract.label},
+    });
+    defer capability.deinit();
+    const states = [_][]const u8{ "pending", "done" };
+    const spec = Program.Exchange.EffectSessionSpec{
+        .label = "mailbox-reopen-session",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = states[1..],
+        .usage = .copyable,
+    };
+    var instance = try Program.Exchange.CapabilityInstance.create(capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 3 });
+    var obligation = Program.Exchange.Obligation.placeholder();
+
+    var first_step = try runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &journal,
+        .usage_metadata = .{ .usage = .copyable, .branch_id = 3 },
+        .capability_instance = &instance,
+        .obligation = &obligation,
+    });
+    switch (first_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    const first_obligation_fingerprint = obligation.obligation_fingerprint;
+    inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, outbox.items.items[0], @as(i32, 5));
+    _ = try runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &journal,
+        .usage_metadata = .{ .usage = .copyable, .branch_id = 3 },
+        .capability_instance = &instance,
+        .obligation = &obligation,
+    });
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, obligation.status);
+
+    var second_step = try runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &journal,
+        .usage_metadata = .{ .usage = .copyable, .branch_id = 3 },
+        .capability_instance = &instance,
+        .obligation = &obligation,
+    });
+    switch (second_step) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 2), outbox.items.items.len);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, obligation.status);
+    try std.testing.expect(obligation.obligation_fingerprint != first_obligation_fingerprint);
+    try std.testing.expectEqual(outbox.items.items[1].fingerprint, obligation.request_envelope_fingerprint);
+
+    inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, outbox.items.items[1], @as(i32, 9));
+    _ = try runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &journal,
+        .usage_metadata = .{ .usage = .copyable, .branch_id = 3 },
+        .capability_instance = &instance,
+        .obligation = &obligation,
+    });
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, obligation.status);
+}
+
+test "Program.Exchange mailbox runner does not publish when obligation opening fails" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "linear-mailbox-open-failure");
+    };
+    const Program = ability.program("linear-mailbox-open-failure", struct {}, Body);
+    const Outbox = struct {
+        allocator: std.mem.Allocator,
+        items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
+
+        fn deinit(self: *@This()) void {
+            for (self.items.items) |*item| item.deinit();
+            self.items.deinit(self.allocator);
+        }
+
+        pub fn append(self: *@This(), envelope: Program.Exchange.RequestEnvelope) !void {
+            try self.items.append(self.allocator, envelope);
+        }
+    };
+    const Inbox = struct {
+        pub fn nextResponse(_: *@This()) !?Program.Exchange.ResponseEnvelope {
+            return null;
+        }
+    };
+
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    var outbox = Outbox{ .allocator = std.testing.allocator };
+    defer outbox.deinit();
+    var inbox = Inbox{};
+    var runner = Program.Exchange.MailboxRunner{};
+    defer runner.deinit();
+    var closed_instance = Program.Exchange.CapabilityInstance{
+        .instance_fingerprint = 1,
+        .parent_capability_fingerprint = 2,
+        .provider_fingerprint = 3,
+        .manifest_fingerprint = 4,
+        .effect_session_spec_fingerprint = 5,
+        .current_state = "pending",
+        .usage = .linear,
+        .branch_id = 7,
+        .path_fingerprint = 8,
+        .consumed_response_fingerprint = 9,
+        .branch_policy = .single_live_branch,
+    };
+    var obligation = Program.Exchange.Obligation.placeholder();
+
+    try std.testing.expectError(error.ProgramContractViolation, runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .capability_instance = &closed_instance,
+        .obligation = &obligation,
+    }));
+    try std.testing.expectEqual(@as(usize, 0), outbox.items.items.len);
+
+    var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
+    defer manifest.deinit();
+    var provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "linear-mailbox-open-journal-failure-provider",
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
+    });
+    defer provider.deinit();
+    var capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_program_labels = &.{Program.contract.label},
+    });
+    defer capability.deinit();
+    const states = [_][]const u8{ "pending", "done" };
+    const spec = Program.Exchange.EffectSessionSpec{
+        .label = "linear-mailbox-open-journal-failure-session",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = states[1..],
+        .usage = .linear,
+        .branch_policy = .single_live_branch,
+    };
+    var instance = try Program.Exchange.CapabilityInstance.create(capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 7 });
+    const original_instance = instance;
+    var open_obligation = Program.Exchange.Obligation.placeholder();
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    var failing_journal = Program.Session.Journal.init(failing.allocator());
+    defer failing_journal.deinit();
+    try std.testing.expectError(error.OutOfMemory, runner.runStep(&session, &outbox, &inbox, .{
+        .allocator = std.testing.allocator,
+        .journal = &failing_journal,
+        .usage_metadata = .{
+            .capability_instance_fingerprint = instance.instance_fingerprint,
+            .usage = .linear,
+            .branch_id = 7,
+            .branch_policy = .single_live_branch,
+        },
+        .capability_instance = &instance,
+        .obligation = &open_obligation,
+    }));
+    try std.testing.expect(failing.has_induced_failure);
+    try std.testing.expectEqual(@as(usize, 0), outbox.items.items.len);
+    try std.testing.expectEqual(@as(u64, 0), open_obligation.obligation_fingerprint);
+    try std.testing.expectEqual(original_instance.instance_fingerprint, instance.instance_fingerprint);
 }
 
 test "Program.Session trace after metadata and current value fingerprint stability" {
@@ -19544,6 +20976,27 @@ test "Program.Exchange router reports single no route ambiguous and blockers det
     try std.testing.expectEqual(Program.Exchange.Router.Status.blocked_routes, denied_response_plan.status);
     try std.testing.expect(denied_response_plan.blocked.has(.response_kind));
     try std.testing.expect(!denied_response_plan.route.?.allowed_response_kinds.allows(.@"resume"));
+    const usage_policy_plan = router.planWithPolicy(envelope, .{ .usage = .linear });
+    try std.testing.expectEqual(Program.Exchange.Router.Status.blocked_routes, usage_policy_plan.status);
+    try std.testing.expect(usage_policy_plan.blocked.has(.usage_mode));
+    const branch_policy_plan = router.planWithPolicy(envelope, .{ .branch_policy = .single_live_branch });
+    try std.testing.expectEqual(Program.Exchange.Router.Status.blocked_routes, branch_policy_plan.status);
+    try std.testing.expect(branch_policy_plan.blocked.has(.branch_policy));
+    var usage_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{
+        .usage_metadata = .{
+            .usage = .linear,
+            .branch_id = 5,
+            .branch_policy = .single_live_branch,
+            .replay_policy = .fresh,
+        },
+    });
+    defer usage_envelope.deinit();
+    const matching_usage_plan = router.planWithPolicy(usage_envelope, .{
+        .usage = .linear,
+        .branch_policy = .single_live_branch,
+        .replay_policy = .fresh,
+    });
+    try std.testing.expectEqual(Program.Exchange.Router.Status.one_route, matching_usage_plan.status);
 
     const disjoint_policy_router = Program.Exchange.Router{
         .providers = providers[0..],
@@ -19736,6 +21189,29 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
     const providers = [_]Program.Exchange.ProviderManifest{provider};
     const capabilities = [_]Program.Exchange.Capability{capability};
     const router = Program.Exchange.Router{ .providers = providers[0..], .capabilities = capabilities[0..] };
+
+    const usage_policy_router = Program.Exchange.Router{
+        .providers = providers[0..],
+        .capabilities = capabilities[0..],
+        .policy = .{ .usage = .linear },
+    };
+    var usage_policy_session = try Program.Session.start(&runtime, .{});
+    defer usage_policy_session.deinit();
+    var usage_policy_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer usage_policy_outbox.deinit();
+    var usage_policy_inbox = Inbox{};
+    defer usage_policy_inbox.deinit();
+    var usage_policy_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer usage_policy_journal.deinit();
+    var usage_policy_runner = Program.Exchange.MailboxRunner{};
+    try std.testing.expectError(error.ProgramContractViolation, usage_policy_runner.runStep(&usage_policy_session, &usage_policy_outbox, &usage_policy_inbox, .{
+        .allocator = std.testing.allocator,
+        .router = usage_policy_router,
+        .journal = &usage_policy_journal,
+    }));
+    try std.testing.expectEqual(@as(usize, 0), usage_policy_outbox.items.items.len);
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.route_blocked, usage_policy_journal.entries.items[0].exchange_event.kind);
+    try std.testing.expectEqualStrings("usage_mode", usage_policy_journal.entries.items[0].exchange_event.blocker_tag.?);
 
     const mailbox_branch_id = "mailbox-policy-branch";
     var branch_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
@@ -21047,6 +22523,12 @@ test "Program.Exchange journal events encode decode and replay skips exchange me
     const forged_payload = forged_v1_exchange[0 .. forged_v1_exchange.len - 8];
     std.mem.writeInt(u64, forged_v1_exchange[forged_v1_exchange.len - 8 ..][0..8], testProgramJournalFingerprint(Program, forged_payload), .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Session.Journal.decode(std.testing.allocator, forged_v1_exchange));
+    var forged_v2_exchange = try std.testing.allocator.dupe(u8, journal_bytes);
+    defer std.testing.allocator.free(forged_v2_exchange);
+    std.mem.writeInt(u32, forged_v2_exchange["ABL_JRN1".len..][0..4], 2, .little);
+    const forged_v2_payload = forged_v2_exchange[0 .. forged_v2_exchange.len - 8];
+    std.mem.writeInt(u64, forged_v2_exchange[forged_v2_exchange.len - 8 ..][0..8], testProgramJournalFingerprint(Program, forged_v2_payload), .little);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Session.Journal.decode(std.testing.allocator, forged_v2_exchange));
 
     var replay_session = try Program.Session.start(&runtime, .{});
     defer replay_session.deinit();
@@ -21278,8 +22760,18 @@ test "Program.Exchange policy rejects capsules and disallowed response kinds" {
     defer image.deinit();
     var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{ .capsule = image });
     defer envelope.deinit();
+    var plain_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer plain_envelope.deinit();
 
     try std.testing.expectError(error.ProgramContractViolation, (Program.Exchange.Policy{ .allow_capsules = false }).validateRequest(envelope));
+    try std.testing.expectError(error.ProgramContractViolation, (Program.Exchange.Policy{ .branch_policy = .no_branch }).validateRequest(plain_envelope));
+    try std.testing.expectError(error.ProgramContractViolation, (Program.Exchange.Policy{ .replay_policy = .replayed }).validateRequest(plain_envelope));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decodeWithPolicy(std.testing.allocator, plain_envelope.bytes, .{
+        .usage = .linear,
+    }));
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decodeWithPolicy(std.testing.allocator, plain_envelope.bytes, .{
+        .branch_policy = .no_branch,
+    }));
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decodeWithPolicy(std.testing.allocator, envelope.bytes, .{
         .allow_capsules = false,
     }));
