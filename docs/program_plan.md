@@ -723,6 +723,42 @@ networking, persistence, brokers, tools, humans, and models. Request tokens are
 still not serialized; capability fingerprints are deterministic audit metadata,
 not cryptographic authorization.
 
+### Linear Effect Sessions
+
+Continuations can be copied; the world often cannot. Linear Effect Sessions are
+Ability's deterministic usage calculus for capability-routed external effects.
+The public surface stays under `Program.Exchange`: `Usage` distinguishes
+copyable, replayable, affine, linear, and ephemeral effects; `ResponseUse`
+records fresh, replayed, deterministic-replay, or override responses; and
+`BranchPolicy` describes unrestricted, replay-only, single-live-branch,
+split-required, no-branch, and host-owned capsule branching.
+
+`EffectSessionSpec` declares the state machine for an external effect. A
+capability grant remains general authority, while `CapabilityInstance` is the
+branch-scoped consumable authority object. When a request is yielded, an
+`Obligation` can bind the request envelope and site fingerprints to the
+capability instance, usage mode, branch id, allowed response kinds/refs,
+optional capsule image fingerprint, and lifecycle status. Obligations transition
+through open, consumed, replayed, canceled, or abandoned. Affine and linear
+obligations reject duplicate fresh consumption; linear obligations must be
+consumed or explicitly canceled unless a host-owned abandonment policy says
+Ability should only record metadata.
+
+Request envelopes have optional session/instance/obligation metadata, usage
+mode, branch policy, replay policy, ephemeral flag, and cancelability flag.
+Request tokens remain in-process guards and are never encoded. Response
+authorization can produce an `AuthorizationResult` that cites the obligation
+transition fingerprint, previous/next obligation status, previous/next session
+state, response use class, instance-consumption flag, and branch-open flag.
+Journal exchange events include effect-session, capability-instance,
+obligation, transition, branch, and blocker metadata; `ObligationLedger`
+validates duplicate consumption and unresolved linear obligations.
+
+This is deterministic validation metadata, not cryptographic security, an async
+runtime, a workflow engine, or a persistence backend. Hosts own identity,
+signing, encryption, transport, storage, scheduling, networking, provider
+execution, tools, humans, models, and persistence.
+
 ## Effect schema row lowering
 
 Built-in effect schemas can lower to ProgramPlan requirement, operation, and

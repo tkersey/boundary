@@ -19,6 +19,8 @@ examples/effect_exchange_restart.zig
 examples/effect_pipeline.zig
 examples/interpreter_branching.zig
 examples/journal_replay.zig
+examples/linear_branch_safety.zig
+examples/linear_effect_sessions.zig
 examples/plan_native_exception.zig
 examples/plan_native_optional.zig
 examples/plan_native_resource.zig

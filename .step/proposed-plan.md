@@ -1,32 +1,35 @@
-Iteration: 7
+Iteration: 6
 
-# Capability-Routed Effect Exchange Implementation Plan
+# Linear Effect Sessions Implementation Plan
 
 ## Summary
-Build capability-routed Effect Exchange by extending the existing nested `Program.Exchange` surface with provider manifests, capability grants, deterministic attenuation, route witnesses, routing catalogs, response authorization metadata, mailbox integration, and journal event records. First wave is the pure data/validation layer under `Program.Exchange`; completion requires both new examples to run and the full requested Zig proof bundle to pass without public-root widening or `Program.Session` semantic changes.
+Add Linear Effect Sessions as a deterministic usage calculus under the existing `Program.Exchange` surface. The milestone makes capability-routed exchanged effects safe around reusable capsules by recording usage mode, capability instance state, obligations, branch policy, replay class, response transitions, cancellation, journal events, and ledger validation. The implementation must preserve `Program.Session` as the primitive host-driven execution machine and keep the public root unchanged.
 
-Chosen strategy: keep Ability as a typed validation/calculus layer, not a transport, security, async, or broker layer. Hosts still own identity, signing, encryption, transport, storage, scheduling, persistence, and provider execution.
+Chosen strategy: implement this as typed validation metadata over Exchange, Capability, Capsule, MailboxRunner, Journal, and Pipeline surfaces. This is not cryptographic security, transport, async, network, persistence, workflow, VM, parser, or host-handler serialization.
 
 ## Non-Goals/Out of Scope
-No cryptographic authentication, security claims, network stack, async runtime, broker, persistence backend, RPC framework, LLM/tool integration, scheduler, parser/source language, public VM API, Artifact API, public-root widening, `ProgramValue` widening, serializable request tokens, cross-thread sessions, arbitrary host serialization, host context serialization, or allocator/thread serialization.
+No changes to `Program.run` semantics, `Program.Session` primitive stepping semantics, existing Session/Capsule/Journal/Exchange/Capability/Handler/Interpreter/Morphism/Residualize/Pipeline APIs removals, parser/source language, public VM API, Artifact API, async runtime, network or LLM integration, persistence backend, cryptographic signing/encryption, public root widening, `ProgramValue` widening, serializable request tokens, cross-thread sessions, arbitrary host handler serialization, host context serialization, or allocator/thread state serialization.
 
 ## Interfaces/Types/APIs Impacted
-- `Program` constants: add `exchange_provider_format_version = 1`, `exchange_provider_fingerprint_version = 1`, `exchange_capability_format_version = 1`, `exchange_capability_fingerprint_version = 1`, `exchange_authorization_fingerprint_version = 1`, `exchange_route_fingerprint_version = 1`; mirror aliases under `Program.Exchange`.
-- `Program.Exchange.ProviderManifest`: deterministic encode/decode, `fingerprint`, provider label, supported manifest fingerprints, protocol labels, operation/after sites, protocol op fingerprints, response kinds, byte/capsule limits, tags, metadata bytes.
-- `Program.Exchange.Capability`: deterministic encode/decode, `fingerprint`, issuer, subject provider fingerprint, manifest fingerprint, request-kind/site/protocol/program/response/ref/byte/capsule scopes, logical generation expiry, parent fingerprint, attenuation path fingerprint.
-- `Program.Exchange.Authorization`: separate metadata sidecar, not part of core `ResponseEnvelope.bytes`; fields include provider/capability/path/route/request/response fingerprints and `authorization_fingerprint`.
-- `Program.Exchange.Route` and `Program.Exchange.Router`: deterministic route witnesses and runtime-data catalog selection with no-route, one-route, ambiguous, and blocked results.
-- `Program.Exchange.Policy`, `MailboxRunner`, and `Session.Journal`: add route/auth constraints, routed outbox support, response authorization checks, and optional skippable exchange ledger events.
+- `Program` version constants: add `exchange_effect_session_format_version`, `exchange_effect_session_fingerprint_version`, `exchange_capability_instance_format_version`, `exchange_capability_instance_fingerprint_version`, `exchange_obligation_format_version`, `exchange_obligation_fingerprint_version`, and `exchange_obligation_transition_fingerprint_version`.
+- `Program.Exchange` enums: `Usage`, `ResponseUse`, `BranchPolicy`, obligation/session statuses and structured blocker types.
+- `Program.Exchange.EffectSessionSpec`: Zig-friendly deterministic descriptor for externalized effect state transitions, default usage, branch policy, replay policy, allowed response kinds/refs, provider/capability constraints, and stable fingerprinting.
+- `Program.Exchange.CapabilityInstance`: consumable deterministic authority instance with parent capability/provider/manifest/spec fingerprints, current state, usage mode, branch id, opened/consumed/canceled/replay state, generation, parent instance, and path fingerprint.
+- `Program.Exchange.Obligation`: ledger bridge from request envelope to world-effect usage with usage mode, branch id, open state, allowed responses, capsule image fingerprint, lifecycle status, consumed/replay fingerprints, and stable fingerprinting.
+- Request envelope metadata: optional session spec, capability instance, obligation, usage, branch id, branch policy, replay policy, ephemeral, and cancelability metadata without serializing request tokens.
+- Response authorization result: obligation transition metadata for provider/capability/instance/obligation/spec/route/request/response validation.
+- `MailboxRunner` and `Session.Journal`: optional obligation open/consume/replay/cancel/reject events and duplicate affine/linear response rejection.
+- `Program.Exchange.ObligationLedger`: validation pass for duplicate consumption, unresolved linear obligations, replay/fresh branch violations, canceled/consumed misuse, state mismatch, and provider/capability mismatch.
+- Pipeline certificates/effect row metadata: expose usage/session policy summaries enough for future stages to inspect residual linear effects.
 
 ## Implementation Brief
-1. step=constants-and-helpers; owner=implementation; success_criteria=new version aliases, deterministic set/limit/blocker/fingerprint helpers compile and existing exchange tests still pass.
-2. step=provider-manifest; owner=implementation; success_criteria=provider manifest encode/decode/support/malformed tests pass.
-3. step=capability-and-attenuation; owner=implementation; success_criteria=grant, request validation, structured blockers, and broadening-failure tests pass.
-4. step=response-authorization; owner=implementation; success_criteria=authorization sidecar encode/decode, valid auth pass, missing/wrong auth reject, existing response fingerprint tests unchanged.
-5. step=route-and-router; owner=implementation; success_criteria=single/no/ambiguous/blocker/priority and duplicate-op route tests pass.
-6. step=policy-mailbox-journal; owner=implementation; success_criteria=routed outbox, authorized apply, unauthorized reject, journal event encode/decode/replay tests pass.
-7. step=examples-docs-build; owner=implementation; success_criteria=new examples and run steps work, docs updated, path/lint manifest updated if required.
-8. step=closure-proof-and-ship; owner=implementation; success_criteria=all proof commands from the spec pass, durable proof is recorded, branch is pushed, and PR is opened with proof summary.
+1. step=core-linear-session-types; owner=implementation; success_criteria=usage/replay/branch enums, version constants, session spec, blocker, fingerprint, and transition APIs compile with stable fingerprint tests.
+2. step=capability-instances-and-obligations; owner=implementation; success_criteria=instance create/split/consume/cancel and obligation open/consume/replay/cancel APIs reject illegal affine/linear/ephemeral states and have stable fingerprint tests.
+3. step=request-authorization-metadata; owner=implementation; success_criteria=request envelopes carry optional obligation/session metadata without serializing tokens, response authorization transition metadata validates request/response/route/capability/instance/obligation/spec state.
+4. step=branch-split-cancel-discipline; owner=implementation; success_criteria=unrestricted/replay_only/single_live_branch/split_required/no_branch/host_owned branch checks, split policy, cancel API, and capsule embedding checks enforce ephemeral and open-obligation rules.
+5. step=mailbox-journal-ledger-integration; owner=implementation; success_criteria=MailboxRunner opens/consumes/replays/cancels obligations when configured, Journal encodes/decodes new events, and ledger validation catches duplicate consumption, unresolved linear obligations, response-after-cancel, wrong branch/provider/capability, and replay/fresh violations.
+6. step=pipeline-examples-docs-build; owner=implementation; success_criteria=pipeline summaries expose usage metadata, examples `linear_effect_sessions.zig` and `linear_branch_safety.zig` plus run steps work, docs/README explain the model, and repo path/lint manifest is updated.
+7. step=full-proof-and-ship; owner=implementation; success_criteria=all requested proof commands pass, durable `$st` proof is recorded, fixed-point review reaches no actionable findings, branch is pushed, and PR is opened with a proof-rich summary.
 
 ## Proof Commands
 ```bash
@@ -34,6 +37,8 @@ zig version
 zig fmt --check build.zig src examples test bench
 git diff --check
 zig build --summary all
+zig build run-linear-effect-sessions
+zig build run-linear-branch-safety
 zig build run-effect-capability-routing
 zig build run-effect-capability-attenuation
 zig build run-effect-exchange-mailbox
@@ -49,17 +54,17 @@ zig build run-custom-approval-workflow
 zig build run-agent-loop
 zig build run-typed-program-plan
 zig build test --summary all
-zig build test --summary none -- --test-filter "capability"
-zig build test --summary none -- --test-filter "provider"
-zig build test --summary none -- --test-filter "attenuation"
-zig build test --summary none -- --test-filter "route"
-zig build test --summary none -- --test-filter "authorization"
+zig build test --summary none -- --test-filter "linear"
+zig build test --summary none -- --test-filter "obligation"
+zig build test --summary none -- --test-filter "usage"
+zig build test --summary none -- --test-filter "branch policy"
+zig build test --summary none -- --test-filter "capability instance"
+zig build test --summary none -- --test-filter "replayable"
+zig build test --summary none -- --test-filter "affine"
 zig build test --summary none -- --test-filter "exchange"
-zig build test --summary none -- --test-filter "mailbox"
+zig build test --summary none -- --test-filter "capability"
 zig build test --summary none -- --test-filter "journal"
+zig build test --summary none -- --test-filter "mailbox"
 zig build test --summary none -- --test-filter "capsule image"
-zig build test --summary none -- --test-filter "session"
 zig build lint -- --max-warnings 0
 ```
-
-Iteration: 7

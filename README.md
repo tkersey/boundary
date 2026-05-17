@@ -428,6 +428,38 @@ not secret bearer tokens, identity, signing, encryption, transport security, or
 network authentication. Hosts that need those properties wrap Ability’s data in
 their own security and transport systems.
 
+### Linear Effect Sessions
+
+Continuations can be copied; the world often cannot. Linear Effect Sessions are
+the bridge. `Program.Exchange.Usage` classifies exchanged effects as
+`copyable`, `replayable`, `affine`, `linear`, or `ephemeral`; `ResponseUse`
+distinguishes fresh provider answers from journal/deterministic replay and
+policy overrides; `BranchPolicy` records whether reusable capsules are
+unrestricted, replay-only, single-live-branch, split-required, no-branch, or
+host-owned.
+
+`EffectSessionSpec` is a small deterministic state-machine descriptor.
+`Capability` remains general authority, while `CapabilityInstance` is the
+consumable authority object for one effect session branch. A yielded request can
+open an `Obligation` that records the request envelope fingerprint, request and
+site fingerprints, usage mode, branch id, allowed response kinds/refs, optional
+capsule image fingerprint, and lifecycle status. Obligations can be consumed,
+replayed, canceled, or abandoned when policy permits; affine and linear
+obligations reject duplicate fresh consumption, and linear obligations are
+cleanly closed by consume or explicit cancel.
+
+Request envelopes can carry optional session/instance/obligation usage
+metadata without serializing request tokens. Response authorization can be
+combined with an obligation transition so hosts can validate provider,
+capability, route, request, response, current obligation status, and session
+state in one deterministic result. `ObligationLedger.validate` catches duplicate
+consumption and unresolved linear obligations, and journal exchange events can
+record session, instance, obligation, transition, branch, and blocker metadata.
+
+This is deterministic validation metadata, not cryptographic security. Hosts
+still own identity, signing, encryption, transport, storage, scheduling,
+networking, persistence, provider execution, tools, humans, and models.
+
 This is the foundation for agentic loops. The library does not bundle an async
 runtime, parser, compiler, VM, Artifact API, source language, network client, or
 LLM integration, and it does not widen the public root. `ProgramValue` remains

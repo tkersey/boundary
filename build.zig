@@ -650,6 +650,8 @@ pub fn build(b: *std.Build) void {
         .{ .name = "ability-effect-capability-attenuation", .path = "examples/effect_capability_attenuation.zig", .step = "run-effect-capability-attenuation", .desc = "Run the Effect Exchange capability attenuation example." },
         .{ .name = "ability-effect-exchange-mailbox", .path = "examples/effect_exchange_mailbox.zig", .step = "run-effect-exchange-mailbox", .desc = "Run the transport-neutral Effect Exchange mailbox example." },
         .{ .name = "ability-effect-exchange-restart", .path = "examples/effect_exchange_restart.zig", .step = "run-effect-exchange-restart", .desc = "Run the Effect Exchange capsule restart example." },
+        .{ .name = "ability-linear-effect-sessions", .path = "examples/linear_effect_sessions.zig", .step = "run-linear-effect-sessions", .desc = "Run the Linear Effect Sessions obligation example." },
+        .{ .name = "ability-linear-branch-safety", .path = "examples/linear_branch_safety.zig", .step = "run-linear-branch-safety", .desc = "Run the Linear Effect Sessions branch safety example." },
         .{ .name = "ability-durable-capsule-replay", .path = "examples/durable_capsule_replay.zig", .step = "run-durable-capsule-replay", .desc = "Run the durable Program.Session capsule image replay example." },
         .{ .name = "ability-journal-replay", .path = "examples/journal_replay.zig", .step = "run-journal-replay", .desc = "Run the Program.Session interaction journal replay example." },
     };
