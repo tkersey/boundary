@@ -70,9 +70,11 @@ const Outbox = struct {
     }
 
     pub fn appendTreaty(self: *@This(), request: Program.Exchange.RequestEnvelope, certificate: Program.Exchange.Treaty.Certificate) !void {
+        var owned_certificate = certificate;
+        defer owned_certificate.deinit(self.allocator);
         try self.requests.append(self.allocator, request);
-        self.treaty_fingerprint = certificate.treaty_fingerprint;
-        self.certificate_fingerprint = certificate.certificate_fingerprint;
+        self.treaty_fingerprint = owned_certificate.treaty_fingerprint;
+        self.certificate_fingerprint = owned_certificate.certificate_fingerprint;
     }
 };
 
