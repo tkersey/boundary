@@ -4422,10 +4422,10 @@ pub fn program(
                     if (self.status != .open and self.status != .consumed and self.status != .replayed) return error.ProgramContractViolation;
                     if (self.status == .open and (self.usage == .linear or self.usage == .affine)) return error.ProgramContractViolation;
                     try validateResponseEnvelopeFieldsBoundToBytes(response);
-                    if (response.fingerprint != source_response_fingerprint) return error.ProgramContractViolation;
                     if (self.status == .consumed or self.status == .replayed) {
                         const recorded_response_fingerprint = self.consumed_response_fingerprint orelse return error.ProgramContractViolation;
                         if (recorded_response_fingerprint != source_response_fingerprint) return error.ProgramContractViolation;
+                        if (response.fingerprint != source_response_fingerprint) return error.ProgramContractViolation;
                     }
                     if (response.request_envelope_fingerprint != self.request_envelope_fingerprint) return error.ProgramContractViolation;
                     if (response.request_fingerprint != self.request_fingerprint) return error.ProgramContractViolation;
@@ -4467,10 +4467,14 @@ pub fn program(
                     if (!self.validFingerprint()) return error.ProgramContractViolation;
                     if (transition.transition_fingerprint != fingerprintObligationTransition(transition)) return error.ProgramContractViolation;
                     if (!obligationMatchesTransition(self, transition)) return error.ProgramContractViolation;
+                    if (self.branch_id != transition.branch_id) return error.ProgramContractViolation;
                     if (self.status != transition.previous_obligation_status) return error.ProgramContractViolation;
                     var updated = try self.clone();
                     updated.status = transition.next_obligation_status;
-                    updated.consumed_response_fingerprint = transition.response_fingerprint;
+                    updated.consumed_response_fingerprint = if (transition.next_obligation_status == .replayed)
+                        transition.replay_source_response_fingerprint orelse transition.response_fingerprint
+                    else
+                        transition.response_fingerprint;
                     updated.replay_source_response_fingerprint = transition.replay_source_response_fingerprint;
                     updated.obligation_fingerprint = 0;
                     updated.obligation_fingerprint = fingerprintObligation(updated);
@@ -5882,11 +5886,20 @@ pub fn program(
                 }
                 var opened = instance;
                 opened.current_state = obligation.state_at_open;
+                opened.opened_request_fingerprint = obligation.request_fingerprint;
                 opened.consumed_response_fingerprint = null;
                 opened.instance_fingerprint = 0;
                 const opened_fingerprint = fingerprintCapabilityInstance(opened);
                 return opened_fingerprint == obligation.effect_session_instance_fingerprint and
                     opened_fingerprint == obligation.capability_instance_fingerprint.?;
+            }
+
+            fn instanceCanAnswerObligation(instance: CapabilityInstance, obligation: Obligation, response_uses_replay: bool) bool {
+                if (instance.instance_fingerprint == obligation.effect_session_instance_fingerprint) return true;
+                if (response_uses_replay or obligation.usage == .copyable or obligation.usage == .replayable) {
+                    return instanceMatchesObligationOpenedInstance(instance, obligation);
+                }
+                return false;
             }
 
             /// Nonblocking transport-neutral runner over host-owned inbox/outbox storage.
@@ -6344,22 +6357,14 @@ pub fn program(
                             if (options.capability_instance) |instance| {
                                 if (!instance.*.validFingerprint()) return error.ProgramContractViolation;
                                 const response_uses_replay = options.response_use == .replayed or options.response_use == .deterministic_replay;
-                                if (response_uses_replay) {
-                                    if (!instanceMatchesObligationOpenedInstance(instance.*, obligation_ptr.*)) return error.ProgramContractViolation;
-                                } else if (instance.*.instance_fingerprint != obligation_ptr.*.effect_session_instance_fingerprint) {
-                                    return error.ProgramContractViolation;
-                                }
+                                if (!instanceCanAnswerObligation(instance.*, obligation_ptr.*, response_uses_replay)) return error.ProgramContractViolation;
                                 if (instance.*.usage != obligation_ptr.*.usage) return error.ProgramContractViolation;
                                 if (instance.*.branch_id != obligation_ptr.*.branch_id) return error.ProgramContractViolation;
                                 if (obligation_ptr.*.provider_fingerprint) |fingerprint| {
                                     if (fingerprint != instance.*.provider_fingerprint) return error.ProgramContractViolation;
                                 }
                                 if (obligation_ptr.*.capability_instance_fingerprint) |fingerprint| {
-                                    if (response_uses_replay) {
-                                        if (!instanceMatchesObligationOpenedInstance(instance.*, obligation_ptr.*)) return error.ProgramContractViolation;
-                                    } else if (fingerprint != instance.*.instance_fingerprint) {
-                                        return error.ProgramContractViolation;
-                                    }
+                                    if (fingerprint != obligation_ptr.*.effect_session_instance_fingerprint) return error.ProgramContractViolation;
                                 }
                             }
                             const response_has_open_obligation = false;
@@ -6746,11 +6751,7 @@ pub fn program(
                 if (instance.parent_capability_fingerprint != capability.fingerprint) return error.ProgramContractViolation;
                 if (instance.effect_session_spec_fingerprint != spec_fingerprint) return error.ProgramContractViolation;
                 const response_uses_replay = use_value == .replayed or use_value == .deterministic_replay;
-                if (response_uses_replay) {
-                    if (!instanceMatchesObligationOpenedInstance(instance, obligation)) return error.ProgramContractViolation;
-                } else if (instance.instance_fingerprint != obligation.effect_session_instance_fingerprint) {
-                    return error.ProgramContractViolation;
-                }
+                if (!instanceCanAnswerObligation(instance, obligation, response_uses_replay)) return error.ProgramContractViolation;
                 if (instance.provider_fingerprint != capability.provider_fingerprint) return error.ProgramContractViolation;
                 if (instance.usage != obligation.usage) return error.ProgramContractViolation;
                 if (instance.branch_id != obligation.branch_id) return error.ProgramContractViolation;
@@ -6759,11 +6760,7 @@ pub fn program(
                     if (provider_fingerprint != instance.provider_fingerprint) return error.ProgramContractViolation;
                 }
                 if (obligation.capability_instance_fingerprint) |instance_fingerprint| {
-                    if (response_uses_replay) {
-                        if (!instanceMatchesObligationOpenedInstance(instance, obligation)) return error.ProgramContractViolation;
-                    } else if (instance_fingerprint != instance.instance_fingerprint) {
-                        return error.ProgramContractViolation;
-                    }
+                    if (instance_fingerprint != obligation.effect_session_instance_fingerprint) return error.ProgramContractViolation;
                 }
                 if (request.fingerprint != obligation.request_envelope_fingerprint) return error.ProgramContractViolation;
                 if (response.request_envelope_fingerprint != request.fingerprint) return error.ProgramContractViolation;
@@ -8434,7 +8431,11 @@ pub fn program(
                         }
                         prior.replay_source_response_fingerprint = null;
                     },
-                    .replayed => {},
+                    .replayed => {
+                        const source_fingerprint = transition.replay_source_response_fingerprint orelse transition.response_fingerprint;
+                        prior.consumed_response_fingerprint = source_fingerprint;
+                        prior.replay_source_response_fingerprint = source_fingerprint;
+                    },
                 }
                 prior.obligation_fingerprint = fingerprintObligation(prior);
                 return prior.obligation_fingerprint == transition.obligation_fingerprint;
@@ -12931,6 +12932,71 @@ test "Program.contract session support includes executable blockers" {
         "session capability ledger: blockers=1 truncated=false cap=64 first_tag=payload_codec first_function=0 first_instruction=0 first_op=65535",
         contract.session.summary,
     );
+}
+
+test "Program.Exchange obligation transition application rejects branch mismatch" {
+    const program_plan = @import("internal_program_plan");
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 0,
+    }};
+    const blocks = [_]program_plan.BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = 0,
+        .terminator_index = 0,
+    }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_unit }};
+    const body = struct {
+        /// Minimal plan used to instantiate the exchange namespace under test.
+        pub const compiled_plan = program_plan.ProgramPlan{
+            .label = "obligation-branch-apply-transition",
+            .ir_hash = 3,
+            .entry_index = 0,
+            .functions = &functions,
+            .requirements = &.{},
+            .ops = &.{},
+            .outputs = &.{},
+            .blocks = &blocks,
+            .terminators = &terminators,
+            .instructions = &.{},
+        };
+    };
+    const program_type = program("obligation-branch-apply-transition", struct {}, body);
+
+    var obligation = program_type.Exchange.Obligation{
+        .effect_session_instance_fingerprint = 11,
+        .request_envelope_fingerprint = 22,
+        .request_fingerprint = 33,
+        .site_fingerprint = 44,
+        .usage = .linear,
+        .branch_id = 7,
+        .state_at_open = "pending",
+    };
+    obligation.obligation_fingerprint = program_type.Exchange.fingerprintObligation(obligation);
+
+    var wrong_branch = program_type.Exchange.ObligationTransition{
+        .obligation_fingerprint = obligation.obligation_fingerprint,
+        .previous_obligation_status = .open,
+        .next_obligation_status = .consumed,
+        .previous_session_state = obligation.state_at_open,
+        .next_session_state = obligation.state_at_open,
+        .response_use = .fresh,
+        .response_fingerprint = 55,
+        .capability_instance_consumed = true,
+        .branch_remains_open = false,
+        .branch_id = 8,
+    };
+    wrong_branch.transition_fingerprint = program_type.Exchange.fingerprintObligationTransition(wrong_branch);
+
+    try std.testing.expectError(error.ProgramContractViolation, obligation.applyTransition(wrong_branch));
 }
 
 test "ability.program executable support rejects nested-with plans" {

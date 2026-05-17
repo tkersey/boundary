@@ -190,9 +190,11 @@ pub fn run(writer: anytype) !void {
         .usage_metadata = .{ .usage = .linear, .branch_id = 11, .branch_policy = .single_live_branch },
     });
     defer duplicate_envelope.deinit();
-    var duplicate_response = try Program.Exchange.ResponseEnvelope.@"resume"(allocator, duplicate_envelope, @as(i32, 9));
-    defer duplicate_response.deinit();
-    const duplicate_rejected = if (obligation.consume(duplicate_response, .fresh)) |_| false else |err| err == error.ProgramContractViolation;
+    const duplicate_rejected = if (Program.Exchange.Obligation.open(&instance, duplicate_envelope, .{}, refs[0..])) |duplicate_obligation| rejected: {
+        var opened_duplicate = duplicate_obligation;
+        opened_duplicate.deinit();
+        break :rejected false;
+    } else |err| err == error.ProgramContractViolation;
 
     try writer.print("lookup_obligation_usage=replayable branch=1 replay_branch=2 accepted=true\n", .{});
     try writer.print("charge_obligation_fingerprint={x}\n", .{obligation.obligation_fingerprint});

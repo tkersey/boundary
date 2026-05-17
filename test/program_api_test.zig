@@ -16210,15 +16210,35 @@ test "Program.Exchange replayable affine and branch policy obligation rules" {
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, replay.next_obligation_status);
     try std.testing.expectError(error.ProgramContractViolation, replayable_obligation.consume(response, .replayed));
     try std.testing.expectError(error.ProgramContractViolation, replayable_obligation.consume(response, .fresh));
+    const replayable_fresh_transitions = [_]Program.Exchange.EffectSessionSpec.Transition{
+        .{ .kind = .response, .from = "pending", .to = "done", .response_kind = .@"resume" },
+    };
     const replayable_fresh_spec = Program.Exchange.EffectSessionSpec{
         .label = "branch-policy-replayable-fresh",
         .initial_state = "pending",
         .states = states[0..],
         .terminal_states = states[1..],
+        .transitions = replayable_fresh_transitions[0..],
         .usage = .replayable,
     };
     var replayable_fresh_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, replayable_fresh_spec, .{ .snapshot_allocator = std.heap.page_allocator });
     var replayable_fresh_obligation = try Program.Exchange.Obligation.open(&replayable_fresh_instance, envelope, .{}, response_refs[0..]);
+    const replayable_fresh_route = Program.Exchange.Route.from(envelope, provider, capability, .{ .require_response_capability = true });
+    try std.testing.expect(replayable_fresh_route.valid());
+    try response.authorize(replayable_fresh_route);
+    const overlapping_replayable_instance = try replayable_fresh_instance.opened(envelope.request_fingerprint + 1);
+    const replayable_overlap_auth = try Program.Exchange.authorizeObligationResponse(
+        replayable_fresh_route,
+        capability,
+        overlapping_replayable_instance,
+        replayable_fresh_obligation,
+        replayable_fresh_spec,
+        envelope,
+        response,
+        .fresh,
+    );
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, replayable_overlap_auth.previous_obligation_status);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, replayable_overlap_auth.next_obligation_status);
     const replayable_consumed = try replayable_fresh_obligation.consume(response, .fresh);
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, replayable_consumed.next_obligation_status);
     try std.testing.expect(!replayable_consumed.capability_instance_consumed);
@@ -16229,6 +16249,73 @@ test "Program.Exchange replayable affine and branch policy obligation rules" {
     try std.testing.expectError(error.ProgramContractViolation, replayable_consumed_obligation.replay(different_response, replayable_consumed_obligation.consumed_response_fingerprint.?, .replayed));
     const replayable_replay = try replayable_consumed_obligation.replay(response, replayable_consumed_obligation.consumed_response_fingerprint.?, .replayed);
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, replayable_replay.next_obligation_status);
+    const replayable_replayed_obligation = try replayable_consumed_obligation.applyTransition(replayable_replay);
+    const replayable_second_replay = try replayable_replayed_obligation.replay(response, replayable_replayed_obligation.consumed_response_fingerprint.?, .replayed);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, replayable_second_replay.previous_obligation_status);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, replayable_second_replay.next_obligation_status);
+    const repeated_replay_report = Program.Exchange.validateObligations(.{
+        .obligations = &.{replayable_fresh_obligation},
+        .transitions = &.{ replayable_consumed, replayable_replay, replayable_second_replay },
+    });
+    try std.testing.expect(!repeated_replay_report.has(.wrong_obligation));
+    try std.testing.expect(!repeated_replay_report.has(.invalid_obligation_transition));
+    try std.testing.expect(!repeated_replay_report.has(.unresolved_linear_obligation));
+    var replay_branch_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{
+        .usage_metadata = .{
+            .usage = .replayable,
+            .branch_id = 18,
+            .branch_policy = .unrestricted,
+            .replay_policy = .replayed,
+        },
+    });
+    defer replay_branch_envelope.deinit();
+    const replay_branch_spec = Program.Exchange.EffectSessionSpec{
+        .label = "branch-policy-replayable-replay",
+        .initial_state = "pending",
+        .states = states[0..],
+        .terminal_states = states[1..],
+        .transitions = replayable_fresh_transitions[0..],
+        .usage = .replayable,
+        .replay_policy = .replayed,
+    };
+    var replay_branch_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, replay_branch_spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 18 });
+    var replay_branch_obligation = try Program.Exchange.Obligation.open(&replay_branch_instance, replay_branch_envelope, .{}, response_refs[0..]);
+    var replay_branch_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, replay_branch_envelope, @as(i32, 1));
+    defer replay_branch_response.deinit();
+    try std.testing.expect(replay_branch_response.fingerprint != replayable_consumed_obligation.consumed_response_fingerprint.?);
+    const replay_branch_transition = try replay_branch_obligation.replay(replay_branch_response, replayable_consumed_obligation.consumed_response_fingerprint.?, .replayed);
+    try std.testing.expectEqual(replay_branch_response.fingerprint, replay_branch_transition.response_fingerprint.?);
+    try std.testing.expectEqual(replayable_consumed_obligation.consumed_response_fingerprint.?, replay_branch_transition.replay_source_response_fingerprint.?);
+    const replay_branch_route = Program.Exchange.Route.from(replay_branch_envelope, provider, capability, .{ .require_response_capability = true });
+    try std.testing.expect(replay_branch_route.valid());
+    try replay_branch_response.authorize(replay_branch_route);
+    const replay_branch_auth = try Program.Exchange.authorizeObligationResponseWithReplaySource(
+        replay_branch_route,
+        capability,
+        replay_branch_instance,
+        replay_branch_obligation,
+        replay_branch_spec,
+        replay_branch_envelope,
+        replay_branch_response,
+        .replayed,
+        replayable_consumed_obligation.consumed_response_fingerprint.?,
+    );
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, replay_branch_auth.previous_obligation_status);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, replay_branch_auth.next_obligation_status);
+    const reopened_replayable_instance = try replayable_fresh_instance.opened(envelope.request_fingerprint + 1);
+    const replayable_reopen_auth = try Program.Exchange.authorizeObligationResponseWithReplaySource(
+        replayable_fresh_route,
+        capability,
+        reopened_replayable_instance,
+        replayable_consumed_obligation,
+        replayable_fresh_spec,
+        envelope,
+        response,
+        .replayed,
+        replayable_consumed_obligation.consumed_response_fingerprint.?,
+    );
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, replayable_reopen_auth.previous_obligation_status);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, replayable_reopen_auth.next_obligation_status);
     var replay_only_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, replayable_fresh_spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_policy = .replay_only });
     try std.testing.expectError(error.ProgramContractViolation, replay_only_instance.split(.{ .branch_id = 12, .policy = .unrestricted }));
     const replay_only_child = try replay_only_instance.split(.{ .branch_id = 12, .policy = .replay_only });
