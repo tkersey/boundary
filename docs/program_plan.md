@@ -723,6 +723,46 @@ networking, persistence, brokers, tools, humans, and models. Request tokens are
 still not serialized; capability fingerprints are deterministic audit metadata,
 not cryptographic authorization.
 
+### Effect Treaties
+
+In direct-style algebraic effects, a handler is installed lexically. In Effect
+Exchange, the handler-equivalent is negotiated data: an `Exchange.Treaty`.
+Routing finds a provider. A treaty proves the provider may handle this effect in
+this way.
+
+Provider offers describe what can be handled: sites, protocol operation
+fingerprints, protocol labels, payload/current-value refs, response refs and
+kinds, supported usage modes, response-use classes, replay and branch policies,
+capsule policy, byte limits, tags, and metadata. Morphism offers describe one
+hop of protocol adaptation and cite dynamic morphism, residual morphism, or
+pipeline fingerprints when those adapters are available.
+
+`TreatyResolver` is pure and catalog-driven. Given a request envelope, manifest,
+provider manifests, offers, capabilities, optional capability instances,
+morphism offers, optional obligations, and treaty policy, it selects direct
+handling or adapted handling, attenuates capability authority when policy
+requires least authority, validates usage/replay/branch/response-use/capsule
+constraints, and returns a treaty, no treaty, ambiguity, or structured blockers.
+It performs no IO, transport, scheduling, provider calls, or cancellation.
+
+The treaty certificate binds the request, provider, offer, capability,
+attenuated capability path, route, optional morphism or pipeline, usage mode,
+response-use policy, replay policy, branch policy, expected response refs and
+kinds, obligation metadata, and journal policy. Treaty-bound response
+authorization validates the returned response against that certificate while
+keeping existing response envelope bytes and fingerprints stable.
+
+`MailboxRunner` treaty mode resolves before outbox write, sends the request
+envelope with the selected certificate, journals treaty request/selection,
+certificate, authorization, accepted, and rejected response events, and rejects
+responses that cite the wrong treaty, provider, capability, route, usage,
+response-use, replay, branch, response kind, or obligation transition. Effect
+Treaties are deterministic protocol negotiation metadata, not cryptographic
+security, legal-contract semantics, a network runtime, async runtime,
+distributed consensus, workflow engine, or provider execution layer. Hosts own
+identity, signing, encryption, transport, storage, scheduling, network,
+persistence, and side effects.
+
 ### Linear Effect Sessions
 
 Continuations can be copied; the world often cannot. Linear Effect Sessions are
