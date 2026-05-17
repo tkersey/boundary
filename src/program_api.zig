@@ -4290,6 +4290,7 @@ pub fn program(
                 replay_source_response_fingerprint: ?u64 = null,
                 provider_fingerprint: ?u64 = null,
                 capability_instance_fingerprint: ?u64 = null,
+                authority_instance_fingerprint: ?u64 = null,
                 branch_policy: BranchPolicy = .unrestricted,
                 replay_policy: ResponseUse = .fresh,
 
@@ -4388,6 +4389,7 @@ pub fn program(
                         .capsule_image_fingerprint = request.capsule_image_fingerprint,
                         .provider_fingerprint = opened_instance.provider_fingerprint,
                         .capability_instance_fingerprint = opened_instance.instance_fingerprint,
+                        .authority_instance_fingerprint = instance.instance_fingerprint,
                         .branch_policy = opened_instance.branch_policy,
                         .replay_policy = opened_instance.replay_policy,
                     };
@@ -4415,17 +4417,30 @@ pub fn program(
 
                 /// Replay an obligation from a recorded response fingerprint.
                 pub fn replay(self: @This(), response: ResponseEnvelope, source_response_fingerprint: u64, use_value: ResponseUse) Error!ObligationTransition {
+                    return self.replayWithSourceValue(response, source_response_fingerprint, null, use_value);
+                }
+
+                /// Replay an open branch from a recorded response plus a stable response-value witness.
+                pub fn replayFromSourceValue(self: @This(), response: ResponseEnvelope, source_response_fingerprint: u64, source_response_value_fingerprint: u64, use_value: ResponseUse) Error!ObligationTransition {
+                    return self.replayWithSourceValue(response, source_response_fingerprint, source_response_value_fingerprint, use_value);
+                }
+
+                fn replayWithSourceValue(self: @This(), response: ResponseEnvelope, source_response_fingerprint: u64, source_response_value_fingerprint: ?u64, use_value: ResponseUse) Error!ObligationTransition {
                     if (!self.validFingerprint()) return error.ProgramContractViolation;
                     if (use_value != .replayed and use_value != .deterministic_replay) return error.ProgramContractViolation;
-                    if (!metadataReplayPolicyAllows(self.status, self.replay_policy, use_value)) return error.ProgramContractViolation;
+                    if (!obligationReplayPolicyAllows(self.status, self.branch_policy, self.replay_policy, use_value)) return error.ProgramContractViolation;
                     if (self.usage == .ephemeral) return error.ProgramContractViolation;
                     if (self.status != .open and self.status != .consumed and self.status != .replayed) return error.ProgramContractViolation;
-                    if (self.status == .open and (self.usage == .linear or self.usage == .affine)) return error.ProgramContractViolation;
+                    if (self.status == .open and (self.usage == .linear or self.usage == .affine) and self.branch_policy != .replay_only) return error.ProgramContractViolation;
                     try validateResponseEnvelopeFieldsBoundToBytes(response);
                     if (self.status == .consumed or self.status == .replayed) {
                         const recorded_response_fingerprint = self.consumed_response_fingerprint orelse return error.ProgramContractViolation;
                         if (recorded_response_fingerprint != source_response_fingerprint) return error.ProgramContractViolation;
-                        if (response.fingerprint != source_response_fingerprint) return error.ProgramContractViolation;
+                    }
+                    if (response.fingerprint != source_response_fingerprint) {
+                        if (self.status != .open) return error.ProgramContractViolation;
+                        const source_value_fingerprint = source_response_value_fingerprint orelse return error.ProgramContractViolation;
+                        if (response.response_value_fingerprint != source_value_fingerprint) return error.ProgramContractViolation;
                     }
                     if (response.request_envelope_fingerprint != self.request_envelope_fingerprint) return error.ProgramContractViolation;
                     if (response.request_fingerprint != self.request_fingerprint) return error.ProgramContractViolation;
@@ -4534,7 +4549,8 @@ pub fn program(
                                 matched_obligation_status = obligation.status;
                                 if (obligation.branch_id != transition.branch_id) report.add(.branch_policy);
                                 if (obligation.branch_policy == .replay_only and (transition.response_use == .fresh or transition.response_use == .override)) report.add(.replay_policy);
-                                if (!metadataReplayPolicyAllows(obligation.status, obligation.replay_policy, transition.response_use)) report.add(.replay_policy);
+                                if (!obligationReplayPolicyAllows(obligation.status, obligation.branch_policy, obligation.replay_policy, transition.response_use)) report.add(.replay_policy);
+                                if (!obligationTransitionShapeValid(obligation, transition)) report.add(.invalid_obligation_transition);
                                 if (transition.next_obligation_status == .abandoned and obligation.branch_policy != .host_owned) report.add(.branch_policy);
                                 break;
                             }
@@ -4553,12 +4569,12 @@ pub fn program(
                             report.add(.obligation_not_open);
                         }
                         var expected_previous_status: ?ObligationStatus = null;
-                        var consumed_opened_instance: ?u64 = null;
+                        var consumed_authority_instance: ?u64 = null;
                         if (transition.next_obligation_status == .consumed) {
                             for (self.obligations) |obligation| {
                                 if (obligationMatchesTransition(obligation, transition)) {
                                     if (obligation.usage == .linear or obligation.usage == .affine) {
-                                        consumed_opened_instance = obligation.effect_session_instance_fingerprint;
+                                        consumed_authority_instance = obligationAuthorityFingerprint(obligation);
                                     }
                                     break;
                                 }
@@ -4570,11 +4586,11 @@ pub fn program(
                             {
                                 report.add(.duplicate_obligation_consume);
                             }
-                            if (consumed_opened_instance) |current_opened_instance| {
+                            if (consumed_authority_instance) |current_authority_instance| {
                                 if (prior.next_obligation_status == .consumed) {
                                     for (self.obligations) |obligation| {
                                         if (obligationMatchesTransition(obligation, prior) and
-                                            obligation.effect_session_instance_fingerprint == current_opened_instance)
+                                            obligationAuthorityFingerprint(obligation) == current_authority_instance)
                                         {
                                             report.add(.duplicate_obligation_consume);
                                             break;
@@ -4611,7 +4627,9 @@ pub fn program(
                             if (obligationMatchesTransition(obligation, transition)) {
                                 if (transition.next_obligation_status == .consumed or transition.next_obligation_status == .canceled) closed = true;
                                 if (transition.next_obligation_status == .replayed and
-                                    (transition.previous_obligation_status == .consumed or transition.previous_obligation_status == .replayed)) closed = true;
+                                    (transition.previous_obligation_status == .consumed or
+                                        transition.previous_obligation_status == .replayed or
+                                        (transition.previous_obligation_status == .open and obligation.branch_policy == .replay_only))) closed = true;
                                 if (transition.next_obligation_status == .abandoned and obligation.branch_policy == .host_owned) closed = true;
                             }
                         }
@@ -5902,6 +5920,10 @@ pub fn program(
                 return false;
             }
 
+            fn obligationAuthorityFingerprint(obligation: Obligation) u64 {
+                return obligation.authority_instance_fingerprint orelse obligation.effect_session_instance_fingerprint;
+            }
+
             /// Nonblocking transport-neutral runner over host-owned inbox/outbox storage.
             pub const MailboxRunner = struct {
                 last_request_fingerprint: ?u64 = null,
@@ -6261,6 +6283,7 @@ pub fn program(
                         effect_session_spec: ?EffectSessionSpec = null,
                         response_use: ResponseUse = .fresh,
                         replay_source_response_fingerprint: ?u64 = null,
+                        replay_source_response_value_fingerprint: ?u64 = null,
                         allowed_response_refs: []const lowering_api.ValueRef = &.{},
                     },
                 ) Error!Step {
@@ -6372,7 +6395,12 @@ pub fn program(
                             if (!branch_report.allowed()) return error.ProgramContractViolation;
                             var transition = switch (options.response_use) {
                                 .fresh, .override => try obligation_ptr.*.consume(response, options.response_use),
-                                .replayed, .deterministic_replay => try obligation_ptr.*.replay(response, options.replay_source_response_fingerprint orelse return error.ProgramContractViolation, options.response_use),
+                                .replayed, .deterministic_replay => try obligation_ptr.*.replayWithSourceValue(
+                                    response,
+                                    options.replay_source_response_fingerprint orelse return error.ProgramContractViolation,
+                                    options.replay_source_response_value_fingerprint,
+                                    options.response_use,
+                                ),
                             };
                             if (options.effect_session_spec) |spec| {
                                 transition = try advanceObligationTransitionWithSpec(spec, obligation_ptr.*, transition, response);
@@ -6384,10 +6412,11 @@ pub fn program(
                             }
                             const updated_obligation = try obligation_ptr.*.applyTransition(transition);
                             if (options.capability_instance) |instance| {
-                                pending_instance = if (transition.capability_instance_consumed)
-                                    try instance.*.consumeWithState(response.fingerprint, transition.next_session_state)
-                                else
-                                    try instance.*.advanceState(transition.next_session_state);
+                                if (transition.capability_instance_consumed) {
+                                    pending_instance = try instance.*.consumeWithState(response.fingerprint, transition.next_session_state);
+                                } else if (options.effect_session_spec != null) {
+                                    pending_instance = try instance.*.advanceState(transition.next_session_state);
+                                }
                             }
                             const event_instance_fingerprint = if (pending_instance) |instance|
                                 instance.instance_fingerprint
@@ -6744,6 +6773,22 @@ pub fn program(
                 use_value: ResponseUse,
                 replay_source_response_fingerprint: ?u64,
             ) Error!AuthorizationResult {
+                return authorizeObligationResponseWithReplaySourceValue(route, capability, instance, obligation, spec, request, response, use_value, replay_source_response_fingerprint, null);
+            }
+
+            /// Validate response capability and consume/replay an obligation, allowing branch-local replay with a source value witness.
+            pub fn authorizeObligationResponseWithReplaySourceValue(
+                route: Route,
+                capability: Capability,
+                instance: CapabilityInstance,
+                obligation: Obligation,
+                spec: EffectSessionSpec,
+                request: RequestEnvelope,
+                response: ResponseEnvelope,
+                use_value: ResponseUse,
+                replay_source_response_fingerprint: ?u64,
+                replay_source_response_value_fingerprint: ?u64,
+            ) Error!AuthorizationResult {
                 try spec.validate();
                 if (!instance.validFingerprint()) return error.ProgramContractViolation;
                 if (!obligation.validFingerprint()) return error.ProgramContractViolation;
@@ -6764,7 +6809,7 @@ pub fn program(
                 }
                 if (request.fingerprint != obligation.request_envelope_fingerprint) return error.ProgramContractViolation;
                 if (response.request_envelope_fingerprint != request.fingerprint) return error.ProgramContractViolation;
-                if (!metadataReplayPolicyAllows(obligation.status, spec.replay_policy, use_value)) return error.ProgramContractViolation;
+                if (!obligationReplayPolicyAllows(obligation.status, obligation.branch_policy, spec.replay_policy, use_value)) return error.ProgramContractViolation;
                 if (request.usage_metadata) |metadata| {
                     if (metadata.effect_session_spec_fingerprint) |fingerprint| {
                         if (fingerprint != spec_fingerprint) return error.ProgramContractViolation;
@@ -6777,8 +6822,8 @@ pub fn program(
                     }
                     if (metadata.usage != obligation.usage or metadata.branch_id != obligation.branch_id) return error.ProgramContractViolation;
                     if (metadata.branch_policy != obligation.branch_policy) return error.ProgramContractViolation;
-                    if (!metadataReplayPolicyAllows(obligation.status, obligation.replay_policy, metadata.replay_policy)) return error.ProgramContractViolation;
-                    if (!metadataReplayPolicyAllows(obligation.status, metadata.replay_policy, use_value)) return error.ProgramContractViolation;
+                    if (!obligationReplayPolicyAllows(obligation.status, obligation.branch_policy, obligation.replay_policy, metadata.replay_policy)) return error.ProgramContractViolation;
+                    if (!obligationReplayPolicyAllows(obligation.status, obligation.branch_policy, metadata.replay_policy, use_value)) return error.ProgramContractViolation;
                 }
                 var report = validateRoutedResponseCapability(route, capability, request, response);
                 const response_has_open_obligation = false;
@@ -6787,7 +6832,12 @@ pub fn program(
                 if (!report.allowed()) return error.ProgramContractViolation;
                 var transition = switch (use_value) {
                     .fresh, .override => try obligation.consume(response, use_value),
-                    .replayed, .deterministic_replay => try obligation.replay(response, replay_source_response_fingerprint orelse return error.ProgramContractViolation, use_value),
+                    .replayed, .deterministic_replay => try obligation.replayWithSourceValue(
+                        response,
+                        replay_source_response_fingerprint orelse return error.ProgramContractViolation,
+                        replay_source_response_value_fingerprint,
+                        use_value,
+                    ),
                 };
                 transition = try advanceObligationTransitionWithSpec(spec, obligation, transition, response);
                 const authorization = response.authorization orelse return error.ProgramContractViolation;
@@ -6848,9 +6898,15 @@ pub fn program(
                     if (value.usage != obligation.usage) return error.ProgramContractViolation;
                     if (value.branch_id != obligation.branch_id) return error.ProgramContractViolation;
                     if (value.branch_policy != obligation.branch_policy) return error.ProgramContractViolation;
-                    if (!metadataReplayPolicyAllows(obligation.status, obligation.replay_policy, value.replay_policy)) return error.ProgramContractViolation;
-                    if (!metadataReplayPolicyAllows(obligation.status, value.replay_policy, response_use)) return error.ProgramContractViolation;
+                    if (!obligationReplayPolicyAllows(obligation.status, obligation.branch_policy, obligation.replay_policy, value.replay_policy)) return error.ProgramContractViolation;
+                    if (!obligationReplayPolicyAllows(obligation.status, obligation.branch_policy, value.replay_policy, response_use)) return error.ProgramContractViolation;
                 }
+            }
+
+            fn obligationReplayPolicyAllows(obligation_status: ObligationStatus, branch_policy: BranchPolicy, metadata_policy: ResponseUse, response_use: ResponseUse) bool {
+                if (metadataReplayPolicyAllows(obligation_status, metadata_policy, response_use)) return true;
+                const response_is_replay = response_use == .replayed or response_use == .deterministic_replay;
+                return obligation_status == .open and branch_policy == .replay_only and metadata_policy == .fresh and response_is_replay;
             }
 
             fn metadataReplayPolicyAllows(obligation_status: ObligationStatus, metadata_policy: ResponseUse, response_use: ResponseUse) bool {
@@ -8363,6 +8419,7 @@ pub fn program(
                 hashOptionalExchangeU64(&hasher, obligation.replay_source_response_fingerprint);
                 hashOptionalExchangeU64(&hasher, obligation.provider_fingerprint);
                 hashOptionalExchangeU64(&hasher, obligation.capability_instance_fingerprint);
+                hashOptionalExchangeU64(&hasher, obligation.authority_instance_fingerprint);
                 hashBytes(&hasher, @tagName(obligation.branch_policy));
                 hashBytes(&hasher, @tagName(obligation.replay_policy));
                 return hasher.final();
@@ -8414,6 +8471,49 @@ pub fn program(
                 };
                 transition.transition_fingerprint = fingerprintObligationTransition(transition);
                 return transition;
+            }
+
+            fn obligationTransitionShapeValid(obligation: Obligation, transition: ObligationTransition) bool {
+                const consumes_instance = obligation.usage == .linear or obligation.usage == .affine;
+                switch (transition.next_obligation_status) {
+                    .open => return false,
+                    .consumed => {
+                        return transition.previous_obligation_status == .open and
+                            transition.response_fingerprint != null and
+                            transition.replay_source_response_fingerprint == null and
+                            (transition.response_use == .fresh or transition.response_use == .override) and
+                            transition.capability_instance_consumed == consumes_instance and
+                            transition.branch_remains_open == !consumes_instance;
+                    },
+                    .replayed => {
+                        return (transition.previous_obligation_status == .open or
+                            transition.previous_obligation_status == .consumed or
+                            transition.previous_obligation_status == .replayed) and
+                            transition.response_fingerprint != null and
+                            transition.replay_source_response_fingerprint != null and
+                            (transition.response_use == .replayed or transition.response_use == .deterministic_replay) and
+                            !transition.capability_instance_consumed and
+                            transition.branch_remains_open;
+                    },
+                    .canceled => {
+                        return transition.previous_obligation_status == .open and
+                            (obligation.usage == .linear or obligation.usage == .affine) and
+                            transition.response_fingerprint == null and
+                            transition.replay_source_response_fingerprint == null and
+                            transition.response_use == .fresh and
+                            !transition.capability_instance_consumed and
+                            !transition.branch_remains_open;
+                    },
+                    .abandoned => {
+                        return transition.previous_obligation_status == .open and
+                            obligation.branch_policy == .host_owned and
+                            transition.response_fingerprint == null and
+                            transition.replay_source_response_fingerprint == null and
+                            transition.response_use == .fresh and
+                            !transition.capability_instance_consumed and
+                            !transition.branch_remains_open;
+                    },
+                }
             }
 
             fn obligationMatchesTransition(obligation: Obligation, transition: ObligationTransition) bool {

@@ -15825,6 +15825,7 @@ test "Program.Exchange capability instance obligation lifecycle rejects duplicat
     try std.testing.expect(obligation.allowed_response_refs[0].eql(trace.resume_ref));
     try std.testing.expect(instance.instance_fingerprint != original_instance_fingerprint);
     try std.testing.expectEqual(instance.instance_fingerprint, obligation.effect_session_instance_fingerprint);
+    try std.testing.expectEqual(original_instance_fingerprint, obligation.authority_instance_fingerprint.?);
     try std.testing.expectError(error.ProgramContractViolation, instance.opened(request.fingerprint() +% 1));
     var duplicate_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{
         .journal_branch_id = "duplicate-linear-open",
@@ -15843,6 +15844,7 @@ test "Program.Exchange capability instance obligation lifecycle rejects duplicat
     var copied_instance = copied_unopened_instance;
     var copied_obligation = try Program.Exchange.Obligation.open(&copied_instance, duplicate_envelope, route.allowed_response_kinds, response_refs[0..]);
     try std.testing.expectEqual(obligation.effect_session_instance_fingerprint, copied_obligation.effect_session_instance_fingerprint);
+    try std.testing.expectEqual(obligation.authority_instance_fingerprint.?, copied_obligation.authority_instance_fingerprint.?);
     try std.testing.expect(obligation.obligation_fingerprint != copied_obligation.obligation_fingerprint);
     var response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 42));
     defer response.deinit();
@@ -15855,6 +15857,18 @@ test "Program.Exchange capability instance obligation lifecycle rejects duplicat
     tampered_response.response_value_fingerprint +%= 1;
     try std.testing.expectError(error.ProgramContractViolation, obligation.consume(tampered_response, .fresh));
     try response.authorize(route);
+    var child_replay_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, child_envelope, @as(i32, 42));
+    defer child_replay_response.deinit();
+    const child_replay = try child_obligation.replayFromSourceValue(child_replay_response, response.fingerprint, response.response_value_fingerprint, .replayed);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, child_replay.previous_obligation_status);
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, child_replay.next_obligation_status);
+    try std.testing.expectEqual(response.fingerprint, child_replay.replay_source_response_fingerprint.?);
+    const child_replay_report = Program.Exchange.validateObligations(.{
+        .obligations = &.{child_obligation},
+        .transitions = &.{child_replay},
+    });
+    try std.testing.expect(!child_replay_report.has(.unresolved_linear_obligation));
+    try std.testing.expect(!child_replay_report.has(.invalid_obligation_transition));
     const auth = try Program.Exchange.authorizeObligationResponse(route, capability, instance, obligation, spec, envelope, response, .fresh);
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, auth.previous_obligation_status);
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, auth.next_obligation_status);
@@ -16206,6 +16220,10 @@ test "Program.Exchange replayable affine and branch policy obligation rules" {
     var replayable_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, replayable_spec, .{ .snapshot_allocator = std.heap.page_allocator });
     var replayable_obligation = try Program.Exchange.Obligation.open(&replayable_instance, envelope, .{}, response_refs[0..]);
     const recorded_replay_source = response.fingerprint;
+    try std.testing.expectError(error.ProgramContractViolation, replayable_obligation.replay(response, recorded_replay_source + 1, .replayed));
+    var forged_open_replay_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 2));
+    defer forged_open_replay_response.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, replayable_obligation.replay(forged_open_replay_response, recorded_replay_source, .replayed));
     const replay = try replayable_obligation.replay(response, recorded_replay_source, .replayed);
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, replay.next_obligation_status);
     try std.testing.expectError(error.ProgramContractViolation, replayable_obligation.consume(response, .replayed));
@@ -16283,13 +16301,18 @@ test "Program.Exchange replayable affine and branch policy obligation rules" {
     var replay_branch_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, replay_branch_envelope, @as(i32, 1));
     defer replay_branch_response.deinit();
     try std.testing.expect(replay_branch_response.fingerprint != replayable_consumed_obligation.consumed_response_fingerprint.?);
-    const replay_branch_transition = try replay_branch_obligation.replay(replay_branch_response, replayable_consumed_obligation.consumed_response_fingerprint.?, .replayed);
+    const replay_branch_transition = try replay_branch_obligation.replayFromSourceValue(
+        replay_branch_response,
+        replayable_consumed_obligation.consumed_response_fingerprint.?,
+        response.response_value_fingerprint,
+        .replayed,
+    );
     try std.testing.expectEqual(replay_branch_response.fingerprint, replay_branch_transition.response_fingerprint.?);
     try std.testing.expectEqual(replayable_consumed_obligation.consumed_response_fingerprint.?, replay_branch_transition.replay_source_response_fingerprint.?);
     const replay_branch_route = Program.Exchange.Route.from(replay_branch_envelope, provider, capability, .{ .require_response_capability = true });
     try std.testing.expect(replay_branch_route.valid());
     try replay_branch_response.authorize(replay_branch_route);
-    const replay_branch_auth = try Program.Exchange.authorizeObligationResponseWithReplaySource(
+    const replay_branch_auth = try Program.Exchange.authorizeObligationResponseWithReplaySourceValue(
         replay_branch_route,
         capability,
         replay_branch_instance,
@@ -16299,6 +16322,7 @@ test "Program.Exchange replayable affine and branch policy obligation rules" {
         replay_branch_response,
         .replayed,
         replayable_consumed_obligation.consumed_response_fingerprint.?,
+        response.response_value_fingerprint,
     );
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, replay_branch_auth.previous_obligation_status);
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, replay_branch_auth.next_obligation_status);
@@ -16666,14 +16690,15 @@ test "Program.Exchange mailbox runner consumes obligation and journals transitio
     };
     var reusable_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, reusable_spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 17 });
     var reusable_obligation = Program.Exchange.Obligation.placeholder();
+    const reusable_metadata = Program.Exchange.RequestUsageMetadata{
+        .capability_instance_fingerprint = reusable_instance.instance_fingerprint,
+        .usage = .replayable,
+        .branch_id = 17,
+        .branch_policy = .unrestricted,
+    };
     var reusable_poll = try reusable_runner.runStep(&reusable_session, &reusable_outbox, &reusable_inbox, .{
         .allocator = std.testing.allocator,
-        .usage_metadata = .{
-            .capability_instance_fingerprint = reusable_instance.instance_fingerprint,
-            .usage = .replayable,
-            .branch_id = 17,
-            .branch_policy = .unrestricted,
-        },
+        .usage_metadata = reusable_metadata,
         .capability_instance = &reusable_instance,
         .obligation = &reusable_obligation,
         .effect_session_spec = reusable_spec,
@@ -16683,6 +16708,7 @@ test "Program.Exchange mailbox runner consumes obligation and journals transitio
         else => return error.ExpectedRequest,
     }
     reusable_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, reusable_outbox.items.items[0], @as(i32, 8));
+    const reusable_source_response_value_fingerprint = reusable_inbox.response.?.response_value_fingerprint;
     const reusable_response_step = try reusable_runner.runStep(&reusable_session, &reusable_outbox, &reusable_inbox, .{
         .allocator = std.testing.allocator,
         .capability_instance = &reusable_instance,
@@ -16694,6 +16720,41 @@ test "Program.Exchange mailbox runner consumes obligation and journals transitio
         else => return error.ExpectedRunning,
     }
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, reusable_obligation.status);
+    try std.testing.expect(!reusable_instance.closed());
+    try std.testing.expectEqualStrings("done", reusable_instance.current_state);
+    const reusable_source_response_fingerprint = reusable_obligation.consumed_response_fingerprint.?;
+
+    var reusable_replay_session = try Program.Session.start(&runtime, .{});
+    defer reusable_replay_session.deinit();
+    var reusable_replay_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer reusable_replay_outbox.deinit();
+    var reusable_replay_inbox = Inbox{};
+    defer reusable_replay_inbox.deinit();
+    var reusable_replay_runner = Program.Exchange.MailboxRunner{};
+    var reusable_replay_poll = try reusable_replay_runner.runStep(&reusable_replay_session, &reusable_replay_outbox, &reusable_replay_inbox, .{
+        .allocator = std.testing.allocator,
+        .usage_metadata = reusable_metadata,
+        .capability_instance = &reusable_instance,
+        .obligation = &reusable_obligation,
+    });
+    switch (reusable_replay_poll) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    reusable_replay_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, reusable_replay_outbox.items.items[0], @as(i32, 8));
+    const reusable_replay_step = try reusable_replay_runner.runStep(&reusable_replay_session, &reusable_replay_outbox, &reusable_replay_inbox, .{
+        .allocator = std.testing.allocator,
+        .capability_instance = &reusable_instance,
+        .obligation = &reusable_obligation,
+        .response_use = .replayed,
+        .replay_source_response_fingerprint = reusable_source_response_fingerprint,
+        .replay_source_response_value_fingerprint = reusable_source_response_value_fingerprint,
+    });
+    switch (reusable_replay_step) {
+        .running => {},
+        else => return error.ExpectedRunning,
+    }
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, reusable_obligation.status);
     try std.testing.expect(!reusable_instance.closed());
     try std.testing.expectEqualStrings("done", reusable_instance.current_state);
 
