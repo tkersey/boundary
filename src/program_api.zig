@@ -5413,11 +5413,19 @@ pub fn program(
                     if (!listAllowsString(self.supported_protocol_labels, requirement_label)) return false;
                     const protocol_op = requestProtocolOperationFingerprint(request) orelse return false;
                     if (!listAllowsU64(self.supported_protocol_op_fingerprints, protocol_op)) return false;
+                    const operation_sites_constrained = self.supported_operation_sites.len != 0;
+                    const after_sites_constrained = self.supported_after_sites.len != 0;
                     if (!offerUsageCompatible(self, request)) return false;
                     if (!offerResponseCompatible(self, request)) return false;
                     switch (request.kind) {
-                        .operation => return listAllowsValueRef(self.accepted_payload_refs, request.value_ref) and listAllowsUsize(self.supported_operation_sites, request.site_index),
-                        .after => return listAllowsValueRef(self.accepted_current_value_refs, request.value_ref) and listAllowsUsize(self.supported_after_sites, request.site_index),
+                        .operation => {
+                            if (!operation_sites_constrained and after_sites_constrained) return false;
+                            return listAllowsValueRef(self.accepted_payload_refs, request.value_ref) and listAllowsUsize(self.supported_operation_sites, request.site_index);
+                        },
+                        .after => {
+                            if (!after_sites_constrained and operation_sites_constrained) return false;
+                            return listAllowsValueRef(self.accepted_current_value_refs, request.value_ref) and listAllowsUsize(self.supported_after_sites, request.site_index);
+                        },
                     }
                 }
 
@@ -5483,9 +5491,11 @@ pub fn program(
                     var refs: [3]lowering_api.ValueRef = undefined;
                     const refs_len = responseRefsForRequest(request, &refs);
                     if (self.source_response_refs.len != 0) {
+                        var source_ref_supported = false;
                         for (refs[0..refs_len]) |ref| {
-                            if (!listAllowsValueRef(self.source_response_refs, ref)) return false;
+                            if (listAllowsValueRef(self.source_response_refs, ref)) source_ref_supported = true;
                         }
+                        if (!source_ref_supported) return false;
                     }
                     return true;
                 }
@@ -6898,6 +6908,7 @@ pub fn program(
                 last_request_usage_metadata: ?RequestUsageMetadata = null,
                 last_route: ?Route = null,
                 last_treaty: ?Treaty = null,
+                last_treaty_requires_journal: bool = false,
                 last_response_capability_required: bool = false,
 
                 /// One nonblocking mailbox runner outcome.
@@ -6916,6 +6927,7 @@ pub fn program(
                 fn clearLastTreaty(self: *@This()) void {
                     if (self.last_treaty) |*treaty| treaty.deinit();
                     self.last_treaty = null;
+                    self.last_treaty_requires_journal = false;
                 }
 
                 fn clearLastRequestJournalBranch(self: *@This()) void {
@@ -7291,6 +7303,7 @@ pub fn program(
                         var response = response_value;
                         defer response.deinit();
                         const treaty = self.last_treaty orelse return error.ProgramContractViolation;
+                        if (self.last_treaty_requires_journal and options.journal == null) return error.ProgramContractViolation;
                         var owned_current = try requestEnvelopeForCurrent(
                             options.allocator,
                             session,
@@ -7549,6 +7562,8 @@ pub fn program(
                         try appendTreatyOutboxEnvelope(options.allocator, outbox, envelope, treaty);
                         self.clearLastTreaty();
                         self.last_treaty = treaty;
+                        self.last_treaty_requires_journal = options.treaty_policy.require_journal_recording or
+                            if (options.treaty_request) |request_value| request_value.require_journal_recording else false;
                         result.treaty = null;
                         self.last_route = treaty.route;
                         self.last_request_fingerprint = envelope.request_fingerprint;
@@ -9746,6 +9761,21 @@ pub fn program(
                 return count;
             }
 
+            fn filterResponseRefsForTreaty(offer: ProviderOffer, morphism: ?MorphismOffer, refs: *[3]lowering_api.ValueRef, refs_len: usize) usize {
+                if (morphism) |morphism_offer| {
+                    var count: usize = 0;
+                    for (refs[0..refs_len]) |ref| {
+                        const morphism_allows_source_ref = morphism_offer.source_response_refs.len == 0 or listAllowsValueRef(morphism_offer.source_response_refs, ref);
+                        if (morphism_allows_source_ref and !valueRefListContains(refs[0..count], ref)) {
+                            refs[count] = ref;
+                            count += 1;
+                        }
+                    }
+                    return count;
+                }
+                return filterResponseRefsForOffer(offer, refs, refs_len);
+            }
+
             fn responseKindsForRefs(request: RequestEnvelope, kinds: Policy.ResponseKindSet, refs: []const lowering_api.ValueRef) Policy.ResponseKindSet {
                 var result: Policy.ResponseKindSet = .{
                     .@"resume" = false,
@@ -9781,10 +9811,11 @@ pub fn program(
                 if (!requestAcceptsAnyResponseKind(request, offer.allowed_response_kinds)) return false;
                 var refs: [3]lowering_api.ValueRef = undefined;
                 const count = responseRefsForKinds(request, offer.allowed_response_kinds, &refs);
+                if (offer.produced_response_refs.len == 0) return count != 0;
                 for (refs[0..count]) |ref| {
-                    if (!listAllowsValueRef(offer.produced_response_refs, ref)) return false;
+                    if (listAllowsValueRef(offer.produced_response_refs, ref)) return true;
                 }
-                return true;
+                return false;
             }
 
             fn offerSourceSurfaceCompatible(offer: ProviderOffer, request: RequestEnvelope) bool {
@@ -9803,9 +9834,17 @@ pub fn program(
                 if (!listAllowsString(offer.supported_protocol_labels, requirement_label)) return false;
                 const protocol_op = requestProtocolOperationFingerprint(request) orelse return false;
                 if (!listAllowsU64(offer.supported_protocol_op_fingerprints, protocol_op)) return false;
+                const operation_sites_constrained = offer.supported_operation_sites.len != 0;
+                const after_sites_constrained = offer.supported_after_sites.len != 0;
                 return switch (request.kind) {
-                    .operation => listAllowsValueRef(offer.accepted_payload_refs, request.value_ref) and listAllowsUsize(offer.supported_operation_sites, request.site_index),
-                    .after => listAllowsValueRef(offer.accepted_current_value_refs, request.value_ref) and listAllowsUsize(offer.supported_after_sites, request.site_index),
+                    .operation => blk: {
+                        if (!operation_sites_constrained and after_sites_constrained) break :blk false;
+                        break :blk listAllowsValueRef(offer.accepted_payload_refs, request.value_ref) and listAllowsUsize(offer.supported_operation_sites, request.site_index);
+                    },
+                    .after => blk: {
+                        if (!after_sites_constrained and operation_sites_constrained) break :blk false;
+                        break :blk listAllowsValueRef(offer.accepted_current_value_refs, request.value_ref) and listAllowsUsize(offer.supported_after_sites, request.site_index);
+                    },
                 };
             }
 
@@ -10589,6 +10628,12 @@ pub fn program(
                 if (!requestAcceptsAnyResponseRef(request, allowed_response_kinds, refs)) report.add(.response_ref);
             }
 
+            fn addMorphismTargetResponseBlockers(report: *ValidationReport, capability: Capability, morphism: MorphismOffer) void {
+                for (morphism.target_response_refs) |ref| {
+                    if (!listAllowsValueRef(capability.allowed_response_refs, ref)) report.add(.response_ref);
+                }
+            }
+
             fn policyRequiresRoute(policy: Policy) bool {
                 return policy.require_route or
                     policy.require_response_capability or
@@ -11177,7 +11222,7 @@ pub fn program(
                 var expected_response_kinds = responseKindSetIntersection(responseKindSetIntersection(responseKindSetForRequest(inputs.request), request_value.desired_response_kinds), offer.allowed_response_kinds);
                 var expected_refs_buffer: [3]lowering_api.ValueRef = undefined;
                 var expected_refs_len = expectedResponseRefsForTreaty(inputs.request, request_value, expected_response_kinds, &expected_refs_buffer);
-                expected_refs_len = filterResponseRefsForOffer(offer, &expected_refs_buffer, expected_refs_len);
+                expected_refs_len = filterResponseRefsForTreaty(offer, morphism, &expected_refs_buffer, expected_refs_len);
                 expected_response_kinds = responseKindsForRefs(inputs.request, expected_response_kinds, expected_refs_buffer[0..expected_refs_len]);
                 if (!requestAcceptsAnyResponseKind(inputs.request, expected_response_kinds) or expected_refs_len == 0) {
                     blockers.addTag(.wrong_response_kind, inputs.request.fingerprint, "treaty request admits no response shape for this request");
@@ -11187,27 +11232,29 @@ pub fn program(
                 var attenuated: ?Capability = null;
                 errdefer if (attenuated) |*capability_value| capability_value.deinit();
                 var route = routeForTreaty(inputs.request, provider, offer, selected_capability, route_policy, request_value, morphism);
+                route.allowed_response_kinds = responseKindSetIntersection(route.allowed_response_kinds, expected_response_kinds);
+                if (!requestAcceptsAnyResponseRef(inputs.request, route.allowed_response_kinds, expected_refs_buffer[0..expected_refs_len])) {
+                    blockers.addTag(.wrong_response_kind, inputs.request.fingerprint, "route admits no requested response ref");
+                }
+                var route_expected_refs_buffer: [3]lowering_api.ValueRef = undefined;
+                var route_expected_refs_len = narrowTreatyRouteResponses(&route, inputs.request, request_value, offer, morphism, &route_expected_refs_buffer);
                 if (route.valid() and (inputs.treaty_policy.require_capability_attenuation or (inputs.treaty_policy.require_least_authority and request_value.require_least_authority))) {
-                    attenuated = attenuateCapabilityForTreaty(inputs.allocator, capability, inputs.request, offer, route_policy, request_value, expected_response_kinds, expected_refs_buffer[0..expected_refs_len], morphism) catch |err| switch (err) {
+                    attenuated = attenuateCapabilityForTreaty(inputs.allocator, capability, inputs.request, offer, route_policy, request_value, route.allowed_response_kinds, route_expected_refs_buffer[0..route_expected_refs_len], morphism) catch |err| switch (err) {
                         error.ProgramContractViolation => null,
                         else => return err,
                     };
                     if (attenuated) |capability_value| {
                         selected_capability = capability_value;
                         route = routeForTreaty(inputs.request, provider, offer, selected_capability, route_policy, request_value, morphism);
+                        route.allowed_response_kinds = responseKindSetIntersection(route.allowed_response_kinds, expected_response_kinds);
+                        if (!requestAcceptsAnyResponseRef(inputs.request, route.allowed_response_kinds, expected_refs_buffer[0..expected_refs_len])) {
+                            blockers.addTag(.wrong_response_kind, inputs.request.fingerprint, "attenuated route admits no requested response ref");
+                        }
+                        route_expected_refs_len = narrowTreatyRouteResponses(&route, inputs.request, request_value, offer, morphism, &route_expected_refs_buffer);
                     } else {
                         blockers.addTag(.capability_not_monotone, inputs.request.fingerprint, "capability cannot be attenuated to treaty authority");
                     }
                 }
-                route.allowed_response_kinds = responseKindSetIntersection(route.allowed_response_kinds, expected_response_kinds);
-                if (!requestAcceptsAnyResponseRef(inputs.request, route.allowed_response_kinds, expected_refs_buffer[0..expected_refs_len])) {
-                    blockers.addTag(.wrong_response_kind, inputs.request.fingerprint, "route admits no requested response ref");
-                }
-                var route_expected_refs_buffer: [3]lowering_api.ValueRef = undefined;
-                var route_expected_refs_len = expectedResponseRefsForTreaty(inputs.request, request_value, route.allowed_response_kinds, &route_expected_refs_buffer);
-                route_expected_refs_len = filterResponseRefsForOffer(offer, &route_expected_refs_buffer, route_expected_refs_len);
-                route.allowed_response_kinds = responseKindsForRefs(inputs.request, route.allowed_response_kinds, route_expected_refs_buffer[0..route_expected_refs_len]);
-                route.fingerprint = fingerprintRoute(route);
                 if (!route.valid()) {
                     blockers.addTag(.no_capability, inputs.request.fingerprint, "capability or route does not authorize the request");
                 }
@@ -11302,6 +11349,21 @@ pub fn program(
                 return treaty;
             }
 
+            fn narrowTreatyRouteResponses(
+                route: *Route,
+                request: RequestEnvelope,
+                request_value: TreatyRequest,
+                offer: ProviderOffer,
+                morphism: ?MorphismOffer,
+                route_expected_refs: *[3]lowering_api.ValueRef,
+            ) usize {
+                var route_expected_refs_len = expectedResponseRefsForTreaty(request, request_value, route.allowed_response_kinds, route_expected_refs);
+                route_expected_refs_len = filterResponseRefsForTreaty(offer, morphism, route_expected_refs, route_expected_refs_len);
+                route.allowed_response_kinds = responseKindsForRefs(request, route.allowed_response_kinds, route_expected_refs[0..route_expected_refs_len]);
+                route.fingerprint = fingerprintRoute(route.*);
+                return route_expected_refs_len;
+            }
+
             fn selectTreatyCapabilityInstance(inputs: TreatyResolver.Inputs, provider: ProviderManifest, capability: Capability) ?u64 {
                 const state_at_open = if (inputs.obligation) |obligation| obligation.state_at_open else null;
                 const instance = treatyCapabilityInstanceFor(inputs, provider, capability, state_at_open) orelse return null;
@@ -11329,8 +11391,12 @@ pub fn program(
                 var blockers = validateCapabilityMorphismTargetScope(capability, request, morphism_offer.target_protocol_op_fingerprint);
                 blockers.merge(validateProviderMorphismTargetScope(provider, request, morphism_offer.target_protocol_op_fingerprint));
                 blockers.merge(validatePolicyRequestScope(policy, request));
-                const allowed_response_kinds = responseKindSetIntersection(allowedResponseKindsForRequest(request, provider, capability, policy), offer.allowed_response_kinds);
-                addResponseViabilityBlockers(&blockers, request, allowed_response_kinds, capability.allowed_response_refs);
+                const allowed_response_kinds = responseKindSetIntersection(responseKindSetIntersection(
+                    responseKindSetIntersection(provider.allowed_response_kinds, capability.allowed_response_kinds),
+                    policy.allowed_response_kinds,
+                ), offer.allowed_response_kinds);
+                addResponseViabilityBlockers(&blockers, request, allowed_response_kinds, morphism_offer.source_response_refs);
+                addMorphismTargetResponseBlockers(&blockers, capability, morphism_offer);
                 if (!policyProviderAllowed(policy, provider.provider_fingerprint)) blockers.add(.provider_not_allowed);
                 if (!policyCapabilityAllowed(policy, capability.fingerprint)) blockers.add(.capability_not_allowed);
                 var route = Route{
@@ -11365,19 +11431,24 @@ pub fn program(
                 morphism: ?MorphismOffer,
             ) Error!Capability {
                 const operation_sites = [_]usize{request.site_index};
-                const protocol_ops = [_]u64{if (morphism) |morphism_offer| morphism_offer.target_protocol_op_fingerprint else requestProtocolOperationFingerprint(request) orelse request.site_fingerprint};
+                const morphism_offer = morphism;
+                const protocol_ops = [_]u64{if (morphism_offer) |value| value.target_protocol_op_fingerprint else requestProtocolOperationFingerprint(request) orelse request.site_fingerprint};
                 const direct_request = morphism == null;
+                const attenuation_response_refs = if (morphism_offer) |value|
+                    if (value.target_response_refs.len == 0) null else value.target_response_refs
+                else
+                    expected_response_refs;
                 return capability.attenuate(allocator, .{
                     .allowed_request_kinds = .{ .operation = request.kind == .operation, .after = request.kind == .after },
                     .allowed_program_labels = &.{label},
                     .allowed_plan_hashes = &.{body_compiled_plan_hash},
-                    .allowed_operation_sites = if (direct_request) (if (request.kind == .operation) operation_sites[0..] else &.{}) else null,
-                    .allowed_after_sites = if (direct_request) (if (request.kind == .after) operation_sites[0..] else &.{}) else null,
+                    .allowed_operation_sites = if (direct_request and request.kind == .operation) operation_sites[0..] else null,
+                    .allowed_after_sites = if (direct_request and request.kind == .after) operation_sites[0..] else null,
                     .allowed_protocol_op_fingerprints = protocol_ops[0..],
                     .allowed_requirement_labels = if (direct_request) (if (requestRequirementLabel(request)) |requirement| &.{requirement} else &.{}) else null,
                     .allowed_op_names = if (direct_request) &.{request.name} else null,
                     .allowed_response_kinds = expected_response_kinds,
-                    .allowed_response_refs = expected_response_refs,
+                    .allowed_response_refs = attenuation_response_refs,
                     .allow_embedded_capsule_response_handling = request.capsule_image != null,
                     .allow_capsule_restore = request.capsule_image != null and capability.allow_capsule_restore,
                     .max_request_bytes = @min(@min(@min(capability.max_request_bytes, offer.max_request_bytes), route_policy.max_envelope_bytes), request_value.max_request_bytes),
