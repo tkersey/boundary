@@ -161,7 +161,14 @@ pub fn run(writer: anytype) !void {
     const route_fingerprint = treaty.route.fingerprint;
     inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(allocator, outbox.requests.items[0], @as(i32, 1));
     try inbox.response.?.authorizeTreaty(treaty, .fresh);
-    _ = try runner.runTreatyStep(&session, &outbox, &inbox, .{ .allocator = allocator, .manifest = manifest });
+    _ = try runner.runTreatyStep(&session, &outbox, &inbox, .{
+        .allocator = allocator,
+        .manifest = manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+        .treaty_policy = .{ .require_capability_attenuation = true },
+    });
     var final = switch (try runner.runTreatyStep(&session, &outbox, &inbox, .{ .allocator = allocator, .manifest = manifest })) {
         .done => |done| done,
         else => return error.ExpectedDone,
