@@ -15431,6 +15431,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     const invalid_v3_journal2_manifest_payload = invalid_v3_journal2_manifest[0 .. invalid_v3_journal2_manifest.len - 8];
     const invalid_v3_journal2_manifest_fingerprint = testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_v3_journal2_manifest_payload);
     std.mem.writeInt(u64, invalid_v3_journal2_manifest[invalid_v3_journal2_manifest.len - 8 ..][0..8], invalid_v3_journal2_manifest_fingerprint, .little);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Manifest.decode(std.testing.allocator, invalid_v3_journal2_manifest));
 
     var invalid_v2_journal3_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
     defer std.testing.allocator.free(invalid_v2_journal3_manifest);
@@ -15440,6 +15441,15 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     const invalid_v2_journal3_manifest_payload = invalid_v2_journal3_manifest[0 .. invalid_v2_journal3_manifest.len - 8];
     const invalid_v2_journal3_manifest_fingerprint = testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_v2_journal3_manifest_payload);
     std.mem.writeInt(u64, invalid_v2_journal3_manifest[invalid_v2_journal3_manifest.len - 8 ..][0..8], invalid_v2_journal3_manifest_fingerprint, .little);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Manifest.decode(std.testing.allocator, invalid_v2_journal3_manifest));
+
+    var invalid_v2_journal4_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
+    defer std.testing.allocator.free(invalid_v2_journal4_manifest);
+    std.mem.writeInt(u32, invalid_v2_journal4_manifest[manifest_request_format_offset..][0..4], v2_request_version, .little);
+    std.mem.writeInt(u32, invalid_v2_journal4_manifest[manifest_request_fingerprint_offset..][0..4], v2_request_version, .little);
+    const invalid_v2_journal4_manifest_payload = invalid_v2_journal4_manifest[0 .. invalid_v2_journal4_manifest.len - 8];
+    std.mem.writeInt(u64, invalid_v2_journal4_manifest[invalid_v2_journal4_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_v2_journal4_manifest_payload), .little);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Manifest.decode(std.testing.allocator, invalid_v2_journal4_manifest));
 
     var legacy_request_v2_journal_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
     defer std.testing.allocator.free(legacy_request_v2_journal_manifest);
@@ -15460,6 +15470,15 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     const invalid_legacy_journal3_manifest_payload = invalid_legacy_journal3_manifest[0 .. invalid_legacy_journal3_manifest.len - 8];
     const invalid_legacy_journal3_manifest_fingerprint = testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_legacy_journal3_manifest_payload);
     std.mem.writeInt(u64, invalid_legacy_journal3_manifest[invalid_legacy_journal3_manifest.len - 8 ..][0..8], invalid_legacy_journal3_manifest_fingerprint, .little);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Manifest.decode(std.testing.allocator, invalid_legacy_journal3_manifest));
+
+    var invalid_legacy_journal4_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
+    defer std.testing.allocator.free(invalid_legacy_journal4_manifest);
+    std.mem.writeInt(u32, invalid_legacy_journal4_manifest[manifest_request_format_offset..][0..4], legacy_manifest_request_version, .little);
+    std.mem.writeInt(u32, invalid_legacy_journal4_manifest[manifest_request_fingerprint_offset..][0..4], legacy_manifest_request_version, .little);
+    const invalid_legacy_journal4_manifest_payload = invalid_legacy_journal4_manifest[0 .. invalid_legacy_journal4_manifest.len - 8];
+    std.mem.writeInt(u64, invalid_legacy_journal4_manifest[invalid_legacy_journal4_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_legacy_journal4_manifest_payload), .little);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Manifest.decode(std.testing.allocator, invalid_legacy_journal4_manifest));
 
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -24781,6 +24800,19 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
     try std.testing.expectEqual(Program.Exchange.Treaty.HandlingKind.pipeline_adapted, static_result.treaty.?.handling);
     try std.testing.expectEqual(residualized.pipeline_fingerprint.?, static_result.treaty.?.certificate.pipeline_fingerprint.?);
     try std.testing.expectEqual(residualized.residual_morphism_fingerprint.?, static_result.treaty.?.certificate.residualization_fingerprints[0]);
+    try static_result.treaty.?.checkCertificate();
+    var wrong_pipeline_treaty = static_result.treaty.?;
+    wrong_pipeline_treaty.pipeline_fingerprint = null;
+    try std.testing.expectError(error.ProgramContractViolation, wrong_pipeline_treaty.checkCertificate());
+    var wrong_residual_treaty = static_result.treaty.?;
+    wrong_residual_treaty.residualization_fingerprints = &.{};
+    try std.testing.expectError(error.ProgramContractViolation, wrong_residual_treaty.checkCertificate());
+    var wrong_source_op_treaty = static_result.treaty.?;
+    wrong_source_op_treaty.source_protocol_op_fingerprint = null;
+    try std.testing.expectError(error.ProgramContractViolation, wrong_source_op_treaty.checkCertificate());
+    var wrong_target_op_treaty = static_result.treaty.?;
+    wrong_target_op_treaty.target_protocol_op_fingerprint = null;
+    try std.testing.expectError(error.ProgramContractViolation, wrong_target_op_treaty.checkCertificate());
 }
 
 test "Program.Exchange treaty response shape follows offer and route narrowing" {
@@ -25063,7 +25095,7 @@ test "Program.Exchange treaty response shape follows offer and route narrowing" 
         .label = "partial-source-morphism-provider",
         .provider_fingerprint = 0x456,
         .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
-        .supported_protocol_labels = &.{trace.requirement_label},
+        .supported_protocol_labels = &.{"target-session"},
         .supported_protocol_op_fingerprints = &.{target_op},
     });
     defer target_provider.deinit();
@@ -25071,7 +25103,7 @@ test "Program.Exchange treaty response shape follows offer and route narrowing" 
         .label = "partial-source-morphism-offer",
         .provider_fingerprint = target_provider.provider_fingerprint,
         .manifest_fingerprint = manifest.fingerprint,
-        .supported_protocol_labels = &.{trace.requirement_label},
+        .supported_protocol_labels = &.{"target-session"},
         .supported_protocol_op_fingerprints = &.{target_op},
         .allowed_response_kinds = .{ .return_now = false, .resume_after = false },
         .produced_response_refs = resume_refs[0..],
@@ -25084,8 +25116,8 @@ test "Program.Exchange treaty response shape follows offer and route narrowing" 
         .allowed_request_kinds = .{ .operation = true, .after = false },
         .allowed_operation_sites = &.{trace.operation_site_index},
         .allowed_protocol_op_fingerprints = &.{target_op},
-        .allowed_requirement_labels = &.{trace.requirement_label},
-        .allowed_op_names = &.{trace.op_name},
+        .allowed_requirement_labels = &.{"target-session"},
+        .allowed_op_names = &.{"target-approval"},
         .allowed_response_refs = resume_refs[0..],
     });
     defer target_capability.deinit();
@@ -25171,6 +25203,12 @@ test "Program.Exchange treaty response shape follows offer and route narrowing" 
     defer target_instance_result.deinit();
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, target_instance_result.status);
     try std.testing.expectEqual(target_instance.instance_fingerprint, target_instance_result.treaty.?.capability_instance_fingerprint.?);
+    try std.testing.expect(!std.mem.eql(u8, target_capability.allowed_requirement_labels[0], trace.requirement_label));
+    try std.testing.expect(!std.mem.eql(u8, target_capability.allowed_op_names[0], trace.op_name));
+    try target_instance_result.treaty.?.checkCertificate();
+    var wrong_effect_session_treaty = target_instance_result.treaty.?;
+    wrong_effect_session_treaty.effect_session_spec_fingerprint = null;
+    try std.testing.expectError(error.ProgramContractViolation, wrong_effect_session_treaty.checkCertificate());
     var policy_limited_morphism = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = envelope,
@@ -25254,6 +25292,7 @@ test "Program.Exchange morphism target refs do not wildcard source response refs
     const offers = [_]Program.Exchange.ProviderOffer{offer};
     const capabilities = [_]Program.Exchange.Capability{capability};
     const morphisms = [_]Program.Exchange.MorphismOffer{morphism};
+    try std.testing.expect(!morphism.supportsSource(envelope));
     var result = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = envelope,
@@ -26502,11 +26541,11 @@ test "Program.Exchange mailbox runner treaty mode sends certificate and validate
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, obligation.status);
     var saw_treaty_obligation_consumed = false;
     for (obligation_journal.entries.items) |entry| {
-        if (entry.exchange_event.kind == .obligation_consumed and
-            entry.exchange_event.treaty_fingerprint == obligation_treaty_fingerprint)
-        {
-            saw_treaty_obligation_consumed = true;
-        }
+        const event = switch (entry) {
+            .exchange_event => |event| event,
+            else => continue,
+        };
+        if (event.kind == .obligation_consumed and event.treaty_fingerprint == obligation_treaty_fingerprint) saw_treaty_obligation_consumed = true;
     }
     try std.testing.expect(saw_treaty_obligation_consumed);
 
@@ -26664,8 +26703,26 @@ test "Program.Exchange mailbox runner treaty mode sends certificate and validate
         else => return error.ExpectedRequest,
     }
     try std.testing.expectEqual(@as(usize, 1), stable_state_outbox.items.items.len);
+    var stable_state_tightened_journal = try stable_state_runner.runTreatyStep(&stable_state_session, &stable_state_outbox, &stable_state_inbox, .{
+        .allocator = std.testing.allocator,
+        .manifest = manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+        .treaty_policy = .{ .require_journal_recording = true },
+        .journal = &journal,
+    });
+    switch (stable_state_tightened_journal) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 1), stable_state_outbox.items.items.len);
     stable_state_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, stable_state_outbox.items.items[0], @as(i32, 13));
     try stable_state_inbox.response.?.authorizeTreaty(stable_state_runner.last_treaty.?, .fresh);
+    try std.testing.expectError(error.ProgramContractViolation, stable_state_runner.runTreatyStep(&stable_state_session, &stable_state_outbox, &stable_state_inbox, .{
+        .allocator = std.testing.allocator,
+        .manifest = manifest,
+    }));
     const stable_state_response_step = try stable_state_runner.runTreatyStep(&stable_state_session, &stable_state_outbox, &stable_state_inbox, .{
         .allocator = std.testing.allocator,
         .manifest = manifest,
@@ -26717,7 +26774,7 @@ test "Program.Exchange mailbox runner treaty mode sends certificate and validate
         else => return error.ExpectedRequest,
     }
     try std.testing.expectEqual(@as(usize, 2), certificate_refresh_outbox.items.items.len);
-    try std.testing.expectEqual(certificate_refresh_outbox.treaty_fingerprints.items[0], certificate_refresh_outbox.treaty_fingerprints.items[1]);
+    try std.testing.expect(certificate_refresh_outbox.treaty_fingerprints.items[0] != certificate_refresh_outbox.treaty_fingerprints.items[1]);
     try std.testing.expect(certificate_refresh_outbox.certificate_fingerprints.items[0] != certificate_refresh_outbox.certificate_fingerprints.items[1]);
 
     var tightened_tag_session = try Program.Session.start(&runtime, .{});
@@ -26844,7 +26901,8 @@ test "Program.Exchange mailbox runner treaty mode sends certificate and validate
         .running => {},
         else => return error.ExpectedRunning,
     }
-    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.treaty_response_accepted, journal.entries.items[journal.entries.items.len - 1].exchange_event.kind);
+    try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.treaty_response_accepted, journal.entries.items[journal.entries.items.len - 2].exchange_event.kind);
+    try std.testing.expect(journal.entries.items[journal.entries.items.len - 1].response.value_image != null);
     var done = switch (try runner.runTreatyStep(&session, &outbox, &inbox, .{ .allocator = std.testing.allocator, .manifest = manifest })) {
         .done => |value| value,
         else => return error.ExpectedDone,

@@ -4429,6 +4429,34 @@ pub fn program(
                 }
             }
 
+            fn validateCapabilityInstanceMorphismTargetScope(instance: CapabilityInstance, request: RequestEnvelope, target_protocol_op_fingerprint: u64) Error!void {
+                try request.validate();
+                if (!instance.allowed_request_kinds.allows(request.kind)) return error.ProgramContractViolation;
+                if (instance.expires_at_generation) |expires_at| {
+                    if (request.turn_index >= expires_at) return error.ProgramContractViolation;
+                }
+                if (instance.journal_policy_fingerprint) |expected_policy| {
+                    const branch_id = request.journal_branch_id orelse return error.ProgramContractViolation;
+                    if (journalBranchPolicyFingerprint(branch_id) != expected_policy) return error.ProgramContractViolation;
+                }
+                if (instance.allowed_protocol_op_fingerprints.len == 0 and
+                    (instance.allowed_requirement_labels.len != 0 or instance.allowed_op_names.len != 0))
+                {
+                    return error.ProgramContractViolation;
+                }
+                switch (request.kind) {
+                    .operation => if (!listAllowsUsize(instance.allowed_operation_sites, request.site_index)) return error.ProgramContractViolation,
+                    .after => if (!listAllowsUsize(instance.allowed_after_sites, request.site_index)) return error.ProgramContractViolation,
+                }
+                if (!listAllowsU64(instance.allowed_protocol_op_fingerprints, target_protocol_op_fingerprint)) return error.ProgramContractViolation;
+                if (request.bytes.len > instance.max_request_bytes) return error.ProgramContractViolation;
+                if (request.value_image.len > instance.max_payload_bytes) return error.ProgramContractViolation;
+                if (request.capsule_image) |image| {
+                    if (!instance.allow_embedded_capsule_response_handling) return error.ProgramContractViolation;
+                    if (image.len > instance.max_capsule_image_bytes) return error.ProgramContractViolation;
+                }
+            }
+
             fn effectiveObligationResponseRefs(instance_refs: []const lowering_api.ValueRef, requested_refs: []const lowering_api.ValueRef) Error![]const lowering_api.ValueRef {
                 if (requested_refs.len == 0) return instance_refs;
                 if (!valueRefListSubset(requested_refs, instance_refs)) return error.ProgramContractViolation;
@@ -4853,7 +4881,7 @@ pub fn program(
                     if (try reader.readU32() != capsule_image_format_version) return error.ProgramContractViolation;
                     if (try reader.readU32() != capsule_image_fingerprint_version) return error.ProgramContractViolation;
                     const manifest_journal_format = try reader.readU32();
-                    if (manifest_journal_format != 1 and manifest_journal_format != 2 and manifest_journal_format != 3 and manifest_journal_format != journal_format_version) return error.ProgramContractViolation;
+                    if (!emittedManifestVersionTuple(manifest_request_format_version, manifest_request_fingerprint_version, manifest_journal_format)) return error.ProgramContractViolation;
                     if (try reader.readU32() != journal_fingerprint_version) return error.ProgramContractViolation;
                     try readManifestValueSchemas(&reader);
                     try readManifestOperationSites(&reader);
@@ -5509,6 +5537,7 @@ pub fn program(
                     if (source_usage != self.source_usage) return false;
                     var refs: [3]lowering_api.ValueRef = undefined;
                     const refs_len = responseRefsForRequest(request, &refs);
+                    if (self.target_response_refs.len != 0 and self.source_response_refs.len == 0) return false;
                     if (self.source_response_refs.len != 0) {
                         var source_ref_supported = false;
                         for (refs[0..refs_len]) |ref| {
@@ -5587,6 +5616,12 @@ pub fn program(
                 route: Route,
                 handling: HandlingKind = .direct,
                 morphism_offer_fingerprints: []const u64 = &.{},
+                effect_session_spec_fingerprint: ?u64 = null,
+                dynamic_morphism_fingerprints: []const u64 = &.{},
+                residualization_fingerprints: []const u64 = &.{},
+                pipeline_fingerprint: ?u64 = null,
+                source_protocol_op_fingerprint: ?u64 = null,
+                target_protocol_op_fingerprint: ?u64 = null,
                 usage: Usage = .copyable,
                 response_use: ResponseUse = .fresh,
                 replay_policy: ResponseUse = .fresh,
@@ -5922,12 +5957,15 @@ pub fn program(
                         allocator.free(self.certificate.residualization_fingerprints);
                     }
                     self.morphism_offer_fingerprints = &.{};
+                    self.dynamic_morphism_fingerprints = &.{};
+                    self.residualization_fingerprints = &.{};
                     self.expected_response_refs = &.{};
                 }
 
                 /// Check the treaty certificate against the selected treaty.
                 pub fn checkCertificate(self: @This()) Error!void {
                     try self.certificate.check();
+                    if (self.fingerprint != fingerprintTreatyCore(self)) return error.ProgramContractViolation;
                     if (self.certificate.treaty_fingerprint != self.fingerprint) return error.ProgramContractViolation;
                     if (self.certificate.provider_fingerprint != self.provider_fingerprint) return error.ProgramContractViolation;
                     if (self.certificate.provider_offer_fingerprint != self.provider_offer_fingerprint) return error.ProgramContractViolation;
@@ -5949,6 +5987,12 @@ pub fn program(
                     if (self.route.capability_path_fingerprint != self.capability_path_fingerprint) return error.ProgramContractViolation;
                     if (!self.route.valid()) return error.ProgramContractViolation;
                     if (!u64ListEqual(self.certificate.morphism_offer_fingerprints, self.morphism_offer_fingerprints)) return error.ProgramContractViolation;
+                    if (self.certificate.effect_session_spec_fingerprint != self.effect_session_spec_fingerprint) return error.ProgramContractViolation;
+                    if (!u64ListEqual(self.certificate.dynamic_morphism_fingerprints, self.dynamic_morphism_fingerprints)) return error.ProgramContractViolation;
+                    if (!u64ListEqual(self.certificate.residualization_fingerprints, self.residualization_fingerprints)) return error.ProgramContractViolation;
+                    if (self.certificate.pipeline_fingerprint != self.pipeline_fingerprint) return error.ProgramContractViolation;
+                    if (self.certificate.source_protocol_op_fingerprint != self.source_protocol_op_fingerprint) return error.ProgramContractViolation;
+                    if (self.certificate.target_protocol_op_fingerprint != self.target_protocol_op_fingerprint) return error.ProgramContractViolation;
                     if (self.certificate.handling != self.handling) return error.ProgramContractViolation;
                     if (self.certificate.usage != self.usage) return error.ProgramContractViolation;
                     if (self.certificate.response_use != self.response_use) return error.ProgramContractViolation;
@@ -7550,6 +7594,7 @@ pub fn program(
                             });
                         }
                         try applyResponse(session, response, .{
+                            .journal = options.journal,
                             .request_envelope_fingerprint = self.last_request_envelope_fingerprint,
                             .request_manifest_fingerprint = self.last_request_manifest_fingerprint,
                         });
@@ -7622,6 +7667,8 @@ pub fn program(
                     const treaty_changed = self.last_treaty == null or
                         self.last_treaty.?.fingerprint != treaty.fingerprint or
                         self.last_treaty.?.certificate.certificate_fingerprint != treaty.certificate.certificate_fingerprint;
+                    const treaty_requires_journal = options.treaty_policy.require_journal_recording or
+                        if (options.treaty_request) |request_value| request_value.require_journal_recording else false;
                     if (envelope_changed or treaty_changed) {
                         var treaty_journal_checkpoint: ?JournalCheckpoint = null;
                         errdefer if (treaty_journal_checkpoint) |checkpoint| checkpoint.ledger.truncateEntries(checkpoint.start_len);
@@ -7685,8 +7732,7 @@ pub fn program(
                         try appendTreatyOutboxEnvelope(options.allocator, outbox, envelope, treaty);
                         self.clearLastTreaty();
                         self.last_treaty = treaty;
-                        self.last_treaty_requires_journal = options.treaty_policy.require_journal_recording or
-                            if (options.treaty_request) |request_value| request_value.require_journal_recording else false;
+                        self.last_treaty_requires_journal = treaty_requires_journal;
                         result.treaty = null;
                         self.last_route = treaty.route;
                         self.last_request_fingerprint = envelope.request_fingerprint;
@@ -7696,6 +7742,8 @@ pub fn program(
                         self.last_request_usage_metadata = request_usage_metadata;
                         self.adoptLastRequestJournalBranch(options.allocator, owned_branch);
                         owned_branch = null;
+                    } else {
+                        self.last_treaty_requires_journal = self.last_treaty_requires_journal or treaty_requires_journal;
                     }
                     return .{ .parked = envelope };
                 }
@@ -8976,21 +9024,31 @@ pub fn program(
                 return exchangeFingerprint("ability.exchange.manifest", exchange_manifest_fingerprint_version, writer.bytes.items);
             }
 
+            const ManifestVersionTuple = struct {
+                request_format: u32,
+                request_fingerprint: u32,
+                journal_format: u32,
+            };
+
+            const emitted_manifest_version_tuples = [_]ManifestVersionTuple{
+                .{ .request_format = exchange_request_format_version, .request_fingerprint = exchange_request_fingerprint_version, .journal_format = journal_format_version },
+                .{ .request_format = 3, .request_fingerprint = 3, .journal_format = 3 },
+                .{ .request_format = 2, .request_fingerprint = 2, .journal_format = 2 },
+                .{ .request_format = 1, .request_fingerprint = 1, .journal_format = 2 },
+                .{ .request_format = 1, .request_fingerprint = 1, .journal_format = 1 },
+            };
+
+            fn emittedManifestVersionTuple(request_format: u32, request_fingerprint: u32, journal_format: u32) bool {
+                if (!supportedRequestEnvelopeVersions(request_format, request_fingerprint)) return false;
+                for (emitted_manifest_version_tuples) |pair| {
+                    if (pair.request_format == request_format and pair.request_fingerprint == request_fingerprint and pair.journal_format == journal_format) return true;
+                }
+                return false;
+            }
+
             fn manifestFingerprintMatchesRequestVersion(allocator: std.mem.Allocator, fingerprint: u64, request_format: u32, request_fingerprint: u32) Error!bool {
                 if (!supportedRequestEnvelopeVersions(request_format, request_fingerprint)) return false;
-                const AllowedPair = struct {
-                    request_format: u32,
-                    request_fingerprint: u32,
-                    journal_format: u32,
-                };
-                const allowed_pairs = [_]AllowedPair{
-                    .{ .request_format = exchange_request_format_version, .request_fingerprint = exchange_request_fingerprint_version, .journal_format = journal_format_version },
-                    .{ .request_format = 3, .request_fingerprint = 3, .journal_format = 3 },
-                    .{ .request_format = 2, .request_fingerprint = 2, .journal_format = 2 },
-                    .{ .request_format = 1, .request_fingerprint = 1, .journal_format = 2 },
-                    .{ .request_format = 1, .request_fingerprint = 1, .journal_format = 1 },
-                };
-                for (allowed_pairs) |pair| {
+                for (emitted_manifest_version_tuples) |pair| {
                     if (pair.request_format != request_format or pair.request_fingerprint != request_fingerprint) continue;
                     if (fingerprint == try manifestFingerprintForVersions(allocator, request_format, request_fingerprint, pair.journal_format)) return true;
                 }
@@ -11503,11 +11561,12 @@ pub fn program(
                     if (expected_spec) |fingerprint| {
                         if (instance.effect_session_spec_fingerprint != fingerprint) continue;
                     }
-                    const protocol_op_fingerprint = if (morphism) |morphism_offer|
-                        morphism_offer.target_protocol_op_fingerprint
-                    else
-                        requestProtocolOperationFingerprint(inputs.request) orelse continue;
-                    validateCapabilityInstanceRequestScopeWithProtocolOp(instance, inputs.request, protocol_op_fingerprint) catch continue;
+                    if (morphism) |morphism_offer| {
+                        validateCapabilityInstanceMorphismTargetScope(instance, inputs.request, morphism_offer.target_protocol_op_fingerprint) catch continue;
+                    } else {
+                        const protocol_op_fingerprint = requestProtocolOperationFingerprint(inputs.request) orelse continue;
+                        validateCapabilityInstanceRequestScopeWithProtocolOp(instance, inputs.request, protocol_op_fingerprint) catch continue;
+                    }
                     if ((instance.usage == .linear or instance.usage == .affine) and instance.opened_request_fingerprint != null and instance.opened_request_fingerprint.? != inputs.request.request_fingerprint) continue;
                     if (inputs.obligation) |obligation| {
                         const obligation_instance_fingerprint = obligation.capability_instance_fingerprint orelse obligation.effect_session_instance_fingerprint;
@@ -11694,6 +11753,12 @@ pub fn program(
                     .route = route,
                     .handling = handling,
                     .morphism_offer_fingerprints = morphism_fps,
+                    .effect_session_spec_fingerprint = if (inputs.effect_session_spec) |spec| spec.fingerprint() else null,
+                    .dynamic_morphism_fingerprints = dynamic_fps,
+                    .residualization_fingerprints = residual_fps,
+                    .pipeline_fingerprint = if (morphism) |morphism_offer| morphism_offer.pipeline_fingerprint else null,
+                    .source_protocol_op_fingerprint = request_value.protocol_op_fingerprint,
+                    .target_protocol_op_fingerprint = if (morphism) |morphism_offer| morphism_offer.target_protocol_op_fingerprint else request_value.protocol_op_fingerprint,
                     .usage = usage,
                     .response_use = response_use,
                     .replay_policy = replay_policy,
@@ -11717,14 +11782,14 @@ pub fn program(
                     .capability_path_fingerprint = treaty.capability_path_fingerprint,
                     .capability_instance_fingerprint = treaty.capability_instance_fingerprint,
                     .obligation_fingerprint = treaty.obligation_fingerprint,
-                    .effect_session_spec_fingerprint = if (inputs.effect_session_spec) |spec| spec.fingerprint() else null,
+                    .effect_session_spec_fingerprint = treaty.effect_session_spec_fingerprint,
                     .route_fingerprint = route.fingerprint,
                     .morphism_offer_fingerprints = morphism_fps,
                     .dynamic_morphism_fingerprints = dynamic_fps,
                     .residualization_fingerprints = residual_fps,
-                    .pipeline_fingerprint = if (morphism) |morphism_offer| morphism_offer.pipeline_fingerprint else null,
-                    .source_protocol_op_fingerprint = request_value.protocol_op_fingerprint,
-                    .target_protocol_op_fingerprint = if (morphism) |morphism_offer| morphism_offer.target_protocol_op_fingerprint else request_value.protocol_op_fingerprint,
+                    .pipeline_fingerprint = treaty.pipeline_fingerprint,
+                    .source_protocol_op_fingerprint = treaty.source_protocol_op_fingerprint,
+                    .target_protocol_op_fingerprint = treaty.target_protocol_op_fingerprint,
                     .handling = handling,
                     .usage = usage,
                     .response_use = response_use,
@@ -11872,6 +11937,12 @@ pub fn program(
                 hashU64(&hasher, treaty.route.fingerprint);
                 hashBytes(&hasher, @tagName(treaty.handling));
                 hashU64List(&hasher, treaty.morphism_offer_fingerprints);
+                hashOptionalExchangeU64(&hasher, treaty.effect_session_spec_fingerprint);
+                hashU64List(&hasher, treaty.dynamic_morphism_fingerprints);
+                hashU64List(&hasher, treaty.residualization_fingerprints);
+                hashOptionalExchangeU64(&hasher, treaty.pipeline_fingerprint);
+                hashOptionalExchangeU64(&hasher, treaty.source_protocol_op_fingerprint);
+                hashOptionalExchangeU64(&hasher, treaty.target_protocol_op_fingerprint);
                 hashBytes(&hasher, @tagName(treaty.usage));
                 hashBytes(&hasher, @tagName(treaty.response_use));
                 hashBytes(&hasher, @tagName(treaty.replay_policy));
