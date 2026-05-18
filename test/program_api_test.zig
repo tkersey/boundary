@@ -15425,6 +15425,22 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     defer decoded_v3_journal3_manifest.deinit();
     try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal3_manifest_payload), decoded_v3_journal3_manifest.fingerprint);
 
+    var invalid_v3_journal2_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
+    defer std.testing.allocator.free(invalid_v3_journal2_manifest);
+    std.mem.writeInt(u32, invalid_v3_journal2_manifest[manifest_journal_format_offset..][0..4], v2_request_version, .little);
+    const invalid_v3_journal2_manifest_payload = invalid_v3_journal2_manifest[0 .. invalid_v3_journal2_manifest.len - 8];
+    const invalid_v3_journal2_manifest_fingerprint = testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_v3_journal2_manifest_payload);
+    std.mem.writeInt(u64, invalid_v3_journal2_manifest[invalid_v3_journal2_manifest.len - 8 ..][0..8], invalid_v3_journal2_manifest_fingerprint, .little);
+
+    var invalid_v2_journal3_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
+    defer std.testing.allocator.free(invalid_v2_journal3_manifest);
+    std.mem.writeInt(u32, invalid_v2_journal3_manifest[manifest_request_format_offset..][0..4], v2_request_version, .little);
+    std.mem.writeInt(u32, invalid_v2_journal3_manifest[manifest_request_fingerprint_offset..][0..4], v2_request_version, .little);
+    std.mem.writeInt(u32, invalid_v2_journal3_manifest[manifest_journal_format_offset..][0..4], v3_journal_format, .little);
+    const invalid_v2_journal3_manifest_payload = invalid_v2_journal3_manifest[0 .. invalid_v2_journal3_manifest.len - 8];
+    const invalid_v2_journal3_manifest_fingerprint = testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_v2_journal3_manifest_payload);
+    std.mem.writeInt(u64, invalid_v2_journal3_manifest[invalid_v2_journal3_manifest.len - 8 ..][0..8], invalid_v2_journal3_manifest_fingerprint, .little);
+
     var legacy_request_v2_journal_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
     defer std.testing.allocator.free(legacy_request_v2_journal_manifest);
     std.mem.writeInt(u32, legacy_request_v2_journal_manifest[manifest_request_format_offset..][0..4], legacy_manifest_request_version, .little);
@@ -15435,6 +15451,15 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     var decoded_legacy_request_v2_journal_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, legacy_request_v2_journal_manifest);
     defer decoded_legacy_request_v2_journal_manifest.deinit();
     try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_request_v2_journal_payload), decoded_legacy_request_v2_journal_manifest.fingerprint);
+
+    var invalid_legacy_journal3_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
+    defer std.testing.allocator.free(invalid_legacy_journal3_manifest);
+    std.mem.writeInt(u32, invalid_legacy_journal3_manifest[manifest_request_format_offset..][0..4], legacy_manifest_request_version, .little);
+    std.mem.writeInt(u32, invalid_legacy_journal3_manifest[manifest_request_fingerprint_offset..][0..4], legacy_manifest_request_version, .little);
+    std.mem.writeInt(u32, invalid_legacy_journal3_manifest[manifest_journal_format_offset..][0..4], v3_journal_format, .little);
+    const invalid_legacy_journal3_manifest_payload = invalid_legacy_journal3_manifest[0 .. invalid_legacy_journal3_manifest.len - 8];
+    const invalid_legacy_journal3_manifest_fingerprint = testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_legacy_journal3_manifest_payload);
+    std.mem.writeInt(u64, invalid_legacy_journal3_manifest[invalid_legacy_journal3_manifest.len - 8 ..][0..8], invalid_legacy_journal3_manifest_fingerprint, .little);
 
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -15457,6 +15482,13 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     std.mem.writeInt(u64, mismatched_manifest_request[mismatched_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", Program.Exchange.request_fingerprint_version, mismatched_manifest_request[0..mismatched_payload_len]), .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decode(std.testing.allocator, mismatched_manifest_request));
 
+    var invalid_v3_journal2_request = try std.testing.allocator.dupe(u8, request_envelope.bytes);
+    defer std.testing.allocator.free(invalid_v3_journal2_request);
+    const invalid_v3_journal2_payload_len = invalid_v3_journal2_request.len - 8;
+    std.mem.writeInt(u64, invalid_v3_journal2_request[request_manifest_fingerprint_offset..][0..8], invalid_v3_journal2_manifest_fingerprint, .little);
+    std.mem.writeInt(u64, invalid_v3_journal2_request[invalid_v3_journal2_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", Program.Exchange.request_fingerprint_version, invalid_v3_journal2_request[0..invalid_v3_journal2_payload_len]), .little);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decode(std.testing.allocator, invalid_v3_journal2_request));
+
     var v3_journal3_request = try std.testing.allocator.dupe(u8, request_envelope.bytes);
     defer std.testing.allocator.free(v3_journal3_request);
     const v3_journal3_request_payload_len = v3_journal3_request.len - 8;
@@ -15470,6 +15502,14 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     var decoded_v3_journal3_response = try Program.Exchange.ResponseEnvelope.decode(std.testing.allocator, v3_journal3_response.bytes);
     defer decoded_v3_journal3_response.deinit();
     try std.testing.expectEqual(decoded_v3_journal3_manifest.fingerprint, decoded_v3_journal3_response.manifest_fingerprint);
+
+    var invalid_v3_journal2_response = try std.testing.allocator.dupe(u8, v3_journal3_response.bytes);
+    defer std.testing.allocator.free(invalid_v3_journal2_response);
+    const response_manifest_fingerprint_offset = "ABL_EXR1".len + 2 * 4;
+    const invalid_v3_journal2_response_payload_len = invalid_v3_journal2_response.len - 8;
+    std.mem.writeInt(u64, invalid_v3_journal2_response[response_manifest_fingerprint_offset..][0..8], invalid_v3_journal2_manifest_fingerprint, .little);
+    std.mem.writeInt(u64, invalid_v3_journal2_response[invalid_v3_journal2_response_payload_len..][0..8], testExchangeFingerprint("ability.exchange.response", Program.Exchange.response_fingerprint_version, invalid_v3_journal2_response[0..invalid_v3_journal2_response_payload_len]), .little);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.ResponseEnvelope.decode(std.testing.allocator, invalid_v3_journal2_response));
 
     const v3_payload_len = request_envelope.bytes.len - 8;
     const legacy_payload_len = v3_payload_len - 2;
@@ -15485,6 +15525,12 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     defer decoded_legacy_request.deinit();
     try std.testing.expect(decoded_legacy_request.journal_branch_id == null);
     try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.request", legacy_request_version, legacy_request[0..legacy_payload_len]), decoded_legacy_request.fingerprint);
+
+    var invalid_legacy_journal3_request = try std.testing.allocator.dupe(u8, legacy_request);
+    defer std.testing.allocator.free(invalid_legacy_journal3_request);
+    std.mem.writeInt(u64, invalid_legacy_journal3_request[request_manifest_fingerprint_offset..][0..8], invalid_legacy_journal3_manifest_fingerprint, .little);
+    std.mem.writeInt(u64, invalid_legacy_journal3_request[legacy_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", legacy_request_version, invalid_legacy_journal3_request[0..legacy_payload_len]), .little);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decode(std.testing.allocator, invalid_legacy_journal3_request));
 
     var legacy_request_v2_journal = try std.testing.allocator.alloc(u8, legacy_payload_len + 8);
     defer std.testing.allocator.free(legacy_request_v2_journal);
@@ -15510,6 +15556,12 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     defer decoded_v2_request.deinit();
     try std.testing.expect(decoded_v2_request.usage_metadata == null);
     try std.testing.expectEqual(decoded_v2_manifest.fingerprint, decoded_v2_request.manifest_fingerprint);
+
+    var invalid_v2_journal3_request = try std.testing.allocator.dupe(u8, v2_request);
+    defer std.testing.allocator.free(invalid_v2_journal3_request);
+    std.mem.writeInt(u64, invalid_v2_journal3_request[request_manifest_fingerprint_offset..][0..8], invalid_v2_journal3_manifest_fingerprint, .little);
+    std.mem.writeInt(u64, invalid_v2_journal3_request[v2_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", v2_request_version, invalid_v2_journal3_request[0..v2_payload_len]), .little);
+    try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decode(std.testing.allocator, invalid_v2_journal3_request));
     var v2_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, decoded_v2_request, @as(i32, 11));
     defer v2_response.deinit();
     var decoded_v2_response = try Program.Exchange.ResponseEnvelope.decode(std.testing.allocator, v2_response.bytes);

@@ -8978,9 +8978,21 @@ pub fn program(
 
             fn manifestFingerprintMatchesRequestVersion(allocator: std.mem.Allocator, fingerprint: u64, request_format: u32, request_fingerprint: u32) Error!bool {
                 if (!supportedRequestEnvelopeVersions(request_format, request_fingerprint)) return false;
-                const supported_journal_formats = [_]u32{ journal_format_version, 3, 2, 1 };
-                for (supported_journal_formats) |journal_format| {
-                    if (fingerprint == try manifestFingerprintForVersions(allocator, request_format, request_fingerprint, journal_format)) return true;
+                const AllowedPair = struct {
+                    request_format: u32,
+                    request_fingerprint: u32,
+                    journal_format: u32,
+                };
+                const allowed_pairs = [_]AllowedPair{
+                    .{ .request_format = exchange_request_format_version, .request_fingerprint = exchange_request_fingerprint_version, .journal_format = journal_format_version },
+                    .{ .request_format = 3, .request_fingerprint = 3, .journal_format = 3 },
+                    .{ .request_format = 2, .request_fingerprint = 2, .journal_format = 2 },
+                    .{ .request_format = 1, .request_fingerprint = 1, .journal_format = 2 },
+                    .{ .request_format = 1, .request_fingerprint = 1, .journal_format = 1 },
+                };
+                for (allowed_pairs) |pair| {
+                    if (pair.request_format != request_format or pair.request_fingerprint != request_fingerprint) continue;
+                    if (fingerprint == try manifestFingerprintForVersions(allocator, request_format, request_fingerprint, pair.journal_format)) return true;
                 }
                 return false;
             }
