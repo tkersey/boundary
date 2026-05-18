@@ -4400,8 +4400,12 @@ pub fn program(
             }
 
             fn validateCapabilityInstanceRequestScope(instance: CapabilityInstance, request: RequestEnvelope) Error!void {
-                const requirement_label = requestRequirementLabel(request) orelse return error.ProgramContractViolation;
                 const protocol_op_fingerprint = requestProtocolOperationFingerprint(request) orelse return error.ProgramContractViolation;
+                try validateCapabilityInstanceRequestScopeWithProtocolOp(instance, request, protocol_op_fingerprint);
+            }
+
+            fn validateCapabilityInstanceRequestScopeWithProtocolOp(instance: CapabilityInstance, request: RequestEnvelope, protocol_op_fingerprint: u64) Error!void {
+                const requirement_label = requestRequirementLabel(request) orelse return error.ProgramContractViolation;
                 if (!instance.allowed_request_kinds.allows(request.kind)) return error.ProgramContractViolation;
                 if (instance.expires_at_generation) |expires_at| {
                     if (request.turn_index >= expires_at) return error.ProgramContractViolation;
@@ -6493,16 +6497,17 @@ pub fn program(
                     errdefer if (first_treaty) |*treaty| treaty.deinit();
                     var valid_count: usize = 0;
                     var blocked_count: usize = 0;
+                    var ambiguous_best = false;
                     var blockers: Treaty.BlockerList = .{};
                     if (inputs.treaty_policy.allow_direct_handling and request_value.allow_provider_fallback) {
-                        try scanDirectTreaties(inputs, request_value, &first_treaty, &valid_count, &blocked_count, &blockers);
+                        try scanDirectTreaties(inputs, request_value, &first_treaty, &valid_count, &blocked_count, &ambiguous_best, &blockers);
                     }
                     if (inputs.treaty_policy.allow_morphism_adaptation) {
-                        try scanMorphismTreaties(inputs, request_value, &first_treaty, &valid_count, &blocked_count, &blockers);
+                        try scanMorphismTreaties(inputs, request_value, &first_treaty, &valid_count, &blocked_count, &ambiguous_best, &blockers);
                     }
                     if (valid_count == 1 and first_treaty != null) return .{ .status = .treaty, .treaty = first_treaty, .candidate_count = valid_count, .blocked_count = blocked_count };
                     if (valid_count > 1) {
-                        if (treatyEffectiveAmbiguityPolicy(inputs.treaty_policy, request_value) != .reject_ambiguous and first_treaty != null) {
+                        if (treatyEffectiveAmbiguityPolicy(inputs.treaty_policy, request_value) != .reject_ambiguous and !ambiguous_best and first_treaty != null) {
                             return .{ .status = .treaty, .treaty = first_treaty, .candidate_count = valid_count, .blocked_count = blocked_count };
                         }
                         if (first_treaty) |*value| value.deinit();
@@ -7404,7 +7409,9 @@ pub fn program(
                             });
                             return error.ProgramContractViolation;
                         };
-                        if (current_treaty.fingerprint != treaty.fingerprint) {
+                        if (current_treaty.fingerprint != treaty.fingerprint or
+                            current_treaty.certificate.certificate_fingerprint != treaty.certificate.certificate_fingerprint)
+                        {
                             if (options.journal) |ledger| try ledger.appendExchangeEvent(.{
                                 .kind = .treaty_response_rejected,
                                 .provider_fingerprint = treaty.provider_fingerprint,
@@ -7415,7 +7422,7 @@ pub fn program(
                                 .treaty_fingerprint = treaty.fingerprint,
                                 .treaty_certificate_fingerprint = treaty.certificate.certificate_fingerprint,
                                 .provider_offer_fingerprint = treaty.provider_offer_fingerprint,
-                                .blocker_tag = @tagName(Treaty.BlockerTag.wrong_treaty),
+                                .blocker_tag = @tagName(if (current_treaty.fingerprint != treaty.fingerprint) Treaty.BlockerTag.wrong_treaty else Treaty.BlockerTag.wrong_certificate),
                             });
                             return error.ProgramContractViolation;
                         }
@@ -7612,7 +7619,9 @@ pub fn program(
                         return error.ProgramContractViolation;
                     };
                     const envelope_changed = self.last_request_envelope_fingerprint != envelope.fingerprint;
-                    const treaty_changed = self.last_treaty == null or self.last_treaty.?.fingerprint != treaty.fingerprint;
+                    const treaty_changed = self.last_treaty == null or
+                        self.last_treaty.?.fingerprint != treaty.fingerprint or
+                        self.last_treaty.?.certificate.certificate_fingerprint != treaty.certificate.certificate_fingerprint;
                     if (envelope_changed or treaty_changed) {
                         var treaty_journal_checkpoint: ?JournalCheckpoint = null;
                         errdefer if (treaty_journal_checkpoint) |checkpoint| checkpoint.ledger.truncateEntries(checkpoint.start_len);
@@ -10012,11 +10021,15 @@ pub fn program(
                 };
             }
 
+            fn treatyResponseUseAllowed(policy: Treaty.Policy, offer: ProviderOffer, response_use: ResponseUse) bool {
+                return policy.allowed_response_uses.allows(response_use) and offer.supported_response_uses.allows(response_use);
+            }
+
             fn treatyResponseUseForOffer(policy: Treaty.Policy, request_value: TreatyRequest, offer: ProviderOffer) ResponseUse {
                 if (request_value.requested_response_use) |requested| return requested;
                 if (policy.require_replay_only_response) {
-                    if (offer.supported_response_uses.replayed) return .replayed;
-                    if (offer.supported_response_uses.deterministic_replay) return .deterministic_replay;
+                    if (treatyResponseUseAllowed(policy, offer, .replayed)) return .replayed;
+                    if (treatyResponseUseAllowed(policy, offer, .deterministic_replay)) return .deterministic_replay;
                     return .replayed;
                 }
                 return .fresh;
@@ -11048,6 +11061,7 @@ pub fn program(
                 first_treaty: *?Treaty,
                 valid_count: *usize,
                 blocked_count: *usize,
+                ambiguous_best: *bool,
                 blockers: *Treaty.BlockerList,
             ) Error!void {
                 offer_loop: for (inputs.provider_offers) |offer| {
@@ -11110,7 +11124,7 @@ pub fn program(
                             continue :capability_loop;
                         }
                         valid_count.* += 1;
-                        selectTreatyCandidate(inputs.treaty_policy, request_value, first_treaty, candidate);
+                        selectTreatyCandidate(inputs.treaty_policy, request_value, first_treaty, ambiguous_best, candidate);
                         candidate_cleanup = false;
                     }
                     if (!matched_capability) {
@@ -11132,6 +11146,7 @@ pub fn program(
                 first_treaty: *?Treaty,
                 valid_count: *usize,
                 blocked_count: *usize,
+                ambiguous_best: *bool,
                 blockers: *Treaty.BlockerList,
             ) Error!void {
                 if (inputs.treaty_policy.max_morphism_hops == 0) {
@@ -11189,7 +11204,10 @@ pub fn program(
                             });
                             continue :offer_loop;
                         };
-                        if (!inputs.treaty_policy.allowed_usage_modes.allows(treatyUsage(inputs.request, request_value)) or !offer.supported_usage_modes.allows(morphism.target_usage)) {
+                        if (!inputs.treaty_policy.allowed_usage_modes.allows(treatyUsage(inputs.request, request_value)) or
+                            !inputs.treaty_policy.allowed_usage_modes.allows(morphism.target_usage) or
+                            !offer.supported_usage_modes.allows(morphism.target_usage))
+                        {
                             blocked_count.* += 1;
                             blockers.add(.{
                                 .tag = .usage_mode_not_allowed,
@@ -11264,7 +11282,7 @@ pub fn program(
                                 continue :capability_loop;
                             }
                             valid_count.* += 1;
-                            selectTreatyCandidate(inputs.treaty_policy, request_value, first_treaty, candidate);
+                            selectTreatyCandidate(inputs.treaty_policy, request_value, first_treaty, ambiguous_best, candidate);
                             candidate_cleanup = false;
                         }
                         if (!matched_capability) {
@@ -11282,16 +11300,21 @@ pub fn program(
                 }
             }
 
-            fn selectTreatyCandidate(policy: Treaty.Policy, request_value: TreatyRequest, selected: *?Treaty, candidate: Treaty) void {
+            fn selectTreatyCandidate(policy: Treaty.Policy, request_value: TreatyRequest, selected: *?Treaty, ambiguous_best: *bool, candidate: Treaty) void {
                 if (selected.* == null) {
                     selected.* = candidate;
+                    ambiguous_best.* = false;
                     return;
                 }
-                if (treatyCandidatePreferred(policy, request_value, candidate, selected.*.?)) {
+                const candidate_preferred = treatyCandidatePreferred(policy, request_value, candidate, selected.*.?);
+                const selected_preferred = treatyCandidatePreferred(policy, request_value, selected.*.?, candidate);
+                if (candidate_preferred and !selected_preferred) {
                     var old = selected.*.?;
                     old.deinit();
                     selected.* = candidate;
+                    ambiguous_best.* = false;
                 } else {
+                    if (!selected_preferred and treatyTieIsAmbiguous(policy, request_value)) ambiguous_best.* = true;
                     var rejected = candidate;
                     rejected.deinit();
                 }
@@ -11300,6 +11323,10 @@ pub fn program(
             fn treatyEffectiveAmbiguityPolicy(policy: Treaty.Policy, request_value: TreatyRequest) Treaty.AmbiguityPolicy {
                 if (policy.ambiguity_policy == .reject_ambiguous and request_value.prefer_residualization) return .prefer_residualized;
                 return policy.ambiguity_policy;
+            }
+
+            fn treatyTieIsAmbiguous(policy: Treaty.Policy, request_value: TreatyRequest) bool {
+                return treatyEffectiveAmbiguityPolicy(policy, request_value) != .host_ordered;
             }
 
             fn treatyCandidatePreferred(policy: Treaty.Policy, request_value: TreatyRequest, candidate: Treaty, selected: Treaty) bool {
@@ -11446,7 +11473,7 @@ pub fn program(
                 return true;
             }
 
-            fn treatyCapabilityInstanceFor(inputs: TreatyResolver.Inputs, request_value: TreatyRequest, provider: ProviderManifest, capability: Capability, state_at_open: ?[]const u8) ?CapabilityInstance {
+            fn treatyCapabilityInstanceFor(inputs: TreatyResolver.Inputs, request_value: TreatyRequest, provider: ProviderManifest, capability: Capability, morphism: ?MorphismOffer, state_at_open: ?[]const u8) ?CapabilityInstance {
                 if (inputs.capability_instances.len == 0) return null;
                 const requested_instance = if (inputs.request.usage_metadata) |metadata| metadata.capability_instance_fingerprint else null;
                 const expected_spec = if (inputs.effect_session_spec) |spec|
@@ -11464,7 +11491,11 @@ pub fn program(
                     if (expected_spec) |fingerprint| {
                         if (instance.effect_session_spec_fingerprint != fingerprint) continue;
                     }
-                    validateCapabilityInstanceRequestScope(instance, inputs.request) catch continue;
+                    const protocol_op_fingerprint = if (morphism) |morphism_offer|
+                        morphism_offer.target_protocol_op_fingerprint
+                    else
+                        requestProtocolOperationFingerprint(inputs.request) orelse continue;
+                    validateCapabilityInstanceRequestScopeWithProtocolOp(instance, inputs.request, protocol_op_fingerprint) catch continue;
                     if ((instance.usage == .linear or instance.usage == .affine) and instance.opened_request_fingerprint != null and instance.opened_request_fingerprint.? != inputs.request.request_fingerprint) continue;
                     if (inputs.obligation) |obligation| {
                         const obligation_instance_fingerprint = obligation.capability_instance_fingerprint orelse obligation.effect_session_instance_fingerprint;
@@ -11514,14 +11545,14 @@ pub fn program(
                 return true;
             }
 
-            fn treatyMetadataMatchesSelectedState(inputs: TreatyResolver.Inputs, request_value: TreatyRequest, provider: ProviderManifest, capability: Capability, obligation: ?Obligation) bool {
+            fn treatyMetadataMatchesSelectedState(inputs: TreatyResolver.Inputs, request_value: TreatyRequest, provider: ProviderManifest, capability: Capability, morphism: ?MorphismOffer, obligation: ?Obligation) bool {
                 const metadata = inputs.request.usage_metadata orelse return true;
                 const state_at_open = if (obligation) |value| value.state_at_open else null;
                 if (requestUsageMetadataRequiresInstance(metadata)) {
-                    _ = treatyCapabilityInstanceFor(inputs, request_value, provider, capability, state_at_open) orelse return false;
+                    _ = treatyCapabilityInstanceFor(inputs, request_value, provider, capability, morphism, state_at_open) orelse return false;
                 }
                 if (metadata.capability_instance_fingerprint) |fingerprint| {
-                    const instance = treatyCapabilityInstanceFor(inputs, request_value, provider, capability, state_at_open) orelse return false;
+                    const instance = treatyCapabilityInstanceFor(inputs, request_value, provider, capability, morphism, state_at_open) orelse return false;
                     if (fingerprint != instance.requestMetadataInstanceFingerprint(inputs.request.request_fingerprint, state_at_open)) return false;
                 }
                 if (metadata.obligation_fingerprint) |fingerprint| {
@@ -11552,7 +11583,7 @@ pub fn program(
                 const response_use = treatyResponseUseForOffer(inputs.treaty_policy, request_value, offer);
                 const replay_policy = treatyReplayPolicy(inputs.request, request_value);
                 const branch_policy = treatyBranchPolicy(inputs.request, request_value);
-                if (!inputs.treaty_policy.allowed_usage_modes.allows(usage)) blockers.addTag(.usage_mode_not_allowed, inputs.request.fingerprint, "usage mode is not allowed by treaty policy");
+                if (!inputs.treaty_policy.allowed_usage_modes.allows(usage) or !inputs.treaty_policy.allowed_usage_modes.allows(provider_offer_usage)) blockers.addTag(.usage_mode_not_allowed, inputs.request.fingerprint, "usage mode is not allowed by treaty policy");
                 if (!offer.supported_usage_modes.allows(provider_offer_usage)) blockers.addTag(.usage_mode_not_allowed, inputs.request.fingerprint, "provider offer does not support usage mode");
                 if (morphism) |morphism_offer| {
                     if (morphism_offer.source_usage != usage) blockers.addTag(.morphism_usage_mode_mismatch, inputs.request.fingerprint, "morphism source usage does not match treaty usage");
@@ -11612,7 +11643,7 @@ pub fn program(
                         blockers.addTag(.obligation_state_incompatible, inputs.request.fingerprint, "obligation does not match treaty request and provider");
                     }
                 }
-                if (!treatyMetadataMatchesSelectedState(inputs, request_value, provider, capability, inputs.obligation)) {
+                if (!treatyMetadataMatchesSelectedState(inputs, request_value, provider, capability, morphism, inputs.obligation)) {
                     blockers.addTag(.capability_instance_wrong_branch, inputs.request.fingerprint, "treaty request usage metadata does not match selected capability instance or obligation");
                 }
                 const route_expected_refs = try cloneValueRefs(inputs.allocator, route_expected_refs_buffer[0..route_expected_refs_len]);
@@ -11634,7 +11665,7 @@ pub fn program(
                 else
                     .direct;
                 const require_treaty_bound_response_authorization = inputs.treaty_policy.require_treaty_bound_response_authorization or request_value.require_treaty_bound_response_authorization;
-                const capability_instance_fingerprint = selectTreatyCapabilityInstance(inputs, request_value, provider, capability);
+                const capability_instance_fingerprint = selectTreatyCapabilityInstance(inputs, request_value, provider, capability, morphism);
                 var treaty = Treaty{
                     .allocator = inputs.allocator,
                     .fingerprint = 0,
@@ -11713,9 +11744,9 @@ pub fn program(
                 return route_expected_refs_len;
             }
 
-            fn selectTreatyCapabilityInstance(inputs: TreatyResolver.Inputs, request_value: TreatyRequest, provider: ProviderManifest, capability: Capability) ?u64 {
+            fn selectTreatyCapabilityInstance(inputs: TreatyResolver.Inputs, request_value: TreatyRequest, provider: ProviderManifest, capability: Capability, morphism: ?MorphismOffer) ?u64 {
                 const state_at_open = if (inputs.obligation) |obligation| obligation.state_at_open else null;
-                const instance = treatyCapabilityInstanceFor(inputs, request_value, provider, capability, state_at_open) orelse return null;
+                const instance = treatyCapabilityInstanceFor(inputs, request_value, provider, capability, morphism, state_at_open) orelse return null;
                 return instance.instance_fingerprint;
             }
 
