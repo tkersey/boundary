@@ -23589,7 +23589,8 @@ test "Program.Exchange treaty resolver reports direct blockers deterministically
     });
     defer skipped_narrow.deinit();
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, skipped_narrow.status);
-    try std.testing.expectEqual(capability_a.fingerprint, skipped_narrow.treaty.?.capability_fingerprint);
+    try std.testing.expect(skipped_narrow.treaty.?.attenuated_capability != null);
+    try std.testing.expectEqual(skipped_narrow.treaty.?.attenuated_capability.?.fingerprint, skipped_narrow.treaty.?.capability_fingerprint);
 
     var foreign = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
@@ -24066,6 +24067,19 @@ test "Program.Exchange morphism offer selected when direct provider is unavailab
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, result.status);
     try std.testing.expectEqual(Program.Exchange.Treaty.HandlingKind.dynamic_morphism, result.treaty.?.handling);
     try std.testing.expectEqual(morphism.fingerprint(), result.treaty.?.certificate.morphism_offer_fingerprints[0]);
+    var dynamic_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 7));
+    defer dynamic_response.deinit();
+    try dynamic_response.authorizeTreaty(result.treaty.?, .fresh);
+    try std.testing.expect(Program.Exchange.validateTreatyResponse(result.treaty.?, envelope, dynamic_response).allowed());
+    const dynamic_no_morphism = Program.Exchange.validateTreatyResponseWithPolicy(result.treaty.?, envelope, dynamic_response, .{ .allow_morphism_adaptation = false });
+    try std.testing.expect(!dynamic_no_morphism.allowed());
+    try std.testing.expectEqual(Program.Exchange.Treaty.BlockerTag.morphism_missing, dynamic_no_morphism.blockers[0].tag);
+    const dynamic_no_hops = Program.Exchange.validateTreatyResponseWithPolicy(result.treaty.?, envelope, dynamic_response, .{ .max_morphism_hops = 0 });
+    try std.testing.expect(!dynamic_no_hops.allowed());
+    try std.testing.expectEqual(Program.Exchange.Treaty.BlockerTag.max_morphism_hops_exceeded, dynamic_no_hops.blockers[0].tag);
+    const dynamic_disabled = Program.Exchange.validateTreatyResponseWithPolicy(result.treaty.?, envelope, dynamic_response, .{ .allow_dynamic_interpretation = false });
+    try std.testing.expect(!dynamic_disabled.allowed());
+    try std.testing.expectEqual(Program.Exchange.Treaty.BlockerTag.dynamic_morphism_disallowed, dynamic_disabled.blockers[0].tag);
 
     var direct_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
         .label = "direct-approval-provider",
@@ -24639,6 +24653,7 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
         .manifest_fingerprint = manifest.fingerprint,
         .supported_protocol_labels = &.{trace.requirement_label},
         .supported_protocol_op_fingerprints = &.{target_op},
+        .accepted_payload_refs = target_bool_refs[0..],
         .produced_response_refs = target_bool_refs[0..],
     });
     defer bool_target_offer.deinit();
@@ -24801,6 +24816,12 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
     try std.testing.expectEqual(residualized.pipeline_fingerprint.?, static_result.treaty.?.certificate.pipeline_fingerprint.?);
     try std.testing.expectEqual(residualized.residual_morphism_fingerprint.?, static_result.treaty.?.certificate.residualization_fingerprints[0]);
     try static_result.treaty.?.checkCertificate();
+    var static_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 9));
+    defer static_response.deinit();
+    try static_response.authorizeTreaty(static_result.treaty.?, .fresh);
+    const static_residualization_disabled = Program.Exchange.validateTreatyResponseWithPolicy(static_result.treaty.?, envelope, static_response, .{ .allow_residualization = false });
+    try std.testing.expect(!static_residualization_disabled.allowed());
+    try std.testing.expectEqual(Program.Exchange.Treaty.BlockerTag.residualization_unsupported, static_residualization_disabled.blockers[0].tag);
     var wrong_pipeline_treaty = static_result.treaty.?;
     wrong_pipeline_treaty.pipeline_fingerprint = null;
     try std.testing.expectError(error.ProgramContractViolation, wrong_pipeline_treaty.checkCertificate());
@@ -25539,7 +25560,7 @@ test "Program.Exchange treaty-bound response authorization accepts and rejects s
         if (blocker.tag == .capability_instance_wrong_branch) saw_wrong_branch_selected = true;
     }
     try std.testing.expect(saw_wrong_branch_selected);
-    var attenuated_instance_result = try Program.Exchange.TreatyResolver.resolve(.{
+    var parent_instance_after_attenuation = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = selected_instance_envelope,
         .manifest = manifest,
@@ -25548,10 +25569,56 @@ test "Program.Exchange treaty-bound response authorization accepts and rejects s
         .capabilities = capabilities[0..],
         .capability_instances = same_provider_instances[0..],
     });
+    defer parent_instance_after_attenuation.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, parent_instance_after_attenuation.status);
+    var saw_parent_instance_rejected_after_attenuation = false;
+    for (parent_instance_after_attenuation.blockers.blockers[0..parent_instance_after_attenuation.blockers.count]) |blocker| {
+        if (blocker.tag == .capability_instance_wrong_branch) saw_parent_instance_rejected_after_attenuation = true;
+    }
+    try std.testing.expect(saw_parent_instance_rejected_after_attenuation);
+
+    var attenuated_seed = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+    });
+    defer attenuated_seed.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, attenuated_seed.status);
+    try std.testing.expect(attenuated_seed.treaty.?.attenuated_capability != null);
+    var attenuated_instance = try Program.Exchange.CapabilityInstance.create(attenuated_seed.treaty.?.attenuated_capability.?, provider, spec, .{
+        .snapshot_allocator = std.testing.allocator,
+        .branch_id = 5,
+    });
+    defer attenuated_instance.deinit();
+    var attenuated_instance_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{
+        .usage_metadata = .{
+            .effect_session_spec_fingerprint = spec.fingerprint(),
+            .usage = attenuated_instance.usage,
+            .branch_id = attenuated_instance.branch_id,
+            .branch_policy = attenuated_instance.branch_policy,
+            .replay_policy = attenuated_instance.replay_policy,
+            .capability_instance_fingerprint = attenuated_instance.instance_fingerprint,
+        },
+    });
+    defer attenuated_instance_envelope.deinit();
+    const attenuated_instances = [_]Program.Exchange.CapabilityInstance{ matching_instance, attenuated_instance };
+    var attenuated_instance_result = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = attenuated_instance_envelope,
+        .manifest = manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+        .capability_instances = attenuated_instances[0..],
+    });
     defer attenuated_instance_result.deinit();
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, attenuated_instance_result.status);
     try std.testing.expect(attenuated_instance_result.treaty.?.attenuated_capability != null);
-    try std.testing.expectEqual(matching_instance.instance_fingerprint, attenuated_instance_result.treaty.?.capability_instance_fingerprint.?);
+    try std.testing.expectEqual(attenuated_instance.parent_capability_fingerprint, attenuated_instance_result.treaty.?.capability_fingerprint);
+    try std.testing.expectEqual(attenuated_instance.instance_fingerprint, attenuated_instance_result.treaty.?.capability_instance_fingerprint.?);
     const unrelated_instances = [_]Program.Exchange.CapabilityInstance{other_instance};
     var unrelated_instance_catalog = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
@@ -26337,6 +26404,51 @@ test "Program.Exchange mailbox runner treaty mode sends certificate and validate
     }));
     try std.testing.expectEqual(@as(usize, 0), outbox.items.items.len);
 
+    var late_journal_session = try Program.Session.start(&runtime, .{});
+    defer late_journal_session.deinit();
+    var late_journal_runner = Program.Exchange.MailboxRunner{};
+    defer late_journal_runner.deinit();
+    var late_journal_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer late_journal_outbox.deinit();
+    var late_journal_inbox = Inbox{};
+    defer late_journal_inbox.deinit();
+    var late_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer late_journal.deinit();
+    var late_journal_parked = try late_journal_runner.runTreatyStep(&late_journal_session, &late_journal_outbox, &late_journal_inbox, .{
+        .allocator = std.testing.allocator,
+        .manifest = manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+    });
+    switch (late_journal_parked) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expectEqual(@as(usize, 1), late_journal_outbox.items.items.len);
+    try std.testing.expectError(error.ProgramContractViolation, late_journal_runner.runTreatyStep(&late_journal_session, &late_journal_outbox, &late_journal_inbox, .{
+        .allocator = std.testing.allocator,
+        .manifest = manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+        .treaty_policy = .{ .require_journal_recording = true },
+        .journal = &late_journal,
+    }));
+    try std.testing.expectEqual(@as(usize, 0), late_journal.entries.items.len);
+    late_journal_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, late_journal_outbox.items.items[0], @as(i32, 31));
+    try late_journal_inbox.response.?.authorizeTreaty(late_journal_runner.last_treaty.?, .fresh);
+    try std.testing.expectError(error.ProgramContractViolation, late_journal_runner.runTreatyStep(&late_journal_session, &late_journal_outbox, &late_journal_inbox, .{
+        .allocator = std.testing.allocator,
+        .manifest = manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+        .treaty_policy = .{ .require_journal_recording = true },
+        .journal = &late_journal,
+    }));
+    try std.testing.expectEqual(@as(usize, 0), late_journal.entries.items.len);
+
     var required_journal_session = try Program.Session.start(&runtime, .{});
     defer required_journal_session.deinit();
     var required_journal_runner = Program.Exchange.MailboxRunner{};
@@ -26517,7 +26629,18 @@ test "Program.Exchange mailbox runner treaty mode sends certificate and validate
     }));
     try std.testing.expectEqual(Program.Exchange.ObligationStatus.open, obligation.status);
     obligation_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, obligation_outbox.items.items[0], @as(i32, 23));
-    try obligation_inbox.response.?.authorizeTreaty(obligation_runner.last_treaty.?, .fresh);
+    try obligation_inbox.response.?.authorize(obligation_runner.last_treaty.?.route);
+    const obligation_authorization = try Program.Exchange.authorizeObligationResponse(
+        obligation_runner.last_treaty.?.route,
+        capability,
+        obligation_instance,
+        obligation,
+        obligation_spec,
+        obligation_outbox.items.items[0],
+        obligation_inbox.response.?,
+        .fresh,
+    );
+    try obligation_inbox.response.?.authorizeTreatyWithObligationTransition(obligation_runner.last_treaty.?, .fresh, obligation_authorization.obligation_transition_fingerprint);
     const obligation_response_step = try obligation_runner.runTreatyStep(&obligation_session, &obligation_outbox, &obligation_inbox, .{
         .allocator = std.testing.allocator,
         .manifest = manifest,
@@ -26548,6 +26671,62 @@ test "Program.Exchange mailbox runner treaty mode sends certificate and validate
         if (event.kind == .obligation_consumed and event.treaty_fingerprint == obligation_treaty_fingerprint) saw_treaty_obligation_consumed = true;
     }
     try std.testing.expect(saw_treaty_obligation_consumed);
+
+    var attenuated_obligation_session = try Program.Session.start(&runtime, .{});
+    defer attenuated_obligation_session.deinit();
+    const attenuated_obligation_request_value = switch (try attenuated_obligation_session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var attenuated_obligation_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, attenuated_obligation_request_value, .{});
+    defer attenuated_obligation_envelope.deinit();
+    var attenuated_obligation_instance = try Program.Exchange.CapabilityInstance.create(capability, provider, obligation_spec, .{ .snapshot_allocator = std.testing.allocator, .branch_id = 8 });
+    defer attenuated_obligation_instance.deinit();
+    var attenuated_obligation = try Program.Exchange.Obligation.open(&attenuated_obligation_instance, attenuated_obligation_envelope, .{}, response_refs[0..]);
+    defer attenuated_obligation.deinit();
+    var attenuated_obligation_runner = Program.Exchange.MailboxRunner{};
+    defer attenuated_obligation_runner.deinit();
+    var attenuated_obligation_outbox = Outbox{ .allocator = std.testing.allocator };
+    defer attenuated_obligation_outbox.deinit();
+    var attenuated_obligation_inbox = Inbox{};
+    defer attenuated_obligation_inbox.deinit();
+    var attenuated_obligation_parked = try attenuated_obligation_runner.runTreatyStep(&attenuated_obligation_session, &attenuated_obligation_outbox, &attenuated_obligation_inbox, .{
+        .allocator = std.testing.allocator,
+        .manifest = manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = obligation_offers[0..],
+        .capabilities = capabilities[0..],
+        .capability_instance_state = &attenuated_obligation_instance,
+        .treaty_policy = .{ .require_obligation_opening = true },
+        .effect_session_spec = obligation_spec,
+        .obligation_state = &attenuated_obligation,
+    });
+    switch (attenuated_obligation_parked) {
+        .parked => |*envelope| envelope.deinit(),
+        else => return error.ExpectedRequest,
+    }
+    try std.testing.expect(attenuated_obligation_runner.last_treaty.?.attenuated_capability != null);
+    try std.testing.expect(attenuated_obligation_runner.last_treaty.?.capability_fingerprint != attenuated_obligation_instance.parent_capability_fingerprint);
+    try std.testing.expectEqual(attenuated_obligation_instance.instance_fingerprint, attenuated_obligation_runner.last_treaty.?.capability_instance_fingerprint.?);
+    attenuated_obligation_inbox.response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, attenuated_obligation_outbox.items.items[0], @as(i32, 29));
+    try attenuated_obligation_inbox.response.?.authorizeTreaty(attenuated_obligation_runner.last_treaty.?, .fresh);
+    const attenuated_obligation_response_step = try attenuated_obligation_runner.runTreatyStep(&attenuated_obligation_session, &attenuated_obligation_outbox, &attenuated_obligation_inbox, .{
+        .allocator = std.testing.allocator,
+        .manifest = manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = obligation_offers[0..],
+        .capabilities = capabilities[0..],
+        .capability_instance_state = &attenuated_obligation_instance,
+        .treaty_policy = .{ .require_obligation_opening = true },
+        .effect_session_spec = obligation_spec,
+        .obligation_state = &attenuated_obligation,
+    });
+    switch (attenuated_obligation_response_step) {
+        .running => {},
+        else => return error.ExpectedRunning,
+    }
+    try std.testing.expectEqual(Program.Exchange.ObligationStatus.consumed, attenuated_obligation.status);
 
     var no_auth_session = try Program.Session.start(&runtime, .{});
     defer no_auth_session.deinit();
