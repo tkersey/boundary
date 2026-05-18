@@ -5452,6 +5452,20 @@ pub fn program(
                         const has_capsule = false;
                         if (!self.capsule_policy.allows(has_capsule)) return false;
                     }
+                    const operation_sites_constrained = self.supported_operation_sites.len != 0;
+                    const after_sites_constrained = self.supported_after_sites.len != 0;
+                    switch (source_request.kind) {
+                        .operation => {
+                            if (!operation_sites_constrained and after_sites_constrained) return false;
+                            if (!listAllowsUsize(self.supported_operation_sites, source_request.site_index)) return false;
+                            if (!listAllowsValueRef(self.accepted_payload_refs, source_request.value_ref)) return false;
+                        },
+                        .after => {
+                            if (!after_sites_constrained and operation_sites_constrained) return false;
+                            if (!listAllowsUsize(self.supported_after_sites, source_request.site_index)) return false;
+                            if (!listAllowsValueRef(self.accepted_current_value_refs, source_request.value_ref)) return false;
+                        },
+                    }
                     return self.supportsProtocolOperation(target_protocol_op_fingerprint, response_refs);
                 }
             };
@@ -5629,6 +5643,7 @@ pub fn program(
                     max_morphism_hops_exceeded,
                     envelope_too_large,
                     foreign_manifest,
+                    malformed_request,
                     malformed_offer,
                     malformed_treaty_request,
                     wrong_treaty,
@@ -6422,6 +6437,14 @@ pub fn program(
 
                 /// Resolve a treaty from request/catalog/policy inputs.
                 pub fn resolve(inputs: Inputs) Error!TreatyResolver.Result {
+                    inputs.request.validate() catch |err| switch (err) {
+                        error.ProgramContractViolation => {
+                            var blockers: Treaty.BlockerList = .{};
+                            blockers.addTag(.malformed_request, inputs.request.fingerprint, "request envelope fields are not bound to request bytes");
+                            return .{ .status = .blocked, .blockers = blockers, .blocked_count = 1 };
+                        },
+                        else => return err,
+                    };
                     const request_value = inputs.treaty_request orelse TreatyRequest.fromRequest(inputs.request);
                     if (request_value.request_envelope_fingerprint != inputs.request.fingerprint or
                         request_value.exchange_manifest_fingerprint != inputs.request.manifest_fingerprint or
@@ -7256,11 +7279,43 @@ pub fn program(
                         outbox.appendTreaty(outbox_envelope, outbox_certificate) catch |err| return mapProgramRunError(Error, err);
                     } else if (comptime @hasDecl(OutboxType, "appendRouted")) {
                         if (treaty.handling != .direct) return error.ProgramContractViolation;
+                        if (treaty.require_treaty_bound_response_authorization) return error.ProgramContractViolation;
                         outbox.appendRouted(outbox_envelope, treaty.route) catch |err| return mapProgramRunError(Error, err);
                     } else {
                         if (treaty.handling != .direct) return error.ProgramContractViolation;
+                        if (treaty.require_treaty_bound_response_authorization) return error.ProgramContractViolation;
                         outbox.append(outbox_envelope) catch |err| return mapProgramRunError(Error, err);
                     }
+                }
+
+                fn capabilityInstanceCatalogContains(instances: []const CapabilityInstance, fingerprint: u64) bool {
+                    for (instances) |instance| {
+                        if (instance.instance_fingerprint == fingerprint) return true;
+                    }
+                    return false;
+                }
+
+                const ResolverCapabilityInstances = struct {
+                    items: []const CapabilityInstance,
+                    owned: ?[]CapabilityInstance = null,
+
+                    fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+                        if (self.owned) |owned| allocator.free(owned);
+                    }
+                };
+
+                fn resolverCapabilityInstances(
+                    allocator: std.mem.Allocator,
+                    catalog: []const CapabilityInstance,
+                    live_state: ?*CapabilityInstance,
+                ) Error!ResolverCapabilityInstances {
+                    const state = live_state orelse return .{ .items = catalog };
+                    if (!state.*.validFingerprint()) return error.ProgramContractViolation;
+                    if (capabilityInstanceCatalogContains(catalog, state.*.instance_fingerprint)) return .{ .items = catalog };
+                    const owned = allocator.alloc(CapabilityInstance, catalog.len + 1) catch |err| return mapProgramRunError(Error, err);
+                    for (catalog, 0..) |instance, index| owned[index] = instance;
+                    owned[catalog.len] = state.*;
+                    return .{ .items = owned, .owned = owned };
                 }
 
                 /// Treaty mode: resolve a treaty before writing to the provider outbox.
@@ -7294,6 +7349,7 @@ pub fn program(
                 ) Error!Step {
                     const current_value = try session.current();
                     if (options.journal == null) {
+                        if (self.last_treaty_requires_journal) return error.ProgramContractViolation;
                         if (options.treaty_policy.require_journal_recording) return error.ProgramContractViolation;
                         if (options.treaty_request) |request_value| {
                             if (request_value.require_journal_recording) return error.ProgramContractViolation;
@@ -7341,8 +7397,12 @@ pub fn program(
                             if (obligation_ptr.*.obligation_fingerprint != expected_obligation_fingerprint) return error.ProgramContractViolation;
                             try validateObligationResponseMetadata(obligation_ptr.*, owned_current.usage_metadata, treaty_response_use);
                             if (obligation_ptr.*.capability_instance_fingerprint != null and options.capability_instance_state == null) return error.ProgramContractViolation;
+                            if (treaty.capability_instance_fingerprint != null and options.capability_instance_state == null) return error.ProgramContractViolation;
                             if (options.capability_instance_state) |instance| {
                                 if (!instance.*.validFingerprint()) return error.ProgramContractViolation;
+                                if (treaty.capability_instance_fingerprint) |fingerprint| {
+                                    if (instance.*.instance_fingerprint != fingerprint) return error.ProgramContractViolation;
+                                }
                                 const response_uses_replay = treaty_response_use == .replayed or treaty_response_use == .deterministic_replay;
                                 if (!instanceCanAnswerObligation(instance.*, obligation_ptr.*, response_uses_replay)) return error.ProgramContractViolation;
                                 if (instance.*.provider_fingerprint != treaty.provider_fingerprint) return error.ProgramContractViolation;
@@ -7475,35 +7535,39 @@ pub fn program(
                     const request_usage_metadata = self.activeRequestUsageMetadata(options.usage_metadata);
                     var envelope = try requestEnvelopeForCurrent(options.allocator, session, current, request_included_capsule, request_journal_branch_id, request_usage_metadata);
                     errdefer envelope.deinit();
-                    if (self.last_request_envelope_fingerprint != envelope.fingerprint) {
+                    const resolver_instances = try resolverCapabilityInstances(options.allocator, options.capability_instances, options.capability_instance_state);
+                    defer resolver_instances.deinit(options.allocator);
+                    var result = try TreatyResolver.resolve(.{
+                        .allocator = options.allocator,
+                        .request = envelope,
+                        .manifest = options.manifest,
+                        .provider_manifests = options.provider_manifests,
+                        .provider_offers = options.provider_offers,
+                        .capabilities = options.capabilities,
+                        .capability_instances = resolver_instances.items,
+                        .morphism_offers = options.morphism_offers,
+                        .treaty_request = options.treaty_request,
+                        .treaty_policy = options.treaty_policy,
+                        .route_policy = options.route_policy,
+                        .effect_session_spec = options.effect_session_spec,
+                        .obligation = if (options.obligation_state) |state| state.* else options.obligation,
+                    });
+                    defer result.deinit();
+                    const treaty = result.treaty orelse {
+                        if (options.journal) |ledger| try ledger.appendExchangeEvent(.{
+                            .kind = .treaty_blocked,
+                            .request_envelope_fingerprint = envelope.fingerprint,
+                            .blocker_tag = result.blockers.firstTagName(),
+                        });
+                        return error.ProgramContractViolation;
+                    };
+                    const envelope_changed = self.last_request_envelope_fingerprint != envelope.fingerprint;
+                    const treaty_changed = self.last_treaty == null or self.last_treaty.?.fingerprint != treaty.fingerprint;
+                    if (envelope_changed or treaty_changed) {
                         if (options.journal) |ledger| try ledger.appendExchangeEvent(.{
                             .kind = .treaty_requested,
                             .request_envelope_fingerprint = envelope.fingerprint,
                         });
-                        var result = try TreatyResolver.resolve(.{
-                            .allocator = options.allocator,
-                            .request = envelope,
-                            .manifest = options.manifest,
-                            .provider_manifests = options.provider_manifests,
-                            .provider_offers = options.provider_offers,
-                            .capabilities = options.capabilities,
-                            .capability_instances = options.capability_instances,
-                            .morphism_offers = options.morphism_offers,
-                            .treaty_request = options.treaty_request,
-                            .treaty_policy = options.treaty_policy,
-                            .route_policy = options.route_policy,
-                            .effect_session_spec = options.effect_session_spec,
-                            .obligation = if (options.obligation_state) |state| state.* else options.obligation,
-                        });
-                        errdefer result.deinit();
-                        const treaty = result.treaty orelse {
-                            if (options.journal) |ledger| try ledger.appendExchangeEvent(.{
-                                .kind = .treaty_blocked,
-                                .request_envelope_fingerprint = envelope.fingerprint,
-                                .blocker_tag = result.blockers.firstTagName(),
-                            });
-                            return error.ProgramContractViolation;
-                        };
                         var treaty_journal_checkpoint: ?JournalCheckpoint = null;
                         errdefer if (treaty_journal_checkpoint) |checkpoint| checkpoint.ledger.truncateEntries(checkpoint.start_len);
                         if (options.journal) |ledger| {
@@ -7557,7 +7621,7 @@ pub fn program(
                                 .provider_offer_fingerprint = treaty.provider_offer_fingerprint,
                             });
                         }
-                        var owned_branch = try cloneJournalBranch(options.allocator, options.journal_branch_id);
+                        var owned_branch = try cloneJournalBranch(options.allocator, request_journal_branch_id);
                         errdefer if (owned_branch) |branch| options.allocator.free(branch);
                         try appendTreatyOutboxEnvelope(options.allocator, outbox, envelope, treaty);
                         self.clearLastTreaty();
@@ -7569,8 +7633,8 @@ pub fn program(
                         self.last_request_fingerprint = envelope.request_fingerprint;
                         self.last_request_envelope_fingerprint = envelope.fingerprint;
                         self.last_request_manifest_fingerprint = envelope.manifest_fingerprint;
-                        self.last_request_included_capsule = options.capsule;
-                        self.last_request_usage_metadata = options.usage_metadata;
+                        self.last_request_included_capsule = request_included_capsule;
+                        self.last_request_usage_metadata = request_usage_metadata;
                         self.adoptLastRequestJournalBranch(options.allocator, owned_branch);
                         owned_branch = null;
                     }
@@ -8012,6 +8076,10 @@ pub fn program(
                     };
                     if (journalBranchPolicyFingerprint(branch_id) != expected_policy) report.add(.wrong_journal_policy);
                 }
+                switch (request.kind) {
+                    .operation => if (!listAllowsUsize(capability.allowed_operation_sites, request.site_index)) report.add(.operation_site),
+                    .after => if (!listAllowsUsize(capability.allowed_after_sites, request.site_index)) report.add(.after_site),
+                }
                 if (!listAllowsU64(capability.allowed_protocol_op_fingerprints, target_protocol_op_fingerprint)) report.add(.protocol_operation);
                 if (request.bytes.len > capability.max_request_bytes) report.add(.request_too_large);
                 if (request.value_image.len > capability.max_payload_bytes) report.add(.payload_too_large);
@@ -8030,6 +8098,18 @@ pub fn program(
                 };
                 if (!providerFieldsBoundToBytes(provider)) report.add(.wrong_provider);
                 if (!listAllowsU64(provider.supported_program_manifest_fingerprints, request.manifest_fingerprint)) report.add(.wrong_manifest);
+                const operation_sites_constrained = provider.supported_operation_sites.len != 0;
+                const after_sites_constrained = provider.supported_after_sites.len != 0;
+                switch (request.kind) {
+                    .operation => {
+                        if (!operation_sites_constrained and after_sites_constrained) report.add(.operation_site);
+                        if (operation_sites_constrained and !listAllowsUsize(provider.supported_operation_sites, request.site_index)) report.add(.operation_site);
+                    },
+                    .after => {
+                        if (!after_sites_constrained and operation_sites_constrained) report.add(.after_site);
+                        if (after_sites_constrained and !listAllowsUsize(provider.supported_after_sites, request.site_index)) report.add(.after_site);
+                    },
+                }
                 if (provider.supported_protocol_op_fingerprints.len != 0 and !listAllowsU64(provider.supported_protocol_op_fingerprints, target_protocol_op_fingerprint)) report.add(.protocol_operation);
                 if (request.bytes.len > provider.max_request_envelope_bytes) report.add(.request_too_large);
                 if (request.capsule_image != null and !provider.accepts_embedded_capsules) report.add(.embedded_capsule);
@@ -10919,7 +10999,18 @@ pub fn program(
                     }
                     offer_loop: for (inputs.provider_offers) |offer| {
                         if (!offer.supportsProtocolOperation(morphism.target_protocol_op_fingerprint, morphism.target_response_refs)) continue :offer_loop;
-                        const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse continue :offer_loop;
+                        const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse {
+                            blocked_count.* += 1;
+                            blockers.add(.{
+                                .tag = .malformed_offer,
+                                .request_fingerprint = inputs.request.fingerprint,
+                                .provider_fingerprint = offer.provider_fingerprint,
+                                .offer_fingerprint = offer.fingerprint,
+                                .morphism_fingerprint = morphism.fingerprint(),
+                                .summary = "morphism provider offer is not backed by a provider manifest",
+                            });
+                            continue :offer_loop;
+                        };
                         if (!inputs.treaty_policy.allowed_usage_modes.allows(morphism.target_usage) or !offer.supported_usage_modes.allows(morphism.target_usage)) {
                             blocked_count.* += 1;
                             blockers.add(.{
@@ -11142,6 +11233,9 @@ pub fn program(
                 request: RequestEnvelope,
                 provider: ProviderManifest,
                 route: Route,
+                usage: Usage,
+                branch_policy: BranchPolicy,
+                replay_policy: ResponseUse,
                 expected_refs: []const lowering_api.ValueRef,
             ) bool {
                 if (!obligation.validFingerprint()) return false;
@@ -11149,6 +11243,9 @@ pub fn program(
                 if (obligation.request_envelope_fingerprint != request.fingerprint) return false;
                 if (obligation.request_fingerprint != request.request_fingerprint) return false;
                 if (obligation.site_fingerprint != request.site_fingerprint) return false;
+                if (obligation.usage != usage) return false;
+                if (obligation.branch_policy != branch_policy) return false;
+                if (obligation.replay_policy != replay_policy) return false;
                 if (obligation.provider_fingerprint) |fingerprint| {
                     if (fingerprint != provider.provider_fingerprint) return false;
                 }
@@ -11163,12 +11260,21 @@ pub fn program(
             fn treatyCapabilityInstanceFor(inputs: TreatyResolver.Inputs, provider: ProviderManifest, capability: Capability, state_at_open: ?[]const u8) ?CapabilityInstance {
                 if (inputs.capability_instances.len == 0) return null;
                 const requested_instance = if (inputs.request.usage_metadata) |metadata| metadata.capability_instance_fingerprint else null;
+                const expected_spec = if (inputs.effect_session_spec) |spec|
+                    spec.fingerprint()
+                else if (inputs.request.usage_metadata) |metadata|
+                    metadata.effect_session_spec_fingerprint
+                else
+                    null;
                 for (inputs.capability_instances) |instance| {
                     if (!instance.validFingerprint()) continue;
                     if (instance.closed()) continue;
                     if (instance.provider_fingerprint != provider.provider_fingerprint) continue;
                     if (instance.manifest_fingerprint != inputs.request.manifest_fingerprint) continue;
                     if (instance.parent_capability_fingerprint != capability.fingerprint) continue;
+                    if (expected_spec) |fingerprint| {
+                        if (instance.effect_session_spec_fingerprint != fingerprint) continue;
+                    }
                     validateCapabilityInstanceRequestScope(instance, inputs.request) catch continue;
                     if ((instance.usage == .linear or instance.usage == .affine) and instance.opened_request_fingerprint != null and instance.opened_request_fingerprint.? != inputs.request.request_fingerprint) continue;
                     if (requested_instance) |fingerprint| {
@@ -11203,6 +11309,12 @@ pub fn program(
                 morphism: ?MorphismOffer,
             ) Error!Treaty {
                 var blockers: Treaty.BlockerList = .{};
+                if (provider.provider_fingerprint == 0 or offer.provider_fingerprint == 0 or offer.fingerprint == 0) {
+                    blockers.addTag(.malformed_offer, inputs.request.fingerprint, "provider offer cannot produce a certificate-valid treaty identity");
+                }
+                if (capability.fingerprint == 0 or capability.attenuation_path_fingerprint == 0) {
+                    blockers.addTag(.no_capability, inputs.request.fingerprint, "capability cannot produce a certificate-valid treaty identity");
+                }
                 const usage = request_value.requested_usage_mode orelse if (inputs.request.usage_metadata) |metadata| metadata.usage else .copyable;
                 const provider_offer_usage = if (morphism) |morphism_offer| morphism_offer.target_usage else usage;
                 const response_use: ResponseUse = request_value.requested_response_use orelse if (inputs.treaty_policy.require_replay_only_response) ResponseUse.replayed else ResponseUse.fresh;
@@ -11231,7 +11343,7 @@ pub fn program(
                 var selected_capability = capability;
                 var attenuated: ?Capability = null;
                 errdefer if (attenuated) |*capability_value| capability_value.deinit();
-                var route = routeForTreaty(inputs.request, provider, offer, selected_capability, route_policy, request_value, morphism);
+                var route = routeForTreaty(inputs.request, provider, offer, selected_capability, route_policy, inputs.treaty_policy, request_value, morphism);
                 route.allowed_response_kinds = responseKindSetIntersection(route.allowed_response_kinds, expected_response_kinds);
                 if (!requestAcceptsAnyResponseRef(inputs.request, route.allowed_response_kinds, expected_refs_buffer[0..expected_refs_len])) {
                     blockers.addTag(.wrong_response_kind, inputs.request.fingerprint, "route admits no requested response ref");
@@ -11239,13 +11351,13 @@ pub fn program(
                 var route_expected_refs_buffer: [3]lowering_api.ValueRef = undefined;
                 var route_expected_refs_len = narrowTreatyRouteResponses(&route, inputs.request, request_value, offer, morphism, &route_expected_refs_buffer);
                 if (route.valid() and (inputs.treaty_policy.require_capability_attenuation or (inputs.treaty_policy.require_least_authority and request_value.require_least_authority))) {
-                    attenuated = attenuateCapabilityForTreaty(inputs.allocator, capability, inputs.request, offer, route_policy, request_value, route.allowed_response_kinds, route_expected_refs_buffer[0..route_expected_refs_len], morphism) catch |err| switch (err) {
+                    attenuated = attenuateCapabilityForTreaty(inputs.allocator, capability, inputs.request, offer, route_policy, inputs.treaty_policy, request_value, route.allowed_response_kinds, route_expected_refs_buffer[0..route_expected_refs_len], morphism) catch |err| switch (err) {
                         error.ProgramContractViolation => null,
                         else => return err,
                     };
                     if (attenuated) |capability_value| {
                         selected_capability = capability_value;
-                        route = routeForTreaty(inputs.request, provider, offer, selected_capability, route_policy, request_value, morphism);
+                        route = routeForTreaty(inputs.request, provider, offer, selected_capability, route_policy, inputs.treaty_policy, request_value, morphism);
                         route.allowed_response_kinds = responseKindSetIntersection(route.allowed_response_kinds, expected_response_kinds);
                         if (!requestAcceptsAnyResponseRef(inputs.request, route.allowed_response_kinds, expected_refs_buffer[0..expected_refs_len])) {
                             blockers.addTag(.wrong_response_kind, inputs.request.fingerprint, "attenuated route admits no requested response ref");
@@ -11259,7 +11371,7 @@ pub fn program(
                     blockers.addTag(.no_capability, inputs.request.fingerprint, "capability or route does not authorize the request");
                 }
                 if (inputs.obligation) |obligation| {
-                    if (!treatyObligationMatches(obligation, inputs.request, provider, route, route_expected_refs_buffer[0..route_expected_refs_len])) {
+                    if (!treatyObligationMatches(obligation, inputs.request, provider, route, usage, branch_policy, replay_policy, route_expected_refs_buffer[0..route_expected_refs_len])) {
                         blockers.addTag(.obligation_state_incompatible, inputs.request.fingerprint, "obligation does not match treaty request and provider");
                     }
                 }
@@ -11376,13 +11488,14 @@ pub fn program(
                 offer: ProviderOffer,
                 capability: Capability,
                 policy: Policy,
+                treaty_policy: Treaty.Policy,
                 request_value: TreatyRequest,
                 morphism: ?MorphismOffer,
             ) Route {
                 if (morphism == null) {
                     var route = Route.from(request, provider, capability, policy);
                     route.allowed_response_kinds = responseKindSetIntersection(route.allowed_response_kinds, offer.allowed_response_kinds);
-                    route.max_response_bytes = @min(@min(route.max_response_bytes, offer.max_response_bytes), request_value.max_response_bytes);
+                    route.max_response_bytes = @min(@min(@min(route.max_response_bytes, offer.max_response_bytes), request_value.max_response_bytes), treaty_policy.max_envelope_bytes);
                     if (!requestAcceptsAnyResponseKind(request, route.allowed_response_kinds)) route.blockers.add(.response_kind);
                     route.fingerprint = fingerprintRoute(route);
                     return route;
@@ -11410,7 +11523,7 @@ pub fn program(
                     .site_index = request.site_index,
                     .site_fingerprint = request.site_fingerprint,
                     .allowed_response_kinds = allowed_response_kinds,
-                    .max_response_bytes = @min(@min(@min(@min(provider.max_response_envelope_bytes, capability.max_response_bytes), offer.max_response_bytes), policy.max_envelope_bytes), request_value.max_response_bytes),
+                    .max_response_bytes = @min(@min(@min(@min(@min(provider.max_response_envelope_bytes, capability.max_response_bytes), offer.max_response_bytes), policy.max_envelope_bytes), request_value.max_response_bytes), treaty_policy.max_envelope_bytes),
                     .max_payload_bytes = if (policy.allow_response_value_images) @min(capability.max_payload_bytes, policy.max_payload_bytes) else 0,
                     .capsule_restore_allowed = capability.allow_capsule_restore and provider.accepts_capsule_restore and policy.allow_capsule_restore,
                     .blockers = blockers,
@@ -11425,6 +11538,7 @@ pub fn program(
                 request: RequestEnvelope,
                 offer: ProviderOffer,
                 route_policy: Policy,
+                treaty_policy: Treaty.Policy,
                 request_value: TreatyRequest,
                 expected_response_kinds: Policy.ResponseKindSet,
                 expected_response_refs: []const lowering_api.ValueRef,
@@ -11438,6 +11552,8 @@ pub fn program(
                     if (value.target_response_refs.len == 0) null else value.target_response_refs
                 else
                     expected_response_refs;
+                const route_payload_limit = if (route_policy.allow_response_value_images) route_policy.max_payload_bytes else 0;
+                const route_capsule_limit = route_policy.max_capsule_image_bytes orelse route_policy.max_payload_bytes;
                 return capability.attenuate(allocator, .{
                     .allowed_request_kinds = .{ .operation = request.kind == .operation, .after = request.kind == .after },
                     .allowed_program_labels = &.{label},
@@ -11449,12 +11565,12 @@ pub fn program(
                     .allowed_op_names = if (direct_request) &.{request.name} else null,
                     .allowed_response_kinds = expected_response_kinds,
                     .allowed_response_refs = attenuation_response_refs,
-                    .allow_embedded_capsule_response_handling = request.capsule_image != null,
-                    .allow_capsule_restore = request.capsule_image != null and capability.allow_capsule_restore,
-                    .max_request_bytes = @min(@min(@min(capability.max_request_bytes, offer.max_request_bytes), route_policy.max_envelope_bytes), request_value.max_request_bytes),
-                    .max_response_bytes = @min(@min(@min(capability.max_response_bytes, offer.max_response_bytes), route_policy.max_envelope_bytes), request_value.max_response_bytes),
-                    .max_payload_bytes = @min(capability.max_payload_bytes, route_policy.max_payload_bytes),
-                    .max_capsule_image_bytes = @min(capability.max_capsule_image_bytes, offer.max_capsule_bytes),
+                    .allow_embedded_capsule_response_handling = request.capsule_image != null and route_policy.allow_capsules,
+                    .allow_capsule_restore = request.capsule_image != null and capability.allow_capsule_restore and route_policy.allow_capsule_restore,
+                    .max_request_bytes = @min(@min(@min(@min(capability.max_request_bytes, offer.max_request_bytes), route_policy.max_envelope_bytes), treaty_policy.max_envelope_bytes), request_value.max_request_bytes),
+                    .max_response_bytes = @min(@min(@min(@min(capability.max_response_bytes, offer.max_response_bytes), route_policy.max_envelope_bytes), treaty_policy.max_envelope_bytes), request_value.max_response_bytes),
+                    .max_payload_bytes = @min(capability.max_payload_bytes, route_payload_limit),
+                    .max_capsule_image_bytes = @min(@min(@min(capability.max_capsule_image_bytes, offer.max_capsule_bytes), route_capsule_limit), treaty_policy.max_capsule_bytes),
                     .journal_policy_fingerprint = capability.journal_policy_fingerprint,
                     .expires_at_generation = capability.expires_at_generation,
                 });
