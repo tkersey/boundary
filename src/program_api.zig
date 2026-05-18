@@ -1339,7 +1339,7 @@ pub fn program(
         /// Stable fingerprint version for Program.Exchange Effect Treaties.
         pub const exchange_treaty_fingerprint_version: u32 = 1;
         /// Stable fingerprint version for Program.Exchange treaty-bound response authorization.
-        pub const exchange_treaty_authorization_fingerprint_version: u32 = 1;
+        pub const exchange_treaty_authorization_fingerprint_version: u32 = 2;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {
@@ -5874,6 +5874,8 @@ pub fn program(
                     response_use: ResponseUse = .fresh,
                     replay_policy: ResponseUse = .fresh,
                     branch_policy: BranchPolicy = .unrestricted,
+                    replay_source_response_fingerprint: ?u64 = null,
+                    replay_source_response_value_fingerprint: ?u64 = null,
                     expected_obligation_transition_fingerprint: ?u64 = null,
                     authorization_fingerprint: u64 = 0,
 
@@ -5907,6 +5909,18 @@ pub fn program(
                         return value;
                     }
 
+                    /// Construct a replay treaty authorization that cites a recorded source response.
+                    pub fn forResponseWithReplaySource(treaty: Treaty, response: ResponseEnvelope, response_use: ResponseUse, source_response_fingerprint: u64, source_response_value_fingerprint: u64) Error!@This() {
+                        if (response_use != .replayed and response_use != .deterministic_replay) return error.ProgramContractViolation;
+                        if (source_response_fingerprint == 0 or source_response_fingerprint == response.fingerprint) return error.ProgramContractViolation;
+                        if (source_response_value_fingerprint == 0 or source_response_value_fingerprint != response.response_value_fingerprint) return error.ProgramContractViolation;
+                        var value = try forResponse(treaty, response, response_use);
+                        value.replay_source_response_fingerprint = source_response_fingerprint;
+                        value.replay_source_response_value_fingerprint = source_response_value_fingerprint;
+                        value.authorization_fingerprint = fingerprintTreatyAuthorization(value);
+                        return value;
+                    }
+
                     /// Encode this treaty authorization into deterministic bytes.
                     pub fn encode(self: @This(), allocator: std.mem.Allocator) Error![]u8 {
                         var writer = Writer.init(allocator);
@@ -5925,6 +5939,8 @@ pub fn program(
                         try writeResponseUse(&writer, self.response_use);
                         try writeResponseUse(&writer, self.replay_policy);
                         try writeBranchPolicy(&writer, self.branch_policy);
+                        try writeOptionalU64(&writer, self.replay_source_response_fingerprint);
+                        try writeOptionalU64(&writer, self.replay_source_response_value_fingerprint);
                         try writeOptionalU64(&writer, self.expected_obligation_transition_fingerprint);
                         try writer.writeU64(fingerprintTreatyAuthorization(self));
                         return writer.toOwnedSlice();
@@ -5948,6 +5964,8 @@ pub fn program(
                             .response_use = try readResponseUse(&reader),
                             .replay_policy = try readResponseUse(&reader),
                             .branch_policy = try readBranchPolicy(&reader),
+                            .replay_source_response_fingerprint = try readOptionalU64(&reader),
+                            .replay_source_response_value_fingerprint = try readOptionalU64(&reader),
                             .expected_obligation_transition_fingerprint = try readOptionalU64(&reader),
                             .authorization_fingerprint = try reader.readU64(),
                         };
@@ -6954,6 +6972,11 @@ pub fn program(
                 /// Attach a treaty-bound authorization witness that cites an obligation transition.
                 pub fn authorizeTreatyWithObligationTransition(self: *@This(), treaty: Treaty, response_use: ResponseUse, transition_fingerprint: u64) Error!void {
                     self.treaty_authorization = try Treaty.Authorization.forResponseWithObligationTransition(treaty, self.*, response_use, transition_fingerprint);
+                }
+
+                /// Attach a replay treaty authorization witness that cites a recorded source response.
+                pub fn authorizeTreatyWithReplaySource(self: *@This(), treaty: Treaty, response_use: ResponseUse, source_response_fingerprint: u64, source_response_value_fingerprint: u64) Error!void {
+                    self.treaty_authorization = try Treaty.Authorization.forResponseWithReplaySource(treaty, self.*, response_use, source_response_fingerprint, source_response_value_fingerprint);
                 }
 
                 /// Release response envelope storage.
@@ -8322,7 +8345,10 @@ pub fn program(
 
             /// Validate a response envelope against a selected treaty and treaty authorization sidecar.
             pub fn validateTreatyResponse(treaty: Treaty, request: RequestEnvelope, response: ResponseEnvelope) Treaty.BlockerList {
-                return validateTreatyResponseWithPolicy(treaty, request, response, .{ .require_treaty_bound_response_authorization = false });
+                return validateTreatyResponseWithPolicy(treaty, request, response, .{
+                    .require_least_authority = false,
+                    .require_treaty_bound_response_authorization = false,
+                });
             }
 
             /// Validate a response envelope against a selected treaty with explicit treaty policy.
@@ -8362,7 +8388,7 @@ pub fn program(
                 if (policy.disallow_fresh_response and treaty.response_use == .fresh) blockers.addTag(.replay_policy_incompatible, request.fingerprint, "current treaty policy disallows fresh responses");
                 if (policy.require_replay_only_response and treaty.response_use != .replayed and treaty.response_use != .deterministic_replay) blockers.addTag(.replay_policy_incompatible, request.fingerprint, "current treaty policy requires replay-only responses");
                 if (policy.require_obligation_opening and treaty.obligation_fingerprint == null) blockers.addTag(.obligation_open_failed, request.fingerprint, "current treaty policy requires an opened obligation");
-                if (policy.require_capability_attenuation and treaty.attenuated_capability == null) blockers.addTag(.capability_too_broad_when_attenuation_required, request.fingerprint, "current treaty policy requires capability attenuation");
+                if ((policy.require_capability_attenuation or policy.require_least_authority) and treaty.attenuated_capability == null) blockers.addTag(.capability_too_broad_when_attenuation_required, request.fingerprint, "current treaty policy requires capability attenuation");
                 switch (treaty.handling) {
                     .direct => if (!policy.allow_direct_handling) blockers.addTag(.no_provider_offer, request.fingerprint, "current treaty policy disallows direct handling"),
                     .dynamic_morphism => {
@@ -8390,6 +8416,16 @@ pub fn program(
                 if (authorization.capability_instance_fingerprint != treaty.capability_instance_fingerprint) blockers.addTag(.capability_instance_wrong_branch, request.fingerprint, "authorization cites a different capability instance");
                 if (authorization.obligation_fingerprint != treaty.obligation_fingerprint) blockers.addTag(.obligation_state_incompatible, request.fingerprint, "authorization cites a different obligation");
                 if (authorization.expected_obligation_transition_fingerprint != null and treaty.obligation_fingerprint == null) blockers.addTag(.obligation_state_incompatible, request.fingerprint, "authorization cites an obligation transition for a non-obligation treaty");
+                const replay_response = authorization.response_use == .replayed or authorization.response_use == .deterministic_replay;
+                if (replay_response and treaty.obligation_fingerprint == null) {
+                    const source_response = authorization.replay_source_response_fingerprint orelse 0;
+                    const source_value = authorization.replay_source_response_value_fingerprint orelse 0;
+                    if (source_response == 0 or source_response == response.fingerprint or source_value != response.response_value_fingerprint) {
+                        blockers.addTag(.replay_policy_incompatible, request.fingerprint, "non-obligation replay treaty response requires a distinct recorded source response witness");
+                    }
+                } else if (!replay_response and (authorization.replay_source_response_fingerprint != null or authorization.replay_source_response_value_fingerprint != null)) {
+                    blockers.addTag(.replay_policy_incompatible, request.fingerprint, "fresh treaty response cites a replay source");
+                }
                 if (authorization.route_fingerprint != treaty.route.fingerprint) blockers.addTag(.wrong_route, request.fingerprint, "authorization cites a different route");
                 if (authorization.response_envelope_fingerprint != response.fingerprint) blockers.addTag(.wrong_treaty, request.fingerprint, "authorization cites a different response envelope");
                 if (authorization.usage != treaty.usage) blockers.addTag(.usage_mode_not_allowed, request.fingerprint, "authorization usage mode differs from treaty");
@@ -10253,6 +10289,8 @@ pub fn program(
                 hashBytes(&hasher, @tagName(authorization.response_use));
                 hashBytes(&hasher, @tagName(authorization.replay_policy));
                 hashBytes(&hasher, @tagName(authorization.branch_policy));
+                hashOptionalExchangeU64(&hasher, authorization.replay_source_response_fingerprint);
+                hashOptionalExchangeU64(&hasher, authorization.replay_source_response_value_fingerprint);
                 hashOptionalExchangeU64(&hasher, authorization.expected_obligation_transition_fingerprint);
                 return hasher.final();
             }

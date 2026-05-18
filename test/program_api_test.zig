@@ -15349,7 +15349,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_obligation_transition_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_treaty_format_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_treaty_fingerprint_version);
-    try std.testing.expectEqual(@as(u32, 1), Program.exchange_treaty_authorization_fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 2), Program.exchange_treaty_authorization_fingerprint_version);
     try std.testing.expectEqual(Program.exchange_manifest_format_version, Program.Exchange.manifest_format_version);
     try std.testing.expectEqual(Program.exchange_manifest_fingerprint_version, Program.Exchange.manifest_fingerprint_version);
     try std.testing.expectEqual(Program.exchange_request_format_version, Program.Exchange.request_format_version);
@@ -24109,6 +24109,32 @@ test "Program.Exchange morphism offer selected when direct provider is unavailab
     const providers_with_direct = [_]Program.Exchange.ProviderManifest{ direct_provider, provider };
     const offers_with_direct = [_]Program.Exchange.ProviderOffer{ direct_offer, offer };
     const capabilities_with_direct = [_]Program.Exchange.Capability{ direct_capability, capability };
+    const direct_only_providers = [_]Program.Exchange.ProviderManifest{direct_provider};
+    const direct_only_offers = [_]Program.Exchange.ProviderOffer{direct_offer};
+    const direct_only_capabilities = [_]Program.Exchange.Capability{direct_capability};
+    var broad_direct = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = manifest,
+        .provider_manifests = direct_only_providers[0..],
+        .provider_offers = direct_only_offers[0..],
+        .capabilities = direct_only_capabilities[0..],
+        .treaty_policy = .{ .require_least_authority = false },
+    });
+    defer broad_direct.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, broad_direct.status);
+    try std.testing.expect(broad_direct.treaty.?.attenuated_capability == null);
+    var broad_direct_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 11));
+    defer broad_direct_response.deinit();
+    try broad_direct_response.authorizeTreaty(broad_direct.treaty.?, .fresh);
+    try std.testing.expect(Program.Exchange.validateTreatyResponseWithPolicy(broad_direct.treaty.?, envelope, broad_direct_response, .{
+        .require_least_authority = false,
+    }).allowed());
+    const broad_direct_rechecked = Program.Exchange.validateTreatyResponseWithPolicy(broad_direct.treaty.?, envelope, broad_direct_response, .{
+        .require_least_authority = true,
+    });
+    try std.testing.expect(!broad_direct_rechecked.allowed());
+    try std.testing.expectEqual(Program.Exchange.Treaty.BlockerTag.capability_too_broad_when_attenuation_required, broad_direct_rechecked.blockers[0].tag);
     var direct_and_dynamic = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = envelope,
@@ -25848,6 +25874,26 @@ test "Program.Exchange treaty-bound response authorization accepts and rejects s
     try std.testing.expect(!tighter_byte_policy.allowed());
     const replay_only_policy = Program.Exchange.validateTreatyResponseWithPolicy(result.treaty.?, envelope, response, .{ .require_replay_only_response = true });
     try std.testing.expect(!replay_only_policy.allowed());
+    var replay_request = Program.Exchange.TreatyRequest.fromRequest(envelope);
+    replay_request.requested_response_use = .replayed;
+    var replay_result = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+        .treaty_request = replay_request,
+        .treaty_policy = .{ .require_replay_only_response = true },
+    });
+    defer replay_result.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, replay_result.status);
+    var bare_replay_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 7));
+    defer bare_replay_response.deinit();
+    try bare_replay_response.authorizeTreaty(replay_result.treaty.?, .replayed);
+    const bare_replay_report = Program.Exchange.validateTreatyResponse(replay_result.treaty.?, envelope, bare_replay_response);
+    try std.testing.expect(!bare_replay_report.allowed());
+    try std.testing.expectEqual(Program.Exchange.Treaty.BlockerTag.replay_policy_incompatible, bare_replay_report.blockers[0].tag);
     var no_auth_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 7));
     defer no_auth_response.deinit();
     try std.testing.expect(!Program.Exchange.validateTreatyResponse(result.treaty.?, envelope, no_auth_response).allowed());

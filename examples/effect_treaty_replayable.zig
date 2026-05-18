@@ -169,7 +169,7 @@ pub fn run(writer: anytype) !void {
     const replayed = try replayer.expectCurrentResponseValue(try second.session.current(), i32);
     var replayed_second = try Program.Exchange.ResponseEnvelope.@"resume"(allocator, second.envelope, replayed.value);
     defer replayed_second.deinit();
-    try replayed_second.authorizeTreaty(replay_result.treaty.?, .replayed);
+    try replayed_second.authorizeTreatyWithReplaySource(replay_result.treaty.?, .replayed, replayed.trace.fingerprint, replayed.trace.response_value_fingerprint);
     const replayed_accepted = Program.Exchange.validateTreatyResponse(replay_result.treaty.?, second.envelope, replayed_second).allowed();
     try Program.Exchange.applyResponse(&second.session, replayed_second, .{});
     var final = switch (try second.session.next()) {
