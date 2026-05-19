@@ -371,6 +371,15 @@ pub fn build(b: *std.Build) void {
     const program_api_tests = b.addTest(.{ .root_module = program_api_tests_mod, .filters = test_args.filters });
     test_step.dependOn(&addRunArtifactWithArgs(b, program_api_tests, test_args.passthrough).step);
 
+    const evidence_kernel_tests_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    evidence_kernel_tests_mod.addImport("ability", ability);
+    const evidence_kernel_tests = b.addTest(.{ .root_module = evidence_kernel_tests_mod, .filters = test_args.filters });
+    test_step.dependOn(&addRunArtifactWithArgs(b, evidence_kernel_tests, test_args.passthrough).step);
+
     const contract_matrix_mod = b.createModule(.{
         .root_source_file = b.path("test/plan_native_contract_matrix_test.zig"),
         .target = target,

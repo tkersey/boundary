@@ -84,6 +84,7 @@ src/private_modules/helper_body_ir_build.zig
 src/private_modules/internal_kernel_build.zig
 src/private_modules/lowered_machine_build.zig
 src/private_modules/program_frontend_build.zig
+src/program/evidence.zig
 src/program_api.zig
 src/program_frontend.zig
 src/prompt_contract.zig
@@ -149,6 +150,7 @@ test/compile_fail/semantic_protocol_payload_mismatch.zig
 test/compile_fail/semantic_protocol_resume_mismatch.zig
 test/compile_fail/semantic_schema_registry_duplicate_tables.zig
 test/compile_fail/value_schema_variant_mismatch.zig
+test/evidence_kernel_test.zig
 test/plan_native_contract_matrix_test.zig
 test/program_api_test.zig
 test/public_optional_bound_program_test.zig

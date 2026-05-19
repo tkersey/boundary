@@ -454,6 +454,10 @@ manually.
     must leave the process as typed manifest/request/response envelopes.
 13. Inspect effect rows, source maps, trace maps, certificates, capsules,
     envelopes, and fingerprints.
+14. Use `Program.Evidence` refs, dependencies, reports, and views when a custom
+    protocol surface needs machine-readable validation evidence across
+    contracts, protocol descriptors, sessions, exchange envelopes, treaties, or
+    provider harnesses.
 
 ## Non-Goals
 
@@ -480,3 +484,9 @@ manually.
   format.
 - No residualization of arbitrary Zig closures or host functions; those remain
   interpreter-only.
+
+Custom protocols participate in Evidence through the existing
+Program.contract, Program.protocol, Program.Session, and Program.Exchange
+surfaces. Evidence does not add a parser, VM, new effect semantics, value
+codec, security layer, or serialized request tokens; it gives the existing
+proof structures one shared reference and reporting vocabulary.

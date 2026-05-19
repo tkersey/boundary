@@ -2,6 +2,7 @@
 const lowered_machine = @import("lowered_machine");
 const lowering_api = @import("lowering_api");
 const plan_types = @import("internal_program_plan");
+const program_evidence = @import("program/evidence.zig");
 const std = @import("std");
 
 fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
@@ -1272,78 +1273,80 @@ pub fn program(
         pub const protocol = ProgramProtocolFor(label, body_compiled_plan, body_value_schema_types, body_nested_with_targets, HandlersType, Body, body_site_metadata, InterpreterAuthenticityToken);
         /// Public execution error for this program.
         pub const Error = ProgramErrorSet(Body);
+        /// Canonical evidence, fingerprint, validation, and projection substrate.
+        pub const Evidence = program_evidence;
         /// Separate fingerprint domain for protocol reinterpretation metadata.
-        pub const reinterpret_fingerprint_version: u32 = 2;
+        pub const reinterpret_fingerprint_version: u32 = Evidence.domains.reinterpretation.fingerprint_version;
         /// Separate fingerprint domain for residual ProgramPlan transformation metadata.
-        pub const residual_fingerprint_version: u32 = 1;
+        pub const residual_fingerprint_version: u32 = Evidence.domains.residualization.fingerprint_version;
         /// Separate fingerprint domain for proof-carrying effect pipeline metadata.
-        pub const pipeline_fingerprint_version: u32 = 1;
+        pub const pipeline_fingerprint_version: u32 = Evidence.domains.pipeline.fingerprint_version;
         /// Stable format version for Program.Session.Capsule durable images.
-        pub const capsule_image_format_version: u32 = 1;
+        pub const capsule_image_format_version: u32 = Evidence.domains.capsule_image.format_version.?;
         /// Stable fingerprint version for Program.Session.Capsule durable images.
-        pub const capsule_image_fingerprint_version: u32 = 1;
+        pub const capsule_image_fingerprint_version: u32 = Evidence.domains.capsule_image.fingerprint_version;
         /// Stable format version for Program.Session interaction journals.
         /// Version 5 preserves v4 fields and adds ProviderHarness event metadata.
-        pub const journal_format_version: u32 = 5;
+        pub const journal_format_version: u32 = Evidence.domains.journal.format_version.?;
         /// Stable fingerprint version for Program.Session interaction journals.
-        pub const journal_fingerprint_version: u32 = 1;
+        pub const journal_fingerprint_version: u32 = Evidence.domains.journal.fingerprint_version;
         /// Stable format version for Program.Exchange manifest images.
-        pub const exchange_manifest_format_version: u32 = 1;
+        pub const exchange_manifest_format_version: u32 = Evidence.domains.exchange_manifest.format_version.?;
         /// Stable fingerprint version for Program.Exchange manifest images.
-        pub const exchange_manifest_fingerprint_version: u32 = 1;
+        pub const exchange_manifest_fingerprint_version: u32 = Evidence.domains.exchange_manifest.fingerprint_version;
         /// Stable format version for Program.Exchange request envelopes.
         /// Version 3 preserves v2 fields and adds optional linear-session metadata.
-        pub const exchange_request_format_version: u32 = 3;
+        pub const exchange_request_format_version: u32 = Evidence.domains.exchange_request_envelope.format_version.?;
         /// Stable fingerprint version for Program.Exchange request envelopes.
-        pub const exchange_request_fingerprint_version: u32 = 3;
+        pub const exchange_request_fingerprint_version: u32 = Evidence.domains.exchange_request_envelope.fingerprint_version;
         /// Stable format version for Program.Exchange response envelopes.
-        pub const exchange_response_format_version: u32 = 1;
+        pub const exchange_response_format_version: u32 = Evidence.domains.exchange_response_envelope.format_version.?;
         /// Stable fingerprint version for Program.Exchange response envelopes.
-        pub const exchange_response_fingerprint_version: u32 = 1;
+        pub const exchange_response_fingerprint_version: u32 = Evidence.domains.exchange_response_envelope.fingerprint_version;
         /// Stable format version for Program.Exchange provider manifest images.
-        pub const exchange_provider_format_version: u32 = 1;
+        pub const exchange_provider_format_version: u32 = Evidence.domains.provider_manifest.format_version.?;
         /// Stable fingerprint version for Program.Exchange provider manifest images.
-        pub const exchange_provider_fingerprint_version: u32 = 1;
+        pub const exchange_provider_fingerprint_version: u32 = Evidence.domains.provider_manifest.fingerprint_version;
         /// Stable format version for Program.Exchange provider offer images.
-        pub const exchange_provider_offer_format_version: u32 = 1;
+        pub const exchange_provider_offer_format_version: u32 = Evidence.domains.provider_offer.format_version.?;
         /// Stable fingerprint version for Program.Exchange provider offer images.
-        pub const exchange_provider_offer_fingerprint_version: u32 = 1;
+        pub const exchange_provider_offer_fingerprint_version: u32 = Evidence.domains.provider_offer.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange provider harness declarations.
-        pub const exchange_provider_harness_fingerprint_version: u32 = 1;
+        pub const exchange_provider_harness_fingerprint_version: u32 = Evidence.domains.provider_harness.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange morphism offer witnesses.
-        pub const exchange_morphism_offer_fingerprint_version: u32 = 1;
+        pub const exchange_morphism_offer_fingerprint_version: u32 = Evidence.domains.morphism_offer.fingerprint_version;
         /// Stable format version for Program.Exchange capability grant images.
-        pub const exchange_capability_format_version: u32 = 1;
+        pub const exchange_capability_format_version: u32 = Evidence.domains.capability.format_version.?;
         /// Stable fingerprint version for Program.Exchange capability grant images.
-        pub const exchange_capability_fingerprint_version: u32 = 1;
+        pub const exchange_capability_fingerprint_version: u32 = Evidence.domains.capability.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange authorization witnesses.
-        pub const exchange_authorization_fingerprint_version: u32 = 1;
+        pub const exchange_authorization_fingerprint_version: u32 = Evidence.domains.authorization.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange route witnesses.
-        pub const exchange_route_fingerprint_version: u32 = 1;
+        pub const exchange_route_fingerprint_version: u32 = Evidence.domains.route.fingerprint_version;
         /// Stable format version for Program.Exchange effect-session specs.
-        pub const exchange_effect_session_format_version: u32 = 1;
+        pub const exchange_effect_session_format_version: u32 = Evidence.domains.effect_session_spec.format_version.?;
         /// Stable fingerprint version for Program.Exchange effect-session specs.
-        pub const exchange_effect_session_fingerprint_version: u32 = 1;
+        pub const exchange_effect_session_fingerprint_version: u32 = Evidence.domains.effect_session_spec.fingerprint_version;
         /// Stable format version for Program.Exchange capability instances.
-        pub const exchange_capability_instance_format_version: u32 = 1;
+        pub const exchange_capability_instance_format_version: u32 = Evidence.domains.capability_instance.format_version.?;
         /// Stable fingerprint version for Program.Exchange capability instances.
-        pub const exchange_capability_instance_fingerprint_version: u32 = 1;
+        pub const exchange_capability_instance_fingerprint_version: u32 = Evidence.domains.capability_instance.fingerprint_version;
         /// Stable format version for Program.Exchange obligations.
-        pub const exchange_obligation_format_version: u32 = 1;
+        pub const exchange_obligation_format_version: u32 = Evidence.domains.obligation.format_version.?;
         /// Stable fingerprint version for Program.Exchange obligations.
-        pub const exchange_obligation_fingerprint_version: u32 = 1;
+        pub const exchange_obligation_fingerprint_version: u32 = Evidence.domains.obligation.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange obligation transitions.
-        pub const exchange_obligation_transition_fingerprint_version: u32 = 1;
+        pub const exchange_obligation_transition_fingerprint_version: u32 = Evidence.domains.obligation_transition.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange authorization results.
-        pub const exchange_authorization_result_fingerprint_version: u32 = 1;
+        pub const exchange_authorization_result_fingerprint_version: u32 = Evidence.domains.authorization_result.fingerprint_version;
         /// Stable format version for Program.Exchange Effect Treaties.
-        pub const exchange_treaty_format_version: u32 = 1;
+        pub const exchange_treaty_format_version: u32 = Evidence.domains.treaty.format_version.?;
         /// Stable fingerprint version for Program.Exchange Effect Treaties.
         /// Version 2 preserves v1 fields and adds provider usage and provider response refs.
-        pub const exchange_treaty_fingerprint_version: u32 = 2;
+        pub const exchange_treaty_fingerprint_version: u32 = Evidence.domains.treaty.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange treaty-bound response authorization.
         /// Version 3 preserves v2 fields and adds provider, capability, path, and request witnesses.
-        pub const exchange_treaty_authorization_fingerprint_version: u32 = 3;
+        pub const exchange_treaty_authorization_fingerprint_version: u32 = Evidence.domains.treaty_authorization.fingerprint_version;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {
@@ -3970,6 +3973,11 @@ pub fn program(
                     return fingerprintEffectSessionSpec(self);
                 }
 
+                /// Canonical evidence reference for this effect-session spec.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refFor(Evidence.domains.effect_session_spec, self.fingerprint(), .{ .label = self.label });
+                }
+
                 /// Return true when this state is terminal.
                 pub fn terminal(self: @This(), state: []const u8) bool {
                     for (self.terminal_states) |terminal_state| {
@@ -4162,6 +4170,14 @@ pub fn program(
                 pub fn validFingerprint(self: @This()) bool {
                     if (self.instance_fingerprint == 0) return false;
                     return self.instance_fingerprint == fingerprintCapabilityInstance(self);
+                }
+
+                /// Canonical evidence reference for this capability instance.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refFor(Evidence.domains.capability_instance, self.instance_fingerprint, .{
+                        .format_version = self.instance_version,
+                        .branch_id = self.branch_id,
+                    });
                 }
 
                 /// Release capability-instance-owned authority snapshots.
@@ -4540,6 +4556,11 @@ pub fn program(
                 pub fn validFingerprint(self: @This()) bool {
                     if (self.obligation_fingerprint == 0) return false;
                     return self.obligation_fingerprint == fingerprintObligation(self);
+                }
+
+                /// Canonical evidence reference for this obligation.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForObligation(self);
                 }
 
                 /// Release obligation-owned response-ref storage.
@@ -5067,6 +5088,15 @@ pub fn program(
                 count: usize = 0,
                 saturated: bool = false,
 
+                /// Options for lowering validation blockers into Evidence blockers.
+                pub const EvidenceBlockerOptions = struct {
+                    domain: Evidence.Domain.Id = Evidence.domains.capability.id,
+                    subject: ?Evidence.Ref = null,
+                    primary: ?Evidence.Ref = null,
+                    source: Evidence.SourceSubsystem = .capability,
+                    summary_prefix: []const u8 = "validation blocker",
+                };
+
                 /// Return true when the report contains no blockers.
                 pub fn allowed(self: @This()) bool {
                     return self.count == 0 and !self.saturated;
@@ -5099,6 +5129,40 @@ pub fn program(
                 pub fn firstTagName(self: @This()) ?[]const u8 {
                     if (self.count == 0) return null;
                     return @tagName(self.blockers[0]);
+                }
+
+                /// Lower retained blocker tags into caller-owned shared Evidence blockers.
+                pub fn toEvidenceBlockers(self: @This(), storage: []Evidence.Blocker, options: EvidenceBlockerOptions) []const Evidence.Blocker {
+                    const limit = @min(storage.len, self.count);
+                    for (self.blockers[0..limit], 0..) |tag, index| {
+                        storage[index] = .{
+                            .domain = options.domain,
+                            .tag = @tagName(tag),
+                            .subject = options.subject,
+                            .primary = options.primary orelse options.subject,
+                            .short_code = @tagName(tag),
+                            .summary = if (options.summary_prefix.len == 0) @tagName(tag) else options.summary_prefix,
+                            .source = options.source,
+                        };
+                    }
+                    return storage[0..limit];
+                }
+
+                /// Lower this validation report into a shared Evidence report.
+                pub fn toEvidenceReport(
+                    self: @This(),
+                    subject: Evidence.Ref,
+                    report_domain: Evidence.Domain.Id,
+                    dependencies: []const Evidence.Dependency,
+                    blocker_storage: []Evidence.Blocker,
+                    options: EvidenceBlockerOptions,
+                ) Evidence.Report {
+                    var evidence_options = options;
+                    evidence_options.domain = report_domain;
+                    evidence_options.subject = evidence_options.subject orelse subject;
+                    const blockers = self.toEvidenceBlockers(blocker_storage, evidence_options);
+                    if (blockers.len == 0 and !self.saturated) return Evidence.Report.ok(subject, report_domain, dependencies);
+                    return Evidence.Report.withBlockers(subject, report_domain, dependencies, blockers, &.{}, null, "validation report");
                 }
             };
 
@@ -5297,6 +5361,11 @@ pub fn program(
                             return true;
                         },
                     }
+                }
+
+                /// Canonical evidence reference for this provider manifest.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForProviderManifest(self);
                 }
             };
 
@@ -5497,6 +5566,11 @@ pub fn program(
                     }
                 }
 
+                /// Canonical evidence reference for this provider offer.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForProviderOffer(self);
+                }
+
                 /// Return true when the offer supports a target protocol operation.
                 pub fn supportsProtocolOperation(self: @This(), protocol_op_fingerprint: u64, response_refs: []const lowering_api.ValueRef) bool {
                     self.validate() catch return false;
@@ -5650,6 +5724,16 @@ pub fn program(
                     pub const supported_protocol_op_fingerprints = protocol_ops[0..];
                     /// Handler declaration entries.
                     pub const declarations = entries;
+
+                    /// Canonical evidence domain for this handler-first provider harness.
+                    pub const evidenceDomain = Evidence.domains.provider_harness;
+                    /// Canonical evidence reference for this handler-first provider harness.
+                    pub const evidence_ref = Evidence.refForProviderHarness(@This());
+
+                    /// Return the canonical evidence reference for this provider harness type.
+                    pub fn evidenceRef() Evidence.Ref {
+                        return evidence_ref;
+                    }
 
                     /// Static provider catalog metadata.
                     pub const Metadata = struct {
@@ -5886,6 +5970,54 @@ pub fn program(
                         capability_fingerprint: ?u64 = null,
                         obligation_fingerprint: ?u64 = null,
                         summary: []const u8,
+
+                        /// Lower provider-specific blocker metadata into the shared Evidence blocker shape.
+                        pub fn toEvidenceBlocker(self: @This()) Evidence.Blocker {
+                            return self.toEvidenceBlockerWithRelated(null);
+                        }
+
+                        /// Lower provider-specific blocker metadata with caller-owned related-ref storage.
+                        pub fn toEvidenceBlockerWithRelated(self: @This(), storage: ?*[6]Evidence.Ref) Evidence.Blocker {
+                            var related_len: usize = 0;
+                            const related_refs = if (storage) |related_storage| blk: {
+                                if (self.provider_fingerprint) |fingerprint| {
+                                    related_storage[related_len] = Evidence.refFor(Evidence.domains.provider_manifest, fingerprint, .{});
+                                    related_len += 1;
+                                }
+                                if (self.offer_fingerprint) |fingerprint| {
+                                    related_storage[related_len] = Evidence.refFor(Evidence.domains.provider_offer, fingerprint, .{});
+                                    related_len += 1;
+                                }
+                                if (self.treaty_fingerprint) |fingerprint| {
+                                    related_storage[related_len] = Evidence.refFor(Evidence.domains.treaty, fingerprint, .{});
+                                    related_len += 1;
+                                }
+                                if (self.route_fingerprint) |fingerprint| {
+                                    related_storage[related_len] = Evidence.refFor(Evidence.domains.route, fingerprint, .{});
+                                    related_len += 1;
+                                }
+                                if (self.capability_fingerprint) |fingerprint| {
+                                    related_storage[related_len] = Evidence.refFor(Evidence.domains.capability, fingerprint, .{});
+                                    related_len += 1;
+                                }
+                                if (self.obligation_fingerprint) |fingerprint| {
+                                    related_storage[related_len] = Evidence.refFor(Evidence.domains.obligation, fingerprint, .{});
+                                    related_len += 1;
+                                }
+                                break :blk related_storage[0..related_len];
+                            } else &.{};
+                            const subject = if (self.request_envelope_fingerprint) |fingerprint| Evidence.refFor(Evidence.domains.exchange_request_envelope, fingerprint, .{}) else null;
+                            return .{
+                                .domain = Evidence.domains.provider_request_validation.id,
+                                .tag = @tagName(self.tag),
+                                .subject = subject,
+                                .primary = subject,
+                                .related_refs = related_refs,
+                                .short_code = @tagName(self.tag),
+                                .summary = if (self.summary.len == 0) @tagName(self.tag) else self.summary,
+                                .source = .provider_harness,
+                            };
+                        }
                     };
 
                     /// Provider-side journal and replay options.
@@ -6987,6 +7119,11 @@ pub fn program(
                     return fingerprintMorphismOffer(self);
                 }
 
+                /// Canonical evidence reference for this morphism offer.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refFor(Evidence.domains.morphism_offer, self.fingerprint(), .{ .label = self.label });
+                }
+
                 /// Return true when this offer can adapt the request source.
                 pub fn supportsSource(self: @This(), request: RequestEnvelope) bool {
                     if (self.blockers.len != 0) return false;
@@ -7099,6 +7236,11 @@ pub fn program(
                 require_treaty_bound_response_authorization: bool = true,
                 certificate: Certificate,
 
+                /// Canonical evidence reference for this treaty.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForTreaty(self);
+                }
+
                 /// Treaty handling implementation mode.
                 pub const HandlingKind = enum {
                     direct,
@@ -7173,6 +7315,54 @@ pub fn program(
                     obligation_fingerprint: ?u64 = null,
                     morphism_fingerprint: ?u64 = null,
                     summary: []const u8 = "",
+
+                    /// Lower treaty-specific blocker metadata into the shared Evidence blocker shape.
+                    pub fn toEvidenceBlocker(self: @This()) Evidence.Blocker {
+                        return self.toEvidenceBlockerWithRelated(null);
+                    }
+
+                    /// Lower treaty-specific blocker metadata with caller-owned related-ref storage.
+                    pub fn toEvidenceBlockerWithRelated(self: @This(), storage: ?*[6]Evidence.Ref) Evidence.Blocker {
+                        var related_len: usize = 0;
+                        const related_refs = if (storage) |related_storage| blk: {
+                            if (self.provider_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.provider_manifest, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            if (self.offer_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.provider_offer, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            if (self.capability_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.capability, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            if (self.capability_instance_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.capability_instance, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            if (self.obligation_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.obligation, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            if (self.morphism_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.morphism_offer, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            break :blk related_storage[0..related_len];
+                        } else &.{};
+                        const subject = if (self.request_fingerprint != 0) Evidence.refFor(Evidence.domains.exchange_request_envelope, self.request_fingerprint, .{}) else null;
+                        return .{
+                            .domain = Evidence.domains.treaty_resolver.id,
+                            .tag = @tagName(self.tag),
+                            .subject = subject,
+                            .primary = subject,
+                            .related_refs = related_refs,
+                            .short_code = @tagName(self.tag),
+                            .summary = if (self.summary.len == 0) @tagName(self.tag) else self.summary,
+                            .source = .treaty,
+                        };
+                    }
                 };
 
                 /// Fixed-capacity blocker list used by the resolver and certificate checker.
@@ -7211,6 +7401,22 @@ pub fn program(
                     pub fn firstTagName(self: @This()) ?[]const u8 {
                         if (self.count == 0) return null;
                         return @tagName(self.blockers[0].tag);
+                    }
+
+                    /// Lower retained treaty blockers into caller-owned shared Evidence blockers.
+                    pub fn toEvidenceBlockers(self: @This(), storage: []Evidence.Blocker) []const Evidence.Blocker {
+                        const limit = @min(storage.len, self.count);
+                        for (self.blockers[0..limit], 0..) |blocker, index| {
+                            storage[index] = blocker.toEvidenceBlocker();
+                        }
+                        return storage[0..limit];
+                    }
+
+                    /// Lower this treaty blocker list into a shared Evidence report.
+                    pub fn toEvidenceReport(self: @This(), subject: Evidence.Ref, dependencies: []const Evidence.Dependency, blocker_storage: []Evidence.Blocker) Evidence.Report {
+                        const blockers = self.toEvidenceBlockers(blocker_storage);
+                        if (blockers.len == 0 and !self.saturated) return Evidence.Report.ok(subject, Evidence.domains.treaty_resolver.id, dependencies);
+                        return Evidence.Report.withBlockers(subject, Evidence.domains.treaty_resolver.id, dependencies, blockers, &.{}, null, "treaty resolver report");
                     }
                 };
 
@@ -7298,6 +7504,16 @@ pub fn program(
                         if (self.certificate_fingerprint != fingerprintTreatyCertificate(self)) return error.ProgramContractViolation;
                     }
 
+                    /// Canonical evidence reference for this treaty certificate.
+                    pub fn evidenceRef(self: @This()) Evidence.Ref {
+                        return Evidence.refForTreatyCertificate(self);
+                    }
+
+                    /// Shared certificate snapshot view with caller-owned dependency storage.
+                    pub fn evidenceView(self: @This(), storage: ?*[6]Evidence.Dependency) Evidence.CertificateView {
+                        return Evidence.certificateViewForTreatyCertificateWithDependencies(storage, self);
+                    }
+
                     /// Clone certificate-owned slices before transferring it outside the runner.
                     pub fn clone(self: @This(), allocator: std.mem.Allocator) Error!@This() {
                         const morphism_fps = try cloneU64s(allocator, self.morphism_offer_fingerprints);
@@ -7362,6 +7578,16 @@ pub fn program(
                     expected_obligation_transition_fingerprint: ?u64 = null,
                     format_version: u32 = exchange_treaty_authorization_fingerprint_version,
                     authorization_fingerprint: u64 = 0,
+
+                    /// Canonical evidence reference for this treaty authorization.
+                    pub fn evidenceRef(self: @This()) Evidence.Ref {
+                        return Evidence.refForTreatyAuthorization(self);
+                    }
+
+                    /// Shared authorization snapshot view.
+                    pub fn evidenceView(self: @This()) Evidence.AuthorizationView {
+                        return Evidence.authorizationViewForTreatyAuthorization(self);
+                    }
 
                     /// Construct a treaty-bound authorization for a response.
                     pub fn forResponse(treaty: Treaty, response: ResponseEnvelope, response_use: ResponseUse) Error!@This() {
@@ -7834,6 +8060,11 @@ pub fn program(
                     self.bytes = &.{};
                 }
 
+                /// Canonical evidence reference for this capability grant.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForCapability(self);
+                }
+
                 /// Return a child capability whose authority is a subset of this capability.
                 pub fn attenuate(self: @This(), allocator: std.mem.Allocator, args: Attenuation) Error!@This() {
                     if (!capabilityFieldsBoundToBytes(self)) return error.ProgramContractViolation;
@@ -7917,6 +8148,11 @@ pub fn program(
                 request_envelope_fingerprint: u64,
                 response_envelope_fingerprint: u64,
                 authorization_fingerprint: u64,
+
+                /// Canonical evidence reference for this authorization sidecar.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForAuthorization(self);
+                }
 
                 /// Construct an authorization witness for a routed response.
                 pub fn forResponse(route: Route, response: ResponseEnvelope) Error!@This() {
@@ -8018,6 +8254,11 @@ pub fn program(
                 /// Return true when this route has no blockers.
                 pub fn valid(self: @This()) bool {
                     return self.blockers.allowed();
+                }
+
+                /// Canonical evidence reference for this route witness.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForRoute(self);
                 }
             };
 
@@ -8464,6 +8705,11 @@ pub fn program(
                     try validateRequestEnvelopeFieldsBoundToBytes(self);
                 }
 
+                /// Canonical evidence reference for this request envelope.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForRequestEnvelope(self);
+                }
+
                 /// Release request envelope storage.
                 pub fn deinit(self: *@This()) void {
                     self.allocator.free(self.bytes);
@@ -8576,6 +8822,11 @@ pub fn program(
                     const trace = responseTraceFromEnvelope(request.request_fingerprint, self.kind, self.response_ref, self.response_value_fingerprint);
                     if (trace.fingerprint != self.response_trace_fingerprint) return error.ProgramContractViolation;
                     try validateExchangeValueImage(self.allocator, self.response_ref, self.response_value_fingerprint, self.value_image);
+                }
+
+                /// Canonical evidence reference for this response envelope.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForResponseEnvelope(self);
                 }
 
                 /// Attach a deterministic authorization witness without changing response bytes.
@@ -14504,6 +14755,22 @@ pub fn program(
             source_site_fingerprint: ?u64 = null,
             target_protocol_op_fingerprint: ?u64 = null,
             message: []const u8 = "",
+
+            /// Lower residualization-specific blocker metadata into the shared Evidence blocker shape.
+            pub fn toEvidenceBlocker(self: @This()) Evidence.Blocker {
+                const subject = if (self.source_site_fingerprint) |fingerprint| Evidence.refFor(Evidence.domains.session_request, fingerprint, .{ .site_index = self.source_site_index }) else null;
+                const primary = if (self.target_protocol_op_fingerprint) |fingerprint| Evidence.refFor(Evidence.domains.morphism_offer, fingerprint, .{}) else subject;
+                return .{
+                    .domain = Evidence.domains.residualization_report.id,
+                    .tag = @tagName(self.tag),
+                    .subject = subject,
+                    .primary = primary,
+                    .site_index = self.source_site_index,
+                    .short_code = @tagName(self.tag),
+                    .summary = if (self.message.len == 0) @tagName(self.tag) else self.message,
+                    .source = .residualization,
+                };
+            }
         };
 
         /// Static source-to-residual site mapping emitted by a residualization report.
@@ -15562,6 +15829,27 @@ pub fn program(
             target_protocol_op_fingerprint: ?u64 = null,
             morphism_fingerprint: ?u64 = null,
             summary: []const u8 = "",
+
+            /// Lower pipeline-specific blocker metadata into the shared Evidence blocker shape.
+            pub fn toEvidenceBlocker(self: @This()) Evidence.Blocker {
+                const subject = if (self.source_site_fingerprint) |fingerprint| Evidence.refFor(Evidence.domains.session_request, fingerprint, .{ .site_index = self.source_site_index }) else null;
+                const primary = if (self.morphism_fingerprint) |fingerprint|
+                    Evidence.refFor(Evidence.domains.morphism_offer, fingerprint, .{})
+                else if (self.target_protocol_op_fingerprint) |fingerprint|
+                    Evidence.refFor(Evidence.domains.morphism_offer, fingerprint, .{})
+                else
+                    subject;
+                return .{
+                    .domain = Evidence.domains.pipeline.id,
+                    .tag = @tagName(self.tag),
+                    .subject = subject,
+                    .primary = primary,
+                    .site_index = self.source_site_index,
+                    .short_code = @tagName(self.tag),
+                    .summary = if (self.summary.len == 0) @tagName(self.tag) else self.summary,
+                    .source = .pipeline,
+                };
+            }
         };
 
         /// Route category selected or reported by the pipeline planner.
@@ -15706,6 +15994,25 @@ pub fn program(
                     }
                     if (duplicate_source or duplicate_residual) return error.InvalidPipelineCertificate;
                 }
+            }
+
+            /// Canonical evidence reference for this pipeline certificate.
+            pub fn evidenceRef(self: @This()) Evidence.Ref {
+                return Evidence.refForPipelineCertificate(self);
+            }
+
+            /// Shared certificate snapshot view.
+            pub fn evidenceView(self: @This()) Evidence.CertificateView {
+                const certificate_ref = self.evidenceRef();
+                const subject = Evidence.refFor(Evidence.domains.program_plan, self.source_plan_hash, .{ .label = self.source_plan_label });
+                return .{
+                    .certificate_ref = certificate_ref,
+                    .subject_ref = subject,
+                    .domain = Evidence.domains.pipeline_certificate.id,
+                    .report_fingerprint = self.pipeline_fingerprint,
+                    .certificate_fingerprint = self.pipeline_fingerprint,
+                    .summary = "pipeline certificate",
+                };
             }
 
             fn residualMapEntryForRoute(entries: []const ResidualSourceMapEntry, route: PipelineRouteWitness) ?ResidualSourceMapEntry {

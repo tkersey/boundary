@@ -1157,3 +1157,38 @@ contract metadata used by built-in prototypes.
 
 See [custom_effect_authoring.md](custom_effect_authoring.md) for the design
 boundary and non-goals.
+
+## Evidence And Validation
+
+Each concrete `Program` exposes `Program.Evidence`, the shared substrate for
+Ability's proof machinery. Evidence domains centralize the format and
+fingerprint versions used by ProgramPlan hashes, session trace/request/response
+fingerprints, capsule images, journals, exchange envelopes, provider manifests,
+provider offers, capabilities, routes, authorizations, linear obligations,
+treaties, ProviderHarness metadata, morphisms, residualization, and pipelines.
+
+Format versions govern encoded bytes. Fingerprint versions govern canonical
+digest semantics. Journal versions govern event encoding. Certificates and
+authorizations are snapshots of validated dependency graphs. Request tokens are
+local in-process misuse guards and are not serialized or included in semantic
+fingerprints.
+
+`Evidence.Ref` gives blockers, reports, certificates, authorizations, and
+journal projections a shared reference language without replacing typed
+subsystem objects. `Evidence.DependencyGraph` records role-labeled refs and
+computes deterministic dependency fingerprints. `Evidence.Blocker` and
+`Evidence.Report` provide common validation views while existing subsystem
+blocker/report APIs remain source-compatible. `Evidence.CertificateView`,
+`Evidence.AuthorizationView`, `Evidence.JournalProjection`, and
+`Evidence.PolicySummary` make validated proof snapshots and journal metadata
+consistent across ProviderHarness, Treaties, Linear Effect Sessions,
+Capabilities, Exchange, Journal, Residualization, and Pipeline surfaces.
+
+Evidence fingerprints are deterministic semantic witnesses. They are not
+cryptographic signatures, authentication tokens, or transport security. Hosts
+own identity, signing, encryption, transport, storage, scheduling, provider
+execution, provider lifecycle, and cancellation effects.
+
+See [evidence_kernel.md](evidence_kernel.md) for the domain inventory, version
+bump policy, and maintainer workflow for adding evidence objects, blockers,
+reports, certificate views, and journal events.

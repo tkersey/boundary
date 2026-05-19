@@ -14,6 +14,13 @@ builder. `program` gives a reusable execution surface for one named compiled
 body. `Runtime` is the caller-owned local runtime used to run programs
 repeatedly.
 
+Each concrete `Program` also exposes `Program.Evidence`, the canonical internal
+evidence kernel for versioned fingerprint domains, evidence refs, dependency
+lists, validation blockers/reports, certificate and authorization views, journal
+projections, and policy summaries. Evidence fingerprints are deterministic
+semantic witnesses, not cryptographic security claims or serialized request
+tokens. See [docs/evidence_kernel.md](docs/evidence_kernel.md).
+
 ## Program
 
 `ability.program` executes a `Body.compiled_plan`. The plan is built at comptime
