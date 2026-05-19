@@ -9110,6 +9110,7 @@ pub fn program(
                 .{ .request_format = exchange_request_format_version, .request_fingerprint = exchange_request_fingerprint_version, .journal_format = journal_format_version },
                 .{ .request_format = 3, .request_fingerprint = 3, .journal_format = 3 },
                 .{ .request_format = 2, .request_fingerprint = 2, .journal_format = 2 },
+                .{ .request_format = 2, .request_fingerprint = 2, .journal_format = 1 },
                 .{ .request_format = 1, .request_fingerprint = 1, .journal_format = 2 },
                 .{ .request_format = 1, .request_fingerprint = 1, .journal_format = 1 },
             };
