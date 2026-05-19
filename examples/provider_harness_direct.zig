@@ -88,10 +88,18 @@ const Outbox = struct {
     pub fn appendTreaty(self: *@This(), request: Program.Exchange.RequestEnvelope, certificate: Program.Exchange.Treaty.Certificate) !void {
         var owned_request = request;
         var owned_certificate = certificate;
-        errdefer owned_request.deinit();
-        errdefer owned_certificate.deinit(self.allocator);
+        var request_owned = true;
+        var certificate_owned = true;
+        errdefer if (request_owned) owned_request.deinit();
+        errdefer if (certificate_owned) owned_certificate.deinit(self.allocator);
         try self.requests.append(self.allocator, owned_request);
+        request_owned = false;
+        errdefer {
+            var appended_request = self.requests.pop().?;
+            appended_request.deinit();
+        }
         try self.certificates.append(self.allocator, owned_certificate);
+        certificate_owned = false;
     }
 };
 
@@ -151,9 +159,10 @@ pub fn run(writer: anytype) !void {
         else => return error.ExpectedRequest,
     }
 
-    const treaty_fingerprint = runner.last_treaty.?.fingerprint;
+    const treaty = runner.last_treaty.?;
+    const treaty_fingerprint = treaty.fingerprint;
     var ctx = ProviderCtx{ .allocator = allocator };
-    const provider_result = try Harness.handle(&ctx, allocator, outbox.requests.items[0], outbox.certificates.items[0], .{});
+    const provider_result = try Harness.handle(&ctx, allocator, outbox.requests.items[0], outbox.certificates.items[0], .{ .treaty = treaty });
     const authorization_fingerprint = switch (provider_result) {
         .response => |packet| blk: {
             inbox.response = packet.response;

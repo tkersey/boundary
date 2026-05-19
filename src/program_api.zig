@@ -1283,8 +1283,8 @@ pub fn program(
         /// Stable fingerprint version for Program.Session.Capsule durable images.
         pub const capsule_image_fingerprint_version: u32 = 1;
         /// Stable format version for Program.Session interaction journals.
-        /// Version 4 preserves v3 fields and adds Effect Treaty event metadata.
-        pub const journal_format_version: u32 = 4;
+        /// Version 5 preserves v4 fields and adds ProviderHarness event metadata.
+        pub const journal_format_version: u32 = 5;
         /// Stable fingerprint version for Program.Session interaction journals.
         pub const journal_fingerprint_version: u32 = 1;
         /// Stable format version for Program.Exchange manifest images.
@@ -1341,7 +1341,8 @@ pub fn program(
         /// Stable fingerprint version for Program.Exchange Effect Treaties.
         pub const exchange_treaty_fingerprint_version: u32 = 1;
         /// Stable fingerprint version for Program.Exchange treaty-bound response authorization.
-        pub const exchange_treaty_authorization_fingerprint_version: u32 = 2;
+        /// Version 3 preserves v2 fields and adds provider, capability, path, and request witnesses.
+        pub const exchange_treaty_authorization_fingerprint_version: u32 = 3;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {
@@ -1577,7 +1578,7 @@ pub fn program(
             pub const capsule_image_format_version = Core.capsule_image_format_version;
             /// Durable capsule image fingerprint version.
             pub const capsule_image_fingerprint_version = Core.capsule_image_fingerprint_version;
-            const session_journal_format_version: u32 = 4;
+            const session_journal_format_version: u32 = 5;
             const session_journal_fingerprint_version = Core.journal_fingerprint_version;
             /// Durable interaction journal format version.
             pub const journal_format_version = session_journal_format_version;
@@ -2118,7 +2119,7 @@ pub fn program(
                     var reader = ExchangeByteReader.init(payload);
                     try reader.expectBytes("ABL_JRN1");
                     const format_version = try reader.readU32();
-                    if (format_version != 1 and format_version != 2 and format_version != 3 and format_version != session_journal_format_version) return error.ProgramContractViolation;
+                    if (format_version != 1 and format_version != 2 and format_version != 3 and format_version != 4 and format_version != session_journal_format_version) return error.ProgramContractViolation;
                     if (try reader.readU32() != session_journal_fingerprint_version) return error.ProgramContractViolation;
                     var journal = Journal.init(allocator);
                     errdefer journal.deinit();
@@ -3349,6 +3350,7 @@ pub fn program(
                 const tag = try reader.readU8();
                 if (format_version < 3 and tag > 6) return error.ProgramContractViolation;
                 if (format_version < 4 and tag > 17) return error.ProgramContractViolation;
+                if (format_version < 5 and tag > 31) return error.ProgramContractViolation;
                 return switch (tag) {
                     0 => .provider_manifest_recorded,
                     1 => .capability_granted,
@@ -5707,9 +5709,9 @@ pub fn program(
                             .supported_operation_sites = supported_operation_sites,
                             .supported_after_sites = supported_after_sites,
                             .supported_protocol_op_fingerprints = supported_protocol_op_fingerprints,
-                            .allowed_response_kinds = providerHarnessField(options, "allowed_response_kinds", Policy.ResponseKindSet{}),
-                            .max_request_envelope_bytes = providerHarnessField(options, "max_request_envelope_bytes", @as(usize, std.math.maxInt(usize))),
-                            .max_response_envelope_bytes = providerHarnessField(options, "max_response_envelope_bytes", @as(usize, std.math.maxInt(usize))),
+                            .allowed_response_kinds = providerHarnessManifestResponseKinds(options, entries),
+                            .max_request_envelope_bytes = providerHarnessManifestMaxRequestBytes(options, entries),
+                            .max_response_envelope_bytes = providerHarnessManifestMaxResponseBytes(options, entries),
                             .accepts_embedded_capsules = providerHarnessField(options, "accepts_embedded_capsules", @as(bool, true)),
                             .accepts_capsule_restore = providerHarnessField(options, "accepts_capsule_restore", @as(bool, true)),
                             .semantic_tags = providerHarnessField(options, "semantic_tags", @as([]const []const u8, &.{})),
@@ -5738,8 +5740,8 @@ pub fn program(
                         errdefer allocator.free(offers);
                         var initialized: usize = 0;
                         errdefer for (offers[0..initialized]) |*offer| offer.deinit();
-                        inline for (entries, 0..) |Entry, index| {
-                            offers[index] = try buildProviderHarnessOffer(allocator, Entry, manifest.fingerprint, provider_fingerprint);
+                        inline for (entries, 0..) |_, index| {
+                            offers[index] = try ProviderOffer.encode(allocator, offerOptions(index, manifest.fingerprint));
                             initialized += 1;
                         }
 
@@ -5888,7 +5890,12 @@ pub fn program(
                     /// Provider-side journal and replay options.
                     pub const HandleOptions = struct {
                         journal: ?*Session.Journal = null,
+                        treaty: ?Treaty = null,
+                        capability_instance_state: ?*const CapabilityInstance = null,
+                        obligation_state: ?*const Obligation = null,
                         response_use: ?ResponseUse = null,
+                        replay_source_response_fingerprint: ?u64 = null,
+                        replay_source_response_value_fingerprint: ?u64 = null,
                     };
 
                     /// Provider-built response packet.
@@ -5907,6 +5914,26 @@ pub fn program(
                         /// Release response packet storage.
                         pub fn deinit(self: *@This()) void {
                             self.response.deinit();
+                        }
+
+                        /// Clone packet-owned response storage before transferring it to another owner.
+                        pub fn clone(self: @This(), allocator: std.mem.Allocator) Error!@This() {
+                            var response = try ResponseEnvelope.decode(allocator, self.response.bytes);
+                            errdefer response.deinit();
+                            response.authorization = self.response.authorization;
+                            response.treaty_authorization = self.response.treaty_authorization;
+                            return .{
+                                .response = response,
+                                .treaty_authorization = self.treaty_authorization,
+                                .provider_fingerprint = self.provider_fingerprint,
+                                .provider_offer_fingerprint = self.provider_offer_fingerprint,
+                                .treaty_fingerprint = self.treaty_fingerprint,
+                                .route_fingerprint = self.route_fingerprint,
+                                .capability_fingerprint = self.capability_fingerprint,
+                                .attenuated_capability_fingerprint = self.attenuated_capability_fingerprint,
+                                .response_use = self.response_use,
+                                .obligation_transition_fingerprint = self.obligation_transition_fingerprint,
+                            };
                         }
                     };
 
@@ -6042,9 +6069,113 @@ pub fn program(
                         };
                     }
 
-                    fn validateForEntry(comptime Entry: type, request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer) ?Blocker {
+                    fn validateLiveAuthority(request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, treaty: Treaty, options_value: HandleOptions) ?Blocker {
+                        treaty.checkCertificate() catch return blocker(.treaty_certificate_invalid, request, certificate, offer.fingerprint, "live treaty failed deterministic certificate validation");
+                        if (treaty.fingerprint != certificate.treaty_fingerprint or
+                            treaty.certificate.certificate_fingerprint != certificate.certificate_fingerprint)
+                        {
+                            return blocker(.treaty_mismatch, request, certificate, offer.fingerprint, "certificate does not match live treaty authority");
+                        }
+                        if (treaty.route.fingerprint != certificate.route_fingerprint) {
+                            return blocker(.route_mismatch, request, certificate, offer.fingerprint, "certificate route does not match live treaty route");
+                        }
+                        if (treaty.capability_fingerprint != certificate.capability_fingerprint) {
+                            return blocker(.capability_mismatch, request, certificate, offer.fingerprint, "certificate capability does not match live treaty capability");
+                        }
+                        if (treaty.certificate.attenuated_capability_fingerprint != certificate.attenuated_capability_fingerprint) {
+                            return blocker(.attenuated_capability_mismatch, request, certificate, offer.fingerprint, "certificate attenuated capability does not match live treaty");
+                        }
+
+                        const response_uses_replay = certificate.response_use == .replayed or certificate.response_use == .deterministic_replay;
+                        if (certificate.capability_instance_fingerprint) |fingerprint| {
+                            const instance = options_value.capability_instance_state orelse return blocker(.capability_instance_invalid, request, certificate, offer.fingerprint, "live capability instance state is required before provider invocation");
+                            if (!instance.*.validFingerprint() or instance.*.instance_fingerprint != fingerprint) {
+                                return blocker(.capability_instance_invalid, request, certificate, offer.fingerprint, "live capability instance does not match treaty certificate");
+                            }
+                            if (instance.*.provider_fingerprint != certificate.provider_fingerprint or instance.*.manifest_fingerprint != certificate.manifest_fingerprint) {
+                                return blocker(.capability_instance_invalid, request, certificate, offer.fingerprint, "live capability instance scope does not match treaty certificate");
+                            }
+                            if (!response_uses_replay and instance.*.closed()) {
+                                return blocker(.capability_instance_invalid, request, certificate, offer.fingerprint, "live capability instance is already closed");
+                            }
+                            if (!capabilityInstanceParentMatchesTreatyCapability(instance.*, treaty)) {
+                                return blocker(.capability_mismatch, request, certificate, offer.fingerprint, "live capability instance does not derive from treaty capability");
+                            }
+                            if (certificate.effect_session_spec_fingerprint) |spec_fingerprint| {
+                                if (instance.*.effect_session_spec_fingerprint != spec_fingerprint) {
+                                    return blocker(.capability_instance_invalid, request, certificate, offer.fingerprint, "live capability instance belongs to a different effect-session spec");
+                                }
+                            }
+                        }
+
+                        if (certificate.obligation_fingerprint) |fingerprint| {
+                            const obligation = options_value.obligation_state orelse return blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "live obligation state is required before provider invocation");
+                            if (!obligation.*.validFingerprint() or obligation.*.obligation_fingerprint != fingerprint) {
+                                return blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "live obligation state does not match treaty certificate");
+                            }
+                            if (obligation.*.request_envelope_fingerprint != request.fingerprint or obligation.*.request_fingerprint != request.request_fingerprint) {
+                                return blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "live obligation does not match request envelope");
+                            }
+                            if (obligation.*.site_fingerprint != request.site_fingerprint or obligation.*.usage != certificate.usage) {
+                                return blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "live obligation request scope does not match treaty certificate");
+                            }
+                            if (obligation.*.branch_policy != certificate.branch_policy or obligation.*.replay_policy != certificate.replay_policy) {
+                                return blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "live obligation policy does not match treaty certificate");
+                            }
+                            validateObligationResponseMetadata(obligation.*, request.usage_metadata, certificate.response_use) catch {
+                                return blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "live obligation metadata does not admit treaty response-use");
+                            };
+                            if (response_uses_replay) {
+                                if (obligation.*.usage == .ephemeral) return blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "ephemeral obligation cannot be replayed");
+                                if (obligation.*.status != .open and obligation.*.status != .consumed and obligation.*.status != .replayed) {
+                                    return blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "live obligation is not replayable");
+                                }
+                                if (obligation.*.status == .open and (obligation.*.usage == .linear or obligation.*.usage == .affine) and obligation.*.branch_policy != .replay_only) {
+                                    return blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "linear or affine obligation must be consumed before replay");
+                                }
+                            } else {
+                                if (obligation.*.status != .open) return blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "live obligation is already answered");
+                                if (obligation.*.branch_policy == .replay_only) return blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "replay-only obligation cannot produce a fresh response");
+                            }
+                            if (!obligationReplayPolicyAllows(obligation.*.status, obligation.*.branch_policy, obligation.*.replay_policy, certificate.response_use)) {
+                                return blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "live obligation replay policy rejects treaty response-use");
+                            }
+                            if (obligation.*.provider_fingerprint) |provider_value| {
+                                if (provider_value != certificate.provider_fingerprint) return blocker(.provider_mismatch, request, certificate, offer.fingerprint, "live obligation provider does not match treaty certificate");
+                            }
+                            if (obligation.*.max_response_bytes < treaty.route.max_response_bytes) {
+                                return blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "live obligation response limit is narrower than treaty route");
+                            }
+                            if (!responseKindSetSubset(certificate.expected_response_kinds, obligation.*.allowed_response_kinds)) {
+                                return blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "live obligation response kinds do not admit treaty certificate");
+                            }
+                            for (certificate.expected_response_refs) |ref| {
+                                if (!listAllowsValueRef(obligation.*.allowed_response_refs, ref)) {
+                                    return blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "live obligation response refs do not admit treaty certificate");
+                                }
+                            }
+                            if (certificate.capability_instance_fingerprint) |instance_fingerprint| {
+                                const obligation_instance = obligation.*.capability_instance_fingerprint orelse obligation.*.effect_session_instance_fingerprint;
+                                if (instance_fingerprint != obligation_instance) {
+                                    return blocker(.capability_instance_invalid, request, certificate, offer.fingerprint, "live obligation cites a different capability instance");
+                                }
+                                const instance = options_value.capability_instance_state orelse return blocker(.capability_instance_invalid, request, certificate, offer.fingerprint, "live capability instance is required for obligation authority");
+                                if (!instanceCanAnswerObligation(instance.*, obligation.*, response_uses_replay)) {
+                                    return blocker(.capability_instance_invalid, request, certificate, offer.fingerprint, "live capability instance cannot answer obligation");
+                                }
+                                if (instance.*.usage != obligation.*.usage or instance.*.branch_id != obligation.*.branch_id) {
+                                    return blocker(.capability_instance_invalid, request, certificate, offer.fingerprint, "live capability instance policy does not match obligation");
+                                }
+                            }
+                        }
+                        return null;
+                    }
+
+                    fn validateForEntry(comptime Entry: type, request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, options_value: HandleOptions) ?Blocker {
                         request.validate() catch return blocker(.malformed_request_envelope, request, certificate, offer.fingerprint, "request envelope failed deterministic validation");
                         certificate.check() catch return blocker(.treaty_certificate_invalid, request, certificate, offer.fingerprint, "treaty certificate failed deterministic validation");
+                        const treaty = options_value.treaty orelse return blocker(.treaty_missing, request, certificate, offer.fingerprint, "live treaty authority is required before provider invocation");
+                        if (validateLiveAuthority(request, certificate, offer, treaty, options_value)) |failed| return failed;
                         if (certificate.request_envelope_fingerprint != request.fingerprint or certificate.request_fingerprint != request.request_fingerprint) {
                             return blocker(.treaty_mismatch, request, certificate, offer.fingerprint, "certificate does not cite this request envelope");
                         }
@@ -6068,9 +6199,9 @@ pub fn program(
                             return blocker(.capsule_policy_violation, request, certificate, offer.fingerprint, "missing embedded capsule violates provider offer policy");
                         }
                         const offer_supports = switch (certificate.handling) {
-                            .direct => offer.supportsRequest(request),
+                            .direct => offerSupportsSelectedRequest(offer, request, certificate),
                             .dynamic_morphism, .residualized, .pipeline_adapted => if (certificate.target_protocol_op_fingerprint) |target|
-                                offer.supportsMorphismRequest(request, target, certificate.expected_response_refs)
+                                offerSupportsSelectedMorphismRequest(offer, request, certificate, target)
                             else
                                 false,
                         };
@@ -6089,10 +6220,52 @@ pub fn program(
                         return null;
                     }
 
-                    fn responsePacket(request: RequestEnvelope, certificate: Treaty.Certificate, response: ResponseEnvelope, response_use: ResponseUse) Error!ResponsePacket {
-                        _ = request;
+                    fn offerSupportsSelectedRequest(offer: ProviderOffer, request: RequestEnvelope, certificate: Treaty.Certificate) bool {
+                        if (!offerSupportsSelectedResponse(offer, request, certificate)) return false;
+                        const requirement_label = requestRequirementLabel(request) orelse return false;
+                        if (!listAllowsString(offer.supported_protocol_labels, requirement_label)) return false;
+                        const protocol_op = certificate.source_protocol_op_fingerprint orelse requestProtocolOperationFingerprint(request) orelse return false;
+                        if (!listAllowsU64(offer.supported_protocol_op_fingerprints, protocol_op)) return false;
+                        const operation_sites_constrained = offer.supported_operation_sites.len != 0;
+                        const after_sites_constrained = offer.supported_after_sites.len != 0;
+                        return switch (request.kind) {
+                            .operation => blk: {
+                                if (!operation_sites_constrained and after_sites_constrained) break :blk false;
+                                break :blk listAllowsValueRef(offer.accepted_payload_refs, request.value_ref) and listAllowsUsize(offer.supported_operation_sites, request.site_index);
+                            },
+                            .after => blk: {
+                                if (!after_sites_constrained and operation_sites_constrained) break :blk false;
+                                break :blk listAllowsValueRef(offer.accepted_current_value_refs, request.value_ref) and listAllowsUsize(offer.supported_after_sites, request.site_index);
+                            },
+                        };
+                    }
+
+                    fn offerSupportsSelectedMorphismRequest(offer: ProviderOffer, request: RequestEnvelope, certificate: Treaty.Certificate, target_protocol_op_fingerprint: u64) bool {
+                        if (!offerSupportsSelectedResponse(offer, request, certificate)) return false;
+                        return offer.supportsMorphismRequest(request, target_protocol_op_fingerprint, certificate.expected_response_refs);
+                    }
+
+                    fn offerSupportsSelectedResponse(offer: ProviderOffer, request: RequestEnvelope, certificate: Treaty.Certificate) bool {
+                        offer.validate() catch return false;
+                        request.validate() catch return false;
+                        if (offer.manifest_fingerprint != request.manifest_fingerprint) return false;
+                        if (request.bytes.len > offer.max_request_bytes) return false;
+                        if (request.capsule_image) |image| {
+                            if (!offer.capsule_policy.allows(@as(bool, true)) or image.len > offer.max_capsule_bytes) return false;
+                        } else if (!offer.capsule_policy.allows(@as(bool, false))) {
+                            return false;
+                        }
+                        if (!responseKindSetSubset(certificate.expected_response_kinds, offer.allowed_response_kinds)) return false;
+                        if (!requestAcceptsAnyResponseKind(request, certificate.expected_response_kinds)) return false;
+                        if (!requestAcceptsAnyResponseRef(request, certificate.expected_response_kinds, certificate.expected_response_refs)) return false;
+                        for (certificate.expected_response_refs) |ref| {
+                            if (!listAllowsValueRef(offer.produced_response_refs, ref)) return false;
+                        }
+                        return true;
+                    }
+
+                    fn responsePacket(certificate: Treaty.Certificate, response: ResponseEnvelope, response_use: ResponseUse) Error!ResponsePacket {
                         var packet_response = response;
-                        errdefer packet_response.deinit();
                         packet_response.treaty_authorization = try Treaty.Authorization.forCertificate(certificate, packet_response, response_use);
                         const authorization = packet_response.treaty_authorization.?;
                         return .{
@@ -6108,8 +6281,93 @@ pub fn program(
                         };
                     }
 
+                    fn replayResponsePacket(certificate: Treaty.Certificate, response: ResponseEnvelope, response_use: ResponseUse, source_response_fingerprint: u64, source_response_value_fingerprint: u64) Error!ResponsePacket {
+                        var packet_response = response;
+                        packet_response.treaty_authorization = try Treaty.Authorization.forCertificateWithReplaySource(certificate, packet_response, response_use, source_response_fingerprint, source_response_value_fingerprint);
+                        const authorization = packet_response.treaty_authorization.?;
+                        return .{
+                            .response = packet_response,
+                            .treaty_authorization = authorization,
+                            .provider_fingerprint = certificate.provider_fingerprint,
+                            .provider_offer_fingerprint = certificate.provider_offer_fingerprint,
+                            .treaty_fingerprint = certificate.treaty_fingerprint,
+                            .route_fingerprint = certificate.route_fingerprint,
+                            .capability_fingerprint = certificate.capability_fingerprint,
+                            .attenuated_capability_fingerprint = certificate.attenuated_capability_fingerprint,
+                            .response_use = response_use,
+                        };
+                    }
+
+                    fn responseUseNeedsReplaySource(response_use: ResponseUse) bool {
+                        return response_use == .replayed or response_use == .deterministic_replay;
+                    }
+
+                    fn rejectMissingReplaySource(request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, response_use: ResponseUse, options_value: HandleOptions) ?Blocker {
+                        if (!responseUseNeedsReplaySource(response_use) or certificate.obligation_fingerprint != null) return null;
+                        if (options_value.replay_source_response_fingerprint != null and options_value.replay_source_response_value_fingerprint != null) return null;
+                        return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "non-obligation replay response requires a recorded replay source witness");
+                    }
+
+                    fn finishProviderResponse(options_value: HandleOptions, request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, response: *ResponseEnvelope, response_use: ResponseUse) Error!HandleResult {
+                        if (response.bytes.len > offer.max_response_bytes) {
+                            const failed = blocker(.byte_limit_exceeded, request, certificate, offer.fingerprint, "response exceeds provider offer byte limit");
+                            try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                            response.deinit();
+                            return .{ .rejected = failed };
+                        }
+                        if (options_value.treaty) |treaty| {
+                            if (response.bytes.len > treaty.route.max_response_bytes or response.value_image.len > treaty.route.max_payload_bytes) {
+                                const failed = blocker(.byte_limit_exceeded, request, certificate, offer.fingerprint, "response exceeds treaty route byte or payload limit");
+                                try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, response.fingerprint, null, failed.tag);
+                                response.deinit();
+                                return .{ .rejected = failed };
+                            }
+                        }
+                        if (!certificate.expected_response_kinds.allows(response.kind) or !listAllowsValueRef(certificate.expected_response_refs, response.response_ref)) {
+                            const failed = blocker(.invalid_provider_outcome, request, certificate, offer.fingerprint, "response is not admitted by treaty certificate");
+                            try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, response.fingerprint, null, failed.tag);
+                            response.deinit();
+                            return .{ .rejected = failed };
+                        }
+                        var packet = if (responseUseNeedsReplaySource(response_use) and certificate.obligation_fingerprint == null) packet: {
+                            const source_response_fingerprint = options_value.replay_source_response_fingerprint orelse {
+                                const failed = blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "non-obligation replay response requires a recorded replay source response");
+                                try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, response.fingerprint, null, failed.tag);
+                                response.deinit();
+                                return .{ .rejected = failed };
+                            };
+                            const source_response_value_fingerprint = options_value.replay_source_response_value_fingerprint orelse {
+                                const failed = blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "non-obligation replay response requires a recorded replay source value");
+                                try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, response.fingerprint, null, failed.tag);
+                                response.deinit();
+                                return .{ .rejected = failed };
+                            };
+                            if (source_response_fingerprint == 0 or source_response_fingerprint == response.fingerprint or source_response_value_fingerprint != response.response_value_fingerprint) {
+                                const failed = blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay source witness does not match provider response");
+                                try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, response.fingerprint, null, failed.tag);
+                                response.deinit();
+                                return .{ .rejected = failed };
+                            }
+                            break :packet try replayResponsePacket(certificate, response.*, response_use, source_response_fingerprint, source_response_value_fingerprint);
+                        } else try responsePacket(certificate, response.*, response_use);
+                        errdefer packet.deinit();
+                        try appendProviderEvent(options_value.journal, .provider_response_built, request, certificate, packet.response.fingerprint, null, null);
+                        try appendProviderEvent(options_value.journal, .provider_response_authorized, request, certificate, packet.response.fingerprint, packet.treaty_authorization.authorization_fingerprint, null);
+                        return .{ .response = packet };
+                    }
+
                     fn handleEntry(comptime Entry: type, ctx: anytype, allocator: std.mem.Allocator, request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, options_value: HandleOptions) Error!HandleResult {
-                        if (validateForEntry(Entry, request, certificate, offer)) |failed| {
+                        if (validateForEntry(Entry, request, certificate, offer, options_value)) |failed| {
+                            try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                            return .{ .rejected = failed };
+                        }
+                        const use_value = options_value.response_use orelse certificate.response_use;
+                        if (use_value != certificate.response_use) {
+                            const failed = blocker(.response_use_not_supported, request, certificate, offer.fingerprint, "provider response-use override differs from treaty certificate");
+                            try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                            return .{ .rejected = failed };
+                        }
+                        if (rejectMissingReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
                             try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                             return .{ .rejected = failed };
                         }
@@ -6117,7 +6375,6 @@ pub fn program(
                         const view = requestView(Entry, request, certificate, offer);
                         try appendProviderEvent(options_value.journal, .provider_handler_invoked, request, certificate, null, null, null);
                         const outcome = Entry.handler(ctx, view) catch |err| return mapProgramRunError(Error, err);
-                        const use_value = options_value.response_use orelse certificate.response_use;
                         switch (outcome) {
                             .@"resume" => |value| {
                                 if (Entry.kind != .operation or !offer.allowed_response_kinds.@"resume" or !Entry.Site.may_resume) {
@@ -6125,16 +6382,20 @@ pub fn program(
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
                                 }
-                                var response = ResponseEnvelope.@"resume"(allocator, request, value) catch {
-                                    const failed = blocker(.response_build_failed, request, certificate, offer.fingerprint, "failed to build resume response envelope");
+                                if (rejectMissingReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
+                                }
+                                var response = ResponseEnvelope.@"resume"(allocator, request, value) catch |err| switch (err) {
+                                    error.ProgramContractViolation => {
+                                        const failed = blocker(.response_build_failed, request, certificate, offer.fingerprint, "failed to build resume response envelope");
+                                        try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                        return .{ .rejected = failed };
+                                    },
+                                    else => return err,
                                 };
                                 errdefer response.deinit();
-                                const packet = try responsePacket(request, certificate, response, use_value);
-                                try appendProviderEvent(options_value.journal, .provider_response_built, request, certificate, packet.response.fingerprint, null, null);
-                                try appendProviderEvent(options_value.journal, .provider_response_authorized, request, certificate, packet.response.fingerprint, packet.treaty_authorization.authorization_fingerprint, null);
-                                return .{ .response = packet };
+                                return finishProviderResponse(options_value, request, certificate, offer, &response, use_value);
                             },
                             .return_now => |value| {
                                 if (Entry.kind != .operation or !offer.allowed_response_kinds.return_now or !Entry.Site.may_return_now) {
@@ -6142,16 +6403,20 @@ pub fn program(
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
                                 }
-                                var response = ResponseEnvelope.returnNow(allocator, request, value) catch {
-                                    const failed = blocker(.response_build_failed, request, certificate, offer.fingerprint, "failed to build returnNow response envelope");
+                                if (rejectMissingReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
+                                }
+                                var response = ResponseEnvelope.returnNow(allocator, request, value) catch |err| switch (err) {
+                                    error.ProgramContractViolation => {
+                                        const failed = blocker(.response_build_failed, request, certificate, offer.fingerprint, "failed to build returnNow response envelope");
+                                        try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                        return .{ .rejected = failed };
+                                    },
+                                    else => return err,
                                 };
                                 errdefer response.deinit();
-                                const packet = try responsePacket(request, certificate, response, use_value);
-                                try appendProviderEvent(options_value.journal, .provider_response_built, request, certificate, packet.response.fingerprint, null, null);
-                                try appendProviderEvent(options_value.journal, .provider_response_authorized, request, certificate, packet.response.fingerprint, packet.treaty_authorization.authorization_fingerprint, null);
-                                return .{ .response = packet };
+                                return finishProviderResponse(options_value, request, certificate, offer, &response, use_value);
                             },
                             .resume_after => |value| {
                                 if (Entry.kind != .after or !offer.allowed_response_kinds.resume_after) {
@@ -6159,16 +6424,20 @@ pub fn program(
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
                                 }
-                                var response = ResponseEnvelope.resumeAfter(allocator, request, value) catch {
-                                    const failed = blocker(.response_build_failed, request, certificate, offer.fingerprint, "failed to build resumeAfter response envelope");
+                                if (rejectMissingReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
+                                }
+                                var response = ResponseEnvelope.resumeAfter(allocator, request, value) catch |err| switch (err) {
+                                    error.ProgramContractViolation => {
+                                        const failed = blocker(.response_build_failed, request, certificate, offer.fingerprint, "failed to build resumeAfter response envelope");
+                                        try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                        return .{ .rejected = failed };
+                                    },
+                                    else => return err,
                                 };
                                 errdefer response.deinit();
-                                const packet = try responsePacket(request, certificate, response, use_value);
-                                try appendProviderEvent(options_value.journal, .provider_response_built, request, certificate, packet.response.fingerprint, null, null);
-                                try appendProviderEvent(options_value.journal, .provider_response_authorized, request, certificate, packet.response.fingerprint, packet.treaty_authorization.authorization_fingerprint, null);
-                                return .{ .response = packet };
+                                return finishProviderResponse(options_value, request, certificate, offer, &response, use_value);
                             },
                             .replay => |value| {
                                 if (Entry.kind != .operation or !offer.allowed_response_kinds.@"resume" or !Entry.Site.may_resume or !(use_value == .replayed or use_value == .deterministic_replay)) {
@@ -6176,16 +6445,20 @@ pub fn program(
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
                                 }
-                                var response = ResponseEnvelope.@"resume"(allocator, request, value) catch {
-                                    const failed = blocker(.response_build_failed, request, certificate, offer.fingerprint, "failed to build replay response envelope");
+                                if (rejectMissingReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
+                                }
+                                var response = ResponseEnvelope.@"resume"(allocator, request, value) catch |err| switch (err) {
+                                    error.ProgramContractViolation => {
+                                        const failed = blocker(.response_build_failed, request, certificate, offer.fingerprint, "failed to build replay response envelope");
+                                        try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                        return .{ .rejected = failed };
+                                    },
+                                    else => return err,
                                 };
                                 errdefer response.deinit();
-                                const packet = try responsePacket(request, certificate, response, use_value);
-                                try appendProviderEvent(options_value.journal, .provider_response_built, request, certificate, packet.response.fingerprint, null, null);
-                                try appendProviderEvent(options_value.journal, .provider_response_authorized, request, certificate, packet.response.fingerprint, packet.treaty_authorization.authorization_fingerprint, null);
-                                return .{ .response = packet };
+                                return finishProviderResponse(options_value, request, certificate, offer, &response, use_value);
                             },
                             .reject => |reason| {
                                 const failed = blocker(.handler_rejected, request, certificate, offer.fingerprint, reason);
@@ -6231,11 +6504,14 @@ pub fn program(
                     pub const RequestPacket = struct {
                         request: RequestEnvelope,
                         certificate: Treaty.Certificate,
+                        treaty: ?Treaty = null,
                     };
 
                     /// Handle one packet value.
                     pub fn handlePacket(ctx: anytype, allocator: std.mem.Allocator, packet: RequestPacket, options_value: HandleOptions) Error!HandleResult {
-                        return handle(ctx, allocator, packet.request, packet.certificate, options_value);
+                        var packet_options = options_value;
+                        if (packet.treaty) |treaty| packet_options.treaty = treaty;
+                        return handle(ctx, allocator, packet.request, packet.certificate, packet_options);
                     }
 
                     /// Pop one host-owned treaty packet and push a produced response through host-owned methods.
@@ -6252,13 +6528,26 @@ pub fn program(
                         var result = try handlePacket(ctx, allocator, packet, options_value);
                         switch (result) {
                             .response => |*response_packet| {
+                                errdefer response_packet.deinit();
                                 const OutboxType = @TypeOf(outbox.*);
                                 if (comptime @hasDecl(OutboxType, "appendProviderResponse")) {
-                                    try outbox.appendProviderResponse(response_packet.*);
+                                    var outbox_packet = try response_packet.clone(allocator);
+                                    var transferred = false;
+                                    errdefer if (!transferred) outbox_packet.deinit();
+                                    try outbox.appendProviderResponse(outbox_packet);
+                                    transferred = true;
                                 } else if (comptime @hasDecl(OutboxType, "appendResponse")) {
-                                    try outbox.appendResponse(response_packet.response, response_packet.treaty_authorization);
+                                    var outbox_packet = try response_packet.clone(allocator);
+                                    var transferred = false;
+                                    errdefer if (!transferred) outbox_packet.deinit();
+                                    try outbox.appendResponse(outbox_packet.response, outbox_packet.treaty_authorization);
+                                    transferred = true;
                                 } else if (comptime @hasDecl(OutboxType, "append")) {
-                                    try outbox.append(response_packet.response);
+                                    var outbox_packet = try response_packet.clone(allocator);
+                                    var transferred = false;
+                                    errdefer if (!transferred) outbox_packet.deinit();
+                                    try outbox.append(outbox_packet.response);
+                                    transferred = true;
                                 }
                             },
                             else => {},
@@ -6270,9 +6559,16 @@ pub fn program(
                     pub fn drain(inbox: anytype, outbox: anytype, ctx: anytype, allocator: std.mem.Allocator, options_value: HandleOptions) Error!usize {
                         var count: usize = 0;
                         while (true) {
-                            const result = try handleNext(inbox, outbox, ctx, allocator, options_value);
+                            var result = try handleNext(inbox, outbox, ctx, allocator, options_value);
                             switch (result) {
-                                .pending => break,
+                                .pending => |pending| {
+                                    if (pending.request_envelope_fingerprint == null) break;
+                                    count += 1;
+                                },
+                                .response => |*packet| {
+                                    packet.deinit();
+                                    count += 1;
+                                },
                                 else => count += 1,
                             }
                         }
@@ -6461,11 +6757,87 @@ pub fn program(
                 };
             }
 
+            fn providerHarnessEntryResponseKinds(comptime Entry: type) Policy.ResponseKindSet {
+                return Entry.offer_options.allowed_response_kinds orelse providerHarnessDefaultResponseKinds(Entry);
+            }
+
+            fn providerHarnessAllowedResponseKinds(comptime entries: anytype) Policy.ResponseKindSet {
+                comptime var result: Policy.ResponseKindSet = .{
+                    .@"resume" = false,
+                    .return_now = false,
+                    .resume_after = false,
+                };
+                inline for (entries) |Entry| {
+                    const entry_kinds = comptime providerHarnessEntryResponseKinds(Entry);
+                    result.@"resume" = result.@"resume" or entry_kinds.@"resume";
+                    result.return_now = result.return_now or entry_kinds.return_now;
+                    result.resume_after = result.resume_after or entry_kinds.resume_after;
+                }
+                return result;
+            }
+
+            fn providerHarnessManifestResponseKinds(comptime options: anytype, comptime entries: anytype) Policy.ResponseKindSet {
+                const derived = providerHarnessAllowedResponseKinds(entries);
+                if (comptime providerHarnessHasField(@TypeOf(options), "allowed_response_kinds")) {
+                    return .{
+                        .@"resume" = options.allowed_response_kinds.@"resume" and derived.@"resume",
+                        .return_now = options.allowed_response_kinds.return_now and derived.return_now,
+                        .resume_after = options.allowed_response_kinds.resume_after and derived.resume_after,
+                    };
+                }
+                return derived;
+            }
+
+            fn providerHarnessMaxRequestBytes(comptime entries: anytype) usize {
+                comptime var result: usize = 0;
+                inline for (entries) |Entry| result = @max(result, Entry.offer_options.max_request_bytes);
+                return result;
+            }
+
+            fn providerHarnessMaxResponseBytes(comptime entries: anytype) usize {
+                comptime var result: usize = 0;
+                inline for (entries) |Entry| result = @max(result, Entry.offer_options.max_response_bytes);
+                return result;
+            }
+
+            fn providerHarnessManifestMaxRequestBytes(comptime options: anytype, comptime entries: anytype) usize {
+                const derived = providerHarnessMaxRequestBytes(entries);
+                if (comptime providerHarnessHasField(@TypeOf(options), "max_request_envelope_bytes")) {
+                    return @min(options.max_request_envelope_bytes, derived);
+                }
+                return derived;
+            }
+
+            fn providerHarnessManifestMaxResponseBytes(comptime options: anytype, comptime entries: anytype) usize {
+                const derived = providerHarnessMaxResponseBytes(entries);
+                if (comptime providerHarnessHasField(@TypeOf(options), "max_response_envelope_bytes")) {
+                    return @min(options.max_response_envelope_bytes, derived);
+                }
+                return derived;
+            }
+
+            fn providerHarnessProducedResponseRefs(comptime Entry: type, comptime response_kinds: Policy.ResponseKindSet) []const lowering_api.ValueRef {
+                return switch (Entry.kind) {
+                    .operation => switch (Entry.Site.op_mode) {
+                        .transform => if (response_kinds.@"resume") &.{Entry.Site.resume_ref} else &.{},
+                        .choice => if (response_kinds.@"resume" and response_kinds.return_now)
+                            &.{ Entry.Site.resume_ref, Entry.Site.result_ref }
+                        else if (response_kinds.@"resume")
+                            &.{Entry.Site.resume_ref}
+                        else if (response_kinds.return_now)
+                            &.{Entry.Site.result_ref}
+                        else
+                            &.{},
+                        .abort => if (response_kinds.return_now) &.{Entry.Site.result_ref} else &.{},
+                    },
+                    .after => if (response_kinds.resume_after) &.{Entry.Site.output_ref} else &.{},
+                    else => unreachable,
+                };
+            }
+
             fn providerHarnessOfferOptions(comptime Entry: type, manifest_fingerprint: u64, provider_fingerprint: u64) ProviderOffer.Options {
                 const offer_label = Entry.offer_options.label orelse providerHarnessDefaultOfferLabel(Entry);
-                const response_kinds = Entry.offer_options.allowed_response_kinds orelse providerHarnessDefaultResponseKinds(Entry);
-                const protocol_labels = [_][]const u8{providerHarnessEntryProtocolLabel(Entry)};
-                const protocol_ops = [_]u64{providerHarnessEntryProtocolOpFingerprint(Entry)};
+                const response_kinds = comptime providerHarnessEntryResponseKinds(Entry);
                 return .{
                     .label = offer_label,
                     .provider_fingerprint = provider_fingerprint,
@@ -6480,8 +6852,8 @@ pub fn program(
                         .after => &.{Entry.Site.index},
                         else => unreachable,
                     },
-                    .supported_protocol_op_fingerprints = protocol_ops[0..],
-                    .supported_protocol_labels = protocol_labels[0..],
+                    .supported_protocol_op_fingerprints = &.{providerHarnessEntryProtocolOpFingerprint(Entry)},
+                    .supported_protocol_labels = &.{providerHarnessEntryProtocolLabel(Entry)},
                     .accepted_payload_refs = switch (Entry.kind) {
                         .operation => &.{Entry.Site.payload_ref},
                         .after => &.{},
@@ -6492,15 +6864,7 @@ pub fn program(
                         .after => if (Entry.Site.current_value_ref) |ref| &.{ref} else &.{},
                         else => unreachable,
                     },
-                    .produced_response_refs = switch (Entry.kind) {
-                        .operation => switch (Entry.Site.op_mode) {
-                            .transform => &.{Entry.Site.resume_ref},
-                            .choice => &.{ Entry.Site.resume_ref, Entry.Site.result_ref },
-                            .abort => &.{Entry.Site.result_ref},
-                        },
-                        .after => &.{Entry.Site.output_ref},
-                        else => unreachable,
-                    },
+                    .produced_response_refs = providerHarnessProducedResponseRefs(Entry, response_kinds),
                     .allowed_response_kinds = response_kinds,
                     .supported_usage_modes = Entry.offer_options.supported_usage_modes,
                     .supported_response_uses = Entry.offer_options.supported_response_uses,
@@ -6514,89 +6878,6 @@ pub fn program(
                     .tags = Entry.offer_options.tags,
                     .metadata = Entry.offer_options.metadata,
                 };
-            }
-
-            fn buildProviderHarnessOffer(
-                allocator: std.mem.Allocator,
-                comptime Entry: type,
-                manifest_fingerprint: u64,
-                provider_fingerprint: u64,
-            ) Error!ProviderOffer {
-                const offer_label = Entry.offer_options.label orelse providerHarnessDefaultOfferLabel(Entry);
-                const response_kinds = Entry.offer_options.allowed_response_kinds orelse providerHarnessDefaultResponseKinds(Entry);
-                const protocol_labels = [_][]const u8{switch (Entry.kind) {
-                    .operation => Entry.Site.requirement_label,
-                    .after => Entry.Site.original_requirement_label,
-                    else => unreachable,
-                }};
-                const protocol_ops = [_]u64{switch (Entry.kind) {
-                    .operation => Entry.Site.fingerprint,
-                    .after => Entry.Site.source_operation_site_fingerprint,
-                    else => unreachable,
-                }};
-                var operation_sites: [1]usize = undefined;
-                var operation_site_count: usize = 0;
-                var after_sites: [1]usize = undefined;
-                var after_site_count: usize = 0;
-                var payload_refs: [1]lowering_api.ValueRef = undefined;
-                var payload_ref_count: usize = 0;
-                var current_refs: [1]lowering_api.ValueRef = undefined;
-                var current_ref_count: usize = 0;
-                var response_refs: [3]lowering_api.ValueRef = undefined;
-                var response_ref_count: usize = 0;
-                switch (Entry.kind) {
-                    .operation => {
-                        operation_sites[0] = Entry.Site.index;
-                        operation_site_count = 1;
-                        payload_refs[0] = Entry.Site.payload_ref;
-                        payload_ref_count = 1;
-                        if (response_kinds.@"resume" and Entry.Site.may_resume) {
-                            response_refs[response_ref_count] = Entry.Site.resume_ref;
-                            response_ref_count += 1;
-                        }
-                        if (response_kinds.return_now and Entry.Site.may_return_now) {
-                            response_refs[response_ref_count] = Entry.Site.result_ref;
-                            response_ref_count += 1;
-                        }
-                    },
-                    .after => {
-                        after_sites[0] = Entry.Site.index;
-                        after_site_count = 1;
-                        if (Entry.Site.current_value_ref) |ref| {
-                            current_refs[0] = ref;
-                            current_ref_count = 1;
-                        }
-                        if (response_kinds.resume_after) {
-                            response_refs[response_ref_count] = Entry.Site.output_ref;
-                            response_ref_count += 1;
-                        }
-                    },
-                    else => unreachable,
-                }
-                return ProviderOffer.encode(allocator, .{
-                    .label = offer_label,
-                    .provider_fingerprint = provider_fingerprint,
-                    .manifest_fingerprint = manifest_fingerprint,
-                    .supported_operation_sites = operation_sites[0..operation_site_count],
-                    .supported_after_sites = after_sites[0..after_site_count],
-                    .supported_protocol_op_fingerprints = protocol_ops[0..],
-                    .supported_protocol_labels = protocol_labels[0..],
-                    .accepted_payload_refs = payload_refs[0..payload_ref_count],
-                    .accepted_current_value_refs = current_refs[0..current_ref_count],
-                    .produced_response_refs = response_refs[0..response_ref_count],
-                    .allowed_response_kinds = response_kinds,
-                    .supported_usage_modes = Entry.offer_options.supported_usage_modes,
-                    .supported_response_uses = Entry.offer_options.supported_response_uses,
-                    .supported_replay_policies = Entry.offer_options.supported_replay_policies,
-                    .supported_branch_policies = Entry.offer_options.supported_branch_policies,
-                    .capsule_policy = Entry.offer_options.capsule_policy,
-                    .opens_obligation = Entry.offer_options.opens_obligation,
-                    .max_request_bytes = Entry.offer_options.max_request_bytes,
-                    .max_response_bytes = Entry.offer_options.max_response_bytes,
-                    .max_capsule_bytes = Entry.offer_options.max_capsule_bytes,
-                    .tags = Entry.offer_options.tags,
-                    .metadata = Entry.offer_options.metadata,
-                });
             }
 
             /// Exchange-facing metadata for one protocol adaptation offer.
@@ -6983,6 +7264,7 @@ pub fn program(
                     replay_source_response_fingerprint: ?u64 = null,
                     replay_source_response_value_fingerprint: ?u64 = null,
                     expected_obligation_transition_fingerprint: ?u64 = null,
+                    format_version: u32 = exchange_treaty_authorization_fingerprint_version,
                     authorization_fingerprint: u64 = 0,
 
                     /// Construct a treaty-bound authorization for a response.
@@ -7058,6 +7340,18 @@ pub fn program(
                         return value;
                     }
 
+                    /// Construct a replay treaty authorization from a certificate and recorded source response.
+                    pub fn forCertificateWithReplaySource(certificate: Treaty.Certificate, response: ResponseEnvelope, response_use: ResponseUse, source_response_fingerprint: u64, source_response_value_fingerprint: u64) Error!@This() {
+                        if (response_use != .replayed and response_use != .deterministic_replay) return error.ProgramContractViolation;
+                        if (source_response_fingerprint == 0 or source_response_fingerprint == response.fingerprint) return error.ProgramContractViolation;
+                        if (source_response_value_fingerprint == 0 or source_response_value_fingerprint != response.response_value_fingerprint) return error.ProgramContractViolation;
+                        var value = try forCertificate(certificate, response, response_use);
+                        value.replay_source_response_fingerprint = source_response_fingerprint;
+                        value.replay_source_response_value_fingerprint = source_response_value_fingerprint;
+                        value.authorization_fingerprint = fingerprintTreatyAuthorization(value);
+                        return value;
+                    }
+
                     /// Encode this treaty authorization into deterministic bytes.
                     pub fn encode(self: @This(), allocator: std.mem.Allocator) Error![]u8 {
                         var writer = Writer.init(allocator);
@@ -7091,31 +7385,66 @@ pub fn program(
                     pub fn decode(bytes: []const u8) Error!@This() {
                         var reader = Reader.init(bytes);
                         try reader.expectBytes(treaty_authorization_magic);
-                        if (try reader.readU32() != exchange_treaty_authorization_fingerprint_version) return error.ProgramContractViolation;
+                        const format_version = try reader.readU32();
+                        if (format_version == 2) return decodeV2(&reader);
+                        if (format_version != exchange_treaty_authorization_fingerprint_version) return error.ProgramContractViolation;
+                        return decodeV3(&reader);
+                    }
+
+                    fn decodeV3(reader: *Reader) Error!@This() {
                         const value = @This(){
                             .treaty_fingerprint = try reader.readU64(),
                             .treaty_certificate_fingerprint = try reader.readU64(),
                             .provider_fingerprint = try reader.readU64(),
                             .provider_offer_fingerprint = try reader.readU64(),
                             .capability_fingerprint = try reader.readU64(),
-                            .attenuated_capability_fingerprint = try readOptionalU64(&reader),
+                            .attenuated_capability_fingerprint = try readOptionalU64(reader),
                             .capability_path_fingerprint = try reader.readU64(),
-                            .capability_instance_fingerprint = try readOptionalU64(&reader),
-                            .obligation_fingerprint = try readOptionalU64(&reader),
+                            .capability_instance_fingerprint = try readOptionalU64(reader),
+                            .obligation_fingerprint = try readOptionalU64(reader),
                             .route_fingerprint = try reader.readU64(),
                             .request_envelope_fingerprint = try reader.readU64(),
                             .response_envelope_fingerprint = try reader.readU64(),
-                            .usage = try readUsage(&reader),
-                            .response_use = try readResponseUse(&reader),
-                            .replay_policy = try readResponseUse(&reader),
-                            .branch_policy = try readBranchPolicy(&reader),
-                            .replay_source_response_fingerprint = try readOptionalU64(&reader),
-                            .replay_source_response_value_fingerprint = try readOptionalU64(&reader),
-                            .expected_obligation_transition_fingerprint = try readOptionalU64(&reader),
+                            .usage = try readUsage(reader),
+                            .response_use = try readResponseUse(reader),
+                            .replay_policy = try readResponseUse(reader),
+                            .branch_policy = try readBranchPolicy(reader),
+                            .replay_source_response_fingerprint = try readOptionalU64(reader),
+                            .replay_source_response_value_fingerprint = try readOptionalU64(reader),
+                            .expected_obligation_transition_fingerprint = try readOptionalU64(reader),
                             .authorization_fingerprint = try reader.readU64(),
                         };
                         if (!reader.eof()) return error.ProgramContractViolation;
                         if (value.authorization_fingerprint != fingerprintTreatyAuthorization(value)) return error.ProgramContractViolation;
+                        return value;
+                    }
+
+                    fn decodeV2(reader: *Reader) Error!@This() {
+                        const value = @This(){
+                            .treaty_fingerprint = try reader.readU64(),
+                            .treaty_certificate_fingerprint = try reader.readU64(),
+                            .provider_fingerprint = 0,
+                            .provider_offer_fingerprint = try reader.readU64(),
+                            .capability_fingerprint = 0,
+                            .attenuated_capability_fingerprint = try readOptionalU64(reader),
+                            .capability_path_fingerprint = 0,
+                            .capability_instance_fingerprint = try readOptionalU64(reader),
+                            .obligation_fingerprint = try readOptionalU64(reader),
+                            .route_fingerprint = try reader.readU64(),
+                            .request_envelope_fingerprint = 0,
+                            .response_envelope_fingerprint = try reader.readU64(),
+                            .usage = try readUsage(reader),
+                            .response_use = try readResponseUse(reader),
+                            .replay_policy = try readResponseUse(reader),
+                            .branch_policy = try readBranchPolicy(reader),
+                            .replay_source_response_fingerprint = try readOptionalU64(reader),
+                            .replay_source_response_value_fingerprint = try readOptionalU64(reader),
+                            .expected_obligation_transition_fingerprint = try readOptionalU64(reader),
+                            .format_version = 2,
+                            .authorization_fingerprint = try reader.readU64(),
+                        };
+                        if (!reader.eof()) return error.ProgramContractViolation;
+                        if (value.authorization_fingerprint != fingerprintTreatyAuthorizationV2(value)) return error.ProgramContractViolation;
                         return value;
                     }
                 };
@@ -9572,17 +9901,25 @@ pub fn program(
                     }
                     return blockers;
                 };
-                if (authorization.authorization_fingerprint != fingerprintTreatyAuthorization(authorization)) blockers.addTag(.wrong_treaty, request.fingerprint, "treaty authorization fingerprint mismatch");
+                switch (authorization.format_version) {
+                    2 => {
+                        if (authorization.authorization_fingerprint != fingerprintTreatyAuthorizationV2(authorization)) blockers.addTag(.wrong_treaty, request.fingerprint, "treaty authorization fingerprint mismatch");
+                    },
+                    exchange_treaty_authorization_fingerprint_version => {
+                        if (authorization.authorization_fingerprint != fingerprintTreatyAuthorization(authorization)) blockers.addTag(.wrong_treaty, request.fingerprint, "treaty authorization fingerprint mismatch");
+                        if (authorization.provider_fingerprint != treaty.provider_fingerprint) blockers.addTag(.wrong_provider, request.fingerprint, "authorization cites a different provider");
+                        if (authorization.capability_fingerprint != treaty.capability_fingerprint) blockers.addTag(.wrong_capability, request.fingerprint, "authorization cites a different capability");
+                        if (authorization.capability_path_fingerprint != treaty.capability_path_fingerprint) blockers.addTag(.wrong_capability, request.fingerprint, "authorization cites a different capability path");
+                        if (authorization.request_envelope_fingerprint != request.fingerprint) blockers.addTag(.wrong_treaty, request.fingerprint, "authorization cites a different request envelope");
+                    },
+                    else => blockers.addTag(.wrong_treaty, request.fingerprint, "unknown treaty authorization format"),
+                }
                 if (authorization.treaty_fingerprint != treaty.fingerprint) blockers.addTag(.wrong_treaty, request.fingerprint, "authorization cites a different treaty");
                 if (authorization.treaty_certificate_fingerprint != treaty.certificate.certificate_fingerprint) blockers.addTag(.wrong_certificate, request.fingerprint, "authorization cites a different treaty certificate");
-                if (authorization.provider_fingerprint != treaty.provider_fingerprint) blockers.addTag(.wrong_provider, request.fingerprint, "authorization cites a different provider");
                 if (authorization.provider_offer_fingerprint != treaty.provider_offer_fingerprint) blockers.addTag(.wrong_provider, request.fingerprint, "authorization cites a different provider offer");
-                if (authorization.capability_fingerprint != treaty.capability_fingerprint) blockers.addTag(.wrong_capability, request.fingerprint, "authorization cites a different capability");
                 if (authorization.attenuated_capability_fingerprint != treaty.certificate.attenuated_capability_fingerprint) blockers.addTag(.wrong_capability, request.fingerprint, "authorization cites a different attenuated capability");
-                if (authorization.capability_path_fingerprint != treaty.capability_path_fingerprint) blockers.addTag(.wrong_capability, request.fingerprint, "authorization cites a different capability path");
                 if (authorization.capability_instance_fingerprint != treaty.capability_instance_fingerprint) blockers.addTag(.capability_instance_wrong_branch, request.fingerprint, "authorization cites a different capability instance");
                 if (authorization.obligation_fingerprint != treaty.obligation_fingerprint) blockers.addTag(.obligation_state_incompatible, request.fingerprint, "authorization cites a different obligation");
-                if (authorization.request_envelope_fingerprint != request.fingerprint) blockers.addTag(.wrong_treaty, request.fingerprint, "authorization cites a different request envelope");
                 if (authorization.expected_obligation_transition_fingerprint != null and treaty.obligation_fingerprint == null) blockers.addTag(.obligation_state_incompatible, request.fingerprint, "authorization cites an obligation transition for a non-obligation treaty");
                 const replay_response = authorization.response_use == .replayed or authorization.response_use == .deterministic_replay;
                 if (replay_response and treaty.obligation_fingerprint == null) {
@@ -10276,6 +10613,7 @@ pub fn program(
 
             const emitted_manifest_version_tuples = [_]ManifestVersionTuple{
                 .{ .request_format = exchange_request_format_version, .request_fingerprint = exchange_request_fingerprint_version, .journal_format = journal_format_version },
+                .{ .request_format = 3, .request_fingerprint = 3, .journal_format = 4 },
                 .{ .request_format = 3, .request_fingerprint = 3, .journal_format = 3 },
                 .{ .request_format = 2, .request_fingerprint = 2, .journal_format = 2 },
                 .{ .request_format = 2, .request_fingerprint = 2, .journal_format = 1 },
@@ -11485,6 +11823,28 @@ pub fn program(
                 hashOptionalExchangeU64(&hasher, authorization.obligation_fingerprint);
                 hashU64(&hasher, authorization.route_fingerprint);
                 hashU64(&hasher, authorization.request_envelope_fingerprint);
+                hashU64(&hasher, authorization.response_envelope_fingerprint);
+                hashBytes(&hasher, @tagName(authorization.usage));
+                hashBytes(&hasher, @tagName(authorization.response_use));
+                hashBytes(&hasher, @tagName(authorization.replay_policy));
+                hashBytes(&hasher, @tagName(authorization.branch_policy));
+                hashOptionalExchangeU64(&hasher, authorization.replay_source_response_fingerprint);
+                hashOptionalExchangeU64(&hasher, authorization.replay_source_response_value_fingerprint);
+                hashOptionalExchangeU64(&hasher, authorization.expected_obligation_transition_fingerprint);
+                return hasher.final();
+            }
+
+            fn fingerprintTreatyAuthorizationV2(authorization: Treaty.Authorization) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.exchange.treaty.authorization");
+                hashU32(&hasher, 2);
+                hashU64(&hasher, authorization.treaty_fingerprint);
+                hashU64(&hasher, authorization.treaty_certificate_fingerprint);
+                hashU64(&hasher, authorization.provider_offer_fingerprint);
+                hashOptionalExchangeU64(&hasher, authorization.attenuated_capability_fingerprint);
+                hashOptionalExchangeU64(&hasher, authorization.capability_instance_fingerprint);
+                hashOptionalExchangeU64(&hasher, authorization.obligation_fingerprint);
+                hashU64(&hasher, authorization.route_fingerprint);
                 hashU64(&hasher, authorization.response_envelope_fingerprint);
                 hashBytes(&hasher, @tagName(authorization.usage));
                 hashBytes(&hasher, @tagName(authorization.response_use));
