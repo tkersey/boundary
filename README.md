@@ -467,6 +467,41 @@ distributed consensus, or provider execution. Hosts still own identity,
 signing, encryption, transport, storage, scheduling, network, persistence, and
 cancellation side effects.
 
+### Provider Harnesses
+
+Treaties define the agreement. `Exchange.ProviderHarness` executes the provider
+side of that agreement. A harness is declared from typed provider handlers, and
+the handler declarations derive the provider manifest, provider offers, offer
+fingerprints, treaty resolver catalog entries, typed request views, outcome
+types, and coverage metadata. `ProviderOffer` remains deterministic data for
+treaties, journals, catalogs, and certificates, but the preferred path is
+handler-first so provider offers and provider handlers cannot drift.
+
+`ProviderHarness.handle` is transport-neutral and nonblocking. It receives a
+request envelope and treaty certificate, validates envelope, manifest, treaty,
+provider, offer, capability, attenuated capability, route, usage, response-use,
+replay, branch, obligation, capsule, byte-limit, and payload/current-value
+metadata before invoking the typed handler. The handler receives a typed request
+view with treaty/source/target fingerprints and typed payload or current-value
+accessors, not request tokens, runtime state, mutable envelope internals, or host
+context outside the explicit provider context argument.
+
+Handlers return explicit outcomes: resume, return-now, resume-after, replay,
+reject, forward, or pending. The harness checks the outcome against the derived
+offer policy, builds the response envelope with existing exchange machinery,
+attaches a treaty-bound `Treaty.Authorization`, and can record provider-side
+journal events for received, validated, rejected, invoked, built, authorized,
+forwarded, and pending turns. Hosts still own inboxes, outboxes, transport,
+scheduling, identity, signing, encryption, storage, network, persistence,
+provider lifecycle, and retries.
+
+Provider Harnesses are typed validation-and-response adapters. They are not an
+async runtime, RPC framework, network server, message broker, provider registry,
+security layer, workflow engine, service discovery system, source language, VM,
+or Artifact API. Manual `ProviderOffer` construction remains available as an
+advanced escape hatch, and harness validation can reject manual offers that do
+not exactly match the derived handler declaration.
+
 ### Linear Effect Sessions
 
 Continuations can be copied; the world often cannot. Linear Effect Sessions are
@@ -556,6 +591,13 @@ authoring and public plan-native helpers:
   is dynamically reinterpreted to `rules.lookup`, the certificate prints
   residualized/emitted/residual effect metadata, and a partial run returns an
   inspectable target request plus capsule.
+- `examples/provider_harness_direct.zig` demonstrates request-side treaty
+  mailbox execution, handler-first provider offer derivation, provider harness
+  validation, treaty-authorized response construction, and requester-side resume.
+- `examples/provider_harness_morphism.zig` demonstrates the provider harness
+  example entrypoint used for morphism treaty proof wiring.
+- `examples/provider_harness_replayable.zig` demonstrates the provider harness
+  example entrypoint used for replayable treaty proof wiring.
 - `examples/durable_capsule_replay.zig` demonstrates v1 capsule image
   encode/decode, restored fresh request tokens, and reusable approve/deny
   branches.
@@ -590,5 +632,8 @@ zig build run-interpreter-branching
 zig build run-protocol-reinterpretation
 zig build run-residualized-approval-policy
 zig build run-effect-pipeline
+zig build run-provider-harness-direct
+zig build run-provider-harness-morphism
+zig build run-provider-harness-replayable
 zig build run-custom-approval-workflow
 ```

@@ -540,6 +540,10 @@ pub fn build(b: *std.Build) void {
             .expected_error = "Program.protocol coverage descriptor belongs to another program",
         },
         .{
+            .path = "test/compile_fail/provider_harness_duplicate_handler.zig",
+            .expected_error = "Program.Exchange.ProviderHarness listed duplicate operation handler",
+        },
+        .{
             .path = "test/compile_fail/protocol_request_foreign_site.zig",
             .expected_error = "Program.protocol descriptor belongs to another program",
         },
@@ -651,6 +655,9 @@ pub fn build(b: *std.Build) void {
         .{ .name = "ability-effect-treaty-direct", .path = "examples/effect_treaty_direct.zig", .step = "run-effect-treaty-direct", .desc = "Run the direct Effect Treaty negotiation example." },
         .{ .name = "ability-effect-treaty-morphism", .path = "examples/effect_treaty_morphism.zig", .step = "run-effect-treaty-morphism", .desc = "Run the morphism-adapted Effect Treaty negotiation example." },
         .{ .name = "ability-effect-treaty-replayable", .path = "examples/effect_treaty_replayable.zig", .step = "run-effect-treaty-replayable", .desc = "Run the replay-policy Effect Treaty example." },
+        .{ .name = "ability-provider-harness-direct", .path = "examples/provider_harness_direct.zig", .step = "run-provider-harness-direct", .desc = "Run the direct ProviderHarness treaty execution example." },
+        .{ .name = "ability-provider-harness-morphism", .path = "examples/provider_harness_morphism.zig", .step = "run-provider-harness-morphism", .desc = "Run the morphism ProviderHarness treaty execution example." },
+        .{ .name = "ability-provider-harness-replayable", .path = "examples/provider_harness_replayable.zig", .step = "run-provider-harness-replayable", .desc = "Run the replayable ProviderHarness treaty execution example." },
         .{ .name = "ability-effect-exchange-mailbox", .path = "examples/effect_exchange_mailbox.zig", .step = "run-effect-exchange-mailbox", .desc = "Run the transport-neutral Effect Exchange mailbox example." },
         .{ .name = "ability-effect-exchange-restart", .path = "examples/effect_exchange_restart.zig", .step = "run-effect-exchange-restart", .desc = "Run the Effect Exchange capsule restart example." },
         .{ .name = "ability-linear-effect-sessions", .path = "examples/linear_effect_sessions.zig", .step = "run-linear-effect-sessions", .desc = "Run the Linear Effect Sessions obligation example." },

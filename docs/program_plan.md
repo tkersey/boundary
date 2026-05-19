@@ -763,6 +763,42 @@ distributed consensus, workflow engine, or provider execution layer. Hosts own
 identity, signing, encryption, transport, storage, scheduling, network,
 persistence, and side effects.
 
+### Provider Harnesses
+
+Treaties define the agreement. `Program.Exchange.ProviderHarness` executes the
+provider side of that agreement. It is a typed validation-and-response adapter
+over Effect Exchange, not a transport or execution runtime.
+
+The preferred construction is handler-first: a typed provider declaration derives
+the provider manifest entry, provider offer, offer fingerprint, treaty resolver
+catalog metadata, typed provider request view, typed outcome type, validation
+metadata, and coverage metadata. `ProviderOffer` remains ordinary deterministic
+data for treaties, certificates, journals, and catalogs. Manual offers are an
+advanced escape hatch and must exactly match the derived handler declaration.
+
+`ProviderHarness.handle` receives a request envelope plus treaty certificate and
+validates the envelope, manifest, treaty, provider, offer, capability,
+attenuated capability, route, usage, response-use, replay, branch, obligation,
+capsule, byte-limit, and payload/current-value metadata before handler
+invocation. The handler gets a typed request view with the provider, offer,
+treaty, certificate, route, capability, obligation, branch, source, target, and
+value fingerprints plus typed payload/current-value accessors. The view does not
+expose request tokens, runtime pointers, allocator pointers, mutable request
+envelope internals, or implicit host context.
+
+Handlers return explicit typed outcomes: resume, return-now, resume-after,
+replay, reject, forward, or pending. The harness checks that the outcome is
+legal for the derived offer, builds the `ResponseEnvelope` through existing
+exchange machinery, attaches treaty-bound `Treaty.Authorization`, and can record
+provider-side journal events for manifest/offer derivation, receipt, validation,
+rejection, handler invocation, response build, authorization, forwarding, and
+pending results. Hosts still own queues, files, network, identity, signing,
+encryption, storage, scheduling, persistence, retries, and provider lifecycle.
+
+ProviderHarness is not an async runtime, RPC framework, network server, message
+broker, provider registry, service discovery system, security layer, workflow
+engine, source language, VM, or Artifact API.
+
 ### Linear Effect Sessions
 
 Continuations can be copied; the world often cannot. Linear Effect Sessions are

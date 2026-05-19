@@ -1,4 +1,4 @@
-// zlinter-disable declaration_naming no_inferred_error_unions no_swallow_error require_doc_comment
+// zlinter-disable declaration_naming field_ordering no_inferred_error_unions no_swallow_error require_doc_comment
 const ability = @import("ability");
 const custom_approval = @import("custom_approval_workflow");
 const plan_native_resource = @import("plan_native_resource");
@@ -15339,6 +15339,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_provider_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_provider_offer_format_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_provider_offer_fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 1), Program.exchange_provider_harness_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_morphism_offer_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_capability_format_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_capability_fingerprint_version);
@@ -15366,6 +15367,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     try std.testing.expectEqual(Program.exchange_provider_fingerprint_version, Program.Exchange.provider_fingerprint_version);
     try std.testing.expectEqual(Program.exchange_provider_offer_format_version, Program.Exchange.provider_offer_format_version);
     try std.testing.expectEqual(Program.exchange_provider_offer_fingerprint_version, Program.Exchange.provider_offer_fingerprint_version);
+    try std.testing.expectEqual(Program.exchange_provider_harness_fingerprint_version, Program.Exchange.provider_harness_fingerprint_version);
     try std.testing.expectEqual(Program.exchange_morphism_offer_fingerprint_version, Program.Exchange.morphism_offer_fingerprint_version);
     try std.testing.expectEqual(Program.exchange_capability_format_version, Program.Exchange.capability_format_version);
     try std.testing.expectEqual(Program.exchange_capability_fingerprint_version, Program.Exchange.capability_fingerprint_version);
@@ -23135,6 +23137,236 @@ test "Program.Exchange provider offer fingerprints supports request and enforces
         .provider_fingerprint = 0xabc,
         .manifest_fingerprint = manifest.fingerprint,
     }));
+}
+
+test "Program.Exchange ProviderHarness derives provider catalog and rejects foreign manual offers" {
+    const Body = struct {
+        pub const compiled_plan = compiledTransformPlan("provider-harness-catalog");
+    };
+    const Program = ability.program("provider-harness-catalog", struct {}, Body);
+    const OperationSite = Program.protocol.operationSite("authored", "dispatch", 0);
+    const AfterSite = Program.protocol.afterSite("authored", "dispatch", 0);
+    const Harness = Program.Exchange.ProviderHarness(.{
+        .label = "harness-provider",
+        .provider_fingerprint = @as(?u64, 0x5150),
+        .entries = .{
+            Program.Exchange.ProviderHandler.operation(OperationSite, struct {}, .{ .label = "dispatch-request" }),
+            Program.Exchange.ProviderHandler.after(AfterSite, struct {}, .{ .label = "dispatch-after" }),
+        },
+        .semantic_tags = &.{"derived"},
+        .metadata = "harness-meta",
+    });
+    comptime Harness.assertCoversAll();
+
+    try std.testing.expectEqual(@as(usize, 2), Harness.offer_count);
+    try std.testing.expectEqual(@as(usize, 1), Harness.handled_operation_site_count);
+    try std.testing.expectEqual(@as(usize, 1), Harness.handled_after_site_count);
+    try std.testing.expectEqual(@as(u64, 0x5150), Harness.metadata.provider_fingerprint);
+
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var request_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer request_envelope.deinit();
+
+    var catalog = try Harness.buildCatalog(std.testing.allocator);
+    defer catalog.deinit();
+    try std.testing.expectEqual(catalog.manifest.fingerprint, catalog.provider_manifest.supported_program_manifest_fingerprints[0]);
+    try std.testing.expectEqual(Harness.provider_fingerprint, catalog.provider_manifest.provider_fingerprint);
+    try std.testing.expectEqualStrings("harness-provider", catalog.provider_manifest.label);
+    try std.testing.expectEqualStrings("harness-meta", catalog.provider_manifest.metadata);
+    try std.testing.expectEqual(@as(usize, 2), catalog.provider_offers.len);
+    try std.testing.expectEqual(catalog.provider_offers[0].fingerprint, catalog.offer_fingerprints[0]);
+    try std.testing.expectEqual(catalog.provider_offers[1].fingerprint, catalog.offer_fingerprints[1]);
+    try std.testing.expect(catalog.provider_manifest.supportsRequest(request_envelope));
+    try std.testing.expect(catalog.provider_offers[0].supportsRequest(request_envelope));
+    try Harness.validateManualCatalog(std.testing.allocator, catalog.provider_manifest, catalog.provider_offers);
+
+    var response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, request_envelope, @as(i32, 21));
+    defer response.deinit();
+    try Program.Exchange.applyResponse(&session, response, .{});
+    const after = switch (try session.next()) {
+        .after => |value| value,
+        .request => return error.UnexpectedRequest,
+        .done => return error.UnexpectedDone,
+    };
+    var after_envelope = try Program.Exchange.RequestEnvelope.fromAfter(std.testing.allocator, after, .{});
+    defer after_envelope.deinit();
+    try std.testing.expect(catalog.provider_manifest.supportsRequest(after_envelope));
+    try std.testing.expect(catalog.provider_offers[1].supportsRequest(after_envelope));
+
+    const duplicate_offers = [_]Program.Exchange.ProviderOffer{ catalog.provider_offers[0], catalog.provider_offers[0] };
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        Harness.validateManualCatalog(std.testing.allocator, catalog.provider_manifest, duplicate_offers[0..]),
+    );
+
+    const ForeignBody = struct {
+        pub const compiled_plan = compiledTransformPlan("foreign-provider-harness-catalog");
+    };
+    const ForeignProgram = ability.program("foreign-provider-harness-catalog", struct {}, ForeignBody);
+    const ForeignOperationSite = ForeignProgram.protocol.operationSite("authored", "dispatch", 0);
+    const ForeignAfterSite = ForeignProgram.protocol.afterSite("authored", "dispatch", 0);
+    const ForeignHarness = ForeignProgram.Exchange.ProviderHarness(.{
+        .label = "foreign-harness-provider",
+        .provider_fingerprint = @as(?u64, 0x6160),
+        .entries = .{
+            ForeignProgram.Exchange.ProviderHandler.operation(ForeignOperationSite, struct {}, .{ .label = "dispatch-request" }),
+            ForeignProgram.Exchange.ProviderHandler.after(ForeignAfterSite, struct {}, .{ .label = "dispatch-after" }),
+        },
+    });
+    var foreign_catalog = try ForeignHarness.buildCatalog(std.testing.allocator);
+    defer foreign_catalog.deinit();
+    var decoded_foreign_offer = try Program.Exchange.ProviderOffer.decode(std.testing.allocator, foreign_catalog.provider_offers[1].bytes);
+    defer decoded_foreign_offer.deinit();
+    const foreign_offers = [_]Program.Exchange.ProviderOffer{ catalog.provider_offers[0], decoded_foreign_offer };
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        Harness.validateManualCatalog(std.testing.allocator, catalog.provider_manifest, foreign_offers[0..]),
+    );
+}
+
+test "Program.Exchange ProviderHarness handles treaty-bound request with typed provider outcome" {
+    const Body = struct {
+        pub const compiled_plan = sessionStringOpPlan(.transform, "provider-harness-handle-direct");
+    };
+    const Program = ability.program("provider-harness-handle-direct", struct {}, Body);
+    const OperationSite = Program.protocol.operationSite("session", "decide", 0);
+    const OperationOutcome = union(enum) {
+        forward,
+        pending,
+        reject: []const u8,
+        replay: i32,
+        @"resume": i32,
+        resume_after: void,
+        return_now: i32,
+    };
+    const Handler = struct {
+        fn handle(invocations: *usize, request: anytype) !OperationOutcome {
+            const RequestType = @TypeOf(request);
+            comptime {
+                if (@hasField(RequestType, "allocator")) @compileError("typed provider request exposed allocator");
+                if (@hasField(RequestType, "request_token")) @compileError("typed provider request exposed request token");
+                if (@hasField(RequestType, "runtime")) @compileError("typed provider request exposed runtime");
+            }
+            invocations.* += 1;
+            try std.testing.expectEqual(@as(u64, 0x5151), request.provider_fingerprint);
+            try std.testing.expectEqual(Program.Exchange.Usage.copyable, request.usage);
+            const payload = try request.payload(std.testing.allocator);
+            defer std.testing.allocator.free(payload);
+            try std.testing.expectEqualStrings("payload", payload);
+            return .{ .@"resume" = 42 };
+        }
+    };
+    const OperationDecl = Program.Exchange.ProviderHandler.operation(OperationSite, Handler.handle, .{
+        .label = "dispatch-request",
+        .supported_response_uses = .{ .replayed = false, .deterministic_replay = false, .override = false },
+    });
+    const Harness = Program.Exchange.ProviderHarness(.{
+        .label = "typed-provider",
+        .provider_fingerprint = @as(?u64, 0x5151),
+        .entries = .{OperationDecl},
+    });
+
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    const trace = request.trace();
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+    var catalog = try Harness.buildCatalog(std.testing.allocator);
+    defer catalog.deinit();
+    var capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = Harness.provider_fingerprint,
+        .manifest_fingerprint = catalog.manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true },
+        .allowed_operation_sites = &.{trace.operation_site_index},
+        .allowed_protocol_op_fingerprints = &.{trace.operation_site_fingerprint},
+        .allowed_requirement_labels = &.{trace.requirement_label},
+        .allowed_op_names = &.{trace.op_name},
+    });
+    defer capability.deinit();
+    const providers = [_]Program.Exchange.ProviderManifest{catalog.provider_manifest};
+    const offers = [_]Program.Exchange.ProviderOffer{catalog.provider_offers[0]};
+    const capabilities = [_]Program.Exchange.Capability{capability};
+    var resolved = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = catalog.manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+    });
+    defer resolved.deinit();
+    const treaty = resolved.treaty orelse return error.ExpectedTreaty;
+
+    var invocations: usize = 0;
+    var wrong_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{ .journal_branch_id = "wrong-branch" });
+    defer wrong_envelope.deinit();
+    const rejected = try Harness.handle(&invocations, std.testing.allocator, wrong_envelope, treaty.certificate, .{});
+    switch (rejected) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.treaty_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    try std.testing.expectEqual(@as(usize, 0), invocations);
+
+    var provider_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer provider_journal.deinit();
+    var handled = try Harness.handle(&invocations, std.testing.allocator, envelope, treaty.certificate, .{ .journal = &provider_journal });
+    switch (handled) {
+        .response => |*packet| {
+            defer packet.deinit();
+            try std.testing.expectEqual(@as(usize, 1), invocations);
+            try std.testing.expectEqual(treaty.fingerprint, packet.treaty_fingerprint);
+            try std.testing.expectEqual(treaty.certificate.certificate_fingerprint, packet.treaty_authorization.treaty_certificate_fingerprint);
+            try std.testing.expectEqual(packet.response.fingerprint, packet.treaty_authorization.response_envelope_fingerprint);
+            try Program.Exchange.applyResponse(&session, packet.response, .{});
+        },
+        else => return error.ExpectedProviderResponse,
+    }
+    var saw_received = false;
+    var saw_validated = false;
+    var saw_invoked = false;
+    var saw_built = false;
+    var saw_authorized = false;
+    for (provider_journal.entries.items) |entry| {
+        switch (entry) {
+            .exchange_event => |event| switch (event.kind) {
+                .provider_request_received => saw_received = true,
+                .provider_request_validated => saw_validated = true,
+                .provider_handler_invoked => saw_invoked = true,
+                .provider_response_built => saw_built = true,
+                .provider_response_authorized => saw_authorized = true,
+                else => {},
+            },
+            else => {},
+        }
+    }
+    try std.testing.expect(saw_received);
+    try std.testing.expect(saw_validated);
+    try std.testing.expect(saw_invoked);
+    try std.testing.expect(saw_built);
+    try std.testing.expect(saw_authorized);
+    var result = switch (try session.next()) {
+        .done => |value| value,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 42), result.value);
 }
 
 test "Program.Exchange treaty resolver selects direct provider and attenuates least authority" {

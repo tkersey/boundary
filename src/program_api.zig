@@ -1308,6 +1308,8 @@ pub fn program(
         pub const exchange_provider_offer_format_version: u32 = 1;
         /// Stable fingerprint version for Program.Exchange provider offer images.
         pub const exchange_provider_offer_fingerprint_version: u32 = 1;
+        /// Stable fingerprint version for Program.Exchange provider harness declarations.
+        pub const exchange_provider_harness_fingerprint_version: u32 = 1;
         /// Stable fingerprint version for Program.Exchange morphism offer witnesses.
         pub const exchange_morphism_offer_fingerprint_version: u32 = 1;
         /// Stable format version for Program.Exchange capability grant images.
@@ -1797,6 +1799,16 @@ pub fn program(
                         treaty_capability_instance_selected,
                         treaty_replay_policy_checked,
                         treaty_branch_policy_checked,
+                        provider_manifest_derived,
+                        provider_offer_derived,
+                        provider_request_received,
+                        provider_request_validated,
+                        provider_request_rejected,
+                        provider_handler_invoked,
+                        provider_response_built,
+                        provider_response_authorized,
+                        provider_response_forwarded,
+                        provider_pending,
                     };
                 };
 
@@ -3320,6 +3332,16 @@ pub fn program(
                     .treaty_capability_instance_selected => 29,
                     .treaty_replay_policy_checked => 30,
                     .treaty_branch_policy_checked => 31,
+                    .provider_manifest_derived => 32,
+                    .provider_offer_derived => 33,
+                    .provider_request_received => 34,
+                    .provider_request_validated => 35,
+                    .provider_request_rejected => 36,
+                    .provider_handler_invoked => 37,
+                    .provider_response_built => 38,
+                    .provider_response_authorized => 39,
+                    .provider_response_forwarded => 40,
+                    .provider_pending => 41,
                 });
             }
 
@@ -3360,6 +3382,16 @@ pub fn program(
                     29 => .treaty_capability_instance_selected,
                     30 => .treaty_replay_policy_checked,
                     31 => .treaty_branch_policy_checked,
+                    32 => .provider_manifest_derived,
+                    33 => .provider_offer_derived,
+                    34 => .provider_request_received,
+                    35 => .provider_request_validated,
+                    36 => .provider_request_rejected,
+                    37 => .provider_handler_invoked,
+                    38 => .provider_response_built,
+                    39 => .provider_response_authorized,
+                    40 => .provider_response_forwarded,
+                    41 => .provider_pending,
                     else => error.ProgramContractViolation,
                 };
             }
@@ -3724,6 +3756,8 @@ pub fn program(
             pub const provider_offer_format_version = exchange_provider_offer_format_version;
             /// Current provider offer image fingerprint domain version.
             pub const provider_offer_fingerprint_version = exchange_provider_offer_fingerprint_version;
+            /// Current provider harness declaration fingerprint domain version.
+            pub const provider_harness_fingerprint_version = exchange_provider_harness_fingerprint_version;
             /// Current morphism offer fingerprint domain version.
             pub const morphism_offer_fingerprint_version = exchange_morphism_offer_fingerprint_version;
             /// Current capability grant image format version.
@@ -3756,7 +3790,6 @@ pub fn program(
             pub const treaty_fingerprint_version = exchange_treaty_fingerprint_version;
             /// Current treaty authorization fingerprint domain version.
             pub const treaty_authorization_fingerprint_version = exchange_treaty_authorization_fingerprint_version;
-
             /// Stable fingerprint for scoping capability grants to a journal branch id.
             pub fn journalPolicyFingerprint(journal_branch_id: []const u8) u64 {
                 return journalBranchPolicyFingerprint(journal_branch_id);
@@ -5503,6 +5536,1069 @@ pub fn program(
                 }
             };
 
+            /// Options attached to one handler-first provider declaration.
+            pub const ProviderHandlerOptions = struct {
+                label: ?[]const u8 = null,
+                allowed_response_kinds: ?Policy.ResponseKindSet = null,
+                supported_usage_modes: UsageSet = .{},
+                supported_response_uses: ResponseUseSet = .{},
+                supported_replay_policies: ResponseUseSet = .{},
+                supported_branch_policies: BranchPolicySet = .{},
+                capsule_policy: CapsulePolicy = .allowed,
+                opens_obligation: bool = false,
+                max_request_bytes: usize = std.math.maxInt(usize),
+                max_response_bytes: usize = std.math.maxInt(usize),
+                max_capsule_bytes: usize = std.math.maxInt(usize),
+                protocol_label: ?[]const u8 = null,
+                protocol_op_fingerprint: ?u64 = null,
+                tags: []const []const u8 = &.{},
+                metadata: []const u8 = &.{},
+            };
+
+            /// Handler-first declarations for provider harness catalogs.
+            pub const ProviderHandler = struct {
+                /// Declare an operation handler for a concrete Program protocol site.
+                pub fn operation(comptime SiteType: type, comptime handler_value: anytype, comptime options: ProviderHandlerOptions) type {
+                    return struct {
+                        /// Declaration kind.
+                        pub const kind = .operation;
+                        /// Program protocol site handled by this provider declaration.
+                        pub const Site = SiteType;
+                        /// Handler function or value associated with the declaration.
+                        pub const handler = handler_value;
+                        /// Provider-offer options for this handler declaration.
+                        pub const offer_options = options;
+                    };
+                }
+
+                /// Declare an after-continuation handler for a concrete Program protocol site.
+                pub fn after(comptime SiteType: type, comptime handler_value: anytype, comptime options: ProviderHandlerOptions) type {
+                    return struct {
+                        /// Declaration kind.
+                        pub const kind = .after;
+                        /// Program protocol after site handled by this provider declaration.
+                        pub const Site = SiteType;
+                        /// Handler function or value associated with the declaration.
+                        pub const handler = handler_value;
+                        /// Provider-offer options for this handler declaration.
+                        pub const offer_options = options;
+                    };
+                }
+            };
+
+            /// Compatibility namespace for handler-first provider declarations.
+            pub const Provider = struct {
+                /// Declare one operation-site provider handler with derived catalog metadata.
+                pub fn operation(comptime site: type, comptime handler_fn: anytype) type {
+                    return ProviderHandler.operation(site, handler_fn, .{});
+                }
+
+                /// Declare one operation-site provider handler with explicit catalog metadata.
+                pub fn operationWithOffer(comptime site: type, comptime handler_fn: anytype, comptime offer_options: ProviderHandlerOptions) type {
+                    return ProviderHandler.operation(site, handler_fn, offer_options);
+                }
+
+                /// Declare one after-continuation provider handler with derived catalog metadata.
+                pub fn after(comptime site: type, comptime handler_fn: anytype) type {
+                    return ProviderHandler.after(site, handler_fn, .{});
+                }
+
+                /// Declare one after-continuation provider handler with explicit catalog metadata.
+                pub fn afterWithOffer(comptime site: type, comptime handler_fn: anytype, comptime offer_options: ProviderHandlerOptions) type {
+                    return ProviderHandler.after(site, handler_fn, offer_options);
+                }
+            };
+
+            /// Handler-first provider catalog derived from Program protocol descriptors.
+            pub fn ProviderHarness(comptime options: anytype) type {
+                comptime validateProviderHarnessOptions(options);
+                const Options = @TypeOf(options);
+                const provider_label = options.label;
+                const provider_metadata = providerHarnessField(options, "metadata", @as([]const u8, &.{}));
+                const provider_fp = providerHarnessField(options, "provider_fingerprint", @as(?u64, null)) orelse providerIdentityFingerprint(provider_label, provider_metadata);
+                const entries = if (comptime providerHarnessHasField(Options, "entries")) options.entries else options.handlers;
+                const operation_site_count = providerHarnessOperationSiteCount(entries);
+                const after_site_count = providerHarnessAfterSiteCount(entries);
+                const operation_sites = providerHarnessOperationSites(entries);
+                const after_sites = providerHarnessAfterSites(entries);
+                const protocol_labels = providerHarnessProtocolLabels(entries);
+                const protocol_ops = providerHarnessProtocolOps(entries);
+
+                return struct {
+                    /// Provider label used for the derived manifest.
+                    pub const provider_label_text = provider_label;
+                    /// Stable provider identity used by every derived offer.
+                    pub const provider_fingerprint = provider_fp;
+                    /// Number of handler declarations in the harness.
+                    pub const offer_count = entries.len;
+                    /// Number of provider handler declarations.
+                    pub const declaration_count = entries.len;
+                    /// Number of operation sites covered by the harness.
+                    pub const handled_operation_site_count = operation_site_count;
+                    /// Number of after-continuation sites covered by the harness.
+                    pub const handled_after_site_count = after_site_count;
+                    /// Operation-site indexes covered by this provider harness.
+                    pub const supported_operation_sites = operation_sites[0..];
+                    /// After-continuation site indexes covered by this provider harness.
+                    pub const supported_after_sites = after_sites[0..];
+                    /// Protocol labels covered by this provider harness.
+                    pub const supported_protocol_labels = protocol_labels[0..];
+                    /// Protocol-operation fingerprints covered by this provider harness.
+                    pub const supported_protocol_op_fingerprints = protocol_ops[0..];
+                    /// Handler declaration entries.
+                    pub const declarations = entries;
+
+                    /// Static provider catalog metadata.
+                    pub const Metadata = struct {
+                        label: []const u8,
+                        provider_fingerprint: u64,
+                        offer_count: usize,
+                        handled_operation_site_count: usize,
+                        handled_after_site_count: usize,
+                    };
+
+                    /// Static provider catalog metadata value.
+                    pub const metadata = Metadata{
+                        .label = provider_label_text,
+                        .provider_fingerprint = provider_fingerprint,
+                        .offer_count = offer_count,
+                        .handled_operation_site_count = handled_operation_site_count,
+                        .handled_after_site_count = handled_after_site_count,
+                    };
+
+                    /// Owned provider catalog images derived from this harness.
+                    pub const Catalog = struct {
+                        allocator: std.mem.Allocator,
+                        manifest: Manifest,
+                        provider_manifest: ProviderManifest,
+                        provider_offers: []ProviderOffer,
+                        offer_fingerprints: []u64,
+                        metadata: Metadata,
+
+                        /// Release provider catalog storage.
+                        pub fn deinit(self: *@This()) void {
+                            for (self.provider_offers) |*offer| offer.deinit();
+                            self.allocator.free(self.provider_offers);
+                            self.allocator.free(self.offer_fingerprints);
+                            self.provider_manifest.deinit();
+                            self.manifest.deinit();
+                            self.provider_offers = &.{};
+                            self.offer_fingerprints = &.{};
+                        }
+                    };
+
+                    /// Assert every reachable Program exchange site is covered by this provider harness.
+                    pub fn assertCoversAll() void {
+                        comptime assertProviderHarnessCoversAll(entries);
+                    }
+
+                    /// Assert every reachable Program exchange site is covered by this provider harness.
+                    pub fn assertAllSitesCovered() void {
+                        comptime assertProviderHarnessCoversAll(entries);
+                    }
+
+                    /// Return provider-manifest options derived from this harness for one Program manifest.
+                    pub fn manifestOptions(manifest_fingerprints: []const u64) ProviderManifest.Options {
+                        return .{
+                            .label = provider_label_text,
+                            .provider_fingerprint = provider_fingerprint,
+                            .supported_program_manifest_fingerprints = manifest_fingerprints,
+                            .supported_protocol_labels = supported_protocol_labels,
+                            .supported_operation_sites = supported_operation_sites,
+                            .supported_after_sites = supported_after_sites,
+                            .supported_protocol_op_fingerprints = supported_protocol_op_fingerprints,
+                            .allowed_response_kinds = providerHarnessField(options, "allowed_response_kinds", Policy.ResponseKindSet{}),
+                            .max_request_envelope_bytes = providerHarnessField(options, "max_request_envelope_bytes", @as(usize, std.math.maxInt(usize))),
+                            .max_response_envelope_bytes = providerHarnessField(options, "max_response_envelope_bytes", @as(usize, std.math.maxInt(usize))),
+                            .accepts_embedded_capsules = providerHarnessField(options, "accepts_embedded_capsules", @as(bool, true)),
+                            .accepts_capsule_restore = providerHarnessField(options, "accepts_capsule_restore", @as(bool, true)),
+                            .semantic_tags = providerHarnessField(options, "semantic_tags", @as([]const []const u8, &.{})),
+                            .metadata = provider_metadata,
+                        };
+                    }
+
+                    /// Build the provider manifest derived from this harness.
+                    pub fn providerManifest(allocator: std.mem.Allocator) Error!ProviderManifest {
+                        var manifest = try Manifest.encode(allocator);
+                        defer manifest.deinit();
+                        const manifest_fingerprints = [_]u64{manifest.fingerprint};
+                        return ProviderManifest.encode(allocator, manifestOptions(manifest_fingerprints[0..]));
+                    }
+
+                    /// Build deterministic manifest and offer images for this provider harness.
+                    pub fn buildCatalog(allocator: std.mem.Allocator) Error!Catalog {
+                        var manifest = try Manifest.encode(allocator);
+                        errdefer manifest.deinit();
+
+                        const manifest_fingerprints = [_]u64{manifest.fingerprint};
+                        var provider_manifest = try ProviderManifest.encode(allocator, manifestOptions(manifest_fingerprints[0..]));
+                        errdefer provider_manifest.deinit();
+
+                        var offers = try allocator.alloc(ProviderOffer, entries.len);
+                        errdefer allocator.free(offers);
+                        var initialized: usize = 0;
+                        errdefer for (offers[0..initialized]) |*offer| offer.deinit();
+                        inline for (entries, 0..) |Entry, index| {
+                            offers[index] = try buildProviderHarnessOffer(allocator, Entry, manifest.fingerprint, provider_fingerprint);
+                            initialized += 1;
+                        }
+
+                        var offer_fingerprints = try allocator.alloc(u64, entries.len);
+                        errdefer allocator.free(offer_fingerprints);
+                        for (offers, 0..) |offer, index| offer_fingerprints[index] = offer.fingerprint;
+
+                        return .{
+                            .allocator = allocator,
+                            .manifest = manifest,
+                            .provider_manifest = provider_manifest,
+                            .provider_offers = offers,
+                            .offer_fingerprints = offer_fingerprints,
+                            .metadata = metadata,
+                        };
+                    }
+
+                    /// Alias for `buildCatalog`.
+                    pub fn catalog(allocator: std.mem.Allocator) Error!Catalog {
+                        return buildCatalog(allocator);
+                    }
+
+                    /// Return the derived provider offer options for one handler declaration.
+                    pub fn offerOptions(comptime index: usize, manifest_fingerprint: u64) ProviderOffer.Options {
+                        if (index >= entries.len) @compileError("Program.Exchange.ProviderHarness providerOffer handler index out of range");
+                        return providerHarnessOfferOptions(entries[index], manifest_fingerprint, provider_fingerprint);
+                    }
+
+                    /// Build the provider offer derived for one handler declaration.
+                    pub fn providerOffer(allocator: std.mem.Allocator, comptime index: usize) Error!ProviderOffer {
+                        var manifest = try Manifest.encode(allocator);
+                        defer manifest.deinit();
+                        return ProviderOffer.encode(allocator, offerOptions(index, manifest.fingerprint));
+                    }
+
+                    /// Build every provider offer derived from this harness.
+                    pub fn providerOffers(allocator: std.mem.Allocator) Error![]ProviderOffer {
+                        var manifest = try Manifest.encode(allocator);
+                        defer manifest.deinit();
+                        var offers = try allocator.alloc(ProviderOffer, entries.len);
+                        errdefer allocator.free(offers);
+                        var initialized: usize = 0;
+                        errdefer for (offers[0..initialized]) |*offer| offer.deinit();
+                        inline for (entries, 0..) |_, index| {
+                            offers[index] = try ProviderOffer.encode(allocator, offerOptions(index, manifest.fingerprint));
+                            initialized += 1;
+                        }
+                        return offers;
+                    }
+
+                    /// Validate a manually supplied provider catalog against the derived exact images.
+                    pub fn validateManualCatalog(
+                        allocator: std.mem.Allocator,
+                        provider_manifest: ProviderManifest,
+                        provider_offers: []const ProviderOffer,
+                    ) Error!void {
+                        var derived = try buildCatalog(allocator);
+                        defer derived.deinit();
+
+                        if (!providerFieldsBoundToBytes(provider_manifest)) return error.ProgramContractViolation;
+                        if (provider_manifest.fingerprint != derived.provider_manifest.fingerprint or
+                            !std.mem.eql(u8, provider_manifest.bytes, derived.provider_manifest.bytes))
+                        {
+                            return error.ProgramContractViolation;
+                        }
+                        if (provider_offers.len != derived.provider_offers.len) return error.ProgramContractViolation;
+                        var seen: [entries.len]bool = [_]bool{false} ** entries.len;
+                        for (provider_offers) |offer| {
+                            try offer.validate();
+                            if (offer.provider_fingerprint != provider_fingerprint) return error.ProgramContractViolation;
+                            if (offer.manifest_fingerprint != derived.manifest.fingerprint) return error.ProgramContractViolation;
+                            var matched: ?usize = null;
+                            derived_match: for (derived.provider_offers, 0..) |expected, expected_index| {
+                                if (seen[expected_index]) continue :derived_match;
+                                if (offer.fingerprint == expected.fingerprint and std.mem.eql(u8, offer.bytes, expected.bytes)) {
+                                    matched = expected_index;
+                                    break;
+                                }
+                            }
+                            const expected_index = matched orelse return error.ProgramContractViolation;
+                            seen[expected_index] = true;
+                        }
+                    }
+
+                    /// Validate that one manually supplied offer exactly matches the derived offer.
+                    pub fn validateManualOffer(allocator: std.mem.Allocator, comptime index: usize, offer: ProviderOffer) Error!void {
+                        var manifest = try Manifest.encode(allocator);
+                        defer manifest.deinit();
+                        var expected = try ProviderOffer.encode(allocator, offerOptions(index, manifest.fingerprint));
+                        defer expected.deinit();
+                        try offer.validate();
+                        if (offer.fingerprint != expected.fingerprint or !std.mem.eql(u8, offer.bytes, expected.bytes)) return error.ProgramContractViolation;
+                    }
+
+                    /// Validate that manually supplied offers exactly match the derived catalog order.
+                    pub fn validateManualOffers(allocator: std.mem.Allocator, offers: []const ProviderOffer) Error!void {
+                        if (offers.len != entries.len) return error.ProgramContractViolation;
+                        inline for (entries, 0..) |_, index| {
+                            try validateManualOffer(allocator, index, offers[index]);
+                        }
+                    }
+
+                    /// Structured provider-side rejection reason.
+                    pub const ProviderBlockerTag = enum {
+                        malformed_request_envelope,
+                        manifest_mismatch,
+                        treaty_missing,
+                        treaty_mismatch,
+                        treaty_certificate_invalid,
+                        provider_mismatch,
+                        offer_mismatch,
+                        offer_not_in_harness,
+                        capability_mismatch,
+                        attenuated_capability_mismatch,
+                        route_mismatch,
+                        usage_mode_not_supported,
+                        response_use_not_supported,
+                        branch_policy_not_supported,
+                        replay_policy_not_supported,
+                        obligation_state_invalid,
+                        capability_instance_invalid,
+                        payload_ref_mismatch,
+                        payload_decode_failed,
+                        capsule_policy_violation,
+                        byte_limit_exceeded,
+                        handler_rejected,
+                        handler_forwarded,
+                        pending_response,
+                        invalid_provider_outcome,
+                        response_build_failed,
+                    };
+
+                    /// Provider-side blocker with stable exchange witnesses when available.
+                    pub const Blocker = struct {
+                        tag: ProviderBlockerTag,
+                        provider_fingerprint: ?u64 = provider_fingerprint,
+                        offer_fingerprint: ?u64 = null,
+                        treaty_fingerprint: ?u64 = null,
+                        route_fingerprint: ?u64 = null,
+                        request_envelope_fingerprint: ?u64 = null,
+                        capability_fingerprint: ?u64 = null,
+                        obligation_fingerprint: ?u64 = null,
+                        summary: []const u8,
+                    };
+
+                    /// Provider-side journal and replay options.
+                    pub const HandleOptions = struct {
+                        journal: ?*Session.Journal = null,
+                        response_use: ?ResponseUse = null,
+                    };
+
+                    /// Provider-built response packet.
+                    pub const ResponsePacket = struct {
+                        response: ResponseEnvelope,
+                        treaty_authorization: Treaty.Authorization,
+                        provider_fingerprint: u64,
+                        provider_offer_fingerprint: u64,
+                        treaty_fingerprint: u64,
+                        route_fingerprint: u64,
+                        capability_fingerprint: u64,
+                        attenuated_capability_fingerprint: ?u64 = null,
+                        response_use: ResponseUse,
+                        obligation_transition_fingerprint: ?u64 = null,
+
+                        /// Release response packet storage.
+                        pub fn deinit(self: *@This()) void {
+                            self.response.deinit();
+                        }
+                    };
+
+                    /// Provider harness handling result.
+                    pub const HandleResult = union(enum) {
+                        response: ResponsePacket,
+                        rejected: Blocker,
+                        forwarded: Blocker,
+                        pending: Blocker,
+                    };
+
+                    /// Typed provider request view for one handler declaration.
+                    pub fn Request(comptime Entry: type) type {
+                        return struct {
+                            request_envelope_fingerprint: u64,
+                            source_request_fingerprint: u64,
+                            treaty_fingerprint: u64,
+                            treaty_certificate_fingerprint: u64,
+                            provider_fingerprint: u64,
+                            provider_offer_fingerprint: u64,
+                            route_fingerprint: u64,
+                            capability_fingerprint: u64,
+                            attenuated_capability_fingerprint: ?u64,
+                            capability_instance_fingerprint: ?u64,
+                            obligation_fingerprint: ?u64,
+                            usage: Usage,
+                            response_use: ResponseUse,
+                            replay_policy: ResponseUse,
+                            branch_policy: BranchPolicy,
+                            payload_value_fingerprint: u64,
+                            capsule_image_fingerprint: ?u64,
+                            journal_branch_id: ?[]const u8,
+                            semantic_label: ?[]const u8,
+                            source_protocol_op_fingerprint: ?u64,
+                            target_protocol_op_fingerprint: ?u64,
+                            request_kind: RequestKind,
+                            target_site_fingerprint: u64,
+                            target_operation_name: []const u8,
+                            value_ref: lowering_api.ValueRef,
+                            value_image: []const u8,
+
+                            /// Decode the operation payload for this provider declaration.
+                            pub fn payload(self: @This(), allocator: std.mem.Allocator) Error!Entry.Site.Payload {
+                                if (Entry.kind != .operation) return error.ProgramContractViolation;
+                                return decodeExchangeValueImageValue(allocator, self.value_ref, self.payload_value_fingerprint, self.value_image, Entry.Site.Payload) catch |err| switch (err) {
+                                    error.ProgramContractViolation => error.ProgramContractViolation,
+                                    else => err,
+                                };
+                            }
+
+                            /// Decode the current value for this after-provider declaration.
+                            pub fn currentValue(self: @This(), allocator: std.mem.Allocator) Error!if (Entry.kind == .after and Entry.Site.has_static_input_ref) Entry.Site.Input else void {
+                                if (Entry.kind != .after) return error.ProgramContractViolation;
+                                if (!Entry.Site.has_static_input_ref) return {};
+                                return decodeExchangeValueImageValue(allocator, self.value_ref, self.payload_value_fingerprint, self.value_image, Entry.Site.Input);
+                            }
+                        };
+                    }
+
+                    /// Typed provider handler outcome for one handler declaration.
+                    pub fn Outcome(comptime Entry: type) type {
+                        return union(enum) {
+                            @"resume": if (Entry.kind == .operation) Entry.Site.Resume else void,
+                            return_now: if (Entry.kind == .operation) Entry.Site.Result else void,
+                            resume_after: if (Entry.kind == .after) Entry.Site.Output else void,
+                            replay: if (Entry.kind == .operation) Entry.Site.Resume else void,
+                            reject: []const u8,
+                            forward,
+                            pending,
+                        };
+                    }
+
+                    fn blocker(tag: ProviderBlockerTag, request: ?RequestEnvelope, certificate: ?Treaty.Certificate, offer_fingerprint: ?u64, summary: []const u8) Blocker {
+                        return .{
+                            .tag = tag,
+                            .offer_fingerprint = offer_fingerprint,
+                            .treaty_fingerprint = if (certificate) |cert| cert.treaty_fingerprint else null,
+                            .route_fingerprint = if (certificate) |cert| cert.route_fingerprint else null,
+                            .request_envelope_fingerprint = if (request) |envelope| envelope.fingerprint else null,
+                            .capability_fingerprint = if (certificate) |cert| cert.capability_fingerprint else null,
+                            .obligation_fingerprint = if (certificate) |cert| cert.obligation_fingerprint else null,
+                            .summary = summary,
+                        };
+                    }
+
+                    fn appendProviderEvent(journal: ?*Session.Journal, kind: Session.Journal.ExchangeEvent.Kind, request: RequestEnvelope, certificate: Treaty.Certificate, response_fingerprint: ?u64, authorization_fingerprint: ?u64, blocker_tag: ?ProviderBlockerTag) Error!void {
+                        const ledger = journal orelse return;
+                        try ledger.appendExchangeEvent(.{
+                            .kind = kind,
+                            .provider_fingerprint = provider_fingerprint,
+                            .capability_fingerprint = certificate.capability_fingerprint,
+                            .route_fingerprint = certificate.route_fingerprint,
+                            .request_envelope_fingerprint = request.fingerprint,
+                            .response_envelope_fingerprint = response_fingerprint,
+                            .treaty_fingerprint = certificate.treaty_fingerprint,
+                            .treaty_certificate_fingerprint = certificate.certificate_fingerprint,
+                            .provider_offer_fingerprint = certificate.provider_offer_fingerprint,
+                            .authorization_fingerprint = authorization_fingerprint,
+                            .blocker_tag = if (blocker_tag) |tag| @tagName(tag) else null,
+                            .branch_id = if (request.usage_metadata) |metadata_value| metadata_value.branch_id else null,
+                        });
+                    }
+
+                    fn requestView(comptime Entry: type, request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer) Request(Entry) {
+                        _ = offer;
+                        return .{
+                            .request_envelope_fingerprint = request.fingerprint,
+                            .source_request_fingerprint = request.request_fingerprint,
+                            .treaty_fingerprint = certificate.treaty_fingerprint,
+                            .treaty_certificate_fingerprint = certificate.certificate_fingerprint,
+                            .provider_fingerprint = certificate.provider_fingerprint,
+                            .provider_offer_fingerprint = certificate.provider_offer_fingerprint,
+                            .route_fingerprint = certificate.route_fingerprint,
+                            .capability_fingerprint = certificate.capability_fingerprint,
+                            .attenuated_capability_fingerprint = certificate.attenuated_capability_fingerprint,
+                            .capability_instance_fingerprint = certificate.capability_instance_fingerprint,
+                            .obligation_fingerprint = certificate.obligation_fingerprint,
+                            .usage = certificate.usage,
+                            .response_use = certificate.response_use,
+                            .replay_policy = certificate.replay_policy,
+                            .branch_policy = certificate.branch_policy,
+                            .payload_value_fingerprint = request.value_fingerprint,
+                            .capsule_image_fingerprint = request.capsule_image_fingerprint,
+                            .journal_branch_id = request.journal_branch_id,
+                            .semantic_label = request.semantic_label,
+                            .source_protocol_op_fingerprint = certificate.source_protocol_op_fingerprint orelse requestProtocolOperationFingerprint(request),
+                            .target_protocol_op_fingerprint = certificate.target_protocol_op_fingerprint orelse requestProtocolOperationFingerprint(request),
+                            .request_kind = request.kind,
+                            .target_site_fingerprint = Entry.Site.fingerprint,
+                            .target_operation_name = providerHarnessDefaultOfferLabel(Entry),
+                            .value_ref = request.value_ref,
+                            .value_image = request.value_image,
+                        };
+                    }
+
+                    fn validateForEntry(comptime Entry: type, request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer) ?Blocker {
+                        request.validate() catch return blocker(.malformed_request_envelope, request, certificate, offer.fingerprint, "request envelope failed deterministic validation");
+                        certificate.check() catch return blocker(.treaty_certificate_invalid, request, certificate, offer.fingerprint, "treaty certificate failed deterministic validation");
+                        if (certificate.request_envelope_fingerprint != request.fingerprint or certificate.request_fingerprint != request.request_fingerprint) {
+                            return blocker(.treaty_mismatch, request, certificate, offer.fingerprint, "certificate does not cite this request envelope");
+                        }
+                        if (certificate.manifest_fingerprint != request.manifest_fingerprint or offer.manifest_fingerprint != request.manifest_fingerprint) {
+                            return blocker(.manifest_mismatch, request, certificate, offer.fingerprint, "manifest fingerprint mismatch");
+                        }
+                        if (certificate.provider_fingerprint != provider_fingerprint or offer.provider_fingerprint != provider_fingerprint) {
+                            return blocker(.provider_mismatch, request, certificate, offer.fingerprint, "provider fingerprint mismatch");
+                        }
+                        if (certificate.provider_offer_fingerprint != offer.fingerprint) {
+                            return blocker(.offer_mismatch, request, certificate, offer.fingerprint, "certificate selected a different provider offer");
+                        }
+                        if (request.bytes.len > offer.max_request_bytes) return blocker(.byte_limit_exceeded, request, certificate, offer.fingerprint, "request exceeds provider offer byte limit");
+                        if (!offer.supported_usage_modes.allows(certificate.usage)) return blocker(.usage_mode_not_supported, request, certificate, offer.fingerprint, "usage mode is not supported by provider offer");
+                        if (!offer.supported_response_uses.allows(certificate.response_use)) return blocker(.response_use_not_supported, request, certificate, offer.fingerprint, "response-use class is not supported by provider offer");
+                        if (!offer.supported_replay_policies.allows(certificate.replay_policy)) return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay policy is not supported by provider offer");
+                        if (!offer.supported_branch_policies.allows(certificate.branch_policy)) return blocker(.branch_policy_not_supported, request, certificate, offer.fingerprint, "branch policy is not supported by provider offer");
+                        if (request.capsule_image) |image| {
+                            if (!offer.capsule_policy.allows(@as(bool, true)) or image.len > offer.max_capsule_bytes) return blocker(.capsule_policy_violation, request, certificate, offer.fingerprint, "embedded capsule violates provider offer policy");
+                        } else if (!offer.capsule_policy.allows(@as(bool, false))) {
+                            return blocker(.capsule_policy_violation, request, certificate, offer.fingerprint, "missing embedded capsule violates provider offer policy");
+                        }
+                        const offer_supports = switch (certificate.handling) {
+                            .direct => offer.supportsRequest(request),
+                            .dynamic_morphism, .residualized, .pipeline_adapted => if (certificate.target_protocol_op_fingerprint) |target|
+                                offer.supportsMorphismRequest(request, target, certificate.expected_response_refs)
+                            else
+                                false,
+                        };
+                        if (!offer_supports) return blocker(.offer_mismatch, request, certificate, offer.fingerprint, "derived offer does not support request shape");
+                        switch (Entry.kind) {
+                            .operation => if (request.kind != .operation or request.site_index != Entry.Site.index or !request.value_ref.eql(Entry.Site.payload_ref)) {
+                                return blocker(.payload_ref_mismatch, request, certificate, offer.fingerprint, "request does not match operation provider declaration");
+                            },
+                            .after => if (request.kind != .after or request.site_index != Entry.Site.index) {
+                                return blocker(.payload_ref_mismatch, request, certificate, offer.fingerprint, "request does not match after provider declaration");
+                            } else if (Entry.Site.current_value_ref) |ref| {
+                                if (!request.value_ref.eql(ref)) return blocker(.payload_ref_mismatch, request, certificate, offer.fingerprint, "after current-value ref mismatch");
+                            },
+                            else => unreachable,
+                        }
+                        return null;
+                    }
+
+                    fn responsePacket(request: RequestEnvelope, certificate: Treaty.Certificate, response: ResponseEnvelope, response_use: ResponseUse) Error!ResponsePacket {
+                        _ = request;
+                        var packet_response = response;
+                        errdefer packet_response.deinit();
+                        packet_response.treaty_authorization = try Treaty.Authorization.forCertificate(certificate, packet_response, response_use);
+                        const authorization = packet_response.treaty_authorization.?;
+                        return .{
+                            .response = packet_response,
+                            .treaty_authorization = authorization,
+                            .provider_fingerprint = certificate.provider_fingerprint,
+                            .provider_offer_fingerprint = certificate.provider_offer_fingerprint,
+                            .treaty_fingerprint = certificate.treaty_fingerprint,
+                            .route_fingerprint = certificate.route_fingerprint,
+                            .capability_fingerprint = certificate.capability_fingerprint,
+                            .attenuated_capability_fingerprint = certificate.attenuated_capability_fingerprint,
+                            .response_use = response_use,
+                        };
+                    }
+
+                    fn handleEntry(comptime Entry: type, ctx: anytype, allocator: std.mem.Allocator, request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, options_value: HandleOptions) Error!HandleResult {
+                        if (validateForEntry(Entry, request, certificate, offer)) |failed| {
+                            try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                            return .{ .rejected = failed };
+                        }
+                        try appendProviderEvent(options_value.journal, .provider_request_validated, request, certificate, null, null, null);
+                        const view = requestView(Entry, request, certificate, offer);
+                        try appendProviderEvent(options_value.journal, .provider_handler_invoked, request, certificate, null, null, null);
+                        const outcome = Entry.handler(ctx, view) catch |err| return mapProgramRunError(Error, err);
+                        const use_value = options_value.response_use orelse certificate.response_use;
+                        switch (outcome) {
+                            .@"resume" => |value| {
+                                if (Entry.kind != .operation or !offer.allowed_response_kinds.@"resume" or !Entry.Site.may_resume) {
+                                    const failed = blocker(.invalid_provider_outcome, request, certificate, offer.fingerprint, "resume outcome is not permitted for this provider offer");
+                                    try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                    return .{ .rejected = failed };
+                                }
+                                var response = ResponseEnvelope.@"resume"(allocator, request, value) catch {
+                                    const failed = blocker(.response_build_failed, request, certificate, offer.fingerprint, "failed to build resume response envelope");
+                                    try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                    return .{ .rejected = failed };
+                                };
+                                errdefer response.deinit();
+                                const packet = try responsePacket(request, certificate, response, use_value);
+                                try appendProviderEvent(options_value.journal, .provider_response_built, request, certificate, packet.response.fingerprint, null, null);
+                                try appendProviderEvent(options_value.journal, .provider_response_authorized, request, certificate, packet.response.fingerprint, packet.treaty_authorization.authorization_fingerprint, null);
+                                return .{ .response = packet };
+                            },
+                            .return_now => |value| {
+                                if (Entry.kind != .operation or !offer.allowed_response_kinds.return_now or !Entry.Site.may_return_now) {
+                                    const failed = blocker(.invalid_provider_outcome, request, certificate, offer.fingerprint, "returnNow outcome is not permitted for this provider offer");
+                                    try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                    return .{ .rejected = failed };
+                                }
+                                var response = ResponseEnvelope.returnNow(allocator, request, value) catch {
+                                    const failed = blocker(.response_build_failed, request, certificate, offer.fingerprint, "failed to build returnNow response envelope");
+                                    try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                    return .{ .rejected = failed };
+                                };
+                                errdefer response.deinit();
+                                const packet = try responsePacket(request, certificate, response, use_value);
+                                try appendProviderEvent(options_value.journal, .provider_response_built, request, certificate, packet.response.fingerprint, null, null);
+                                try appendProviderEvent(options_value.journal, .provider_response_authorized, request, certificate, packet.response.fingerprint, packet.treaty_authorization.authorization_fingerprint, null);
+                                return .{ .response = packet };
+                            },
+                            .resume_after => |value| {
+                                if (Entry.kind != .after or !offer.allowed_response_kinds.resume_after) {
+                                    const failed = blocker(.invalid_provider_outcome, request, certificate, offer.fingerprint, "resumeAfter outcome is not permitted for this provider offer");
+                                    try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                    return .{ .rejected = failed };
+                                }
+                                var response = ResponseEnvelope.resumeAfter(allocator, request, value) catch {
+                                    const failed = blocker(.response_build_failed, request, certificate, offer.fingerprint, "failed to build resumeAfter response envelope");
+                                    try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                    return .{ .rejected = failed };
+                                };
+                                errdefer response.deinit();
+                                const packet = try responsePacket(request, certificate, response, use_value);
+                                try appendProviderEvent(options_value.journal, .provider_response_built, request, certificate, packet.response.fingerprint, null, null);
+                                try appendProviderEvent(options_value.journal, .provider_response_authorized, request, certificate, packet.response.fingerprint, packet.treaty_authorization.authorization_fingerprint, null);
+                                return .{ .response = packet };
+                            },
+                            .replay => |value| {
+                                if (Entry.kind != .operation or !offer.allowed_response_kinds.@"resume" or !Entry.Site.may_resume or !(use_value == .replayed or use_value == .deterministic_replay)) {
+                                    const failed = blocker(.invalid_provider_outcome, request, certificate, offer.fingerprint, "replay outcome is not permitted for this provider offer");
+                                    try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                    return .{ .rejected = failed };
+                                }
+                                var response = ResponseEnvelope.@"resume"(allocator, request, value) catch {
+                                    const failed = blocker(.response_build_failed, request, certificate, offer.fingerprint, "failed to build replay response envelope");
+                                    try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                    return .{ .rejected = failed };
+                                };
+                                errdefer response.deinit();
+                                const packet = try responsePacket(request, certificate, response, use_value);
+                                try appendProviderEvent(options_value.journal, .provider_response_built, request, certificate, packet.response.fingerprint, null, null);
+                                try appendProviderEvent(options_value.journal, .provider_response_authorized, request, certificate, packet.response.fingerprint, packet.treaty_authorization.authorization_fingerprint, null);
+                                return .{ .response = packet };
+                            },
+                            .reject => |reason| {
+                                const failed = blocker(.handler_rejected, request, certificate, offer.fingerprint, reason);
+                                try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                return .{ .rejected = failed };
+                            },
+                            .forward => {
+                                const failed = blocker(.handler_forwarded, request, certificate, offer.fingerprint, "provider handler forwarded request");
+                                try appendProviderEvent(options_value.journal, .provider_response_forwarded, request, certificate, null, null, failed.tag);
+                                return .{ .forwarded = failed };
+                            },
+                            .pending => {
+                                const failed = blocker(.pending_response, request, certificate, offer.fingerprint, "provider handler left request pending");
+                                try appendProviderEvent(options_value.journal, .provider_pending, request, certificate, null, null, failed.tag);
+                                return .{ .pending = failed };
+                            },
+                        }
+                    }
+
+                    /// Validate and handle one treaty-bound provider request.
+                    pub fn handle(ctx: anytype, allocator: std.mem.Allocator, request: RequestEnvelope, certificate: Treaty.Certificate, options_value: HandleOptions) Error!HandleResult {
+                        try appendProviderEvent(options_value.journal, .provider_request_received, request, certificate, null, null, null);
+                        var manifest = try Manifest.encode(allocator);
+                        defer manifest.deinit();
+                        if (request.manifest_fingerprint != manifest.fingerprint or certificate.manifest_fingerprint != manifest.fingerprint) {
+                            const failed = blocker(.manifest_mismatch, request, certificate, null, "request or certificate manifest does not match this Program");
+                            try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                            return .{ .rejected = failed };
+                        }
+                        inline for (entries, 0..) |Entry, index| {
+                            var offer = try ProviderOffer.encode(allocator, offerOptions(index, manifest.fingerprint));
+                            defer offer.deinit();
+                            if (offer.fingerprint == certificate.provider_offer_fingerprint) {
+                                return handleEntry(Entry, ctx, allocator, request, certificate, offer, options_value);
+                            }
+                        }
+                        const failed = blocker(.offer_not_in_harness, request, certificate, certificate.provider_offer_fingerprint, "certificate selected an offer not derived by this harness");
+                        try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                        return .{ .rejected = failed };
+                    }
+
+                    /// Host-owned in-memory request packet helper shape.
+                    pub const RequestPacket = struct {
+                        request: RequestEnvelope,
+                        certificate: Treaty.Certificate,
+                    };
+
+                    /// Handle one packet value.
+                    pub fn handlePacket(ctx: anytype, allocator: std.mem.Allocator, packet: RequestPacket, options_value: HandleOptions) Error!HandleResult {
+                        return handle(ctx, allocator, packet.request, packet.certificate, options_value);
+                    }
+
+                    /// Pop one host-owned treaty packet and push a produced response through host-owned methods.
+                    pub fn handleNext(inbox: anytype, outbox: anytype, ctx: anytype, allocator: std.mem.Allocator, options_value: HandleOptions) Error!HandleResult {
+                        const InboxType = @TypeOf(inbox.*);
+                        const maybe_packet = if (comptime @hasDecl(InboxType, "nextTreaty"))
+                            try inbox.nextTreaty()
+                        else
+                            try inbox.next();
+                        const packet = maybe_packet orelse return .{ .pending = .{
+                            .tag = .pending_response,
+                            .summary = "provider inbox is empty",
+                        } };
+                        var result = try handlePacket(ctx, allocator, packet, options_value);
+                        switch (result) {
+                            .response => |*response_packet| {
+                                const OutboxType = @TypeOf(outbox.*);
+                                if (comptime @hasDecl(OutboxType, "appendProviderResponse")) {
+                                    try outbox.appendProviderResponse(response_packet.*);
+                                } else if (comptime @hasDecl(OutboxType, "appendResponse")) {
+                                    try outbox.appendResponse(response_packet.response, response_packet.treaty_authorization);
+                                } else if (comptime @hasDecl(OutboxType, "append")) {
+                                    try outbox.append(response_packet.response);
+                                }
+                            },
+                            else => {},
+                        }
+                        return result;
+                    }
+
+                    /// Drain host-owned in-memory packets until the inbox reports empty.
+                    pub fn drain(inbox: anytype, outbox: anytype, ctx: anytype, allocator: std.mem.Allocator, options_value: HandleOptions) Error!usize {
+                        var count: usize = 0;
+                        while (true) {
+                            const result = try handleNext(inbox, outbox, ctx, allocator, options_value);
+                            switch (result) {
+                                .pending => break,
+                                else => count += 1,
+                            }
+                        }
+                        return count;
+                    }
+                };
+            }
+
+            fn providerHarnessHasField(comptime Options: type, comptime field_name: []const u8) bool {
+                const info = @typeInfo(Options);
+                if (info != .@"struct") return false;
+                inline for (info.@"struct".fields) |field| {
+                    if (std.mem.eql(u8, field.name, field_name)) return true;
+                }
+                return false;
+            }
+
+            fn providerHarnessField(comptime options: anytype, comptime field_name: []const u8, comptime default: anytype) @TypeOf(default) {
+                if (comptime providerHarnessHasField(@TypeOf(options), field_name)) {
+                    return @field(options, field_name);
+                }
+                return default;
+            }
+
+            fn validateProviderHarnessOptions(comptime options: anytype) void {
+                const Options = @TypeOf(options);
+                if (!providerHarnessHasField(Options, "label")) @compileError("Program.Exchange.ProviderHarness requires label");
+                const has_entries = providerHarnessHasField(Options, "entries");
+                const has_handlers = providerHarnessHasField(Options, "handlers");
+                if (!has_entries and !has_handlers) @compileError("Program.Exchange.ProviderHarness requires entries or handlers");
+                const entries = if (has_entries) options.entries else options.handlers;
+                if (options.label.len == 0) @compileError("Program.Exchange.ProviderHarness label must be non-empty");
+                if (entries.len == 0) @compileError("Program.Exchange.ProviderHarness requires at least one handler declaration");
+                inline for (entries) |Entry| validateProviderHarnessEntry(Entry);
+                comptime assertProviderHarnessNoDuplicates(entries);
+            }
+
+            fn validateProviderHarnessEntry(comptime Entry: type) void {
+                if (!hasDeclSafe(Entry, "kind") or !hasDeclSafe(Entry, "Site") or !hasDeclSafe(Entry, "offer_options")) {
+                    @compileError("Program.Exchange.ProviderHarness listed non-provider handler declaration");
+                }
+                const Site = Entry.Site;
+                if (!hasDeclSafe(Site, "Owner") or
+                    !hasDeclSafe(Site, "owner_label") or
+                    !std.mem.eql(u8, Site.owner_label, label) or
+                    !hasDeclSafe(Site, "owner_plan_hash") or
+                    Site.owner_plan_hash != body_compiled_plan_hash or
+                    !hasDeclSafe(Site, "OwnerHandlers") or
+                    Site.OwnerHandlers != HandlersType or
+                    Site.Owner != Body)
+                {
+                    @compileError("Program.Exchange.ProviderHarness descriptor belongs to another program");
+                }
+                switch (Entry.kind) {
+                    .operation => if (!hasDeclSafe(Site, "kind") or Site.kind != .operation) {
+                        @compileError("Program.Exchange.ProviderHarness listed non-operation site for operation handler");
+                    },
+                    .after => if (!hasDeclSafe(Site, "kind") or Site.kind != .after) {
+                        @compileError("Program.Exchange.ProviderHarness listed non-after site for after handler");
+                    },
+                    else => @compileError("Program.Exchange.ProviderHarness listed non-provider handler declaration"),
+                }
+            }
+
+            fn assertProviderHarnessNoDuplicates(comptime entries: anytype) void {
+                var operation_covered: [protocol.operation_site_count]bool = [_]bool{false} ** protocol.operation_site_count;
+                var after_covered: [protocol.after_site_count]bool = [_]bool{false} ** protocol.after_site_count;
+                inline for (entries) |Entry| switch (Entry.kind) {
+                    .operation => {
+                        if (operation_covered[Entry.Site.index]) @compileError("Program.Exchange.ProviderHarness listed duplicate operation handler");
+                        operation_covered[Entry.Site.index] = true;
+                    },
+                    .after => {
+                        if (after_covered[Entry.Site.index]) @compileError("Program.Exchange.ProviderHarness listed duplicate after handler");
+                        after_covered[Entry.Site.index] = true;
+                    },
+                    else => unreachable,
+                };
+            }
+
+            fn assertProviderHarnessCoversAll(comptime entries: anytype) void {
+                var operation_covered: [protocol.operation_site_count]bool = [_]bool{false} ** protocol.operation_site_count;
+                var after_covered: [protocol.after_site_count]bool = [_]bool{false} ** protocol.after_site_count;
+                inline for (entries) |Entry| switch (Entry.kind) {
+                    .operation => operation_covered[Entry.Site.index] = true,
+                    .after => after_covered[Entry.Site.index] = true,
+                    else => unreachable,
+                };
+                inline for (operation_covered) |is_covered| {
+                    if (!is_covered) @compileError("Program.Exchange.ProviderHarness coverage omitted reachable operation site");
+                }
+                inline for (after_covered) |is_covered| {
+                    if (!is_covered) @compileError("Program.Exchange.ProviderHarness coverage omitted reachable after site");
+                }
+            }
+
+            fn providerHarnessOperationSiteCount(comptime entries: anytype) usize {
+                comptime var count: usize = 0;
+                inline for (entries) |Entry| {
+                    if (Entry.kind == .operation) count += 1;
+                }
+                return count;
+            }
+
+            fn providerHarnessAfterSiteCount(comptime entries: anytype) usize {
+                comptime var count: usize = 0;
+                inline for (entries) |Entry| {
+                    if (Entry.kind == .after) count += 1;
+                }
+                return count;
+            }
+
+            fn providerHarnessOperationSites(comptime entries: anytype) [providerHarnessOperationSiteCount(entries)]usize {
+                comptime var sites: [providerHarnessOperationSiteCount(entries)]usize = undefined;
+                comptime var index: usize = 0;
+                inline for (entries) |Entry| if (Entry.kind == .operation) {
+                    sites[index] = Entry.Site.index;
+                    index += 1;
+                };
+                return sites;
+            }
+
+            fn providerHarnessAfterSites(comptime entries: anytype) [providerHarnessAfterSiteCount(entries)]usize {
+                comptime var sites: [providerHarnessAfterSiteCount(entries)]usize = undefined;
+                comptime var index: usize = 0;
+                inline for (entries) |Entry| if (Entry.kind == .after) {
+                    sites[index] = Entry.Site.index;
+                    index += 1;
+                };
+                return sites;
+            }
+
+            fn providerHarnessProtocolLabels(comptime entries: anytype) [entries.len][]const u8 {
+                comptime var labels: [entries.len][]const u8 = undefined;
+                inline for (entries, 0..) |Entry, index| {
+                    labels[index] = providerHarnessEntryProtocolLabel(Entry);
+                }
+                return labels;
+            }
+
+            fn providerHarnessProtocolOps(comptime entries: anytype) [entries.len]u64 {
+                comptime var ops: [entries.len]u64 = undefined;
+                inline for (entries, 0..) |Entry, index| {
+                    ops[index] = providerHarnessEntryProtocolOpFingerprint(Entry);
+                }
+                return ops;
+            }
+
+            fn providerHarnessEntryProtocolLabel(comptime Entry: type) []const u8 {
+                return Entry.offer_options.protocol_label orelse switch (Entry.kind) {
+                    .operation => Entry.Site.requirement_label,
+                    .after => Entry.Site.original_requirement_label,
+                    else => unreachable,
+                };
+            }
+
+            fn providerHarnessEntryProtocolOpFingerprint(comptime Entry: type) u64 {
+                return Entry.offer_options.protocol_op_fingerprint orelse switch (Entry.kind) {
+                    .operation => Entry.Site.fingerprint,
+                    .after => Entry.Site.source_operation_site_fingerprint,
+                    else => unreachable,
+                };
+            }
+
+            fn providerHarnessDefaultOfferLabel(comptime Entry: type) []const u8 {
+                return switch (Entry.kind) {
+                    .operation => Entry.Site.op_name,
+                    .after => Entry.Site.original_op_name,
+                    else => unreachable,
+                };
+            }
+
+            fn providerHarnessDefaultResponseKinds(comptime Entry: type) Policy.ResponseKindSet {
+                return switch (Entry.kind) {
+                    .operation => .{
+                        .@"resume" = Entry.Site.may_resume,
+                        .return_now = Entry.Site.may_return_now,
+                        .resume_after = false,
+                    },
+                    .after => .{
+                        .@"resume" = false,
+                        .return_now = false,
+                        .resume_after = true,
+                    },
+                    else => unreachable,
+                };
+            }
+
+            fn providerHarnessOfferOptions(comptime Entry: type, manifest_fingerprint: u64, provider_fingerprint: u64) ProviderOffer.Options {
+                const offer_label = Entry.offer_options.label orelse providerHarnessDefaultOfferLabel(Entry);
+                const response_kinds = Entry.offer_options.allowed_response_kinds orelse providerHarnessDefaultResponseKinds(Entry);
+                const protocol_labels = [_][]const u8{providerHarnessEntryProtocolLabel(Entry)};
+                const protocol_ops = [_]u64{providerHarnessEntryProtocolOpFingerprint(Entry)};
+                return .{
+                    .label = offer_label,
+                    .provider_fingerprint = provider_fingerprint,
+                    .manifest_fingerprint = manifest_fingerprint,
+                    .supported_operation_sites = switch (Entry.kind) {
+                        .operation => &.{Entry.Site.index},
+                        .after => &.{},
+                        else => unreachable,
+                    },
+                    .supported_after_sites = switch (Entry.kind) {
+                        .operation => &.{},
+                        .after => &.{Entry.Site.index},
+                        else => unreachable,
+                    },
+                    .supported_protocol_op_fingerprints = protocol_ops[0..],
+                    .supported_protocol_labels = protocol_labels[0..],
+                    .accepted_payload_refs = switch (Entry.kind) {
+                        .operation => &.{Entry.Site.payload_ref},
+                        .after => &.{},
+                        else => unreachable,
+                    },
+                    .accepted_current_value_refs = switch (Entry.kind) {
+                        .operation => &.{},
+                        .after => if (Entry.Site.current_value_ref) |ref| &.{ref} else &.{},
+                        else => unreachable,
+                    },
+                    .produced_response_refs = switch (Entry.kind) {
+                        .operation => switch (Entry.Site.op_mode) {
+                            .transform => &.{Entry.Site.resume_ref},
+                            .choice => &.{ Entry.Site.resume_ref, Entry.Site.result_ref },
+                            .abort => &.{Entry.Site.result_ref},
+                        },
+                        .after => &.{Entry.Site.output_ref},
+                        else => unreachable,
+                    },
+                    .allowed_response_kinds = response_kinds,
+                    .supported_usage_modes = Entry.offer_options.supported_usage_modes,
+                    .supported_response_uses = Entry.offer_options.supported_response_uses,
+                    .supported_replay_policies = Entry.offer_options.supported_replay_policies,
+                    .supported_branch_policies = Entry.offer_options.supported_branch_policies,
+                    .capsule_policy = Entry.offer_options.capsule_policy,
+                    .opens_obligation = Entry.offer_options.opens_obligation,
+                    .max_request_bytes = Entry.offer_options.max_request_bytes,
+                    .max_response_bytes = Entry.offer_options.max_response_bytes,
+                    .max_capsule_bytes = Entry.offer_options.max_capsule_bytes,
+                    .tags = Entry.offer_options.tags,
+                    .metadata = Entry.offer_options.metadata,
+                };
+            }
+
+            fn buildProviderHarnessOffer(
+                allocator: std.mem.Allocator,
+                comptime Entry: type,
+                manifest_fingerprint: u64,
+                provider_fingerprint: u64,
+            ) Error!ProviderOffer {
+                const offer_label = Entry.offer_options.label orelse providerHarnessDefaultOfferLabel(Entry);
+                const response_kinds = Entry.offer_options.allowed_response_kinds orelse providerHarnessDefaultResponseKinds(Entry);
+                const protocol_labels = [_][]const u8{switch (Entry.kind) {
+                    .operation => Entry.Site.requirement_label,
+                    .after => Entry.Site.original_requirement_label,
+                    else => unreachable,
+                }};
+                const protocol_ops = [_]u64{switch (Entry.kind) {
+                    .operation => Entry.Site.fingerprint,
+                    .after => Entry.Site.source_operation_site_fingerprint,
+                    else => unreachable,
+                }};
+                var operation_sites: [1]usize = undefined;
+                var operation_site_count: usize = 0;
+                var after_sites: [1]usize = undefined;
+                var after_site_count: usize = 0;
+                var payload_refs: [1]lowering_api.ValueRef = undefined;
+                var payload_ref_count: usize = 0;
+                var current_refs: [1]lowering_api.ValueRef = undefined;
+                var current_ref_count: usize = 0;
+                var response_refs: [3]lowering_api.ValueRef = undefined;
+                var response_ref_count: usize = 0;
+                switch (Entry.kind) {
+                    .operation => {
+                        operation_sites[0] = Entry.Site.index;
+                        operation_site_count = 1;
+                        payload_refs[0] = Entry.Site.payload_ref;
+                        payload_ref_count = 1;
+                        if (response_kinds.@"resume" and Entry.Site.may_resume) {
+                            response_refs[response_ref_count] = Entry.Site.resume_ref;
+                            response_ref_count += 1;
+                        }
+                        if (response_kinds.return_now and Entry.Site.may_return_now) {
+                            response_refs[response_ref_count] = Entry.Site.result_ref;
+                            response_ref_count += 1;
+                        }
+                    },
+                    .after => {
+                        after_sites[0] = Entry.Site.index;
+                        after_site_count = 1;
+                        if (Entry.Site.current_value_ref) |ref| {
+                            current_refs[0] = ref;
+                            current_ref_count = 1;
+                        }
+                        if (response_kinds.resume_after) {
+                            response_refs[response_ref_count] = Entry.Site.output_ref;
+                            response_ref_count += 1;
+                        }
+                    },
+                    else => unreachable,
+                }
+                return ProviderOffer.encode(allocator, .{
+                    .label = offer_label,
+                    .provider_fingerprint = provider_fingerprint,
+                    .manifest_fingerprint = manifest_fingerprint,
+                    .supported_operation_sites = operation_sites[0..operation_site_count],
+                    .supported_after_sites = after_sites[0..after_site_count],
+                    .supported_protocol_op_fingerprints = protocol_ops[0..],
+                    .supported_protocol_labels = protocol_labels[0..],
+                    .accepted_payload_refs = payload_refs[0..payload_ref_count],
+                    .accepted_current_value_refs = current_refs[0..current_ref_count],
+                    .produced_response_refs = response_refs[0..response_ref_count],
+                    .allowed_response_kinds = response_kinds,
+                    .supported_usage_modes = Entry.offer_options.supported_usage_modes,
+                    .supported_response_uses = Entry.offer_options.supported_response_uses,
+                    .supported_replay_policies = Entry.offer_options.supported_replay_policies,
+                    .supported_branch_policies = Entry.offer_options.supported_branch_policies,
+                    .capsule_policy = Entry.offer_options.capsule_policy,
+                    .opens_obligation = Entry.offer_options.opens_obligation,
+                    .max_request_bytes = Entry.offer_options.max_request_bytes,
+                    .max_response_bytes = Entry.offer_options.max_response_bytes,
+                    .max_capsule_bytes = Entry.offer_options.max_capsule_bytes,
+                    .tags = Entry.offer_options.tags,
+                    .metadata = Entry.offer_options.metadata,
+                });
+            }
+
             /// Exchange-facing metadata for one protocol adaptation offer.
             pub const MorphismOffer = struct {
                 label: []const u8,
@@ -5870,11 +6966,15 @@ pub fn program(
                 pub const Authorization = struct {
                     treaty_fingerprint: u64,
                     treaty_certificate_fingerprint: u64,
+                    provider_fingerprint: u64,
                     provider_offer_fingerprint: u64,
+                    capability_fingerprint: u64,
                     attenuated_capability_fingerprint: ?u64 = null,
+                    capability_path_fingerprint: u64,
                     capability_instance_fingerprint: ?u64 = null,
                     obligation_fingerprint: ?u64 = null,
                     route_fingerprint: u64,
+                    request_envelope_fingerprint: u64,
                     response_envelope_fingerprint: u64,
                     usage: Usage = .copyable,
                     response_use: ResponseUse = .fresh,
@@ -5891,16 +6991,47 @@ pub fn program(
                         var value = @This(){
                             .treaty_fingerprint = treaty.fingerprint,
                             .treaty_certificate_fingerprint = treaty.certificate.certificate_fingerprint,
+                            .provider_fingerprint = treaty.provider_fingerprint,
                             .provider_offer_fingerprint = treaty.provider_offer_fingerprint,
+                            .capability_fingerprint = treaty.capability_fingerprint,
                             .attenuated_capability_fingerprint = if (treaty.attenuated_capability) |capability| capability.fingerprint else null,
+                            .capability_path_fingerprint = treaty.capability_path_fingerprint,
                             .capability_instance_fingerprint = treaty.capability_instance_fingerprint,
                             .obligation_fingerprint = treaty.obligation_fingerprint,
                             .route_fingerprint = treaty.route.fingerprint,
+                            .request_envelope_fingerprint = treaty.request_envelope_fingerprint,
                             .response_envelope_fingerprint = response.fingerprint,
                             .usage = treaty.usage,
                             .response_use = response_use,
                             .replay_policy = treaty.replay_policy,
                             .branch_policy = treaty.branch_policy,
+                        };
+                        value.authorization_fingerprint = fingerprintTreatyAuthorization(value);
+                        return value;
+                    }
+
+                    /// Construct a treaty-bound authorization from a provider-visible certificate.
+                    pub fn forCertificate(certificate: Treaty.Certificate, response: ResponseEnvelope, response_use: ResponseUse) Error!@This() {
+                        try certificate.check();
+                        try validateResponseEnvelopeFieldsBoundToBytes(response);
+                        if (certificate.request_envelope_fingerprint != response.request_envelope_fingerprint) return error.ProgramContractViolation;
+                        var value = @This(){
+                            .treaty_fingerprint = certificate.treaty_fingerprint,
+                            .treaty_certificate_fingerprint = certificate.certificate_fingerprint,
+                            .provider_fingerprint = certificate.provider_fingerprint,
+                            .provider_offer_fingerprint = certificate.provider_offer_fingerprint,
+                            .capability_fingerprint = certificate.capability_fingerprint,
+                            .attenuated_capability_fingerprint = certificate.attenuated_capability_fingerprint,
+                            .capability_path_fingerprint = certificate.capability_path_fingerprint,
+                            .capability_instance_fingerprint = certificate.capability_instance_fingerprint,
+                            .obligation_fingerprint = certificate.obligation_fingerprint,
+                            .route_fingerprint = certificate.route_fingerprint,
+                            .request_envelope_fingerprint = certificate.request_envelope_fingerprint,
+                            .response_envelope_fingerprint = response.fingerprint,
+                            .usage = certificate.usage,
+                            .response_use = response_use,
+                            .replay_policy = certificate.replay_policy,
+                            .branch_policy = certificate.branch_policy,
                         };
                         value.authorization_fingerprint = fingerprintTreatyAuthorization(value);
                         return value;
@@ -5935,11 +7066,15 @@ pub fn program(
                         try writer.writeU32(exchange_treaty_authorization_fingerprint_version);
                         try writer.writeU64(self.treaty_fingerprint);
                         try writer.writeU64(self.treaty_certificate_fingerprint);
+                        try writer.writeU64(self.provider_fingerprint);
                         try writer.writeU64(self.provider_offer_fingerprint);
+                        try writer.writeU64(self.capability_fingerprint);
                         try writeOptionalU64(&writer, self.attenuated_capability_fingerprint);
+                        try writer.writeU64(self.capability_path_fingerprint);
                         try writeOptionalU64(&writer, self.capability_instance_fingerprint);
                         try writeOptionalU64(&writer, self.obligation_fingerprint);
                         try writer.writeU64(self.route_fingerprint);
+                        try writer.writeU64(self.request_envelope_fingerprint);
                         try writer.writeU64(self.response_envelope_fingerprint);
                         try writeUsage(&writer, self.usage);
                         try writeResponseUse(&writer, self.response_use);
@@ -5960,11 +7095,15 @@ pub fn program(
                         const value = @This(){
                             .treaty_fingerprint = try reader.readU64(),
                             .treaty_certificate_fingerprint = try reader.readU64(),
+                            .provider_fingerprint = try reader.readU64(),
                             .provider_offer_fingerprint = try reader.readU64(),
+                            .capability_fingerprint = try reader.readU64(),
                             .attenuated_capability_fingerprint = try readOptionalU64(&reader),
+                            .capability_path_fingerprint = try reader.readU64(),
                             .capability_instance_fingerprint = try readOptionalU64(&reader),
                             .obligation_fingerprint = try readOptionalU64(&reader),
                             .route_fingerprint = try reader.readU64(),
+                            .request_envelope_fingerprint = try reader.readU64(),
                             .response_envelope_fingerprint = try reader.readU64(),
                             .usage = try readUsage(&reader),
                             .response_use = try readResponseUse(&reader),
@@ -8436,10 +9575,14 @@ pub fn program(
                 if (authorization.authorization_fingerprint != fingerprintTreatyAuthorization(authorization)) blockers.addTag(.wrong_treaty, request.fingerprint, "treaty authorization fingerprint mismatch");
                 if (authorization.treaty_fingerprint != treaty.fingerprint) blockers.addTag(.wrong_treaty, request.fingerprint, "authorization cites a different treaty");
                 if (authorization.treaty_certificate_fingerprint != treaty.certificate.certificate_fingerprint) blockers.addTag(.wrong_certificate, request.fingerprint, "authorization cites a different treaty certificate");
+                if (authorization.provider_fingerprint != treaty.provider_fingerprint) blockers.addTag(.wrong_provider, request.fingerprint, "authorization cites a different provider");
                 if (authorization.provider_offer_fingerprint != treaty.provider_offer_fingerprint) blockers.addTag(.wrong_provider, request.fingerprint, "authorization cites a different provider offer");
+                if (authorization.capability_fingerprint != treaty.capability_fingerprint) blockers.addTag(.wrong_capability, request.fingerprint, "authorization cites a different capability");
                 if (authorization.attenuated_capability_fingerprint != treaty.certificate.attenuated_capability_fingerprint) blockers.addTag(.wrong_capability, request.fingerprint, "authorization cites a different attenuated capability");
+                if (authorization.capability_path_fingerprint != treaty.capability_path_fingerprint) blockers.addTag(.wrong_capability, request.fingerprint, "authorization cites a different capability path");
                 if (authorization.capability_instance_fingerprint != treaty.capability_instance_fingerprint) blockers.addTag(.capability_instance_wrong_branch, request.fingerprint, "authorization cites a different capability instance");
                 if (authorization.obligation_fingerprint != treaty.obligation_fingerprint) blockers.addTag(.obligation_state_incompatible, request.fingerprint, "authorization cites a different obligation");
+                if (authorization.request_envelope_fingerprint != request.fingerprint) blockers.addTag(.wrong_treaty, request.fingerprint, "authorization cites a different request envelope");
                 if (authorization.expected_obligation_transition_fingerprint != null and treaty.obligation_fingerprint == null) blockers.addTag(.obligation_state_incompatible, request.fingerprint, "authorization cites an obligation transition for a non-obligation treaty");
                 const replay_response = authorization.response_use == .replayed or authorization.response_use == .deterministic_replay;
                 if (replay_response and treaty.obligation_fingerprint == null) {
@@ -9426,6 +10569,33 @@ pub fn program(
                 if (!std.mem.eql(u8, image, canonical)) return error.ProgramContractViolation;
             }
 
+            fn decodeExchangeValueImageValue(
+                allocator: std.mem.Allocator,
+                ref: lowering_api.ValueRef,
+                expected_fingerprint: u64,
+                image: []const u8,
+                comptime ValueType: type,
+            ) Error!ValueType {
+                const expected_ref = comptime ProgramValueRefForType(body_value_schema_types, ValueType);
+                if (!ref.eql(expected_ref)) return error.ProgramContractViolation;
+                var journal = Session.Journal.init(allocator);
+                defer journal.deinit();
+                var replayer = journal.replayer();
+                defer replayer.deinit();
+                var reader = Reader.init(image);
+                const encoded_ref = try readExchangeValueRef(&reader);
+                if (!encoded_ref.eql(expected_ref)) return error.ProgramContractViolation;
+                var context = Session.ValueImageContext.init(allocator);
+                defer context.deinit();
+                const decoded = Session.readTypedValueImage(&reader, &replayer, &context, expected_ref, ValueType) catch |err| return mapProgramRunError(Error, err);
+                if (!reader.eof()) return error.ProgramContractViolation;
+                if (try Session.fingerprintTypedValueImage(expected_ref, decoded) != expected_fingerprint) return error.ProgramContractViolation;
+                const canonical = try encodeExchangeValueImage(allocator, ref, expected_fingerprint, decoded);
+                defer allocator.free(canonical);
+                if (!std.mem.eql(u8, image, canonical)) return error.ProgramContractViolation;
+                return cloneBodyOwnedResultValue(allocator, decoded) catch |err| return mapProgramRunError(Error, err);
+            }
+
             fn validateExchangeValueImage(allocator: std.mem.Allocator, ref: lowering_api.ValueRef, expected_fingerprint: u64, image: []const u8) Error!void {
                 switch (ref.codec) {
                     .unit => try decodeExchangeValueImage(allocator, ref, expected_fingerprint, image, void),
@@ -10306,11 +11476,15 @@ pub fn program(
                 hashU32(&hasher, exchange_treaty_authorization_fingerprint_version);
                 hashU64(&hasher, authorization.treaty_fingerprint);
                 hashU64(&hasher, authorization.treaty_certificate_fingerprint);
+                hashU64(&hasher, authorization.provider_fingerprint);
                 hashU64(&hasher, authorization.provider_offer_fingerprint);
+                hashU64(&hasher, authorization.capability_fingerprint);
                 hashOptionalExchangeU64(&hasher, authorization.attenuated_capability_fingerprint);
+                hashU64(&hasher, authorization.capability_path_fingerprint);
                 hashOptionalExchangeU64(&hasher, authorization.capability_instance_fingerprint);
                 hashOptionalExchangeU64(&hasher, authorization.obligation_fingerprint);
                 hashU64(&hasher, authorization.route_fingerprint);
+                hashU64(&hasher, authorization.request_envelope_fingerprint);
                 hashU64(&hasher, authorization.response_envelope_fingerprint);
                 hashBytes(&hasher, @tagName(authorization.usage));
                 hashBytes(&hasher, @tagName(authorization.response_use));

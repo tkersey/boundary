@@ -30,6 +30,9 @@ examples/plan_native_resource.zig
 examples/plan_native_state_reader.zig
 examples/plan_native_writer.zig
 examples/protocol_reinterpretation.zig
+examples/provider_harness_direct.zig
+examples/provider_harness_morphism.zig
+examples/provider_harness_replayable.zig
 examples/residualized_approval_policy.zig
 examples/state_basic.zig
 examples/typed_program_plan.zig
@@ -120,6 +123,7 @@ test/compile_fail/protocol_coverage_omitted_operation.zig
 test/compile_fail/protocol_request_foreign_site.zig
 test/compile_fail/protocol_target_response_abort_resume.zig
 test/compile_fail/protocol_target_response_transform_return_now.zig
+test/compile_fail/provider_harness_duplicate_handler.zig
 test/compile_fail/reinterpret_mapper_invalid_resume_param.zig
 test/compile_fail/reinterpret_mapper_invalid_return_param.zig
 test/compile_fail/reinterpret_mapper_invalid_source_outcome.zig
