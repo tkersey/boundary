@@ -5491,7 +5491,7 @@ pub fn program(
                         },
                         .after => {
                             if (!after_sites_constrained and operation_sites_constrained) return false;
-                            return listAllowsValueRef(self.accepted_current_value_refs, request.value_ref) and listAllowsUsize(self.supported_after_sites, request.site_index);
+                            return offerAllowsCurrentValueRef(self.accepted_current_value_refs, request.value_ref) and listAllowsUsize(self.supported_after_sites, request.site_index);
                         },
                     }
                 }
@@ -5531,7 +5531,7 @@ pub fn program(
                         .after => {
                             if (!after_sites_constrained and operation_sites_constrained) return false;
                             if (!listAllowsUsize(self.supported_after_sites, source_request.site_index)) return false;
-                            if (!listAllowsValueRef(self.accepted_current_value_refs, source_request.value_ref)) return false;
+                            if (!offerAllowsCurrentValueRef(self.accepted_current_value_refs, source_request.value_ref)) return false;
                         },
                     }
                     return self.supportsProtocolOperation(target_protocol_op_fingerprint, response_refs);
@@ -6235,7 +6235,7 @@ pub fn program(
                             },
                             .after => blk: {
                                 if (!after_sites_constrained and operation_sites_constrained) break :blk false;
-                                break :blk listAllowsValueRef(offer.accepted_current_value_refs, request.value_ref) and listAllowsUsize(offer.supported_after_sites, request.site_index);
+                                break :blk offerAllowsCurrentValueRef(offer.accepted_current_value_refs, request.value_ref) and listAllowsUsize(offer.supported_after_sites, request.site_index);
                             },
                         };
                     }
@@ -6303,9 +6303,9 @@ pub fn program(
                     }
 
                     fn rejectMissingReplaySource(request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, response_use: ResponseUse, options_value: HandleOptions) ?Blocker {
-                        if (!responseUseNeedsReplaySource(response_use) or certificate.obligation_fingerprint != null) return null;
+                        if (!responseUseNeedsReplaySource(response_use)) return null;
                         if (options_value.replay_source_response_fingerprint != null and options_value.replay_source_response_value_fingerprint != null) return null;
-                        return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "non-obligation replay response requires a recorded replay source witness");
+                        return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay response requires a recorded replay source witness");
                     }
 
                     fn finishProviderResponse(options_value: HandleOptions, request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, response: *ResponseEnvelope, response_use: ResponseUse) Error!HandleResult {
@@ -6329,15 +6329,16 @@ pub fn program(
                             response.deinit();
                             return .{ .rejected = failed };
                         }
-                        var packet = if (responseUseNeedsReplaySource(response_use) and certificate.obligation_fingerprint == null) packet: {
+                        const supplied_replay_source = options_value.replay_source_response_fingerprint != null or options_value.replay_source_response_value_fingerprint != null;
+                        var packet = if (responseUseNeedsReplaySource(response_use) and (certificate.obligation_fingerprint == null or supplied_replay_source)) packet: {
                             const source_response_fingerprint = options_value.replay_source_response_fingerprint orelse {
-                                const failed = blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "non-obligation replay response requires a recorded replay source response");
+                                const failed = blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay response requires a recorded replay source response");
                                 try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, response.fingerprint, null, failed.tag);
                                 response.deinit();
                                 return .{ .rejected = failed };
                             };
                             const source_response_value_fingerprint = options_value.replay_source_response_value_fingerprint orelse {
-                                const failed = blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "non-obligation replay response requires a recorded replay source value");
+                                const failed = blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay response requires a recorded replay source value");
                                 try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, response.fingerprint, null, failed.tag);
                                 response.deinit();
                                 return .{ .rejected = failed };
@@ -6350,6 +6351,8 @@ pub fn program(
                             }
                             break :packet try replayResponsePacket(certificate, response.*, response_use, source_response_fingerprint, source_response_value_fingerprint);
                         } else try responsePacket(certificate, response.*, response_use);
+                        response.bytes = &.{};
+                        response.value_image = &.{};
                         errdefer packet.deinit();
                         try appendProviderEvent(options_value.journal, .provider_response_built, request, certificate, packet.response.fingerprint, null, null);
                         try appendProviderEvent(options_value.journal, .provider_response_authorized, request, certificate, packet.response.fingerprint, packet.treaty_authorization.authorization_fingerprint, null);
@@ -6548,6 +6551,8 @@ pub fn program(
                                     errdefer if (!transferred) outbox_packet.deinit();
                                     try outbox.append(outbox_packet.response);
                                     transferred = true;
+                                } else {
+                                    return error.ProgramContractViolation;
                                 }
                             },
                             else => {},
@@ -7354,6 +7359,14 @@ pub fn program(
 
                     /// Encode this treaty authorization into deterministic bytes.
                     pub fn encode(self: @This(), allocator: std.mem.Allocator) Error![]u8 {
+                        return switch (self.format_version) {
+                            2 => encodeV2(self, allocator),
+                            exchange_treaty_authorization_fingerprint_version => encodeV3(self, allocator),
+                            else => error.ProgramContractViolation,
+                        };
+                    }
+
+                    fn encodeV3(self: @This(), allocator: std.mem.Allocator) Error![]u8 {
                         var writer = Writer.init(allocator);
                         errdefer writer.deinit();
                         try writer.writeBytes(treaty_authorization_magic);
@@ -7378,6 +7391,37 @@ pub fn program(
                         try writeOptionalU64(&writer, self.replay_source_response_value_fingerprint);
                         try writeOptionalU64(&writer, self.expected_obligation_transition_fingerprint);
                         try writer.writeU64(fingerprintTreatyAuthorization(self));
+                        return writer.toOwnedSlice();
+                    }
+
+                    fn encodeV2(self: @This(), allocator: std.mem.Allocator) Error![]u8 {
+                        if (self.provider_fingerprint != 0 or
+                            self.capability_fingerprint != 0 or
+                            self.capability_path_fingerprint != 0 or
+                            self.request_envelope_fingerprint != 0)
+                        {
+                            return error.ProgramContractViolation;
+                        }
+                        var writer = Writer.init(allocator);
+                        errdefer writer.deinit();
+                        try writer.writeBytes(treaty_authorization_magic);
+                        try writer.writeU32(2);
+                        try writer.writeU64(self.treaty_fingerprint);
+                        try writer.writeU64(self.treaty_certificate_fingerprint);
+                        try writer.writeU64(self.provider_offer_fingerprint);
+                        try writeOptionalU64(&writer, self.attenuated_capability_fingerprint);
+                        try writeOptionalU64(&writer, self.capability_instance_fingerprint);
+                        try writeOptionalU64(&writer, self.obligation_fingerprint);
+                        try writer.writeU64(self.route_fingerprint);
+                        try writer.writeU64(self.response_envelope_fingerprint);
+                        try writeUsage(&writer, self.usage);
+                        try writeResponseUse(&writer, self.response_use);
+                        try writeResponseUse(&writer, self.replay_policy);
+                        try writeBranchPolicy(&writer, self.branch_policy);
+                        try writeOptionalU64(&writer, self.replay_source_response_fingerprint);
+                        try writeOptionalU64(&writer, self.replay_source_response_value_fingerprint);
+                        try writeOptionalU64(&writer, self.expected_obligation_transition_fingerprint);
+                        try writer.writeU64(fingerprintTreatyAuthorizationV2(self));
                         return writer.toOwnedSlice();
                     }
 
@@ -10488,9 +10532,9 @@ pub fn program(
                 try writer.writeU32(encoded_journal_format_version);
                 try writer.writeU32(journal_fingerprint_version);
                 try writer.writeUsize(compiled_plan.value_schemas.len);
-                for (compiled_plan.value_schemas) |schema| {
+                for (compiled_plan.value_schemas, 0..) |schema, schema_index| {
                     try writer.writeLenBytes(schema.label);
-                    try writeExchangeValueRef(writer, .{ .codec = schema.codec, .schema_index = schema.index });
+                    try writeExchangeValueRef(writer, .{ .codec = schema.codec, .schema_index = @intCast(schema_index) });
                     try writer.writeU16(schema.first_field);
                     try writer.writeU16(schema.field_count);
                     try writer.writeU16(schema.first_variant);
@@ -10733,9 +10777,7 @@ pub fn program(
             fn encodeResponseEnvelope(allocator: std.mem.Allocator, request: RequestEnvelope, kind_value: ResponseKind, value: anytype) Error!ResponseEnvelope {
                 try request.validate();
                 const response_ref = try expectedResponseRef(request, kind_value);
-                const expected_ref = comptime ProgramValueRefForType(body_value_schema_types, @TypeOf(value));
-                if (!response_ref.eql(expected_ref)) return error.ProgramContractViolation;
-                const response_value_fingerprint = try Session.fingerprintTypedValueImage(expected_ref, value);
+                const response_value_fingerprint = try fingerprintExchangeValueImage(response_ref, value);
                 const response_trace = responseTraceFromEnvelope(request.request_fingerprint, kind_value, response_ref, response_value_fingerprint);
                 const value_image = try encodeExchangeValueImage(allocator, response_ref, response_value_fingerprint, value);
                 errdefer allocator.free(value_image);
@@ -10790,30 +10832,64 @@ pub fn program(
                 };
             }
 
-            fn applyDecodedExchangeValueImage(
+            fn applyDecodedExchangeValueImageWithRef(
                 session: *Session,
                 current_value: Session.Current,
                 response: ResponseEnvelope,
+                comptime ref: lowering_api.ValueRef,
                 comptime ValueType: type,
             ) Error!void {
-                const expected_ref = comptime ProgramValueRefForType(body_value_schema_types, ValueType);
-                if (!response.response_ref.eql(expected_ref)) return error.ProgramContractViolation;
                 var journal = Session.Journal.init(response.allocator);
                 defer journal.deinit();
                 var replayer = journal.replayer();
                 defer replayer.deinit();
                 var reader = Reader.init(response.value_image);
                 const encoded_ref = try readExchangeValueRef(&reader);
-                if (!encoded_ref.eql(expected_ref)) return error.ProgramContractViolation;
+                if (!encoded_ref.eql(ref)) return error.ProgramContractViolation;
                 var context = Session.ValueImageContext.init(response.allocator);
                 defer context.deinit();
-                const value = Session.readTypedValueImage(&reader, &replayer, &context, expected_ref, ValueType) catch |err| return mapProgramRunError(Error, err);
+                const value = Session.readTypedValueImage(&reader, &replayer, &context, ref, ValueType) catch |err| return mapProgramRunError(Error, err);
                 if (!reader.eof()) return error.ProgramContractViolation;
-                if (try Session.fingerprintTypedValueImage(expected_ref, value) != response.response_value_fingerprint) return error.ProgramContractViolation;
+                if (try Session.fingerprintTypedValueImage(ref, value) != response.response_value_fingerprint) return error.ProgramContractViolation;
                 const canonical = try encodeExchangeValueImage(response.allocator, response.response_ref, response.response_value_fingerprint, value);
                 defer response.allocator.free(canonical);
                 if (!std.mem.eql(u8, response.value_image, canonical)) return error.ProgramContractViolation;
                 try applyTypedResponse(session, current_value, response, value);
+            }
+
+            fn applyDecodedExchangeValueImage(
+                session: *Session,
+                current_value: Session.Current,
+                response: ResponseEnvelope,
+                comptime ValueType: type,
+            ) Error!void {
+                switch (response.response_ref.codec) {
+                    .unit, .bool, .i32, .usize, .string, .string_list => {
+                        const expected_ref = comptime ProgramValueRefForType(body_value_schema_types, ValueType);
+                        if (!response.response_ref.eql(expected_ref)) return error.ProgramContractViolation;
+                        return applyDecodedExchangeValueImageWithRef(session, current_value, response, expected_ref, ValueType);
+                    },
+                    .product => {
+                        const schema_index = response.response_ref.schema_index orelse return error.ProgramContractViolation;
+                        inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                if (SchemaType != ValueType) return error.ProgramContractViolation;
+                                return applyDecodedExchangeValueImageWithRef(session, current_value, response, .{ .codec = .product, .schema_index = @intCast(index) }, ValueType);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                    .sum => {
+                        const schema_index = response.response_ref.schema_index orelse return error.ProgramContractViolation;
+                        inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                if (SchemaType != ValueType) return error.ProgramContractViolation;
+                                return applyDecodedExchangeValueImageWithRef(session, current_value, response, .{ .codec = .sum, .schema_index = @intCast(index) }, ValueType);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                }
             }
 
             fn applyTypedResponse(session: *Session, current_value: Session.Current, response: ResponseEnvelope, value: anytype) Error!void {
@@ -10868,17 +10944,126 @@ pub fn program(
                 };
             }
 
-            fn encodeExchangeValueImage(allocator: std.mem.Allocator, ref: lowering_api.ValueRef, expected_fingerprint: u64, value: anytype) Error![]u8 {
-                const expected_ref = comptime ProgramValueRefForType(body_value_schema_types, @TypeOf(value));
-                if (!ref.eql(expected_ref)) return error.ProgramContractViolation;
-                if (try Session.fingerprintTypedValueImage(expected_ref, value) != expected_fingerprint) return error.ProgramContractViolation;
+            fn encodeExchangeValueImageWithRef(allocator: std.mem.Allocator, comptime ref: lowering_api.ValueRef, expected_fingerprint: u64, value: anytype) Error![]u8 {
+                if (try Session.fingerprintTypedValueImage(ref, value) != expected_fingerprint) return error.ProgramContractViolation;
                 var writer = Writer.init(allocator);
                 errdefer writer.deinit();
                 var context = Session.ValueImageContext.initCanonical(allocator);
                 defer context.deinit();
-                try writeExchangeValueRef(&writer, expected_ref);
-                Session.writeTypedValueImage(&writer, &context, expected_ref, value) catch |err| return mapProgramRunError(Error, err);
+                try writeExchangeValueRef(&writer, ref);
+                Session.writeTypedValueImage(&writer, &context, ref, value) catch |err| return mapProgramRunError(Error, err);
                 return writer.toOwnedSlice() catch |err| return mapProgramRunError(Error, err);
+            }
+
+            fn fingerprintExchangeValueImage(ref: lowering_api.ValueRef, value: anytype) Error!u64 {
+                const ValueType = @TypeOf(value);
+                switch (ref.codec) {
+                    .unit, .bool, .i32, .usize, .string, .string_list => {
+                        const expected_ref = comptime ProgramValueRefForType(body_value_schema_types, ValueType);
+                        if (!ref.eql(expected_ref)) return error.ProgramContractViolation;
+                        return Session.fingerprintTypedValueImage(expected_ref, value);
+                    },
+                    .product => {
+                        const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
+                        inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                if (SchemaType != ValueType) return error.ProgramContractViolation;
+                                return Session.fingerprintTypedValueImage(.{ .codec = .product, .schema_index = @intCast(index) }, value);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                    .sum => {
+                        const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
+                        inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                if (SchemaType != ValueType) return error.ProgramContractViolation;
+                                return Session.fingerprintTypedValueImage(.{ .codec = .sum, .schema_index = @intCast(index) }, value);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                }
+            }
+
+            fn encodeExchangeValueImage(allocator: std.mem.Allocator, ref: lowering_api.ValueRef, expected_fingerprint: u64, value: anytype) Error![]u8 {
+                const ValueType = @TypeOf(value);
+                switch (ref.codec) {
+                    .unit, .bool, .i32, .usize, .string, .string_list => {
+                        const expected_ref = comptime ProgramValueRefForType(body_value_schema_types, ValueType);
+                        if (!ref.eql(expected_ref)) return error.ProgramContractViolation;
+                        return encodeExchangeValueImageWithRef(allocator, expected_ref, expected_fingerprint, value);
+                    },
+                    .product => {
+                        const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
+                        inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                if (SchemaType != ValueType) return error.ProgramContractViolation;
+                                return encodeExchangeValueImageWithRef(allocator, .{ .codec = .product, .schema_index = @intCast(index) }, expected_fingerprint, value);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                    .sum => {
+                        const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
+                        inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                if (SchemaType != ValueType) return error.ProgramContractViolation;
+                                return encodeExchangeValueImageWithRef(allocator, .{ .codec = .sum, .schema_index = @intCast(index) }, expected_fingerprint, value);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                }
+            }
+
+            fn decodeExchangeValueImageWithRef(
+                allocator: std.mem.Allocator,
+                comptime ref: lowering_api.ValueRef,
+                expected_fingerprint: u64,
+                image: []const u8,
+                comptime ValueType: type,
+            ) Error!void {
+                var journal = Session.Journal.init(allocator);
+                defer journal.deinit();
+                var replayer = journal.replayer();
+                defer replayer.deinit();
+                var reader = Reader.init(image);
+                const encoded_ref = try readExchangeValueRef(&reader);
+                if (!encoded_ref.eql(ref)) return error.ProgramContractViolation;
+                var context = Session.ValueImageContext.init(allocator);
+                defer context.deinit();
+                const value = Session.readTypedValueImage(&reader, &replayer, &context, ref, ValueType) catch |err| return mapProgramRunError(Error, err);
+                if (!reader.eof()) return error.ProgramContractViolation;
+                if (try Session.fingerprintTypedValueImage(ref, value) != expected_fingerprint) return error.ProgramContractViolation;
+                const canonical = try encodeExchangeValueImage(allocator, ref, expected_fingerprint, value);
+                defer allocator.free(canonical);
+                if (!std.mem.eql(u8, image, canonical)) return error.ProgramContractViolation;
+            }
+
+            fn decodeExchangeValueImageValueWithRef(
+                allocator: std.mem.Allocator,
+                comptime ref: lowering_api.ValueRef,
+                expected_fingerprint: u64,
+                image: []const u8,
+                comptime ValueType: type,
+            ) Error!ValueType {
+                var journal = Session.Journal.init(allocator);
+                defer journal.deinit();
+                var replayer = journal.replayer();
+                defer replayer.deinit();
+                var reader = Reader.init(image);
+                const encoded_ref = try readExchangeValueRef(&reader);
+                if (!encoded_ref.eql(ref)) return error.ProgramContractViolation;
+                var context = Session.ValueImageContext.init(allocator);
+                defer context.deinit();
+                const decoded = Session.readTypedValueImage(&reader, &replayer, &context, ref, ValueType) catch |err| return mapProgramRunError(Error, err);
+                if (!reader.eof()) return error.ProgramContractViolation;
+                if (try Session.fingerprintTypedValueImage(ref, decoded) != expected_fingerprint) return error.ProgramContractViolation;
+                const canonical = try encodeExchangeValueImage(allocator, ref, expected_fingerprint, decoded);
+                defer allocator.free(canonical);
+                if (!std.mem.eql(u8, image, canonical)) return error.ProgramContractViolation;
+                return cloneBodyOwnedResultValue(allocator, decoded) catch |err| return mapProgramRunError(Error, err);
             }
 
             fn decodeExchangeValueImage(
@@ -10888,23 +11073,33 @@ pub fn program(
                 image: []const u8,
                 comptime ValueType: type,
             ) Error!void {
-                const expected_ref = comptime ProgramValueRefForType(body_value_schema_types, ValueType);
-                if (!ref.eql(expected_ref)) return error.ProgramContractViolation;
-                var journal = Session.Journal.init(allocator);
-                defer journal.deinit();
-                var replayer = journal.replayer();
-                defer replayer.deinit();
-                var reader = Reader.init(image);
-                const encoded_ref = try readExchangeValueRef(&reader);
-                if (!encoded_ref.eql(expected_ref)) return error.ProgramContractViolation;
-                var context = Session.ValueImageContext.init(allocator);
-                defer context.deinit();
-                const value = Session.readTypedValueImage(&reader, &replayer, &context, expected_ref, ValueType) catch |err| return mapProgramRunError(Error, err);
-                if (!reader.eof()) return error.ProgramContractViolation;
-                if (try Session.fingerprintTypedValueImage(expected_ref, value) != expected_fingerprint) return error.ProgramContractViolation;
-                const canonical = try encodeExchangeValueImage(allocator, ref, expected_fingerprint, value);
-                defer allocator.free(canonical);
-                if (!std.mem.eql(u8, image, canonical)) return error.ProgramContractViolation;
+                switch (ref.codec) {
+                    .unit, .bool, .i32, .usize, .string, .string_list => {
+                        const expected_ref = comptime ProgramValueRefForType(body_value_schema_types, ValueType);
+                        if (!ref.eql(expected_ref)) return error.ProgramContractViolation;
+                        return decodeExchangeValueImageWithRef(allocator, expected_ref, expected_fingerprint, image, ValueType);
+                    },
+                    .product => {
+                        const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
+                        inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                if (SchemaType != ValueType) return error.ProgramContractViolation;
+                                return decodeExchangeValueImageWithRef(allocator, .{ .codec = .product, .schema_index = @intCast(index) }, expected_fingerprint, image, ValueType);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                    .sum => {
+                        const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
+                        inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                if (SchemaType != ValueType) return error.ProgramContractViolation;
+                                return decodeExchangeValueImageWithRef(allocator, .{ .codec = .sum, .schema_index = @intCast(index) }, expected_fingerprint, image, ValueType);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                }
             }
 
             fn decodeExchangeValueImageValue(
@@ -10914,24 +11109,33 @@ pub fn program(
                 image: []const u8,
                 comptime ValueType: type,
             ) Error!ValueType {
-                const expected_ref = comptime ProgramValueRefForType(body_value_schema_types, ValueType);
-                if (!ref.eql(expected_ref)) return error.ProgramContractViolation;
-                var journal = Session.Journal.init(allocator);
-                defer journal.deinit();
-                var replayer = journal.replayer();
-                defer replayer.deinit();
-                var reader = Reader.init(image);
-                const encoded_ref = try readExchangeValueRef(&reader);
-                if (!encoded_ref.eql(expected_ref)) return error.ProgramContractViolation;
-                var context = Session.ValueImageContext.init(allocator);
-                defer context.deinit();
-                const decoded = Session.readTypedValueImage(&reader, &replayer, &context, expected_ref, ValueType) catch |err| return mapProgramRunError(Error, err);
-                if (!reader.eof()) return error.ProgramContractViolation;
-                if (try Session.fingerprintTypedValueImage(expected_ref, decoded) != expected_fingerprint) return error.ProgramContractViolation;
-                const canonical = try encodeExchangeValueImage(allocator, ref, expected_fingerprint, decoded);
-                defer allocator.free(canonical);
-                if (!std.mem.eql(u8, image, canonical)) return error.ProgramContractViolation;
-                return cloneBodyOwnedResultValue(allocator, decoded) catch |err| return mapProgramRunError(Error, err);
+                switch (ref.codec) {
+                    .unit, .bool, .i32, .usize, .string, .string_list => {
+                        const expected_ref = comptime ProgramValueRefForType(body_value_schema_types, ValueType);
+                        if (!ref.eql(expected_ref)) return error.ProgramContractViolation;
+                        return decodeExchangeValueImageValueWithRef(allocator, expected_ref, expected_fingerprint, image, ValueType);
+                    },
+                    .product => {
+                        const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
+                        inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                if (SchemaType != ValueType) return error.ProgramContractViolation;
+                                return decodeExchangeValueImageValueWithRef(allocator, .{ .codec = .product, .schema_index = @intCast(index) }, expected_fingerprint, image, ValueType);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                    .sum => {
+                        const schema_index = ref.schema_index orelse return error.ProgramContractViolation;
+                        inline for (body_value_schema_types, 0..) |SchemaType, index| {
+                            if (schema_index == index) {
+                                if (SchemaType != ValueType) return error.ProgramContractViolation;
+                                return decodeExchangeValueImageValueWithRef(allocator, .{ .codec = .sum, .schema_index = @intCast(index) }, expected_fingerprint, image, ValueType);
+                            }
+                        }
+                        return error.ProgramContractViolation;
+                    },
+                }
             }
 
             fn validateExchangeValueImage(allocator: std.mem.Allocator, ref: lowering_api.ValueRef, expected_fingerprint: u64, image: []const u8) Error!void {
@@ -11696,7 +11900,7 @@ pub fn program(
                     },
                     .after => blk: {
                         if (!after_sites_constrained and operation_sites_constrained) break :blk false;
-                        break :blk listAllowsValueRef(offer.accepted_current_value_refs, request.value_ref) and listAllowsUsize(offer.supported_after_sites, request.site_index);
+                        break :blk offerAllowsCurrentValueRef(offer.accepted_current_value_refs, request.value_ref) and listAllowsUsize(offer.supported_after_sites, request.site_index);
                     },
                 };
             }
@@ -12437,6 +12641,10 @@ pub fn program(
                 if (list.len == 0) return true;
                 for (list) |item| if (item.eql(value)) return true;
                 return false;
+            }
+
+            fn offerAllowsCurrentValueRef(list: []const lowering_api.ValueRef, value: lowering_api.ValueRef) bool {
+                return list.len == 0 or listAllowsValueRef(list, value);
             }
 
             fn valueRefListContains(list: []const lowering_api.ValueRef, value: lowering_api.ValueRef) bool {

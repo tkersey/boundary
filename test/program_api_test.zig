@@ -23419,6 +23419,183 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expectEqual(@as(usize, 13), limited_manifest_catalog.provider_manifest.max_response_envelope_bytes);
 }
 
+test "Program.Exchange ProviderHarness accepts handlerless after current values" {
+    const Body = struct {
+        pub const compiled_plan = handlerlessAfterReturnBoolPlan("provider-harness-handlerless-after");
+    };
+    const Program = ability.program("provider-harness-handlerless-after", struct {}, Body);
+    const Operation = Program.protocol.operationSite("handlerless", "step", 0);
+    const After = Program.protocol.afterSite("handlerless", "step", 0);
+    try std.testing.expect(!After.has_static_input_ref);
+    try std.testing.expect(After.current_value_ref == null);
+
+    const Outcome = union(enum) {
+        forward,
+        pending,
+        reject: []const u8,
+        replay: bool,
+        @"resume": bool,
+        resume_after: bool,
+        return_now: bool,
+    };
+    const Handler = struct {
+        fn handle(invocations: *usize, request: anytype) !Outcome {
+            invocations.* += 1;
+            try request.currentValue(std.testing.allocator);
+            return .{ .resume_after = false };
+        }
+    };
+    const AfterDecl = Program.Exchange.ProviderHandler.after(After, Handler.handle, .{ .label = "handlerless-after" });
+    const Harness = Program.Exchange.ProviderHarness(.{
+        .label = "handlerless-after-provider",
+        .provider_fingerprint = @as(?u64, 0x5158),
+        .entries = .{AfterDecl},
+    });
+
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    try session.resumeTyped(try request.as(Operation), @as(i32, 0));
+    const after = switch (try session.next()) {
+        .after => |value| value,
+        .request => return error.ExpectedAfter,
+        .done => return error.ExpectedAfter,
+    };
+    var envelope = try Program.Exchange.RequestEnvelope.fromAfter(std.testing.allocator, after, .{});
+    defer envelope.deinit();
+
+    var catalog = try Harness.buildCatalog(std.testing.allocator);
+    defer catalog.deinit();
+    try std.testing.expect(catalog.provider_offers[0].accepted_current_value_refs.len == 0);
+    try std.testing.expect(catalog.provider_offers[0].supportsRequest(envelope));
+    var capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = Harness.provider_fingerprint,
+        .manifest_fingerprint = catalog.manifest.fingerprint,
+    });
+    defer capability.deinit();
+    const providers = [_]Program.Exchange.ProviderManifest{catalog.provider_manifest};
+    const offers = [_]Program.Exchange.ProviderOffer{catalog.provider_offers[0]};
+    const capabilities = [_]Program.Exchange.Capability{capability};
+    var resolved = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = catalog.manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+    });
+    defer resolved.deinit();
+    const treaty = resolved.treaty orelse return error.ExpectedTreaty;
+    var invocations: usize = 0;
+    var handled = try Harness.handle(&invocations, std.testing.allocator, envelope, treaty.certificate, .{ .treaty = treaty });
+    switch (handled) {
+        .response => |*packet| {
+            defer packet.deinit();
+            try std.testing.expectEqual(Program.Exchange.ResponseKind.resume_after, packet.response.kind);
+            try std.testing.expectEqual(treaty.certificate.provider_offer_fingerprint, packet.provider_offer_fingerprint);
+        },
+        else => return error.ExpectedProviderResponse,
+    }
+    try std.testing.expectEqual(@as(usize, 1), invocations);
+}
+
+test "Program.Exchange ProviderHarness decodes duplicate schema payload refs" {
+    const Payload = struct {
+        amount: i32,
+    };
+    const EmptyHandlers = struct {};
+    const Body = struct {
+        pub const value_schema_types = .{ Payload, Payload };
+        pub const compiled_plan = duplicateSchemaPayloadPlan(Payload, "provider-harness-duplicate-schema-payload");
+
+        pub fn encodeArgs(_: EmptyHandlers) struct { Payload } {
+            return .{.{ .amount = 123 }};
+        }
+    };
+    const Program = ability.program("provider-harness-duplicate-schema-payload", EmptyHandlers, Body);
+    const Operation = Program.protocol.operationSite("structured", "payload", 0);
+    const Outcome = union(enum) {
+        forward,
+        pending,
+        reject: []const u8,
+        replay: void,
+        @"resume": void,
+        resume_after: void,
+        return_now: void,
+    };
+    const Handler = struct {
+        fn handle(invocations: *usize, request: anytype) !Outcome {
+            invocations.* += 1;
+            try std.testing.expectEqual(@as(?u16, 1), request.value_ref.schema_index);
+            const payload = try request.payload(std.testing.allocator);
+            try std.testing.expectEqual(@as(i32, 123), payload.amount);
+            return .{ .@"resume" = {} };
+        }
+    };
+    const OperationDecl = Program.Exchange.ProviderHandler.operation(Operation, Handler.handle, .{ .label = "duplicate-schema-payload" });
+    const Harness = Program.Exchange.ProviderHarness(.{
+        .label = "duplicate-schema-provider",
+        .provider_fingerprint = @as(?u64, 0x5160),
+        .entries = .{OperationDecl},
+    });
+
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    try std.testing.expectEqual(@as(?u16, 1), request.trace().payload_ref.schema_index);
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+    var catalog = try Harness.buildCatalog(std.testing.allocator);
+    defer catalog.deinit();
+    var capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = Harness.provider_fingerprint,
+        .manifest_fingerprint = catalog.manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true, .after = false },
+        .allowed_operation_sites = &.{request.trace().operation_site_index},
+        .allowed_protocol_op_fingerprints = &.{request.trace().operation_site_fingerprint},
+        .allowed_requirement_labels = &.{request.trace().requirement_label},
+        .allowed_op_names = &.{request.trace().op_name},
+    });
+    defer capability.deinit();
+    const providers = [_]Program.Exchange.ProviderManifest{catalog.provider_manifest};
+    const offers = [_]Program.Exchange.ProviderOffer{catalog.provider_offers[0]};
+    const capabilities = [_]Program.Exchange.Capability{capability};
+    var resolved = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = catalog.manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+    });
+    defer resolved.deinit();
+    const treaty = resolved.treaty orelse return error.ExpectedTreaty;
+    var invocations: usize = 0;
+    var handled = try Harness.handle(&invocations, std.testing.allocator, envelope, treaty.certificate, .{ .treaty = treaty });
+    switch (handled) {
+        .response => |*packet| {
+            defer packet.deinit();
+            try std.testing.expectEqual(Program.Exchange.ResponseKind.@"resume", packet.response.kind);
+        },
+        else => return error.ExpectedProviderResponse,
+    }
+    try std.testing.expectEqual(@as(usize, 1), invocations);
+}
+
 test "Program.Exchange ProviderHarness handles treaty-bound request with typed provider outcome" {
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "provider-harness-handle-direct");
@@ -23543,6 +23720,16 @@ test "Program.Exchange ProviderHarness handles treaty-bound request with typed p
     try std.testing.expectError(
         error.OutOfMemory,
         Harness.handleNext(&failing_inbox, &failing_outbox, &invocations, std.testing.allocator, .{ .treaty = treaty }),
+    );
+    try std.testing.expectEqual(@as(usize, 1), invocations);
+    invocations = 0;
+
+    const UnsupportedOutbox = struct {};
+    var unsupported_inbox = PacketInbox{ .packet = .{ .request = envelope, .certificate = treaty.certificate } };
+    var unsupported_outbox = UnsupportedOutbox{};
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        Harness.handleNext(&unsupported_inbox, &unsupported_outbox, &invocations, std.testing.allocator, .{ .treaty = treaty }),
     );
     try std.testing.expectEqual(@as(usize, 1), invocations);
     invocations = 0;
@@ -23705,6 +23892,9 @@ test "Program.Exchange ProviderHarness handles treaty-bound request with typed p
             const legacy_authorization_bytes = try testEncodeTreatyAuthorizationV2(Program, std.testing.allocator, packet.treaty_authorization);
             defer std.testing.allocator.free(legacy_authorization_bytes);
             const legacy_authorization = try Program.Exchange.Treaty.Authorization.decode(legacy_authorization_bytes);
+            const legacy_authorization_reencoded = try legacy_authorization.encode(std.testing.allocator);
+            defer std.testing.allocator.free(legacy_authorization_reencoded);
+            try std.testing.expectEqualSlices(u8, legacy_authorization_bytes, legacy_authorization_reencoded);
             try std.testing.expectEqual(packet.treaty_authorization.treaty_fingerprint, legacy_authorization.treaty_fingerprint);
             try std.testing.expectEqual(packet.treaty_authorization.treaty_certificate_fingerprint, legacy_authorization.treaty_certificate_fingerprint);
             try std.testing.expectEqual(packet.treaty_authorization.provider_offer_fingerprint, legacy_authorization.provider_offer_fingerprint);
@@ -23947,6 +24137,81 @@ test "Program.Exchange ProviderHarness handles treaty-bound request with typed p
         else => return error.ExpectedProviderRejection,
     }
     try std.testing.expectEqual(stale_invocations, invocations);
+
+    var obligation_replay_request = obligation_request;
+    obligation_replay_request.requested_response_use = .replayed;
+    var obligation_replay_resolved = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = catalog.manifest,
+        .provider_manifests = &.{obligation_provider},
+        .provider_offers = offers[0..],
+        .capabilities = obligation_capabilities[0..],
+        .capability_instances = obligation_instances[0..],
+        .treaty_request = obligation_replay_request,
+        .treaty_policy = .{ .require_obligation_opening = true, .require_least_authority = false },
+        .effect_session_spec = obligation_spec,
+        .obligation = consumed_obligation.?,
+        .live_capability_instance_fingerprint = obligation_instance.instance_fingerprint,
+    });
+    defer obligation_replay_resolved.deinit();
+    const obligation_replay_treaty = obligation_replay_resolved.treaty orelse return error.ExpectedTreaty;
+    invocations = 99;
+    const obligation_replay_without_source = try Harness.handle(&invocations, std.testing.allocator, envelope, obligation_replay_treaty.certificate, .{
+        .treaty = obligation_replay_treaty,
+        .capability_instance_state = &obligation_instance,
+        .obligation_state = &consumed_obligation.?,
+    });
+    switch (obligation_replay_without_source) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.replay_policy_not_supported, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    try std.testing.expectEqual(@as(usize, 99), invocations);
+
+    var obligation_replay_source_shape = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 42));
+    defer obligation_replay_source_shape.deinit();
+    const obligation_replay_source_response_fingerprint = obligation_replay_source_shape.fingerprint +% 1;
+    invocations = 99;
+    var obligation_replay_handled = try Harness.handle(&invocations, std.testing.allocator, envelope, obligation_replay_treaty.certificate, .{
+        .treaty = obligation_replay_treaty,
+        .capability_instance_state = &obligation_instance,
+        .obligation_state = &consumed_obligation.?,
+        .replay_source_response_fingerprint = obligation_replay_source_response_fingerprint,
+        .replay_source_response_value_fingerprint = obligation_replay_source_shape.response_value_fingerprint,
+    });
+    switch (obligation_replay_handled) {
+        .response => |*packet| {
+            defer packet.deinit();
+            try std.testing.expectEqual(Program.Exchange.ResponseUse.replayed, packet.response_use);
+            try std.testing.expectEqual(consumed_obligation.?.obligation_fingerprint, packet.treaty_authorization.obligation_fingerprint.?);
+            try std.testing.expectEqual(obligation_replay_source_response_fingerprint, packet.treaty_authorization.replay_source_response_fingerprint.?);
+            try std.testing.expectEqual(obligation_replay_source_shape.response_value_fingerprint, packet.treaty_authorization.replay_source_response_value_fingerprint.?);
+        },
+        else => return error.ExpectedProviderResponse,
+    }
+    try std.testing.expectEqual(@as(usize, 100), invocations);
+    invocations = 0;
+
+    var failing_journal_allocator = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var failing_provider_journal = Program.Session.Journal.init(failing_journal_allocator.allocator());
+    defer failing_provider_journal.deinit();
+    try failing_provider_journal.entries.ensureTotalCapacityPrecise(failing_journal_allocator.allocator(), 3);
+    failing_journal_allocator.fail_index = failing_journal_allocator.alloc_index;
+    failing_journal_allocator.resize_fail_index = failing_journal_allocator.resize_index;
+    var failing_journal_invocations: usize = 0;
+    const failing_journal_result = Harness.handle(&failing_journal_invocations, std.testing.allocator, envelope, treaty.certificate, .{
+        .journal = &failing_provider_journal,
+        .treaty = treaty,
+    });
+    if (failing_journal_result) |result_value| {
+        var result_packet = result_value;
+        switch (result_packet) {
+            .response => |*packet| packet.deinit(),
+            else => {},
+        }
+        return error.ExpectedOutOfMemory;
+    } else |err| try std.testing.expectEqual(error.OutOfMemory, err);
+    try std.testing.expectEqual(@as(usize, 1), failing_journal_invocations);
     invocations = 0;
 
     var provider_journal = Program.Session.Journal.init(std.testing.allocator);
