@@ -73,6 +73,7 @@ const PolicyDecl = Program.Exchange.ProviderHandler.operation(ApprovalRequest, h
     .label = "policy-check",
     .protocol_label = "policy",
     .protocol_op_fingerprint = PolicyCheck.fingerprint,
+    .supported_usage_modes = .{ .copyable = false },
     .supported_response_uses = .{ .replayed = false, .deterministic_replay = false, .override = false },
 });
 const Harness = Program.Exchange.ProviderHarness(.{
@@ -143,6 +144,7 @@ pub fn run(writer: anytype) !void {
         .source_protocol_op_fingerprint = ApprovalRequest.fingerprint,
         .target_protocol_op_fingerprint = PolicyCheck.fingerprint,
         .dynamic_morphism_fingerprint = 0x7702,
+        .target_usage = .linear,
         .source_response_refs = &.{ApprovalRequest.resume_ref},
         .target_response_refs = &.{ApprovalRequest.resume_ref},
     };
@@ -211,6 +213,7 @@ pub fn run(writer: anytype) !void {
     try writer.print("response_authorization_fingerprint={x}\n", .{authorization_fingerprint});
     try writer.print("policy_checks={d}\n", .{ctx.policy_checks});
     try writer.print("handling={s}\n", .{@tagName(treaty.handling)});
+    try writer.print("provider_usage={s}\n", .{@tagName(treaty.provider_usage)});
     try writer.print("final_result={d}\n", .{final.value});
 }
 

@@ -5894,6 +5894,8 @@ pub fn program(
                         capability_instance_state: ?*const CapabilityInstance = null,
                         obligation_state: ?*const Obligation = null,
                         response_use: ?ResponseUse = null,
+                        replay_source_journal: ?*const Session.Journal = null,
+                        replay_source_response_trace: ?Session.Trace.Response = null,
                         replay_source_response_fingerprint: ?u64 = null,
                         replay_source_response_value_fingerprint: ?u64 = null,
                     };
@@ -6189,7 +6191,7 @@ pub fn program(
                             return blocker(.offer_mismatch, request, certificate, offer.fingerprint, "certificate selected a different provider offer");
                         }
                         if (request.bytes.len > offer.max_request_bytes) return blocker(.byte_limit_exceeded, request, certificate, offer.fingerprint, "request exceeds provider offer byte limit");
-                        if (!offer.supported_usage_modes.allows(certificate.usage)) return blocker(.usage_mode_not_supported, request, certificate, offer.fingerprint, "usage mode is not supported by provider offer");
+                        if (!offer.supported_usage_modes.allows(certificate.provider_usage)) return blocker(.usage_mode_not_supported, request, certificate, offer.fingerprint, "usage mode is not supported by provider offer");
                         if (!offer.supported_response_uses.allows(certificate.response_use)) return blocker(.response_use_not_supported, request, certificate, offer.fingerprint, "response-use class is not supported by provider offer");
                         if (!offer.supported_replay_policies.allows(certificate.replay_policy)) return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay policy is not supported by provider offer");
                         if (!offer.supported_branch_policies.allows(certificate.branch_policy)) return blocker(.branch_policy_not_supported, request, certificate, offer.fingerprint, "branch policy is not supported by provider offer");
@@ -6302,10 +6304,43 @@ pub fn program(
                         return response_use == .replayed or response_use == .deterministic_replay;
                     }
 
-                    fn rejectMissingReplaySource(request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, response_use: ResponseUse, options_value: HandleOptions) ?Blocker {
+                    fn journalContainsReplaySource(journal: *const Session.Journal, request: RequestEnvelope, source_trace: Session.Trace.Response) bool {
+                        var matched_request = false;
+                        for (journal.entries.items) |entry| {
+                            switch (entry) {
+                                .request => |request_trace| matched_request = request_trace.fingerprint() == request.request_fingerprint,
+                                .response => |response_entry| {
+                                    if (matched_request and response_entry.trace.fingerprint == source_trace.fingerprint and
+                                        response_entry.trace.request_fingerprint == source_trace.request_fingerprint and
+                                        response_entry.trace.kind == source_trace.kind and
+                                        response_entry.trace.response_ref.eql(source_trace.response_ref) and
+                                        response_entry.trace.response_value_fingerprint == source_trace.response_value_fingerprint)
+                                    {
+                                        return true;
+                                    }
+                                    matched_request = false;
+                                },
+                                else => {},
+                            }
+                        }
+                        return false;
+                    }
+
+                    fn rejectInvalidReplaySource(request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, response_use: ResponseUse, options_value: HandleOptions) ?Blocker {
                         if (!responseUseNeedsReplaySource(response_use)) return null;
-                        if (options_value.replay_source_response_fingerprint != null and options_value.replay_source_response_value_fingerprint != null) return null;
-                        return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay response requires a recorded replay source witness");
+                        const source_journal = options_value.replay_source_journal orelse return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay response requires a recorded replay source journal");
+                        const source_trace = options_value.replay_source_response_trace orelse return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay response requires a recorded replay source trace");
+                        if (source_trace.fingerprint == 0 or source_trace.response_value_fingerprint == 0) return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay response requires a nonzero replay source witness");
+                        if (source_trace.request_fingerprint != request.request_fingerprint) return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay source trace belongs to a different request");
+                        if (!certificate.expected_response_kinds.allows(source_trace.kind) or !listAllowsValueRef(certificate.expected_response_refs, source_trace.response_ref)) return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay source trace is outside the selected treaty response shape");
+                        if (!journalContainsReplaySource(source_journal, request, source_trace)) return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay source trace is not recorded in the replay journal");
+                        if (options_value.replay_source_response_fingerprint) |fingerprint| {
+                            if (fingerprint != source_trace.fingerprint) return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay source fingerprint does not match recorded trace");
+                        }
+                        if (options_value.replay_source_response_value_fingerprint) |fingerprint| {
+                            if (fingerprint != source_trace.response_value_fingerprint) return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay source value fingerprint does not match recorded trace");
+                        }
+                        return null;
                     }
 
                     fn finishProviderResponse(options_value: HandleOptions, request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, response: *ResponseEnvelope, response_use: ResponseUse) Error!HandleResult {
@@ -6329,27 +6364,21 @@ pub fn program(
                             response.deinit();
                             return .{ .rejected = failed };
                         }
-                        const supplied_replay_source = options_value.replay_source_response_fingerprint != null or options_value.replay_source_response_value_fingerprint != null;
+                        const supplied_replay_source = options_value.replay_source_journal != null or options_value.replay_source_response_trace != null or options_value.replay_source_response_fingerprint != null or options_value.replay_source_response_value_fingerprint != null;
                         var packet = if (responseUseNeedsReplaySource(response_use) and (certificate.obligation_fingerprint == null or supplied_replay_source)) packet: {
-                            const source_response_fingerprint = options_value.replay_source_response_fingerprint orelse {
+                            const source_trace = options_value.replay_source_response_trace orelse {
                                 const failed = blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay response requires a recorded replay source response");
                                 try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, response.fingerprint, null, failed.tag);
                                 response.deinit();
                                 return .{ .rejected = failed };
                             };
-                            const source_response_value_fingerprint = options_value.replay_source_response_value_fingerprint orelse {
-                                const failed = blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay response requires a recorded replay source value");
-                                try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, response.fingerprint, null, failed.tag);
-                                response.deinit();
-                                return .{ .rejected = failed };
-                            };
-                            if (source_response_fingerprint == 0 or source_response_fingerprint == response.fingerprint or source_response_value_fingerprint != response.response_value_fingerprint) {
+                            if (source_trace.kind != response.kind or !source_trace.response_ref.eql(response.response_ref) or source_trace.response_value_fingerprint != response.response_value_fingerprint) {
                                 const failed = blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay source witness does not match provider response");
                                 try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, response.fingerprint, null, failed.tag);
                                 response.deinit();
                                 return .{ .rejected = failed };
                             }
-                            break :packet try replayResponsePacket(certificate, response.*, response_use, source_response_fingerprint, source_response_value_fingerprint);
+                            break :packet try replayResponsePacket(certificate, response.*, response_use, source_trace.fingerprint, source_trace.response_value_fingerprint);
                         } else try responsePacket(certificate, response.*, response_use);
                         response.bytes = &.{};
                         response.value_image = &.{};
@@ -6370,7 +6399,7 @@ pub fn program(
                             try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                             return .{ .rejected = failed };
                         }
-                        if (rejectMissingReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
+                        if (rejectInvalidReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
                             try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                             return .{ .rejected = failed };
                         }
@@ -6385,7 +6414,7 @@ pub fn program(
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
                                 }
-                                if (rejectMissingReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
+                                if (rejectInvalidReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
                                 }
@@ -6406,7 +6435,7 @@ pub fn program(
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
                                 }
-                                if (rejectMissingReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
+                                if (rejectInvalidReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
                                 }
@@ -6427,7 +6456,7 @@ pub fn program(
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
                                 }
-                                if (rejectMissingReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
+                                if (rejectInvalidReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
                                 }
@@ -6448,7 +6477,7 @@ pub fn program(
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
                                 }
-                                if (rejectMissingReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
+                                if (rejectInvalidReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
                                     try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                     return .{ .rejected = failed };
                                 }
@@ -7006,6 +7035,7 @@ pub fn program(
                 source_protocol_op_fingerprint: ?u64 = null,
                 target_protocol_op_fingerprint: ?u64 = null,
                 usage: Usage = .copyable,
+                provider_usage: Usage = .copyable,
                 response_use: ResponseUse = .fresh,
                 replay_policy: ResponseUse = .fresh,
                 branch_policy: BranchPolicy = .unrestricted,
@@ -7191,6 +7221,7 @@ pub fn program(
                     target_protocol_op_fingerprint: ?u64 = null,
                     handling: HandlingKind = .direct,
                     usage: Usage = .copyable,
+                    provider_usage: Usage = .copyable,
                     response_use: ResponseUse = .fresh,
                     replay_policy: ResponseUse = .fresh,
                     branch_policy: BranchPolicy = .unrestricted,
@@ -7544,6 +7575,7 @@ pub fn program(
                     if (self.certificate.target_protocol_op_fingerprint != self.target_protocol_op_fingerprint) return error.ProgramContractViolation;
                     if (self.certificate.handling != self.handling) return error.ProgramContractViolation;
                     if (self.certificate.usage != self.usage) return error.ProgramContractViolation;
+                    if (self.certificate.provider_usage != self.provider_usage) return error.ProgramContractViolation;
                     if (self.certificate.response_use != self.response_use) return error.ProgramContractViolation;
                     if (self.certificate.replay_policy != self.replay_policy) return error.ProgramContractViolation;
                     if (self.certificate.branch_policy != self.branch_policy) return error.ProgramContractViolation;
@@ -10579,10 +10611,10 @@ pub fn program(
             fn readManifestValueSchemas(reader: *Reader) Error!void {
                 const count = try reader.readUsize();
                 if (count != compiled_plan.value_schemas.len) return error.ProgramContractViolation;
-                for (compiled_plan.value_schemas) |schema| {
+                for (compiled_plan.value_schemas, 0..) |schema, schema_index| {
                     if (!std.mem.eql(u8, try reader.readLenBytes(), schema.label)) return error.ProgramContractViolation;
                     const ref = try readExchangeValueRef(reader);
-                    if (!ref.eql(.{ .codec = schema.codec, .schema_index = schema.index })) return error.ProgramContractViolation;
+                    if (!ref.eql(.{ .codec = schema.codec, .schema_index = @intCast(schema_index) })) return error.ProgramContractViolation;
                     if (try reader.readU16() != schema.first_field) return error.ProgramContractViolation;
                     if (try reader.readU16() != schema.field_count) return error.ProgramContractViolation;
                     if (try reader.readU16() != schema.first_variant) return error.ProgramContractViolation;
@@ -11998,6 +12030,7 @@ pub fn program(
                 hashOptionalExchangeU64(&hasher, certificate.target_protocol_op_fingerprint);
                 hashBytes(&hasher, @tagName(certificate.handling));
                 hashBytes(&hasher, @tagName(certificate.usage));
+                hashBytes(&hasher, @tagName(certificate.provider_usage));
                 hashBytes(&hasher, @tagName(certificate.response_use));
                 hashBytes(&hasher, @tagName(certificate.replay_policy));
                 hashBytes(&hasher, @tagName(certificate.branch_policy));
@@ -13626,6 +13659,7 @@ pub fn program(
                     .source_protocol_op_fingerprint = request_value.protocol_op_fingerprint,
                     .target_protocol_op_fingerprint = if (morphism) |morphism_offer| morphism_offer.target_protocol_op_fingerprint else request_value.protocol_op_fingerprint,
                     .usage = usage,
+                    .provider_usage = provider_offer_usage,
                     .response_use = response_use,
                     .replay_policy = replay_policy,
                     .branch_policy = branch_policy,
@@ -13659,6 +13693,7 @@ pub fn program(
                     .target_protocol_op_fingerprint = treaty.target_protocol_op_fingerprint,
                     .handling = handling,
                     .usage = usage,
+                    .provider_usage = provider_offer_usage,
                     .response_use = response_use,
                     .replay_policy = replay_policy,
                     .branch_policy = branch_policy,
@@ -13840,6 +13875,7 @@ pub fn program(
                 hashOptionalExchangeU64(&hasher, treaty.source_protocol_op_fingerprint);
                 hashOptionalExchangeU64(&hasher, treaty.target_protocol_op_fingerprint);
                 hashBytes(&hasher, @tagName(treaty.usage));
+                hashBytes(&hasher, @tagName(treaty.provider_usage));
                 hashBytes(&hasher, @tagName(treaty.response_use));
                 hashBytes(&hasher, @tagName(treaty.replay_policy));
                 hashBytes(&hasher, @tagName(treaty.branch_policy));

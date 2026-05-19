@@ -151,6 +151,8 @@ pub fn run(writer: anytype) !void {
     var ctx = ProviderCtx{ .allocator = allocator };
     var handled = try Harness.handle(&ctx, allocator, second.envelope, treaty.certificate, .{
         .treaty = treaty,
+        .replay_source_journal = &journal,
+        .replay_source_response_trace = replayed.trace,
         .replay_source_response_fingerprint = replayed.trace.fingerprint,
         .replay_source_response_value_fingerprint = replayed.trace.response_value_fingerprint,
     });
