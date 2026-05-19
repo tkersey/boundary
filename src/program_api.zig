@@ -1339,7 +1339,8 @@ pub fn program(
         /// Stable format version for Program.Exchange Effect Treaties.
         pub const exchange_treaty_format_version: u32 = 1;
         /// Stable fingerprint version for Program.Exchange Effect Treaties.
-        pub const exchange_treaty_fingerprint_version: u32 = 1;
+        /// Version 2 preserves v1 fields and adds provider usage and provider response refs.
+        pub const exchange_treaty_fingerprint_version: u32 = 2;
         /// Stable fingerprint version for Program.Exchange treaty-bound response authorization.
         /// Version 3 preserves v2 fields and adds provider, capability, path, and request witnesses.
         pub const exchange_treaty_authorization_fingerprint_version: u32 = 3;
@@ -5896,6 +5897,7 @@ pub fn program(
                         response_use: ?ResponseUse = null,
                         replay_source_journal: ?*const Session.Journal = null,
                         replay_source_response_trace: ?Session.Trace.Response = null,
+                        replay_source_response: ?ResponseEnvelope = null,
                         replay_source_response_fingerprint: ?u64 = null,
                         replay_source_response_value_fingerprint: ?u64 = null,
                     };
@@ -6223,7 +6225,7 @@ pub fn program(
                     }
 
                     fn offerSupportsSelectedRequest(offer: ProviderOffer, request: RequestEnvelope, certificate: Treaty.Certificate) bool {
-                        if (!offerSupportsSelectedResponse(offer, request, certificate)) return false;
+                        if (!offerSupportsSelectedResponse(offer, request, certificate, certificate.expected_response_refs)) return false;
                         const requirement_label = requestRequirementLabel(request) orelse return false;
                         if (!listAllowsString(offer.supported_protocol_labels, requirement_label)) return false;
                         const protocol_op = certificate.source_protocol_op_fingerprint orelse requestProtocolOperationFingerprint(request) orelse return false;
@@ -6243,11 +6245,11 @@ pub fn program(
                     }
 
                     fn offerSupportsSelectedMorphismRequest(offer: ProviderOffer, request: RequestEnvelope, certificate: Treaty.Certificate, target_protocol_op_fingerprint: u64) bool {
-                        if (!offerSupportsSelectedResponse(offer, request, certificate)) return false;
-                        return offer.supportsMorphismRequest(request, target_protocol_op_fingerprint, certificate.expected_response_refs);
+                        if (!offerSupportsSelectedResponse(offer, request, certificate, certificate.provider_response_refs)) return false;
+                        return offer.supportsMorphismRequest(request, target_protocol_op_fingerprint, certificate.provider_response_refs);
                     }
 
-                    fn offerSupportsSelectedResponse(offer: ProviderOffer, request: RequestEnvelope, certificate: Treaty.Certificate) bool {
+                    fn offerSupportsSelectedResponse(offer: ProviderOffer, request: RequestEnvelope, certificate: Treaty.Certificate, provider_response_refs: []const lowering_api.ValueRef) bool {
                         offer.validate() catch return false;
                         request.validate() catch return false;
                         if (offer.manifest_fingerprint != request.manifest_fingerprint) return false;
@@ -6260,7 +6262,7 @@ pub fn program(
                         if (!responseKindSetSubset(certificate.expected_response_kinds, offer.allowed_response_kinds)) return false;
                         if (!requestAcceptsAnyResponseKind(request, certificate.expected_response_kinds)) return false;
                         if (!requestAcceptsAnyResponseRef(request, certificate.expected_response_kinds, certificate.expected_response_refs)) return false;
-                        for (certificate.expected_response_refs) |ref| {
+                        for (provider_response_refs) |ref| {
                             if (!listAllowsValueRef(offer.produced_response_refs, ref)) return false;
                         }
                         return true;
@@ -6326,16 +6328,52 @@ pub fn program(
                         return false;
                     }
 
+                    fn handleOptionsSupplyReplaySource(options_value: HandleOptions) bool {
+                        return options_value.replay_source_journal != null or
+                            options_value.replay_source_response_trace != null or
+                            options_value.replay_source_response != null or
+                            options_value.replay_source_response_fingerprint != null or
+                            options_value.replay_source_response_value_fingerprint != null;
+                    }
+
+                    fn obligationReplaySourceFingerprint(options_value: HandleOptions, request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, response: ResponseEnvelope) union(enum) {
+                        source: u64,
+                        failed: Blocker,
+                    } {
+                        const obligation = options_value.obligation_state orelse return .{ .failed = blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "live obligation state is required to derive replay source") };
+                        if (!obligation.*.validFingerprint() or obligation.*.obligation_fingerprint != certificate.obligation_fingerprint.?) {
+                            return .{ .failed = blocker(.obligation_state_invalid, request, certificate, offer.fingerprint, "live obligation state does not match treaty certificate") };
+                        }
+                        const source_fingerprint = obligation.*.consumed_response_fingerprint orelse obligation.*.replay_source_response_fingerprint orelse {
+                            return .{ .failed = blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "obligation replay requires a recorded source response") };
+                        };
+                        if (source_fingerprint != response.fingerprint) {
+                            return .{ .failed = blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "obligation replay source does not match provider response") };
+                        }
+                        return .{ .source = source_fingerprint };
+                    }
+
                     fn rejectInvalidReplaySource(request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, response_use: ResponseUse, options_value: HandleOptions) ?Blocker {
                         if (!responseUseNeedsReplaySource(response_use)) return null;
+                        if (certificate.obligation_fingerprint != null and !handleOptionsSupplyReplaySource(options_value)) return null;
                         const source_journal = options_value.replay_source_journal orelse return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay response requires a recorded replay source journal");
                         const source_trace = options_value.replay_source_response_trace orelse return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay response requires a recorded replay source trace");
                         if (source_trace.fingerprint == 0 or source_trace.response_value_fingerprint == 0) return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay response requires a nonzero replay source witness");
                         if (source_trace.request_fingerprint != request.request_fingerprint) return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay source trace belongs to a different request");
                         if (!certificate.expected_response_kinds.allows(source_trace.kind) or !listAllowsValueRef(certificate.expected_response_refs, source_trace.response_ref)) return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay source trace is outside the selected treaty response shape");
                         if (!journalContainsReplaySource(source_journal, request, source_trace)) return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay source trace is not recorded in the replay journal");
+                        const source_response = options_value.replay_source_response orelse return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay response requires a recorded source response envelope");
+                        validateResponseEnvelopeFieldsBoundToBytes(source_response) catch return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay source response envelope is invalid");
+                        if (source_response.request_fingerprint != source_trace.request_fingerprint or
+                            source_response.kind != source_trace.kind or
+                            !source_response.response_ref.eql(source_trace.response_ref) or
+                            source_response.response_value_fingerprint != source_trace.response_value_fingerprint or
+                            source_response.response_trace_fingerprint != source_trace.fingerprint)
+                        {
+                            return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay source response envelope does not match recorded trace");
+                        }
                         if (options_value.replay_source_response_fingerprint) |fingerprint| {
-                            if (fingerprint != source_trace.fingerprint) return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay source fingerprint does not match recorded trace");
+                            if (fingerprint != source_response.fingerprint) return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay source fingerprint does not match recorded response envelope");
                         }
                         if (options_value.replay_source_response_value_fingerprint) |fingerprint| {
                             if (fingerprint != source_trace.response_value_fingerprint) return blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay source value fingerprint does not match recorded trace");
@@ -6364,8 +6402,7 @@ pub fn program(
                             response.deinit();
                             return .{ .rejected = failed };
                         }
-                        const supplied_replay_source = options_value.replay_source_journal != null or options_value.replay_source_response_trace != null or options_value.replay_source_response_fingerprint != null or options_value.replay_source_response_value_fingerprint != null;
-                        var packet = if (responseUseNeedsReplaySource(response_use) and (certificate.obligation_fingerprint == null or supplied_replay_source)) packet: {
+                        var packet = if (responseUseNeedsReplaySource(response_use) and handleOptionsSupplyReplaySource(options_value)) packet: {
                             const source_trace = options_value.replay_source_response_trace orelse {
                                 const failed = blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay response requires a recorded replay source response");
                                 try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, response.fingerprint, null, failed.tag);
@@ -6378,7 +6415,23 @@ pub fn program(
                                 response.deinit();
                                 return .{ .rejected = failed };
                             }
-                            break :packet try replayResponsePacket(certificate, response.*, response_use, source_trace.fingerprint, source_trace.response_value_fingerprint);
+                            const source_response = options_value.replay_source_response orelse {
+                                const failed = blocker(.replay_policy_not_supported, request, certificate, offer.fingerprint, "replay response requires a recorded source response envelope");
+                                try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, response.fingerprint, null, failed.tag);
+                                response.deinit();
+                                return .{ .rejected = failed };
+                            };
+                            const source_value_fingerprint = options_value.replay_source_response_value_fingerprint orelse source_trace.response_value_fingerprint;
+                            break :packet try replayResponsePacket(certificate, response.*, response_use, source_response.fingerprint, source_value_fingerprint);
+                        } else if (responseUseNeedsReplaySource(response_use) and certificate.obligation_fingerprint != null) packet: {
+                            switch (obligationReplaySourceFingerprint(options_value, request, certificate, offer, response.*)) {
+                                .source => |source_fingerprint| break :packet try replayResponsePacket(certificate, response.*, response_use, source_fingerprint, response.response_value_fingerprint),
+                                .failed => |failed| {
+                                    try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, response.fingerprint, null, failed.tag);
+                                    response.deinit();
+                                    return .{ .rejected = failed };
+                                },
+                            }
                         } else try responsePacket(certificate, response.*, response_use);
                         response.bytes = &.{};
                         response.value_image = &.{};
@@ -7041,6 +7094,7 @@ pub fn program(
                 branch_policy: BranchPolicy = .unrestricted,
                 expected_response_kinds: ExchangeResponseKindSet = .{},
                 expected_response_refs: []const lowering_api.ValueRef = &.{},
+                provider_response_refs: []const lowering_api.ValueRef = &.{},
                 journal_policy_fingerprint: ?u64 = null,
                 require_treaty_bound_response_authorization: bool = true,
                 certificate: Certificate,
@@ -7227,6 +7281,7 @@ pub fn program(
                     branch_policy: BranchPolicy = .unrestricted,
                     expected_response_kinds: ExchangeResponseKindSet = .{},
                     expected_response_refs: []const lowering_api.ValueRef = &.{},
+                    provider_response_refs: []const lowering_api.ValueRef = &.{},
                     journal_policy_fingerprint: ?u64 = null,
                     require_treaty_bound_response_authorization: bool = true,
                     blockers: BlockerList = .{},
@@ -7253,6 +7308,8 @@ pub fn program(
                         errdefer allocator.free(residual_fps);
                         const response_refs = try cloneValueRefs(allocator, self.expected_response_refs);
                         errdefer allocator.free(response_refs);
+                        const provider_refs = try cloneValueRefs(allocator, self.provider_response_refs);
+                        errdefer allocator.free(provider_refs);
                         const provider_tags = try cloneStringList(allocator, self.provider_offer_tags);
                         errdefer freeStringList(allocator, provider_tags);
                         var cloned = self;
@@ -7260,6 +7317,7 @@ pub fn program(
                         cloned.dynamic_morphism_fingerprints = dynamic_fps;
                         cloned.residualization_fingerprints = residual_fps;
                         cloned.expected_response_refs = response_refs;
+                        cloned.provider_response_refs = provider_refs;
                         cloned.provider_offer_tags = provider_tags;
                         return cloned;
                     }
@@ -7270,11 +7328,13 @@ pub fn program(
                         allocator.free(self.dynamic_morphism_fingerprints);
                         allocator.free(self.residualization_fingerprints);
                         allocator.free(self.expected_response_refs);
+                        allocator.free(self.provider_response_refs);
                         freeStringList(allocator, self.provider_offer_tags);
                         self.morphism_offer_fingerprints = &.{};
                         self.dynamic_morphism_fingerprints = &.{};
                         self.residualization_fingerprints = &.{};
                         self.expected_response_refs = &.{};
+                        self.provider_response_refs = &.{};
                         self.provider_offer_tags = &.{};
                     }
                 };
@@ -7367,7 +7427,8 @@ pub fn program(
                     /// Construct a replay treaty authorization that cites a recorded source response.
                     pub fn forResponseWithReplaySource(treaty: Treaty, response: ResponseEnvelope, response_use: ResponseUse, source_response_fingerprint: u64, source_response_value_fingerprint: u64) Error!@This() {
                         if (response_use != .replayed and response_use != .deterministic_replay) return error.ProgramContractViolation;
-                        if (source_response_fingerprint == 0 or source_response_fingerprint == response.fingerprint) return error.ProgramContractViolation;
+                        if (source_response_fingerprint == 0) return error.ProgramContractViolation;
+                        if (treaty.obligation_fingerprint == null and source_response_fingerprint == response.fingerprint) return error.ProgramContractViolation;
                         if (source_response_value_fingerprint == 0 or source_response_value_fingerprint != response.response_value_fingerprint) return error.ProgramContractViolation;
                         var value = try forResponse(treaty, response, response_use);
                         value.replay_source_response_fingerprint = source_response_fingerprint;
@@ -7379,7 +7440,8 @@ pub fn program(
                     /// Construct a replay treaty authorization from a certificate and recorded source response.
                     pub fn forCertificateWithReplaySource(certificate: Treaty.Certificate, response: ResponseEnvelope, response_use: ResponseUse, source_response_fingerprint: u64, source_response_value_fingerprint: u64) Error!@This() {
                         if (response_use != .replayed and response_use != .deterministic_replay) return error.ProgramContractViolation;
-                        if (source_response_fingerprint == 0 or source_response_fingerprint == response.fingerprint) return error.ProgramContractViolation;
+                        if (source_response_fingerprint == 0) return error.ProgramContractViolation;
+                        if (certificate.obligation_fingerprint == null and source_response_fingerprint == response.fingerprint) return error.ProgramContractViolation;
                         if (source_response_value_fingerprint == 0 or source_response_value_fingerprint != response.response_value_fingerprint) return error.ProgramContractViolation;
                         var value = try forCertificate(certificate, response, response_use);
                         value.replay_source_response_fingerprint = source_response_fingerprint;
@@ -7531,6 +7593,7 @@ pub fn program(
                         allocator.free(self.morphism_offer_fingerprints);
                         freeStringList(allocator, self.provider_offer_tags);
                         allocator.free(self.expected_response_refs);
+                        allocator.free(self.provider_response_refs);
                         allocator.free(self.certificate.dynamic_morphism_fingerprints);
                         allocator.free(self.certificate.residualization_fingerprints);
                     }
@@ -7539,6 +7602,7 @@ pub fn program(
                     self.dynamic_morphism_fingerprints = &.{};
                     self.residualization_fingerprints = &.{};
                     self.expected_response_refs = &.{};
+                    self.provider_response_refs = &.{};
                 }
 
                 /// Check the treaty certificate against the selected treaty.
@@ -7581,6 +7645,7 @@ pub fn program(
                     if (self.certificate.branch_policy != self.branch_policy) return error.ProgramContractViolation;
                     if (!responseKindSetsEqual(self.certificate.expected_response_kinds, self.expected_response_kinds)) return error.ProgramContractViolation;
                     if (!valueRefListEqual(self.certificate.expected_response_refs, self.expected_response_refs)) return error.ProgramContractViolation;
+                    if (!valueRefListEqual(self.certificate.provider_response_refs, self.provider_response_refs)) return error.ProgramContractViolation;
                     if (self.certificate.journal_policy_fingerprint != self.journal_policy_fingerprint) return error.ProgramContractViolation;
                     if (self.certificate.require_treaty_bound_response_authorization != self.require_treaty_bound_response_authorization) return error.ProgramContractViolation;
                 }
@@ -12038,6 +12103,7 @@ pub fn program(
                 hashBool(&hasher, certificate.expected_response_kinds.return_now);
                 hashBool(&hasher, certificate.expected_response_kinds.resume_after);
                 hashValueRefList(&hasher, certificate.expected_response_refs);
+                hashValueRefList(&hasher, certificate.provider_response_refs);
                 hashOptionalExchangeU64(&hasher, certificate.journal_policy_fingerprint);
                 hashBool(&hasher, certificate.require_treaty_bound_response_authorization);
                 for (certificate.blockers.blockers[0..certificate.blockers.count]) |blocker| hashBytes(&hasher, @tagName(blocker.tag));
@@ -13615,6 +13681,12 @@ pub fn program(
                 }
                 const route_expected_refs = try cloneValueRefs(inputs.allocator, route_expected_refs_buffer[0..route_expected_refs_len]);
                 errdefer inputs.allocator.free(route_expected_refs);
+                const provider_response_refs_source = if (morphism) |morphism_offer|
+                    targetResponseRefsForMorphismOffer(route_expected_refs_buffer[0..route_expected_refs_len], morphism_offer)
+                else
+                    route_expected_refs_buffer[0..route_expected_refs_len];
+                const provider_response_refs = try cloneValueRefs(inputs.allocator, provider_response_refs_source);
+                errdefer inputs.allocator.free(provider_response_refs);
                 const provider_offer_tags = try cloneStringList(inputs.allocator, offer.tags);
                 errdefer freeStringList(inputs.allocator, provider_offer_tags);
                 const morphism_fps = if (morphism) |morphism_offer| try inputs.allocator.dupe(u64, &[_]u64{morphism_offer.fingerprint()}) else try inputs.allocator.dupe(u64, &.{});
@@ -13665,6 +13737,7 @@ pub fn program(
                     .branch_policy = branch_policy,
                     .expected_response_kinds = route.allowed_response_kinds,
                     .expected_response_refs = route_expected_refs,
+                    .provider_response_refs = provider_response_refs,
                     .journal_policy_fingerprint = selected_capability.journal_policy_fingerprint,
                     .require_treaty_bound_response_authorization = require_treaty_bound_response_authorization,
                     .certificate = undefined,
@@ -13699,6 +13772,7 @@ pub fn program(
                     .branch_policy = branch_policy,
                     .expected_response_kinds = treaty.expected_response_kinds,
                     .expected_response_refs = route_expected_refs,
+                    .provider_response_refs = provider_response_refs,
                     .journal_policy_fingerprint = treaty.journal_policy_fingerprint,
                     .require_treaty_bound_response_authorization = treaty.require_treaty_bound_response_authorization,
                     .blockers = blockers,
@@ -13883,6 +13957,7 @@ pub fn program(
                 hashBool(&hasher, treaty.expected_response_kinds.return_now);
                 hashBool(&hasher, treaty.expected_response_kinds.resume_after);
                 hashValueRefList(&hasher, treaty.expected_response_refs);
+                hashValueRefList(&hasher, treaty.provider_response_refs);
                 hashOptionalExchangeU64(&hasher, treaty.journal_policy_fingerprint);
                 hashBool(&hasher, treaty.require_treaty_bound_response_authorization);
                 return hasher.final();

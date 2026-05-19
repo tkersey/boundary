@@ -123,6 +123,12 @@ pub fn run(writer: anytype) !void {
     try journal.appendRequest(.{ .operation = first_current.request.trace() });
     try journal.appendResponseValue(recorded_response_trace, @as(i32, 7));
     try journal.appendDone(recorded_response_trace.response_value_fingerprint);
+    var replay_source_envelope = try Program.Exchange.RequestEnvelope.fromRequest(allocator, first_current.request, .{
+        .usage_metadata = .{ .usage = .replayable, .branch_id = 7, .replay_policy = .replayed },
+    });
+    defer replay_source_envelope.deinit();
+    var replay_source_response = try Program.Exchange.ResponseEnvelope.@"resume"(allocator, replay_source_envelope, @as(i32, 7));
+    defer replay_source_response.deinit();
 
     var second = try nextEnvelope(allocator, &runtime);
     defer second.session.deinit();
@@ -153,7 +159,8 @@ pub fn run(writer: anytype) !void {
         .treaty = treaty,
         .replay_source_journal = &journal,
         .replay_source_response_trace = replayed.trace,
-        .replay_source_response_fingerprint = replayed.trace.fingerprint,
+        .replay_source_response = replay_source_response,
+        .replay_source_response_fingerprint = replay_source_response.fingerprint,
         .replay_source_response_value_fingerprint = replayed.trace.response_value_fingerprint,
     });
     const authorization_fingerprint = switch (handled) {
@@ -172,7 +179,7 @@ pub fn run(writer: anytype) !void {
     try replayer.expectDone(replayed.trace.response_value_fingerprint);
 
     try writer.print("replay_policy={s}\n", .{@tagName(treaty.replay_policy)});
-    try writer.print("source_response_fingerprint={x}\n", .{replayed.trace.fingerprint});
+    try writer.print("source_response_fingerprint={x}\n", .{replay_source_response.fingerprint});
     try writer.print("response_authorization_fingerprint={x}\n", .{authorization_fingerprint});
     try writer.print("provider_replays={d}\n", .{ctx.replayed});
     try writer.print("final_result={d}\n", .{final.value});

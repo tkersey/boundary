@@ -15459,7 +15459,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_obligation_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_obligation_transition_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_treaty_format_version);
-    try std.testing.expectEqual(@as(u32, 1), Program.exchange_treaty_fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 2), Program.exchange_treaty_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 3), Program.exchange_treaty_authorization_fingerprint_version);
     try std.testing.expectEqual(Program.exchange_manifest_format_version, Program.Exchange.manifest_format_version);
     try std.testing.expectEqual(Program.exchange_manifest_fingerprint_version, Program.Exchange.manifest_fingerprint_version);
@@ -23749,7 +23749,7 @@ test "Program.Exchange ProviderHarness handles treaty-bound request with typed p
             }
             invocations.* += 1;
             try std.testing.expect(request.provider_fingerprint == 0x5151 or request.provider_fingerprint == 0x5153 or request.provider_fingerprint == 0x5154);
-            try std.testing.expect(request.usage == .copyable or request.usage == .linear);
+            try std.testing.expect(request.usage == .copyable or request.usage == .linear or request.usage == .replayable);
             const payload = try request.payload(std.testing.allocator);
             defer std.testing.allocator.free(payload);
             try std.testing.expectEqualStrings("payload", payload);
@@ -24022,19 +24022,43 @@ test "Program.Exchange ProviderHarness handles treaty-bound request with typed p
     defer replay_source_journal.deinit();
     try replay_source_journal.appendRequest(.{ .operation = trace });
     try replay_source_journal.appendResponseValue(replay_source_trace, @as(i32, 42));
+    var replay_source_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{
+        .usage_metadata = .{ .usage = .replayable, .branch_id = 42, .replay_policy = .replayed },
+    });
+    defer replay_source_envelope.deinit();
+    var replay_source_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, replay_source_envelope, @as(i32, 42));
+    defer replay_source_response.deinit();
+    var wrong_replay_source_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, replay_source_envelope, @as(i32, 41));
+    defer wrong_replay_source_response.deinit();
+    invocations = 99;
+    const wrong_source_response_rejected = try Harness.handle(&invocations, std.testing.allocator, envelope, replay_treaty.certificate, .{
+        .treaty = replay_treaty,
+        .replay_source_journal = &replay_source_journal,
+        .replay_source_response_trace = replay_source_trace,
+        .replay_source_response = wrong_replay_source_response,
+        .replay_source_response_fingerprint = wrong_replay_source_response.fingerprint,
+        .replay_source_response_value_fingerprint = replay_source_trace.response_value_fingerprint,
+    });
+    switch (wrong_source_response_rejected) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.replay_policy_not_supported, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    try std.testing.expectEqual(@as(usize, 99), invocations);
     invocations = 99;
     var replay_handled = try Harness.handle(&invocations, std.testing.allocator, envelope, replay_treaty.certificate, .{
         .treaty = replay_treaty,
         .replay_source_journal = &replay_source_journal,
         .replay_source_response_trace = replay_source_trace,
-        .replay_source_response_fingerprint = replay_source_trace.fingerprint,
+        .replay_source_response = replay_source_response,
+        .replay_source_response_fingerprint = replay_source_response.fingerprint,
         .replay_source_response_value_fingerprint = replay_source_trace.response_value_fingerprint,
     });
     switch (replay_handled) {
         .response => |*packet| {
             defer packet.deinit();
             try std.testing.expectEqual(Program.Exchange.ResponseUse.replayed, packet.response_use);
-            try std.testing.expectEqual(replay_source_trace.fingerprint, packet.treaty_authorization.replay_source_response_fingerprint.?);
+            try std.testing.expect(packet.response.fingerprint != replay_source_response.fingerprint);
+            try std.testing.expectEqual(replay_source_response.fingerprint, packet.treaty_authorization.replay_source_response_fingerprint.?);
             try std.testing.expectEqual(replay_source_trace.response_value_fingerprint, packet.treaty_authorization.replay_source_response_value_fingerprint.?);
             try std.testing.expect(Program.Exchange.validateTreatyResponse(replay_treaty, envelope, packet.response).allowed());
             const legacy_authorization_bytes = try testEncodeTreatyAuthorizationV2(Program, std.testing.allocator, packet.treaty_authorization);
@@ -24265,11 +24289,14 @@ test "Program.Exchange ProviderHarness handles treaty-bound request with typed p
     });
     var consumed_obligation: ?Program.Exchange.Obligation = null;
     defer if (consumed_obligation) |*value| value.deinit();
+    var consumed_source_response: ?Program.Exchange.ResponseEnvelope = null;
+    defer if (consumed_source_response) |*value| value.deinit();
     switch (obligation_handled) {
         .response => |*packet| {
             defer packet.deinit();
             const transition = try obligation.consume(packet.response, .fresh);
             consumed_obligation = try obligation.applyTransition(transition);
+            consumed_source_response = try Program.Exchange.ResponseEnvelope.decode(std.testing.allocator, packet.response.bytes);
         },
         else => return error.ExpectedProviderResponse,
     }
@@ -24305,16 +24332,30 @@ test "Program.Exchange ProviderHarness handles treaty-bound request with typed p
     defer obligation_replay_resolved.deinit();
     const obligation_replay_treaty = obligation_replay_resolved.treaty orelse return error.ExpectedTreaty;
     invocations = 99;
-    const obligation_replay_without_source = try Harness.handle(&invocations, std.testing.allocator, envelope, obligation_replay_treaty.certificate, .{
+    var obligation_replay_without_source = try Harness.handle(&invocations, std.testing.allocator, envelope, obligation_replay_treaty.certificate, .{
         .treaty = obligation_replay_treaty,
         .capability_instance_state = &obligation_instance,
         .obligation_state = &consumed_obligation.?,
     });
     switch (obligation_replay_without_source) {
-        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.replay_policy_not_supported, blocker.tag),
-        else => return error.ExpectedProviderRejection,
+        .response => |*packet| {
+            defer packet.deinit();
+            try std.testing.expectEqual(Program.Exchange.ResponseUse.replayed, packet.response_use);
+            try std.testing.expectEqual(consumed_obligation.?.obligation_fingerprint, packet.treaty_authorization.obligation_fingerprint.?);
+            try std.testing.expectEqual(consumed_obligation.?.consumed_response_fingerprint.?, packet.treaty_authorization.replay_source_response_fingerprint.?);
+            try std.testing.expectEqual(packet.response.response_value_fingerprint, packet.treaty_authorization.replay_source_response_value_fingerprint.?);
+            const replay_transition = try consumed_obligation.?.replayFromSourceValue(
+                packet.response,
+                packet.treaty_authorization.replay_source_response_fingerprint.?,
+                packet.treaty_authorization.replay_source_response_value_fingerprint.?,
+                .replayed,
+            );
+            try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, replay_transition.next_obligation_status);
+            try std.testing.expect(Program.Exchange.validateTreatyResponse(obligation_replay_treaty, envelope, packet.response).allowed());
+        },
+        else => return error.ExpectedProviderResponse,
     }
-    try std.testing.expectEqual(@as(usize, 99), invocations);
+    try std.testing.expectEqual(@as(usize, 100), invocations);
 
     const obligation_replay_source_trace = try (try request.as(OperationSite)).responseTrace(.@"resume", @as(i32, 42));
     invocations = 99;
@@ -24324,7 +24365,8 @@ test "Program.Exchange ProviderHarness handles treaty-bound request with typed p
         .obligation_state = &consumed_obligation.?,
         .replay_source_journal = &replay_source_journal,
         .replay_source_response_trace = obligation_replay_source_trace,
-        .replay_source_response_fingerprint = obligation_replay_source_trace.fingerprint,
+        .replay_source_response = consumed_source_response.?,
+        .replay_source_response_fingerprint = consumed_obligation.?.consumed_response_fingerprint.?,
         .replay_source_response_value_fingerprint = obligation_replay_source_trace.response_value_fingerprint,
     });
     switch (obligation_replay_handled) {
@@ -24332,8 +24374,15 @@ test "Program.Exchange ProviderHarness handles treaty-bound request with typed p
             defer packet.deinit();
             try std.testing.expectEqual(Program.Exchange.ResponseUse.replayed, packet.response_use);
             try std.testing.expectEqual(consumed_obligation.?.obligation_fingerprint, packet.treaty_authorization.obligation_fingerprint.?);
-            try std.testing.expectEqual(obligation_replay_source_trace.fingerprint, packet.treaty_authorization.replay_source_response_fingerprint.?);
+            try std.testing.expectEqual(consumed_obligation.?.consumed_response_fingerprint.?, packet.treaty_authorization.replay_source_response_fingerprint.?);
             try std.testing.expectEqual(obligation_replay_source_trace.response_value_fingerprint, packet.treaty_authorization.replay_source_response_value_fingerprint.?);
+            const replay_transition = try consumed_obligation.?.replayFromSourceValue(
+                packet.response,
+                packet.treaty_authorization.replay_source_response_fingerprint.?,
+                packet.treaty_authorization.replay_source_response_value_fingerprint.?,
+                .replayed,
+            );
+            try std.testing.expectEqual(Program.Exchange.ObligationStatus.replayed, replay_transition.next_obligation_status);
         },
         else => return error.ExpectedProviderResponse,
     }
@@ -26248,6 +26297,10 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
     try std.testing.expectEqual(Program.Exchange.Treaty.HandlingKind.dynamic_morphism, type_changing_result.treaty.?.handling);
     try std.testing.expectEqual(@as(usize, 1), type_changing_result.treaty.?.expected_response_refs.len);
     try std.testing.expect(type_changing_result.treaty.?.expected_response_refs[0].eql(trace.resume_ref));
+    try std.testing.expectEqual(@as(usize, 1), type_changing_result.treaty.?.provider_response_refs.len);
+    try std.testing.expect(type_changing_result.treaty.?.provider_response_refs[0].eql(target_bool_refs[0]));
+    try std.testing.expectEqual(@as(usize, 1), type_changing_result.treaty.?.certificate.provider_response_refs.len);
+    try std.testing.expect(type_changing_result.treaty.?.certificate.provider_response_refs[0].eql(target_bool_refs[0]));
     try std.testing.expect(type_changing_result.treaty.?.attenuated_capability != null);
     try std.testing.expectEqual(@as(usize, 1), type_changing_result.treaty.?.attenuated_capability.?.allowed_operation_sites.len);
     try std.testing.expectEqual(trace.operation_site_index, type_changing_result.treaty.?.attenuated_capability.?.allowed_operation_sites[0]);
