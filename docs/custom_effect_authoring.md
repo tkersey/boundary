@@ -292,6 +292,46 @@ a broker. Hosts own identity, signing, encryption, transport, persistence,
 scheduling, network/async integration, tools, humans, and models. Request
 tokens remain in-process guards and are never serialized.
 
+### Effect Treaties
+
+Direct-style handlers are lexical. When a custom effect is exchanged as a
+defunctionalized request envelope, the handler-equivalent has to become
+inspectable data. `Program.Exchange.Treaty` is that agreement. Routing finds a
+provider. A treaty proves the provider may handle this effect in this way.
+
+`ProviderOffer` describes a handleable effect surface for a provider and
+manifest: supported Program sites, protocol operations and labels, accepted and
+produced refs, legal response kinds, usage modes, response-use classes, replay
+and branch policies, capsule policy, byte limits, tags, and metadata.
+`MorphismOffer` describes one-hop protocol adaptation and can cite dynamic
+morphism, residual morphism, or pipeline adapter fingerprints.
+
+`TreatyResolver` consumes host-owned catalogs and policy. It can choose direct
+handling, dynamic reinterpretation, residualized handling, or pipeline-adapted
+handling; filter by provider tags and byte/capsule limits; enforce usage,
+replay, branch, response-use, and obligation policy; and attenuate capability
+authority when least-authority handling is required. The resolver returns a
+treaty or structured blockers and never performs IO, sends messages, starts
+tasks, calls providers, or owns cancellation.
+
+The treaty certificate binds request envelope, provider manifest and offer,
+capability or attenuated child capability, optional capability instance and
+obligation, route, morphism or pipeline fingerprints, usage, response-use,
+replay, branch, expected response refs/kinds, and journal policy. A response can
+carry a treaty authorization sidecar so validation can reject wrong treaty,
+provider, capability, route, response kind, response-use class, replay policy,
+branch policy, or obligation transition without changing the response envelope
+fingerprint domain.
+
+`MailboxRunner.runTreatyStep` is treaty mode for the existing nonblocking
+mailbox pattern: resolve before writing to the provider outbox, pair the request
+with the treaty certificate, journal selected/blocked/authorized/accepted/
+rejected treaty events, and apply only treaty-valid responses. Treaties are not
+legal contracts, cryptographic security, network sessions, async tasks,
+distributed consensus, workflow definitions, or provider execution. Hosts still
+own identity, signing, encryption, transport, storage, scheduling, network,
+persistence, tools, humans, models, and side effects.
+
 ### Linear Effect Sessions
 
 Continuations can be copied; the world often cannot. Linear Effect Sessions add

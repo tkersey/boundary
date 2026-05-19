@@ -17,6 +17,9 @@ examples/effect_capability_routing.zig
 examples/effect_exchange_mailbox.zig
 examples/effect_exchange_restart.zig
 examples/effect_pipeline.zig
+examples/effect_treaty_direct.zig
+examples/effect_treaty_morphism.zig
+examples/effect_treaty_replayable.zig
 examples/interpreter_branching.zig
 examples/journal_replay.zig
 examples/linear_branch_safety.zig

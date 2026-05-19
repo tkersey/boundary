@@ -1,35 +1,36 @@
-Iteration: 6
+Iteration: 7
 
-# Linear Effect Sessions Implementation Plan
+# Effect Treaties Implementation Plan
 
 ## Summary
-Add Linear Effect Sessions as a deterministic usage calculus under the existing `Program.Exchange` surface. The milestone makes capability-routed exchanged effects safe around reusable capsules by recording usage mode, capability instance state, obligations, branch policy, replay class, response transitions, cancellation, journal events, and ledger validation. The implementation must preserve `Program.Session` as the primitive host-driven execution machine and keep the public root unchanged.
+Add Effect Treaties as deterministic, typed, inspectable, proof-carrying agreements over Ability's existing `Program.Exchange`, Capability, Linear Effect Session, Morphism, Pipeline, Capsule, MailboxRunner, and Journal machinery.
 
-Chosen strategy: implement this as typed validation metadata over Exchange, Capability, Capsule, MailboxRunner, Journal, and Pipeline surfaces. This is not cryptographic security, transport, async, network, persistence, workflow, VM, parser, or host-handler serialization.
+Routing finds a provider. A treaty proves the provider may handle this effect in this way.
+
+The implementation is additive under `Program.Exchange`. It preserves `Program.Session` as the primitive host-driven defunctionalized execution machine, preserves the public root (`ability.effect`, `ability.ir`, `ability.program`, `ability.Runtime`), and keeps hosts responsible for identity, signing, encryption, transport, storage, scheduling, network, persistence, provider execution, and cancellation side effects.
 
 ## Non-Goals/Out of Scope
-No changes to `Program.run` semantics, `Program.Session` primitive stepping semantics, existing Session/Capsule/Journal/Exchange/Capability/Handler/Interpreter/Morphism/Residualize/Pipeline APIs removals, parser/source language, public VM API, Artifact API, async runtime, network or LLM integration, persistence backend, cryptographic signing/encryption, public root widening, `ProgramValue` widening, serializable request tokens, cross-thread sessions, arbitrary host handler serialization, host context serialization, or allocator/thread state serialization.
+Do not change `Program.run` semantics, `Program.Session` primitive stepping semantics, Session/Capsule/Journal/Exchange/Capability/Linear Effect Session/Handler/Interpreter/Morphism/Residualize/Pipeline APIs, the public root, or `ProgramValue`. Do not add a parser/source language, public VM API, Artifact API, async runtime, network or LLM integration, persistence backend, cryptographic signing/encryption, legal-contract semantics, distributed consensus, serializable request tokens, cross-thread sessions, arbitrary host handler serialization, host context serialization, or allocator/thread state serialization.
 
 ## Interfaces/Types/APIs Impacted
-- `Program` version constants: add `exchange_effect_session_format_version`, `exchange_effect_session_fingerprint_version`, `exchange_capability_instance_format_version`, `exchange_capability_instance_fingerprint_version`, `exchange_obligation_format_version`, `exchange_obligation_fingerprint_version`, and `exchange_obligation_transition_fingerprint_version`.
-- `Program.Exchange` enums: `Usage`, `ResponseUse`, `BranchPolicy`, obligation/session statuses and structured blocker types.
-- `Program.Exchange.EffectSessionSpec`: Zig-friendly deterministic descriptor for externalized effect state transitions, default usage, branch policy, replay policy, allowed response kinds/refs, provider/capability constraints, and stable fingerprinting.
-- `Program.Exchange.CapabilityInstance`: consumable deterministic authority instance with parent capability/provider/manifest/spec fingerprints, current state, usage mode, branch id, opened/consumed/canceled/replay state, generation, parent instance, and path fingerprint.
-- `Program.Exchange.Obligation`: ledger bridge from request envelope to world-effect usage with usage mode, branch id, open state, allowed responses, capsule image fingerprint, lifecycle status, consumed/replay fingerprints, and stable fingerprinting.
-- Request envelope metadata: optional session spec, capability instance, obligation, usage, branch id, branch policy, replay policy, ephemeral, and cancelability metadata without serializing request tokens.
-- Response authorization result: obligation transition metadata for provider/capability/instance/obligation/spec/route/request/response validation.
-- `MailboxRunner` and `Session.Journal`: optional obligation open/consume/replay/cancel/reject events and duplicate affine/linear response rejection.
-- `Program.Exchange.ObligationLedger`: validation pass for duplicate consumption, unresolved linear obligations, replay/fresh branch violations, canceled/consumed misuse, state mismatch, and provider/capability mismatch.
-- Pipeline certificates/effect row metadata: expose usage/session policy summaries enough for future stages to inspect residual linear effects.
+- `Program` version constants: add provider-offer, morphism-offer, treaty, treaty-certificate, and treaty-authorization format/fingerprint domains without changing trace, request/site/response/value, capsule, journal, exchange envelope, capability, route, linear session, residualization, or pipeline versions unless bytes require it.
+- `Program.Exchange.ProviderOffer`: deterministic typed handling claims linked to provider/manifest fingerprints, supported sites/protocol ops, refs, response kinds, usage, response-use, replay, branch, capsule, obligation, size, tag, and metadata policies.
+- `Program.Exchange.MorphismOffer`: exchange-facing one-hop protocol adaptation metadata over existing dynamic/residual/pipeline morphism machinery.
+- `Program.Exchange.TreatyRequest` and `Program.Exchange.Treaty.Policy`: resolver input and policy constraints for provider selection, adaptation, attenuation, usage, replay, branch, obligation, journaling, response authorization, ambiguity, and byte limits.
+- `Program.Exchange.Treaty`: selected agreement with certificate, blockers, direct/dynamic/residualized/pipeline handling mode, source/target correspondence, selected provider offer, capability/attenuation/instance/obligation, route, usage, replay, branch, response-use, obligation transition, journal, and response authorization policy.
+- `Program.Exchange.TreatyResolver`: pure/no-IO synthesizer that validates the request, finds direct and one-hop adapted offers, filters capabilities, performs least-authority attenuation when required, validates usage/replay/branch/obligation compatibility, resolves route ambiguity deterministically, and returns treaty/no_treaty/ambiguous/blockers.
+- `Program.Exchange` response authorization sidecar: optional treaty-bound metadata with a separate treaty authorization fingerprint domain while preserving existing response envelope fingerprint stability when possible.
+- `Program.Exchange.MailboxRunner` and `Program.Session.Journal`: treaty mode, treaty-bound response validation, and treaty journal events while preserving direct routing mode compatibility.
+- Examples, tests, docs, `build.zig`, and repo path/lint manifests.
 
 ## Implementation Brief
-1. step=core-linear-session-types; owner=implementation; success_criteria=usage/replay/branch enums, version constants, session spec, blocker, fingerprint, and transition APIs compile with stable fingerprint tests.
-2. step=capability-instances-and-obligations; owner=implementation; success_criteria=instance create/split/consume/cancel and obligation open/consume/replay/cancel APIs reject illegal affine/linear/ephemeral states and have stable fingerprint tests.
-3. step=request-authorization-metadata; owner=implementation; success_criteria=request envelopes carry optional obligation/session metadata without serializing tokens, response authorization transition metadata validates request/response/route/capability/instance/obligation/spec state.
-4. step=branch-split-cancel-discipline; owner=implementation; success_criteria=unrestricted/replay_only/single_live_branch/split_required/no_branch/host_owned branch checks, split policy, cancel API, and capsule embedding checks enforce ephemeral and open-obligation rules.
-5. step=mailbox-journal-ledger-integration; owner=implementation; success_criteria=MailboxRunner opens/consumes/replays/cancels obligations when configured, Journal encodes/decodes new events, and ledger validation catches duplicate consumption, unresolved linear obligations, response-after-cancel, wrong branch/provider/capability, and replay/fresh violations.
-6. step=pipeline-examples-docs-build; owner=implementation; success_criteria=pipeline summaries expose usage metadata, examples `linear_effect_sessions.zig` and `linear_branch_safety.zig` plus run steps work, docs/README explain the model, and repo path/lint manifest is updated.
-7. step=full-proof-and-ship; owner=implementation; success_criteria=all requested proof commands pass, durable `$st` proof is recorded, fixed-point review reaches no actionable findings, branch is pushed, and PR is opened with a proof-rich summary.
+1. step=treaty_core_records; owner=implementation; success_criteria=version constants, ProviderOffer, MorphismOffer, TreatyRequest, Treaty.Policy, Treaty.Blocker, resolver result, deterministic fingerprints, support predicates, byte-limit checks, and malformed-offer checks compile with stable focused tests.
+2. step=treaty_certificate_authorization; owner=implementation; success_criteria=Treaty.Certificate and treaty-bound response authorization sidecar bind request/provider/offer/capability/route/morphism/usage/replay/branch/obligation/journal fields, preserve existing response fingerprint behavior, and reject mismatched provider/capability/route/morphism/usage/replay/branch/obligation cases.
+3. step=direct_treaty_resolver; owner=implementation; success_criteria=TreatyResolver selects direct provider treaties, rejects no-provider/no-capability/foreign-manifest/ambiguous/default-policy cases, generates least-authority attenuation when required, and returns structured blockers for rejected candidates without IO or provider calls.
+4. step=adapted_treaty_resolver; owner=implementation; success_criteria=TreatyResolver supports one-hop dynamic morphism offers, residualized/pipeline adapter metadata when available, residualization preference/fallback policy, max-hop enforcement, source-target ref checks, and handling-mode/source-target correspondence in the treaty certificate.
+5. step=mailbox_journal_treaty_mode; owner=implementation; success_criteria=MailboxRunner treaty mode resolves before provider outbox write, sends request plus treaty certificate, journals treaty requested/selected/blocked/certificate/authorization/response accepted/rejected/capability attenuated/obligation events, validates treaty-bound responses, and leaves direct routing mode compatible.
+6. step=examples_docs_build; owner=implementation; success_criteria=add `examples/effect_treaty_direct.zig`, `examples/effect_treaty_morphism.zig`, `examples/effect_treaty_replayable.zig`, run steps, repo path/lint manifest updates, README, `docs/program_plan.md`, and `docs/custom_effect_authoring.md` sections explaining Effect Treaties and non-goals.
+7. step=fixed_point_proof_and_ship; owner=implementation; success_criteria=run fixed-point de novo review, negative-ledger handoff, one-change challenge, all requested proof commands, record durable `$st` proof, commit, push, and `$ship` a PR with API/proof/non-goal summary.
 
 ## Proof Commands
 ```bash
@@ -37,6 +38,9 @@ zig version
 zig fmt --check build.zig src examples test bench
 git diff --check
 zig build --summary all
+zig build run-effect-treaty-direct
+zig build run-effect-treaty-morphism
+zig build run-effect-treaty-replayable
 zig build run-linear-effect-sessions
 zig build run-linear-branch-safety
 zig build run-effect-capability-routing
@@ -54,17 +58,15 @@ zig build run-custom-approval-workflow
 zig build run-agent-loop
 zig build run-typed-program-plan
 zig build test --summary all
+zig build test --summary none -- --test-filter "treaty"
+zig build test --summary none -- --test-filter "offer"
+zig build test --summary none -- --test-filter "resolver"
+zig build test --summary none -- --test-filter "morphism offer"
+zig build test --summary none -- --test-filter "capability"
 zig build test --summary none -- --test-filter "linear"
 zig build test --summary none -- --test-filter "obligation"
-zig build test --summary none -- --test-filter "usage"
-zig build test --summary none -- --test-filter "branch policy"
-zig build test --summary none -- --test-filter "capability instance"
-zig build test --summary none -- --test-filter "replayable"
-zig build test --summary none -- --test-filter "affine"
 zig build test --summary none -- --test-filter "exchange"
-zig build test --summary none -- --test-filter "capability"
 zig build test --summary none -- --test-filter "journal"
 zig build test --summary none -- --test-filter "mailbox"
-zig build test --summary none -- --test-filter "capsule image"
 zig build lint -- --max-warnings 0
 ```
