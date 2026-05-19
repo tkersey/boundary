@@ -1,36 +1,38 @@
-Iteration: 7
+Iteration: 8
 
-# Effect Treaties Implementation Plan
+# Treaty-Bound Provider Harnesses for Effect Exchange
 
 ## Summary
-Add Effect Treaties as deterministic, typed, inspectable, proof-carrying agreements over Ability's existing `Program.Exchange`, Capability, Linear Effect Session, Morphism, Pipeline, Capsule, MailboxRunner, and Journal machinery.
+Add `Program.Exchange.ProviderHarness`: a typed, deterministic, transport-neutral provider-side executor for treaty-bound request envelopes.
 
-Routing finds a provider. A treaty proves the provider may handle this effect in this way.
+Treaties define the agreement. `ProviderHarness` executes the provider side of that agreement.
 
-The implementation is additive under `Program.Exchange`. It preserves `Program.Session` as the primitive host-driven defunctionalized execution machine, preserves the public root (`ability.effect`, `ability.ir`, `ability.program`, `ability.Runtime`), and keeps hosts responsible for identity, signing, encryption, transport, storage, scheduling, network, persistence, provider execution, and cancellation side effects.
+The implementation is additive under `Program.Exchange`. It preserves `Program.Session` as the primitive host-driven defunctionalized execution machine, keeps the public root unchanged, keeps `ProgramValue` scalar, and keeps hosts responsible for identity, signing, encryption, transport, storage, scheduling, network, persistence, provider execution, cancellation side effects, and provider lifecycle.
 
 ## Non-Goals/Out of Scope
-Do not change `Program.run` semantics, `Program.Session` primitive stepping semantics, Session/Capsule/Journal/Exchange/Capability/Linear Effect Session/Handler/Interpreter/Morphism/Residualize/Pipeline APIs, the public root, or `ProgramValue`. Do not add a parser/source language, public VM API, Artifact API, async runtime, network or LLM integration, persistence backend, cryptographic signing/encryption, legal-contract semantics, distributed consensus, serializable request tokens, cross-thread sessions, arbitrary host handler serialization, host context serialization, or allocator/thread state serialization.
+Do not change `Program.run` semantics, `Program.Session` primitive stepping semantics, Session/Capsule/Journal/Exchange/Capability/Linear Effect Session/Treaty/Handler/Interpreter/Morphism/Residualize/Pipeline APIs, the public root, or `ProgramValue`. Do not add a parser/source language, public VM API, Artifact API, async runtime, RPC framework, network server, message broker, provider marketplace, provider registry, service discovery system, agent framework, workflow engine, security/authentication layer, persistence backend, cryptographic signing/encryption, legal-contract semantics, distributed consensus, serializable request tokens, cross-thread sessions, arbitrary host handler serialization, host context serialization, or allocator/thread state serialization.
 
 ## Interfaces/Types/APIs Impacted
-- `Program` version constants: add provider-offer, morphism-offer, treaty, treaty-certificate, and treaty-authorization format/fingerprint domains without changing trace, request/site/response/value, capsule, journal, exchange envelope, capability, route, linear session, residualization, or pipeline versions unless bytes require it.
-- `Program.Exchange.ProviderOffer`: deterministic typed handling claims linked to provider/manifest fingerprints, supported sites/protocol ops, refs, response kinds, usage, response-use, replay, branch, capsule, obligation, size, tag, and metadata policies.
-- `Program.Exchange.MorphismOffer`: exchange-facing one-hop protocol adaptation metadata over existing dynamic/residual/pipeline morphism machinery.
-- `Program.Exchange.TreatyRequest` and `Program.Exchange.Treaty.Policy`: resolver input and policy constraints for provider selection, adaptation, attenuation, usage, replay, branch, obligation, journaling, response authorization, ambiguity, and byte limits.
-- `Program.Exchange.Treaty`: selected agreement with certificate, blockers, direct/dynamic/residualized/pipeline handling mode, source/target correspondence, selected provider offer, capability/attenuation/instance/obligation, route, usage, replay, branch, response-use, obligation transition, journal, and response authorization policy.
-- `Program.Exchange.TreatyResolver`: pure/no-IO synthesizer that validates the request, finds direct and one-hop adapted offers, filters capabilities, performs least-authority attenuation when required, validates usage/replay/branch/obligation compatibility, resolves route ambiguity deterministically, and returns treaty/no_treaty/ambiguous/blockers.
-- `Program.Exchange` response authorization sidecar: optional treaty-bound metadata with a separate treaty authorization fingerprint domain while preserving existing response envelope fingerprint stability when possible.
-- `Program.Exchange.MailboxRunner` and `Program.Session.Journal`: treaty mode, treaty-bound response validation, and treaty journal events while preserving direct routing mode compatibility.
+- `Program` version constants: add `exchange_provider_harness_fingerprint_version = 1` and only bump treaty authorization or journal versions if bytes require it.
+- `Program.Exchange.provider(...)`: handler-first declaration helper that derives provider manifest entries, `ProviderOffer` data, offer fingerprints, catalog metadata, typed request views, typed outcome type, and coverage metadata.
+- `Program.Exchange.ProviderHarness(config)`: static harness type with `providerManifest`, `providerOffers`, `catalog`, `assertValid`, `assertOffersCovered`, `Request(handler_key)`, `Outcome(handler_key)`, `handle`, `handleNext`, and `drain`.
+- `Program.Exchange.ProviderCatalog(.{ HarnessA, HarnessB })`: small static metadata helper for provider manifests, offers, fingerprints, resolver catalog inputs, and duplicate checks.
+- `Program.Exchange.ProviderOffer`: remains deterministic data. Preferred path derives it from handler declarations. Manual offers remain an advanced escape hatch only when they exactly match derived handler metadata.
+- Typed provider request views: expose provider/offer/treaty/route/capability/usage/branch/replay/obligation/capsule/morphism metadata and typed payload/current-value accessors; do not expose request tokens, runtime pointers, allocator pointers, mutable envelope internals, or host context beyond the explicit provider context argument.
+- Provider outcomes: support `resume`, `returnNow`, `resumeAfter`, `reject`, `forward`, `replay`, and optional `pending/noResponse`, with comptime checks where possible and structured blockers otherwise.
+- Provider blockers: add structured blocker tags for malformed envelopes, treaty/certificate/provider/offer/capability/route/policy mismatches, decode/capsule/byte-limit failures, handler reject/forward/pending, invalid outcomes, and response build failures.
+- Response builder: create response envelopes through existing `ResponseEnvelope` machinery, preserve response envelope fingerprint semantics, and attach treaty-bound authorization.
+- Provider-side journal events: add provider manifest/offer derived, request received/validated/rejected, handler invoked, response built/authorized/forwarded, and pending events without bumping journal v4 unless encoding requires v5.
 - Examples, tests, docs, `build.zig`, and repo path/lint manifests.
 
 ## Implementation Brief
-1. step=treaty_core_records; owner=implementation; success_criteria=version constants, ProviderOffer, MorphismOffer, TreatyRequest, Treaty.Policy, Treaty.Blocker, resolver result, deterministic fingerprints, support predicates, byte-limit checks, and malformed-offer checks compile with stable focused tests.
-2. step=treaty_certificate_authorization; owner=implementation; success_criteria=Treaty.Certificate and treaty-bound response authorization sidecar bind request/provider/offer/capability/route/morphism/usage/replay/branch/obligation/journal fields, preserve existing response fingerprint behavior, and reject mismatched provider/capability/route/morphism/usage/replay/branch/obligation cases.
-3. step=direct_treaty_resolver; owner=implementation; success_criteria=TreatyResolver selects direct provider treaties, rejects no-provider/no-capability/foreign-manifest/ambiguous/default-policy cases, generates least-authority attenuation when required, and returns structured blockers for rejected candidates without IO or provider calls.
-4. step=adapted_treaty_resolver; owner=implementation; success_criteria=TreatyResolver supports one-hop dynamic morphism offers, residualized/pipeline adapter metadata when available, residualization preference/fallback policy, max-hop enforcement, source-target ref checks, and handling-mode/source-target correspondence in the treaty certificate.
-5. step=mailbox_journal_treaty_mode; owner=implementation; success_criteria=MailboxRunner treaty mode resolves before provider outbox write, sends request plus treaty certificate, journals treaty requested/selected/blocked/certificate/authorization/response accepted/rejected/capability attenuated/obligation events, validates treaty-bound responses, and leaves direct routing mode compatible.
-6. step=examples_docs_build; owner=implementation; success_criteria=add `examples/effect_treaty_direct.zig`, `examples/effect_treaty_morphism.zig`, `examples/effect_treaty_replayable.zig`, run steps, repo path/lint manifest updates, README, `docs/program_plan.md`, and `docs/custom_effect_authoring.md` sections explaining Effect Treaties and non-goals.
-7. step=fixed_point_proof_and_ship; owner=implementation; success_criteria=run fixed-point de novo review, negative-ledger handoff, one-change challenge, all requested proof commands, record durable `$st` proof, commit, push, and `$ship` a PR with API/proof/non-goal summary.
+1. step=provider_harness_core_declarations; owner=implementation; success_criteria=add handler-first provider declarations, `ProviderHarness`, derived manifest/offers/fingerprints/catalog metadata, manual-offer exact-match validation, coverage assertions, duplicate/foreign-offer rejection, and stable focused tests.
+2. step=provider_request_and_outcomes; owner=implementation; success_criteria=add typed provider request views, typed payload/current-value decode accessors, hidden request-token/runtime/allocator internals, outcome constructors, outcome-policy validation, and tests for valid/invalid request and outcome shapes.
+3. step=provider_validation_pipeline; owner=implementation; success_criteria=validate request envelope, treaty certificate, provider/offer, capability/attenuation/route, usage/response-use/replay/branch/obligation/capability-instance, capsule, byte limits, and offer support before invoking handlers, with structured blocker tests.
+4. step=response_packet_authorization; owner=implementation; success_criteria=build response envelopes from outcomes, validate them against requests, attach treaty-bound authorization citing provider/offer/treaty/certificate/route/capability/request/response fields, preserve response envelope fingerprint stability, and test unauthorized/mismatched responses.
+5. step=provider_journal_mailbox_helpers; owner=implementation; success_criteria=record provider-side journal events, preserve legacy journal decode compatibility, add `handleNext`/`drain` in-memory helpers, and test forward/reject/pending/replay paths.
+6. step=round_trip_examples_docs; owner=implementation; success_criteria=add `provider_harness_direct`, `provider_harness_morphism`, and `provider_harness_replayable` examples/build steps; update README, `docs/program_plan.md`, and `docs/custom_effect_authoring.md` with Provider Harnesses framing and non-goals.
+7. step=fixed_point_proof_and_ship; owner=implementation; success_criteria=run fixed-point de novo review, negative-ledger handoff, one-change challenge, requested proof commands, record durable `$st` proof, commit, push, and `$ship` a PR with API/proof/non-goal summary.
 
 ## Proof Commands
 ```bash
@@ -38,6 +40,9 @@ zig version
 zig fmt --check build.zig src examples test bench
 git diff --check
 zig build --summary all
+zig build run-provider-harness-direct
+zig build run-provider-harness-morphism
+zig build run-provider-harness-replayable
 zig build run-effect-treaty-direct
 zig build run-effect-treaty-morphism
 zig build run-effect-treaty-replayable
@@ -58,10 +63,14 @@ zig build run-custom-approval-workflow
 zig build run-agent-loop
 zig build run-typed-program-plan
 zig build test --summary all
+zig build test --summary none -- --test-filter "provider harness"
+zig build test --summary none -- --test-filter "provider request"
+zig build test --summary none -- --test-filter "provider outcome"
+zig build test --summary none -- --test-filter "provider journal"
+zig build test --summary none -- --test-filter "derived offer"
 zig build test --summary none -- --test-filter "treaty"
 zig build test --summary none -- --test-filter "offer"
 zig build test --summary none -- --test-filter "resolver"
-zig build test --summary none -- --test-filter "morphism offer"
 zig build test --summary none -- --test-filter "capability"
 zig build test --summary none -- --test-filter "linear"
 zig build test --summary none -- --test-filter "obligation"

@@ -332,6 +332,41 @@ distributed consensus, workflow definitions, or provider execution. Hosts still
 own identity, signing, encryption, transport, storage, scheduling, network,
 persistence, tools, humans, models, and side effects.
 
+### Provider Harnesses
+
+Treaties define the agreement. `Program.Exchange.ProviderHarness` executes the
+provider side of that agreement. It lets custom-effect authors define typed
+provider handlers and derive the provider manifest, provider offers, offer
+fingerprints, treaty resolver catalog metadata, typed request views, typed
+outcomes, and coverage assertions from those declarations.
+
+Use handler-first declarations for ordinary providers. This keeps provider
+offers and handlers from drifting. `ProviderOffer` remains available as
+deterministic data for treaties, journals, catalogs, and certificates, and manual
+offers are an advanced escape hatch that can be validated against the derived
+handler declaration before use.
+
+`ProviderHarness.handle` is transport-neutral and nonblocking. It receives the
+request envelope plus treaty certificate and validates request bytes, manifest,
+treaty, provider, offer, capability, attenuated capability, route, usage,
+response-use, replay, branch, obligation, capsule policy, byte limits, and
+payload or current-value refs before invoking the typed handler. The handler
+sees a typed request view with treaty/source/target metadata and typed
+payload/current-value accessors. It does not receive request tokens, runtime
+pointers, allocator pointers, mutable request envelope internals, or hidden host
+context beyond the explicit provider context argument.
+
+Typed outcomes are explicit: resume, return-now, resume-after, replay, reject,
+forward, or pending. The harness validates the outcome against the derived offer,
+builds the response envelope, attaches treaty-bound authorization, and can record
+provider-side journal events. Hosts still own transport, queues, scheduling,
+identity, signing, encryption, storage, network, persistence, retries, provider
+lifecycle, and cancellation side effects.
+
+Provider Harnesses are not async runtimes, RPC frameworks, network servers,
+message brokers, provider registries, security layers, workflow engines, service
+discovery systems, source languages, VMs, or Artifact APIs.
+
 ### Linear Effect Sessions
 
 Continuations can be copied; the world often cannot. Linear Effect Sessions add
