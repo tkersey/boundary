@@ -7011,6 +7011,10 @@ pub fn program(
                             const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program execution has no parked session");
                             return .{ .rejected = failed };
                         };
+                        if (!providerProgramNestedRequestMatchesExecution(execution.*, nested_request)) {
+                            const failed = blocker(.handler_program_restore_mismatch, request, certificate, offer.fingerprint, "provider Program nested request does not match parked execution metadata");
+                            return .{ .rejected = failed };
+                        }
                         if (nested_response.request_envelope_fingerprint != nested_request.fingerprint) {
                             const failed = blocker(.handler_program_nested_request_invalid, request, certificate, offer.fingerprint, "nested response does not answer the parked provider Program request");
                             try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, failed.tag);
@@ -7063,6 +7067,27 @@ pub fn program(
                             execution.capability_fingerprint == certificate.capability_fingerprint and
                             execution.capability_instance_fingerprint == certificate.capability_instance_fingerprint and
                             execution.obligation_fingerprint == certificate.obligation_fingerprint;
+                    }
+
+                    fn providerProgramNestedRequestMatchesExecution(
+                        execution: anytype,
+                        nested_request: anytype,
+                    ) bool {
+                        nested_request.validate() catch return false;
+                        if (execution.nested_request_fingerprint == null or
+                            execution.provider_program_capsule_image_fingerprint == null or
+                            nested_request.capsule_image == null or
+                            nested_request.capsule_image_fingerprint == null)
+                        {
+                            return false;
+                        }
+                        if (nested_request.request_fingerprint != execution.nested_request_fingerprint.?) return false;
+                        if (nested_request.capsule_image_fingerprint.? != execution.provider_program_capsule_image_fingerprint.?) return false;
+                        return switch (execution.state) {
+                            .parked_on_nested_request => nested_request.kind == .operation,
+                            .parked_on_nested_after => nested_request.kind == .after,
+                            else => false,
+                        };
                     }
 
                     fn stepStartedProviderProgram(

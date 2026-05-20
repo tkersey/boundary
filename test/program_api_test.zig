@@ -24136,6 +24136,28 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     }
     execution.execution_fingerprint -%= 1;
     try std.testing.expect(execution.nested_request_envelope != null);
+    execution.nested_request_fingerprint.? +%= 1;
+    const tampered_nested_fingerprint_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal });
+    switch (tampered_nested_fingerprint_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    execution.nested_request_fingerprint.? -%= 1;
+    execution.provider_program_capsule_image_fingerprint.? +%= 1;
+    const tampered_capsule_fingerprint_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal });
+    switch (tampered_capsule_fingerprint_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    execution.provider_program_capsule_image_fingerprint.? -%= 1;
+    execution.state = .done;
+    const tampered_state_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal });
+    switch (tampered_state_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    execution.state = .parked_on_nested_request;
+    try std.testing.expect(execution.nested_request_envelope != null);
     const wrong_response_use_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .response_use = .replayed });
     switch (wrong_response_use_continue) {
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.response_use_not_supported, blocker.tag),
