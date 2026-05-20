@@ -7104,6 +7104,7 @@ pub fn program(
                         const Entry = entries[index];
                         const step = session.next() catch |err| switch (err) {
                             error.ProgramContractViolation => {
+                                session.deinit();
                                 const failed = blocker(.handler_program_effect_unhandled, request, certificate, offer.fingerprint, "provider Program execution failed before producing a provider outcome");
                                 try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
                                 try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
@@ -7132,6 +7133,7 @@ pub fn program(
                             .request => |nested_request| {
                                 var capsule = session.capture(allocator) catch |err| switch (err) {
                                     error.ProgramContractViolation => {
+                                        session.deinit();
                                         const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program capsule could not be captured");
                                         try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
                                         return .{ .rejected = failed };
@@ -7141,6 +7143,7 @@ pub fn program(
                                 defer capsule.deinit();
                                 var image = capsule.encode(allocator) catch |err| switch (err) {
                                     error.ProgramContractViolation => {
+                                        session.deinit();
                                         const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program capsule image could not be encoded");
                                         try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
                                         return .{ .rejected = failed };
@@ -7150,6 +7153,7 @@ pub fn program(
                                 defer image.deinit();
                                 var nested_envelope = Entry.handler_program.Exchange.RequestEnvelope.fromRequest(allocator, nested_request, .{ .capsule = image }) catch |err| switch (err) {
                                     error.ProgramContractViolation => {
+                                        session.deinit();
                                         const failed = blocker(.handler_program_nested_request_invalid, request, certificate, offer.fingerprint, "provider Program nested request envelope could not be built");
                                         try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
                                         return .{ .rejected = failed };
@@ -7165,6 +7169,7 @@ pub fn program(
                             .after => |nested_after| {
                                 var capsule = session.capture(allocator) catch |err| switch (err) {
                                     error.ProgramContractViolation => {
+                                        session.deinit();
                                         const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program capsule could not be captured");
                                         try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
                                         return .{ .rejected = failed };
@@ -7174,6 +7179,7 @@ pub fn program(
                                 defer capsule.deinit();
                                 var image = capsule.encode(allocator) catch |err| switch (err) {
                                     error.ProgramContractViolation => {
+                                        session.deinit();
                                         const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program capsule image could not be encoded");
                                         try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
                                         return .{ .rejected = failed };
@@ -7183,6 +7189,7 @@ pub fn program(
                                 defer image.deinit();
                                 var nested_envelope = Entry.handler_program.Exchange.RequestEnvelope.fromAfter(allocator, nested_after, .{ .capsule = image }) catch |err| switch (err) {
                                     error.ProgramContractViolation => {
+                                        session.deinit();
                                         const failed = blocker(.handler_program_nested_request_invalid, request, certificate, offer.fingerprint, "provider Program nested after envelope could not be built");
                                         try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
                                         return .{ .rejected = failed };
