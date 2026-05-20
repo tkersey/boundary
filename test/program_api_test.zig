@@ -24222,10 +24222,19 @@ test "Program.Exchange ProviderHarness runs synchronous program-backed provider 
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.offer_mismatch, blocker.tag),
         else => return error.ExpectedProviderRejection,
     }
+    try std.testing.expect(provider_journal.entries.items.len >= 2);
+    switch (provider_journal.entries.items[0]) {
+        .exchange_event => |event| try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.provider_request_received, event.kind),
+        else => return error.ExpectedJournalEvent,
+    }
+    switch (provider_journal.entries.items[1]) {
+        .exchange_event => |event| try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.provider_request_rejected, event.kind),
+        else => return error.ExpectedJournalEvent,
+    }
     var failing_completion_allocator = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     var failing_completion_journal = Program.Session.Journal.init(failing_completion_allocator.allocator());
     defer failing_completion_journal.deinit();
-    try failing_completion_journal.entries.ensureTotalCapacityPrecise(failing_completion_allocator.allocator(), 2);
+    try failing_completion_journal.entries.ensureTotalCapacityPrecise(failing_completion_allocator.allocator(), 3);
     failing_completion_allocator.fail_index = failing_completion_allocator.alloc_index;
     failing_completion_allocator.resize_fail_index = failing_completion_allocator.resize_index;
     const failing_completion_result = Harness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, envelope, treaty.certificate, catalog.provider_offers[0], .{ .treaty = treaty, .journal = &failing_completion_journal });
@@ -24306,10 +24315,12 @@ test "Program.Exchange ProviderHarness runs synchronous program-backed provider 
         .rejected => |blocker| try std.testing.expectEqual(LowLimitHarness.ProviderBlockerTag.byte_limit_exceeded, blocker.tag),
         else => return error.ExpectedProviderRejection,
     }
+    var saw_low_request_received = false;
     var saw_low_program_started = false;
     var saw_low_program_rejected = false;
     for (low_provider_journal.entries.items) |entry| switch (entry) {
         .exchange_event => |event| switch (event.kind) {
+            .provider_request_received => saw_low_request_received = true,
             .provider_program_started => {
                 saw_low_program_started = true;
                 try std.testing.expect(event.provider_program_execution_fingerprint != null);
@@ -24323,13 +24334,16 @@ test "Program.Exchange ProviderHarness runs synchronous program-backed provider 
         },
         else => {},
     };
+    try std.testing.expect(saw_low_request_received);
     try std.testing.expect(saw_low_program_started);
     try std.testing.expect(saw_low_program_rejected);
 
+    var saw_request_received = false;
     var saw_program_started = false;
     var saw_program_completed = false;
     for (provider_journal.entries.items) |entry| switch (entry) {
         .exchange_event => |event| switch (event.kind) {
+            .provider_request_received => saw_request_received = true,
             .provider_program_started => {
                 saw_program_started = true;
                 try std.testing.expect(event.provider_program_execution_fingerprint != null);
@@ -24344,6 +24358,7 @@ test "Program.Exchange ProviderHarness runs synchronous program-backed provider 
         },
         else => {},
     };
+    try std.testing.expect(saw_request_received);
     try std.testing.expect(saw_program_started);
     try std.testing.expect(saw_program_completed);
     const sync_provider_journal_bytes = try provider_journal.encode(std.testing.allocator);
@@ -24497,11 +24512,26 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     var corrupt_nested_response = try HandlerProgram.Exchange.ResponseEnvelope.decode(std.testing.allocator, nested_response.bytes);
     defer corrupt_nested_response.deinit();
     corrupt_nested_response.response_trace_fingerprint +%= 1;
+    var nested_response_event_count_before_corrupt: usize = 0;
+    for (provider_journal.entries.items) |entry| switch (entry) {
+        .exchange_event => |event| {
+            if (event.kind == .provider_program_nested_response) nested_response_event_count_before_corrupt += 1;
+        },
+        else => {},
+    };
     const corrupt_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], corrupt_nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
     switch (corrupt_continue) {
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_nested_request_invalid, blocker.tag),
         else => return error.ExpectedProviderRejection,
     }
+    var nested_response_event_count_after_corrupt: usize = 0;
+    for (provider_journal.entries.items) |entry| switch (entry) {
+        .exchange_event => |event| {
+            if (event.kind == .provider_program_nested_response) nested_response_event_count_after_corrupt += 1;
+        },
+        else => {},
+    };
+    try std.testing.expectEqual(nested_response_event_count_before_corrupt, nested_response_event_count_after_corrupt);
     try std.testing.expect(execution.nested_request_envelope != null);
     const no_treaty_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .journal = &provider_journal });
     switch (no_treaty_continue) {

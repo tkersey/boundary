@@ -6957,6 +6957,7 @@ pub fn program(
                         if (comptime (!@hasDecl(Entry, "program_backed") or !Entry.program_backed)) {
                             @compileError("startProgramExecution requires a program-backed provider declaration");
                         }
+                        try appendProviderEvent(options_value.journal, .provider_request_received, request, certificate, null, null, null);
                         validateManualOffer(allocator, index, offer) catch |err| switch (err) {
                             error.ProgramContractViolation => {
                                 const failed = blocker(.offer_mismatch, request, certificate, offer.fingerprint, "provider Program step API offer does not exactly match the selected harness declaration");
@@ -7062,7 +7063,6 @@ pub fn program(
                             try appendProviderProgramEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, null, failed.tag);
                             return .{ .rejected = failed };
                         }
-                        try appendProviderProgramEvent(options_value.journal, .provider_program_nested_response, request, certificate, execution.execution_fingerprint, nested_request.request_fingerprint, nested_response.fingerprint, null);
                         var session = Entry.handler_program.Exchange.restoreFromRequestEnvelope(runtime, handler_handlers, nested_request) catch |err| switch (err) {
                             error.ProgramContractViolation => {
                                 const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program capsule image could not be restored");
@@ -7084,6 +7084,7 @@ pub fn program(
                             },
                             else => |other| return providerProgramMapHandlerError(other),
                         };
+                        try appendProviderProgramEvent(options_value.journal, .provider_program_nested_response, request, certificate, execution.execution_fingerprint, nested_request.request_fingerprint, nested_response.fingerprint, null);
                         try appendProviderProgramEvent(options_value.journal, .provider_program_resumed, request, certificate, execution.execution_fingerprint, null, null, null);
                         const resumed_result = try stepStartedProviderProgram(index, &session, allocator, request, certificate, offer, options_value, use_value, execution.execution_fingerprint);
                         switch (resumed_result) {
