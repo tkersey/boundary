@@ -66,6 +66,10 @@ pub const Domain = struct {
         pipeline,
         pipeline_certificate,
         pipeline_source_map,
+        semantic_body,
+        host_intrinsic,
+        defunctionalization_report,
+        defunctionalization_policy,
     };
 
     pub const Owner = enum {
@@ -81,6 +85,7 @@ pub const Domain = struct {
         morphism,
         residualization,
         pipeline,
+        semantic_boundary,
     };
 
     pub const Kind = enum {
@@ -141,7 +146,7 @@ pub const domains = struct {
     pub const obligation = Domain{ .id = .obligation, .name = "ability.exchange.obligation", .format_version = 1, .fingerprint_version = 1, .owner = .linear_session, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "obligation" };
     pub const obligation_transition = Domain{ .id = .obligation_transition, .name = "ability.exchange.obligation.transition", .fingerprint_version = 1, .owner = .linear_session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "obligation transition" };
     pub const treaty = Domain{ .id = .treaty, .name = "ability.exchange.treaty", .format_version = 1, .fingerprint_version = 3, .owner = .treaty, .kind = .certificate, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "treaty" };
-    pub const treaty_certificate = Domain{ .id = .treaty_certificate, .name = "ability.exchange.treaty.certificate", .format_version = 1, .fingerprint_version = 3, .owner = .treaty, .kind = .certificate, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "certificate" };
+    pub const treaty_certificate = Domain{ .id = .treaty_certificate, .name = "ability.exchange.treaty.certificate", .format_version = 1, .fingerprint_version = 4, .owner = .treaty, .kind = .certificate, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "certificate" };
     pub const treaty_authorization = Domain{ .id = .treaty_authorization, .name = "ability.exchange.treaty.authorization", .format_version = 4, .fingerprint_version = 4, .owner = .treaty, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "authorization" };
     pub const treaty_authorization_legacy_v3 = Domain{ .id = .treaty_authorization_legacy_v3, .name = "ability.exchange.treaty.authorization.v3", .format_version = 3, .fingerprint_version = 3, .owner = .treaty, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "legacy authorization" };
     pub const treaty_authorization_legacy_v2 = Domain{ .id = .treaty_authorization_legacy_v2, .name = "ability.exchange.treaty.authorization.v2", .format_version = 2, .fingerprint_version = 2, .owner = .treaty, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "legacy authorization" };
@@ -152,6 +157,10 @@ pub const domains = struct {
     pub const pipeline = Domain{ .id = .pipeline, .name = "ability.program.pipeline", .fingerprint_version = 1, .owner = .pipeline, .kind = .fingerprint, .certificate_referenced = true, .tests = "pipeline" };
     pub const pipeline_certificate = Domain{ .id = .pipeline_certificate, .name = "ability.program.pipeline.certificate", .fingerprint_version = 1, .owner = .pipeline, .kind = .certificate, .certificate_referenced = true, .tests = "pipeline certificate" };
     pub const pipeline_source_map = Domain{ .id = .pipeline_source_map, .name = "ability.program.pipeline.source_map", .fingerprint_version = 1, .owner = .pipeline, .kind = .derived_metadata, .certificate_referenced = true, .tests = "source map" };
+    pub const semantic_body = Domain{ .id = .semantic_body, .name = "ability.evidence.semantic_body", .fingerprint_version = 1, .owner = .semantic_boundary, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "semantic body" };
+    pub const host_intrinsic = Domain{ .id = .host_intrinsic, .name = "ability.evidence.host_intrinsic", .format_version = 1, .fingerprint_version = 1, .owner = .semantic_boundary, .kind = .derived_metadata, .stability = .host_owned_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "host intrinsic" };
+    pub const defunctionalization_report = Domain{ .id = .defunctionalization_report, .name = "ability.evidence.defunctionalization_report", .fingerprint_version = 1, .owner = .semantic_boundary, .kind = .report, .journal_referenced = true, .certificate_referenced = true, .tests = "defunctionalization" };
+    pub const defunctionalization_policy = Domain{ .id = .defunctionalization_policy, .name = "ability.evidence.defunctionalization_policy", .fingerprint_version = 1, .owner = .semantic_boundary, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "intrinsic allowlist" };
 };
 
 pub const all_domains = &[_]Domain{
@@ -202,6 +211,10 @@ pub const all_domains = &[_]Domain{
     domains.pipeline,
     domains.pipeline_certificate,
     domains.pipeline_source_map,
+    domains.semantic_body,
+    domains.host_intrinsic,
+    domains.defunctionalization_report,
+    domains.defunctionalization_policy,
 };
 
 pub fn domainById(id: Domain.Id) ?Domain {
@@ -547,6 +560,10 @@ pub const Role = enum {
     capsule_image,
     source_site,
     residual_site,
+    semantic_body,
+    host_intrinsic,
+    defunctionalization_report,
+    defunctionalization_policy,
 };
 
 pub const Dependency = struct {
@@ -736,6 +753,7 @@ pub const SourceSubsystem = enum {
     morphism,
     residualization,
     pipeline,
+    semantic_boundary,
 };
 
 pub const Blocker = struct {
@@ -912,6 +930,509 @@ pub const PolicySummary = struct {
         return builder.finish();
     }
 };
+
+pub const SemanticBody = enum {
+    ability_program,
+    declarative,
+    residualized_program,
+    pipeline,
+    kernel_primitive,
+    host_intrinsic,
+    unknown,
+
+    pub fn name(self: @This()) []const u8 {
+        return @tagName(self);
+    }
+
+    pub fn isHostIntrinsic(self: @This()) bool {
+        return self == .host_intrinsic;
+    }
+
+    pub fn isUnknown(self: @This()) bool {
+        return self == .unknown;
+    }
+
+    pub fn isNonIntrinsic(self: @This()) bool {
+        return switch (self) {
+            .ability_program, .declarative, .residualized_program, .pipeline, .kernel_primitive => true,
+            .host_intrinsic, .unknown => false,
+        };
+    }
+
+    pub fn fingerprint(self: @This()) u64 {
+        var builder = FingerprintBuilder.init(domains.semantic_body);
+        builder.fieldBytes("semantic_body", @tagName(self));
+        builder.fieldU8("semantic_body.ordinal", @intFromEnum(self));
+        return builder.finish();
+    }
+
+    pub fn evidenceRef(self: @This()) Ref {
+        return refFor(domains.semantic_body, self.fingerprint(), .{ .kind_tag = @tagName(self) });
+    }
+};
+
+pub const HostIntrinsic = struct {
+    format_version: u32 = 1,
+    fingerprint_version: u32 = 1,
+    fingerprint: u64,
+    label: []const u8,
+    kind: Kind,
+    owner_subsystem: SourceSubsystem,
+    allowed_protocol_labels: []const []const u8 = &.{},
+    allowed_site_indexes: []const usize = &.{},
+    allowed_protocol_op_fingerprints: []const u64 = &.{},
+    associated_provider_offer_ref: ?Ref = null,
+    associated_capability_ref: ?Ref = null,
+    associated_treaty_ref: ?Ref = null,
+    associated_morphism_offer_ref: ?Ref = null,
+    associated_handler_descriptor: ?[]const u8 = null,
+    reason: []const u8 = "",
+    stability: Stability = .host_owned,
+    replay_policy_summary: []const u8 = "",
+    usage_mode_summary: []const u8 = "",
+    evidence_dependencies: []const Dependency = &.{},
+    tags: []const []const u8 = &.{},
+    metadata: []const u8 = &.{},
+
+    pub const Kind = enum {
+        provider_function,
+        interpreter_function,
+        run_handler_function,
+        dynamic_morphism_mapper,
+        host_tool,
+        host_model,
+        host_file,
+        host_human,
+        host_randomness,
+        host_clock,
+        test_fixture,
+        foreign_system,
+        unknown,
+    };
+
+    pub const Stability = enum {
+        stable_declared,
+        host_owned,
+        test_only,
+        unknown,
+    };
+
+    pub const Options = struct {
+        label: []const u8,
+        kind: Kind,
+        owner_subsystem: SourceSubsystem,
+        allowed_protocol_labels: []const []const u8 = &.{},
+        allowed_site_indexes: []const usize = &.{},
+        allowed_protocol_op_fingerprints: []const u64 = &.{},
+        associated_provider_offer_ref: ?Ref = null,
+        associated_capability_ref: ?Ref = null,
+        associated_treaty_ref: ?Ref = null,
+        associated_morphism_offer_ref: ?Ref = null,
+        associated_handler_descriptor: ?[]const u8 = null,
+        reason: []const u8 = "",
+        stability: Stability = .host_owned,
+        replay_policy_summary: []const u8 = "",
+        usage_mode_summary: []const u8 = "",
+        evidence_dependencies: []const Dependency = &.{},
+        tags: []const []const u8 = &.{},
+        metadata: []const u8 = &.{},
+    };
+
+    pub fn init(options: Options) @This() {
+        var value = @This(){
+            .fingerprint = 0,
+            .label = options.label,
+            .kind = options.kind,
+            .owner_subsystem = options.owner_subsystem,
+            .allowed_protocol_labels = options.allowed_protocol_labels,
+            .allowed_site_indexes = options.allowed_site_indexes,
+            .allowed_protocol_op_fingerprints = options.allowed_protocol_op_fingerprints,
+            .associated_provider_offer_ref = options.associated_provider_offer_ref,
+            .associated_capability_ref = options.associated_capability_ref,
+            .associated_treaty_ref = options.associated_treaty_ref,
+            .associated_morphism_offer_ref = options.associated_morphism_offer_ref,
+            .associated_handler_descriptor = options.associated_handler_descriptor,
+            .reason = options.reason,
+            .stability = options.stability,
+            .replay_policy_summary = options.replay_policy_summary,
+            .usage_mode_summary = options.usage_mode_summary,
+            .evidence_dependencies = options.evidence_dependencies,
+            .tags = options.tags,
+            .metadata = options.metadata,
+        };
+        value.fingerprint = value.computeFingerprint();
+        return value;
+    }
+
+    pub fn computeFingerprint(self: @This()) u64 {
+        var builder = FingerprintBuilder.init(domains.host_intrinsic);
+        builder.fieldU32("format_version", self.format_version);
+        builder.fieldU32("fingerprint_version", self.fingerprint_version);
+        builder.fieldBytes("label", self.label);
+        builder.fieldBytes("kind", @tagName(self.kind));
+        builder.fieldBytes("owner", @tagName(self.owner_subsystem));
+        for (self.allowed_protocol_labels) |protocol_label| builder.fieldBytes("allowed_protocol", protocol_label);
+        for (self.allowed_site_indexes) |site| builder.fieldUsize("allowed_site", site);
+        for (self.allowed_protocol_op_fingerprints) |op| builder.fieldU64("allowed_protocol_op", op);
+        builder.fieldOptionalRef("provider_offer", self.associated_provider_offer_ref);
+        builder.fieldOptionalRef("capability", self.associated_capability_ref);
+        builder.fieldOptionalRef("treaty", self.associated_treaty_ref);
+        builder.fieldOptionalRef("morphism_offer", self.associated_morphism_offer_ref);
+        builder.fieldOptionalBytes("handler_descriptor", self.associated_handler_descriptor);
+        builder.fieldBytes("reason", self.reason);
+        builder.fieldBytes("stability", @tagName(self.stability));
+        builder.fieldBytes("replay_policy", self.replay_policy_summary);
+        builder.fieldBytes("usage_mode", self.usage_mode_summary);
+        for (self.evidence_dependencies) |dependency| {
+            builder.fieldBytes("dependency.role", @tagName(dependency.role));
+            builder.fieldRef("dependency.ref", dependency.ref);
+        }
+        for (self.tags) |tag| builder.fieldBytes("tag", tag);
+        builder.fieldBytes("metadata", self.metadata);
+        return builder.finish();
+    }
+
+    pub fn evidenceRef(self: @This()) Ref {
+        return refFor(domains.host_intrinsic, self.fingerprint, .{
+            .format_version = self.format_version,
+            .label = self.label,
+            .kind_tag = @tagName(self.kind),
+        });
+    }
+
+    pub fn journalProjection(self: @This(), event_kind: []const u8) JournalProjection {
+        return .{
+            .evidence_ref = self.evidenceRef(),
+            .suggested_event_kind = event_kind,
+            .summary_metadata = self.label,
+        };
+    }
+
+    pub fn declaredProjection(self: @This()) JournalProjection {
+        return self.journalProjection("intrinsic_declared");
+    }
+
+    pub fn usedProjection(self: @This()) JournalProjection {
+        return self.journalProjection("intrinsic_used");
+    }
+
+    pub fn toEvidenceBlocker(self: @This(), tag: []const u8, summary: []const u8) Blocker {
+        return .{
+            .domain = domains.host_intrinsic.id,
+            .tag = tag,
+            .subject = self.evidenceRef(),
+            .primary = self.associated_provider_offer_ref orelse self.associated_morphism_offer_ref orelse self.associated_treaty_ref,
+            .short_code = tag,
+            .summary = summary,
+            .source = self.owner_subsystem,
+        };
+    }
+};
+
+pub const DefunctionalizationPolicy = struct {
+    label: []const u8 = "permissive",
+    allow_host_intrinsics: bool = true,
+    allowed_intrinsic_fingerprints: []const u64 = &.{},
+    allowed_intrinsic_kinds: []const HostIntrinsic.Kind = &.{},
+    allowed_intrinsic_labels: []const []const u8 = &.{},
+    reject_unknown: bool = false,
+    reject_dynamic_mappers: bool = false,
+    require_program_backed_providers: bool = false,
+    require_declarative_morphisms: bool = false,
+    require_no_intrinsics_in_treaties: bool = false,
+    allow_test_fixtures: bool = false,
+    allow_kernel_primitives: bool = true,
+    prefer_ability_program: bool = false,
+    prefer_declarative: bool = false,
+    prefer_residualized: bool = false,
+    maximum_intrinsic_count: ?usize = null,
+
+    pub fn strict() @This() {
+        return .{
+            .label = "strict",
+            .allow_host_intrinsics = false,
+            .reject_unknown = true,
+            .reject_dynamic_mappers = true,
+            .require_program_backed_providers = true,
+            .require_declarative_morphisms = true,
+            .require_no_intrinsics_in_treaties = true,
+            .prefer_ability_program = true,
+            .prefer_declarative = true,
+            .prefer_residualized = true,
+            .maximum_intrinsic_count = 0,
+        };
+    }
+
+    pub fn worldBoundary() @This() {
+        return .{
+            .label = "world_boundary",
+            .allow_host_intrinsics = true,
+            .reject_unknown = true,
+            .prefer_ability_program = true,
+            .prefer_declarative = true,
+            .prefer_residualized = true,
+        };
+    }
+
+    pub fn testFixture() @This() {
+        return .{
+            .label = "test_fixture",
+            .allow_host_intrinsics = true,
+            .allowed_intrinsic_kinds = &.{.test_fixture},
+            .reject_unknown = true,
+            .allow_test_fixtures = true,
+        };
+    }
+
+    pub fn permissive() @This() {
+        return .{};
+    }
+
+    pub fn fingerprint(self: @This()) u64 {
+        var builder = FingerprintBuilder.init(domains.defunctionalization_policy);
+        builder.fieldBytes("label", self.label);
+        builder.fieldBool("allow_host_intrinsics", self.allow_host_intrinsics);
+        for (self.allowed_intrinsic_fingerprints) |value| builder.fieldU64("allowed_intrinsic", value);
+        for (self.allowed_intrinsic_kinds) |value| builder.fieldBytes("allowed_kind", @tagName(value));
+        for (self.allowed_intrinsic_labels) |value| builder.fieldBytes("allowed_label", value);
+        builder.fieldBool("reject_unknown", self.reject_unknown);
+        builder.fieldBool("reject_dynamic_mappers", self.reject_dynamic_mappers);
+        builder.fieldBool("require_program_backed_providers", self.require_program_backed_providers);
+        builder.fieldBool("require_declarative_morphisms", self.require_declarative_morphisms);
+        builder.fieldBool("require_no_intrinsics_in_treaties", self.require_no_intrinsics_in_treaties);
+        builder.fieldBool("allow_test_fixtures", self.allow_test_fixtures);
+        builder.fieldBool("allow_kernel_primitives", self.allow_kernel_primitives);
+        builder.fieldBool("prefer_ability_program", self.prefer_ability_program);
+        builder.fieldBool("prefer_declarative", self.prefer_declarative);
+        builder.fieldBool("prefer_residualized", self.prefer_residualized);
+        builder.fieldOptionalU64("maximum_intrinsic_count", if (self.maximum_intrinsic_count) |value| @as(u64, @intCast(value)) else null);
+        return builder.finish();
+    }
+
+    pub fn evidenceRef(self: @This()) Ref {
+        return refFor(domains.defunctionalization_policy, self.fingerprint(), .{ .label = self.label });
+    }
+
+    pub fn policySummary(self: @This()) PolicySummary {
+        return .{
+            .policy_domain = domains.defunctionalization_policy.id,
+            .policy_fingerprint = self.fingerprint(),
+            .policy_label = self.label,
+        };
+    }
+
+    pub fn allowsIntrinsic(self: @This(), intrinsic: HostIntrinsic) bool {
+        if (!self.allow_host_intrinsics) return false;
+        if (intrinsic.kind == .test_fixture and self.allow_test_fixtures) return true;
+        for (self.allowed_intrinsic_fingerprints) |allowed| {
+            if (allowed == intrinsic.fingerprint) return true;
+        }
+        for (self.allowed_intrinsic_kinds) |allowed| {
+            if (allowed == intrinsic.kind) return true;
+        }
+        for (self.allowed_intrinsic_labels) |allowed| {
+            if (std.mem.eql(u8, allowed, intrinsic.label)) return true;
+        }
+        return self.allowed_intrinsic_fingerprints.len == 0 and self.allowed_intrinsic_kinds.len == 0 and self.allowed_intrinsic_labels.len == 0;
+    }
+};
+
+pub const DefunctionalizationReport = struct {
+    scope_kind: ScopeKind,
+    scope_ref: Ref,
+    report_fingerprint: u64,
+    total_bodies: usize = 0,
+    ability_program_count: usize = 0,
+    declarative_count: usize = 0,
+    residualized_program_count: usize = 0,
+    pipeline_count: usize = 0,
+    kernel_primitive_count: usize = 0,
+    host_intrinsic_count: usize = 0,
+    unknown_count: usize = 0,
+    intrinsic_refs: []const Ref = &.{},
+    unknown_refs: []const Ref = &.{},
+    dependencies: []const Dependency = &.{},
+    blockers: []const Blocker = &.{},
+    policy_summary: ?PolicySummary = null,
+    summary: []const u8 = "",
+
+    pub const ScopeKind = enum {
+        program,
+        provider_harness,
+        provider_offer,
+        treaty,
+        treaty_resolver_result,
+        interpreter,
+        run_handler_set,
+        morphism_offer,
+        pipeline,
+        journal,
+        catalog,
+    };
+
+    pub const Counts = struct {
+        ability_program: usize = 0,
+        declarative: usize = 0,
+        residualized_program: usize = 0,
+        pipeline: usize = 0,
+        kernel_primitive: usize = 0,
+        host_intrinsic: usize = 0,
+        unknown: usize = 0,
+
+        pub fn fromBody(body: SemanticBody) @This() {
+            var counts: @This() = .{};
+            switch (body) {
+                .ability_program => counts.ability_program = 1,
+                .declarative => counts.declarative = 1,
+                .residualized_program => counts.residualized_program = 1,
+                .pipeline => counts.pipeline = 1,
+                .kernel_primitive => counts.kernel_primitive = 1,
+                .host_intrinsic => counts.host_intrinsic = 1,
+                .unknown => counts.unknown = 1,
+            }
+            return counts;
+        }
+
+        pub fn total(self: @This()) usize {
+            return self.ability_program + self.declarative + self.residualized_program + self.pipeline + self.kernel_primitive + self.host_intrinsic + self.unknown;
+        }
+    };
+
+    pub const Options = struct {
+        scope_kind: ScopeKind,
+        scope_ref: Ref,
+        counts: Counts = .{},
+        intrinsic_refs: []const Ref = &.{},
+        unknown_refs: []const Ref = &.{},
+        dependencies: []const Dependency = &.{},
+        blockers: []const Blocker = &.{},
+        policy_summary: ?PolicySummary = null,
+        summary: []const u8 = "",
+    };
+
+    pub fn init(options: Options) @This() {
+        var report = @This(){
+            .scope_kind = options.scope_kind,
+            .scope_ref = options.scope_ref,
+            .report_fingerprint = 0,
+            .total_bodies = options.counts.total(),
+            .ability_program_count = options.counts.ability_program,
+            .declarative_count = options.counts.declarative,
+            .residualized_program_count = options.counts.residualized_program,
+            .pipeline_count = options.counts.pipeline,
+            .kernel_primitive_count = options.counts.kernel_primitive,
+            .host_intrinsic_count = options.counts.host_intrinsic,
+            .unknown_count = options.counts.unknown,
+            .intrinsic_refs = options.intrinsic_refs,
+            .unknown_refs = options.unknown_refs,
+            .dependencies = options.dependencies,
+            .blockers = options.blockers,
+            .policy_summary = options.policy_summary,
+            .summary = options.summary,
+        };
+        report.report_fingerprint = report.computeFingerprint();
+        return report;
+    }
+
+    pub fn computeFingerprint(self: @This()) u64 {
+        var builder = FingerprintBuilder.init(domains.defunctionalization_report);
+        builder.fieldBytes("scope_kind", @tagName(self.scope_kind));
+        builder.fieldRef("scope_ref", self.scope_ref);
+        builder.fieldUsize("total", self.total_bodies);
+        builder.fieldUsize("ability_program", self.ability_program_count);
+        builder.fieldUsize("declarative", self.declarative_count);
+        builder.fieldUsize("residualized_program", self.residualized_program_count);
+        builder.fieldUsize("pipeline", self.pipeline_count);
+        builder.fieldUsize("kernel_primitive", self.kernel_primitive_count);
+        builder.fieldUsize("host_intrinsic", self.host_intrinsic_count);
+        builder.fieldUsize("unknown", self.unknown_count);
+        for (self.intrinsic_refs) |ref| builder.fieldRef("intrinsic", ref);
+        for (self.unknown_refs) |ref| builder.fieldRef("unknown_ref", ref);
+        for (self.dependencies) |dependency| {
+            builder.fieldBytes("dependency.role", @tagName(dependency.role));
+            builder.fieldRef("dependency.ref", dependency.ref);
+        }
+        for (self.blockers) |blocker| builder.fieldU64("blocker", blocker.fingerprint());
+        if (self.policy_summary) |policy| builder.fieldU64("policy", policy.fingerprint());
+        builder.fieldBytes("summary", self.summary);
+        return builder.finish();
+    }
+
+    pub fn evidenceRef(self: @This()) Ref {
+        return refFor(domains.defunctionalization_report, self.report_fingerprint, .{
+            .label = self.summary,
+            .kind_tag = @tagName(self.scope_kind),
+        });
+    }
+
+    pub fn journalProjection(self: @This(), event_kind: []const u8) JournalProjection {
+        return .{
+            .evidence_ref = self.evidenceRef(),
+            .suggested_event_kind = event_kind,
+            .summary_metadata = self.summary,
+        };
+    }
+
+    pub fn recordedProjection(self: @This()) JournalProjection {
+        return self.journalProjection("defunctionalization_report_recorded");
+    }
+
+    pub fn toEvidenceReport(self: @This()) Report {
+        if (self.blockers.len != 0 or self.host_intrinsic_count != 0 or self.unknown_count != 0) {
+            return Report.withBlockers(
+                self.scope_ref,
+                domains.defunctionalization_report.id,
+                self.dependencies,
+                self.blockers,
+                &.{},
+                if (self.policy_summary) |policy| policy.policy_fingerprint else null,
+                self.summary,
+            );
+        }
+        return Report.ok(self.scope_ref, domains.defunctionalization_report.id, self.dependencies);
+    }
+
+    pub fn assertNoHostIntrinsics(self: @This()) error{ HostIntrinsicsPresent, UnknownSemanticBody }!void {
+        if (self.host_intrinsic_count != 0) return error.HostIntrinsicsPresent;
+        if (self.unknown_count != 0) return error.UnknownSemanticBody;
+    }
+
+    pub fn assertOnlyAllowlistedIntrinsics(self: @This(), policy: DefunctionalizationPolicy) error{ HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
+        if (policy.reject_unknown and self.unknown_count != 0) return error.UnknownSemanticBody;
+        if (!policy.allow_host_intrinsics and self.host_intrinsic_count != 0) return error.HostIntrinsicsPresent;
+        if (policy.maximum_intrinsic_count) |maximum| {
+            if (self.host_intrinsic_count > maximum) return error.IntrinsicCountExceeded;
+        }
+        const constrains_intrinsics = policy.allowed_intrinsic_fingerprints.len != 0 or
+            policy.allowed_intrinsic_kinds.len != 0 or
+            policy.allowed_intrinsic_labels.len != 0;
+        if (self.host_intrinsic_count != 0 and constrains_intrinsics) {
+            if (self.intrinsic_refs.len < self.host_intrinsic_count) return error.HostIntrinsicsPresent;
+            for (self.intrinsic_refs) |intrinsic_ref| {
+                if (!intrinsicRefAllowedByPolicy(intrinsic_ref, policy)) return error.HostIntrinsicsPresent;
+            }
+        }
+    }
+};
+
+fn intrinsicRefAllowedByPolicy(intrinsic_ref: Ref, policy: DefunctionalizationPolicy) bool {
+    for (policy.allowed_intrinsic_fingerprints) |allowed| {
+        if (allowed == intrinsic_ref.fingerprint) return true;
+    }
+    if (intrinsic_ref.kind_tag) |kind_tag| {
+        for (policy.allowed_intrinsic_kinds) |allowed| {
+            if (std.mem.eql(u8, @tagName(allowed), kind_tag)) return true;
+        }
+    }
+    if (intrinsic_ref.label) |label_value| {
+        for (policy.allowed_intrinsic_labels) |allowed| {
+            if (std.mem.eql(u8, allowed, label_value)) return true;
+        }
+    }
+    return policy.allowed_intrinsic_fingerprints.len == 0 and
+        policy.allowed_intrinsic_kinds.len == 0 and
+        policy.allowed_intrinsic_labels.len == 0;
+}
 
 pub fn certificateViewForTreatyCertificate(certificate: anytype) CertificateView {
     return certificateViewForTreatyCertificateWithDependencies(null, certificate);

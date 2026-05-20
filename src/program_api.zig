@@ -1364,6 +1364,16 @@ pub fn program(
         /// Stable fingerprint version for Program.Exchange treaty-bound response authorization.
         /// Version 4 preserves v3 fields and adds the request envelope format witness.
         pub const exchange_treaty_authorization_fingerprint_version: u32 = Evidence.domains.treaty_authorization.fingerprint_version;
+        /// Stable format version for evidence-marked host intrinsic descriptors.
+        pub const evidence_host_intrinsic_format_version: u32 = Evidence.domains.host_intrinsic.format_version.?;
+        /// Stable fingerprint version for evidence-marked host intrinsic descriptors.
+        pub const evidence_host_intrinsic_fingerprint_version: u32 = Evidence.domains.host_intrinsic.fingerprint_version;
+        /// Stable fingerprint version for semantic body classifications.
+        pub const evidence_semantic_body_fingerprint_version: u32 = Evidence.domains.semantic_body.fingerprint_version;
+        /// Stable fingerprint version for defunctionalization policy metadata.
+        pub const evidence_defunctionalization_policy_fingerprint_version: u32 = Evidence.domains.defunctionalization_policy.fingerprint_version;
+        /// Stable fingerprint version for defunctionalization report metadata.
+        pub const evidence_defunctionalization_report_fingerprint_version: u32 = Evidence.domains.defunctionalization_report.fingerprint_version;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {
@@ -1443,6 +1453,24 @@ pub fn program(
                 return finishResult(allocator, mutable_handlers, raw.value);
             }
             return finishResult(allocator, &mutable_handlers, raw.value);
+        }
+
+        /// Defunctionalization audit for Program.run's host-provided handler set.
+        pub fn runHandlerSetDefunctionalizationReport() Evidence.DefunctionalizationReport {
+            return Evidence.DefunctionalizationReport.init(.{
+                .scope_kind = .run_handler_set,
+                .scope_ref = Evidence.refFor(Evidence.domains.program_plan, body_compiled_plan_hash, .{ .label = label }),
+                .counts = .{
+                    .kernel_primitive = 1,
+                    .host_intrinsic = protocol.operation_site_count + protocol.after_site_count,
+                },
+                .summary = "Program.run handler set classification",
+            });
+        }
+
+        /// Assert Program.run's handler set against a defunctionalization policy.
+        pub fn assertRunHandlersDefunctionalized(policy: Evidence.DefunctionalizationPolicy) error{ HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
+            try runHandlerSetDefunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
         }
 
         /// Execute the compiled ProgramPlan with explicit caller-provided entry args.
@@ -5687,6 +5715,41 @@ pub fn program(
                     return Evidence.refForProviderOffer(self);
                 }
 
+                /// Semantic body classification visible from the offer bytes.
+                pub fn semanticBody(self: @This()) Evidence.SemanticBody {
+                    if (self.provider_program_mapping_fingerprint != null) return .ability_program;
+                    return .host_intrinsic;
+                }
+
+                /// Host-intrinsic descriptor for function-backed provider offers.
+                pub fn hostIntrinsic(self: @This()) ?Evidence.HostIntrinsic {
+                    if (self.provider_program_mapping_fingerprint != null) return null;
+                    return Evidence.HostIntrinsic.init(.{
+                        .label = self.label,
+                        .kind = .provider_function,
+                        .owner_subsystem = .provider_harness,
+                        .associated_provider_offer_ref = self.evidenceRef(),
+                        .reason = "function-backed provider handler",
+                        .usage_mode_summary = "provider offer",
+                        .tags = self.tags,
+                        .metadata = self.metadata,
+                    });
+                }
+
+                /// Optional HostIntrinsic evidence ref for opaque function-backed offers.
+                pub fn hostIntrinsicRef(self: @This()) ?Evidence.Ref {
+                    if (self.hostIntrinsic()) |intrinsic| return intrinsic.evidenceRef();
+                    return null;
+                }
+
+                /// Optional Ability-program body ref for program-backed offers.
+                pub fn programBodyRef(self: @This()) ?Evidence.Ref {
+                    if (self.provider_program_mapping_fingerprint) |fingerprint| {
+                        return Evidence.refFor(Evidence.domains.provider_program_mapping, fingerprint, .{ .label = self.label });
+                    }
+                    return null;
+                }
+
                 /// Return true when the offer supports a target protocol operation.
                 pub fn supportsProtocolOperation(self: @This(), protocol_op_fingerprint: u64, response_refs: []const lowering_api.ValueRef) bool {
                     self.validate() catch return false;
@@ -5766,6 +5829,16 @@ pub fn program(
 
             /// Handler-first declarations for provider harness catalogs.
             pub const ProviderHandler = struct {
+                /// Declare a host-intrinsic operation handler for a concrete Program protocol site.
+                pub fn intrinsicOperation(comptime SiteType: type, comptime handler_value: anytype, comptime options: ProviderHandlerOptions) type {
+                    return operation(SiteType, handler_value, options);
+                }
+
+                /// Declare a host-intrinsic after-continuation handler for a concrete Program protocol site.
+                pub fn intrinsicAfter(comptime SiteType: type, comptime handler_value: anytype, comptime options: ProviderHandlerOptions) type {
+                    return after(SiteType, handler_value, options);
+                }
+
                 /// Declare an operation handler for a concrete Program protocol site.
                 pub fn operation(comptime SiteType: type, comptime handler_value: anytype, comptime options: ProviderHandlerOptions) type {
                     return struct {
@@ -5777,6 +5850,8 @@ pub fn program(
                         pub const handler = handler_value;
                         /// Provider-offer options for this handler declaration.
                         pub const offer_options = options;
+                        /// Function-backed provider handlers are explicit host intrinsics.
+                        pub const semantic_body = Evidence.SemanticBody.host_intrinsic;
                     };
                 }
 
@@ -5791,6 +5866,8 @@ pub fn program(
                         pub const handler = handler_value;
                         /// Provider-offer options for this handler declaration.
                         pub const offer_options = options;
+                        /// Function-backed provider handlers are explicit host intrinsics.
+                        pub const semantic_body = Evidence.SemanticBody.host_intrinsic;
                     };
                 }
 
@@ -5859,6 +5936,8 @@ pub fn program(
                         pub const handler_program_result_ref = ProgramType.contract.result_ref;
                         /// Stable witness for the handler Program and mapping agreement.
                         pub const provider_program_mapping_fingerprint = mapping_fingerprint;
+                        /// Program-backed provider handlers are canonical Ability-native program bodies.
+                        pub const semantic_body = Evidence.SemanticBody.ability_program;
                         /// Provider-offer options for this handler declaration.
                         pub const offer_options = providerProgramOfferOptions(options);
                     };
@@ -5869,22 +5948,22 @@ pub fn program(
             pub const Provider = struct {
                 /// Declare one operation-site provider handler with derived catalog metadata.
                 pub fn operation(comptime site: type, comptime handler_fn: anytype) type {
-                    return ProviderHandler.operation(site, handler_fn, .{});
+                    return ProviderHandler.intrinsicOperation(site, handler_fn, .{});
                 }
 
                 /// Declare one operation-site provider handler with explicit catalog metadata.
                 pub fn operationWithOffer(comptime site: type, comptime handler_fn: anytype, comptime offer_options: ProviderHandlerOptions) type {
-                    return ProviderHandler.operation(site, handler_fn, offer_options);
+                    return ProviderHandler.intrinsicOperation(site, handler_fn, offer_options);
                 }
 
                 /// Declare one after-continuation provider handler with derived catalog metadata.
                 pub fn after(comptime site: type, comptime handler_fn: anytype) type {
-                    return ProviderHandler.after(site, handler_fn, .{});
+                    return ProviderHandler.intrinsicAfter(site, handler_fn, .{});
                 }
 
                 /// Declare one after-continuation provider handler with explicit catalog metadata.
                 pub fn afterWithOffer(comptime site: type, comptime handler_fn: anytype, comptime offer_options: ProviderHandlerOptions) type {
-                    return ProviderHandler.after(site, handler_fn, offer_options);
+                    return ProviderHandler.intrinsicAfter(site, handler_fn, offer_options);
                 }
             };
 
@@ -5908,6 +5987,7 @@ pub fn program(
                 const manifest_accepts_embedded_capsules_value = providerHarnessField(options, "accepts_embedded_capsules", @as(bool, true));
                 const manifest_accepts_capsule_restore_value = providerHarnessField(options, "accepts_capsule_restore", @as(bool, true));
                 const manifest_semantic_tags_value = providerHarnessField(options, "semantic_tags", @as([]const []const u8, &.{}));
+                const defunctionalization_intrinsic_refs = providerHarnessIntrinsicRefs(entries);
 
                 return struct {
                     /// Provider label used for the derived manifest.
@@ -5955,6 +6035,37 @@ pub fn program(
                     /// Return the canonical evidence reference for this provider harness type.
                     pub fn evidenceRef() Evidence.Ref {
                         return evidence_ref;
+                    }
+
+                    /// Return the semantic body classification for one handler declaration.
+                    pub fn declarationSemanticBody(comptime index: usize) Evidence.SemanticBody {
+                        if (index >= entries.len) @compileError("Program.Exchange.ProviderHarness declaration index out of range");
+                        return providerHarnessEntrySemanticBody(entries[index]);
+                    }
+
+                    /// Return the HostIntrinsic descriptor for a function-backed declaration.
+                    pub fn declarationHostIntrinsic(comptime index: usize) ?Evidence.HostIntrinsic {
+                        if (index >= entries.len) @compileError("Program.Exchange.ProviderHarness declaration index out of range");
+                        const Entry = entries[index];
+                        if (providerHarnessEntrySemanticBody(Entry) != .host_intrinsic) return null;
+                        return providerHarnessEntryHostIntrinsic(Entry);
+                    }
+
+                    /// Machine-readable semantic boundary audit for this provider harness.
+                    pub fn defunctionalizationReport() Evidence.DefunctionalizationReport {
+                        return Evidence.DefunctionalizationReport.init(.{
+                            .scope_kind = .provider_harness,
+                            .scope_ref = evidence_ref,
+                            .counts = providerHarnessSemanticCounts(entries),
+                            .intrinsic_refs = &defunctionalization_intrinsic_refs,
+                            .dependencies = &.{.{ .role = .provider_harness, .ref = evidence_ref }},
+                            .summary = provider_label_text,
+                        });
+                    }
+
+                    /// Assert this provider harness satisfies a defunctionalization policy.
+                    pub fn assertDefunctionalized(policy: Evidence.DefunctionalizationPolicy) error{ HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
+                        try defunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
                     }
 
                     /// Static provider catalog metadata.
@@ -8037,6 +8148,80 @@ pub fn program(
                 return ops;
             }
 
+            fn providerHarnessEntrySemanticBody(comptime Entry: type) Evidence.SemanticBody {
+                if (comptime @hasDecl(Entry, "semantic_body")) return Entry.semantic_body;
+                if (comptime @hasDecl(Entry, "program_backed") and Entry.program_backed) return .ability_program;
+                return .host_intrinsic;
+            }
+
+            fn providerHarnessHostIntrinsicCount(comptime entries: anytype) usize {
+                comptime var count: usize = 0;
+                inline for (entries) |Entry| {
+                    const body = comptime providerHarnessEntrySemanticBody(Entry);
+                    if (body == .host_intrinsic) count += 1;
+                }
+                return count;
+            }
+
+            fn providerHarnessSemanticCounts(comptime entries: anytype) Evidence.DefunctionalizationReport.Counts {
+                comptime var counts: Evidence.DefunctionalizationReport.Counts = .{};
+                inline for (entries) |Entry| {
+                    const body = comptime providerHarnessEntrySemanticBody(Entry);
+                    switch (body) {
+                        .ability_program => counts.ability_program += 1,
+                        .declarative => counts.declarative += 1,
+                        .residualized_program => counts.residualized_program += 1,
+                        .pipeline => counts.pipeline += 1,
+                        .kernel_primitive => counts.kernel_primitive += 1,
+                        .host_intrinsic => counts.host_intrinsic += 1,
+                        .unknown => counts.unknown += 1,
+                    }
+                }
+                return counts;
+            }
+
+            fn providerHarnessEntryHostIntrinsic(comptime Entry: type) Evidence.HostIntrinsic {
+                return Evidence.HostIntrinsic.init(.{
+                    .label = Entry.offer_options.label orelse providerHarnessDefaultOfferLabel(Entry),
+                    .kind = .provider_function,
+                    .owner_subsystem = .provider_harness,
+                    .allowed_protocol_labels = &.{providerHarnessEntryProtocolLabel(Entry)},
+                    .allowed_site_indexes = switch (Entry.kind) {
+                        .operation => &.{Entry.Site.index},
+                        .after => &.{Entry.Site.index},
+                        else => &.{},
+                    },
+                    .allowed_protocol_op_fingerprints = &.{providerHarnessEntryProtocolOpFingerprint(Entry)},
+                    .associated_handler_descriptor = switch (Entry.kind) {
+                        .operation => "provider operation handler",
+                        .after => "provider after handler",
+                        else => "provider handler",
+                    },
+                    .reason = "function-backed provider handler",
+                    .usage_mode_summary = "provider harness declaration",
+                    .tags = Entry.offer_options.tags,
+                    .metadata = Entry.offer_options.metadata,
+                });
+            }
+
+            fn providerHarnessIntrinsicRefs(comptime entries: anytype) [providerHarnessHostIntrinsicCount(entries)]Evidence.Ref {
+                var refs: [providerHarnessHostIntrinsicCount(entries)]Evidence.Ref = undefined;
+                var index: usize = 0;
+                inline for (entries) |Entry| {
+                    const body = comptime providerHarnessEntrySemanticBody(Entry);
+                    if (body == .host_intrinsic) {
+                        const intrinsic = providerHarnessEntryHostIntrinsic(Entry);
+                        refs[index] = Evidence.refFor(Evidence.domains.host_intrinsic, intrinsic.fingerprint, .{
+                            .format_version = intrinsic.format_version,
+                            .label = intrinsic.label,
+                            .kind_tag = @tagName(intrinsic.kind),
+                        });
+                        index += 1;
+                    }
+                }
+                return refs;
+            }
+
             fn providerHarnessEntryProtocolLabel(comptime Entry: type) []const u8 {
                 return Entry.offer_options.protocol_label orelse switch (Entry.kind) {
                     .operation => Entry.Site.requirement_label,
@@ -8255,6 +8440,45 @@ pub fn program(
                 pub fn hasStaticAdapter(self: @This()) bool {
                     return self.residual_morphism_fingerprint != null or self.pipeline_fingerprint != null;
                 }
+
+                /// Classify the semantic body used by this morphism adapter.
+                pub fn semanticBody(self: @This()) Evidence.SemanticBody {
+                    if (self.pipeline_fingerprint != null) return .pipeline;
+                    if (self.residual_morphism_fingerprint != null) return .residualized_program;
+                    if (self.dynamic_morphism_fingerprint != null) return .host_intrinsic;
+                    return .unknown;
+                }
+
+                /// Host-intrinsic descriptor for dynamic, opaque morphism mappers.
+                pub fn hostIntrinsic(self: @This()) ?Evidence.HostIntrinsic {
+                    if (self.semanticBody() != .host_intrinsic) return null;
+                    return Evidence.HostIntrinsic.init(.{
+                        .label = self.label,
+                        .kind = .dynamic_morphism_mapper,
+                        .owner_subsystem = .morphism,
+                        .associated_morphism_offer_ref = self.evidenceRef(),
+                        .reason = "dynamic morphism mapper is opaque host code",
+                        .stability = .host_owned,
+                        .metadata = "ability.exchange.morphism_offer.dynamic_mapper",
+                    });
+                }
+
+                /// Evidence reference for an opaque dynamic morphism mapper, when present.
+                pub fn hostIntrinsicRef(self: @This()) ?Evidence.Ref {
+                    const intrinsic = self.hostIntrinsic() orelse return null;
+                    return intrinsic.evidenceRef();
+                }
+
+                /// Defunctionalization coverage report for this morphism offer.
+                pub fn defunctionalizationReport(self: @This()) Evidence.DefunctionalizationReport {
+                    const body = self.semanticBody();
+                    return Evidence.DefunctionalizationReport.init(.{
+                        .scope_kind = .morphism_offer,
+                        .scope_ref = self.evidenceRef(),
+                        .counts = Evidence.DefunctionalizationReport.Counts.fromBody(body),
+                        .summary = "morphism offer semantic body classification",
+                    });
+                }
             };
 
             /// Resolver policy-rich input derived from a request envelope.
@@ -8337,11 +8561,39 @@ pub fn program(
                 provider_response_refs: []const lowering_api.ValueRef = &.{},
                 journal_policy_fingerprint: ?u64 = null,
                 require_treaty_bound_response_authorization: bool = true,
+                provider_semantic_body: Evidence.SemanticBody = .unknown,
+                morphism_semantic_body: ?Evidence.SemanticBody = null,
                 certificate: Certificate,
 
                 /// Canonical evidence reference for this treaty.
                 pub fn evidenceRef(self: @This()) Evidence.Ref {
                     return Evidence.refForTreaty(self);
+                }
+
+                /// Summarize semantic body coverage for this selected treaty.
+                pub fn defunctionalizationReport(self: @This()) Evidence.DefunctionalizationReport {
+                    var counts = Evidence.DefunctionalizationReport.Counts.fromBody(self.provider_semantic_body);
+                    if (self.morphism_semantic_body) |body| {
+                        const morphism_counts = Evidence.DefunctionalizationReport.Counts.fromBody(body);
+                        counts.ability_program += morphism_counts.ability_program;
+                        counts.declarative += morphism_counts.declarative;
+                        counts.residualized_program += morphism_counts.residualized_program;
+                        counts.pipeline += morphism_counts.pipeline;
+                        counts.kernel_primitive += morphism_counts.kernel_primitive;
+                        counts.host_intrinsic += morphism_counts.host_intrinsic;
+                        counts.unknown += morphism_counts.unknown;
+                    }
+                    return Evidence.DefunctionalizationReport.init(.{
+                        .scope_kind = .treaty,
+                        .scope_ref = self.evidenceRef(),
+                        .counts = counts,
+                        .summary = "treaty semantic body classification",
+                    });
+                }
+
+                /// Assert that this treaty satisfies a defunctionalization policy.
+                pub fn assertDefunctionalized(self: @This(), policy: Evidence.DefunctionalizationPolicy) error{ HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
+                    try self.defunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
                 }
 
                 /// Treaty handling implementation mode.
@@ -8405,6 +8657,12 @@ pub fn program(
                     wrong_route,
                     wrong_morphism,
                     wrong_response_kind,
+                    intrinsic_provider_rejected,
+                    intrinsic_morphism_rejected,
+                    unknown_semantic_body,
+                    non_defunctionalized_route,
+                    unallowlisted_intrinsic,
+                    intrinsic_count_exceeded,
                 };
 
                 /// Structured treaty blocker with optional candidate fingerprints.
@@ -8626,6 +8884,12 @@ pub fn program(
                     max_capsule_bytes: usize = std.math.maxInt(usize),
                     ambiguity_policy: AmbiguityPolicy = .reject_ambiguous,
                     provider_priority: ?[]const u64 = null,
+                    defunctionalization_policy: ?Evidence.DefunctionalizationPolicy = null,
+                    reject_intrinsic_provider: bool = false,
+                    reject_intrinsic_morphism: bool = false,
+                    prefer_program_backed_provider: bool = false,
+                    allowed_intrinsic_kinds: []const Evidence.HostIntrinsic.Kind = &.{},
+                    allowed_intrinsic_fingerprints: []const u64 = &.{},
 
                     /// Convert treaty policy into the lower Exchange envelope policy.
                     pub fn exchangePolicy(self: @This()) Exchange.Policy {
@@ -8672,6 +8936,8 @@ pub fn program(
                     provider_response_refs: []const lowering_api.ValueRef = &.{},
                     journal_policy_fingerprint: ?u64 = null,
                     require_treaty_bound_response_authorization: bool = true,
+                    provider_semantic_body: Evidence.SemanticBody = .unknown,
+                    morphism_semantic_body: ?Evidence.SemanticBody = null,
                     blockers: BlockerList = .{},
                     certificate_fingerprint: u64 = 0,
 
@@ -9122,6 +9388,8 @@ pub fn program(
                     if (!valueRefListEqual(self.certificate.provider_response_refs, self.provider_response_refs)) return error.ProgramContractViolation;
                     if (self.certificate.journal_policy_fingerprint != self.journal_policy_fingerprint) return error.ProgramContractViolation;
                     if (self.certificate.require_treaty_bound_response_authorization != self.require_treaty_bound_response_authorization) return error.ProgramContractViolation;
+                    if (self.certificate.provider_semantic_body != self.provider_semantic_body) return error.ProgramContractViolation;
+                    if (self.certificate.morphism_semantic_body != self.morphism_semantic_body) return error.ProgramContractViolation;
                 }
             };
 
@@ -9625,6 +9893,22 @@ pub fn program(
                     /// Release owned treaty storage, if any.
                     pub fn deinit(self: *@This()) void {
                         if (self.treaty) |*value| value.deinit();
+                    }
+
+                    /// Summarize semantic body coverage for the selected treaty or blockers.
+                    pub fn defunctionalizationReport(self: @This()) Evidence.DefunctionalizationReport {
+                        if (self.treaty) |treaty| return treaty.defunctionalizationReport();
+                        return Evidence.DefunctionalizationReport.init(.{
+                            .scope_kind = .treaty_resolver_result,
+                            .scope_ref = Evidence.refFor(Evidence.domains.treaty_resolver, @intFromEnum(self.status), .{ .kind_tag = @tagName(self.status) }),
+                            .counts = .{ .unknown = self.blockers.count },
+                            .summary = "treaty resolver result has no selected treaty",
+                        });
+                    }
+
+                    /// Assert that the resolver result satisfies a defunctionalization policy.
+                    pub fn assertDefunctionalized(self: @This(), policy: Evidence.DefunctionalizationPolicy) error{ HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
+                        try self.defunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
                     }
                 };
 
@@ -13629,6 +13913,9 @@ pub fn program(
                 hashValueRefList(&hasher, certificate.provider_response_refs);
                 hashOptionalExchangeU64(&hasher, certificate.journal_policy_fingerprint);
                 hashBool(&hasher, certificate.require_treaty_bound_response_authorization);
+                hashBytes(&hasher, @tagName(certificate.provider_semantic_body));
+                hashBool(&hasher, certificate.morphism_semantic_body != null);
+                if (certificate.morphism_semantic_body) |body| hashBytes(&hasher, @tagName(body));
                 for (certificate.blockers.blockers[0..certificate.blockers.count]) |blocker| hashBytes(&hasher, @tagName(blocker.tag));
                 hashBool(&hasher, certificate.blockers.saturated);
                 return hasher.final();
@@ -14695,6 +14982,17 @@ pub fn program(
                 blockers: *Treaty.BlockerList,
             ) Error!void {
                 offer_loop: for (inputs.provider_offers) |offer| {
+                    if (treatyProviderBodyBlocker(inputs.treaty_policy, offer)) |tag| {
+                        blocked_count.* += 1;
+                        blockers.add(.{
+                            .tag = tag,
+                            .request_fingerprint = inputs.request.fingerprint,
+                            .provider_fingerprint = offer.provider_fingerprint,
+                            .offer_fingerprint = offer.fingerprint,
+                            .summary = "provider offer semantic body is rejected by defunctionalization policy",
+                        });
+                        continue :offer_loop;
+                    }
                     if (!offerSourceSurfaceCompatible(offer, inputs.request) or !providerOfferTagPolicyAllows(inputs.treaty_policy, request_value, offer)) {
                         blocked_count.* += 1;
                         blockers.add(.{
@@ -14785,6 +15083,11 @@ pub fn program(
                     return;
                 }
                 morphism_loop: for (inputs.morphism_offers) |morphism| {
+                    if (treatyMorphismBodyBlocker(inputs.treaty_policy, morphism)) |tag| {
+                        blocked_count.* += 1;
+                        blockers.add(.{ .tag = tag, .request_fingerprint = inputs.request.fingerprint, .morphism_fingerprint = morphism.fingerprint(), .summary = "morphism offer semantic body is rejected by defunctionalization policy" });
+                        continue :morphism_loop;
+                    }
                     if (!morphismSupportsSourceForTreaty(morphism, inputs.request, request_value)) {
                         blocked_count.* += 1;
                         blockers.add(.{ .tag = .morphism_missing, .request_fingerprint = inputs.request.fingerprint, .morphism_fingerprint = morphism.fingerprint(), .summary = "morphism offer does not match the source request" });
@@ -14807,6 +15110,18 @@ pub fn program(
                         continue :morphism_loop;
                     }
                     offer_loop: for (inputs.provider_offers) |offer| {
+                        if (treatyProviderBodyBlocker(inputs.treaty_policy, offer)) |tag| {
+                            blocked_count.* += 1;
+                            blockers.add(.{
+                                .tag = tag,
+                                .request_fingerprint = inputs.request.fingerprint,
+                                .provider_fingerprint = offer.provider_fingerprint,
+                                .offer_fingerprint = offer.fingerprint,
+                                .morphism_fingerprint = morphism.fingerprint(),
+                                .summary = "morphism provider semantic body is rejected by defunctionalization policy",
+                            });
+                            continue :offer_loop;
+                        }
                         var source_response_refs: [3]lowering_api.ValueRef = undefined;
                         const source_response_refs_len = responseRefsForMorphismOffer(inputs.request, request_value, morphism, &source_response_refs);
                         const target_response_refs = targetResponseRefsForMorphismOffer(source_response_refs[0..source_response_refs_len], morphism);
@@ -14959,6 +15274,11 @@ pub fn program(
             }
 
             fn treatyCandidatePreferred(policy: Treaty.Policy, request_value: TreatyRequest, candidate: Treaty, selected: Treaty) bool {
+                if (treatyDefunctionalizationPreferenceEnabled(policy)) {
+                    const candidate_rank = treatySemanticOpacityRank(candidate);
+                    const selected_rank = treatySemanticOpacityRank(selected);
+                    if (candidate_rank != selected_rank) return candidate_rank < selected_rank;
+                }
                 return switch (treatyEffectiveAmbiguityPolicy(policy, request_value)) {
                     .reject_ambiguous => false,
                     .prefer_direct => treatyHandlingRank(candidate.handling, .prefer_direct) < treatyHandlingRank(selected.handling, .prefer_direct),
@@ -15068,6 +15388,79 @@ pub fn program(
             fn stringListContains(list: []const []const u8, value: []const u8) bool {
                 for (list) |item| if (std.mem.eql(u8, item, value)) return true;
                 return false;
+            }
+
+            fn treatyDefunctionalizationPolicy(policy: Treaty.Policy) ?Evidence.DefunctionalizationPolicy {
+                if (policy.defunctionalization_policy) |value| return value;
+                const configured =
+                    policy.reject_intrinsic_provider or
+                    policy.reject_intrinsic_morphism or
+                    policy.prefer_program_backed_provider or
+                    policy.allowed_intrinsic_kinds.len != 0 or
+                    policy.allowed_intrinsic_fingerprints.len != 0;
+                if (!configured) return null;
+                return .{
+                    .label = "treaty",
+                    .allow_host_intrinsics = true,
+                    .allowed_intrinsic_kinds = policy.allowed_intrinsic_kinds,
+                    .allowed_intrinsic_fingerprints = policy.allowed_intrinsic_fingerprints,
+                    .reject_dynamic_mappers = policy.reject_intrinsic_morphism,
+                    .require_program_backed_providers = policy.reject_intrinsic_provider,
+                    .require_declarative_morphisms = policy.reject_intrinsic_morphism,
+                    .prefer_ability_program = policy.prefer_program_backed_provider,
+                    .prefer_declarative = policy.reject_intrinsic_morphism,
+                    .prefer_residualized = policy.reject_intrinsic_morphism,
+                };
+            }
+
+            fn treatyProviderBodyBlocker(policy: Treaty.Policy, offer: ProviderOffer) ?Treaty.BlockerTag {
+                const defunc = treatyDefunctionalizationPolicy(policy) orelse return null;
+                const body = offer.semanticBody();
+                if (body == .unknown and defunc.reject_unknown) return .unknown_semantic_body;
+                if (body == .host_intrinsic) {
+                    const intrinsic = offer.hostIntrinsic() orelse return .unknown_semantic_body;
+                    if (policy.reject_intrinsic_provider or defunc.require_program_backed_providers or defunc.require_no_intrinsics_in_treaties) return .intrinsic_provider_rejected;
+                    if (!defunc.allowsIntrinsic(intrinsic)) return .unallowlisted_intrinsic;
+                }
+                if (defunc.require_program_backed_providers and body != .ability_program) return .non_defunctionalized_route;
+                return null;
+            }
+
+            fn treatyMorphismBodyBlocker(policy: Treaty.Policy, morphism: MorphismOffer) ?Treaty.BlockerTag {
+                const defunc = treatyDefunctionalizationPolicy(policy) orelse return null;
+                const body = morphism.semanticBody();
+                if (body == .unknown and defunc.reject_unknown) return .unknown_semantic_body;
+                if (body == .host_intrinsic) {
+                    const intrinsic = morphism.hostIntrinsic() orelse return .unknown_semantic_body;
+                    if (policy.reject_intrinsic_morphism or defunc.reject_dynamic_mappers or defunc.require_declarative_morphisms or defunc.require_no_intrinsics_in_treaties) return .intrinsic_morphism_rejected;
+                    if (!defunc.allowsIntrinsic(intrinsic)) return .unallowlisted_intrinsic;
+                }
+                if (defunc.require_declarative_morphisms and body != .declarative and body != .residualized_program and body != .pipeline) return .non_defunctionalized_route;
+                return null;
+            }
+
+            fn treatyDefunctionalizationPreferenceEnabled(policy: Treaty.Policy) bool {
+                if (policy.prefer_program_backed_provider) return true;
+                if (policy.defunctionalization_policy) |defunc| {
+                    return defunc.prefer_ability_program or defunc.prefer_declarative or defunc.prefer_residualized;
+                }
+                return false;
+            }
+
+            fn semanticBodyRank(body: Evidence.SemanticBody) u8 {
+                return switch (body) {
+                    .ability_program => 0,
+                    .declarative, .residualized_program, .pipeline => 1,
+                    .kernel_primitive => 2,
+                    .host_intrinsic => 3,
+                    .unknown => 4,
+                };
+            }
+
+            fn treatySemanticOpacityRank(treaty: Treaty) u8 {
+                var rank = semanticBodyRank(treaty.provider_semantic_body);
+                if (treaty.morphism_semantic_body) |body| rank = @max(rank, semanticBodyRank(body));
+                return rank;
             }
 
             fn treatyObligationMatches(
@@ -15313,6 +15706,8 @@ pub fn program(
                     if (morphism_offer.pipeline_fingerprint != null) .pipeline_adapted else if (morphism_offer.residual_morphism_fingerprint != null) .residualized else .dynamic_morphism
                 else
                     .direct;
+                const provider_semantic_body = offer.semanticBody();
+                const morphism_semantic_body = if (morphism) |morphism_offer| morphism_offer.semanticBody() else null;
                 const require_treaty_bound_response_authorization = inputs.treaty_policy.require_treaty_bound_response_authorization or request_value.require_treaty_bound_response_authorization;
                 const capability_instance_fingerprint = selectTreatyCapabilityInstance(inputs, request_value, provider, selected_capability, morphism);
                 var treaty = Treaty{
@@ -15349,6 +15744,8 @@ pub fn program(
                     .provider_response_refs = provider_response_refs,
                     .journal_policy_fingerprint = selected_capability.journal_policy_fingerprint,
                     .require_treaty_bound_response_authorization = require_treaty_bound_response_authorization,
+                    .provider_semantic_body = provider_semantic_body,
+                    .morphism_semantic_body = morphism_semantic_body,
                     .certificate = undefined,
                 };
                 treaty.fingerprint = fingerprintTreatyCore(treaty);
@@ -15385,6 +15782,8 @@ pub fn program(
                     .provider_response_refs = provider_response_refs,
                     .journal_policy_fingerprint = treaty.journal_policy_fingerprint,
                     .require_treaty_bound_response_authorization = treaty.require_treaty_bound_response_authorization,
+                    .provider_semantic_body = provider_semantic_body,
+                    .morphism_semantic_body = morphism_semantic_body,
                     .blockers = blockers,
                 };
                 treaty.certificate.certificate_fingerprint = fingerprintTreatyCertificate(treaty.certificate);
@@ -17957,6 +18356,24 @@ pub fn program(
                     }
                 }
 
+                /// Defunctionalization audit for this proof-carrying pipeline.
+                pub fn defunctionalizationReport() Evidence.DefunctionalizationReport {
+                    return Evidence.DefunctionalizationReport.init(.{
+                        .scope_kind = .pipeline,
+                        .scope_ref = Evidence.refFor(Evidence.domains.pipeline, Report.fingerprint, .{ .label = Report.pipeline_label }),
+                        .counts = .{
+                            .pipeline = 1,
+                            .residualized_program = ResidualizedRoutes.values.len,
+                        },
+                        .summary = "pipeline semantic body classification",
+                    });
+                }
+
+                /// Assert this pipeline against a defunctionalization policy.
+                pub fn assertDefunctionalized(policy: Evidence.DefunctionalizationPolicy) error{ HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
+                    try defunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
+                }
+
                 /// Find the residual site corresponding to a source operation site.
                 pub fn residualForSourceSite(comptime SourceSite: type) ?ResidualSourceMapEntry {
                     return ResidualProgram.residualForSourceSite(SourceSite);
@@ -18638,6 +19055,8 @@ pub fn program(
                     const kind = .operation;
                     const Site = site;
                     const function = handler_fn;
+                    /// Function-backed Program.Handler entries are host intrinsics.
+                    pub const semantic_body = Evidence.SemanticBody.host_intrinsic;
                 };
             }
 
@@ -18648,6 +19067,8 @@ pub fn program(
                     const kind = .after;
                     const Site = site;
                     const function = handler_fn;
+                    /// Function-backed Program.Handler entries are host intrinsics.
+                    pub const semantic_body = Evidence.SemanticBody.host_intrinsic;
                 };
             }
 
@@ -18658,6 +19079,8 @@ pub fn program(
                     const kind = .protocol_operation;
                     const TargetOp = target_op;
                     const function = handler_fn;
+                    /// Function-backed Program.Handler entries are host intrinsics.
+                    pub const semantic_body = Evidence.SemanticBody.host_intrinsic;
                 };
             }
 
@@ -18672,6 +19095,8 @@ pub fn program(
                     const Site = MorphismType.source;
                     const Morphism = MorphismType;
                     const function = handler_fn;
+                    /// Dynamic morphism handler entries are host intrinsics.
+                    pub const semantic_body = Evidence.SemanticBody.host_intrinsic;
                 };
             }
 
@@ -19020,6 +19445,21 @@ pub fn program(
                         else => {},
                     };
                     return .{ .operation_sites = operation_count, .after_sites = after_count };
+                }
+
+                /// Machine-readable semantic boundary audit for this interpreter catalog.
+                pub fn defunctionalizationReport() Evidence.DefunctionalizationReport {
+                    return Evidence.DefunctionalizationReport.init(.{
+                        .scope_kind = .interpreter,
+                        .scope_ref = Evidence.refFor(Evidence.domains.semantic_body, body_compiled_plan_hash, .{ .label = label, .kind_tag = "interpreter" }),
+                        .counts = interpreterSemanticCounts(entries),
+                        .summary = label,
+                    });
+                }
+
+                /// Assert this interpreter satisfies a defunctionalization policy.
+                pub fn assertDefunctionalized(policy: Evidence.DefunctionalizationPolicy) error{ HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
+                    try defunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
                 }
 
                 fn validateProgramArgument(comptime ProgramType: type) void {
@@ -19685,6 +20125,84 @@ pub fn program(
                     else => @compileError("Program.Interpreter entries must be Program.Handler declarations"),
                 }
             }
+        }
+
+        fn interpreterEntrySemanticBody(comptime Entry: type) Evidence.SemanticBody {
+            if (comptime @hasDecl(Entry, "semantic_body")) return Entry.semantic_body;
+            return .host_intrinsic;
+        }
+
+        fn interpreterHostIntrinsicCount(comptime entries: anytype) usize {
+            comptime var count: usize = 0;
+            inline for (entries) |Entry| {
+                const body = comptime interpreterEntrySemanticBody(Entry);
+                if (body == .host_intrinsic) count += 1;
+            }
+            return count;
+        }
+
+        fn interpreterSemanticCounts(comptime entries: anytype) Evidence.DefunctionalizationReport.Counts {
+            comptime var counts: Evidence.DefunctionalizationReport.Counts = .{};
+            inline for (entries) |Entry| {
+                const body = comptime interpreterEntrySemanticBody(Entry);
+                switch (body) {
+                    .ability_program => counts.ability_program += 1,
+                    .declarative => counts.declarative += 1,
+                    .residualized_program => counts.residualized_program += 1,
+                    .pipeline => counts.pipeline += 1,
+                    .kernel_primitive => counts.kernel_primitive += 1,
+                    .host_intrinsic => counts.host_intrinsic += 1,
+                    .unknown => counts.unknown += 1,
+                }
+            }
+            return counts;
+        }
+
+        fn interpreterEntryLabel(comptime Entry: type) []const u8 {
+            return switch (Entry.kind) {
+                .operation => Entry.Site.op_name,
+                .after => Entry.Site.original_op_name,
+                .protocol_operation => Entry.TargetOp.op_name,
+                else => "handler",
+            };
+        }
+
+        fn interpreterEntryHostIntrinsic(comptime Entry: type) Evidence.HostIntrinsic {
+            return Evidence.HostIntrinsic.init(.{
+                .label = interpreterEntryLabel(Entry),
+                .kind = if (comptime @hasDecl(Entry, "Morphism")) .dynamic_morphism_mapper else .interpreter_function,
+                .owner_subsystem = .semantic_boundary,
+                .allowed_site_indexes = switch (Entry.kind) {
+                    .operation, .after => &.{Entry.Site.index},
+                    else => &.{},
+                },
+                .allowed_protocol_op_fingerprints = switch (Entry.kind) {
+                    .operation => &.{Entry.Site.fingerprint},
+                    .after => &.{Entry.Site.source_operation_site_fingerprint},
+                    .protocol_operation => &.{Entry.TargetOp.fingerprint},
+                    else => &.{},
+                },
+                .associated_handler_descriptor = "Program.Interpreter handler",
+                .reason = "function-backed Program.Interpreter handler",
+            });
+        }
+
+        fn interpreterIntrinsicRefs(comptime entries: anytype) [interpreterHostIntrinsicCount(entries)]Evidence.Ref {
+            var refs: [interpreterHostIntrinsicCount(entries)]Evidence.Ref = undefined;
+            var index: usize = 0;
+            inline for (entries) |Entry| {
+                const body = comptime interpreterEntrySemanticBody(Entry);
+                if (body == .host_intrinsic) {
+                    const intrinsic = interpreterEntryHostIntrinsic(Entry);
+                    refs[index] = Evidence.refFor(Evidence.domains.host_intrinsic, intrinsic.fingerprint, .{
+                        .format_version = intrinsic.format_version,
+                        .label = intrinsic.label,
+                        .kind_tag = @tagName(intrinsic.kind),
+                    });
+                    index += 1;
+                }
+            }
+            return refs;
         }
 
         fn assertInterpreterCoversAll(comptime entries: anytype) void {

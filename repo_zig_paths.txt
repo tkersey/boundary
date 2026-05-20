@@ -11,6 +11,7 @@ build.zig
 examples/agent_loop.zig
 examples/continuation_branching.zig
 examples/custom_approval_workflow.zig
+examples/defunctionalization_boundary.zig
 examples/durable_capsule_replay.zig
 examples/effect_capability_attenuation.zig
 examples/effect_capability_routing.zig
@@ -20,6 +21,7 @@ examples/effect_pipeline.zig
 examples/effect_treaty_direct.zig
 examples/effect_treaty_morphism.zig
 examples/effect_treaty_replayable.zig
+examples/host_intrinsic_allowlist.zig
 examples/interpreter_branching.zig
 examples/journal_replay.zig
 examples/linear_branch_safety.zig

@@ -91,6 +91,11 @@ test "evidence domain registry is unique and mirrors public version constants" {
     try std.testing.expectEqual(Program.Exchange.treaty_certificate_fingerprint_version, Evidence.domains.treaty_certificate.fingerprint_version);
     try std.testing.expectEqual(Program.exchange_treaty_authorization_fingerprint_version, Evidence.domains.treaty_authorization.fingerprint_version);
     try std.testing.expectEqual(Program.exchange_treaty_authorization_fingerprint_version, Evidence.domains.treaty_authorization.format_version.?);
+    try std.testing.expectEqual(Program.evidence_host_intrinsic_format_version, Evidence.domains.host_intrinsic.format_version.?);
+    try std.testing.expectEqual(Program.evidence_host_intrinsic_fingerprint_version, Evidence.domains.host_intrinsic.fingerprint_version);
+    try std.testing.expectEqual(Program.evidence_semantic_body_fingerprint_version, Evidence.domains.semantic_body.fingerprint_version);
+    try std.testing.expectEqual(Program.evidence_defunctionalization_policy_fingerprint_version, Evidence.domains.defunctionalization_policy.fingerprint_version);
+    try std.testing.expectEqual(Program.evidence_defunctionalization_report_fingerprint_version, Evidence.domains.defunctionalization_report.fingerprint_version);
     try std.testing.expectEqual(@as(u32, 3), Evidence.domains.treaty_authorization_legacy_v3.format_version.?);
     try std.testing.expectEqual(@as(u32, 2), Evidence.domains.treaty_authorization_legacy_v2.format_version.?);
     try std.testing.expectEqual(Program.pipeline_fingerprint_version, Evidence.domains.pipeline.fingerprint_version);
@@ -102,6 +107,8 @@ test "evidence domain registry is unique and mirrors public version constants" {
     try std.testing.expectEqualStrings("ability.exchange.capability.path", Evidence.domains.capability_attenuation_path.name);
     try std.testing.expectEqualStrings("ability.exchange.authorization.result", Evidence.domains.authorization_result.name);
     try std.testing.expectEqualStrings("ability.session.reinterpret", Evidence.domains.reinterpretation.name);
+    try std.testing.expectEqualStrings("ability.evidence.semantic_body", Evidence.domains.semantic_body.name);
+    try std.testing.expectEqualStrings("ability.evidence.host_intrinsic", Evidence.domains.host_intrinsic.name);
 
     for (Evidence.all_domains) |domain| {
         try std.testing.expect(domain.request_tokens_excluded);
@@ -109,6 +116,136 @@ test "evidence domain registry is unique and mirrors public version constants" {
         if (domain.bytes_encoded) try std.testing.expect(domain.format_version != null);
         try std.testing.expect(domain.fingerprint_version != 0);
     }
+}
+
+test "semantic body classifications expose stable evidence refs" {
+    try std.testing.expect(Evidence.SemanticBody.ability_program.isNonIntrinsic());
+    try std.testing.expect(Evidence.SemanticBody.declarative.isNonIntrinsic());
+    try std.testing.expect(Evidence.SemanticBody.residualized_program.isNonIntrinsic());
+    try std.testing.expect(Evidence.SemanticBody.pipeline.isNonIntrinsic());
+    try std.testing.expect(Evidence.SemanticBody.kernel_primitive.isNonIntrinsic());
+    try std.testing.expect(Evidence.SemanticBody.host_intrinsic.isHostIntrinsic());
+    try std.testing.expect(Evidence.SemanticBody.unknown.isUnknown());
+    try std.testing.expect(!Evidence.SemanticBody.kernel_primitive.isHostIntrinsic());
+
+    const program_ref = Evidence.SemanticBody.ability_program.evidenceRef();
+    const intrinsic_ref = Evidence.SemanticBody.host_intrinsic.evidenceRef();
+    try std.testing.expectEqual(Evidence.domains.semantic_body.id, program_ref.domain_id);
+    try std.testing.expectEqualStrings("ability_program", program_ref.kind_tag.?);
+    try std.testing.expect(program_ref.fingerprint != intrinsic_ref.fingerprint);
+}
+
+test "host intrinsic fingerprints use declared metadata not runtime identity" {
+    const offer_ref = Evidence.refFor(Evidence.domains.provider_offer, 0x55, .{ .label = "offer" });
+    const intrinsic = Evidence.HostIntrinsic.init(.{
+        .label = "fixture-tool",
+        .kind = .host_tool,
+        .owner_subsystem = .provider_harness,
+        .associated_provider_offer_ref = offer_ref,
+        .reason = "external tool call",
+        .replay_policy_summary = "host-owned",
+        .usage_mode_summary = "copyable",
+        .tags = &.{"world"},
+        .metadata = "declared-metadata",
+    });
+    const same = Evidence.HostIntrinsic.init(.{
+        .label = "fixture-tool",
+        .kind = .host_tool,
+        .owner_subsystem = .provider_harness,
+        .associated_provider_offer_ref = offer_ref,
+        .reason = "external tool call",
+        .replay_policy_summary = "host-owned",
+        .usage_mode_summary = "copyable",
+        .tags = &.{"world"},
+        .metadata = "declared-metadata",
+    });
+    const relabeled = Evidence.HostIntrinsic.init(.{
+        .label = "fixture-tool-v2",
+        .kind = .host_tool,
+        .owner_subsystem = .provider_harness,
+        .associated_provider_offer_ref = offer_ref,
+        .reason = "external tool call",
+        .metadata = "declared-metadata",
+    });
+    const rekind = Evidence.HostIntrinsic.init(.{
+        .label = "fixture-tool",
+        .kind = .host_model,
+        .owner_subsystem = .provider_harness,
+        .associated_provider_offer_ref = offer_ref,
+        .reason = "external tool call",
+        .metadata = "declared-metadata",
+    });
+
+    try std.testing.expectEqual(intrinsic.fingerprint, same.fingerprint);
+    try std.testing.expect(intrinsic.fingerprint != relabeled.fingerprint);
+    try std.testing.expect(intrinsic.fingerprint != rekind.fingerprint);
+    try std.testing.expectEqual(Evidence.domains.host_intrinsic.id, intrinsic.evidenceRef().domain_id);
+    try std.testing.expectEqual(Program.evidence_host_intrinsic_format_version, intrinsic.evidenceRef().format_version.?);
+    try std.testing.expect(!@hasField(Evidence.HostIntrinsic, "function_pointer"));
+    try std.testing.expect(!@hasField(Evidence.HostIntrinsic, "request_token"));
+
+    const blocker = intrinsic.toEvidenceBlocker("unallowlisted_intrinsic", "tool not allowlisted");
+    try std.testing.expectEqual(Evidence.domains.host_intrinsic.id, blocker.domain);
+    try std.testing.expectEqual(intrinsic.fingerprint, blocker.subject.?.fingerprint);
+    const projection = intrinsic.declaredProjection();
+    try std.testing.expectEqualStrings("intrinsic_declared", projection.suggested_event_kind);
+    try std.testing.expectEqual(intrinsic.fingerprint, projection.evidence_ref.fingerprint);
+}
+
+test "defunctionalization reports and policies enforce strict and allowlist modes" {
+    const scope = Evidence.refFor(Evidence.domains.provider_harness, 0x100, .{ .label = "provider" });
+    const intrinsic = Evidence.HostIntrinsic.init(.{
+        .label = "fixture-handler",
+        .kind = .provider_function,
+        .owner_subsystem = .provider_harness,
+        .reason = "function-backed provider handler",
+    });
+    const intrinsic_refs = [_]Evidence.Ref{intrinsic.evidenceRef()};
+    const report = Evidence.DefunctionalizationReport.init(.{
+        .scope_kind = .provider_harness,
+        .scope_ref = scope,
+        .counts = .{
+            .ability_program = 1,
+            .kernel_primitive = 1,
+            .host_intrinsic = 1,
+        },
+        .intrinsic_refs = &intrinsic_refs,
+        .dependencies = &.{.{ .role = .host_intrinsic, .ref = intrinsic.evidenceRef() }},
+        .summary = "provider harness defunctionalization",
+    });
+
+    try std.testing.expectEqual(@as(usize, 3), report.total_bodies);
+    try std.testing.expectEqual(@as(usize, 1), report.ability_program_count);
+    try std.testing.expectEqual(@as(usize, 1), report.kernel_primitive_count);
+    try std.testing.expectEqual(@as(usize, 1), report.host_intrinsic_count);
+    try std.testing.expectEqual(Evidence.domains.defunctionalization_report.id, report.evidenceRef().domain_id);
+    try std.testing.expectError(error.HostIntrinsicsPresent, report.assertNoHostIntrinsics());
+    try std.testing.expectError(error.HostIntrinsicsPresent, report.assertOnlyAllowlistedIntrinsics(Evidence.DefunctionalizationPolicy.strict()));
+    try report.assertOnlyAllowlistedIntrinsics(.{
+        .label = "world_boundary",
+        .allow_host_intrinsics = true,
+        .reject_unknown = true,
+        .allowed_intrinsic_fingerprints = &.{intrinsic.fingerprint},
+    });
+    try std.testing.expectError(error.HostIntrinsicsPresent, report.assertOnlyAllowlistedIntrinsics(.{
+        .label = "wrong_allowlist",
+        .allow_host_intrinsics = true,
+        .allowed_intrinsic_fingerprints = &.{intrinsic.fingerprint + 1},
+    }));
+
+    const unknown_report = Evidence.DefunctionalizationReport.init(.{
+        .scope_kind = .provider_offer,
+        .scope_ref = Evidence.refFor(Evidence.domains.provider_offer, 0x101, .{ .label = "manual" }),
+        .counts = .{ .unknown = 1 },
+        .unknown_refs = &.{Evidence.SemanticBody.unknown.evidenceRef()},
+        .summary = "manual offer",
+    });
+    try std.testing.expectError(error.UnknownSemanticBody, unknown_report.assertOnlyAllowlistedIntrinsics(Evidence.DefunctionalizationPolicy.strict()));
+    try std.testing.expect(Evidence.DefunctionalizationPolicy.worldBoundary().fingerprint() != Evidence.DefunctionalizationPolicy.permissive().fingerprint());
+    try std.testing.expectEqual(Evidence.domains.defunctionalization_policy.id, Evidence.DefunctionalizationPolicy.strict().evidenceRef().domain_id);
+    const projection = report.recordedProjection();
+    try std.testing.expectEqualStrings("defunctionalization_report_recorded", projection.suggested_event_kind);
+    try std.testing.expectEqual(report.evidenceRef().fingerprint, projection.evidence_ref.fingerprint);
 }
 
 test "evidence refs preserve domain and legacy fingerprints without request tokens" {

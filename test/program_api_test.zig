@@ -8613,6 +8613,11 @@ test "Program.protocol direct handler after metadata matches runtime fallback" {
     try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.input_ref.?.codec);
     try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
 
+    const run_report = Program.runHandlerSetDefunctionalizationReport();
+    try std.testing.expectEqual(@as(usize, 2), run_report.host_intrinsic_count);
+    try std.testing.expectEqual(@as(usize, 1), run_report.kernel_primitive_count);
+    try std.testing.expectError(error.HostIntrinsicsPresent, Program.assertRunHandlersDefunctionalized(Program.Evidence.DefunctionalizationPolicy.strict()));
+
     var dispatches: usize = 0;
     var afters: usize = 0;
     var result = try Program.run(&runtime, .{ .dispatches = &dispatches, .afters = &afters });
@@ -15810,7 +15815,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_obligation_transition_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_treaty_format_version);
     try std.testing.expectEqual(@as(u32, 3), Program.exchange_treaty_fingerprint_version);
-    try std.testing.expectEqual(@as(u32, 3), Program.exchange_treaty_certificate_fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 4), Program.exchange_treaty_certificate_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 4), Program.exchange_treaty_authorization_fingerprint_version);
     try std.testing.expectEqual(Program.exchange_manifest_format_version, Program.Exchange.manifest_format_version);
     try std.testing.expectEqual(Program.exchange_manifest_fingerprint_version, Program.Exchange.manifest_fingerprint_version);
@@ -23795,6 +23800,24 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expect(catalog.provider_offers[0].supportsRequest(request_envelope));
     try std.testing.expectEqual(Program.exchange_provider_offer_format_version, catalog.provider_offers[0].format_version);
     try std.testing.expectEqual(@as(?u64, null), catalog.provider_offers[0].provider_program_mapping_fingerprint);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.host_intrinsic, Harness.declarationSemanticBody(0));
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.host_intrinsic, catalog.provider_offers[0].semanticBody());
+    try std.testing.expect(catalog.provider_offers[0].hostIntrinsicRef() != null);
+    try std.testing.expect(catalog.provider_offers[0].programBodyRef() == null);
+    const function_report = Harness.defunctionalizationReport();
+    try std.testing.expectEqual(@as(usize, 2), function_report.total_bodies);
+    try std.testing.expectEqual(@as(usize, 2), function_report.host_intrinsic_count);
+    try std.testing.expectEqual(@as(usize, 0), function_report.ability_program_count);
+    try std.testing.expectEqual(@as(usize, 2), function_report.intrinsic_refs.len);
+    try std.testing.expectError(error.HostIntrinsicsPresent, function_report.assertNoHostIntrinsics());
+    try std.testing.expectError(error.HostIntrinsicsPresent, Harness.assertDefunctionalized(Program.Evidence.DefunctionalizationPolicy.strict()));
+    const first_intrinsic = Harness.declarationHostIntrinsic(0) orelse return error.ExpectedHostIntrinsic;
+    try Harness.assertDefunctionalized(.{
+        .label = "world_boundary",
+        .allow_host_intrinsics = true,
+        .reject_unknown = true,
+        .allowed_intrinsic_fingerprints = &.{ first_intrinsic.fingerprint, (Harness.declarationHostIntrinsic(1) orelse return error.ExpectedHostIntrinsic).fingerprint },
+    });
     try Harness.validateManualCatalog(std.testing.allocator, catalog.provider_manifest, catalog.provider_offers);
 
     const HandlerBody = struct {
@@ -23824,6 +23847,15 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         @as(?u64, ProgramBackedDecl.provider_program_mapping_fingerprint),
         program_catalog.provider_offers[0].provider_program_mapping_fingerprint,
     );
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, ProgramBackedHarness.declarationSemanticBody(0));
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, program_catalog.provider_offers[0].semanticBody());
+    try std.testing.expect(program_catalog.provider_offers[0].hostIntrinsicRef() == null);
+    try std.testing.expect(program_catalog.provider_offers[0].programBodyRef() != null);
+    const program_report = ProgramBackedHarness.defunctionalizationReport();
+    try std.testing.expectEqual(@as(usize, 1), program_report.total_bodies);
+    try std.testing.expectEqual(@as(usize, 1), program_report.ability_program_count);
+    try std.testing.expectEqual(@as(usize, 0), program_report.host_intrinsic_count);
+    try ProgramBackedHarness.assertDefunctionalized(Program.Evidence.DefunctionalizationPolicy.strict());
     try std.testing.expect(ProgramBackedDecl.provider_program_mapping_fingerprint != 0);
     try ProgramBackedHarness.validateManualOffer(std.testing.allocator, 0, program_catalog.provider_offers[0]);
 
@@ -27355,6 +27387,47 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
     const offers = [_]Program.Exchange.ProviderOffer{offer};
     const capabilities = [_]Program.Exchange.Capability{capability};
     const dynamic_morphisms = [_]Program.Exchange.MorphismOffer{dynamic};
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.host_intrinsic, dynamic.semanticBody());
+    try std.testing.expect(dynamic.hostIntrinsicRef() != null);
+    try std.testing.expectEqual(@as(usize, 1), dynamic.defunctionalizationReport().host_intrinsic_count);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.pipeline, residualized.semanticBody());
+    try std.testing.expectEqual(@as(usize, 1), residualized.defunctionalizationReport().pipeline_count);
+
+    var defunc_dynamic_blocked = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+        .morphism_offers = dynamic_morphisms[0..],
+        .treaty_policy = .{ .reject_intrinsic_morphism = true },
+    });
+    defer defunc_dynamic_blocked.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, defunc_dynamic_blocked.status);
+    var saw_intrinsic_morphism_rejected = false;
+    for (defunc_dynamic_blocked.blockers.blockers[0..defunc_dynamic_blocked.blockers.count]) |blocker| {
+        if (blocker.tag == .intrinsic_morphism_rejected) saw_intrinsic_morphism_rejected = true;
+    }
+    try std.testing.expect(saw_intrinsic_morphism_rejected);
+
+    var strict_provider_blocked = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+        .treaty_policy = .{ .defunctionalization_policy = Program.Evidence.DefunctionalizationPolicy.strict() },
+    });
+    defer strict_provider_blocked.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, strict_provider_blocked.status);
+    var saw_intrinsic_provider_rejected = false;
+    for (strict_provider_blocked.blockers.blockers[0..strict_provider_blocked.blockers.count]) |blocker| {
+        if (blocker.tag == .intrinsic_provider_rejected) saw_intrinsic_provider_rejected = true;
+    }
+    try std.testing.expect(saw_intrinsic_provider_rejected);
+
     var dynamic_blocked = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = envelope,
@@ -27868,6 +27941,13 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
     defer static_result.deinit();
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, static_result.status);
     try std.testing.expectEqual(Program.Exchange.Treaty.HandlingKind.pipeline_adapted, static_result.treaty.?.handling);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.host_intrinsic, static_result.treaty.?.provider_semantic_body);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.pipeline, static_result.treaty.?.morphism_semantic_body.?);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.host_intrinsic, static_result.treaty.?.certificate.provider_semantic_body);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.pipeline, static_result.treaty.?.certificate.morphism_semantic_body.?);
+    const static_defunc_report = static_result.treaty.?.defunctionalizationReport();
+    try std.testing.expectEqual(@as(usize, 1), static_defunc_report.host_intrinsic_count);
+    try std.testing.expectEqual(@as(usize, 1), static_defunc_report.pipeline_count);
     try std.testing.expectEqual(residualized.pipeline_fingerprint.?, static_result.treaty.?.certificate.pipeline_fingerprint.?);
     try std.testing.expectEqual(residualized.residual_morphism_fingerprint.?, static_result.treaty.?.certificate.residualization_fingerprints[0]);
     try static_result.treaty.?.checkCertificate();
@@ -27882,6 +27962,9 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
     var wrong_residual_treaty = static_result.treaty.?;
     wrong_residual_treaty.residualization_fingerprints = &.{};
     try std.testing.expectError(error.ProgramContractViolation, wrong_residual_treaty.checkCertificate());
+    var wrong_semantic_body_treaty = static_result.treaty.?;
+    wrong_semantic_body_treaty.certificate.provider_semantic_body = .ability_program;
+    try std.testing.expectError(error.ProgramContractViolation, wrong_semantic_body_treaty.checkCertificate());
     var wrong_source_op_treaty = static_result.treaty.?;
     wrong_source_op_treaty.source_protocol_op_fingerprint = null;
     try std.testing.expectError(error.ProgramContractViolation, wrong_source_op_treaty.checkCertificate());
