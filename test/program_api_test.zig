@@ -20067,6 +20067,46 @@ test "Program.Session.start enters runtime execution before encoding entry args"
     try std.testing.expectEqual(@as(i32, 42), result.value);
 }
 
+test "Program.Session.start rejects busy runtime before encoding entry args" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var inner_encode_calls: usize = 0;
+    const InnerHandlers = struct {
+        calls: *usize,
+    };
+    const InnerBody = struct {
+        pub const compiled_plan = parameterizedIdentityPlan("session-busy-inner-parameterized-identity");
+
+        pub fn encodeArgs(handlers: InnerHandlers) []const ability.ir.ProgramValue {
+            handlers.calls.* += 1;
+            return &.{.{ .i32 = 42 }};
+        }
+    };
+    const InnerProgram = ability.program("session-busy-inner-parameterized-identity", InnerHandlers, InnerBody);
+
+    const OuterHandlers = struct {
+        runtime: *ability.Runtime,
+        calls: *usize,
+    };
+    const OuterBody = struct {
+        pub const compiled_plan = parameterizedIdentityPlan("session-busy-outer-parameterized-identity");
+
+        pub fn encodeArgs(handlers: OuterHandlers) []const ability.ir.ProgramValue {
+            std.testing.expectError(
+                error.RuntimeBusy,
+                InnerProgram.Session.start(handlers.runtime, .{ .calls = handlers.calls }),
+            ) catch unreachable;
+            return &.{.{ .i32 = 7 }};
+        }
+    };
+    const OuterProgram = ability.program("session-busy-outer-parameterized-identity", OuterHandlers, OuterBody);
+    var result = try OuterProgram.run(&runtime, .{ .runtime = &runtime, .calls = &inner_encode_calls });
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 7), result.value);
+    try std.testing.expectEqual(@as(usize, 0), inner_encode_calls);
+}
+
 test "ability.program rejects destroyed runtime before encoding entry args" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     try runtime.deinitChecked();
@@ -24392,6 +24432,23 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.response_use_not_supported, blocker.tag),
         else => return error.ExpectedProviderRejection,
     }
+    var failing_resume_allocator = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var failing_resume_journal = Program.Session.Journal.init(failing_resume_allocator.allocator());
+    defer failing_resume_journal.deinit();
+    try failing_resume_journal.entries.ensureTotalCapacityPrecise(failing_resume_allocator.allocator(), 1);
+    failing_resume_allocator.fail_index = failing_resume_allocator.alloc_index;
+    failing_resume_allocator.resize_fail_index = failing_resume_allocator.resize_index;
+    const failing_resume_continue = Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &failing_resume_journal });
+    if (failing_resume_continue) |result_value| {
+        var result_packet = result_value;
+        switch (result_packet) {
+            .response => |*packet| packet.deinit(),
+            .provider_suspended => |*parked| parked.deinit(),
+            .rejected => {},
+        }
+        return error.ExpectedOutOfMemory;
+    } else |err| try std.testing.expectEqual(error.OutOfMemory, err);
+    try std.testing.expect(execution.nested_request_envelope != null);
     var continued = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal });
     switch (continued) {
         .response => |*packet| {

@@ -3536,6 +3536,7 @@ pub fn program(
             pub fn start(runtime: *lowered_machine.Runtime, handlers: HandlersType) Error!Session {
                 const mutable_handlers = handlers;
                 const args = blk: {
+                    try ensureRuntimeCanEnter(runtime);
                     lowered_machine.beginExecution(runtime) catch |err| return mapProgramRunError(Error, err);
                     defer lowered_machine.endExecution(runtime);
                     break :blk if (comptime hasDeclSafe(Body, "encodeArgs"))
@@ -7078,9 +7079,9 @@ pub fn program(
                             },
                             else => |other| return providerProgramMapHandlerError(other),
                         };
+                        try appendProviderProgramEvent(options_value.journal, .provider_program_resumed, request, certificate, execution.execution_fingerprint, null, null, null);
                         execution.nested_request_envelope.?.deinit();
                         execution.nested_request_envelope = null;
-                        try appendProviderProgramEvent(options_value.journal, .provider_program_resumed, request, certificate, execution.execution_fingerprint, null, null, null);
                         return stepStartedProviderProgram(index, &session, allocator, request, certificate, offer, options_value, use_value, execution.execution_fingerprint);
                     }
 
