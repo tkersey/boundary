@@ -1267,6 +1267,8 @@ pub fn program(
 
         /// Runtime-owned executable plan for this public program.
         pub const compiled_plan = body_compiled_plan;
+        /// Exact Zig type tuple backing compiled_plan product and sum value schemas.
+        pub const value_schema_types = body_value_schema_types;
         /// Handler/context type accepted by Program.run and Program.Session.start.
         pub const Handlers = HandlersType;
         /// Read-only projection of the compiled ProgramPlan contract.
@@ -7800,13 +7802,13 @@ pub fn program(
                 switch (request_mapping) {
                     .payload_to_args => {
                         if (parameters.len != 1) @compileError("provider Program payload_to_args requires exactly one handler Program argument");
-                        if (!providerProgramValueRefsCompatible(body_compiled_plan, request_ref, HandlerProgram.compiled_plan, parameters[0].ref)) {
+                        if (!providerProgramValueRefsCompatible(body_compiled_plan, body_value_schema_types, request_ref, HandlerProgram.compiled_plan, HandlerProgram.value_schema_types, parameters[0].ref)) {
                             @compileError("provider Program payload_to_args argument schema does not match request payload/current-value schema");
                         }
                     },
                     .payload_and_metadata_to_args => {
                         if (parameters.len != 2) @compileError("provider Program payload_and_metadata_to_args requires payload/current-value plus metadata arguments");
-                        if (!providerProgramValueRefsCompatible(body_compiled_plan, request_ref, HandlerProgram.compiled_plan, parameters[0].ref)) {
+                        if (!providerProgramValueRefsCompatible(body_compiled_plan, body_value_schema_types, request_ref, HandlerProgram.compiled_plan, HandlerProgram.value_schema_types, parameters[0].ref)) {
                             @compileError("provider Program payload_and_metadata_to_args first argument schema does not match request payload/current-value schema");
                         }
                         if (parameters[1].ref.schema_index == null and parameters[1].ref.codec == .unit) {
@@ -7834,7 +7836,7 @@ pub fn program(
                         if (kind_value != .operation or !Site.may_resume) {
                             @compileError("provider Program result_to_resume requires a resumable operation offer");
                         }
-                        if (!providerProgramValueRefsCompatible(HandlerProgram.compiled_plan, result_ref, body_compiled_plan, Site.resume_ref)) {
+                        if (!providerProgramValueRefsCompatible(HandlerProgram.compiled_plan, HandlerProgram.value_schema_types, result_ref, body_compiled_plan, body_value_schema_types, Site.resume_ref)) {
                             @compileError("provider Program result_to_resume result schema does not match operation resume schema");
                         }
                     },
@@ -7842,7 +7844,7 @@ pub fn program(
                         if (kind_value != .operation or !Site.may_return_now) {
                             @compileError("provider Program result_to_return_now requires a return-now operation offer");
                         }
-                        if (!providerProgramValueRefsCompatible(HandlerProgram.compiled_plan, result_ref, body_compiled_plan, Site.result_ref)) {
+                        if (!providerProgramValueRefsCompatible(HandlerProgram.compiled_plan, HandlerProgram.value_schema_types, result_ref, body_compiled_plan, body_value_schema_types, Site.result_ref)) {
                             @compileError("provider Program result_to_return_now result schema does not match operation result schema");
                         }
                     },
@@ -7850,7 +7852,7 @@ pub fn program(
                         if (kind_value != .after) {
                             @compileError("provider Program result_to_resume_after requires an after handler");
                         }
-                        if (!providerProgramValueRefsCompatible(HandlerProgram.compiled_plan, result_ref, body_compiled_plan, Site.output_ref)) {
+                        if (!providerProgramValueRefsCompatible(HandlerProgram.compiled_plan, HandlerProgram.value_schema_types, result_ref, body_compiled_plan, body_value_schema_types, Site.output_ref)) {
                             @compileError("provider Program result_to_resume_after result schema does not match after output schema");
                         }
                     },
@@ -7876,81 +7878,25 @@ pub fn program(
 
             fn providerProgramValueRefsCompatible(
                 comptime left_plan: lowering_api.ProgramPlan,
+                comptime left_schema_types: anytype,
                 comptime left_ref: lowering_api.ValueRef,
                 comptime right_plan: lowering_api.ProgramPlan,
+                comptime right_schema_types: anytype,
                 comptime right_ref: lowering_api.ValueRef,
             ) bool {
                 if (left_ref.codec != right_ref.codec) return false;
-                return switch (left_ref.codec) {
-                    .product, .sum => providerProgramSchemasCompatible(left_plan, left_ref.schema_index, right_plan, right_ref.schema_index),
-                    else => left_ref.schema_index == null and right_ref.schema_index == null,
-                };
-            }
-
-            fn providerProgramSchemasCompatible(
-                comptime left_plan: lowering_api.ProgramPlan,
-                comptime left_schema_index: ?u16,
-                comptime right_plan: lowering_api.ProgramPlan,
-                comptime right_schema_index: ?u16,
-            ) bool {
-                const left_index = left_schema_index orelse return false;
-                const right_index = right_schema_index orelse return false;
-                if (left_index >= left_plan.value_schemas.len or right_index >= right_plan.value_schemas.len) return false;
-                const left_schema = left_plan.value_schemas[left_index];
-                const right_schema = right_plan.value_schemas[right_index];
-                if (left_schema.codec != right_schema.codec) return false;
-                if (!std.mem.eql(u8, left_schema.label, right_schema.label)) return false;
-                return switch (left_schema.codec) {
-                    .product => providerProgramProductSchemasCompatible(left_plan, left_schema, right_plan, right_schema),
-                    .sum => providerProgramSumSchemasCompatible(left_plan, left_schema, right_plan, right_schema),
-                    else => false,
-                };
-            }
-
-            fn providerProgramProductSchemasCompatible(
-                comptime left_plan: lowering_api.ProgramPlan,
-                comptime left_schema: anytype,
-                comptime right_plan: lowering_api.ProgramPlan,
-                comptime right_schema: anytype,
-            ) bool {
-                if (left_schema.field_count != right_schema.field_count) return false;
-                if (left_schema.first_field + left_schema.field_count > left_plan.value_fields.len) return false;
-                if (right_schema.first_field + right_schema.field_count > right_plan.value_fields.len) return false;
-                inline for (0..left_schema.field_count) |field_offset| {
-                    const left_field = left_plan.value_fields[left_schema.first_field + field_offset];
-                    const right_field = right_plan.value_fields[right_schema.first_field + field_offset];
-                    if (!std.mem.eql(u8, left_field.name, right_field.name)) return false;
-                    if (!providerProgramValueRefsCompatible(
-                        left_plan,
-                        .{ .codec = left_field.codec, .schema_index = left_field.schema_index },
-                        right_plan,
-                        .{ .codec = right_field.codec, .schema_index = right_field.schema_index },
-                    )) return false;
+                switch (left_ref.codec) {
+                    .product, .sum => {
+                        if (left_ref.schema_index == null or right_ref.schema_index == null) return false;
+                        if (left_ref.schema_index.? >= left_plan.value_schemas.len or right_ref.schema_index.? >= right_plan.value_schemas.len) return false;
+                    },
+                    else => {
+                        if (left_ref.schema_index != null or right_ref.schema_index != null) return false;
+                    },
                 }
-                return true;
-            }
-
-            fn providerProgramSumSchemasCompatible(
-                comptime left_plan: lowering_api.ProgramPlan,
-                comptime left_schema: anytype,
-                comptime right_plan: lowering_api.ProgramPlan,
-                comptime right_schema: anytype,
-            ) bool {
-                if (left_schema.variant_count != right_schema.variant_count) return false;
-                if (left_schema.first_variant + left_schema.variant_count > left_plan.value_variants.len) return false;
-                if (right_schema.first_variant + right_schema.variant_count > right_plan.value_variants.len) return false;
-                inline for (0..left_schema.variant_count) |variant_offset| {
-                    const left_variant = left_plan.value_variants[left_schema.first_variant + variant_offset];
-                    const right_variant = right_plan.value_variants[right_schema.first_variant + variant_offset];
-                    if (!std.mem.eql(u8, left_variant.name, right_variant.name)) return false;
-                    if (!providerProgramValueRefsCompatible(
-                        left_plan,
-                        .{ .codec = left_variant.codec, .schema_index = left_variant.schema_index },
-                        right_plan,
-                        .{ .codec = right_variant.codec, .schema_index = right_variant.schema_index },
-                    )) return false;
-                }
-                return true;
+                const LeftType = ProgramValueTypeForRef(left_plan, left_schema_types, left_ref);
+                const RightType = ProgramValueTypeForRef(right_plan, right_schema_types, right_ref);
+                return LeftType == RightType;
             }
 
             fn validateProviderHarnessOptions(comptime options: anytype) void {
