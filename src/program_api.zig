@@ -6981,8 +6981,14 @@ pub fn program(
                             },
                             else => return err,
                         };
-                        if (!providerProgramExecutionMatches(index, execution.*, request, certificate, offer)) {
+                        const expected_execution_fingerprint = providerProgramExecutionFingerprint(Entry, request, certificate, offer);
+                        if (!providerProgramExecutionMatches(index, execution.*, request, certificate, offer, expected_execution_fingerprint)) {
                             const failed = blocker(.handler_program_restore_mismatch, request, certificate, offer.fingerprint, "provider Program execution does not match parent request/treaty/provider/offer");
+                            return .{ .rejected = failed };
+                        }
+                        if (validateForEntry(Entry, request, certificate, offer, options_value)) |failed| {
+                            try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, expected_execution_fingerprint, null, failed.tag);
+                            try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                             return .{ .rejected = failed };
                         }
                         const use_value = options_value.response_use orelse certificate.response_use;
@@ -7044,13 +7050,19 @@ pub fn program(
                         request: RequestEnvelope,
                         certificate: Treaty.Certificate,
                         offer: ProviderOffer,
+                        expected_execution_fingerprint: u64,
                     ) bool {
-                        return execution.parent_request_envelope_fingerprint == request.fingerprint and
+                        return execution.execution_fingerprint == expected_execution_fingerprint and
+                            execution.parent_request_envelope_fingerprint == request.fingerprint and
                             execution.parent_request_fingerprint == request.request_fingerprint and
                             execution.treaty_fingerprint == certificate.treaty_fingerprint and
                             execution.treaty_certificate_fingerprint == certificate.certificate_fingerprint and
                             execution.provider_fingerprint == certificate.provider_fingerprint and
-                            execution.provider_offer_fingerprint == offer.fingerprint;
+                            execution.provider_offer_fingerprint == offer.fingerprint and
+                            execution.route_fingerprint == certificate.route_fingerprint and
+                            execution.capability_fingerprint == certificate.capability_fingerprint and
+                            execution.capability_instance_fingerprint == certificate.capability_instance_fingerprint and
+                            execution.obligation_fingerprint == certificate.obligation_fingerprint;
                     }
 
                     fn stepStartedProviderProgram(

@@ -24122,6 +24122,20 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
         else => return error.ExpectedProviderRejection,
     }
     try std.testing.expect(execution.nested_request_envelope != null);
+    const no_treaty_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .journal = &provider_journal });
+    switch (no_treaty_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.treaty_missing, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    try std.testing.expect(execution.nested_request_envelope != null);
+    execution.execution_fingerprint +%= 1;
+    const tampered_execution_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal });
+    switch (tampered_execution_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    execution.execution_fingerprint -%= 1;
+    try std.testing.expect(execution.nested_request_envelope != null);
     const wrong_response_use_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .response_use = .replayed });
     switch (wrong_response_use_continue) {
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.response_use_not_supported, blocker.tag),
