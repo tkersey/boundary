@@ -553,6 +553,26 @@ pub fn build(b: *std.Build) void {
             .expected_error = "Program.Exchange.ProviderHarness listed duplicate operation handler",
         },
         .{
+            .path = "test/compile_fail/provider_program_payload_arg_mismatch.zig",
+            .expected_error = "provider Program payload_to_args argument schema does not match request payload/current-value schema",
+        },
+        .{
+            .path = "test/compile_fail/provider_program_structured_schema_mismatch.zig",
+            .expected_error = "provider Program payload_to_args argument schema does not match request payload/current-value schema",
+        },
+        .{
+            .path = "test/compile_fail/provider_program_transform_return_now.zig",
+            .expected_error = "provider Program result_to_return_now requires a return-now operation offer",
+        },
+        .{
+            .path = "test/compile_fail/provider_program_metadata_mapping_reserved.zig",
+            .expected_error = "provider Program payload_and_metadata_to_args is reserved until provider-program metadata argument execution is implemented",
+        },
+        .{
+            .path = "test/compile_fail/provider_program_outcome_union_reserved.zig",
+            .expected_error = "provider Program result_to_outcome_union is reserved until provider-program outcome-union execution is implemented",
+        },
+        .{
             .path = "test/compile_fail/protocol_request_foreign_site.zig",
             .expected_error = "Program.protocol descriptor belongs to another program",
         },
@@ -667,6 +687,9 @@ pub fn build(b: *std.Build) void {
         .{ .name = "ability-provider-harness-direct", .path = "examples/provider_harness_direct.zig", .step = "run-provider-harness-direct", .desc = "Run the direct ProviderHarness treaty execution example." },
         .{ .name = "ability-provider-harness-morphism", .path = "examples/provider_harness_morphism.zig", .step = "run-provider-harness-morphism", .desc = "Run the morphism ProviderHarness treaty execution example." },
         .{ .name = "ability-provider-harness-replayable", .path = "examples/provider_harness_replayable.zig", .step = "run-provider-harness-replayable", .desc = "Run the replayable ProviderHarness treaty execution example." },
+        .{ .name = "ability-program-provider-direct", .path = "examples/program_provider_direct.zig", .step = "run-program-provider-direct", .desc = "Run the direct program-backed ProviderHarness example." },
+        .{ .name = "ability-program-provider-nested", .path = "examples/program_provider_nested.zig", .step = "run-program-provider-nested", .desc = "Run the nested program-backed ProviderHarness example." },
+        .{ .name = "ability-program-provider-resume", .path = "examples/program_provider_resume.zig", .step = "run-program-provider-resume", .desc = "Run the parked and resumed program-backed ProviderHarness example." },
         .{ .name = "ability-effect-exchange-mailbox", .path = "examples/effect_exchange_mailbox.zig", .step = "run-effect-exchange-mailbox", .desc = "Run the transport-neutral Effect Exchange mailbox example." },
         .{ .name = "ability-effect-exchange-restart", .path = "examples/effect_exchange_restart.zig", .step = "run-effect-exchange-restart", .desc = "Run the Effect Exchange capsule restart example." },
         .{ .name = "ability-linear-effect-sessions", .path = "examples/linear_effect_sessions.zig", .step = "run-linear-effect-sessions", .desc = "Run the Linear Effect Sessions obligation example." },

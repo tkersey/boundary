@@ -1174,6 +1174,67 @@ fn sessionChoicePlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
+fn sessionTwoChoicePlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const first_resume = ability.ir.builder.local(root, 0);
+    const second_resume = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, first_resume, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.callOp(root, second_resume, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(root, second_resume) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .i32,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{
+        .label = "authored",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "choose",
+        .mode = .choice,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+        .has_after = false,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 13,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn parameterizedIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const arg = ability.ir.builder.local(root, 0);
@@ -1212,6 +1273,50 @@ fn parameterizedIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan 
         .ops = &.{},
         .outputs = &.{},
         .locals = &.{.{ .codec = .i32 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn stringIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const arg = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.returnValue(root, arg) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .string,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 22,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,
@@ -2328,6 +2433,72 @@ fn productIdentityPlan(comptime Payload: type, comptime label: []const u8) abili
         .value_fields = &value_fields,
         .value_variants = &.{},
         .locals = &.{.{ .codec = .product, .schema_index = 0 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+fn productIdentityPlanWithPayloadSchemaIndexOne(comptime Padding: type, comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.returnValue(root, payload) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .product,
+        .value_schema_index = 1,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+        .{
+            .label = @typeName(Padding),
+            .codec = .product,
+            .first_field = 0,
+            .field_count = 1,
+        },
+        .{
+            .label = @typeName(Payload),
+            .codec = .product,
+            .first_field = 1,
+            .field_count = 1,
+        },
+    };
+    const value_fields = [_]ability.ir.ValueFieldPlan{
+        .{ .name = "ignored", .codec = .bool },
+        .{ .name = "amount", .codec = .i32 },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 24,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &.{.{ .codec = .product, .schema_index = 1 }},
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,
@@ -5368,6 +5539,15 @@ test "Program.Interpreter handles transform requests and records response traces
     var decoded_legacy_v1 = try Program.Session.Journal.decode(std.testing.allocator, legacy_v1_journal);
     defer decoded_legacy_v1.deinit();
     try std.testing.expectEqual(@as(usize, 2), decoded_legacy_v1.entries.items.len);
+
+    var legacy_v5_journal = try std.testing.allocator.dupe(u8, journal_bytes);
+    defer std.testing.allocator.free(legacy_v5_journal);
+    std.mem.writeInt(u32, legacy_v5_journal["ABL_JRN1".len..][0..4], 5, .little);
+    const legacy_v5_payload = legacy_v5_journal[0 .. legacy_v5_journal.len - 8];
+    std.mem.writeInt(u64, legacy_v5_journal[legacy_v5_journal.len - 8 ..][0..8], testProgramJournalFingerprint(Program, legacy_v5_payload), .little);
+    var decoded_legacy_v5 = try Program.Session.Journal.decode(std.testing.allocator, legacy_v5_journal);
+    defer decoded_legacy_v5.deinit();
+    try std.testing.expectEqual(@as(usize, 2), decoded_legacy_v5.entries.items.len);
 
     var manual_session = try Program.Session.start(&runtime, .{});
     defer manual_session.deinit();
@@ -15619,8 +15799,8 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_capability_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_authorization_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_route_fingerprint_version);
-    try std.testing.expectEqual(@as(u32, 5), Program.journal_format_version);
-    try std.testing.expectEqual(@as(u32, 5), Program.Session.journal_format_version);
+    try std.testing.expectEqual(@as(u32, 6), Program.journal_format_version);
+    try std.testing.expectEqual(@as(u32, 6), Program.Session.journal_format_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_effect_session_format_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_effect_session_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_capability_instance_format_version);
@@ -15680,6 +15860,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     legacy_manifest_index += 8 + @as(usize, @intCast(legacy_manifest_plan_label_len));
     legacy_manifest_index += 8 + 4 + 4 + 4;
     const manifest_journal_format_offset = legacy_manifest_index;
+    try std.testing.expectEqual(Program.Session.journal_format_version, std.mem.readInt(u32, manifest.bytes[manifest_journal_format_offset..][0..4], .little));
     std.mem.writeInt(u32, legacy_manifest[legacy_manifest_index..][0..4], legacy_manifest_request_version, .little);
     const legacy_manifest_payload = legacy_manifest[0 .. legacy_manifest.len - 8];
     std.mem.writeInt(u64, legacy_manifest[legacy_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_manifest_payload), .little);
@@ -15729,6 +15910,16 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     var decoded_v3_journal4_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, v3_journal4_manifest);
     defer decoded_v3_journal4_manifest.deinit();
     try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal4_manifest_payload), decoded_v3_journal4_manifest.fingerprint);
+
+    var v3_journal5_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
+    defer std.testing.allocator.free(v3_journal5_manifest);
+    const v5_journal_format: u32 = 5;
+    std.mem.writeInt(u32, v3_journal5_manifest[manifest_journal_format_offset..][0..4], v5_journal_format, .little);
+    const v3_journal5_manifest_payload = v3_journal5_manifest[0 .. v3_journal5_manifest.len - 8];
+    std.mem.writeInt(u64, v3_journal5_manifest[v3_journal5_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal5_manifest_payload), .little);
+    var decoded_v3_journal5_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, v3_journal5_manifest);
+    defer decoded_v3_journal5_manifest.deinit();
+    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal5_manifest_payload), decoded_v3_journal5_manifest.fingerprint);
 
     var invalid_v3_journal2_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
     defer std.testing.allocator.free(invalid_v3_journal2_manifest);
@@ -18682,6 +18873,31 @@ test "ability.program accepts inferred public ProgramValue entry arg arrays" {
     try std.testing.expectEqual(@as(i32, 42), result.value);
 }
 
+test "ability.program session clones public string entry args" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const EmptyHandlers = struct {};
+    const Body = struct {
+        pub const compiled_plan = stringIdentityPlan("session-public-string-args-cloned");
+    };
+    const Program = ability.program("session-public-string-args-cloned", EmptyHandlers, Body);
+    const input = try std.testing.allocator.dupe(u8, "alpha");
+    defer std.testing.allocator.free(input);
+    var args = [_]ability.ir.ProgramValue{.{ .string = input }};
+    var session = try Program.Session.startWithArgs(&runtime, .{}, &args);
+    defer session.deinit();
+    @memcpy(input, "bravo");
+
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqualStrings("alpha", result.value);
+}
+
 test "ability.program rejects public ProgramValue entry arg length mismatches" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -19953,6 +20169,73 @@ test "ability.program enters runtime execution before encoding entry args" {
     try std.testing.expectEqual(@as(i32, 42), result.value);
 }
 
+test "Program.Session.start enters runtime execution before encoding entry args" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const EncodeGuardHandlers = struct {
+        runtime: *ability.Runtime,
+    };
+    const ParameterizedBody = struct {
+        pub const compiled_plan = parameterizedIdentityPlan("session-guarded-parameterized-identity");
+
+        pub fn encodeArgs(handlers: EncodeGuardHandlers) []const ability.ir.ProgramValue {
+            std.testing.expectError(error.RuntimeBusy, handlers.runtime.deinitChecked()) catch unreachable;
+            return &.{.{ .i32 = 42 }};
+        }
+    };
+    const Program = ability.program("session-guarded-parameterized-identity", EncodeGuardHandlers, ParameterizedBody);
+    var session = try Program.Session.start(&runtime, .{ .runtime = &runtime });
+    defer session.deinit();
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+}
+
+test "Program.Session.start rejects busy runtime before encoding entry args" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var inner_encode_calls: usize = 0;
+    const InnerHandlers = struct {
+        calls: *usize,
+    };
+    const InnerBody = struct {
+        pub const compiled_plan = parameterizedIdentityPlan("session-busy-inner-parameterized-identity");
+
+        pub fn encodeArgs(handlers: InnerHandlers) []const ability.ir.ProgramValue {
+            handlers.calls.* += 1;
+            return &.{.{ .i32 = 42 }};
+        }
+    };
+    const InnerProgram = ability.program("session-busy-inner-parameterized-identity", InnerHandlers, InnerBody);
+
+    const OuterHandlers = struct {
+        runtime: *ability.Runtime,
+        calls: *usize,
+    };
+    const OuterBody = struct {
+        pub const compiled_plan = parameterizedIdentityPlan("session-busy-outer-parameterized-identity");
+
+        pub fn encodeArgs(handlers: OuterHandlers) []const ability.ir.ProgramValue {
+            std.testing.expectError(
+                error.RuntimeBusy,
+                InnerProgram.Session.start(handlers.runtime, .{ .calls = handlers.calls }),
+            ) catch unreachable;
+            return &.{.{ .i32 = 7 }};
+        }
+    };
+    const OuterProgram = ability.program("session-busy-outer-parameterized-identity", OuterHandlers, OuterBody);
+    var result = try OuterProgram.run(&runtime, .{ .runtime = &runtime, .calls = &inner_encode_calls });
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 7), result.value);
+    try std.testing.expectEqual(@as(usize, 0), inner_encode_calls);
+}
+
 test "ability.program rejects destroyed runtime before encoding entry args" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     try runtime.deinitChecked();
@@ -19972,6 +20255,28 @@ test "ability.program rejects destroyed runtime before encoding entry args" {
     const Program = ability.program("destroyed-before-parameterized-identity", EncodeHandlers, ParameterizedBody);
 
     try std.testing.expectError(error.RuntimeDestroyed, Program.run(&runtime, .{ .calls = &encode_calls }));
+    try std.testing.expectEqual(@as(usize, 0), encode_calls);
+}
+
+test "Program.Session.start rejects destroyed runtime before encoding entry args" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    try runtime.deinitChecked();
+
+    var encode_calls: usize = 0;
+    const EncodeHandlers = struct {
+        calls: *usize,
+    };
+    const ParameterizedBody = struct {
+        pub const compiled_plan = parameterizedIdentityPlan("session-destroyed-before-parameterized-identity");
+
+        pub fn encodeArgs(handlers: EncodeHandlers) []const ability.ir.ProgramValue {
+            handlers.calls.* += 1;
+            return &.{.{ .i32 = 42 }};
+        }
+    };
+    const Program = ability.program("session-destroyed-before-parameterized-identity", EncodeHandlers, ParameterizedBody);
+
+    try std.testing.expectError(error.RuntimeDestroyed, Program.Session.start(&runtime, .{ .calls = &encode_calls }));
     try std.testing.expectEqual(@as(usize, 0), encode_calls);
 }
 
@@ -23488,7 +23793,77 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expectEqual(catalog.provider_offers[1].fingerprint, catalog.offer_fingerprints[1]);
     try std.testing.expect(catalog.provider_manifest.supportsRequest(request_envelope));
     try std.testing.expect(catalog.provider_offers[0].supportsRequest(request_envelope));
+    try std.testing.expectEqual(Program.exchange_provider_offer_format_version, catalog.provider_offers[0].format_version);
+    try std.testing.expectEqual(@as(?u64, null), catalog.provider_offers[0].provider_program_mapping_fingerprint);
     try Harness.validateManualCatalog(std.testing.allocator, catalog.provider_manifest, catalog.provider_offers);
+
+    const HandlerBody = struct {
+        pub const compiled_plan = pureArithmeticPlan("program-backed-provider-catalog-handler");
+    };
+    const HandlerProgram = ability.program("program-backed-provider-catalog-handler", struct {}, HandlerBody);
+    const ProgramBackedDecl = Program.Exchange.ProviderHandler.program(.{
+        .label = "program-backed-dispatch",
+        .op = OperationSite,
+        .program = HandlerProgram,
+        .map_request = .unit_args,
+        .map_result = .result_to_resume,
+    });
+    const ProgramBackedHarness = Program.Exchange.ProviderHarness(.{
+        .label = "program-backed-harness-provider",
+        .provider_fingerprint = @as(?u64, 0x5158),
+        .entries = .{ProgramBackedDecl},
+    });
+    var program_catalog = try ProgramBackedHarness.buildCatalog(std.testing.allocator);
+    defer program_catalog.deinit();
+    try std.testing.expectEqual(@as(usize, 1), program_catalog.provider_offers.len);
+    try std.testing.expect(program_catalog.provider_manifest.supportsRequest(request_envelope));
+    try std.testing.expect(program_catalog.provider_offers[0].supportsRequest(request_envelope));
+    try std.testing.expectEqual(Program.exchange_provider_program_offer_format_version, Program.Exchange.provider_program_offer_format_version);
+    try std.testing.expectEqual(Program.Exchange.provider_program_offer_format_version, program_catalog.provider_offers[0].format_version);
+    try std.testing.expectEqual(
+        @as(?u64, ProgramBackedDecl.provider_program_mapping_fingerprint),
+        program_catalog.provider_offers[0].provider_program_mapping_fingerprint,
+    );
+    try std.testing.expect(ProgramBackedDecl.provider_program_mapping_fingerprint != 0);
+    try ProgramBackedHarness.validateManualOffer(std.testing.allocator, 0, program_catalog.provider_offers[0]);
+
+    var decoded_program_offer = try Program.Exchange.ProviderOffer.decode(std.testing.allocator, program_catalog.provider_offers[0].bytes);
+    defer decoded_program_offer.deinit();
+    try std.testing.expectEqual(program_catalog.provider_offers[0].fingerprint, decoded_program_offer.fingerprint);
+    try std.testing.expectEqual(program_catalog.provider_offers[0].provider_program_mapping_fingerprint, decoded_program_offer.provider_program_mapping_fingerprint);
+    var wrong_format_program_offer = program_catalog.provider_offers[0];
+    wrong_format_program_offer.format_version = Program.exchange_provider_offer_format_version;
+    try std.testing.expectError(error.ProgramContractViolation, wrong_format_program_offer.validate());
+    try std.testing.expect(!wrong_format_program_offer.supportsRequest(request_envelope));
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        ProgramBackedHarness.validateManualOffer(std.testing.allocator, 0, wrong_format_program_offer),
+    );
+
+    const ForeignHandlerBody = struct {
+        pub const compiled_plan = pureArithmeticPlan("program-backed-provider-foreign-handler");
+    };
+    const ForeignHandlerProgram = ability.program("program-backed-provider-foreign-handler", struct {}, ForeignHandlerBody);
+    const ForeignProgramBackedDecl = Program.Exchange.ProviderHandler.program(.{
+        .label = "program-backed-dispatch",
+        .op = OperationSite,
+        .program = ForeignHandlerProgram,
+        .map_request = .unit_args,
+        .map_result = .result_to_resume,
+    });
+    const ForeignProgramBackedHarness = Program.Exchange.ProviderHarness(.{
+        .label = "program-backed-harness-provider",
+        .provider_fingerprint = @as(?u64, 0x5158),
+        .entries = .{ForeignProgramBackedDecl},
+    });
+    var foreign_program_catalog = try ForeignProgramBackedHarness.buildCatalog(std.testing.allocator);
+    defer foreign_program_catalog.deinit();
+    try std.testing.expect(ProgramBackedDecl.provider_program_mapping_fingerprint != ForeignProgramBackedDecl.provider_program_mapping_fingerprint);
+    try std.testing.expect(program_catalog.provider_offers[0].fingerprint != foreign_program_catalog.provider_offers[0].fingerprint);
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        ProgramBackedHarness.validateManualOffer(std.testing.allocator, 0, foreign_program_catalog.provider_offers[0]),
+    );
 
     const provider_blocker = Harness.Blocker{
         .tag = .offer_mismatch,
@@ -23656,6 +24031,839 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer limited_manifest_catalog.deinit();
     try std.testing.expectEqual(@as(usize, 11), limited_manifest_catalog.provider_manifest.max_request_envelope_bytes);
     try std.testing.expectEqual(@as(usize, 13), limited_manifest_catalog.provider_manifest.max_response_envelope_bytes);
+}
+
+test "Program.Exchange program-backed provider mapping declarations validate argument and outcome refs" {
+    const ScalarSourceBody = struct {
+        pub const compiled_plan = sessionParameterizedHelperYieldPlan("program-provider-mapping-scalar-source");
+    };
+    const ScalarSource = ability.program("program-provider-mapping-scalar-source", struct {}, ScalarSourceBody);
+    const ScalarSite = ScalarSource.protocol.operationSite("helper", "yield_arg", 0);
+    const ScalarHandlerBody = struct {
+        pub const compiled_plan = parameterizedIdentityPlan("program-provider-mapping-scalar-handler");
+    };
+    const ScalarHandler = ability.program("program-provider-mapping-scalar-handler", struct {}, ScalarHandlerBody);
+    const ScalarDecl = ScalarSource.Exchange.ProviderHandler.program(.{
+        .label = "scalar-mapping",
+        .op = ScalarSite,
+        .program = ScalarHandler,
+        .map_request = .payload_to_args,
+        .map_result = .result_to_resume,
+    });
+    try std.testing.expectEqual(@as(usize, 1), ScalarDecl.handler_program_entry_parameters.len);
+    try std.testing.expect(ScalarDecl.handler_program_entry_parameters[0].ref.eql(ScalarSite.payload_ref));
+    try std.testing.expect(ScalarDecl.handler_program_result_ref.eql(ScalarSite.resume_ref));
+
+    const ProductPayload = struct { amount: i32 };
+    const ProductSourceBody = struct {
+        pub const value_schema_types = .{ProductPayload};
+        pub const compiled_plan = sessionProductTransformPlan(ProductPayload, "program-provider-mapping-product-source");
+    };
+    const ProductSource = ability.program("program-provider-mapping-product-source", struct {}, ProductSourceBody);
+    const ProductSite = ProductSource.protocol.operationSite("structured", "round_trip", 0);
+    const ProductHandlerBody = struct {
+        pub const value_schema_types = .{ProductPayload};
+        pub const compiled_plan = productIdentityPlan(ProductPayload, "program-provider-mapping-product-handler");
+    };
+    const ProductHandler = ability.program("program-provider-mapping-product-handler", struct {}, ProductHandlerBody);
+    const ProductDecl = ProductSource.Exchange.ProviderHandler.program(.{
+        .label = "product-mapping",
+        .op = ProductSite,
+        .program = ProductHandler,
+        .map_request = .payload_to_args,
+        .map_result = .result_to_resume,
+    });
+    try std.testing.expect(ProductDecl.handler_program_entry_parameters[0].ref.eql(ProductSite.payload_ref));
+    try std.testing.expect(ProductDecl.handler_program_result_ref.eql(ProductSite.resume_ref));
+
+    const ShiftedProductHandlerBody = struct {
+        const PaddingPayload = struct { ignored: bool };
+
+        pub const value_schema_types = .{ PaddingPayload, ProductPayload };
+        pub const compiled_plan = productIdentityPlanWithPayloadSchemaIndexOne(PaddingPayload, ProductPayload, "program-provider-mapping-product-shifted-handler");
+    };
+    const ShiftedProductHandler = ability.program("program-provider-mapping-product-shifted-handler", struct {}, ShiftedProductHandlerBody);
+    const ShiftedProductDecl = ProductSource.Exchange.ProviderHandler.program(.{
+        .label = "product-mapping-shifted-schema-index",
+        .op = ProductSite,
+        .program = ShiftedProductHandler,
+        .map_request = .payload_to_args,
+        .map_result = .result_to_resume,
+    });
+    try std.testing.expectEqual(@as(?u16, 1), ShiftedProductDecl.handler_program_entry_parameters[0].ref.schema_index);
+    try std.testing.expectEqual(@as(?u16, 1), ShiftedProductDecl.handler_program_result_ref.schema_index);
+    try std.testing.expect(!ShiftedProductDecl.handler_program_entry_parameters[0].ref.eql(ProductSite.payload_ref));
+    try std.testing.expect(!ShiftedProductDecl.handler_program_result_ref.eql(ProductSite.resume_ref));
+
+    const SumPayload = ?i32;
+    const SumSourceBody = struct {
+        pub const value_schema_types = .{SumPayload};
+        pub const compiled_plan = sessionSumTransformPlan(SumPayload, "program-provider-mapping-sum-source");
+    };
+    const SumSource = ability.program("program-provider-mapping-sum-source", struct {}, SumSourceBody);
+    const SumSite = SumSource.protocol.operationSite("structured", "round_trip", 0);
+    const SumHandlerBody = struct {
+        pub const value_schema_types = .{SumPayload};
+        pub const compiled_plan = sumIdentityPlan(SumPayload, "program-provider-mapping-sum-handler");
+    };
+    const SumHandler = ability.program("program-provider-mapping-sum-handler", struct {}, SumHandlerBody);
+    const SumDecl = SumSource.Exchange.ProviderHandler.program(.{
+        .label = "sum-mapping",
+        .op = SumSite,
+        .program = SumHandler,
+        .map_request = .payload_to_args,
+        .map_result = .result_to_resume,
+    });
+    try std.testing.expect(SumDecl.handler_program_entry_parameters[0].ref.eql(SumSite.payload_ref));
+    try std.testing.expect(SumDecl.handler_program_result_ref.eql(SumSite.resume_ref));
+
+    const ChoiceBody = struct {
+        pub const compiled_plan = choiceResumeI32ReturnBoolPlan("program-provider-mapping-choice-source");
+    };
+    const ChoiceSource = ability.program("program-provider-mapping-choice-source", struct {}, ChoiceBody);
+    const ChoiceSite = ChoiceSource.protocol.operationSite("authored", "dispatch", 0);
+    const ChoiceResumeHandlerBody = struct {
+        pub const compiled_plan = pureArithmeticPlan("program-provider-mapping-choice-resume-handler");
+    };
+    const ChoiceResumeHandler = ability.program("program-provider-mapping-choice-resume-handler", struct {}, ChoiceResumeHandlerBody);
+    const ChoiceResumeDecl = ChoiceSource.Exchange.ProviderHandler.program(.{
+        .label = "choice-resume",
+        .op = ChoiceSite,
+        .program = ChoiceResumeHandler,
+        .map_request = .unit_args,
+        .map_result = .result_to_resume,
+    });
+    try std.testing.expect(ChoiceResumeDecl.offer_options.allowed_response_kinds.?.@"resume");
+    try std.testing.expect(!ChoiceResumeDecl.offer_options.allowed_response_kinds.?.return_now);
+    try std.testing.expect(!ChoiceResumeDecl.offer_options.allowed_response_kinds.?.resume_after);
+
+    const ChoiceReturnDecl = ChoiceSource.Exchange.ProviderHandler.program(.{
+        .label = "choice-return-now",
+        .op = ChoiceSite,
+        .program = ChoiceSource,
+        .map_request = .unit_args,
+        .map_result = .result_to_return_now,
+        .response_kinds = .{ .@"resume" = false, .return_now = true, .resume_after = false },
+    });
+    try std.testing.expect(ChoiceReturnDecl.handler_program_result_ref.eql(ChoiceSite.result_ref));
+
+    const AbortBody = struct {
+        pub const compiled_plan = exceptionScalarThrowPlan("program-provider-mapping-abort-source");
+    };
+    const AbortSource = ability.program("program-provider-mapping-abort-source", struct {}, AbortBody);
+    const AbortSite = AbortSource.protocol.operationSite("exception", "throw", 0);
+    const AbortDecl = AbortSource.Exchange.ProviderHandler.program(.{
+        .label = "abort-return-now",
+        .op = AbortSite,
+        .program = ScalarHandler,
+        .map_request = .payload_to_args,
+        .map_result = .result_to_return_now,
+    });
+    try std.testing.expect(AbortDecl.handler_program_entry_parameters[0].ref.eql(AbortSite.payload_ref));
+    try std.testing.expect(AbortDecl.handler_program_result_ref.eql(AbortSite.result_ref));
+
+    const AfterSourceBody = struct {
+        pub const compiled_plan = handlerlessAfterReturnBoolPlan("program-provider-mapping-after-source");
+    };
+    const AfterSource = ability.program("program-provider-mapping-after-source", struct {}, AfterSourceBody);
+    const AfterSite = AfterSource.protocol.afterSite("handlerless", "step", 0);
+    const AfterDecl = AfterSource.Exchange.ProviderHandler.program(.{
+        .label = "after-resume-after",
+        .after = AfterSite,
+        .program = ChoiceSource,
+        .map_request = .unit_args,
+        .map_result = .result_to_resume_after,
+    });
+    try std.testing.expectEqual(@as(usize, 0), AfterDecl.handler_program_entry_parameters.len);
+    try std.testing.expect(AfterDecl.handler_program_result_ref.eql(AfterSite.output_ref));
+}
+
+test "Program.Exchange ProviderHarness runs synchronous program-backed provider handler" {
+    const Body = struct {
+        pub const compiled_plan = compiledTransformPlan("program-provider-sync-source");
+    };
+    const Program = ability.program("program-provider-sync-source", struct {}, Body);
+    const OperationSite = Program.protocol.operationSite("authored", "dispatch", 0);
+    const HandlerBody = struct {
+        pub const Error = error{Denied};
+        pub const compiled_plan = pureArithmeticPlan("program-provider-sync-handler");
+    };
+    const HandlerProgram = ability.program("program-provider-sync-handler", struct {}, HandlerBody);
+    const OperationDecl = Program.Exchange.ProviderHandler.program(.{
+        .label = "sync-program-dispatch",
+        .op = OperationSite,
+        .program = HandlerProgram,
+        .map_request = .unit_args,
+        .map_result = .result_to_resume,
+    });
+    const Harness = Program.Exchange.ProviderHarness(.{
+        .label = "sync-program-provider",
+        .provider_fingerprint = @as(?u64, 0x7151),
+        .entries = .{OperationDecl},
+    });
+
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    const trace = request.trace();
+    var envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, request, .{});
+    defer envelope.deinit();
+    var catalog = try Harness.buildCatalog(std.testing.allocator);
+    defer catalog.deinit();
+    var capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "sync-program-issuer",
+        .provider_fingerprint = Harness.provider_fingerprint,
+        .manifest_fingerprint = catalog.manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true, .after = false },
+        .allowed_operation_sites = &.{trace.operation_site_index},
+        .allowed_protocol_op_fingerprints = &.{trace.operation_site_fingerprint},
+        .allowed_requirement_labels = &.{trace.requirement_label},
+        .allowed_op_names = &.{trace.op_name},
+    });
+    defer capability.deinit();
+    const providers = [_]Program.Exchange.ProviderManifest{catalog.provider_manifest};
+    const offers = [_]Program.Exchange.ProviderOffer{catalog.provider_offers[0]};
+    const capabilities = [_]Program.Exchange.Capability{capability};
+    var resolved = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = catalog.manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+    });
+    defer resolved.deinit();
+    const treaty = resolved.treaty orelse return error.ExpectedTreaty;
+
+    const ForeignHandlerBody = struct {
+        pub const Error = error{Denied};
+        pub const compiled_plan = pureArithmeticPlan("program-provider-sync-foreign-handler");
+    };
+    const ForeignHandlerProgram = ability.program("program-provider-sync-foreign-handler", struct {}, ForeignHandlerBody);
+    const ForeignDecl = Program.Exchange.ProviderHandler.program(.{
+        .label = "sync-program-dispatch",
+        .op = OperationSite,
+        .program = ForeignHandlerProgram,
+        .map_request = .unit_args,
+        .map_result = .result_to_resume,
+    });
+    const ForeignHarness = Program.Exchange.ProviderHarness(.{
+        .label = "sync-program-provider",
+        .provider_fingerprint = @as(?u64, 0x7151),
+        .entries = .{ForeignDecl},
+    });
+    var foreign_catalog = try ForeignHarness.buildCatalog(std.testing.allocator);
+    defer foreign_catalog.deinit();
+    try std.testing.expect(catalog.provider_offers[0].fingerprint != foreign_catalog.provider_offers[0].fingerprint);
+    const foreign_providers = [_]Program.Exchange.ProviderManifest{foreign_catalog.provider_manifest};
+    const foreign_offers = [_]Program.Exchange.ProviderOffer{foreign_catalog.provider_offers[0]};
+    var foreign_resolved = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = foreign_catalog.manifest,
+        .provider_manifests = foreign_providers[0..],
+        .provider_offers = foreign_offers[0..],
+        .capabilities = capabilities[0..],
+    });
+    defer foreign_resolved.deinit();
+    const foreign_treaty = foreign_resolved.treaty orelse return error.ExpectedTreaty;
+
+    var handler_runtime = ability.Runtime.init(std.testing.allocator);
+    defer handler_runtime.deinit();
+    var provider_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer provider_journal.deinit();
+    const foreign_result = try Harness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, envelope, foreign_treaty.certificate, foreign_catalog.provider_offers[0], .{ .treaty = foreign_treaty, .journal = &provider_journal });
+    switch (foreign_result) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.offer_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    try std.testing.expect(provider_journal.entries.items.len >= 2);
+    switch (provider_journal.entries.items[0]) {
+        .exchange_event => |event| try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.provider_request_received, event.kind),
+        else => return error.ExpectedJournalEvent,
+    }
+    switch (provider_journal.entries.items[1]) {
+        .exchange_event => |event| try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.provider_request_rejected, event.kind),
+        else => return error.ExpectedJournalEvent,
+    }
+    var failing_completion_allocator = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var failing_completion_journal = Program.Session.Journal.init(failing_completion_allocator.allocator());
+    defer failing_completion_journal.deinit();
+    try failing_completion_journal.entries.ensureTotalCapacityPrecise(failing_completion_allocator.allocator(), 3);
+    failing_completion_allocator.fail_index = failing_completion_allocator.alloc_index;
+    failing_completion_allocator.resize_fail_index = failing_completion_allocator.resize_index;
+    const failing_completion_result = Harness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, envelope, treaty.certificate, catalog.provider_offers[0], .{ .treaty = treaty, .journal = &failing_completion_journal });
+    if (failing_completion_result) |result_value| {
+        var result_packet = result_value;
+        switch (result_packet) {
+            .response => |*packet| packet.deinit(),
+            .provider_suspended => |*parked| parked.deinit(),
+            .rejected => {},
+        }
+        return error.ExpectedOutOfMemory;
+    } else |err| try std.testing.expectEqual(error.OutOfMemory, err);
+    var result = try Harness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, envelope, treaty.certificate, catalog.provider_offers[0], .{ .treaty = treaty, .journal = &provider_journal });
+    switch (result) {
+        .response => |*packet| {
+            defer packet.deinit();
+            try std.testing.expect(packet.provider_program_execution_fingerprint != null);
+            try std.testing.expectEqual(treaty.fingerprint, packet.treaty_fingerprint);
+            try Program.Exchange.applyResponse(&session, packet.response, .{});
+        },
+        else => return error.ExpectedProviderResponse,
+    }
+    switch (try session.next()) {
+        .after => {},
+        .request => return error.UnexpectedRequest,
+        .done => return error.UnexpectedDone,
+    }
+
+    const legacy_result = try Harness.handle({}, std.testing.allocator, envelope, treaty.certificate, .{ .treaty = treaty });
+    switch (legacy_result) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_requires_step_api, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+
+    const LowLimitDecl = Program.Exchange.ProviderHandler.program(.{
+        .label = "sync-program-dispatch",
+        .op = OperationSite,
+        .program = HandlerProgram,
+        .map_request = .unit_args,
+        .map_result = .result_to_resume,
+        .max_response_bytes = 1,
+    });
+    const LowLimitHarness = Program.Exchange.ProviderHarness(.{
+        .label = "sync-program-provider-low-limit",
+        .provider_fingerprint = @as(?u64, 0x7152),
+        .entries = .{LowLimitDecl},
+    });
+    var low_catalog = try LowLimitHarness.buildCatalog(std.testing.allocator);
+    defer low_catalog.deinit();
+    var low_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "sync-program-low-limit-issuer",
+        .provider_fingerprint = LowLimitHarness.provider_fingerprint,
+        .manifest_fingerprint = low_catalog.manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true, .after = false },
+        .allowed_operation_sites = &.{trace.operation_site_index},
+        .allowed_protocol_op_fingerprints = &.{trace.operation_site_fingerprint},
+        .allowed_requirement_labels = &.{trace.requirement_label},
+        .allowed_op_names = &.{trace.op_name},
+    });
+    defer low_capability.deinit();
+    const low_providers = [_]Program.Exchange.ProviderManifest{low_catalog.provider_manifest};
+    const low_offers = [_]Program.Exchange.ProviderOffer{low_catalog.provider_offers[0]};
+    const low_capabilities = [_]Program.Exchange.Capability{low_capability};
+    var low_resolved = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = low_catalog.manifest,
+        .provider_manifests = low_providers[0..],
+        .provider_offers = low_offers[0..],
+        .capabilities = low_capabilities[0..],
+    });
+    defer low_resolved.deinit();
+    const low_treaty = low_resolved.treaty orelse return error.ExpectedTreaty;
+    var low_provider_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer low_provider_journal.deinit();
+    const low_limit_result = try LowLimitHarness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, envelope, low_treaty.certificate, low_catalog.provider_offers[0], .{ .treaty = low_treaty, .journal = &low_provider_journal });
+    switch (low_limit_result) {
+        .rejected => |blocker| try std.testing.expectEqual(LowLimitHarness.ProviderBlockerTag.byte_limit_exceeded, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    var saw_low_request_received = false;
+    var saw_low_program_started = false;
+    var saw_low_program_rejected = false;
+    for (low_provider_journal.entries.items) |entry| switch (entry) {
+        .exchange_event => |event| switch (event.kind) {
+            .provider_request_received => saw_low_request_received = true,
+            .provider_program_started => {
+                saw_low_program_started = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+            },
+            .provider_program_rejected => {
+                saw_low_program_rejected = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expectEqualStrings(@tagName(LowLimitHarness.ProviderBlockerTag.byte_limit_exceeded), event.blocker_tag.?);
+            },
+            else => {},
+        },
+        else => {},
+    };
+    try std.testing.expect(saw_low_request_received);
+    try std.testing.expect(saw_low_program_started);
+    try std.testing.expect(saw_low_program_rejected);
+
+    var saw_request_received = false;
+    var saw_program_started = false;
+    var saw_program_completed = false;
+    for (provider_journal.entries.items) |entry| switch (entry) {
+        .exchange_event => |event| switch (event.kind) {
+            .provider_request_received => saw_request_received = true,
+            .provider_program_started => {
+                saw_program_started = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expectEqual(@as(?u64, null), event.response_envelope_fingerprint);
+            },
+            .provider_program_completed => {
+                saw_program_completed = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expectEqual(@as(?u64, null), event.response_envelope_fingerprint);
+            },
+            else => {},
+        },
+        else => {},
+    };
+    try std.testing.expect(saw_request_received);
+    try std.testing.expect(saw_program_started);
+    try std.testing.expect(saw_program_completed);
+    const sync_provider_journal_bytes = try provider_journal.encode(std.testing.allocator);
+    defer std.testing.allocator.free(sync_provider_journal_bytes);
+    var decoded_sync_provider_journal = try Program.Session.Journal.decode(std.testing.allocator, sync_provider_journal_bytes);
+    defer decoded_sync_provider_journal.deinit();
+    var decoded_saw_program_started = false;
+    for (decoded_sync_provider_journal.entries.items) |entry| switch (entry) {
+        .exchange_event => |event| switch (event.kind) {
+            .provider_program_started => {
+                decoded_saw_program_started = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expectEqual(@as(?u64, null), event.response_envelope_fingerprint);
+            },
+            else => {},
+        },
+        else => {},
+    };
+    try std.testing.expect(decoded_saw_program_started);
+}
+
+test "Program.Exchange ProviderHarness suspends and resumes nested program-backed provider handler" {
+    const Body = struct {
+        pub const compiled_plan = compiledTransformPlan("program-provider-nested-source");
+    };
+    const Program = ability.program("program-provider-nested-source", struct {}, Body);
+    const OperationSite = Program.protocol.operationSite("authored", "dispatch", 0);
+    const HandlerBody = struct {
+        pub const Error = error{Denied};
+        pub const compiled_plan = sessionChoicePlan("program-provider-nested-handler");
+    };
+    const HandlerProgram = ability.program("program-provider-nested-handler", struct {}, HandlerBody);
+    const OperationDecl = Program.Exchange.ProviderHandler.program(.{
+        .label = "nested-program-dispatch",
+        .op = OperationSite,
+        .program = HandlerProgram,
+        .map_request = .unit_args,
+        .map_result = .result_to_resume,
+    });
+    const Harness = Program.Exchange.ProviderHarness(.{
+        .label = "nested-program-provider",
+        .provider_fingerprint = @as(?u64, 0x7251),
+        .entries = .{OperationDecl},
+    });
+
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const parent_request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    const parent_trace = parent_request.trace();
+    var parent_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, parent_request, .{
+        .usage_metadata = .{ .usage = .copyable, .branch_id = 42 },
+    });
+    defer parent_envelope.deinit();
+    var catalog = try Harness.buildCatalog(std.testing.allocator);
+    defer catalog.deinit();
+    var capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "nested-program-issuer",
+        .provider_fingerprint = Harness.provider_fingerprint,
+        .manifest_fingerprint = catalog.manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true, .after = false },
+        .allowed_program_labels = &.{Program.contract.label},
+        .allowed_plan_hashes = &.{Program.compiled_plan.hash()},
+        .allowed_operation_sites = Harness.supported_operation_sites,
+        .allowed_protocol_op_fingerprints = Harness.supported_protocol_op_fingerprints,
+        .allowed_requirement_labels = Harness.supported_protocol_labels,
+        .allowed_op_names = &.{parent_trace.op_name},
+        .allowed_response_kinds = catalog.provider_manifest.allowed_response_kinds,
+        .allow_embedded_capsule_response_handling = catalog.provider_manifest.accepts_embedded_capsules,
+        .allow_capsule_restore = catalog.provider_manifest.accepts_capsule_restore,
+        .max_request_bytes = catalog.provider_manifest.max_request_envelope_bytes,
+        .max_response_bytes = catalog.provider_manifest.max_response_envelope_bytes,
+    });
+    defer capability.deinit();
+    const states = [_][]const u8{ "open", "done" };
+    const spec = Program.Exchange.EffectSessionSpec{
+        .label = "nested-provider-program-branch-session",
+        .initial_state = "open",
+        .states = states[0..],
+        .terminal_states = states[1..],
+        .usage = .copyable,
+    };
+    var instance = try Program.Exchange.CapabilityInstance.create(capability, catalog.provider_manifest, spec, .{
+        .snapshot_allocator = std.heap.page_allocator,
+        .branch_id = 42,
+    });
+    const providers = [_]Program.Exchange.ProviderManifest{catalog.provider_manifest};
+    const offers = [_]Program.Exchange.ProviderOffer{catalog.provider_offers[0]};
+    const capabilities = [_]Program.Exchange.Capability{capability};
+    const instances = [_]Program.Exchange.CapabilityInstance{instance};
+    var resolved = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = parent_envelope,
+        .manifest = catalog.manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+        .capability_instances = instances[0..],
+        .effect_session_spec = spec,
+        .live_capability_instance_fingerprint = instance.instance_fingerprint,
+    });
+    defer resolved.deinit();
+    const treaty = resolved.treaty orelse return error.ExpectedTreaty;
+
+    var handler_runtime = ability.Runtime.init(std.testing.allocator);
+    defer handler_runtime.deinit();
+    var provider_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer provider_journal.deinit();
+    var started = try Harness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
+    var execution = switch (started) {
+        .provider_suspended => |*value| moved: {
+            const moved_value = value.*;
+            value.session = null;
+            value.nested_request_envelope = null;
+            break :moved moved_value;
+        },
+        .response => |*packet| {
+            packet.deinit();
+            return error.ExpectedProviderSuspension;
+        },
+        .rejected => return error.ExpectedProviderSuspension,
+    };
+    defer execution.deinit();
+    try std.testing.expectEqual(Harness.ProviderProgramExecutionState.parked_on_nested_request, execution.state);
+    try std.testing.expectEqual(@as(usize, 0), execution.nested_turn_index);
+    try std.testing.expectEqual(Program.Evidence.domains.provider_program_execution.id, execution.evidenceRef().domain_id);
+    try std.testing.expectEqual(@as(?u64, 42), execution.branch_id);
+    try std.testing.expectEqual(@as(?u64, 42), execution.evidenceRef().branch_id);
+    try std.testing.expect(execution.nested_request_envelope != null);
+    try std.testing.expect(execution.provider_program_capsule_image_fingerprint != null);
+    const nested_envelope = &execution.nested_request_envelope.?;
+    try std.testing.expect(nested_envelope.capsule_image != null);
+    try std.testing.expectEqual(nested_envelope.request_fingerprint, execution.nested_request_fingerprint.?);
+    try std.testing.expectEqual(nested_envelope.fingerprint, execution.nested_request_envelope_fingerprint.?);
+    try std.testing.expectEqual(Program.Evidence.domains.provider_program_nested_request.id, Program.Evidence.refForProviderProgramNestedRequest(execution.nested_request_fingerprint.?).domain_id);
+
+    var nested_response = try HandlerProgram.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, nested_envelope.*, @as(i32, 42));
+    defer nested_response.deinit();
+    var wrong_nested_response = try HandlerProgram.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, nested_envelope.*, @as(i32, 41));
+    defer wrong_nested_response.deinit();
+    wrong_nested_response.request_envelope_fingerprint +%= 1;
+    const wrong_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], wrong_nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
+    switch (wrong_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_nested_request_invalid, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    var corrupt_nested_response = try HandlerProgram.Exchange.ResponseEnvelope.decode(std.testing.allocator, nested_response.bytes);
+    defer corrupt_nested_response.deinit();
+    corrupt_nested_response.response_trace_fingerprint +%= 1;
+    var nested_response_event_count_before_corrupt: usize = 0;
+    for (provider_journal.entries.items) |entry| switch (entry) {
+        .exchange_event => |event| {
+            if (event.kind == .provider_program_nested_response) nested_response_event_count_before_corrupt += 1;
+        },
+        else => {},
+    };
+    const corrupt_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], corrupt_nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
+    switch (corrupt_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_nested_request_invalid, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    var nested_response_event_count_after_corrupt: usize = 0;
+    for (provider_journal.entries.items) |entry| switch (entry) {
+        .exchange_event => |event| {
+            if (event.kind == .provider_program_nested_response) nested_response_event_count_after_corrupt += 1;
+        },
+        else => {},
+    };
+    try std.testing.expectEqual(nested_response_event_count_before_corrupt, nested_response_event_count_after_corrupt);
+    try std.testing.expect(execution.nested_request_envelope != null);
+    const no_treaty_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .journal = &provider_journal });
+    switch (no_treaty_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.treaty_missing, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    try std.testing.expect(execution.nested_request_envelope != null);
+    execution.execution_fingerprint +%= 1;
+    const tampered_execution_journal_len = provider_journal.entries.items.len;
+    const tampered_execution_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
+    switch (tampered_execution_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    try std.testing.expectEqual(tampered_execution_journal_len + 1, provider_journal.entries.items.len);
+    switch (provider_journal.entries.items[tampered_execution_journal_len]) {
+        .exchange_event => |event| {
+            try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.provider_program_rejected, event.kind);
+            try std.testing.expectEqualStrings(@tagName(Harness.ProviderBlockerTag.handler_program_restore_mismatch), event.blocker_tag.?);
+            try std.testing.expect(event.provider_program_execution_fingerprint != null);
+        },
+        else => return error.ExpectedJournalEvent,
+    }
+    execution.execution_fingerprint -%= 1;
+    try std.testing.expect(execution.nested_request_envelope != null);
+    execution.nested_request_fingerprint.? +%= 1;
+    const tampered_nested_fingerprint_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
+    switch (tampered_nested_fingerprint_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    execution.nested_request_fingerprint.? -%= 1;
+    execution.nested_request_envelope_fingerprint.? +%= 1;
+    const tampered_nested_envelope_fingerprint_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
+    switch (tampered_nested_envelope_fingerprint_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    execution.nested_request_envelope_fingerprint.? -%= 1;
+    execution.provider_program_capsule_image_fingerprint.? +%= 1;
+    const tampered_capsule_fingerprint_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
+    switch (tampered_capsule_fingerprint_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    execution.provider_program_capsule_image_fingerprint.? -%= 1;
+    execution.nested_turn_index += 1;
+    const tampered_nested_turn_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
+    switch (tampered_nested_turn_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    execution.nested_turn_index -= 1;
+    execution.state = .done;
+    const tampered_state_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
+    switch (tampered_state_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    execution.state = .parked_on_nested_request;
+    try std.testing.expect(execution.nested_request_envelope != null);
+    const wrong_response_use_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .response_use = .replayed, .capability_instance_state = &instance });
+    switch (wrong_response_use_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.response_use_not_supported, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    var failing_resume_allocator = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var failing_resume_journal = Program.Session.Journal.init(failing_resume_allocator.allocator());
+    defer failing_resume_journal.deinit();
+    try failing_resume_journal.entries.ensureTotalCapacityPrecise(failing_resume_allocator.allocator(), 1);
+    failing_resume_allocator.fail_index = failing_resume_allocator.alloc_index;
+    failing_resume_allocator.resize_fail_index = failing_resume_allocator.resize_index;
+    const failing_resume_continue = Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &failing_resume_journal, .capability_instance_state = &instance });
+    if (failing_resume_continue) |result_value| {
+        var result_packet = result_value;
+        switch (result_packet) {
+            .response => |*packet| packet.deinit(),
+            .provider_suspended => |*parked| parked.deinit(),
+            .rejected => {},
+        }
+        return error.ExpectedOutOfMemory;
+    } else |err| try std.testing.expectEqual(error.OutOfMemory, err);
+    try std.testing.expect(execution.nested_request_envelope != null);
+    var failing_resumed_step_allocator = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var failing_resumed_step_journal = Program.Session.Journal.init(failing_resumed_step_allocator.allocator());
+    defer failing_resumed_step_journal.deinit();
+    try failing_resumed_step_journal.entries.ensureTotalCapacityPrecise(failing_resumed_step_allocator.allocator(), 2);
+    failing_resumed_step_allocator.fail_index = failing_resumed_step_allocator.alloc_index;
+    failing_resumed_step_allocator.resize_fail_index = failing_resumed_step_allocator.resize_index;
+    const failing_resumed_step_continue = Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &failing_resumed_step_journal, .capability_instance_state = &instance });
+    if (failing_resumed_step_continue) |result_value| {
+        var result_packet = result_value;
+        switch (result_packet) {
+            .response => |*packet| packet.deinit(),
+            .provider_suspended => |*parked| parked.deinit(),
+            .rejected => {},
+        }
+        return error.ExpectedOutOfMemory;
+    } else |err| try std.testing.expectEqual(error.OutOfMemory, err);
+    try std.testing.expect(execution.nested_request_envelope != null);
+    var continued = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
+    switch (continued) {
+        .response => |*packet| {
+            defer packet.deinit();
+            try std.testing.expect(packet.provider_program_execution_fingerprint != null);
+            try Program.Exchange.applyResponse(&session, packet.response, .{ .request_envelope_fingerprint = parent_envelope.fingerprint });
+        },
+        .provider_suspended => |*parked| {
+            parked.deinit();
+            return error.ExpectedProviderResponse;
+        },
+        .rejected => return error.ExpectedProviderResponse,
+    }
+    switch (try session.next()) {
+        .after => {},
+        .request => return error.UnexpectedRequest,
+        .done => return error.UnexpectedDone,
+    }
+    var saw_nested_request = false;
+    var saw_nested_response = false;
+    var saw_parked = false;
+    for (provider_journal.entries.items) |entry| switch (entry) {
+        .exchange_event => |event| switch (event.kind) {
+            .provider_program_nested_request => {
+                saw_nested_request = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expect(event.provider_program_nested_request_fingerprint != null);
+                try std.testing.expectEqual(@as(?u64, null), event.response_envelope_fingerprint);
+            },
+            .provider_program_nested_response => {
+                saw_nested_response = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expect(event.provider_program_nested_request_fingerprint != null);
+                try std.testing.expect(event.response_envelope_fingerprint != null);
+            },
+            .provider_program_parked => {
+                saw_parked = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expect(event.provider_program_nested_request_fingerprint != null);
+                try std.testing.expectEqual(@as(?u64, null), event.response_envelope_fingerprint);
+            },
+            else => {},
+        },
+        else => {},
+    };
+    try std.testing.expect(saw_nested_request);
+    try std.testing.expect(saw_nested_response);
+    try std.testing.expect(saw_parked);
+    const nested_provider_journal_bytes = try provider_journal.encode(std.testing.allocator);
+    defer std.testing.allocator.free(nested_provider_journal_bytes);
+    var decoded_nested_provider_journal = try Program.Session.Journal.decode(std.testing.allocator, nested_provider_journal_bytes);
+    defer decoded_nested_provider_journal.deinit();
+    var decoded_saw_nested_request = false;
+    for (decoded_nested_provider_journal.entries.items) |entry| switch (entry) {
+        .exchange_event => |event| switch (event.kind) {
+            .provider_program_nested_request => {
+                decoded_saw_nested_request = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expect(event.provider_program_nested_request_fingerprint != null);
+                try std.testing.expectEqual(@as(?u64, null), event.response_envelope_fingerprint);
+            },
+            else => {},
+        },
+        else => {},
+    };
+    try std.testing.expect(decoded_saw_nested_request);
+}
+
+test "Program.Exchange ProviderHarness increments nested turn indexes across repeated program-backed provider suspensions" {
+    const Body = struct {
+        pub const compiled_plan = compiledTransformPlan("program-provider-nested-turn-source");
+    };
+    const Program = ability.program("program-provider-nested-turn-source", struct {}, Body);
+    const OperationSite = Program.protocol.operationSite("authored", "dispatch", 0);
+    const HandlerBody = struct {
+        pub const compiled_plan = sessionTwoChoicePlan("program-provider-nested-turn-handler");
+    };
+    const HandlerProgram = ability.program("program-provider-nested-turn-handler", struct {}, HandlerBody);
+    const OperationDecl = Program.Exchange.ProviderHandler.program(.{
+        .label = "nested-turn-program-dispatch",
+        .op = OperationSite,
+        .program = HandlerProgram,
+        .map_request = .unit_args,
+        .map_result = .result_to_resume,
+    });
+    const Harness = Program.Exchange.ProviderHarness(.{
+        .label = "nested-turn-program-provider",
+        .provider_fingerprint = @as(?u64, 0x7252),
+        .entries = .{OperationDecl},
+    });
+
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const parent_request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    const parent_trace = parent_request.trace();
+    var parent_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, parent_request, .{});
+    defer parent_envelope.deinit();
+    var catalog = try Harness.buildCatalog(std.testing.allocator);
+    defer catalog.deinit();
+    var capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "nested-turn-program-issuer",
+        .provider_fingerprint = Harness.provider_fingerprint,
+        .manifest_fingerprint = catalog.manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true, .after = false },
+        .allowed_operation_sites = &.{parent_trace.operation_site_index},
+        .allowed_protocol_op_fingerprints = &.{parent_trace.operation_site_fingerprint},
+        .allowed_requirement_labels = &.{parent_trace.requirement_label},
+        .allowed_op_names = &.{parent_trace.op_name},
+    });
+    defer capability.deinit();
+    const providers = [_]Program.Exchange.ProviderManifest{catalog.provider_manifest};
+    const offers = [_]Program.Exchange.ProviderOffer{catalog.provider_offers[0]};
+    const capabilities = [_]Program.Exchange.Capability{capability};
+    var resolved = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = parent_envelope,
+        .manifest = catalog.manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+    });
+    defer resolved.deinit();
+    const treaty = resolved.treaty orelse return error.ExpectedTreaty;
+
+    var handler_runtime = ability.Runtime.init(std.testing.allocator);
+    defer handler_runtime.deinit();
+    var started = try Harness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], .{ .treaty = treaty });
+    var execution = switch (started) {
+        .provider_suspended => |*value| moved: {
+            const moved_value = value.*;
+            value.session = null;
+            value.nested_request_envelope = null;
+            break :moved moved_value;
+        },
+        .response => |*packet| {
+            packet.deinit();
+            return error.ExpectedProviderSuspension;
+        },
+        .rejected => return error.ExpectedProviderSuspension,
+    };
+    defer execution.deinit();
+    try std.testing.expectEqual(Harness.ProviderProgramExecutionState.parked_on_nested_request, execution.state);
+    try std.testing.expectEqual(@as(usize, 0), execution.nested_turn_index);
+    try std.testing.expectEqual(@as(usize, 0), execution.nested_request_envelope.?.turn_index);
+
+    var first_nested_response = try HandlerProgram.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, execution.nested_request_envelope.?, @as(i32, 7));
+    defer first_nested_response.deinit();
+    var first_continued = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], first_nested_response, .{ .treaty = treaty });
+    switch (first_continued) {
+        .provider_suspended => |*value| {
+            execution.deinit();
+            execution = value.*;
+            value.session = null;
+            value.nested_request_envelope = null;
+        },
+        .response => |*packet| {
+            packet.deinit();
+            return error.ExpectedProviderSuspension;
+        },
+        .rejected => return error.ExpectedProviderSuspension,
+    }
+    try std.testing.expectEqual(Harness.ProviderProgramExecutionState.parked_on_nested_request, execution.state);
+    try std.testing.expectEqual(@as(usize, 1), execution.nested_turn_index);
+    try std.testing.expectEqual(@as(usize, 1), execution.nested_request_envelope.?.turn_index);
 }
 
 test "Program.Exchange ProviderHarness accepts handlerless after current values" {

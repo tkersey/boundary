@@ -40,9 +40,9 @@ Current domains are registered in `Program.Evidence.domains`:
 | `ability.session.continuation` | session | - | 2 | no | yes | yes | yes | no | yes | continuation |
 | `ability.session.capsule` | capsule | - | 2 | no | yes | yes | yes | yes | yes | capsule |
 | `ability.program.capsule.image` | capsule | 1 | 1 | yes | yes | yes | yes | yes | yes | capsule image |
-| `ability.program.session.journal` | journal | 5 | 1 | yes | yes | yes | yes | no | no | journal |
+| `ability.program.session.journal` | journal | 6 | 1 | yes | yes | yes | yes | no | no | journal |
 | `ability.program.session.journal.v4` | journal | 4 | 1 | yes | yes | yes | yes | no | no | legacy journal |
-| `ability.session.journal.entry` | journal | 5 | 1 | yes | yes | yes | yes | yes | no | journal entry |
+| `ability.session.journal.entry` | journal | 6 | 1 | yes | yes | yes | yes | yes | no | journal entry |
 | `ability.exchange.manifest` | exchange | 1 | 1 | yes | yes | yes | yes | yes | yes | exchange |
 | `ability.exchange.request` | exchange | 3 | 3 | yes | yes | yes | yes | yes | yes | exchange |
 | `ability.exchange.response` | exchange | 1 | 1 | yes | yes | yes | yes | yes | yes | exchange |
@@ -54,7 +54,10 @@ Current domains are registered in `Program.Evidence.domains`:
 | `ability.exchange.provider.harness` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | provider harness |
 | `ability.exchange.provider.request_validation` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | provider request |
 | `ability.exchange.provider.response_authorization` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | provider outcome |
-| `ability.exchange.provider.journal_event` | provider_harness | 5 | 1 | yes | yes | yes | yes | yes | no | provider journal |
+| `ability.exchange.provider.journal_event` | provider_harness | 6 | 1 | yes | yes | yes | yes | yes | no | provider journal |
+| `ability.exchange.provider_program.execution` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | provider program |
+| `ability.exchange.provider_program.mapping` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | program provider |
+| `ability.exchange.provider_program.nested_request` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | nested provider |
 | `ability.exchange.morphism_offer` | morphism | - | 1 | no | yes | yes | yes | yes | yes | morphism |
 | `ability.exchange.capability` | capability | 1 | 1 | yes | yes | yes | yes | yes | yes | capability |
 | `ability.exchange.capability.path` | capability | - | 1 | no | yes | yes | yes | yes | yes | capability |
@@ -78,9 +81,10 @@ Current domains are registered in `Program.Evidence.domains`:
 | `ability.program.pipeline.certificate` | pipeline | - | 1 | no | yes | yes | yes | no | yes | pipeline |
 | `ability.program.pipeline.source_map` | pipeline | - | 1 | no | yes | yes | yes | no | yes | source map |
 
-The current journal format is v5 because provider-side journal metadata now has
-its own event fields. The v4 domain remains registered because legacy v4 decode
-is still part of the compatibility contract.
+The current journal format is v6 because provider-program execution adds
+provider-side started, parked, nested request/response, resumed, completed,
+rejected, and failed events. The v4 domain remains registered because legacy v4
+decode is still part of the compatibility contract.
 
 ## Evidence Refs
 
@@ -219,6 +223,25 @@ artifact. The Evidence view should cite:
 
 Provider-side malformed request, offer mismatch, and handler rejection blockers
 lower to `Evidence.Blocker` with `source = .provider_harness`.
+
+Program-backed provider handlers add three provider-harness domains:
+`provider_program_execution`, `provider_program_mapping`, and
+`provider_program_nested_request`. A provider-program execution ref cites the
+parent request envelope/request fingerprints, treaty and certificate
+fingerprints, provider and offer fingerprints, route and capability
+fingerprints, handler Program label, handler ProgramPlan hash, branch id, and
+nested turn index. Mapping refs witness the deterministic request-to-args and
+result-to-outcome mapping. Nested-request refs link a handler Program's yielded
+request back to the parent provider execution.
+
+Provider-program journal projections use journal format v6 events:
+`provider_program_started`, `provider_program_parked`,
+`provider_program_nested_request`, `provider_program_nested_response`,
+`provider_program_resumed`, `provider_program_completed`,
+`provider_program_rejected`, and `provider_program_failed`. The response packet
+can cite the provider-program execution fingerprint without changing response
+envelope bytes. These fingerprints are deterministic semantic witnesses, not
+authorization secrets or cryptographic signatures.
 
 ## Treaty Example
 
