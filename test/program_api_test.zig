@@ -24331,7 +24331,9 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
         .done => return error.UnexpectedDone,
     };
     const parent_trace = parent_request.trace();
-    var parent_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, parent_request, .{});
+    var parent_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, parent_request, .{
+        .usage_metadata = .{ .usage = .copyable, .branch_id = 42 },
+    });
     defer parent_envelope.deinit();
     var catalog = try Harness.buildCatalog(std.testing.allocator);
     defer catalog.deinit();
@@ -24340,15 +24342,35 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
         .provider_fingerprint = Harness.provider_fingerprint,
         .manifest_fingerprint = catalog.manifest.fingerprint,
         .allowed_request_kinds = .{ .operation = true, .after = false },
-        .allowed_operation_sites = &.{parent_trace.operation_site_index},
-        .allowed_protocol_op_fingerprints = &.{parent_trace.operation_site_fingerprint},
-        .allowed_requirement_labels = &.{parent_trace.requirement_label},
+        .allowed_program_labels = &.{Program.contract.label},
+        .allowed_plan_hashes = &.{Program.compiled_plan.hash()},
+        .allowed_operation_sites = Harness.supported_operation_sites,
+        .allowed_protocol_op_fingerprints = Harness.supported_protocol_op_fingerprints,
+        .allowed_requirement_labels = Harness.supported_protocol_labels,
         .allowed_op_names = &.{parent_trace.op_name},
+        .allowed_response_kinds = catalog.provider_manifest.allowed_response_kinds,
+        .allow_embedded_capsule_response_handling = catalog.provider_manifest.accepts_embedded_capsules,
+        .allow_capsule_restore = catalog.provider_manifest.accepts_capsule_restore,
+        .max_request_bytes = catalog.provider_manifest.max_request_envelope_bytes,
+        .max_response_bytes = catalog.provider_manifest.max_response_envelope_bytes,
     });
     defer capability.deinit();
+    const states = [_][]const u8{ "open", "done" };
+    const spec = Program.Exchange.EffectSessionSpec{
+        .label = "nested-provider-program-branch-session",
+        .initial_state = "open",
+        .states = states[0..],
+        .terminal_states = states[1..],
+        .usage = .copyable,
+    };
+    var instance = try Program.Exchange.CapabilityInstance.create(capability, catalog.provider_manifest, spec, .{
+        .snapshot_allocator = std.heap.page_allocator,
+        .branch_id = 42,
+    });
     const providers = [_]Program.Exchange.ProviderManifest{catalog.provider_manifest};
     const offers = [_]Program.Exchange.ProviderOffer{catalog.provider_offers[0]};
     const capabilities = [_]Program.Exchange.Capability{capability};
+    const instances = [_]Program.Exchange.CapabilityInstance{instance};
     var resolved = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = parent_envelope,
@@ -24356,6 +24378,9 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
         .provider_manifests = providers[0..],
         .provider_offers = offers[0..],
         .capabilities = capabilities[0..],
+        .capability_instances = instances[0..],
+        .effect_session_spec = spec,
+        .live_capability_instance_fingerprint = instance.instance_fingerprint,
     });
     defer resolved.deinit();
     const treaty = resolved.treaty orelse return error.ExpectedTreaty;
@@ -24364,7 +24389,7 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     defer handler_runtime.deinit();
     var provider_journal = Program.Session.Journal.init(std.testing.allocator);
     defer provider_journal.deinit();
-    var started = try Harness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], .{ .treaty = treaty, .journal = &provider_journal });
+    var started = try Harness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
     var execution = switch (started) {
         .provider_suspended => |*value| moved: {
             const moved_value = value.*;
@@ -24381,6 +24406,8 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     defer execution.deinit();
     try std.testing.expectEqual(Harness.ProviderProgramExecutionState.parked_on_nested_request, execution.state);
     try std.testing.expectEqual(Program.Evidence.domains.provider_program_execution.id, execution.evidenceRef().domain_id);
+    try std.testing.expectEqual(@as(?u64, 42), execution.branch_id);
+    try std.testing.expectEqual(@as(?u64, 42), execution.evidenceRef().branch_id);
     try std.testing.expect(execution.nested_request_envelope != null);
     try std.testing.expect(execution.provider_program_capsule_image_fingerprint != null);
     const nested_envelope = &execution.nested_request_envelope.?;
@@ -24394,7 +24421,7 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     var wrong_nested_response = try HandlerProgram.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, nested_envelope.*, @as(i32, 41));
     defer wrong_nested_response.deinit();
     wrong_nested_response.request_envelope_fingerprint +%= 1;
-    const wrong_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], wrong_nested_response, .{ .treaty = treaty, .journal = &provider_journal });
+    const wrong_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], wrong_nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
     switch (wrong_continue) {
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_nested_request_invalid, blocker.tag),
         else => return error.ExpectedProviderRejection,
@@ -24402,7 +24429,7 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     var corrupt_nested_response = try HandlerProgram.Exchange.ResponseEnvelope.decode(std.testing.allocator, nested_response.bytes);
     defer corrupt_nested_response.deinit();
     corrupt_nested_response.response_trace_fingerprint +%= 1;
-    const corrupt_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], corrupt_nested_response, .{ .treaty = treaty, .journal = &provider_journal });
+    const corrupt_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], corrupt_nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
     switch (corrupt_continue) {
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_nested_request_invalid, blocker.tag),
         else => return error.ExpectedProviderRejection,
@@ -24415,7 +24442,7 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     }
     try std.testing.expect(execution.nested_request_envelope != null);
     execution.execution_fingerprint +%= 1;
-    const tampered_execution_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal });
+    const tampered_execution_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
     switch (tampered_execution_continue) {
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
         else => return error.ExpectedProviderRejection,
@@ -24423,35 +24450,35 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     execution.execution_fingerprint -%= 1;
     try std.testing.expect(execution.nested_request_envelope != null);
     execution.nested_request_fingerprint.? +%= 1;
-    const tampered_nested_fingerprint_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal });
+    const tampered_nested_fingerprint_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
     switch (tampered_nested_fingerprint_continue) {
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
         else => return error.ExpectedProviderRejection,
     }
     execution.nested_request_fingerprint.? -%= 1;
     execution.nested_request_envelope_fingerprint.? +%= 1;
-    const tampered_nested_envelope_fingerprint_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal });
+    const tampered_nested_envelope_fingerprint_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
     switch (tampered_nested_envelope_fingerprint_continue) {
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
         else => return error.ExpectedProviderRejection,
     }
     execution.nested_request_envelope_fingerprint.? -%= 1;
     execution.provider_program_capsule_image_fingerprint.? +%= 1;
-    const tampered_capsule_fingerprint_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal });
+    const tampered_capsule_fingerprint_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
     switch (tampered_capsule_fingerprint_continue) {
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
         else => return error.ExpectedProviderRejection,
     }
     execution.provider_program_capsule_image_fingerprint.? -%= 1;
     execution.state = .done;
-    const tampered_state_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal });
+    const tampered_state_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
     switch (tampered_state_continue) {
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
         else => return error.ExpectedProviderRejection,
     }
     execution.state = .parked_on_nested_request;
     try std.testing.expect(execution.nested_request_envelope != null);
-    const wrong_response_use_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .response_use = .replayed });
+    const wrong_response_use_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .response_use = .replayed, .capability_instance_state = &instance });
     switch (wrong_response_use_continue) {
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.response_use_not_supported, blocker.tag),
         else => return error.ExpectedProviderRejection,
@@ -24462,7 +24489,7 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     try failing_resume_journal.entries.ensureTotalCapacityPrecise(failing_resume_allocator.allocator(), 1);
     failing_resume_allocator.fail_index = failing_resume_allocator.alloc_index;
     failing_resume_allocator.resize_fail_index = failing_resume_allocator.resize_index;
-    const failing_resume_continue = Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &failing_resume_journal });
+    const failing_resume_continue = Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &failing_resume_journal, .capability_instance_state = &instance });
     if (failing_resume_continue) |result_value| {
         var result_packet = result_value;
         switch (result_packet) {
@@ -24479,7 +24506,7 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     try failing_resumed_step_journal.entries.ensureTotalCapacityPrecise(failing_resumed_step_allocator.allocator(), 2);
     failing_resumed_step_allocator.fail_index = failing_resumed_step_allocator.alloc_index;
     failing_resumed_step_allocator.resize_fail_index = failing_resumed_step_allocator.resize_index;
-    const failing_resumed_step_continue = Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &failing_resumed_step_journal });
+    const failing_resumed_step_continue = Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &failing_resumed_step_journal, .capability_instance_state = &instance });
     if (failing_resumed_step_continue) |result_value| {
         var result_packet = result_value;
         switch (result_packet) {
@@ -24490,12 +24517,12 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
         return error.ExpectedOutOfMemory;
     } else |err| try std.testing.expectEqual(error.OutOfMemory, err);
     try std.testing.expect(execution.nested_request_envelope != null);
-    var continued = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal });
+    var continued = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
     switch (continued) {
         .response => |*packet| {
             defer packet.deinit();
             try std.testing.expect(packet.provider_program_execution_fingerprint != null);
-            try Program.Exchange.applyResponse(&session, packet.response, .{});
+            try Program.Exchange.applyResponse(&session, packet.response, .{ .request_envelope_fingerprint = parent_envelope.fingerprint });
         },
         .provider_suspended => |*parked| {
             parked.deinit();

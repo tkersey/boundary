@@ -7301,6 +7301,7 @@ pub fn program(
                             .capability_fingerprint = certificate.capability_fingerprint,
                             .capability_instance_fingerprint = certificate.capability_instance_fingerprint,
                             .obligation_fingerprint = certificate.obligation_fingerprint,
+                            .branch_id = if (request.usage_metadata) |metadata_value| metadata_value.branch_id else null,
                             .state = state,
                             .session = session,
                             .nested_request_envelope_fingerprint = nested_request_envelope.fingerprint,
