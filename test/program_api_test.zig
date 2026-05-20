@@ -24465,6 +24465,23 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
         return error.ExpectedOutOfMemory;
     } else |err| try std.testing.expectEqual(error.OutOfMemory, err);
     try std.testing.expect(execution.nested_request_envelope != null);
+    var failing_resumed_step_allocator = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var failing_resumed_step_journal = Program.Session.Journal.init(failing_resumed_step_allocator.allocator());
+    defer failing_resumed_step_journal.deinit();
+    try failing_resumed_step_journal.entries.ensureTotalCapacityPrecise(failing_resumed_step_allocator.allocator(), 2);
+    failing_resumed_step_allocator.fail_index = failing_resumed_step_allocator.alloc_index;
+    failing_resumed_step_allocator.resize_fail_index = failing_resumed_step_allocator.resize_index;
+    const failing_resumed_step_continue = Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &failing_resumed_step_journal });
+    if (failing_resumed_step_continue) |result_value| {
+        var result_packet = result_value;
+        switch (result_packet) {
+            .response => |*packet| packet.deinit(),
+            .provider_suspended => |*parked| parked.deinit(),
+            .rejected => {},
+        }
+        return error.ExpectedOutOfMemory;
+    } else |err| try std.testing.expectEqual(error.OutOfMemory, err);
+    try std.testing.expect(execution.nested_request_envelope != null);
     var continued = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal });
     switch (continued) {
         .response => |*packet| {

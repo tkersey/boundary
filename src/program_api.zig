@@ -7080,9 +7080,15 @@ pub fn program(
                             else => |other| return providerProgramMapHandlerError(other),
                         };
                         try appendProviderProgramEvent(options_value.journal, .provider_program_resumed, request, certificate, execution.execution_fingerprint, null, null, null);
-                        execution.nested_request_envelope.?.deinit();
-                        execution.nested_request_envelope = null;
-                        return stepStartedProviderProgram(index, &session, allocator, request, certificate, offer, options_value, use_value, execution.execution_fingerprint);
+                        const resumed_result = try stepStartedProviderProgram(index, &session, allocator, request, certificate, offer, options_value, use_value, execution.execution_fingerprint);
+                        switch (resumed_result) {
+                            .response, .provider_suspended => {
+                                execution.nested_request_envelope.?.deinit();
+                                execution.nested_request_envelope = null;
+                            },
+                            .rejected => {},
+                        }
+                        return resumed_result;
                     }
 
                     fn providerProgramExecutionMatches(
