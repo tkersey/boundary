@@ -2334,6 +2334,72 @@ fn productIdentityPlan(comptime Payload: type, comptime label: []const u8) abili
     }) catch unreachable;
 }
 
+fn productIdentityPlanWithPayloadSchemaIndexOne(comptime Padding: type, comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const payload = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.returnValue(root, payload) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .product,
+        .value_schema_index = 1,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+        .{
+            .label = @typeName(Padding),
+            .codec = .product,
+            .first_field = 0,
+            .field_count = 1,
+        },
+        .{
+            .label = @typeName(Payload),
+            .codec = .product,
+            .first_field = 1,
+            .field_count = 1,
+        },
+    };
+    const value_fields = [_]ability.ir.ValueFieldPlan{
+        .{ .name = "ignored", .codec = .bool },
+        .{ .name = "amount", .codec = .i32 },
+    };
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 24,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &value_schemas,
+        .value_fields = &value_fields,
+        .value_variants = &.{},
+        .locals = &.{.{ .codec = .product, .schema_index = 1 }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn sumIdentityPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const payload = ability.ir.builder.local(root, 0);
@@ -23789,6 +23855,25 @@ test "Program.Exchange program-backed provider mapping declarations validate arg
     });
     try std.testing.expect(ProductDecl.handler_program_entry_parameters[0].ref.eql(ProductSite.payload_ref));
     try std.testing.expect(ProductDecl.handler_program_result_ref.eql(ProductSite.resume_ref));
+
+    const ShiftedProductHandlerBody = struct {
+        const PaddingPayload = struct { ignored: bool };
+
+        pub const value_schema_types = .{ PaddingPayload, ProductPayload };
+        pub const compiled_plan = productIdentityPlanWithPayloadSchemaIndexOne(PaddingPayload, ProductPayload, "program-provider-mapping-product-shifted-handler");
+    };
+    const ShiftedProductHandler = ability.program("program-provider-mapping-product-shifted-handler", struct {}, ShiftedProductHandlerBody);
+    const ShiftedProductDecl = ProductSource.Exchange.ProviderHandler.program(.{
+        .label = "product-mapping-shifted-schema-index",
+        .op = ProductSite,
+        .program = ShiftedProductHandler,
+        .map_request = .payload_to_args,
+        .map_result = .result_to_resume,
+    });
+    try std.testing.expectEqual(@as(?u16, 1), ShiftedProductDecl.handler_program_entry_parameters[0].ref.schema_index);
+    try std.testing.expectEqual(@as(?u16, 1), ShiftedProductDecl.handler_program_result_ref.schema_index);
+    try std.testing.expect(!ShiftedProductDecl.handler_program_entry_parameters[0].ref.eql(ProductSite.payload_ref));
+    try std.testing.expect(!ShiftedProductDecl.handler_program_result_ref.eql(ProductSite.resume_ref));
 
     const SumPayload = ?i32;
     const SumSourceBody = struct {

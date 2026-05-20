@@ -7750,18 +7750,12 @@ pub fn program(
                 switch (request_mapping) {
                     .payload_to_args => {
                         if (parameters.len != 1) @compileError("provider Program payload_to_args requires exactly one handler Program argument");
-                        if (!parameters[0].ref.eql(request_ref)) {
-                            @compileError("provider Program payload_to_args argument ref does not match request payload/current-value ref");
-                        }
                         if (!providerProgramValueRefsCompatible(body_compiled_plan, request_ref, HandlerProgram.compiled_plan, parameters[0].ref)) {
                             @compileError("provider Program payload_to_args argument schema does not match request payload/current-value schema");
                         }
                     },
                     .payload_and_metadata_to_args => {
                         if (parameters.len != 2) @compileError("provider Program payload_and_metadata_to_args requires payload/current-value plus metadata arguments");
-                        if (!parameters[0].ref.eql(request_ref)) {
-                            @compileError("provider Program payload_and_metadata_to_args first argument ref does not match request payload/current-value ref");
-                        }
                         if (!providerProgramValueRefsCompatible(body_compiled_plan, request_ref, HandlerProgram.compiled_plan, parameters[0].ref)) {
                             @compileError("provider Program payload_and_metadata_to_args first argument schema does not match request payload/current-value schema");
                         }
@@ -7790,7 +7784,6 @@ pub fn program(
                         if (kind_value != .operation or !Site.may_resume) {
                             @compileError("provider Program result_to_resume requires a resumable operation offer");
                         }
-                        if (!result_ref.eql(Site.resume_ref)) @compileError("provider Program result_to_resume result ref does not match operation resume ref");
                         if (!providerProgramValueRefsCompatible(HandlerProgram.compiled_plan, result_ref, body_compiled_plan, Site.resume_ref)) {
                             @compileError("provider Program result_to_resume result schema does not match operation resume schema");
                         }
@@ -7799,7 +7792,6 @@ pub fn program(
                         if (kind_value != .operation or !Site.may_return_now) {
                             @compileError("provider Program result_to_return_now requires a return-now operation offer");
                         }
-                        if (!result_ref.eql(Site.result_ref)) @compileError("provider Program result_to_return_now result ref does not match operation result ref");
                         if (!providerProgramValueRefsCompatible(HandlerProgram.compiled_plan, result_ref, body_compiled_plan, Site.result_ref)) {
                             @compileError("provider Program result_to_return_now result schema does not match operation result schema");
                         }
@@ -7808,7 +7800,6 @@ pub fn program(
                         if (kind_value != .after) {
                             @compileError("provider Program result_to_resume_after requires an after handler");
                         }
-                        if (!result_ref.eql(Site.output_ref)) @compileError("provider Program result_to_resume_after result ref does not match after output ref");
                         if (!providerProgramValueRefsCompatible(HandlerProgram.compiled_plan, result_ref, body_compiled_plan, Site.output_ref)) {
                             @compileError("provider Program result_to_resume_after result schema does not match after output schema");
                         }

@@ -554,7 +554,7 @@ pub fn build(b: *std.Build) void {
         },
         .{
             .path = "test/compile_fail/provider_program_payload_arg_mismatch.zig",
-            .expected_error = "provider Program payload_to_args argument ref does not match request payload/current-value ref",
+            .expected_error = "provider Program payload_to_args argument schema does not match request payload/current-value schema",
         },
         .{
             .path = "test/compile_fail/provider_program_structured_schema_mismatch.zig",
