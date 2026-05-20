@@ -24086,6 +24086,73 @@ test "Program.Exchange ProviderHarness runs synchronous program-backed provider 
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_requires_step_api, blocker.tag),
         else => return error.ExpectedProviderRejection,
     }
+
+    const LowLimitDecl = Program.Exchange.ProviderHandler.program(.{
+        .label = "sync-program-dispatch",
+        .op = OperationSite,
+        .program = HandlerProgram,
+        .map_request = .unit_args,
+        .map_result = .result_to_resume,
+        .max_response_bytes = 1,
+    });
+    const LowLimitHarness = Program.Exchange.ProviderHarness(.{
+        .label = "sync-program-provider-low-limit",
+        .provider_fingerprint = @as(?u64, 0x7152),
+        .entries = .{LowLimitDecl},
+    });
+    var low_catalog = try LowLimitHarness.buildCatalog(std.testing.allocator);
+    defer low_catalog.deinit();
+    var low_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "sync-program-low-limit-issuer",
+        .provider_fingerprint = LowLimitHarness.provider_fingerprint,
+        .manifest_fingerprint = low_catalog.manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true, .after = false },
+        .allowed_operation_sites = &.{trace.operation_site_index},
+        .allowed_protocol_op_fingerprints = &.{trace.operation_site_fingerprint},
+        .allowed_requirement_labels = &.{trace.requirement_label},
+        .allowed_op_names = &.{trace.op_name},
+    });
+    defer low_capability.deinit();
+    const low_providers = [_]Program.Exchange.ProviderManifest{low_catalog.provider_manifest};
+    const low_offers = [_]Program.Exchange.ProviderOffer{low_catalog.provider_offers[0]};
+    const low_capabilities = [_]Program.Exchange.Capability{low_capability};
+    var low_resolved = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = low_catalog.manifest,
+        .provider_manifests = low_providers[0..],
+        .provider_offers = low_offers[0..],
+        .capabilities = low_capabilities[0..],
+    });
+    defer low_resolved.deinit();
+    const low_treaty = low_resolved.treaty orelse return error.ExpectedTreaty;
+    var low_provider_journal = Program.Session.Journal.init(std.testing.allocator);
+    defer low_provider_journal.deinit();
+    const low_limit_result = try LowLimitHarness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, envelope, low_treaty.certificate, low_catalog.provider_offers[0], .{ .treaty = low_treaty, .journal = &low_provider_journal });
+    switch (low_limit_result) {
+        .rejected => |blocker| try std.testing.expectEqual(LowLimitHarness.ProviderBlockerTag.byte_limit_exceeded, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    var saw_low_program_started = false;
+    var saw_low_program_rejected = false;
+    for (low_provider_journal.entries.items) |entry| switch (entry) {
+        .exchange_event => |event| switch (event.kind) {
+            .provider_program_started => {
+                saw_low_program_started = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+            },
+            .provider_program_rejected => {
+                saw_low_program_rejected = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expectEqualStrings(@tagName(LowLimitHarness.ProviderBlockerTag.byte_limit_exceeded), event.blocker_tag.?);
+            },
+            else => {},
+        },
+        else => {},
+    };
+    try std.testing.expect(saw_low_program_started);
+    try std.testing.expect(saw_low_program_rejected);
+
     var saw_program_started = false;
     var saw_program_completed = false;
     for (provider_journal.entries.items) |entry| switch (entry) {

@@ -7154,6 +7154,9 @@ pub fn program(
                                         packet.provider_program_execution_fingerprint = execution_fingerprint;
                                         try appendProviderProgramEvent(options_value.journal, .provider_program_completed, request, certificate, execution_fingerprint, null, null, null);
                                     },
+                                    .rejected => |failed| {
+                                        try appendProviderProgramEvent(options_value.journal, .provider_program_rejected, request, certificate, execution_fingerprint, null, null, failed.tag);
+                                    },
                                     else => {},
                                 }
                                 return switch (packet_result) {
