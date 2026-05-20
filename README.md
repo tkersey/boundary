@@ -509,6 +509,34 @@ or Artifact API. Manual `ProviderOffer` construction remains available as an
 advanced escape hatch, and harness validation can reject manual offers that do
 not exactly match the derived handler declaration.
 
+#### Program-backed providers
+
+ProviderHarness made provider callbacks typed. Program-backed providers make
+provider handlers defunctionalized. `ProviderHandler.program` binds a provider
+offer to an ordinary Ability `Program`: the request payload or current value is
+mapped into handler entry args, the handler runs through `Program.Session`, and
+the handler result maps back to a provider outcome such as resume, return-now,
+or resume-after.
+
+Because the handler is a Program, it can yield nested effects. The harness
+returns a parked provider-program execution with the nested request envelope and
+a capsule image for the handler continuation. Hosts route that nested request
+through the same Exchange, Treaty, MailboxRunner, and ProviderHarness machinery,
+then call `continueProgramExecution` with the nested response. On completion,
+the original provider response is built with the existing `ResponseEnvelope` and
+treaty authorization path. Provider-program execution has deterministic
+fingerprints, Evidence refs, and provider-program journal events for started,
+parked, nested request/response, resumed, completed, rejected, and failed turns.
+
+Function-backed handlers remain supported for simple callbacks, external
+integrations, and fixtures. Program-backed providers are not an async runtime,
+provider scheduler, network server, RPC layer, workflow engine, VM, source
+language, parser, Artifact API, persistence backend, or security system. Hosts
+still own identity, signing, encryption, transport, storage, scheduling,
+network, persistence, provider lifecycle, cancellation, and retries; request
+tokens, runtime allocators, thread state, and arbitrary host handlers are not
+serialized.
+
 ### Linear Effect Sessions
 
 Continuations can be copied; the world often cannot. Linear Effect Sessions are
@@ -642,5 +670,8 @@ zig build run-effect-pipeline
 zig build run-provider-harness-direct
 zig build run-provider-harness-morphism
 zig build run-provider-harness-replayable
+zig build run-program-provider-direct
+zig build run-program-provider-nested
+zig build run-program-provider-resume
 zig build run-custom-approval-workflow
 ```

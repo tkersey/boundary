@@ -367,6 +367,43 @@ Provider Harnesses are not async runtimes, RPC frameworks, network servers,
 message brokers, provider registries, security layers, workflow engines, service
 discovery systems, source languages, VMs, or Artifact APIs.
 
+#### Program-backed providers
+
+ProviderHarness made provider callbacks typed. Program-backed providers make
+provider handlers defunctionalized. Use `ProviderHandler.program` when the
+provider-side implementation should itself be an Ability Program: inspectable
+through `Program.contract`, driven through `Program.Session`, capturable through
+normal capsules, journaled as a provider sub-computation, and able to yield
+nested effects.
+
+The provider declaration maps request data into handler Program entry args.
+`payload_to_args` maps the request payload or current after value into the first
+handler arg; `unit_args` starts no-arg handlers. The handler Program result maps
+back to an outcome with `result_to_resume`, `result_to_return_now`, or
+`result_to_resume_after`, subject to the same transform/choice/abort/after
+response rules as function-backed outcomes. Mapping validation compares value
+refs at comptime where possible and never includes request tokens, runtime or
+allocator pointers, thread state, or implicit host context.
+
+Effectful provider handlers park like any other Program. When a handler yields a
+nested operation or after request, `startProgramExecution` returns a
+provider-program execution with a nested request envelope and handler capsule
+image. The host handles that nested request through ordinary Exchange, Treaty,
+MailboxRunner, and ProviderHarness code, then calls `continueProgramExecution`
+with the nested response. Completion builds the parent response envelope and
+attaches treaty authorization. Provider-program execution participates in
+Evidence with execution/mapping/nested-request refs and journal events for
+started, parked, nested request/response, resumed, completed, rejected, and
+failed turns.
+
+Function-backed handlers remain the right tool for small callbacks, external
+systems, and fixtures. Program-backed providers do not add async scheduling,
+networking, RPC, service discovery, a workflow engine, parser, source language,
+VM, Artifact API, persistence backend, signing, encryption, or host-handler
+serialization. Hosts still own identity, signing, encryption, transport,
+storage, scheduling, network, persistence, provider lifecycle, cancellation,
+retries, and side effects.
+
 ### Linear Effect Sessions
 
 Continuations can be copied; the world often cannot. Linear Effect Sessions add

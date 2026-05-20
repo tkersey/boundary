@@ -1267,6 +1267,8 @@ pub fn program(
 
         /// Runtime-owned executable plan for this public program.
         pub const compiled_plan = body_compiled_plan;
+        /// Handler/context type accepted by Program.run and Program.Session.start.
+        pub const Handlers = HandlersType;
         /// Read-only projection of the compiled ProgramPlan contract.
         pub const contract = ProgramContractFor(label, body_compiled_plan, Value, ProgramOutputs, body_value_schema_types, body_nested_with_targets, body_site_metadata);
         /// Typed defunctionalized protocol descriptors derived from Program.Session static sites.
@@ -1286,7 +1288,7 @@ pub fn program(
         /// Stable fingerprint version for Program.Session.Capsule durable images.
         pub const capsule_image_fingerprint_version: u32 = Evidence.domains.capsule_image.fingerprint_version;
         /// Stable format version for Program.Session interaction journals.
-        /// Version 5 preserves v4 fields and adds ProviderHarness event metadata.
+        /// Version 6 preserves v5 fields and adds provider-program event kinds.
         pub const journal_format_version: u32 = Evidence.domains.journal.format_version.?;
         /// Stable fingerprint version for Program.Session interaction journals.
         pub const journal_fingerprint_version: u32 = Evidence.domains.journal.fingerprint_version;
@@ -1315,6 +1317,12 @@ pub fn program(
         pub const exchange_provider_offer_fingerprint_version: u32 = Evidence.domains.provider_offer.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange provider harness declarations.
         pub const exchange_provider_harness_fingerprint_version: u32 = Evidence.domains.provider_harness.fingerprint_version;
+        /// Stable fingerprint version for provider-program execution metadata.
+        pub const exchange_provider_program_execution_fingerprint_version: u32 = Evidence.domains.provider_program_execution.fingerprint_version;
+        /// Stable fingerprint version for provider-program mapping metadata.
+        pub const exchange_provider_program_mapping_fingerprint_version: u32 = Evidence.domains.provider_program_mapping.fingerprint_version;
+        /// Stable fingerprint version for provider-program nested request linkage metadata.
+        pub const exchange_provider_program_nested_request_fingerprint_version: u32 = Evidence.domains.provider_program_nested_request.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange morphism offer witnesses.
         pub const exchange_morphism_offer_fingerprint_version: u32 = Evidence.domains.morphism_offer.fingerprint_version;
         /// Stable format version for Program.Exchange capability grant images.
@@ -1422,6 +1430,22 @@ pub fn program(
                 Body.encodeArgs(mutable_handlers)
             else
                 @as([]const lowered_machine.ProgramValue, &.{});
+            const raw = if (comptime @typeInfo(HandlersType) == .pointer)
+                lowering_api.runExecutablePlanWithTypedArgsForErrorSetAndNestedTargetsInRuntimeExecution(BodyErrorSet(Body), runtime, compiled_plan, body_value_schema_types, body_nested_with_targets, mutable_handlers, args) catch |err| return mapProgramRunError(Error, err)
+            else
+                lowering_api.runExecutablePlanWithTypedArgsForErrorSetAndNestedTargetsInRuntimeExecution(BodyErrorSet(Body), runtime, compiled_plan, body_value_schema_types, body_nested_with_targets, &mutable_handlers, args) catch |err| return mapProgramRunError(Error, err);
+            const allocator = lowered_machine.runtimeAllocator(runtime);
+            if (comptime @typeInfo(HandlersType) == .pointer) {
+                return finishResult(allocator, mutable_handlers, raw.value);
+            }
+            return finishResult(allocator, &mutable_handlers, raw.value);
+        }
+
+        /// Execute the compiled ProgramPlan with explicit caller-provided entry args.
+        pub fn runWithArgs(runtime: *lowered_machine.Runtime, handlers: HandlersType, args: anytype) Error!Result {
+            var mutable_handlers = handlers;
+            lowered_machine.beginExecution(runtime) catch |err| return mapProgramRunError(Error, err);
+            defer lowered_machine.endExecution(runtime);
             const raw = if (comptime @typeInfo(HandlersType) == .pointer)
                 lowering_api.runExecutablePlanWithTypedArgsForErrorSetAndNestedTargetsInRuntimeExecution(BodyErrorSet(Body), runtime, compiled_plan, body_value_schema_types, body_nested_with_targets, mutable_handlers, args) catch |err| return mapProgramRunError(Error, err)
             else
@@ -1587,7 +1611,7 @@ pub fn program(
             pub const capsule_image_format_version = Core.capsule_image_format_version;
             /// Durable capsule image fingerprint version.
             pub const capsule_image_fingerprint_version = Core.capsule_image_fingerprint_version;
-            const session_journal_format_version: u32 = 5;
+            const session_journal_format_version: u32 = 6;
             const session_journal_fingerprint_version = Core.journal_fingerprint_version;
             /// Durable interaction journal format version.
             pub const journal_format_version = session_journal_format_version;
@@ -1819,6 +1843,14 @@ pub fn program(
                         provider_response_authorized,
                         provider_response_forwarded,
                         provider_pending,
+                        provider_program_started,
+                        provider_program_parked,
+                        provider_program_nested_request,
+                        provider_program_nested_response,
+                        provider_program_resumed,
+                        provider_program_completed,
+                        provider_program_rejected,
+                        provider_program_failed,
                     };
                 };
 
@@ -3352,6 +3384,14 @@ pub fn program(
                     .provider_response_authorized => 39,
                     .provider_response_forwarded => 40,
                     .provider_pending => 41,
+                    .provider_program_started => 42,
+                    .provider_program_parked => 43,
+                    .provider_program_nested_request => 44,
+                    .provider_program_nested_response => 45,
+                    .provider_program_resumed => 46,
+                    .provider_program_completed => 47,
+                    .provider_program_rejected => 48,
+                    .provider_program_failed => 49,
                 });
             }
 
@@ -3360,6 +3400,7 @@ pub fn program(
                 if (format_version < 3 and tag > 6) return error.ProgramContractViolation;
                 if (format_version < 4 and tag > 17) return error.ProgramContractViolation;
                 if (format_version < 5 and tag > 31) return error.ProgramContractViolation;
+                if (format_version < 6 and tag > 41) return error.ProgramContractViolation;
                 return switch (tag) {
                     0 => .provider_manifest_recorded,
                     1 => .capability_granted,
@@ -3403,6 +3444,14 @@ pub fn program(
                     39 => .provider_response_authorized,
                     40 => .provider_response_forwarded,
                     41 => .provider_pending,
+                    42 => .provider_program_started,
+                    43 => .provider_program_parked,
+                    44 => .provider_program_nested_request,
+                    45 => .provider_program_nested_response,
+                    46 => .provider_program_resumed,
+                    47 => .provider_program_completed,
+                    48 => .provider_program_rejected,
+                    49 => .provider_program_failed,
                     else => error.ProgramContractViolation,
                 };
             }
@@ -3476,14 +3525,20 @@ pub fn program(
             /// Start a host-driven execution session without leaving runtime execution active.
             pub fn start(runtime: *lowered_machine.Runtime, handlers: HandlersType) Error!Session {
                 const mutable_handlers = handlers;
-                try ensureRuntimeCanEnter(runtime);
-                lowered_machine.beginExecution(runtime) catch |err| return mapProgramRunError(Error, err);
-                defer lowered_machine.endExecution(runtime);
-
                 const args = if (comptime hasDeclSafe(Body, "encodeArgs"))
                     Body.encodeArgs(mutable_handlers)
                 else
                     @as([]const lowered_machine.ProgramValue, &.{});
+                return startWithArgs(runtime, mutable_handlers, args);
+            }
+
+            /// Start a host-driven execution session with explicit caller-provided entry args.
+            pub fn startWithArgs(runtime: *lowered_machine.Runtime, handlers: HandlersType, args: anytype) Error!Session {
+                const mutable_handlers = handlers;
+                try ensureRuntimeCanEnter(runtime);
+                lowered_machine.beginExecution(runtime) catch |err| return mapProgramRunError(Error, err);
+                defer lowered_machine.endExecution(runtime);
+
                 var core = Core.start(lowered_machine.runtimeAllocator(runtime), args) catch |err| return mapProgramRunError(Error, err);
                 var core_owned = true;
                 errdefer if (core_owned) core.deinit();
@@ -3743,6 +3798,7 @@ pub fn program(
             const response_magic = "ABL_EXR1";
             const provider_magic = "ABL_EXP1";
             const provider_offer_magic = "ABL_EXO1";
+            const provider_offer_program_format_version: u32 = 2;
             const treaty_authorization_magic = "ABL_EXT1";
             const capability_magic = "ABL_EXC1";
             const authorization_magic = "ABL_EXA1";
@@ -3771,6 +3827,12 @@ pub fn program(
             pub const provider_offer_fingerprint_version = exchange_provider_offer_fingerprint_version;
             /// Current provider harness declaration fingerprint domain version.
             pub const provider_harness_fingerprint_version = exchange_provider_harness_fingerprint_version;
+            /// Current provider-program execution fingerprint domain version.
+            pub const provider_program_execution_fingerprint_version = exchange_provider_program_execution_fingerprint_version;
+            /// Current provider-program mapping fingerprint domain version.
+            pub const provider_program_mapping_fingerprint_version = exchange_provider_program_mapping_fingerprint_version;
+            /// Current provider-program nested request fingerprint domain version.
+            pub const provider_program_nested_request_fingerprint_version = exchange_provider_program_nested_request_fingerprint_version;
             /// Current morphism offer fingerprint domain version.
             pub const morphism_offer_fingerprint_version = exchange_morphism_offer_fingerprint_version;
             /// Current capability grant image format version.
@@ -5424,6 +5486,7 @@ pub fn program(
                 max_capsule_bytes: usize = std.math.maxInt(usize),
                 tags: []const []const u8,
                 metadata: []u8,
+                provider_program_mapping_fingerprint: ?u64 = null,
 
                 /// Options used to encode a provider offer.
                 pub const Options = struct {
@@ -5449,6 +5512,7 @@ pub fn program(
                     max_capsule_bytes: usize = std.math.maxInt(usize),
                     tags: []const []const u8 = &.{},
                     metadata: []const u8 = &.{},
+                    provider_program_mapping_fingerprint: ?u64 = null,
                 };
 
                 /// Encode a provider offer into deterministic owned bytes.
@@ -5468,7 +5532,8 @@ pub fn program(
                     const payload = try checkedPayload(bytes, "ability.exchange.provider_offer", exchange_provider_offer_fingerprint_version);
                     var reader = Reader.init(payload);
                     try reader.expectBytes(provider_offer_magic);
-                    if (try reader.readU32() != exchange_provider_offer_format_version) return error.ProgramContractViolation;
+                    const format_version = try reader.readU32();
+                    if (format_version != exchange_provider_offer_format_version and format_version != provider_offer_program_format_version) return error.ProgramContractViolation;
                     if (try reader.readU32() != exchange_provider_offer_fingerprint_version) return error.ProgramContractViolation;
                     const label_value = try allocator.dupe(u8, try reader.readLenBytes());
                     errdefer allocator.free(label_value);
@@ -5503,12 +5568,14 @@ pub fn program(
                     errdefer freeStringList(allocator, tags_value);
                     const metadata_value = try allocator.dupe(u8, try reader.readLenBytes());
                     errdefer allocator.free(metadata_value);
+                    const program_mapping_fingerprint: ?u64 = if (format_version == provider_offer_program_format_version) try reader.readU64() else null;
                     if (!reader.eof()) return error.ProgramContractViolation;
                     const owned = try allocator.dupe(u8, bytes);
                     errdefer allocator.free(owned);
                     var offer = ProviderOffer{
                         .allocator = allocator,
                         .bytes = owned,
+                        .format_version = format_version,
                         .fingerprint = try checkedBytesFingerprint(bytes, "ability.exchange.provider_offer", exchange_provider_offer_fingerprint_version),
                         .label = label_value,
                         .provider_fingerprint = provider_fp,
@@ -5532,6 +5599,7 @@ pub fn program(
                         .max_capsule_bytes = max_capsule,
                         .tags = tags_value,
                         .metadata = metadata_value,
+                        .provider_program_mapping_fingerprint = program_mapping_fingerprint,
                     };
                     try offer.validate();
                     return offer;
@@ -5541,6 +5609,9 @@ pub fn program(
                 pub fn validate(self: @This()) Error!void {
                     if (self.label.len == 0) return error.ProgramContractViolation;
                     if (self.max_response_bytes == 0 or self.max_request_bytes == 0) return error.ProgramContractViolation;
+                    if (self.provider_program_mapping_fingerprint) |fingerprint| {
+                        if (fingerprint == 0) return error.ProgramContractViolation;
+                    }
                     if (!providerOfferFieldsBoundToBytes(self)) return error.ProgramContractViolation;
                 }
 
@@ -5640,6 +5711,22 @@ pub fn program(
                 }
             };
 
+            /// Deterministic ways to map a parent request into a provider Program invocation.
+            pub const RequestToProgramArgs = enum {
+                payload_to_args,
+                payload_and_metadata_to_args,
+                unit_args,
+                custom_comptime_mapper,
+            };
+
+            /// Deterministic ways to map a provider Program result into a provider outcome.
+            pub const ProgramResultToProviderOutcome = enum {
+                result_to_resume,
+                result_to_return_now,
+                result_to_resume_after,
+                result_to_outcome_union,
+            };
+
             /// Options attached to one handler-first provider declaration.
             pub const ProviderHandlerOptions = struct {
                 label: ?[]const u8 = null,
@@ -5686,6 +5773,67 @@ pub fn program(
                         pub const handler = handler_value;
                         /// Provider-offer options for this handler declaration.
                         pub const offer_options = options;
+                    };
+                }
+
+                /// Declare a provider handler backed by another Ability Program.
+                pub fn program(comptime options: anytype) type {
+                    const has_operation_site = comptime providerHarnessHasField(@TypeOf(options), "op");
+                    const has_after_site = comptime providerHarnessHasField(@TypeOf(options), "after");
+                    if (has_operation_site == has_after_site) {
+                        @compileError("Program.Exchange.ProviderHandler.program requires exactly one of op or after");
+                    }
+                    if (comptime !providerHarnessHasField(@TypeOf(options), "program")) {
+                        @compileError("Program.Exchange.ProviderHandler.program requires program");
+                    }
+
+                    const SiteType = if (has_operation_site) options.op else options.after;
+                    const ProgramType = options.program;
+                    if (!hasDeclSafe(ProgramType, "compiled_plan") or !hasDeclSafe(ProgramType, "contract")) {
+                        @compileError("Program.Exchange.ProviderHandler.program requires an Ability Program type");
+                    }
+                    const request_mapping = providerHarnessField(options, "map_request", RequestToProgramArgs.payload_to_args);
+                    const result_mapping = providerHarnessField(options, "map_result", if (has_after_site) ProgramResultToProviderOutcome.result_to_resume_after else ProgramResultToProviderOutcome.result_to_resume);
+                    const custom_mapper_fingerprint = providerHarnessField(options, "mapper_fingerprint", @as(?u64, null));
+                    validateProviderProgramRequestMapping(
+                        if (has_operation_site) .operation else .after,
+                        SiteType,
+                        ProgramType,
+                        request_mapping,
+                        custom_mapper_fingerprint,
+                    );
+                    const mapping_fingerprint = providerProgramMappingFingerprint(
+                        if (has_operation_site) .operation else .after,
+                        SiteType,
+                        ProgramType,
+                        request_mapping,
+                        result_mapping,
+                        custom_mapper_fingerprint,
+                    );
+
+                    return struct {
+                        /// Declaration kind.
+                        pub const kind = if (has_operation_site) .operation else .after;
+                        /// Program protocol site handled by this provider declaration.
+                        pub const Site = SiteType;
+                        /// Handler implementation Program run by provider-program APIs.
+                        pub const handler_program = ProgramType;
+                        /// Compatibility alias for declaration consumers.
+                        pub const Program = ProgramType;
+                        /// Program-backed declarations are handled through provider-program execution APIs.
+                        pub const program_backed = true;
+                        /// Request-to-handler-Program argument mapping.
+                        pub const request_to_program_args = request_mapping;
+                        /// Handler-Program-result-to-provider-outcome mapping.
+                        pub const program_result_to_provider_outcome = result_mapping;
+                        /// Entry parameter refs expected by the request mapping.
+                        pub const handler_program_entry_parameters = ProgramType.contract.entry_parameters;
+                        /// Result ref consumed by the outcome mapping.
+                        pub const handler_program_result_ref = ProgramType.contract.result_ref;
+                        /// Stable witness for the handler Program and mapping agreement.
+                        pub const provider_program_mapping_fingerprint = mapping_fingerprint;
+                        /// Provider-offer options for this handler declaration.
+                        pub const offer_options = providerProgramOfferOptions(options);
                     };
                 }
             };
@@ -6002,6 +6150,13 @@ pub fn program(
                         handler_rejected,
                         handler_forwarded,
                         pending_response,
+                        handler_program_requires_step_api,
+                        handler_program_arg_mismatch,
+                        handler_program_result_mapping_invalid,
+                        handler_program_effect_unhandled,
+                        handler_program_nested_request_invalid,
+                        handler_program_restore_mismatch,
+                        handler_program_capsule_missing,
                         invalid_provider_outcome,
                         response_build_failed,
                     };
@@ -6137,6 +6292,7 @@ pub fn program(
                         attenuated_capability_fingerprint: ?u64 = null,
                         response_use: ResponseUse,
                         obligation_transition_fingerprint: ?u64 = null,
+                        provider_program_execution_fingerprint: ?u64 = null,
 
                         /// Release response packet storage.
                         pub fn deinit(self: *@This()) void {
@@ -6160,6 +6316,7 @@ pub fn program(
                                 .attenuated_capability_fingerprint = self.attenuated_capability_fingerprint,
                                 .response_use = self.response_use,
                                 .obligation_transition_fingerprint = self.obligation_transition_fingerprint,
+                                .provider_program_execution_fingerprint = self.provider_program_execution_fingerprint,
                             };
                         }
                     };
@@ -6171,6 +6328,69 @@ pub fn program(
                         forwarded: Blocker,
                         pending: Blocker,
                     };
+
+                    /// Provider-program execution lifecycle state.
+                    pub const ProviderProgramExecutionState = enum {
+                        ready,
+                        running,
+                        parked_on_nested_request,
+                        parked_on_nested_after,
+                        done,
+                        rejected,
+                        failed,
+                    };
+
+                    /// Provider-program execution state for one program-backed declaration.
+                    pub fn ProviderProgramExecution(comptime index: usize) type {
+                        const Entry = entries[index];
+                        if (comptime (!@hasDecl(Entry, "program_backed") or !Entry.program_backed)) {
+                            @compileError("ProviderProgramExecution requires a program-backed provider declaration");
+                        }
+                        return struct {
+                            execution_fingerprint: u64,
+                            parent_request_envelope_fingerprint: u64,
+                            parent_request_fingerprint: u64,
+                            treaty_fingerprint: u64,
+                            treaty_certificate_fingerprint: u64,
+                            provider_fingerprint: u64,
+                            provider_offer_fingerprint: u64,
+                            route_fingerprint: u64,
+                            capability_fingerprint: u64,
+                            capability_instance_fingerprint: ?u64 = null,
+                            obligation_fingerprint: ?u64 = null,
+                            handler_program_label: []const u8 = Entry.handler_program.contract.label,
+                            handler_program_plan_hash: u64 = Entry.handler_program.compiled_plan.hash(),
+                            nested_turn_index: usize = 0,
+                            branch_id: ?u64 = null,
+                            state: ProviderProgramExecutionState = .ready,
+                            session: ?Entry.handler_program.Session = null,
+                            nested_request_envelope: ?Entry.handler_program.Exchange.RequestEnvelope = null,
+                            nested_request_fingerprint: ?u64 = null,
+                            provider_program_capsule_image_fingerprint: ?u64 = null,
+
+                            /// Release parked handler Program state, if any.
+                            pub fn deinit(self: *@This()) void {
+                                if (self.session) |*session| session.deinit();
+                                self.session = null;
+                                if (self.nested_request_envelope) |*envelope| envelope.deinit();
+                                self.nested_request_envelope = null;
+                            }
+
+                            /// Canonical Evidence reference for this provider-program execution.
+                            pub fn evidenceRef(self: @This()) Evidence.Ref {
+                                return Evidence.refForProviderProgramExecution(self);
+                            }
+                        };
+                    }
+
+                    /// Result of starting or stepping a provider-backed handler Program.
+                    pub fn ProviderProgramResult(comptime index: usize) type {
+                        return union(enum) {
+                            response: ResponsePacket,
+                            rejected: Blocker,
+                            provider_suspended: ProviderProgramExecution(index),
+                        };
+                    }
 
                     /// Typed provider request view for one handler declaration.
                     pub fn Request(comptime Entry: type) type {
@@ -6675,6 +6895,327 @@ pub fn program(
                         return .{ .response = packet };
                     }
 
+                    /// Start a program-backed provider handler and step it until it completes or yields.
+                    pub fn startProgramExecution(
+                        comptime index: usize,
+                        runtime: *lowered_machine.Runtime,
+                        handler_handlers: anytype,
+                        allocator: std.mem.Allocator,
+                        request: RequestEnvelope,
+                        certificate: Treaty.Certificate,
+                        offer: ProviderOffer,
+                        options_value: HandleOptions,
+                    ) Error!ProviderProgramResult(index) {
+                        const Entry = entries[index];
+                        if (comptime (!@hasDecl(Entry, "program_backed") or !Entry.program_backed)) {
+                            @compileError("startProgramExecution requires a program-backed provider declaration");
+                        }
+                        if (validateForEntry(Entry, request, certificate, offer, options_value)) |failed| {
+                            try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                            return .{ .rejected = failed };
+                        }
+                        const use_value = options_value.response_use orelse certificate.response_use;
+                        if (use_value != certificate.response_use) {
+                            const failed = blocker(.response_use_not_supported, request, certificate, offer.fingerprint, "provider response-use override differs from treaty certificate");
+                            try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                            return .{ .rejected = failed };
+                        }
+                        if (rejectInvalidReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
+                            try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                            return .{ .rejected = failed };
+                        }
+
+                        try appendProviderEvent(options_value.journal, .provider_request_validated, request, certificate, null, null, null);
+                        const execution_fingerprint = providerProgramExecutionFingerprint(Entry, request, certificate, offer);
+                        try appendProviderEvent(options_value.journal, .provider_program_started, request, certificate, execution_fingerprint, null, null);
+                        var handler_start = startHandlerProgramSession(Entry, runtime, handler_handlers, allocator, request, certificate, offer) catch |err| switch (err) {
+                            error.ProgramContractViolation => {
+                                const failed = blocker(.handler_program_arg_mismatch, request, certificate, offer.fingerprint, "provider Program request-to-args mapping failed");
+                                try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution_fingerprint, null, failed.tag);
+                                try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                return .{ .rejected = failed };
+                            },
+                            else => return err,
+                        };
+                        defer handler_start.deinitMappedValue(allocator);
+                        errdefer handler_start.session.deinit();
+                        return stepStartedProviderProgram(index, &handler_start.session, allocator, request, certificate, offer, options_value, use_value, execution_fingerprint);
+                    }
+
+                    /// Resume a parked provider Program after its nested request is answered.
+                    pub fn continueProgramExecution(
+                        comptime index: usize,
+                        execution: *ProviderProgramExecution(index),
+                        runtime: *lowered_machine.Runtime,
+                        handler_handlers: anytype,
+                        allocator: std.mem.Allocator,
+                        request: RequestEnvelope,
+                        certificate: Treaty.Certificate,
+                        offer: ProviderOffer,
+                        nested_response: entries[index].handler_program.Exchange.ResponseEnvelope,
+                        options_value: HandleOptions,
+                    ) Error!ProviderProgramResult(index) {
+                        const Entry = entries[index];
+                        if (!providerProgramExecutionMatches(index, execution.*, request, certificate, offer)) {
+                            const failed = blocker(.handler_program_restore_mismatch, request, certificate, offer.fingerprint, "provider Program execution does not match parent request/treaty/provider/offer");
+                            return .{ .rejected = failed };
+                        }
+                        if (execution.session != null) {
+                            const failed = blocker(.handler_program_restore_mismatch, request, certificate, offer.fingerprint, "provider Program execution unexpectedly retained a live parked session");
+                            return .{ .rejected = failed };
+                        }
+                        const nested_request = execution.nested_request_envelope orelse {
+                            const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program execution has no parked session");
+                            return .{ .rejected = failed };
+                        };
+                        if (nested_response.request_envelope_fingerprint != nested_request.fingerprint) {
+                            const failed = blocker(.handler_program_nested_request_invalid, request, certificate, offer.fingerprint, "nested response does not answer the parked provider Program request");
+                            try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, failed.tag);
+                            return .{ .rejected = failed };
+                        }
+                        try appendProviderEvent(options_value.journal, .provider_program_nested_response, request, certificate, nested_response.fingerprint, null, null);
+                        var session = Entry.handler_program.Exchange.restoreFromRequestEnvelope(runtime, handler_handlers, nested_request) catch |err| switch (err) {
+                            error.ProgramContractViolation => {
+                                const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program capsule image could not be restored");
+                                try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, failed.tag);
+                                return .{ .rejected = failed };
+                            },
+                            else => return err,
+                        };
+                        execution.nested_request_envelope.?.deinit();
+                        execution.nested_request_envelope = null;
+                        errdefer session.deinit();
+                        Entry.handler_program.Exchange.applyResponse(&session, nested_response, .{
+                            .request_envelope_fingerprint = nested_request.fingerprint,
+                            .request_manifest_fingerprint = nested_request.manifest_fingerprint,
+                        }) catch |err| switch (err) {
+                            error.ProgramContractViolation => {
+                                session.deinit();
+                                const failed = blocker(.handler_program_nested_request_invalid, request, certificate, offer.fingerprint, "nested response failed provider Program response application");
+                                try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, failed.tag);
+                                return .{ .rejected = failed };
+                            },
+                            else => return err,
+                        };
+                        try appendProviderEvent(options_value.journal, .provider_program_resumed, request, certificate, execution.execution_fingerprint, null, null);
+                        const use_value = options_value.response_use orelse certificate.response_use;
+                        return stepStartedProviderProgram(index, &session, allocator, request, certificate, offer, options_value, use_value, execution.execution_fingerprint);
+                    }
+
+                    fn providerProgramExecutionMatches(
+                        comptime index: usize,
+                        execution: ProviderProgramExecution(index),
+                        request: RequestEnvelope,
+                        certificate: Treaty.Certificate,
+                        offer: ProviderOffer,
+                    ) bool {
+                        return execution.parent_request_envelope_fingerprint == request.fingerprint and
+                            execution.parent_request_fingerprint == request.request_fingerprint and
+                            execution.treaty_fingerprint == certificate.treaty_fingerprint and
+                            execution.treaty_certificate_fingerprint == certificate.certificate_fingerprint and
+                            execution.provider_fingerprint == certificate.provider_fingerprint and
+                            execution.provider_offer_fingerprint == offer.fingerprint;
+                    }
+
+                    fn stepStartedProviderProgram(
+                        comptime index: usize,
+                        session: *entries[index].handler_program.Session,
+                        allocator: std.mem.Allocator,
+                        request: RequestEnvelope,
+                        certificate: Treaty.Certificate,
+                        offer: ProviderOffer,
+                        options_value: HandleOptions,
+                        use_value: ResponseUse,
+                        execution_fingerprint: u64,
+                    ) Error!ProviderProgramResult(index) {
+                        const Entry = entries[index];
+                        const step = session.next() catch |err| switch (err) {
+                            error.ProgramContractViolation => {
+                                const failed = blocker(.handler_program_effect_unhandled, request, certificate, offer.fingerprint, "provider Program execution failed before producing a provider outcome");
+                                try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
+                                try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                return .{ .rejected = failed };
+                            },
+                            else => return err,
+                        };
+                        switch (step) {
+                            .done => |result_value| {
+                                var result = result_value;
+                                defer result.deinit();
+                                var packet_result = try finishProviderProgramDone(Entry, allocator, request, certificate, offer, options_value, use_value, result.value);
+                                switch (packet_result) {
+                                    .response => |*packet| {
+                                        packet.provider_program_execution_fingerprint = execution_fingerprint;
+                                        try appendProviderEvent(options_value.journal, .provider_program_completed, request, certificate, execution_fingerprint, null, null);
+                                    },
+                                    else => {},
+                                }
+                                return switch (packet_result) {
+                                    .response => |packet| .{ .response = packet },
+                                    .rejected => |failed| .{ .rejected = failed },
+                                    else => unreachable,
+                                };
+                            },
+                            .request => |nested_request| {
+                                var capsule = try session.capture(allocator);
+                                defer capsule.deinit();
+                                var image = try capsule.encode(allocator);
+                                defer image.deinit();
+                                var nested_envelope = try Entry.handler_program.Exchange.RequestEnvelope.fromRequest(allocator, nested_request, .{ .capsule = image });
+                                errdefer nested_envelope.deinit();
+                                try appendProviderEvent(options_value.journal, .provider_program_nested_request, request, certificate, nested_envelope.fingerprint, null, null);
+                                try appendProviderEvent(options_value.journal, .provider_program_parked, request, certificate, execution_fingerprint, null, null);
+                                session.deinit();
+                                return .{ .provider_suspended = providerProgramExecutionValue(index, request, certificate, offer, execution_fingerprint, .parked_on_nested_request, null, nested_envelope, image.image_fingerprint) };
+                            },
+                            .after => |nested_after| {
+                                var capsule = try session.capture(allocator);
+                                defer capsule.deinit();
+                                var image = try capsule.encode(allocator);
+                                defer image.deinit();
+                                var nested_envelope = try Entry.handler_program.Exchange.RequestEnvelope.fromAfter(allocator, nested_after, .{ .capsule = image });
+                                errdefer nested_envelope.deinit();
+                                try appendProviderEvent(options_value.journal, .provider_program_nested_request, request, certificate, nested_envelope.fingerprint, null, null);
+                                try appendProviderEvent(options_value.journal, .provider_program_parked, request, certificate, execution_fingerprint, null, null);
+                                session.deinit();
+                                return .{ .provider_suspended = providerProgramExecutionValue(index, request, certificate, offer, execution_fingerprint, .parked_on_nested_after, null, nested_envelope, image.image_fingerprint) };
+                            },
+                        }
+                    }
+
+                    fn providerProgramExecutionFingerprint(comptime Entry: type, request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer) u64 {
+                        var builder = Evidence.FingerprintBuilder.init(Evidence.domains.provider_program_execution);
+                        builder.fieldU64("parent.request_envelope", request.fingerprint);
+                        builder.fieldU64("parent.request", request.request_fingerprint);
+                        builder.fieldU64("treaty", certificate.treaty_fingerprint);
+                        builder.fieldU64("certificate", certificate.certificate_fingerprint);
+                        builder.fieldU64("provider", certificate.provider_fingerprint);
+                        builder.fieldU64("offer", offer.fingerprint);
+                        builder.fieldU64("route", certificate.route_fingerprint);
+                        builder.fieldU64("capability", certificate.capability_fingerprint);
+                        builder.fieldOptionalU64("capability_instance", certificate.capability_instance_fingerprint);
+                        builder.fieldOptionalU64("obligation", certificate.obligation_fingerprint);
+                        builder.fieldBytes("handler_program.label", Entry.handler_program.contract.label);
+                        builder.fieldU64("handler_program.plan_hash", Entry.handler_program.compiled_plan.hash());
+                        builder.fieldU64("mapping", Entry.provider_program_mapping_fingerprint);
+                        return builder.finish();
+                    }
+
+                    fn providerProgramExecutionValue(
+                        comptime index: usize,
+                        request: RequestEnvelope,
+                        certificate: Treaty.Certificate,
+                        offer: ProviderOffer,
+                        execution_fingerprint: u64,
+                        state: ProviderProgramExecutionState,
+                        session: ?entries[index].handler_program.Session,
+                        nested_request_envelope: entries[index].handler_program.Exchange.RequestEnvelope,
+                        capsule_image_fingerprint: u64,
+                    ) ProviderProgramExecution(index) {
+                        return .{
+                            .execution_fingerprint = execution_fingerprint,
+                            .parent_request_envelope_fingerprint = request.fingerprint,
+                            .parent_request_fingerprint = request.request_fingerprint,
+                            .treaty_fingerprint = certificate.treaty_fingerprint,
+                            .treaty_certificate_fingerprint = certificate.certificate_fingerprint,
+                            .provider_fingerprint = certificate.provider_fingerprint,
+                            .provider_offer_fingerprint = offer.fingerprint,
+                            .route_fingerprint = certificate.route_fingerprint,
+                            .capability_fingerprint = certificate.capability_fingerprint,
+                            .capability_instance_fingerprint = certificate.capability_instance_fingerprint,
+                            .obligation_fingerprint = certificate.obligation_fingerprint,
+                            .state = state,
+                            .session = session,
+                            .nested_request_fingerprint = nested_request_envelope.request_fingerprint,
+                            .provider_program_capsule_image_fingerprint = capsule_image_fingerprint,
+                            .nested_request_envelope = nested_request_envelope,
+                        };
+                    }
+
+                    fn HandlerProgramSessionStart(comptime Entry: type) type {
+                        const ValueType = providerProgramRequestValueType(Entry);
+                        return struct {
+                            session: Entry.handler_program.Session,
+                            mapped_request_value: ?ValueType = null,
+
+                            fn deinitMappedValue(self: *@This(), allocator: std.mem.Allocator) void {
+                                if (self.mapped_request_value) |value| {
+                                    deinitBodyOwnedResultValue(allocator, value);
+                                    self.mapped_request_value = null;
+                                }
+                            }
+                        };
+                    }
+
+                    fn startHandlerProgramSession(
+                        comptime Entry: type,
+                        runtime: *lowered_machine.Runtime,
+                        handler_handlers: anytype,
+                        allocator: std.mem.Allocator,
+                        request: RequestEnvelope,
+                        certificate: Treaty.Certificate,
+                        offer: ProviderOffer,
+                    ) Error!HandlerProgramSessionStart(Entry) {
+                        return switch (Entry.request_to_program_args) {
+                            .unit_args => .{ .session = try Entry.handler_program.Session.startWithArgs(runtime, handler_handlers, .{}) },
+                            .payload_to_args => startHandlerProgramSessionWithPayload(Entry, runtime, handler_handlers, allocator, request),
+                            .payload_and_metadata_to_args, .custom_comptime_mapper => {
+                                _ = certificate;
+                                _ = offer;
+                                return error.ProgramContractViolation;
+                            },
+                        };
+                    }
+
+                    fn startHandlerProgramSessionWithPayload(
+                        comptime Entry: type,
+                        runtime: *lowered_machine.Runtime,
+                        handler_handlers: anytype,
+                        allocator: std.mem.Allocator,
+                        request: RequestEnvelope,
+                    ) Error!HandlerProgramSessionStart(Entry) {
+                        const ValueType = providerProgramRequestValueType(Entry);
+                        const value = try decodeExchangeValueImageValue(allocator, request.value_ref, request.value_fingerprint, request.value_image, ValueType);
+                        errdefer deinitBodyOwnedResultValue(allocator, value);
+                        return .{
+                            .session = try Entry.handler_program.Session.startWithArgs(runtime, handler_handlers, .{value}),
+                            .mapped_request_value = value,
+                        };
+                    }
+
+                    fn providerProgramRequestValueType(comptime Entry: type) type {
+                        return switch (Entry.kind) {
+                            .operation => Entry.Site.Payload,
+                            .after => if (Entry.Site.has_static_input_ref) Entry.Site.Input else void,
+                            else => void,
+                        };
+                    }
+
+                    fn finishProviderProgramDone(
+                        comptime Entry: type,
+                        allocator: std.mem.Allocator,
+                        request: RequestEnvelope,
+                        certificate: Treaty.Certificate,
+                        offer: ProviderOffer,
+                        options_value: HandleOptions,
+                        use_value: ResponseUse,
+                        value: anytype,
+                    ) Error!HandleResult {
+                        var response = switch (Entry.program_result_to_provider_outcome) {
+                            .result_to_resume => ResponseEnvelope.@"resume"(allocator, request, value),
+                            .result_to_return_now => ResponseEnvelope.returnNow(allocator, request, value),
+                            .result_to_resume_after => ResponseEnvelope.resumeAfter(allocator, request, value),
+                            .result_to_outcome_union => return .{ .rejected = blocker(.handler_program_result_mapping_invalid, request, certificate, offer.fingerprint, "provider Program outcome-union mapping is not implemented for this result") },
+                        } catch |err| switch (err) {
+                            error.ProgramContractViolation => {
+                                return .{ .rejected = blocker(.response_build_failed, request, certificate, offer.fingerprint, "failed to build provider Program response envelope") };
+                            },
+                            else => return err,
+                        };
+                        errdefer response.deinit();
+                        return finishProviderResponse(options_value, request, certificate, offer, &response, use_value);
+                    }
+
                     fn handleEntry(comptime Entry: type, ctx: anytype, allocator: std.mem.Allocator, request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, options_value: HandleOptions) Error!HandleResult {
                         if (validateForEntry(Entry, request, certificate, offer, options_value)) |failed| {
                             try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
@@ -6691,6 +7232,11 @@ pub fn program(
                             return .{ .rejected = failed };
                         }
                         try appendProviderEvent(options_value.journal, .provider_request_validated, request, certificate, null, null, null);
+                        if (comptime @hasDecl(Entry, "program_backed") and Entry.program_backed) {
+                            const failed = blocker(.handler_program_requires_step_api, request, certificate, offer.fingerprint, "program-backed provider handlers require ProviderHarness provider-program step APIs");
+                            try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                            return .{ .rejected = failed };
+                        }
                         const view = requestView(Entry, request, certificate, offer);
                         try appendProviderEvent(options_value.journal, .provider_handler_invoked, request, certificate, null, null, null);
                         const outcome = Entry.handler(ctx, view) catch |err| return mapProgramRunError(Error, err);
@@ -6912,6 +7458,195 @@ pub fn program(
                     return @field(options, field_name);
                 }
                 return default;
+            }
+
+            fn providerProgramOfferOptions(comptime options: anytype) ProviderHandlerOptions {
+                return .{
+                    .label = providerHarnessField(options, "label", @as(?[]const u8, null)),
+                    .allowed_response_kinds = providerProgramResponseKinds(options),
+                    .supported_usage_modes = providerProgramUsageSet(options),
+                    .supported_response_uses = providerProgramResponseUseSet(options),
+                    .supported_replay_policies = providerProgramReplayUseSet(options),
+                    .supported_branch_policies = providerProgramBranchPolicySet(options),
+                    .capsule_policy = providerHarnessField(options, "capsule_policy", CapsulePolicy.allowed),
+                    .opens_obligation = providerHarnessField(options, "opens_obligation", @as(bool, false)),
+                    .max_request_bytes = providerHarnessField(options, "max_request_bytes", @as(usize, std.math.maxInt(usize))),
+                    .max_response_bytes = providerHarnessField(options, "max_response_bytes", @as(usize, std.math.maxInt(usize))),
+                    .max_capsule_bytes = providerHarnessField(options, "max_capsule_bytes", @as(usize, std.math.maxInt(usize))),
+                    .protocol_label = providerHarnessField(options, "protocol_label", @as(?[]const u8, null)),
+                    .protocol_op_fingerprint = providerHarnessField(options, "protocol_op_fingerprint", @as(?u64, null)),
+                    .tags = providerHarnessField(options, "tags", @as([]const []const u8, &.{})),
+                    .metadata = providerHarnessField(options, "metadata", @as([]const u8, &.{})),
+                };
+            }
+
+            fn providerProgramResponseKinds(comptime options: anytype) ?Policy.ResponseKindSet {
+                if (comptime providerHarnessHasField(@TypeOf(options), "allowed_response_kinds")) return options.allowed_response_kinds;
+                if (comptime providerHarnessHasField(@TypeOf(options), "response_kinds")) return options.response_kinds;
+                return null;
+            }
+
+            fn providerProgramUsageSet(comptime options: anytype) UsageSet {
+                if (comptime providerHarnessHasField(@TypeOf(options), "supported_usage_modes")) return options.supported_usage_modes;
+                if (comptime providerHarnessHasField(@TypeOf(options), "usage")) return singletonUsageSet(options.usage);
+                return .{};
+            }
+
+            fn providerProgramResponseUseSet(comptime options: anytype) ResponseUseSet {
+                if (comptime providerHarnessHasField(@TypeOf(options), "supported_response_uses")) return options.supported_response_uses;
+                if (comptime providerHarnessHasField(@TypeOf(options), "response_use")) return coerceResponseUseSet(options.response_use);
+                return .{};
+            }
+
+            fn providerProgramReplayUseSet(comptime options: anytype) ResponseUseSet {
+                if (comptime providerHarnessHasField(@TypeOf(options), "supported_replay_policies")) return options.supported_replay_policies;
+                if (comptime providerHarnessHasField(@TypeOf(options), "replay_policy")) return coerceResponseUseSet(options.replay_policy);
+                return .{};
+            }
+
+            fn providerProgramBranchPolicySet(comptime options: anytype) BranchPolicySet {
+                if (comptime providerHarnessHasField(@TypeOf(options), "supported_branch_policies")) return options.supported_branch_policies;
+                if (comptime providerHarnessHasField(@TypeOf(options), "branch_policy")) return singletonBranchPolicySet(options.branch_policy);
+                return .{};
+            }
+
+            fn singletonUsageSet(comptime usage: anytype) UsageSet {
+                return switch (usage) {
+                    .copyable => .{ .copyable = true, .replayable = false, .affine = false, .linear = false, .ephemeral = false },
+                    .replayable => .{ .copyable = false, .replayable = true, .affine = false, .linear = false, .ephemeral = false },
+                    .affine => .{ .copyable = false, .replayable = false, .affine = true, .linear = false, .ephemeral = false },
+                    .linear => .{ .copyable = false, .replayable = false, .affine = false, .linear = true, .ephemeral = false },
+                    .ephemeral => .{ .copyable = false, .replayable = false, .affine = false, .linear = false, .ephemeral = true },
+                    else => @compileError("unsupported provider-program usage option"),
+                };
+            }
+
+            fn coerceResponseUseSet(comptime value: anytype) ResponseUseSet {
+                if (@TypeOf(value) == ResponseUseSet) return value;
+                return switch (value) {
+                    .fresh => .{ .fresh = true, .replayed = false, .deterministic_replay = false, .override = false },
+                    .replayed => .{ .fresh = false, .replayed = true, .deterministic_replay = false, .override = false },
+                    .deterministic_replay => .{ .fresh = false, .replayed = false, .deterministic_replay = true, .override = false },
+                    .override => .{ .fresh = false, .replayed = false, .deterministic_replay = false, .override = true },
+                    else => @compileError("unsupported provider-program response-use option"),
+                };
+            }
+
+            fn singletonBranchPolicySet(comptime policy_value: anytype) BranchPolicySet {
+                return switch (policy_value) {
+                    .unrestricted => .{ .unrestricted = true, .replay_only = false, .single_live_branch = false, .split_required = false, .no_branch = false, .host_owned = false },
+                    .replay_only => .{ .unrestricted = false, .replay_only = true, .single_live_branch = false, .split_required = false, .no_branch = false, .host_owned = false },
+                    .single_live_branch => .{ .unrestricted = false, .replay_only = false, .single_live_branch = true, .split_required = false, .no_branch = false, .host_owned = false },
+                    .split_required => .{ .unrestricted = false, .replay_only = false, .single_live_branch = false, .split_required = true, .no_branch = false, .host_owned = false },
+                    .no_branch => .{ .unrestricted = false, .replay_only = false, .single_live_branch = false, .split_required = false, .no_branch = true, .host_owned = false },
+                    .host_owned => .{ .unrestricted = false, .replay_only = false, .single_live_branch = false, .split_required = false, .no_branch = false, .host_owned = true },
+                    else => @compileError("unsupported provider-program branch policy option"),
+                };
+            }
+
+            fn providerProgramMappingFingerprint(
+                comptime kind_value: anytype,
+                comptime Site: type,
+                comptime HandlerProgram: type,
+                comptime request_mapping: RequestToProgramArgs,
+                comptime result_mapping: ProgramResultToProviderOutcome,
+                comptime custom_mapper_fingerprint: ?u64,
+            ) u64 {
+                validateProviderProgramResultMapping(kind_value, Site, HandlerProgram, result_mapping);
+                var builder = Evidence.FingerprintBuilder.init(Evidence.domains.provider_program_mapping);
+                builder.fieldBytes("kind", switch (kind_value) {
+                    .operation => "operation",
+                    .after => "after",
+                    else => @compileError("unsupported provider-program handler kind"),
+                });
+                builder.fieldUsize("site.index", Site.index);
+                builder.fieldU64("site.fingerprint", Site.fingerprint);
+                builder.fieldBytes("program.label", HandlerProgram.contract.label);
+                builder.fieldU64("program.plan_hash", HandlerProgram.compiled_plan.hash());
+                builder.fieldBytes("request_mapping", @tagName(request_mapping));
+                builder.fieldBytes("result_mapping", @tagName(result_mapping));
+                builder.fieldOptionalU64("custom_mapper", custom_mapper_fingerprint);
+                fingerprintProviderProgramValueRef(&builder, "program.result", HandlerProgram.contract.result_ref);
+                return builder.finish();
+            }
+
+            fn validateProviderProgramRequestMapping(
+                comptime kind_value: anytype,
+                comptime Site: type,
+                comptime HandlerProgram: type,
+                comptime request_mapping: RequestToProgramArgs,
+                comptime custom_mapper_fingerprint: ?u64,
+            ) void {
+                const parameters = HandlerProgram.contract.entry_parameters;
+                switch (request_mapping) {
+                    .payload_to_args => {
+                        if (parameters.len != 1) @compileError("provider Program payload_to_args requires exactly one handler Program argument");
+                        if (!parameters[0].ref.eql(providerProgramRequestValueRef(kind_value, Site))) {
+                            @compileError("provider Program payload_to_args argument ref does not match request payload/current-value ref");
+                        }
+                    },
+                    .payload_and_metadata_to_args => {
+                        if (parameters.len != 2) @compileError("provider Program payload_and_metadata_to_args requires payload/current-value plus metadata arguments");
+                        if (!parameters[0].ref.eql(providerProgramRequestValueRef(kind_value, Site))) {
+                            @compileError("provider Program payload_and_metadata_to_args first argument ref does not match request payload/current-value ref");
+                        }
+                        if (parameters[1].ref.schema_index == null and parameters[1].ref.codec == .unit) {
+                            @compileError("provider Program metadata argument must be represented by a non-unit value ref");
+                        }
+                    },
+                    .unit_args => {
+                        if (parameters.len != 0) @compileError("provider Program unit_args requires a handler Program with no entry arguments");
+                        if (!providerProgramRequestValueRef(kind_value, Site).eql(.{ .codec = .unit })) {
+                            @compileError("provider Program unit_args requires a unit request payload/current value");
+                        }
+                    },
+                    .custom_comptime_mapper => {
+                        if (custom_mapper_fingerprint == null) {
+                            @compileError("provider Program custom_comptime_mapper requires mapper_fingerprint");
+                        }
+                    },
+                }
+            }
+
+            fn validateProviderProgramResultMapping(comptime kind_value: anytype, comptime Site: type, comptime HandlerProgram: type, comptime result_mapping: ProgramResultToProviderOutcome) void {
+                const result_ref = HandlerProgram.contract.result_ref;
+                switch (result_mapping) {
+                    .result_to_resume => {
+                        if (kind_value != .operation or !Site.may_resume) {
+                            @compileError("provider Program result_to_resume requires a resumable operation offer");
+                        }
+                        if (!result_ref.eql(Site.resume_ref)) @compileError("provider Program result_to_resume result ref does not match operation resume ref");
+                    },
+                    .result_to_return_now => {
+                        if (kind_value != .operation or !Site.may_return_now) {
+                            @compileError("provider Program result_to_return_now requires a return-now operation offer");
+                        }
+                        if (!result_ref.eql(Site.result_ref)) @compileError("provider Program result_to_return_now result ref does not match operation result ref");
+                    },
+                    .result_to_resume_after => {
+                        if (kind_value != .after) {
+                            @compileError("provider Program result_to_resume_after requires an after handler");
+                        }
+                        if (!result_ref.eql(Site.output_ref)) @compileError("provider Program result_to_resume_after result ref does not match after output ref");
+                    },
+                    .result_to_outcome_union => {
+                        if (result_ref.schema_index == null) @compileError("provider Program result_to_outcome_union requires a typed union/product result schema");
+                    },
+                }
+            }
+
+            fn providerProgramRequestValueRef(comptime kind_value: anytype, comptime Site: type) lowering_api.ValueRef {
+                return switch (kind_value) {
+                    .operation => Site.payload_ref,
+                    .after => Site.current_value_ref orelse .{ .codec = .unit },
+                    else => @compileError("unsupported provider-program handler kind"),
+                };
+            }
+
+            fn fingerprintProviderProgramValueRef(builder: *Evidence.FingerprintBuilder, comptime prefix: []const u8, comptime ref: lowering_api.ValueRef) void {
+                builder.fieldBytes(prefix ++ ".codec", @tagName(ref.codec));
+                builder.fieldBool(prefix ++ ".schema.present", ref.schema_index != null);
+                if (ref.schema_index) |schema_index| builder.fieldUsize(prefix ++ ".schema", schema_index);
             }
 
             fn validateProviderHarnessOptions(comptime options: anytype) void {
@@ -7198,6 +7933,7 @@ pub fn program(
                     .max_capsule_bytes = Entry.offer_options.max_capsule_bytes,
                     .tags = Entry.offer_options.tags,
                     .metadata = Entry.offer_options.metadata,
+                    .provider_program_mapping_fingerprint = if (comptime @hasDecl(Entry, "provider_program_mapping_fingerprint")) Entry.provider_program_mapping_fingerprint else null,
                 };
             }
 
@@ -10994,11 +11730,14 @@ pub fn program(
             fn validateProviderOfferOptions(options: ProviderOffer.Options) Error!void {
                 if (options.label.len == 0) return error.ProgramContractViolation;
                 if (options.max_response_bytes == 0 or options.max_request_bytes == 0) return error.ProgramContractViolation;
+                if (options.provider_program_mapping_fingerprint) |fingerprint| {
+                    if (fingerprint == 0) return error.ProgramContractViolation;
+                }
             }
 
             fn writeProviderOfferPayload(writer: *Writer, options: ProviderOffer.Options) std.mem.Allocator.Error!void {
                 try writer.writeBytes(provider_offer_magic);
-                try writer.writeU32(exchange_provider_offer_format_version);
+                try writer.writeU32(if (options.provider_program_mapping_fingerprint != null) provider_offer_program_format_version else exchange_provider_offer_format_version);
                 try writer.writeU32(exchange_provider_offer_fingerprint_version);
                 try writer.writeLenBytes(options.label);
                 try writer.writeU64(options.provider_fingerprint);
@@ -11022,6 +11761,7 @@ pub fn program(
                 try writer.writeUsize(options.max_capsule_bytes);
                 try writeStringList(writer, options.tags);
                 try writer.writeLenBytes(options.metadata);
+                if (options.provider_program_mapping_fingerprint) |fingerprint| try writer.writeU64(fingerprint);
             }
 
             fn providerOfferFromOptions(
@@ -11054,6 +11794,7 @@ pub fn program(
                 return .{
                     .allocator = allocator,
                     .bytes = bytes,
+                    .format_version = if (options.provider_program_mapping_fingerprint != null) provider_offer_program_format_version else exchange_provider_offer_format_version,
                     .fingerprint = fingerprint,
                     .label = label_value,
                     .provider_fingerprint = options.provider_fingerprint,
@@ -11077,6 +11818,7 @@ pub fn program(
                     .max_capsule_bytes = options.max_capsule_bytes,
                     .tags = tags_value,
                     .metadata = metadata_value,
+                    .provider_program_mapping_fingerprint = options.provider_program_mapping_fingerprint,
                 };
             }
 
@@ -11086,7 +11828,8 @@ pub fn program(
                 if (fingerprint != offer.fingerprint) return false;
                 var reader = Reader.init(payload);
                 reader.expectBytes(provider_offer_magic) catch return false;
-                if ((reader.readU32() catch return false) != exchange_provider_offer_format_version) return false;
+                const format_version = reader.readU32() catch return false;
+                if (format_version != exchange_provider_offer_format_version and format_version != provider_offer_program_format_version) return false;
                 if ((reader.readU32() catch return false) != exchange_provider_offer_fingerprint_version) return false;
                 if (!std.mem.eql(u8, reader.readLenBytes() catch return false, offer.label)) return false;
                 if ((reader.readU64() catch return false) != offer.provider_fingerprint) return false;
@@ -11111,6 +11854,8 @@ pub fn program(
                 if ((reader.readUsize() catch return false) != offer.max_capsule_bytes) return false;
                 expectStringList(&reader, offer.tags) catch return false;
                 if (!std.mem.eql(u8, reader.readLenBytes() catch return false, offer.metadata)) return false;
+                const program_mapping_fingerprint: ?u64 = if (format_version == provider_offer_program_format_version) reader.readU64() catch return false else null;
+                if (program_mapping_fingerprint != offer.provider_program_mapping_fingerprint) return false;
                 return reader.eof();
             }
 

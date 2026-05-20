@@ -41,6 +41,9 @@ pub const Domain = struct {
         provider_request_validation,
         provider_response_authorization,
         provider_journal_event,
+        provider_program_execution,
+        provider_program_mapping,
+        provider_program_nested_request,
         morphism_offer,
         capability,
         capability_attenuation_path,
@@ -109,9 +112,9 @@ pub const domains = struct {
     pub const session_continuation = Domain{ .id = .session_continuation, .name = "ability.session.continuation", .fingerprint_version = 2, .owner = .session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "continuation" };
     pub const capsule = Domain{ .id = .capsule, .name = "ability.session.capsule", .fingerprint_version = 2, .owner = .capsule, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "capsule" };
     pub const capsule_image = Domain{ .id = .capsule_image, .name = "ability.program.capsule.image", .format_version = 1, .fingerprint_version = 1, .owner = .capsule, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "capsule image" };
-    pub const journal = Domain{ .id = .journal, .name = "ability.program.session.journal", .format_version = 5, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .tests = "journal" };
+    pub const journal = Domain{ .id = .journal, .name = "ability.program.session.journal", .format_version = 6, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .tests = "journal" };
     pub const journal_legacy_v4 = Domain{ .id = .journal_legacy_v4, .name = "ability.program.session.journal.v4", .format_version = 4, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .tests = "legacy journal" };
-    pub const journal_entry = Domain{ .id = .journal_entry, .name = "ability.session.journal.entry", .format_version = 5, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .tests = "journal entry" };
+    pub const journal_entry = Domain{ .id = .journal_entry, .name = "ability.session.journal.entry", .format_version = 6, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .tests = "journal entry" };
     pub const exchange_manifest = Domain{ .id = .exchange_manifest, .name = "ability.exchange.manifest", .format_version = 1, .fingerprint_version = 1, .owner = .exchange, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "exchange manifest" };
     pub const exchange_request_envelope = Domain{ .id = .exchange_request_envelope, .name = "ability.exchange.request", .format_version = 3, .fingerprint_version = 3, .owner = .exchange, .kind = .envelope, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "exchange request" };
     pub const exchange_response_envelope = Domain{ .id = .exchange_response_envelope, .name = "ability.exchange.response", .format_version = 1, .fingerprint_version = 1, .owner = .exchange, .kind = .envelope, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "exchange response" };
@@ -123,7 +126,10 @@ pub const domains = struct {
     pub const provider_harness = Domain{ .id = .provider_harness, .name = "ability.exchange.provider.harness", .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "provider harness" };
     pub const provider_request_validation = Domain{ .id = .provider_request_validation, .name = "ability.exchange.provider.request_validation", .fingerprint_version = 1, .owner = .provider_harness, .kind = .report, .journal_referenced = true, .certificate_referenced = true, .tests = "provider request" };
     pub const provider_response_authorization = Domain{ .id = .provider_response_authorization, .name = "ability.exchange.provider.response_authorization", .fingerprint_version = 1, .owner = .provider_harness, .kind = .authorization, .journal_referenced = true, .certificate_referenced = true, .tests = "provider outcome" };
-    pub const provider_journal_event = Domain{ .id = .provider_journal_event, .name = "ability.exchange.provider.journal_event", .format_version = 5, .fingerprint_version = 1, .owner = .provider_harness, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .tests = "provider journal" };
+    pub const provider_journal_event = Domain{ .id = .provider_journal_event, .name = "ability.exchange.provider.journal_event", .format_version = 6, .fingerprint_version = 1, .owner = .provider_harness, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .tests = "provider journal" };
+    pub const provider_program_execution = Domain{ .id = .provider_program_execution, .name = "ability.exchange.provider_program.execution", .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "provider program" };
+    pub const provider_program_mapping = Domain{ .id = .provider_program_mapping, .name = "ability.exchange.provider_program.mapping", .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "program provider" };
+    pub const provider_program_nested_request = Domain{ .id = .provider_program_nested_request, .name = "ability.exchange.provider_program.nested_request", .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "nested provider" };
     pub const morphism_offer = Domain{ .id = .morphism_offer, .name = "ability.exchange.morphism_offer", .fingerprint_version = 1, .owner = .morphism, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "morphism offer" };
     pub const capability = Domain{ .id = .capability, .name = "ability.exchange.capability", .format_version = 1, .fingerprint_version = 1, .owner = .capability, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "capability" };
     pub const capability_attenuation_path = Domain{ .id = .capability_attenuation_path, .name = "ability.exchange.capability.path", .fingerprint_version = 1, .owner = .capability, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "capability attenuation" };
@@ -171,6 +177,9 @@ pub const all_domains = &[_]Domain{
     domains.provider_request_validation,
     domains.provider_response_authorization,
     domains.provider_journal_event,
+    domains.provider_program_execution,
+    domains.provider_program_mapping,
+    domains.provider_program_nested_request,
     domains.morphism_offer,
     domains.capability,
     domains.capability_attenuation_path,
@@ -319,6 +328,21 @@ pub fn refForProviderHarness(comptime Harness: type) Ref {
     });
 }
 
+pub fn refForProviderProgramExecution(execution: anytype) Ref {
+    return refFor(domains.provider_program_execution, execution.execution_fingerprint, .{
+        .label = optionalLabel(execution, "handler_program_label"),
+        .branch_id = optionalU64Field(execution, "branch_id"),
+    });
+}
+
+pub fn refForProviderProgramMapping(fingerprint: u64) Ref {
+    return refFor(domains.provider_program_mapping, fingerprint, .{});
+}
+
+pub fn refForProviderProgramNestedRequest(fingerprint: u64) Ref {
+    return refFor(domains.provider_program_nested_request, fingerprint, .{});
+}
+
 pub fn refForCapability(capability: anytype) Ref {
     return refFor(domains.capability, capability.fingerprint, .{ .label = optionalLabel(capability, "label") });
 }
@@ -427,6 +451,10 @@ fn fingerprintProviderHarnessManifestOptions(builder: *FingerprintBuilder, compt
 
 fn fingerprintProviderHarnessDeclaration(builder: *FingerprintBuilder, comptime Entry: type) void {
     builder.fieldBytes("declaration.kind", @tagName(Entry.kind));
+    if (comptime @hasDecl(Entry, "program_backed")) builder.fieldBool("declaration.program_backed", Entry.program_backed);
+    if (comptime @hasDecl(Entry, "provider_program_mapping_fingerprint")) {
+        builder.fieldU64("declaration.provider_program_mapping", Entry.provider_program_mapping_fingerprint);
+    }
     if (comptime @hasDecl(Entry, "Site")) {
         const Site = Entry.Site;
         if (comptime @hasDecl(Site, "index")) builder.fieldUsize("declaration.site.index", Site.index);
@@ -971,6 +999,11 @@ fn optionalLabel(value: anytype, comptime field_name: []const u8) ?[]const u8 {
 }
 
 fn optionalUsizeField(value: anytype, comptime field_name: []const u8) ?usize {
+    if (comptime @hasField(@TypeOf(value), field_name)) return @field(value, field_name);
+    return null;
+}
+
+fn optionalU64Field(value: anytype, comptime field_name: []const u8) ?u64 {
     if (comptime @hasField(@TypeOf(value), field_name)) return @field(value, field_name);
     return null;
 }

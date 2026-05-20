@@ -800,6 +800,51 @@ ProviderHarness is not an async runtime, RPC framework, network server, message
 broker, provider registry, service discovery system, security layer, workflow
 engine, source language, VM, or Artifact API.
 
+#### Program-backed providers
+
+ProviderHarness made provider callbacks typed. Program-backed providers make
+provider handlers defunctionalized. A declaration can use
+`Program.Exchange.ProviderHandler.program(.{ ... })` to bind an offer to an
+ordinary Ability Program instead of a Zig callback. The declaration still
+derives the provider manifest entry, provider offer, offer fingerprint, catalog
+metadata, value refs, response metadata, and Evidence refs. A manual
+`ProviderOffer` remains an escape hatch, but it must exactly match the
+program-backed declaration, including the provider-program mapping fingerprint.
+
+The first request mapping forms are deterministic: `payload_to_args` maps the
+request payload or after current value into the handler Program's first entry
+arg, and `unit_args` starts no-arg handlers for no-payload operations.
+`payload_and_metadata_to_args` and custom comptime mapping are reserved for
+typed deterministic metadata mapping. Request tokens, runtime pointers,
+allocator pointers, and implicit host context are not mapped. Handler results
+map through `result_to_resume`, `result_to_return_now`, or
+`result_to_resume_after`; invalid mappings fail closed against the operation
+mode and expected response refs.
+
+`ProviderHarness.startProgramExecution` validates the parent request, treaty
+certificate, provider offer, route, capability, usage, response-use, branch,
+obligation, byte limits, and value refs before starting the handler Program
+under `Program.Session`. If the handler completes synchronously, the result is
+converted into a normal provider response packet with treaty-bound
+authorization. If it yields a nested request or after request, the harness
+returns a parked provider-program execution containing the nested request
+envelope, handler capsule image fingerprint, parent request/treaty/provider
+fingerprints, handler Program label and plan hash, and Evidence refs. The host
+routes the nested request through ordinary Exchange/Treaty/MailboxRunner/
+ProviderHarness machinery and resumes the provider handler with
+`continueProgramExecution`.
+
+Provider-program journal events record started, parked, nested request, nested
+response, resumed, completed, rejected, and failed turns. Evidence domains cover
+provider-program execution, request/result mapping, and nested request linkage.
+Function-backed handlers remain supported for simple host callbacks, external
+provider calls, and tests. Program-backed providers are not an async runtime,
+provider scheduler, network server, RPC system, workflow engine, VM, source
+language, parser, Artifact API, persistence backend, service discovery, signing,
+encryption, or distributed system. Hosts own identity, signing, encryption,
+transport, storage, scheduling, network, persistence, provider lifecycle,
+cancellation, retries, and side effects.
+
 ### Linear Effect Sessions
 
 Continuations can be copied; the world often cannot. Linear Effect Sessions are
