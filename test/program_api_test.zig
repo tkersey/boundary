@@ -5369,6 +5369,15 @@ test "Program.Interpreter handles transform requests and records response traces
     defer decoded_legacy_v1.deinit();
     try std.testing.expectEqual(@as(usize, 2), decoded_legacy_v1.entries.items.len);
 
+    var legacy_v5_journal = try std.testing.allocator.dupe(u8, journal_bytes);
+    defer std.testing.allocator.free(legacy_v5_journal);
+    std.mem.writeInt(u32, legacy_v5_journal["ABL_JRN1".len..][0..4], 5, .little);
+    const legacy_v5_payload = legacy_v5_journal[0 .. legacy_v5_journal.len - 8];
+    std.mem.writeInt(u64, legacy_v5_journal[legacy_v5_journal.len - 8 ..][0..8], testProgramJournalFingerprint(Program, legacy_v5_payload), .little);
+    var decoded_legacy_v5 = try Program.Session.Journal.decode(std.testing.allocator, legacy_v5_journal);
+    defer decoded_legacy_v5.deinit();
+    try std.testing.expectEqual(@as(usize, 2), decoded_legacy_v5.entries.items.len);
+
     var manual_session = try Program.Session.start(&runtime, .{});
     defer manual_session.deinit();
     const manual_request = switch (try manual_session.next()) {
@@ -15729,6 +15738,16 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     var decoded_v3_journal4_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, v3_journal4_manifest);
     defer decoded_v3_journal4_manifest.deinit();
     try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal4_manifest_payload), decoded_v3_journal4_manifest.fingerprint);
+
+    var v3_journal5_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
+    defer std.testing.allocator.free(v3_journal5_manifest);
+    const v5_journal_format: u32 = 5;
+    std.mem.writeInt(u32, v3_journal5_manifest[manifest_journal_format_offset..][0..4], v5_journal_format, .little);
+    const v3_journal5_manifest_payload = v3_journal5_manifest[0 .. v3_journal5_manifest.len - 8];
+    std.mem.writeInt(u64, v3_journal5_manifest[v3_journal5_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal5_manifest_payload), .little);
+    var decoded_v3_journal5_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, v3_journal5_manifest);
+    defer decoded_v3_journal5_manifest.deinit();
+    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal5_manifest_payload), decoded_v3_journal5_manifest.fingerprint);
 
     var invalid_v3_journal2_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
     defer std.testing.allocator.free(invalid_v3_journal2_manifest);

@@ -2160,7 +2160,7 @@ pub fn program(
                     var reader = ExchangeByteReader.init(payload);
                     try reader.expectBytes("ABL_JRN1");
                     const format_version = try reader.readU32();
-                    if (format_version != 1 and format_version != 2 and format_version != 3 and format_version != 4 and format_version != session_journal_format_version) return error.ProgramContractViolation;
+                    if (format_version != 1 and format_version != 2 and format_version != 3 and format_version != 4 and format_version != 5 and format_version != session_journal_format_version) return error.ProgramContractViolation;
                     if (try reader.readU32() != session_journal_fingerprint_version) return error.ProgramContractViolation;
                     var journal = Journal.init(allocator);
                     errdefer journal.deinit();
@@ -12046,6 +12046,7 @@ pub fn program(
 
             const emitted_manifest_version_tuples = [_]ManifestVersionTuple{
                 .{ .request_format = exchange_request_format_version, .request_fingerprint = exchange_request_fingerprint_version, .journal_format = journal_format_version },
+                .{ .request_format = 3, .request_fingerprint = 3, .journal_format = 5 },
                 .{ .request_format = 3, .request_fingerprint = 3, .journal_format = 4 },
                 .{ .request_format = 3, .request_fingerprint = 3, .journal_format = 3 },
                 .{ .request_format = 2, .request_fingerprint = 2, .journal_format = 2 },
