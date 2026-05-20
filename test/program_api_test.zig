@@ -24154,6 +24154,22 @@ test "Program.Exchange ProviderHarness runs synchronous program-backed provider 
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.offer_mismatch, blocker.tag),
         else => return error.ExpectedProviderRejection,
     }
+    var failing_completion_allocator = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var failing_completion_journal = Program.Session.Journal.init(failing_completion_allocator.allocator());
+    defer failing_completion_journal.deinit();
+    try failing_completion_journal.entries.ensureTotalCapacityPrecise(failing_completion_allocator.allocator(), 2);
+    failing_completion_allocator.fail_index = failing_completion_allocator.alloc_index;
+    failing_completion_allocator.resize_fail_index = failing_completion_allocator.resize_index;
+    const failing_completion_result = Harness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, envelope, treaty.certificate, catalog.provider_offers[0], .{ .treaty = treaty, .journal = &failing_completion_journal });
+    if (failing_completion_result) |result_value| {
+        var result_packet = result_value;
+        switch (result_packet) {
+            .response => |*packet| packet.deinit(),
+            .provider_suspended => |*parked| parked.deinit(),
+            .rejected => {},
+        }
+        return error.ExpectedOutOfMemory;
+    } else |err| try std.testing.expectEqual(error.OutOfMemory, err);
     var result = try Harness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, envelope, treaty.certificate, catalog.provider_offers[0], .{ .treaty = treaty, .journal = &provider_journal });
     switch (result) {
         .response => |*packet| {

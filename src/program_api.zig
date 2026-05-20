@@ -7154,6 +7154,10 @@ pub fn program(
                                 var result = result_value;
                                 defer result.deinit();
                                 var packet_result = try finishProviderProgramDone(Entry, allocator, request, certificate, offer, options_value, use_value, result.value);
+                                errdefer switch (packet_result) {
+                                    .response => |*packet| packet.deinit(),
+                                    else => {},
+                                };
                                 switch (packet_result) {
                                     .response => |*packet| {
                                         packet.provider_program_execution_fingerprint = execution_fingerprint;
