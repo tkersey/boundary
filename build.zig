@@ -553,6 +553,14 @@ pub fn build(b: *std.Build) void {
             .expected_error = "Program.Exchange.ProviderHarness listed duplicate operation handler",
         },
         .{
+            .path = "test/compile_fail/provider_harness_forged_semantic_body.zig",
+            .expected_error = "Program.Exchange.ProviderHarness function-backed entries must declare host_intrinsic semantic body",
+        },
+        .{
+            .path = "test/compile_fail/provider_harness_forged_program_mapping.zig",
+            .expected_error = "Program.Exchange.ProviderHarness program-backed entries must be declared with ProviderHandler.program",
+        },
+        .{
             .path = "test/compile_fail/provider_program_payload_arg_mismatch.zig",
             .expected_error = "provider Program payload_to_args argument schema does not match request payload/current-value schema",
         },
@@ -623,6 +631,10 @@ pub fn build(b: *std.Build) void {
         .{
             .path = "test/compile_fail/interpreter_foreign_site.zig",
             .expected_error = "Program.Handler site descriptor belongs to another program",
+        },
+        .{
+            .path = "test/compile_fail/interpreter_forged_semantic_body.zig",
+            .expected_error = "Program.Interpreter function-backed entries must declare host_intrinsic semantic body",
         },
         .{
             .path = "test/compile_fail/interpreter_coverage_omitted_operation.zig",

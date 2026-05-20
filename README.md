@@ -560,7 +560,8 @@ ProviderHarness declarations report `host_intrinsic`. `Program.Interpreter` and
 `Program.run` handler functions are host intrinsics. Dynamic morphism mapper
 functions are host intrinsics; residualized and pipeline-backed morphisms report
 static Ability-native bodies. TreatyResolver can reject or prefer routes using
-those classifications.
+those classifications, and rechecks defunctionalization policy during
+treaty-response validation.
 
 See [docs/defunctionalization_boundary.md](docs/defunctionalization_boundary.md).
 

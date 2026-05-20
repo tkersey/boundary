@@ -124,7 +124,7 @@ pub const domains = struct {
     pub const exchange_request_envelope = Domain{ .id = .exchange_request_envelope, .name = "ability.exchange.request", .format_version = 3, .fingerprint_version = 3, .owner = .exchange, .kind = .envelope, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "exchange request" };
     pub const exchange_response_envelope = Domain{ .id = .exchange_response_envelope, .name = "ability.exchange.response", .format_version = 1, .fingerprint_version = 1, .owner = .exchange, .kind = .envelope, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "exchange response" };
     pub const provider_identity = Domain{ .id = .provider_identity, .name = "ability.exchange.provider.identity", .fingerprint_version = 1, .owner = .exchange, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "provider identity" };
-    pub const provider_manifest = Domain{ .id = .provider_manifest, .name = "ability.exchange.provider", .format_version = 1, .fingerprint_version = 1, .owner = .exchange, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "provider manifest" };
+    pub const provider_manifest = Domain{ .id = .provider_manifest, .name = "ability.exchange.provider", .format_version = 2, .fingerprint_version = 2, .owner = .exchange, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "provider manifest" };
     pub const provider_offer = Domain{ .id = .provider_offer, .name = "ability.exchange.provider_offer", .format_version = 1, .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "provider offer" };
     pub const derived_provider_manifest = Domain{ .id = .derived_provider_manifest, .name = "ability.exchange.provider.derived_manifest", .format_version = 1, .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "derived provider manifest" };
     pub const derived_provider_offer = Domain{ .id = .derived_provider_offer, .name = "ability.exchange.provider.derived_offer", .format_version = 1, .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "derived offer" };
@@ -145,7 +145,7 @@ pub const domains = struct {
     pub const capability_instance = Domain{ .id = .capability_instance, .name = "ability.exchange.capability_instance", .format_version = 1, .fingerprint_version = 1, .owner = .linear_session, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "capability instance" };
     pub const obligation = Domain{ .id = .obligation, .name = "ability.exchange.obligation", .format_version = 1, .fingerprint_version = 1, .owner = .linear_session, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "obligation" };
     pub const obligation_transition = Domain{ .id = .obligation_transition, .name = "ability.exchange.obligation.transition", .fingerprint_version = 1, .owner = .linear_session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "obligation transition" };
-    pub const treaty = Domain{ .id = .treaty, .name = "ability.exchange.treaty", .format_version = 1, .fingerprint_version = 3, .owner = .treaty, .kind = .certificate, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "treaty" };
+    pub const treaty = Domain{ .id = .treaty, .name = "ability.exchange.treaty", .format_version = 1, .fingerprint_version = 4, .owner = .treaty, .kind = .certificate, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "treaty" };
     pub const treaty_certificate = Domain{ .id = .treaty_certificate, .name = "ability.exchange.treaty.certificate", .format_version = 1, .fingerprint_version = 4, .owner = .treaty, .kind = .certificate, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "certificate" };
     pub const treaty_authorization = Domain{ .id = .treaty_authorization, .name = "ability.exchange.treaty.authorization", .format_version = 4, .fingerprint_version = 4, .owner = .treaty, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "authorization" };
     pub const treaty_authorization_legacy_v3 = Domain{ .id = .treaty_authorization_legacy_v3, .name = "ability.exchange.treaty.authorization.v3", .format_version = 3, .fingerprint_version = 3, .owner = .treaty, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "legacy authorization" };
@@ -308,7 +308,10 @@ pub fn refForResponseEnvelope(envelope: anytype) Ref {
 }
 
 pub fn refForProviderManifest(manifest: anytype) Ref {
-    return refFor(domains.provider_manifest, manifest.fingerprint, .{ .label = optionalLabel(manifest, "label") });
+    return refFor(domains.provider_manifest, manifest.fingerprint, .{
+        .format_version = if (comptime @hasField(@TypeOf(manifest), "format_version")) manifest.format_version else domains.provider_manifest.format_version,
+        .label = optionalLabel(manifest, "label"),
+    });
 }
 
 pub fn refForProviderIdentity(fingerprint: u64) Ref {
@@ -982,6 +985,9 @@ pub const HostIntrinsic = struct {
     allowed_site_indexes: []const usize = &.{},
     allowed_protocol_op_fingerprints: []const u64 = &.{},
     associated_provider_offer_ref: ?Ref = null,
+    associated_provider_fingerprint: ?u64 = null,
+    associated_manifest_fingerprint: ?u64 = null,
+    provider_offer_policy_fingerprint: ?u64 = null,
     associated_capability_ref: ?Ref = null,
     associated_treaty_ref: ?Ref = null,
     associated_morphism_offer_ref: ?Ref = null,
@@ -1025,6 +1031,9 @@ pub const HostIntrinsic = struct {
         allowed_site_indexes: []const usize = &.{},
         allowed_protocol_op_fingerprints: []const u64 = &.{},
         associated_provider_offer_ref: ?Ref = null,
+        associated_provider_fingerprint: ?u64 = null,
+        associated_manifest_fingerprint: ?u64 = null,
+        provider_offer_policy_fingerprint: ?u64 = null,
         associated_capability_ref: ?Ref = null,
         associated_treaty_ref: ?Ref = null,
         associated_morphism_offer_ref: ?Ref = null,
@@ -1048,6 +1057,9 @@ pub const HostIntrinsic = struct {
             .allowed_site_indexes = options.allowed_site_indexes,
             .allowed_protocol_op_fingerprints = options.allowed_protocol_op_fingerprints,
             .associated_provider_offer_ref = options.associated_provider_offer_ref,
+            .associated_provider_fingerprint = options.associated_provider_fingerprint,
+            .associated_manifest_fingerprint = options.associated_manifest_fingerprint,
+            .provider_offer_policy_fingerprint = options.provider_offer_policy_fingerprint,
             .associated_capability_ref = options.associated_capability_ref,
             .associated_treaty_ref = options.associated_treaty_ref,
             .associated_morphism_offer_ref = options.associated_morphism_offer_ref,
@@ -1075,6 +1087,9 @@ pub const HostIntrinsic = struct {
         for (self.allowed_site_indexes) |site| builder.fieldUsize("allowed_site", site);
         for (self.allowed_protocol_op_fingerprints) |op| builder.fieldU64("allowed_protocol_op", op);
         builder.fieldOptionalRef("provider_offer", self.associated_provider_offer_ref);
+        builder.fieldOptionalU64("provider", self.associated_provider_fingerprint);
+        builder.fieldOptionalU64("manifest", self.associated_manifest_fingerprint);
+        builder.fieldOptionalU64("provider_offer_policy", self.provider_offer_policy_fingerprint);
         builder.fieldOptionalRef("capability", self.associated_capability_ref);
         builder.fieldOptionalRef("treaty", self.associated_treaty_ref);
         builder.fieldOptionalRef("morphism_offer", self.associated_morphism_offer_ref);
@@ -1223,6 +1238,7 @@ pub const DefunctionalizationPolicy = struct {
 
     pub fn allowsIntrinsic(self: @This(), intrinsic: HostIntrinsic) bool {
         if (!self.allow_host_intrinsics) return false;
+        if (self.reject_dynamic_mappers and intrinsic.kind == .dynamic_morphism_mapper) return false;
         if (intrinsic.kind == .test_fixture and self.allow_test_fixtures) return true;
         for (self.allowed_intrinsic_fingerprints) |allowed| {
             if (allowed == intrinsic.fingerprint) return true;
@@ -1253,6 +1269,8 @@ pub const DefunctionalizationReport = struct {
     unknown_refs: []const Ref = &.{},
     dependencies: []const Dependency = &.{},
     blockers: []const Blocker = &.{},
+    primary_intrinsic_ref: ?Ref = null,
+    secondary_intrinsic_ref: ?Ref = null,
     policy_summary: ?PolicySummary = null,
     summary: []const u8 = "",
 
@@ -1306,6 +1324,8 @@ pub const DefunctionalizationReport = struct {
         unknown_refs: []const Ref = &.{},
         dependencies: []const Dependency = &.{},
         blockers: []const Blocker = &.{},
+        primary_intrinsic_ref: ?Ref = null,
+        secondary_intrinsic_ref: ?Ref = null,
         policy_summary: ?PolicySummary = null,
         summary: []const u8 = "",
     };
@@ -1327,6 +1347,8 @@ pub const DefunctionalizationReport = struct {
             .unknown_refs = options.unknown_refs,
             .dependencies = options.dependencies,
             .blockers = options.blockers,
+            .primary_intrinsic_ref = options.primary_intrinsic_ref,
+            .secondary_intrinsic_ref = options.secondary_intrinsic_ref,
             .policy_summary = options.policy_summary,
             .summary = options.summary,
         };
@@ -1347,6 +1369,8 @@ pub const DefunctionalizationReport = struct {
         builder.fieldUsize("host_intrinsic", self.host_intrinsic_count);
         builder.fieldUsize("unknown", self.unknown_count);
         for (self.intrinsic_refs) |ref| builder.fieldRef("intrinsic", ref);
+        if (self.primary_intrinsic_ref) |ref| builder.fieldRef("intrinsic", ref);
+        if (self.secondary_intrinsic_ref) |ref| builder.fieldRef("intrinsic", ref);
         for (self.unknown_refs) |ref| builder.fieldRef("unknown_ref", ref);
         for (self.dependencies) |dependency| {
             builder.fieldBytes("dependency.role", @tagName(dependency.role));
@@ -1378,7 +1402,18 @@ pub const DefunctionalizationReport = struct {
     }
 
     pub fn toEvidenceReport(self: @This()) Report {
-        if (self.blockers.len != 0 or self.host_intrinsic_count != 0 or self.unknown_count != 0) {
+        if (self.host_intrinsic_count != 0 or self.unknown_count != 0) {
+            return Report.withFailure(
+                self.scope_ref,
+                domains.defunctionalization_report.id,
+                self.dependencies,
+                self.blockers,
+                &.{},
+                if (self.policy_summary) |policy| policy.policy_fingerprint else null,
+                self.summary,
+            );
+        }
+        if (self.blockers.len != 0) {
             return Report.withBlockers(
                 self.scope_ref,
                 domains.defunctionalization_report.id,
@@ -1400,22 +1435,48 @@ pub const DefunctionalizationReport = struct {
     pub fn assertOnlyAllowlistedIntrinsics(self: @This(), policy: DefunctionalizationPolicy) error{ HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
         if (policy.reject_unknown and self.unknown_count != 0) return error.UnknownSemanticBody;
         if (!policy.allow_host_intrinsics and self.host_intrinsic_count != 0) return error.HostIntrinsicsPresent;
+        if (!policy.allow_kernel_primitives and self.kernel_primitive_count != 0) return error.HostIntrinsicsPresent;
+        if (self.host_intrinsic_count != 0 and
+            (policy.require_program_backed_providers or policy.require_declarative_morphisms or policy.require_no_intrinsics_in_treaties))
+        {
+            return error.HostIntrinsicsPresent;
+        }
         if (policy.maximum_intrinsic_count) |maximum| {
             if (self.host_intrinsic_count > maximum) return error.IntrinsicCountExceeded;
         }
         const constrains_intrinsics = policy.allowed_intrinsic_fingerprints.len != 0 or
             policy.allowed_intrinsic_kinds.len != 0 or
-            policy.allowed_intrinsic_labels.len != 0;
+            policy.allowed_intrinsic_labels.len != 0 or
+            policy.reject_dynamic_mappers;
         if (self.host_intrinsic_count != 0 and constrains_intrinsics) {
-            if (self.intrinsic_refs.len < self.host_intrinsic_count) return error.HostIntrinsicsPresent;
+            if (self.availableIntrinsicRefCount() < self.host_intrinsic_count) return error.HostIntrinsicsPresent;
             for (self.intrinsic_refs) |intrinsic_ref| {
+                if (!intrinsicRefAllowedByPolicy(intrinsic_ref, policy)) return error.HostIntrinsicsPresent;
+            }
+            if (self.primary_intrinsic_ref) |intrinsic_ref| {
+                if (!intrinsicRefAllowedByPolicy(intrinsic_ref, policy)) return error.HostIntrinsicsPresent;
+            }
+            if (self.secondary_intrinsic_ref) |intrinsic_ref| {
                 if (!intrinsicRefAllowedByPolicy(intrinsic_ref, policy)) return error.HostIntrinsicsPresent;
             }
         }
     }
+
+    fn availableIntrinsicRefCount(self: @This()) usize {
+        return self.intrinsic_refs.len +
+            @as(usize, @intFromBool(self.primary_intrinsic_ref != null)) +
+            @as(usize, @intFromBool(self.secondary_intrinsic_ref != null));
+    }
 };
 
 fn intrinsicRefAllowedByPolicy(intrinsic_ref: Ref, policy: DefunctionalizationPolicy) bool {
+    if (policy.reject_dynamic_mappers) {
+        if (intrinsic_ref.kind_tag) |kind_tag| {
+            if (std.mem.eql(u8, kind_tag, @tagName(HostIntrinsic.Kind.dynamic_morphism_mapper))) return false;
+        } else {
+            return false;
+        }
+    }
     for (policy.allowed_intrinsic_fingerprints) |allowed| {
         if (allowed == intrinsic_ref.fingerprint) return true;
     }

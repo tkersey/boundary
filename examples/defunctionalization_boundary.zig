@@ -176,7 +176,7 @@ pub fn run(writer: anytype) !void {
     });
     defer strict_intrinsic.deinit();
 
-    try writer.print("program_body={s}\n", .{offers[0].semanticBody().name()});
+    try writer.print("program_body={s}\n", .{offers[0].semanticBodyWithProvider(providers[0]).name()});
     try writer.print("intrinsic_body={s}\n", .{offers[1].semanticBody().name()});
     try writer.print("intrinsic_fingerprint={x}\n", .{intrinsic.fingerprint});
     try writer.print("permissive_status={s} candidates={d}\n", .{ @tagName(permissive.status), permissive.candidate_count });

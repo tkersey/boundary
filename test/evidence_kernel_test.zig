@@ -221,12 +221,21 @@ test "defunctionalization reports and policies enforce strict and allowlist mode
     try std.testing.expectEqual(Evidence.domains.defunctionalization_report.id, report.evidenceRef().domain_id);
     try std.testing.expectError(error.HostIntrinsicsPresent, report.assertNoHostIntrinsics());
     try std.testing.expectError(error.HostIntrinsicsPresent, report.assertOnlyAllowlistedIntrinsics(Evidence.DefunctionalizationPolicy.strict()));
+    const counted_intrinsic_evidence = report.toEvidenceReport();
+    try std.testing.expect(!counted_intrinsic_evidence.success);
+    try std.testing.expectError(error.EvidenceReportHasErrors, counted_intrinsic_evidence.assertOk());
     try report.assertOnlyAllowlistedIntrinsics(.{
         .label = "world_boundary",
         .allow_host_intrinsics = true,
         .reject_unknown = true,
         .allowed_intrinsic_fingerprints = &.{intrinsic.fingerprint},
     });
+    try std.testing.expectError(error.HostIntrinsicsPresent, report.assertOnlyAllowlistedIntrinsics(.{
+        .label = "no_kernel_primitives",
+        .allow_host_intrinsics = true,
+        .allow_kernel_primitives = false,
+        .allowed_intrinsic_fingerprints = &.{intrinsic.fingerprint},
+    }));
     try std.testing.expectError(error.HostIntrinsicsPresent, report.assertOnlyAllowlistedIntrinsics(.{
         .label = "wrong_allowlist",
         .allow_host_intrinsics = true,
@@ -241,6 +250,9 @@ test "defunctionalization reports and policies enforce strict and allowlist mode
         .summary = "manual offer",
     });
     try std.testing.expectError(error.UnknownSemanticBody, unknown_report.assertOnlyAllowlistedIntrinsics(Evidence.DefunctionalizationPolicy.strict()));
+    const counted_unknown_evidence = unknown_report.toEvidenceReport();
+    try std.testing.expect(!counted_unknown_evidence.success);
+    try std.testing.expectError(error.EvidenceReportHasErrors, counted_unknown_evidence.assertOk());
     try std.testing.expect(Evidence.DefunctionalizationPolicy.worldBoundary().fingerprint() != Evidence.DefunctionalizationPolicy.permissive().fingerprint());
     try std.testing.expectEqual(Evidence.domains.defunctionalization_policy.id, Evidence.DefunctionalizationPolicy.strict().evidenceRef().domain_id);
     const projection = report.recordedProjection();

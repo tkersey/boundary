@@ -47,7 +47,7 @@ Current domains are registered in `Program.Evidence.domains`:
 | `ability.exchange.request` | exchange | 3 | 3 | yes | yes | yes | yes | yes | yes | exchange |
 | `ability.exchange.response` | exchange | 1 | 1 | yes | yes | yes | yes | yes | yes | exchange |
 | `ability.exchange.provider.identity` | exchange | - | 1 | no | yes | yes | yes | yes | yes | provider identity |
-| `ability.exchange.provider` | exchange | 1 | 1 | yes | yes | yes | yes | yes | yes | provider manifest |
+| `ability.exchange.provider` | exchange | 2 | 2 | yes | yes | yes | yes | yes | yes | provider manifest |
 | `ability.exchange.provider_offer` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | offer |
 | `ability.exchange.provider.derived_manifest` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | derived manifest |
 | `ability.exchange.provider.derived_offer` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | derived offer |
@@ -68,7 +68,7 @@ Current domains are registered in `Program.Evidence.domains`:
 | `ability.exchange.capability_instance` | linear_session | 1 | 1 | yes | yes | yes | yes | yes | yes | linear |
 | `ability.exchange.obligation` | linear_session | 1 | 1 | yes | yes | yes | yes | yes | yes | obligation |
 | `ability.exchange.obligation.transition` | linear_session | - | 1 | no | yes | yes | yes | yes | yes | obligation |
-| `ability.exchange.treaty` | treaty | 1 | 3 | no | yes | yes | yes | yes | yes | treaty |
+| `ability.exchange.treaty` | treaty | 1 | 4 | no | yes | yes | yes | yes | yes | treaty |
 | `ability.exchange.treaty.certificate` | treaty | 1 | 4 | no | yes | yes | yes | yes | yes | certificate |
 | `ability.exchange.treaty.authorization` | treaty | 4 | 4 | yes | yes | yes | yes | yes | yes | authorization |
 | `ability.exchange.treaty.authorization.v3` | treaty | 3 | 3 | yes | yes | yes | yes | yes | yes | legacy authorization |
