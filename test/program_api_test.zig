@@ -135,6 +135,32 @@ fn testTreatyAuthorizationV2Fingerprint(comptime Program: type, authorization: P
     return hasher.final();
 }
 
+fn testTreatyAuthorizationV3Fingerprint(comptime Program: type, authorization: Program.Exchange.Treaty.Authorization) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    testHashBytes(&hasher, "ability.exchange.treaty.authorization");
+    testHashU32(&hasher, 3);
+    testHashU64(&hasher, authorization.treaty_fingerprint);
+    testHashU64(&hasher, authorization.treaty_certificate_fingerprint);
+    testHashU64(&hasher, authorization.provider_fingerprint);
+    testHashU64(&hasher, authorization.provider_offer_fingerprint);
+    testHashU64(&hasher, authorization.capability_fingerprint);
+    testHashOptionalU64(&hasher, authorization.attenuated_capability_fingerprint);
+    testHashU64(&hasher, authorization.capability_path_fingerprint);
+    testHashOptionalU64(&hasher, authorization.capability_instance_fingerprint);
+    testHashOptionalU64(&hasher, authorization.obligation_fingerprint);
+    testHashU64(&hasher, authorization.route_fingerprint);
+    testHashU64(&hasher, authorization.request_envelope_fingerprint);
+    testHashU64(&hasher, authorization.response_envelope_fingerprint);
+    testHashBytes(&hasher, @tagName(authorization.usage));
+    testHashBytes(&hasher, @tagName(authorization.response_use));
+    testHashBytes(&hasher, @tagName(authorization.replay_policy));
+    testHashBytes(&hasher, @tagName(authorization.branch_policy));
+    testHashOptionalU64(&hasher, authorization.replay_source_response_fingerprint);
+    testHashOptionalU64(&hasher, authorization.replay_source_response_value_fingerprint);
+    testHashOptionalU64(&hasher, authorization.expected_obligation_transition_fingerprint);
+    return hasher.final();
+}
+
 fn testEncodeTreatyAuthorizationV2(comptime Program: type, allocator: std.mem.Allocator, authorization: Program.Exchange.Treaty.Authorization) ![]u8 {
     var bytes: std.ArrayList(u8) = .empty;
     errdefer bytes.deinit(allocator);
@@ -156,6 +182,34 @@ fn testEncodeTreatyAuthorizationV2(comptime Program: type, allocator: std.mem.Al
     try testWriteOptionalU64(&bytes, allocator, authorization.replay_source_response_value_fingerprint);
     try testWriteOptionalU64(&bytes, allocator, authorization.expected_obligation_transition_fingerprint);
     try testWriteU64(&bytes, allocator, testTreatyAuthorizationV2Fingerprint(Program, authorization));
+    return bytes.toOwnedSlice(allocator);
+}
+
+fn testEncodeTreatyAuthorizationV3(comptime Program: type, allocator: std.mem.Allocator, authorization: Program.Exchange.Treaty.Authorization) ![]u8 {
+    var bytes: std.ArrayList(u8) = .empty;
+    errdefer bytes.deinit(allocator);
+    try bytes.appendSlice(allocator, "ABL_EXT1");
+    try testWriteU32(&bytes, allocator, 3);
+    try testWriteU64(&bytes, allocator, authorization.treaty_fingerprint);
+    try testWriteU64(&bytes, allocator, authorization.treaty_certificate_fingerprint);
+    try testWriteU64(&bytes, allocator, authorization.provider_fingerprint);
+    try testWriteU64(&bytes, allocator, authorization.provider_offer_fingerprint);
+    try testWriteU64(&bytes, allocator, authorization.capability_fingerprint);
+    try testWriteOptionalU64(&bytes, allocator, authorization.attenuated_capability_fingerprint);
+    try testWriteU64(&bytes, allocator, authorization.capability_path_fingerprint);
+    try testWriteOptionalU64(&bytes, allocator, authorization.capability_instance_fingerprint);
+    try testWriteOptionalU64(&bytes, allocator, authorization.obligation_fingerprint);
+    try testWriteU64(&bytes, allocator, authorization.route_fingerprint);
+    try testWriteU64(&bytes, allocator, authorization.request_envelope_fingerprint);
+    try testWriteU64(&bytes, allocator, authorization.response_envelope_fingerprint);
+    try bytes.append(allocator, testUsageTag(Program, authorization.usage));
+    try bytes.append(allocator, testResponseUseTag(Program, authorization.response_use));
+    try bytes.append(allocator, testResponseUseTag(Program, authorization.replay_policy));
+    try bytes.append(allocator, testBranchPolicyTag(Program, authorization.branch_policy));
+    try testWriteOptionalU64(&bytes, allocator, authorization.replay_source_response_fingerprint);
+    try testWriteOptionalU64(&bytes, allocator, authorization.replay_source_response_value_fingerprint);
+    try testWriteOptionalU64(&bytes, allocator, authorization.expected_obligation_transition_fingerprint);
+    try testWriteU64(&bytes, allocator, testTreatyAuthorizationV3Fingerprint(Program, authorization));
     return bytes.toOwnedSlice(allocator);
 }
 
@@ -6233,6 +6287,14 @@ test "Program.Pipeline report, certificate, residual interpreter, and trace mapp
     try std.testing.expectEqual(Pipeline.Residual.compiled_plan.hash(), Pipeline.certificate.source_effect_row.residual_plan_hash);
     try std.testing.expect(Pipeline.certificate.pipeline_fingerprint != Pipeline.certificate.residualization_fingerprint);
     try std.testing.expectEqual(Program.pipeline_fingerprint_version, Pipeline.certificate.pipeline_fingerprint_version);
+    var pipeline_dependencies: [6]Program.Evidence.Dependency = undefined;
+    const pipeline_view = Pipeline.certificate.evidenceView(&pipeline_dependencies);
+    try Program.Evidence.expectDependencyContains(pipeline_view.dependencies, .subject, Program.Evidence.refFor(Program.Evidence.domains.program_plan, Pipeline.certificate.source_plan_hash, .{ .label = Pipeline.certificate.source_plan_label }));
+    try Program.Evidence.expectDependencyContains(pipeline_view.dependencies, .residual_program, Program.Evidence.refFor(Program.Evidence.domains.program_plan, Pipeline.certificate.residual_plan_hash, .{ .label = Pipeline.certificate.residual_program_label }));
+    try Program.Evidence.expectDependencyContains(pipeline_view.dependencies, .pipeline, Program.Evidence.refFor(Program.Evidence.domains.pipeline, Pipeline.certificate.pipeline_fingerprint, .{ .label = Pipeline.certificate.pipeline_label }));
+    try Program.Evidence.expectDependencyContains(pipeline_view.dependencies, .morphism, Program.Evidence.refFor(Program.Evidence.domains.residualization, Pipeline.certificate.residualization_fingerprint, .{ .label = Pipeline.certificate.pipeline_label }));
+    try Program.Evidence.expectDependencyContains(pipeline_view.dependencies, .target, Program.Evidence.refFor(Program.Evidence.domains.reinterpretation, Pipeline.certificate.dynamic_catalog_fingerprint, .{ .label = Pipeline.certificate.pipeline_label }));
+    try std.testing.expectEqual(Program.Evidence.domains.pipeline_source_map.id, pipeline_view.dependencies[5].ref.domain_id);
 
     const ResidualSite = Pipeline.Residual.protocol.operationSite("policy", "check", 0);
     const mapped_from_source = Pipeline.residualForSourceSite(Source) orelse return error.ExpectedPipelineSourceMap;
@@ -15459,8 +15521,9 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_obligation_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_obligation_transition_fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_treaty_format_version);
-    try std.testing.expectEqual(@as(u32, 2), Program.exchange_treaty_fingerprint_version);
-    try std.testing.expectEqual(@as(u32, 3), Program.exchange_treaty_authorization_fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 3), Program.exchange_treaty_fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 3), Program.exchange_treaty_certificate_fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 4), Program.exchange_treaty_authorization_fingerprint_version);
     try std.testing.expectEqual(Program.exchange_manifest_format_version, Program.Exchange.manifest_format_version);
     try std.testing.expectEqual(Program.exchange_manifest_fingerprint_version, Program.Exchange.manifest_fingerprint_version);
     try std.testing.expectEqual(Program.exchange_request_format_version, Program.Exchange.request_format_version);
@@ -15486,6 +15549,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     try std.testing.expectEqual(Program.exchange_obligation_transition_fingerprint_version, Program.Exchange.obligation_transition_fingerprint_version);
     try std.testing.expectEqual(Program.exchange_treaty_format_version, Program.Exchange.treaty_format_version);
     try std.testing.expectEqual(Program.exchange_treaty_fingerprint_version, Program.Exchange.treaty_fingerprint_version);
+    try std.testing.expectEqual(Program.exchange_treaty_certificate_fingerprint_version, Program.Exchange.treaty_certificate_fingerprint_version);
     try std.testing.expectEqual(Program.exchange_treaty_authorization_fingerprint_version, Program.Exchange.treaty_authorization_fingerprint_version);
 
     var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
@@ -23318,6 +23382,31 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expect(catalog.provider_offers[0].supportsRequest(request_envelope));
     try Harness.validateManualCatalog(std.testing.allocator, catalog.provider_manifest, catalog.provider_offers);
 
+    const provider_blocker = Harness.Blocker{
+        .tag = .offer_mismatch,
+        .request_envelope_fingerprint = request_envelope.fingerprint,
+        .request_envelope_format_version = 2,
+        .provider_fingerprint = catalog.provider_manifest.provider_fingerprint,
+        .offer_fingerprint = catalog.provider_offers[0].fingerprint,
+        .route_fingerprint = 101,
+        .summary = "offer mismatch",
+    };
+    const alternate_provider_blocker = Harness.Blocker{
+        .tag = provider_blocker.tag,
+        .request_envelope_fingerprint = provider_blocker.request_envelope_fingerprint,
+        .provider_fingerprint = provider_blocker.provider_fingerprint,
+        .offer_fingerprint = catalog.provider_offers[1].fingerprint,
+        .summary = provider_blocker.summary,
+    };
+    try std.testing.expectEqual(Program.Evidence.domains.exchange_request_envelope.id, provider_blocker.toEvidenceBlocker().subject.?.domain_id);
+    try std.testing.expectEqual(@as(?u32, 2), provider_blocker.toEvidenceBlocker().subject.?.format_version);
+    try std.testing.expectEqual(Program.Evidence.domains.provider_offer.id, provider_blocker.toEvidenceBlocker().primary.?.domain_id);
+    try std.testing.expect(provider_blocker.toEvidenceBlocker().fingerprint() != alternate_provider_blocker.toEvidenceBlocker().fingerprint());
+    try std.testing.expectEqual(@as(usize, 3), provider_blocker.toEvidenceBlocker().relatedRefs().len);
+    var alternate_provider_route_blocker = provider_blocker;
+    alternate_provider_route_blocker.route_fingerprint = 102;
+    try std.testing.expect(provider_blocker.toEvidenceBlocker().fingerprint() != alternate_provider_route_blocker.toEvidenceBlocker().fingerprint());
+
     var response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, request_envelope, @as(i32, 21));
     defer response.deinit();
     try Program.Exchange.applyResponse(&session, response, .{});
@@ -23373,8 +23462,36 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         .provider_fingerprint = @as(?u64, 0x5152),
         .entries = .{CustomDecl},
     });
+    const CustomVariantDecl = Program.Exchange.ProviderHandler.operation(OperationSite, struct {}, .{
+        .label = "custom-dispatch",
+        .protocol_label = "custom-authored",
+        .protocol_op_fingerprint = 0xbeef,
+        .tags = &.{"custom-offer"},
+        .metadata = "custom-offer-meta",
+    });
+    const CustomVariantHarness = Program.Exchange.ProviderHarness(.{
+        .label = "custom-harness-provider",
+        .provider_fingerprint = @as(?u64, 0x5152),
+        .entries = .{CustomVariantDecl},
+    });
+    try std.testing.expect(CustomHarness.evidenceRef().fingerprint != CustomVariantHarness.evidenceRef().fingerprint);
+    const CustomPolicyHarness = Program.Exchange.ProviderHarness(.{
+        .label = "custom-harness-provider",
+        .provider_fingerprint = @as(?u64, 0x5152),
+        .entries = .{CustomDecl},
+        .metadata = "custom-manifest-policy",
+        .semantic_tags = &.{"custom-policy"},
+        .accepts_embedded_capsules = false,
+        .accepts_capsule_restore = false,
+        .max_request_envelope_bytes = 512,
+        .max_response_envelope_bytes = 1024,
+    });
+    try std.testing.expect(CustomHarness.evidenceRef().fingerprint != CustomPolicyHarness.evidenceRef().fingerprint);
     var custom_catalog = try CustomHarness.buildCatalog(std.testing.allocator);
     defer custom_catalog.deinit();
+    var custom_policy_catalog = try CustomPolicyHarness.buildCatalog(std.testing.allocator);
+    defer custom_policy_catalog.deinit();
+    try std.testing.expect(custom_catalog.provider_manifest.fingerprint != custom_policy_catalog.provider_manifest.fingerprint);
     var custom_offer = try CustomHarness.providerOffer(std.testing.allocator, 0);
     defer custom_offer.deinit();
     try std.testing.expectEqual(custom_offer.fingerprint, custom_catalog.provider_offers[0].fingerprint);
@@ -23808,6 +23925,23 @@ test "Program.Exchange ProviderHarness handles treaty-bound request with typed p
     const treaty = resolved.treaty orelse return error.ExpectedTreaty;
 
     var invocations: usize = 0;
+    var stale_format_certificate = treaty.certificate;
+    stale_format_certificate.request_envelope_format_version = 2;
+    const stale_format_result = try Harness.handle(&invocations, std.testing.allocator, envelope, stale_format_certificate, .{ .treaty = treaty });
+    switch (stale_format_result) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.treaty_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    try std.testing.expectEqual(@as(usize, 0), invocations);
+    var stale_format_treaty = treaty;
+    stale_format_treaty.request_envelope_format_version = 2;
+    const stale_treaty_result = try Harness.handle(&invocations, std.testing.allocator, envelope, treaty.certificate, .{ .treaty = stale_format_treaty });
+    switch (stale_treaty_result) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.treaty_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    try std.testing.expectEqual(@as(usize, 0), invocations);
+
     const PacketInbox = struct {
         packet: ?Harness.RequestPacket,
 
@@ -27469,6 +27603,108 @@ test "Program.Exchange treaty-bound response authorization accepts and rejects s
     var response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 7));
     defer response.deinit();
     try response.authorizeTreaty(result.treaty.?, .fresh);
+    var legacy_format_authorization = response.treaty_authorization.?;
+    legacy_format_authorization.request_envelope_format_version = 2;
+    legacy_format_authorization.authorization_fingerprint = 0;
+    const legacy_format_authorization_bytes = try legacy_format_authorization.encode(std.testing.allocator);
+    defer std.testing.allocator.free(legacy_format_authorization_bytes);
+    const decoded_legacy_format_authorization = try Program.Exchange.Treaty.Authorization.decode(legacy_format_authorization_bytes);
+    try std.testing.expectEqual(@as(u32, 2), decoded_legacy_format_authorization.request_envelope_format_version);
+    try std.testing.expect(decoded_legacy_format_authorization.authorization_fingerprint != response.treaty_authorization.?.authorization_fingerprint);
+    try std.testing.expectEqual(@as(?u32, 2), decoded_legacy_format_authorization.evidenceView().request_ref.?.format_version);
+    var lossy_v3_authorization = decoded_legacy_format_authorization;
+    lossy_v3_authorization.format_version = 3;
+    try std.testing.expectError(error.ProgramContractViolation, lossy_v3_authorization.encode(std.testing.allocator));
+
+    const legacy_v2_request_version: u32 = 2;
+    var legacy_v2_manifest_bytes = try std.testing.allocator.dupe(u8, manifest.bytes);
+    defer std.testing.allocator.free(legacy_v2_manifest_bytes);
+    const manifest_request_format_offset = "ABL_EXM1".len + 2 * 4;
+    const manifest_request_fingerprint_offset = "ABL_EXM1".len + 3 * 4;
+    std.mem.writeInt(u32, legacy_v2_manifest_bytes[manifest_request_format_offset..][0..4], legacy_v2_request_version, .little);
+    std.mem.writeInt(u32, legacy_v2_manifest_bytes[manifest_request_fingerprint_offset..][0..4], legacy_v2_request_version, .little);
+    var manifest_index: usize = "ABL_EXM1".len + 6 * 4;
+    const manifest_program_label_len = std.mem.readInt(u64, legacy_v2_manifest_bytes[manifest_index..][0..8], .little);
+    manifest_index += 8 + @as(usize, @intCast(manifest_program_label_len));
+    const manifest_plan_label_len = std.mem.readInt(u64, legacy_v2_manifest_bytes[manifest_index..][0..8], .little);
+    manifest_index += 8 + @as(usize, @intCast(manifest_plan_label_len));
+    manifest_index += 8 + 4 + 4 + 4;
+    std.mem.writeInt(u32, legacy_v2_manifest_bytes[manifest_index..][0..4], legacy_v2_request_version, .little);
+    const legacy_v2_manifest_payload = legacy_v2_manifest_bytes[0 .. legacy_v2_manifest_bytes.len - 8];
+    std.mem.writeInt(u64, legacy_v2_manifest_bytes[legacy_v2_manifest_bytes.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_v2_manifest_payload), .little);
+    var legacy_v2_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, legacy_v2_manifest_bytes);
+    defer legacy_v2_manifest.deinit();
+
+    const v3_request_payload_len = envelope.bytes.len - 8;
+    const legacy_v2_request_payload_len = v3_request_payload_len - 1;
+    var legacy_v2_request_bytes = try std.testing.allocator.alloc(u8, legacy_v2_request_payload_len + 8);
+    defer std.testing.allocator.free(legacy_v2_request_bytes);
+    @memcpy(legacy_v2_request_bytes[0..legacy_v2_request_payload_len], envelope.bytes[0..legacy_v2_request_payload_len]);
+    const request_manifest_fingerprint_offset = "ABL_EXQ1".len + 2 * 4;
+    std.mem.writeInt(u32, legacy_v2_request_bytes["ABL_EXQ1".len..][0..4], legacy_v2_request_version, .little);
+    std.mem.writeInt(u32, legacy_v2_request_bytes["ABL_EXQ1".len + 4 ..][0..4], legacy_v2_request_version, .little);
+    std.mem.writeInt(u64, legacy_v2_request_bytes[request_manifest_fingerprint_offset..][0..8], legacy_v2_manifest.fingerprint, .little);
+    std.mem.writeInt(u64, legacy_v2_request_bytes[legacy_v2_request_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", legacy_v2_request_version, legacy_v2_request_bytes[0..legacy_v2_request_payload_len]), .little);
+    var legacy_v2_envelope = try Program.Exchange.RequestEnvelope.decode(std.testing.allocator, legacy_v2_request_bytes);
+    defer legacy_v2_envelope.deinit();
+    try std.testing.expectEqual(@as(u32, 2), legacy_v2_envelope.request_format_version);
+
+    const legacy_manifest_fingerprints = [_]u64{legacy_v2_manifest.fingerprint};
+    var legacy_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "auth-provider",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .supported_program_manifest_fingerprints = legacy_manifest_fingerprints[0..],
+        .supported_operation_sites = &.{trace.operation_site_index},
+        .supported_protocol_labels = &.{trace.requirement_label},
+        .supported_protocol_op_fingerprints = &.{trace.operation_site_fingerprint},
+    });
+    defer legacy_provider.deinit();
+    var legacy_offer = try Program.Exchange.ProviderOffer.encode(std.testing.allocator, .{
+        .label = "auth-offer",
+        .provider_fingerprint = legacy_provider.provider_fingerprint,
+        .manifest_fingerprint = legacy_v2_manifest.fingerprint,
+        .supported_operation_sites = &.{trace.operation_site_index},
+        .supported_protocol_labels = &.{trace.requirement_label},
+        .supported_protocol_op_fingerprints = &.{trace.operation_site_fingerprint},
+        .produced_response_refs = response_refs[0..],
+    });
+    defer legacy_offer.deinit();
+    var legacy_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "issuer",
+        .provider_fingerprint = legacy_provider.provider_fingerprint,
+        .manifest_fingerprint = legacy_v2_manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true, .after = false },
+        .allowed_operation_sites = &.{trace.operation_site_index},
+        .allowed_protocol_op_fingerprints = &.{trace.operation_site_fingerprint},
+        .allowed_requirement_labels = &.{trace.requirement_label},
+        .allowed_op_names = &.{trace.op_name},
+    });
+    defer legacy_capability.deinit();
+    const legacy_providers = [_]Program.Exchange.ProviderManifest{legacy_provider};
+    const legacy_offers = [_]Program.Exchange.ProviderOffer{legacy_offer};
+    const legacy_capabilities = [_]Program.Exchange.Capability{legacy_capability};
+    var legacy_v2_result = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = legacy_v2_envelope,
+        .manifest = legacy_v2_manifest,
+        .provider_manifests = legacy_providers[0..],
+        .provider_offers = legacy_offers[0..],
+        .capabilities = legacy_capabilities[0..],
+    });
+    defer legacy_v2_result.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, legacy_v2_result.status);
+    var legacy_v2_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, legacy_v2_envelope, @as(i32, 7));
+    defer legacy_v2_response.deinit();
+    try legacy_v2_response.authorizeTreaty(legacy_v2_result.treaty.?, .fresh);
+    const legacy_v3_authorization_bytes = try testEncodeTreatyAuthorizationV3(Program, std.testing.allocator, legacy_v2_response.treaty_authorization.?);
+    defer std.testing.allocator.free(legacy_v3_authorization_bytes);
+    const legacy_v3_authorization = try Program.Exchange.Treaty.Authorization.decode(legacy_v3_authorization_bytes);
+    try std.testing.expectEqual(@as(u32, 3), legacy_v3_authorization.format_version);
+    try std.testing.expect(legacy_v3_authorization.evidenceView().request_ref != null);
+    try std.testing.expectEqual(@as(?u32, null), legacy_v3_authorization.evidenceView().request_ref.?.format_version);
+    legacy_v2_response.treaty_authorization = legacy_v3_authorization;
+    try std.testing.expect(Program.Exchange.validateTreatyResponse(legacy_v2_result.treaty.?, legacy_v2_envelope, legacy_v2_response).allowed());
+
     try std.testing.expect(Program.Exchange.validateTreatyResponse(result.treaty.?, envelope, response).allowed());
     const tighter_byte_policy = Program.Exchange.validateTreatyResponseWithPolicy(result.treaty.?, envelope, response, .{ .max_envelope_bytes = response.bytes.len - 1 });
     try std.testing.expect(!tighter_byte_policy.allowed());
@@ -27513,6 +27749,11 @@ test "Program.Exchange treaty-bound response authorization accepts and rejects s
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, no_auth_result.status);
     try std.testing.expect(Program.Exchange.validateTreatyResponse(no_auth_result.treaty.?, envelope, no_auth_response).allowed());
     try std.testing.expect(Program.Exchange.validateTreatyResponseWithPolicy(no_auth_result.treaty.?, envelope, no_auth_response, .{ .require_treaty_bound_response_authorization = false }).allowed());
+    var stale_format_treaty = no_auth_result.treaty.?;
+    stale_format_treaty.request_envelope_format_version = 2;
+    try std.testing.expectError(error.ProgramContractViolation, stale_format_treaty.checkCertificate());
+    const stale_format_treaty_report = Program.Exchange.validateTreatyResponseWithPolicy(stale_format_treaty, envelope, no_auth_response, .{ .require_treaty_bound_response_authorization = false });
+    try expectFirstTreatyBlocker(Program, stale_format_treaty_report, .wrong_treaty);
     var no_auth_replay_request = no_auth_request;
     no_auth_replay_request.requested_response_use = .replayed;
     var no_auth_replay_result = try Program.Exchange.TreatyResolver.resolve(.{

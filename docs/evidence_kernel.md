@@ -39,36 +39,39 @@ Current domains are registered in `Program.Evidence.domains`:
 | `ability.session.response` | session | - | 2 | no | yes | yes | yes | yes | yes | response |
 | `ability.session.continuation` | session | - | 2 | no | yes | yes | yes | no | yes | continuation |
 | `ability.session.capsule` | capsule | - | 2 | no | yes | yes | yes | yes | yes | capsule |
-| `ability.session.capsule.image` | capsule | 1 | 1 | yes | yes | yes | yes | yes | yes | capsule image |
-| `ability.session.journal` | journal | 5 | 1 | yes | yes | yes | yes | no | no | journal |
-| `ability.session.journal.v4` | journal | 4 | 1 | yes | yes | yes | yes | no | no | legacy journal |
+| `ability.program.capsule.image` | capsule | 1 | 1 | yes | yes | yes | yes | yes | yes | capsule image |
+| `ability.program.session.journal` | journal | 5 | 1 | yes | yes | yes | yes | no | no | journal |
+| `ability.program.session.journal.v4` | journal | 4 | 1 | yes | yes | yes | yes | no | no | legacy journal |
 | `ability.session.journal.entry` | journal | 5 | 1 | yes | yes | yes | yes | yes | no | journal entry |
 | `ability.exchange.manifest` | exchange | 1 | 1 | yes | yes | yes | yes | yes | yes | exchange |
 | `ability.exchange.request` | exchange | 3 | 3 | yes | yes | yes | yes | yes | yes | exchange |
 | `ability.exchange.response` | exchange | 1 | 1 | yes | yes | yes | yes | yes | yes | exchange |
+| `ability.exchange.provider.identity` | exchange | - | 1 | no | yes | yes | yes | yes | yes | provider identity |
 | `ability.exchange.provider` | exchange | 1 | 1 | yes | yes | yes | yes | yes | yes | provider manifest |
-| `ability.exchange.provider.offer` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | offer |
+| `ability.exchange.provider_offer` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | offer |
 | `ability.exchange.provider.derived_manifest` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | derived manifest |
 | `ability.exchange.provider.derived_offer` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | derived offer |
 | `ability.exchange.provider.harness` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | provider harness |
 | `ability.exchange.provider.request_validation` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | provider request |
 | `ability.exchange.provider.response_authorization` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | provider outcome |
 | `ability.exchange.provider.journal_event` | provider_harness | 5 | 1 | yes | yes | yes | yes | yes | no | provider journal |
-| `ability.exchange.morphism.offer` | morphism | - | 1 | no | yes | yes | yes | yes | yes | morphism |
+| `ability.exchange.morphism_offer` | morphism | - | 1 | no | yes | yes | yes | yes | yes | morphism |
 | `ability.exchange.capability` | capability | 1 | 1 | yes | yes | yes | yes | yes | yes | capability |
-| `ability.exchange.capability.attenuation_path` | capability | - | 1 | no | yes | yes | yes | yes | yes | capability |
+| `ability.exchange.capability.path` | capability | - | 1 | no | yes | yes | yes | yes | yes | capability |
 | `ability.exchange.route` | capability | - | 1 | no | yes | yes | yes | yes | yes | route |
-| `ability.exchange.authorization` | capability | - | 1 | no | yes | yes | yes | yes | yes | authorization |
-| `ability.exchange.authorization_result` | linear_session | - | 1 | no | yes | yes | yes | yes | yes | authorization |
+| `ability.exchange.authorization` | capability | 1 | 1 | yes | yes | yes | yes | yes | yes | authorization |
+| `ability.exchange.authorization.result` | linear_session | - | 1 | no | yes | yes | yes | yes | yes | authorization |
 | `ability.exchange.effect_session` | linear_session | 1 | 1 | yes | yes | yes | yes | no | yes | linear |
 | `ability.exchange.capability_instance` | linear_session | 1 | 1 | yes | yes | yes | yes | yes | yes | linear |
 | `ability.exchange.obligation` | linear_session | 1 | 1 | yes | yes | yes | yes | yes | yes | obligation |
 | `ability.exchange.obligation.transition` | linear_session | - | 1 | no | yes | yes | yes | yes | yes | obligation |
-| `ability.exchange.treaty` | treaty | 1 | 2 | no | yes | yes | yes | yes | yes | treaty |
-| `ability.exchange.treaty.certificate` | treaty | 1 | 2 | no | yes | yes | yes | yes | yes | certificate |
-| `ability.exchange.treaty.authorization` | treaty | - | 3 | no | yes | yes | yes | yes | yes | authorization |
+| `ability.exchange.treaty` | treaty | 1 | 3 | no | yes | yes | yes | yes | yes | treaty |
+| `ability.exchange.treaty.certificate` | treaty | 1 | 3 | no | yes | yes | yes | yes | yes | certificate |
+| `ability.exchange.treaty.authorization` | treaty | 4 | 4 | yes | yes | yes | yes | yes | yes | authorization |
+| `ability.exchange.treaty.authorization.v3` | treaty | 3 | 3 | yes | yes | yes | yes | yes | yes | legacy authorization |
+| `ability.exchange.treaty.authorization.v2` | treaty | 2 | 2 | yes | yes | yes | yes | yes | yes | legacy authorization |
 | `ability.exchange.treaty.resolver` | treaty | - | 1 | no | yes | yes | yes | yes | yes | resolver |
-| `ability.program.reinterpretation` | morphism | - | 2 | no | yes | yes | yes | yes | yes | reinterpretation |
+| `ability.session.reinterpret` | morphism | - | 2 | no | yes | yes | yes | yes | yes | reinterpretation |
 | `ability.program.residualization` | residualization | - | 1 | no | yes | yes | yes | no | yes | residual |
 | `ability.program.residualization.report` | residualization | - | 1 | no | yes | yes | yes | no | yes | residual |
 | `ability.program.pipeline` | pipeline | - | 1 | no | yes | yes | yes | no | yes | pipeline |

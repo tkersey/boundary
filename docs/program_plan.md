@@ -745,12 +745,13 @@ requires least authority, validates usage/replay/branch/response-use/capsule
 constraints, and returns a treaty, no treaty, ambiguity, or structured blockers.
 It performs no IO, transport, scheduling, provider calls, or cancellation.
 
-The treaty certificate binds the request, provider, offer, capability,
-attenuated capability path, route, optional morphism or pipeline, usage mode,
-response-use policy, replay policy, branch policy, expected response refs and
-kinds, obligation metadata, and journal policy. Treaty-bound response
-authorization validates the returned response against that certificate while
-keeping existing response envelope bytes and fingerprints stable.
+The treaty and treaty certificate bind the request envelope fingerprint and
+request envelope format, provider, offer, capability, attenuated capability path,
+route, optional morphism or pipeline, usage mode, response-use policy, replay
+policy, branch policy, expected response refs and kinds, obligation metadata,
+and journal policy. Treaty-bound response authorization validates the returned
+response against that certificate while keeping existing response envelope bytes
+and fingerprints stable.
 
 `MailboxRunner` treaty mode resolves before outbox write, sends the request
 envelope with the selected certificate, journals treaty request/selection,
@@ -1163,8 +1164,8 @@ boundary and non-goals.
 Each concrete `Program` exposes `Program.Evidence`, the shared substrate for
 Ability's proof machinery. Evidence domains centralize the format and
 fingerprint versions used by ProgramPlan hashes, session trace/request/response
-fingerprints, capsule images, journals, exchange envelopes, provider manifests,
-provider offers, capabilities, routes, authorizations, linear obligations,
+fingerprints, capsule images, journals, exchange envelopes, provider identities,
+provider manifests, provider offers, capabilities, routes, authorizations, linear obligations,
 treaties, ProviderHarness metadata, morphisms, residualization, and pipelines.
 
 Format versions govern encoded bytes. Fingerprint versions govern canonical

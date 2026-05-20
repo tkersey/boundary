@@ -32,6 +32,7 @@ pub const Domain = struct {
         exchange_manifest,
         exchange_request_envelope,
         exchange_response_envelope,
+        provider_identity,
         provider_manifest,
         provider_offer,
         derived_provider_manifest,
@@ -53,6 +54,8 @@ pub const Domain = struct {
         treaty,
         treaty_certificate,
         treaty_authorization,
+        treaty_authorization_legacy_v3,
+        treaty_authorization_legacy_v2,
         treaty_resolver,
         reinterpretation,
         residualization,
@@ -105,36 +108,39 @@ pub const domains = struct {
     pub const session_response = Domain{ .id = .session_response, .name = "ability.session.response", .fingerprint_version = 2, .owner = .session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "response" };
     pub const session_continuation = Domain{ .id = .session_continuation, .name = "ability.session.continuation", .fingerprint_version = 2, .owner = .session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "continuation" };
     pub const capsule = Domain{ .id = .capsule, .name = "ability.session.capsule", .fingerprint_version = 2, .owner = .capsule, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "capsule" };
-    pub const capsule_image = Domain{ .id = .capsule_image, .name = "ability.session.capsule.image", .format_version = 1, .fingerprint_version = 1, .owner = .capsule, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "capsule image" };
-    pub const journal = Domain{ .id = .journal, .name = "ability.session.journal", .format_version = 5, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .tests = "journal" };
-    pub const journal_legacy_v4 = Domain{ .id = .journal_legacy_v4, .name = "ability.session.journal.v4", .format_version = 4, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .tests = "legacy journal" };
+    pub const capsule_image = Domain{ .id = .capsule_image, .name = "ability.program.capsule.image", .format_version = 1, .fingerprint_version = 1, .owner = .capsule, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "capsule image" };
+    pub const journal = Domain{ .id = .journal, .name = "ability.program.session.journal", .format_version = 5, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .tests = "journal" };
+    pub const journal_legacy_v4 = Domain{ .id = .journal_legacy_v4, .name = "ability.program.session.journal.v4", .format_version = 4, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .tests = "legacy journal" };
     pub const journal_entry = Domain{ .id = .journal_entry, .name = "ability.session.journal.entry", .format_version = 5, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .tests = "journal entry" };
     pub const exchange_manifest = Domain{ .id = .exchange_manifest, .name = "ability.exchange.manifest", .format_version = 1, .fingerprint_version = 1, .owner = .exchange, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "exchange manifest" };
     pub const exchange_request_envelope = Domain{ .id = .exchange_request_envelope, .name = "ability.exchange.request", .format_version = 3, .fingerprint_version = 3, .owner = .exchange, .kind = .envelope, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "exchange request" };
     pub const exchange_response_envelope = Domain{ .id = .exchange_response_envelope, .name = "ability.exchange.response", .format_version = 1, .fingerprint_version = 1, .owner = .exchange, .kind = .envelope, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "exchange response" };
+    pub const provider_identity = Domain{ .id = .provider_identity, .name = "ability.exchange.provider.identity", .fingerprint_version = 1, .owner = .exchange, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "provider identity" };
     pub const provider_manifest = Domain{ .id = .provider_manifest, .name = "ability.exchange.provider", .format_version = 1, .fingerprint_version = 1, .owner = .exchange, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "provider manifest" };
-    pub const provider_offer = Domain{ .id = .provider_offer, .name = "ability.exchange.provider.offer", .format_version = 1, .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "provider offer" };
+    pub const provider_offer = Domain{ .id = .provider_offer, .name = "ability.exchange.provider_offer", .format_version = 1, .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "provider offer" };
     pub const derived_provider_manifest = Domain{ .id = .derived_provider_manifest, .name = "ability.exchange.provider.derived_manifest", .format_version = 1, .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "derived provider manifest" };
     pub const derived_provider_offer = Domain{ .id = .derived_provider_offer, .name = "ability.exchange.provider.derived_offer", .format_version = 1, .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "derived offer" };
     pub const provider_harness = Domain{ .id = .provider_harness, .name = "ability.exchange.provider.harness", .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "provider harness" };
     pub const provider_request_validation = Domain{ .id = .provider_request_validation, .name = "ability.exchange.provider.request_validation", .fingerprint_version = 1, .owner = .provider_harness, .kind = .report, .journal_referenced = true, .certificate_referenced = true, .tests = "provider request" };
     pub const provider_response_authorization = Domain{ .id = .provider_response_authorization, .name = "ability.exchange.provider.response_authorization", .fingerprint_version = 1, .owner = .provider_harness, .kind = .authorization, .journal_referenced = true, .certificate_referenced = true, .tests = "provider outcome" };
     pub const provider_journal_event = Domain{ .id = .provider_journal_event, .name = "ability.exchange.provider.journal_event", .format_version = 5, .fingerprint_version = 1, .owner = .provider_harness, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .tests = "provider journal" };
-    pub const morphism_offer = Domain{ .id = .morphism_offer, .name = "ability.exchange.morphism.offer", .fingerprint_version = 1, .owner = .morphism, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "morphism offer" };
+    pub const morphism_offer = Domain{ .id = .morphism_offer, .name = "ability.exchange.morphism_offer", .fingerprint_version = 1, .owner = .morphism, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "morphism offer" };
     pub const capability = Domain{ .id = .capability, .name = "ability.exchange.capability", .format_version = 1, .fingerprint_version = 1, .owner = .capability, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "capability" };
-    pub const capability_attenuation_path = Domain{ .id = .capability_attenuation_path, .name = "ability.exchange.capability.attenuation_path", .fingerprint_version = 1, .owner = .capability, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "capability attenuation" };
+    pub const capability_attenuation_path = Domain{ .id = .capability_attenuation_path, .name = "ability.exchange.capability.path", .fingerprint_version = 1, .owner = .capability, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "capability attenuation" };
     pub const route = Domain{ .id = .route, .name = "ability.exchange.route", .fingerprint_version = 1, .owner = .capability, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "route" };
-    pub const authorization = Domain{ .id = .authorization, .name = "ability.exchange.authorization", .fingerprint_version = 1, .owner = .capability, .kind = .authorization, .journal_referenced = true, .certificate_referenced = true, .tests = "authorization" };
-    pub const authorization_result = Domain{ .id = .authorization_result, .name = "ability.exchange.authorization_result", .fingerprint_version = 1, .owner = .linear_session, .kind = .authorization, .journal_referenced = true, .certificate_referenced = true, .tests = "authorization" };
+    pub const authorization = Domain{ .id = .authorization, .name = "ability.exchange.authorization", .format_version = 1, .fingerprint_version = 1, .owner = .capability, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "authorization" };
+    pub const authorization_result = Domain{ .id = .authorization_result, .name = "ability.exchange.authorization.result", .fingerprint_version = 1, .owner = .linear_session, .kind = .authorization, .journal_referenced = true, .certificate_referenced = true, .tests = "authorization" };
     pub const effect_session_spec = Domain{ .id = .effect_session_spec, .name = "ability.exchange.effect_session", .format_version = 1, .fingerprint_version = 1, .owner = .linear_session, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "linear" };
     pub const capability_instance = Domain{ .id = .capability_instance, .name = "ability.exchange.capability_instance", .format_version = 1, .fingerprint_version = 1, .owner = .linear_session, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "capability instance" };
     pub const obligation = Domain{ .id = .obligation, .name = "ability.exchange.obligation", .format_version = 1, .fingerprint_version = 1, .owner = .linear_session, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "obligation" };
     pub const obligation_transition = Domain{ .id = .obligation_transition, .name = "ability.exchange.obligation.transition", .fingerprint_version = 1, .owner = .linear_session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "obligation transition" };
-    pub const treaty = Domain{ .id = .treaty, .name = "ability.exchange.treaty", .format_version = 1, .fingerprint_version = 2, .owner = .treaty, .kind = .certificate, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "treaty" };
-    pub const treaty_certificate = Domain{ .id = .treaty_certificate, .name = "ability.exchange.treaty.certificate", .format_version = 1, .fingerprint_version = 2, .owner = .treaty, .kind = .certificate, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "certificate" };
-    pub const treaty_authorization = Domain{ .id = .treaty_authorization, .name = "ability.exchange.treaty.authorization", .fingerprint_version = 3, .owner = .treaty, .kind = .authorization, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "authorization" };
+    pub const treaty = Domain{ .id = .treaty, .name = "ability.exchange.treaty", .format_version = 1, .fingerprint_version = 3, .owner = .treaty, .kind = .certificate, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "treaty" };
+    pub const treaty_certificate = Domain{ .id = .treaty_certificate, .name = "ability.exchange.treaty.certificate", .format_version = 1, .fingerprint_version = 3, .owner = .treaty, .kind = .certificate, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "certificate" };
+    pub const treaty_authorization = Domain{ .id = .treaty_authorization, .name = "ability.exchange.treaty.authorization", .format_version = 4, .fingerprint_version = 4, .owner = .treaty, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "authorization" };
+    pub const treaty_authorization_legacy_v3 = Domain{ .id = .treaty_authorization_legacy_v3, .name = "ability.exchange.treaty.authorization.v3", .format_version = 3, .fingerprint_version = 3, .owner = .treaty, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "legacy authorization" };
+    pub const treaty_authorization_legacy_v2 = Domain{ .id = .treaty_authorization_legacy_v2, .name = "ability.exchange.treaty.authorization.v2", .format_version = 2, .fingerprint_version = 2, .owner = .treaty, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "legacy authorization" };
     pub const treaty_resolver = Domain{ .id = .treaty_resolver, .name = "ability.exchange.treaty.resolver", .fingerprint_version = 1, .owner = .treaty, .kind = .report, .journal_referenced = true, .certificate_referenced = true, .tests = "resolver" };
-    pub const reinterpretation = Domain{ .id = .reinterpretation, .name = "ability.program.reinterpretation", .fingerprint_version = 2, .owner = .morphism, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "reinterpretation" };
+    pub const reinterpretation = Domain{ .id = .reinterpretation, .name = "ability.session.reinterpret", .fingerprint_version = 2, .owner = .morphism, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "reinterpretation" };
     pub const residualization = Domain{ .id = .residualization, .name = "ability.program.residualization", .fingerprint_version = 1, .owner = .residualization, .kind = .fingerprint, .certificate_referenced = true, .tests = "residual" };
     pub const residualization_report = Domain{ .id = .residualization_report, .name = "ability.program.residualization.report", .fingerprint_version = 1, .owner = .residualization, .kind = .report, .certificate_referenced = true, .tests = "residual" };
     pub const pipeline = Domain{ .id = .pipeline, .name = "ability.program.pipeline", .fingerprint_version = 1, .owner = .pipeline, .kind = .fingerprint, .certificate_referenced = true, .tests = "pipeline" };
@@ -156,6 +162,7 @@ pub const all_domains = &[_]Domain{
     domains.exchange_manifest,
     domains.exchange_request_envelope,
     domains.exchange_response_envelope,
+    domains.provider_identity,
     domains.provider_manifest,
     domains.provider_offer,
     domains.derived_provider_manifest,
@@ -177,6 +184,8 @@ pub const all_domains = &[_]Domain{
     domains.treaty,
     domains.treaty_certificate,
     domains.treaty_authorization,
+    domains.treaty_authorization_legacy_v3,
+    domains.treaty_authorization_legacy_v2,
     domains.treaty_resolver,
     domains.reinterpretation,
     domains.residualization,
@@ -280,6 +289,10 @@ pub fn refForProviderManifest(manifest: anytype) Ref {
     return refFor(domains.provider_manifest, manifest.fingerprint, .{ .label = optionalLabel(manifest, "label") });
 }
 
+pub fn refForProviderIdentity(fingerprint: u64) Ref {
+    return refFor(domains.provider_identity, fingerprint, .{});
+}
+
 pub fn refForProviderOffer(offer: anytype) Ref {
     return refFor(domains.provider_offer, offer.fingerprint, .{
         .format_version = if (comptime @hasField(@TypeOf(offer), "format_version")) offer.format_version else domains.provider_offer.format_version,
@@ -339,7 +352,14 @@ pub fn refForTreatyCertificate(certificate: anytype) Ref {
 }
 
 pub fn refForTreatyAuthorization(authorization: anytype) Ref {
-    return refFor(domains.treaty_authorization, authorization.authorization_fingerprint, .{});
+    const format_version = if (comptime @hasField(@TypeOf(authorization), "format_version")) authorization.format_version else domains.treaty_authorization.format_version.?;
+    const domain = if (format_version == domains.treaty_authorization_legacy_v2.format_version.?)
+        domains.treaty_authorization_legacy_v2
+    else if (format_version == domains.treaty_authorization_legacy_v3.format_version.?)
+        domains.treaty_authorization_legacy_v3
+    else
+        domains.treaty_authorization;
+    return refFor(domain, authorization.authorization_fingerprint, .{ .format_version = format_version });
 }
 
 pub fn refForJournalEntry(entry_fingerprint: u64, site_index: ?usize, kind_tag: ?[]const u8) Ref {
@@ -355,13 +375,118 @@ pub fn refForResidualizationReport(comptime ReportType: type) Ref {
 }
 
 pub fn fingerprintProviderHarness(comptime Harness: type) u64 {
+    @setEvalBranchQuota(10_000);
     var builder = FingerprintBuilder.init(domains.provider_harness);
     if (comptime @hasDecl(Harness, "provider_label_text")) builder.fieldBytes("provider.label", Harness.provider_label_text);
     if (comptime @hasDecl(Harness, "provider_fingerprint")) builder.fieldU64("provider.fingerprint", Harness.provider_fingerprint);
     if (comptime @hasDecl(Harness, "offer_count")) builder.fieldUsize("offer.count", Harness.offer_count);
     if (comptime @hasDecl(Harness, "handled_operation_site_count")) builder.fieldUsize("operation.count", Harness.handled_operation_site_count);
     if (comptime @hasDecl(Harness, "handled_after_site_count")) builder.fieldUsize("after.count", Harness.handled_after_site_count);
+    if (comptime @hasDecl(Harness, "supported_operation_sites")) {
+        for (Harness.supported_operation_sites) |site_index| builder.fieldUsize("operation.site", site_index);
+    }
+    if (comptime @hasDecl(Harness, "supported_after_sites")) {
+        for (Harness.supported_after_sites) |site_index| builder.fieldUsize("after.site", site_index);
+    }
+    if (comptime @hasDecl(Harness, "supported_protocol_labels")) {
+        for (Harness.supported_protocol_labels) |protocol_label| builder.fieldBytes("protocol.label", protocol_label);
+    }
+    if (comptime @hasDecl(Harness, "supported_protocol_op_fingerprints")) {
+        for (Harness.supported_protocol_op_fingerprints) |fingerprint| builder.fieldU64("protocol.op", fingerprint);
+    }
+    fingerprintProviderHarnessManifestOptions(&builder, Harness);
+    if (comptime @hasDecl(Harness, "declarations")) {
+        inline for (Harness.declarations) |Entry| fingerprintProviderHarnessDeclaration(&builder, Entry);
+    }
     return builder.finish();
+}
+
+fn fingerprintProviderHarnessManifestOptions(builder: *FingerprintBuilder, comptime Harness: type) void {
+    if (comptime @hasDecl(Harness, "manifest_allowed_response_kinds")) {
+        fingerprintResponseKindSet(builder, "manifest.response_kinds", Harness.manifest_allowed_response_kinds);
+    }
+    if (comptime @hasDecl(Harness, "manifest_max_request_envelope_bytes")) {
+        builder.fieldUsize("manifest.max_request", Harness.manifest_max_request_envelope_bytes);
+    }
+    if (comptime @hasDecl(Harness, "manifest_max_response_envelope_bytes")) {
+        builder.fieldUsize("manifest.max_response", Harness.manifest_max_response_envelope_bytes);
+    }
+    if (comptime @hasDecl(Harness, "manifest_accepts_embedded_capsules")) {
+        builder.fieldBool("manifest.accepts_embedded_capsules", Harness.manifest_accepts_embedded_capsules);
+    }
+    if (comptime @hasDecl(Harness, "manifest_accepts_capsule_restore")) {
+        builder.fieldBool("manifest.accepts_capsule_restore", Harness.manifest_accepts_capsule_restore);
+    }
+    if (comptime @hasDecl(Harness, "manifest_semantic_tags")) {
+        for (Harness.manifest_semantic_tags) |tag| builder.fieldBytes("manifest.semantic_tag", tag);
+    }
+    if (comptime @hasDecl(Harness, "manifest_metadata")) {
+        builder.fieldBytes("manifest.metadata", Harness.manifest_metadata);
+    }
+}
+
+fn fingerprintProviderHarnessDeclaration(builder: *FingerprintBuilder, comptime Entry: type) void {
+    builder.fieldBytes("declaration.kind", @tagName(Entry.kind));
+    if (comptime @hasDecl(Entry, "Site")) {
+        const Site = Entry.Site;
+        if (comptime @hasDecl(Site, "index")) builder.fieldUsize("declaration.site.index", Site.index);
+        if (comptime @hasDecl(Site, "fingerprint")) builder.fieldU64("declaration.site.fingerprint", Site.fingerprint);
+        if (comptime @hasDecl(Site, "source_operation_site_fingerprint")) builder.fieldU64("declaration.site.source", Site.source_operation_site_fingerprint);
+        if (comptime @hasDecl(Site, "requirement_label")) builder.fieldBytes("declaration.site.requirement", Site.requirement_label);
+        if (comptime @hasDecl(Site, "original_requirement_label")) builder.fieldBytes("declaration.site.original_requirement", Site.original_requirement_label);
+        if (comptime @hasDecl(Site, "op_name")) builder.fieldBytes("declaration.site.op", Site.op_name);
+        if (comptime @hasDecl(Site, "original_op_name")) builder.fieldBytes("declaration.site.original_op", Site.original_op_name);
+    }
+    if (comptime @hasDecl(Entry, "offer_options")) fingerprintProviderHarnessOfferOptions(builder, Entry.offer_options);
+}
+
+fn fingerprintProviderHarnessOfferOptions(builder: *FingerprintBuilder, comptime options: anytype) void {
+    builder.fieldOptionalBytes("offer.label", options.label);
+    builder.fieldOptionalBytes("offer.protocol_label", options.protocol_label);
+    builder.fieldOptionalU64("offer.protocol_op", options.protocol_op_fingerprint);
+    builder.fieldBool("offer.response_kinds.present", options.allowed_response_kinds != null);
+    if (options.allowed_response_kinds) |kinds| fingerprintResponseKindSet(builder, "offer.response_kinds", kinds);
+    fingerprintUsageSet(builder, "offer.usage", options.supported_usage_modes);
+    fingerprintResponseUseSet(builder, "offer.response_use", options.supported_response_uses);
+    fingerprintResponseUseSet(builder, "offer.replay", options.supported_replay_policies);
+    fingerprintBranchPolicySet(builder, "offer.branch", options.supported_branch_policies);
+    builder.fieldBytes("offer.capsule_policy", @tagName(options.capsule_policy));
+    builder.fieldBool("offer.opens_obligation", options.opens_obligation);
+    builder.fieldUsize("offer.max_request", options.max_request_bytes);
+    builder.fieldUsize("offer.max_response", options.max_response_bytes);
+    builder.fieldUsize("offer.max_capsule", options.max_capsule_bytes);
+    for (options.tags) |tag| builder.fieldBytes("offer.tag", tag);
+    builder.fieldBytes("offer.metadata", options.metadata);
+}
+
+fn fingerprintResponseKindSet(builder: *FingerprintBuilder, comptime prefix: []const u8, set: anytype) void {
+    builder.fieldBool(prefix ++ ".resume", set.@"resume");
+    builder.fieldBool(prefix ++ ".return_now", set.return_now);
+    builder.fieldBool(prefix ++ ".resume_after", set.resume_after);
+}
+
+fn fingerprintUsageSet(builder: *FingerprintBuilder, comptime prefix: []const u8, set: anytype) void {
+    builder.fieldBool(prefix ++ ".copyable", set.copyable);
+    builder.fieldBool(prefix ++ ".replayable", set.replayable);
+    builder.fieldBool(prefix ++ ".affine", set.affine);
+    builder.fieldBool(prefix ++ ".linear", set.linear);
+    builder.fieldBool(prefix ++ ".ephemeral", set.ephemeral);
+}
+
+fn fingerprintResponseUseSet(builder: *FingerprintBuilder, comptime prefix: []const u8, set: anytype) void {
+    builder.fieldBool(prefix ++ ".fresh", set.fresh);
+    builder.fieldBool(prefix ++ ".replayed", set.replayed);
+    builder.fieldBool(prefix ++ ".deterministic_replay", set.deterministic_replay);
+    builder.fieldBool(prefix ++ ".override", set.override);
+}
+
+fn fingerprintBranchPolicySet(builder: *FingerprintBuilder, comptime prefix: []const u8, set: anytype) void {
+    builder.fieldBool(prefix ++ ".unrestricted", set.unrestricted);
+    builder.fieldBool(prefix ++ ".replay_only", set.replay_only);
+    builder.fieldBool(prefix ++ ".single_live_branch", set.single_live_branch);
+    builder.fieldBool(prefix ++ ".split_required", set.split_required);
+    builder.fieldBool(prefix ++ ".no_branch", set.no_branch);
+    builder.fieldBool(prefix ++ ".host_owned", set.host_owned);
 }
 
 pub const Role = enum {
@@ -592,8 +717,13 @@ pub const Blocker = struct {
     subject: ?Ref = null,
     primary: ?Ref = null,
     related_refs: []const Ref = &.{},
+    related_ref_storage: [6]Ref = undefined,
+    related_ref_count: usize = 0,
     branch_id: ?u64 = null,
     site_index: ?usize = null,
+    source_site_fingerprint: ?u64 = null,
+    target_protocol_op_fingerprint: ?u64 = null,
+    morphism_fingerprint: ?u64 = null,
     response_kind: ?[]const u8 = null,
     usage_mode: ?[]const u8 = null,
     short_code: []const u8 = "",
@@ -604,15 +734,23 @@ pub const Blocker = struct {
         return self.tag.len != 0 and self.summary.len != 0 and self.short_code.len != 0;
     }
 
+    pub fn relatedRefs(self: *const @This()) []const Ref {
+        if (self.related_refs.len != 0) return self.related_refs;
+        return self.related_ref_storage[0..self.related_ref_count];
+    }
+
     pub fn fingerprint(self: @This()) u64 {
         var builder = FingerprintBuilder.init(domainById(self.domain) orelse domains.exchange_manifest);
         builder.fieldBytes("tag", self.tag);
         builder.fieldBytes("severity", @tagName(self.severity));
         builder.fieldOptionalRef("subject", self.subject);
         builder.fieldOptionalRef("primary", self.primary);
-        for (self.related_refs) |related| builder.fieldRef("related", related);
+        for (self.relatedRefs()) |related| builder.fieldRef("related", related);
         builder.fieldOptionalU64("branch", self.branch_id);
         builder.fieldOptionalU64("site", if (self.site_index) |site| @as(u64, @intCast(site)) else null);
+        builder.fieldOptionalU64("source_site_fingerprint", self.source_site_fingerprint);
+        builder.fieldOptionalU64("target_protocol_op_fingerprint", self.target_protocol_op_fingerprint);
+        builder.fieldOptionalU64("morphism_fingerprint", self.morphism_fingerprint);
         builder.fieldOptionalBytes("response", self.response_kind);
         builder.fieldOptionalBytes("usage", self.usage_mode);
         builder.fieldBytes("code", self.short_code);
@@ -630,16 +768,30 @@ pub const Report = struct {
     warnings: []const Blocker = &.{},
     success: bool,
     report_fingerprint: u64,
+    truncated: bool = false,
+    omitted_fingerprint: ?u64 = null,
     policy_fingerprint: ?u64 = null,
     summary: ?[]const u8 = null,
 
     pub fn ok(subject: Ref, report_domain: Domain.Id, dependencies: []const Dependency) @This() {
-        const fingerprint = computeReportFingerprint(subject, report_domain, dependencies, &.{}, &.{}, true, null, null);
+        const fingerprint = computeReportFingerprint(subject, report_domain, dependencies, &.{}, &.{}, true, false, null, null, null);
         return .{ .subject = subject, .report_domain = report_domain, .dependencies = dependencies, .success = true, .report_fingerprint = fingerprint };
     }
 
     pub fn withBlockers(subject: Ref, report_domain: Domain.Id, dependencies: []const Dependency, blockers: []const Blocker, warnings: []const Blocker, policy_fingerprint: ?u64, summary: ?[]const u8) @This() {
         const success = !hasErrorBlockers(blockers);
+        return withStatus(subject, report_domain, dependencies, blockers, warnings, success, false, null, policy_fingerprint, summary);
+    }
+
+    pub fn withFailure(subject: Ref, report_domain: Domain.Id, dependencies: []const Dependency, blockers: []const Blocker, warnings: []const Blocker, policy_fingerprint: ?u64, summary: ?[]const u8) @This() {
+        return withStatus(subject, report_domain, dependencies, blockers, warnings, false, false, null, policy_fingerprint, summary);
+    }
+
+    pub fn withIncompleteFailure(subject: Ref, report_domain: Domain.Id, dependencies: []const Dependency, blockers: []const Blocker, warnings: []const Blocker, omitted_fingerprint: u64, policy_fingerprint: ?u64, summary: ?[]const u8) @This() {
+        return withStatus(subject, report_domain, dependencies, blockers, warnings, false, true, omitted_fingerprint, policy_fingerprint, summary);
+    }
+
+    fn withStatus(subject: Ref, report_domain: Domain.Id, dependencies: []const Dependency, blockers: []const Blocker, warnings: []const Blocker, success: bool, truncated: bool, omitted_fingerprint: ?u64, policy_fingerprint: ?u64, summary: ?[]const u8) @This() {
         return .{
             .subject = subject,
             .report_domain = report_domain,
@@ -647,14 +799,16 @@ pub const Report = struct {
             .blockers = blockers,
             .warnings = warnings,
             .success = success,
-            .report_fingerprint = computeReportFingerprint(subject, report_domain, dependencies, blockers, warnings, success, policy_fingerprint, summary),
+            .report_fingerprint = computeReportFingerprint(subject, report_domain, dependencies, blockers, warnings, success, truncated, omitted_fingerprint, policy_fingerprint, summary),
+            .truncated = truncated,
+            .omitted_fingerprint = omitted_fingerprint,
             .policy_fingerprint = policy_fingerprint,
             .summary = summary,
         };
     }
 
     pub fn hasErrors(self: @This()) bool {
-        return hasErrorBlockers(self.blockers);
+        return !self.success or self.truncated or hasErrorBlockers(self.blockers);
     }
 
     pub fn assertOk(self: @This()) error{EvidenceReportHasErrors}!void {
@@ -738,17 +892,26 @@ pub fn certificateViewForTreatyCertificate(certificate: anytype) CertificateView
 pub fn certificateViewForTreatyCertificateWithDependencies(storage: ?*[6]Dependency, certificate: anytype) CertificateView {
     const certificate_ref = refForTreatyCertificate(certificate);
     const treaty_ref = refFor(domains.treaty, certificate.treaty_fingerprint, .{});
-    const subject = refFor(domains.exchange_request_envelope, certificate.request_envelope_fingerprint, .{});
+    const subject = refFor(domains.exchange_request_envelope, certificate.request_envelope_fingerprint, .{
+        .format_version = requestEnvelopeFormatVersion(certificate),
+    });
     const dependencies = if (storage) |out| blk: {
-        out.* = .{
-            .{ .role = .subject, .ref = subject },
-            .{ .role = .treaty, .ref = treaty_ref },
-            .{ .role = .provider, .ref = refFor(domains.provider_manifest, certificate.provider_fingerprint, .{}) },
-            .{ .role = .offer, .ref = refFor(domains.provider_offer, certificate.provider_offer_fingerprint, .{}) },
-            .{ .role = .capability, .ref = refFor(domains.capability, certificate.capability_fingerprint, .{}) },
-            .{ .role = .route, .ref = refFor(domains.route, certificate.route_fingerprint, .{}) },
-        };
-        break :blk out[0..];
+        var len: usize = 0;
+        out[len] = .{ .role = .subject, .ref = subject };
+        len += 1;
+        out[len] = .{ .role = .treaty, .ref = treaty_ref };
+        len += 1;
+        if (refForNonZeroField(certificate, "provider_fingerprint", domains.provider_identity)) |provider_identity_ref| {
+            out[len] = .{ .role = .provider, .ref = provider_identity_ref };
+            len += 1;
+        }
+        out[len] = .{ .role = .offer, .ref = refFor(domains.provider_offer, certificate.provider_offer_fingerprint, .{}) };
+        len += 1;
+        out[len] = .{ .role = .capability, .ref = refFor(domains.capability, certificate.capability_fingerprint, .{}) };
+        len += 1;
+        out[len] = .{ .role = .route, .ref = refFor(domains.route, certificate.route_fingerprint, .{}) };
+        len += 1;
+        break :blk out[0..len];
     } else &.{};
     return .{
         .certificate_ref = certificate_ref,
@@ -764,10 +927,10 @@ pub fn certificateViewForTreatyCertificateWithDependencies(storage: ?*[6]Depende
 pub fn authorizationViewForTreatyAuthorization(authorization: anytype) AuthorizationView {
     return .{
         .authorization_ref = refForTreatyAuthorization(authorization),
-        .request_ref = if (comptime @hasField(@TypeOf(authorization), "request_envelope_fingerprint")) refFor(domains.exchange_request_envelope, authorization.request_envelope_fingerprint, .{}) else null,
+        .request_ref = refForNonZeroFieldWithFormat(authorization, "request_envelope_fingerprint", domains.exchange_request_envelope, treatyAuthorizationRequestEnvelopeFormatVersion(authorization)),
         .response_ref = refFor(domains.exchange_response_envelope, authorization.response_envelope_fingerprint, .{}),
-        .provider_ref = if (comptime @hasField(@TypeOf(authorization), "provider_fingerprint")) refFor(domains.provider_manifest, authorization.provider_fingerprint, .{}) else null,
-        .capability_ref = if (comptime @hasField(@TypeOf(authorization), "capability_fingerprint")) refFor(domains.capability, authorization.capability_fingerprint, .{}) else null,
+        .provider_ref = refForNonZeroField(authorization, "provider_fingerprint", domains.provider_identity),
+        .capability_ref = refForNonZeroField(authorization, "capability_fingerprint", domains.capability),
         .route_ref = refFor(domains.route, authorization.route_fingerprint, .{}),
         .treaty_ref = refFor(domains.treaty, authorization.treaty_fingerprint, .{}),
         .obligation_ref = if (authorization.obligation_fingerprint) |fingerprint| refFor(domains.obligation, fingerprint, .{}) else null,
@@ -812,9 +975,85 @@ fn optionalUsizeField(value: anytype, comptime field_name: []const u8) ?usize {
     return null;
 }
 
+fn refForNonZeroField(value: anytype, comptime field_name: []const u8, domain: Domain) ?Ref {
+    if (comptime @hasField(@TypeOf(value), field_name)) {
+        const fingerprint = @field(value, field_name);
+        if (fingerprint != 0) return refFor(domain, fingerprint, .{});
+    }
+    return null;
+}
+
+fn refForNonZeroFieldWithFormat(value: anytype, comptime field_name: []const u8, domain: Domain, format_version: ?u32) ?Ref {
+    if (comptime @hasField(@TypeOf(value), field_name)) {
+        const fingerprint = @field(value, field_name);
+        if (fingerprint != 0) {
+            var ref = refFor(domain, fingerprint, .{ .format_version = format_version });
+            ref.format_version = format_version;
+            return ref;
+        }
+    }
+    return null;
+}
+
+fn requestEnvelopeFormatVersion(value: anytype) ?u32 {
+    if (comptime @hasField(@TypeOf(value), "request_envelope_format_version")) return value.request_envelope_format_version;
+    if (comptime @hasField(@TypeOf(value), "request_format_version")) return value.request_format_version;
+    return domains.exchange_request_envelope.format_version;
+}
+
+fn treatyAuthorizationRequestEnvelopeFormatVersion(authorization: anytype) ?u32 {
+    if (comptime @hasField(@TypeOf(authorization), "format_version")) {
+        if (authorization.format_version == 3) return null;
+    }
+    return requestEnvelopeFormatVersion(authorization);
+}
+
 fn optionalBytesEqual(left: ?[]const u8, right: ?[]const u8) bool {
     if (left == null or right == null) return left == null and right == null;
     return std.mem.eql(u8, left.?, right.?);
+}
+
+fn optionalU32LessThan(left: ?u32, right: ?u32) ?bool {
+    if (left == null or right == null) {
+        if (left == null and right == null) return null;
+        return left == null;
+    }
+    if (left.? != right.?) return left.? < right.?;
+    return null;
+}
+
+fn optionalU64LessThan(left: ?u64, right: ?u64) ?bool {
+    if (left == null or right == null) {
+        if (left == null and right == null) return null;
+        return left == null;
+    }
+    if (left.? != right.?) return left.? < right.?;
+    return null;
+}
+
+fn optionalUsizeLessThan(left: ?usize, right: ?usize) ?bool {
+    if (left == null or right == null) {
+        if (left == null and right == null) return null;
+        return left == null;
+    }
+    if (left.? != right.?) return left.? < right.?;
+    return null;
+}
+
+fn optionalBytesLessThan(left: ?[]const u8, right: ?[]const u8) ?bool {
+    if (left == null or right == null) {
+        if (left == null and right == null) return null;
+        return left == null;
+    }
+    return switch (std.mem.order(u8, left.?, right.?)) {
+        .lt => true,
+        .gt => false,
+        .eq => null,
+    };
+}
+
+fn dependencyEqual(left: Dependency, right: Dependency) bool {
+    return left.role == right.role and left.ref.eql(right.ref);
 }
 
 fn dependencyLessThan(_: void, left: Dependency, right: Dependency) bool {
@@ -825,15 +1064,46 @@ fn dependencyLessThan(_: void, left: Dependency, right: Dependency) bool {
     const right_domain = @intFromEnum(right.ref.domain_id);
     if (left_domain != right_domain) return left_domain < right_domain;
     if (left.ref.fingerprint != right.ref.fingerprint) return left.ref.fingerprint < right.ref.fingerprint;
+    if (optionalU32LessThan(left.ref.format_version, right.ref.format_version)) |less| return less;
+    if (optionalBytesLessThan(left.ref.label, right.ref.label)) |less| return less;
+    if (optionalU64LessThan(left.ref.branch_id, right.ref.branch_id)) |less| return less;
+    if (optionalUsizeLessThan(left.ref.site_index, right.ref.site_index)) |less| return less;
+    if (optionalBytesLessThan(left.ref.kind_tag, right.ref.kind_tag)) |less| return less;
     return false;
+}
+
+fn writeDependency(builder: *FingerprintBuilder, dependency: Dependency) void {
+    builder.fieldBytes("role", @tagName(dependency.role));
+    builder.fieldRef("ref", dependency.ref);
+}
+
+fn writeCanonicalDependencies(builder: *FingerprintBuilder, dependencies: []const Dependency) void {
+    var emitted: usize = 0;
+    var previous: ?Dependency = null;
+    while (emitted < dependencies.len) {
+        var candidate: ?Dependency = null;
+        candidate_loop: for (dependencies) |dependency| {
+            if (previous) |prev| {
+                if (!dependencyLessThan({}, prev, dependency)) continue :candidate_loop;
+            }
+            if (candidate == null or dependencyLessThan({}, dependency, candidate.?)) candidate = dependency;
+        }
+        const current = candidate orelse break;
+        var count: usize = 0;
+        for (dependencies) |dependency| {
+            if (dependencyEqual(dependency, current)) count += 1;
+        }
+        for (0..count) |_| writeDependency(builder, current);
+        emitted += count;
+        previous = current;
+    }
 }
 
 fn fingerprintSortedDependencies(dependencies: []const Dependency) u64 {
     var builder = FingerprintBuilder.init(domains.program_plan);
     builder.fieldBytes("kind", "dependency_graph");
     for (dependencies) |dependency| {
-        builder.fieldBytes("role", @tagName(dependency.role));
-        builder.fieldRef("ref", dependency.ref);
+        writeDependency(&builder, dependency);
     }
     return builder.finish();
 }
@@ -852,6 +1122,8 @@ fn computeReportFingerprint(
     blockers: []const Blocker,
     warnings: []const Blocker,
     success: bool,
+    truncated: bool,
+    omitted_fingerprint: ?u64,
     policy_fingerprint: ?u64,
     summary: ?[]const u8,
 ) u64 {
@@ -859,12 +1131,11 @@ fn computeReportFingerprint(
     var builder = FingerprintBuilder.init(domain);
     builder.fieldRef("subject", subject);
     builder.fieldBool("success", success);
-    for (dependencies) |dependency| {
-        builder.fieldBytes("dependency.role", @tagName(dependency.role));
-        builder.fieldRef("dependency.ref", dependency.ref);
-    }
+    builder.fieldBool("truncated", truncated);
+    writeCanonicalDependencies(&builder, dependencies);
     for (blockers) |blocker| builder.fieldU64("blocker", blocker.fingerprint());
     for (warnings) |warning| builder.fieldU64("warning", warning.fingerprint());
+    builder.fieldOptionalU64("omitted", omitted_fingerprint);
     builder.fieldOptionalU64("policy", policy_fingerprint);
     builder.fieldOptionalBytes("summary", summary);
     return builder.finish();
