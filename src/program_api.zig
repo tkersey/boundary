@@ -10566,8 +10566,8 @@ pub fn program(
                     },
                     else => blockers.addTag(.wrong_treaty, request.fingerprint, "unknown treaty authorization format"),
                 }
-                if (authorization.treaty_fingerprint != treaty.fingerprint) blockers.addTag(.wrong_treaty, request.fingerprint, "authorization cites a different treaty");
-                if (authorization.treaty_certificate_fingerprint != treaty.certificate.certificate_fingerprint) blockers.addTag(.wrong_certificate, request.fingerprint, "authorization cites a different treaty certificate");
+                if (!authorizationTreatyFingerprintMatches(authorization, treaty)) blockers.addTag(.wrong_treaty, request.fingerprint, "authorization cites a different treaty");
+                if (!authorizationCertificateFingerprintMatches(authorization, treaty.certificate)) blockers.addTag(.wrong_certificate, request.fingerprint, "authorization cites a different treaty certificate");
                 if (authorization.provider_offer_fingerprint != treaty.provider_offer_fingerprint) blockers.addTag(.wrong_provider, request.fingerprint, "authorization cites a different provider offer");
                 if (authorization.attenuated_capability_fingerprint != treaty.certificate.attenuated_capability_fingerprint) blockers.addTag(.wrong_capability, request.fingerprint, "authorization cites a different attenuated capability");
                 if (authorization.capability_instance_fingerprint != treaty.capability_instance_fingerprint) blockers.addTag(.capability_instance_wrong_branch, request.fingerprint, "authorization cites a different capability instance");
@@ -12623,6 +12623,48 @@ pub fn program(
                 return hasher.final();
             }
 
+            fn fingerprintTreatyCertificateV2(certificate: Treaty.Certificate) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.exchange.treaty.certificate");
+                hashU32(&hasher, 2);
+                hashU64(&hasher, certificate.treaty_fingerprint);
+                hashU64(&hasher, certificate.request_envelope_fingerprint);
+                hashU64(&hasher, certificate.request_fingerprint);
+                hashU64(&hasher, certificate.manifest_fingerprint);
+                hashU64(&hasher, certificate.provider_fingerprint);
+                hashU64(&hasher, certificate.provider_offer_fingerprint);
+                hashStringList(&hasher, certificate.provider_offer_tags);
+                hashU64(&hasher, certificate.capability_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.attenuated_capability_fingerprint);
+                hashU64(&hasher, certificate.capability_path_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.capability_instance_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.obligation_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.effect_session_spec_fingerprint);
+                hashU64(&hasher, certificate.route_fingerprint);
+                hashU64List(&hasher, certificate.morphism_offer_fingerprints);
+                hashU64List(&hasher, certificate.dynamic_morphism_fingerprints);
+                hashU64List(&hasher, certificate.residualization_fingerprints);
+                hashOptionalExchangeU64(&hasher, certificate.pipeline_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.source_protocol_op_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.target_protocol_op_fingerprint);
+                hashBytes(&hasher, @tagName(certificate.handling));
+                hashBytes(&hasher, @tagName(certificate.usage));
+                hashBytes(&hasher, @tagName(certificate.provider_usage));
+                hashBytes(&hasher, @tagName(certificate.response_use));
+                hashBytes(&hasher, @tagName(certificate.replay_policy));
+                hashBytes(&hasher, @tagName(certificate.branch_policy));
+                hashBool(&hasher, certificate.expected_response_kinds.@"resume");
+                hashBool(&hasher, certificate.expected_response_kinds.return_now);
+                hashBool(&hasher, certificate.expected_response_kinds.resume_after);
+                hashValueRefList(&hasher, certificate.expected_response_refs);
+                hashValueRefList(&hasher, certificate.provider_response_refs);
+                hashOptionalExchangeU64(&hasher, certificate.journal_policy_fingerprint);
+                hashBool(&hasher, certificate.require_treaty_bound_response_authorization);
+                for (certificate.blockers.blockers[0..certificate.blockers.count]) |blocker| hashBytes(&hasher, @tagName(blocker.tag));
+                hashBool(&hasher, certificate.blockers.saturated);
+                return hasher.final();
+            }
+
             fn fingerprintTreatyAuthorization(authorization: Treaty.Authorization) u64 {
                 var hasher = std.hash.Wyhash.init(0);
                 hashBytes(&hasher, "ability.exchange.treaty.authorization");
@@ -12696,6 +12738,22 @@ pub fn program(
                 hashOptionalExchangeU64(&hasher, authorization.replay_source_response_value_fingerprint);
                 hashOptionalExchangeU64(&hasher, authorization.expected_obligation_transition_fingerprint);
                 return hasher.final();
+            }
+
+            fn authorizationTreatyFingerprintMatches(authorization: Treaty.Authorization, treaty: Treaty) bool {
+                if (authorization.treaty_fingerprint == treaty.fingerprint) return true;
+                return switch (authorization.format_version) {
+                    2, 3 => authorization.treaty_fingerprint == fingerprintTreatyCoreV2(treaty),
+                    else => false,
+                };
+            }
+
+            fn authorizationCertificateFingerprintMatches(authorization: Treaty.Authorization, certificate: Treaty.Certificate) bool {
+                if (authorization.treaty_certificate_fingerprint == certificate.certificate_fingerprint) return true;
+                return switch (authorization.format_version) {
+                    2, 3 => authorization.treaty_certificate_fingerprint == fingerprintTreatyCertificateV2(certificate),
+                    else => false,
+                };
             }
 
             fn writeRequestKindSet(writer: *Writer, set: RequestKindSet) std.mem.Allocator.Error!void {
@@ -14472,6 +14530,44 @@ pub fn program(
                 hashU32(&hasher, exchange_treaty_fingerprint_version);
                 hashU64(&hasher, treaty.request_envelope_fingerprint);
                 hashU32(&hasher, treaty.request_envelope_format_version);
+                hashU64(&hasher, treaty.request_fingerprint);
+                hashU64(&hasher, treaty.manifest_fingerprint);
+                hashU64(&hasher, treaty.provider_fingerprint);
+                hashU64(&hasher, treaty.provider_offer_fingerprint);
+                hashStringList(&hasher, treaty.provider_offer_tags);
+                hashU64(&hasher, treaty.capability_fingerprint);
+                hashU64(&hasher, treaty.capability_path_fingerprint);
+                hashOptionalExchangeU64(&hasher, treaty.capability_instance_fingerprint);
+                hashOptionalExchangeU64(&hasher, treaty.obligation_fingerprint);
+                hashU64(&hasher, treaty.route.fingerprint);
+                hashBytes(&hasher, @tagName(treaty.handling));
+                hashU64List(&hasher, treaty.morphism_offer_fingerprints);
+                hashOptionalExchangeU64(&hasher, treaty.effect_session_spec_fingerprint);
+                hashU64List(&hasher, treaty.dynamic_morphism_fingerprints);
+                hashU64List(&hasher, treaty.residualization_fingerprints);
+                hashOptionalExchangeU64(&hasher, treaty.pipeline_fingerprint);
+                hashOptionalExchangeU64(&hasher, treaty.source_protocol_op_fingerprint);
+                hashOptionalExchangeU64(&hasher, treaty.target_protocol_op_fingerprint);
+                hashBytes(&hasher, @tagName(treaty.usage));
+                hashBytes(&hasher, @tagName(treaty.provider_usage));
+                hashBytes(&hasher, @tagName(treaty.response_use));
+                hashBytes(&hasher, @tagName(treaty.replay_policy));
+                hashBytes(&hasher, @tagName(treaty.branch_policy));
+                hashBool(&hasher, treaty.expected_response_kinds.@"resume");
+                hashBool(&hasher, treaty.expected_response_kinds.return_now);
+                hashBool(&hasher, treaty.expected_response_kinds.resume_after);
+                hashValueRefList(&hasher, treaty.expected_response_refs);
+                hashValueRefList(&hasher, treaty.provider_response_refs);
+                hashOptionalExchangeU64(&hasher, treaty.journal_policy_fingerprint);
+                hashBool(&hasher, treaty.require_treaty_bound_response_authorization);
+                return hasher.final();
+            }
+
+            fn fingerprintTreatyCoreV2(treaty: Treaty) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.exchange.treaty");
+                hashU32(&hasher, 2);
+                hashU64(&hasher, treaty.request_envelope_fingerprint);
                 hashU64(&hasher, treaty.request_fingerprint);
                 hashU64(&hasher, treaty.manifest_fingerprint);
                 hashU64(&hasher, treaty.provider_fingerprint);

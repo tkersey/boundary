@@ -66,6 +66,34 @@ fn testHashOptionalU64(hasher: *std.hash.Wyhash, value: ?u64) void {
     if (value) |actual| testHashU64(hasher, actual);
 }
 
+fn testHashBool(hasher: *std.hash.Wyhash, value: bool) void {
+    hasher.update(&[_]u8{@intFromBool(value)});
+}
+
+fn testHashU64List(hasher: *std.hash.Wyhash, values: []const u64) void {
+    testHashUsize(hasher, values.len);
+    for (values) |value| testHashU64(hasher, value);
+}
+
+fn testHashStringList(hasher: *std.hash.Wyhash, values: []const []const u8) void {
+    testHashUsize(hasher, values.len);
+    for (values) |value| testHashBytes(hasher, value);
+}
+
+fn testHashValueRef(hasher: *std.hash.Wyhash, ref: ability.ir.ValueRef) void {
+    testHashBytes(hasher, @tagName(ref.codec));
+    if (ref.schema_index) |schema_index| {
+        testHashU32(hasher, schema_index);
+    } else {
+        testHashBytes(hasher, "none");
+    }
+}
+
+fn testHashValueRefList(hasher: *std.hash.Wyhash, values: []const ability.ir.ValueRef) void {
+    testHashUsize(hasher, values.len);
+    for (values) |value| testHashValueRef(hasher, value);
+}
+
 fn testWriteU32(bytes: *std.ArrayList(u8), allocator: std.mem.Allocator, value: u32) !void {
     var buffer: [4]u8 = undefined;
     std.mem.writeInt(u32, &buffer, value, .little);
@@ -111,6 +139,86 @@ fn testBranchPolicyTag(comptime Program: type, value: Program.Exchange.BranchPol
         .no_branch => 4,
         .host_owned => 5,
     };
+}
+
+fn testTreatyCoreV2Fingerprint(comptime Program: type, treaty: Program.Exchange.Treaty) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    testHashBytes(&hasher, "ability.exchange.treaty");
+    testHashU32(&hasher, 2);
+    testHashU64(&hasher, treaty.request_envelope_fingerprint);
+    testHashU64(&hasher, treaty.request_fingerprint);
+    testHashU64(&hasher, treaty.manifest_fingerprint);
+    testHashU64(&hasher, treaty.provider_fingerprint);
+    testHashU64(&hasher, treaty.provider_offer_fingerprint);
+    testHashStringList(&hasher, treaty.provider_offer_tags);
+    testHashU64(&hasher, treaty.capability_fingerprint);
+    testHashU64(&hasher, treaty.capability_path_fingerprint);
+    testHashOptionalU64(&hasher, treaty.capability_instance_fingerprint);
+    testHashOptionalU64(&hasher, treaty.obligation_fingerprint);
+    testHashU64(&hasher, treaty.route.fingerprint);
+    testHashBytes(&hasher, @tagName(treaty.handling));
+    testHashU64List(&hasher, treaty.morphism_offer_fingerprints);
+    testHashOptionalU64(&hasher, treaty.effect_session_spec_fingerprint);
+    testHashU64List(&hasher, treaty.dynamic_morphism_fingerprints);
+    testHashU64List(&hasher, treaty.residualization_fingerprints);
+    testHashOptionalU64(&hasher, treaty.pipeline_fingerprint);
+    testHashOptionalU64(&hasher, treaty.source_protocol_op_fingerprint);
+    testHashOptionalU64(&hasher, treaty.target_protocol_op_fingerprint);
+    testHashBytes(&hasher, @tagName(treaty.usage));
+    testHashBytes(&hasher, @tagName(treaty.provider_usage));
+    testHashBytes(&hasher, @tagName(treaty.response_use));
+    testHashBytes(&hasher, @tagName(treaty.replay_policy));
+    testHashBytes(&hasher, @tagName(treaty.branch_policy));
+    testHashBool(&hasher, treaty.expected_response_kinds.@"resume");
+    testHashBool(&hasher, treaty.expected_response_kinds.return_now);
+    testHashBool(&hasher, treaty.expected_response_kinds.resume_after);
+    testHashValueRefList(&hasher, treaty.expected_response_refs);
+    testHashValueRefList(&hasher, treaty.provider_response_refs);
+    testHashOptionalU64(&hasher, treaty.journal_policy_fingerprint);
+    testHashBool(&hasher, treaty.require_treaty_bound_response_authorization);
+    return hasher.final();
+}
+
+fn testTreatyCertificateV2Fingerprint(comptime Program: type, certificate: Program.Exchange.Treaty.Certificate) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    testHashBytes(&hasher, "ability.exchange.treaty.certificate");
+    testHashU32(&hasher, 2);
+    testHashU64(&hasher, certificate.treaty_fingerprint);
+    testHashU64(&hasher, certificate.request_envelope_fingerprint);
+    testHashU64(&hasher, certificate.request_fingerprint);
+    testHashU64(&hasher, certificate.manifest_fingerprint);
+    testHashU64(&hasher, certificate.provider_fingerprint);
+    testHashU64(&hasher, certificate.provider_offer_fingerprint);
+    testHashStringList(&hasher, certificate.provider_offer_tags);
+    testHashU64(&hasher, certificate.capability_fingerprint);
+    testHashOptionalU64(&hasher, certificate.attenuated_capability_fingerprint);
+    testHashU64(&hasher, certificate.capability_path_fingerprint);
+    testHashOptionalU64(&hasher, certificate.capability_instance_fingerprint);
+    testHashOptionalU64(&hasher, certificate.obligation_fingerprint);
+    testHashOptionalU64(&hasher, certificate.effect_session_spec_fingerprint);
+    testHashU64(&hasher, certificate.route_fingerprint);
+    testHashU64List(&hasher, certificate.morphism_offer_fingerprints);
+    testHashU64List(&hasher, certificate.dynamic_morphism_fingerprints);
+    testHashU64List(&hasher, certificate.residualization_fingerprints);
+    testHashOptionalU64(&hasher, certificate.pipeline_fingerprint);
+    testHashOptionalU64(&hasher, certificate.source_protocol_op_fingerprint);
+    testHashOptionalU64(&hasher, certificate.target_protocol_op_fingerprint);
+    testHashBytes(&hasher, @tagName(certificate.handling));
+    testHashBytes(&hasher, @tagName(certificate.usage));
+    testHashBytes(&hasher, @tagName(certificate.provider_usage));
+    testHashBytes(&hasher, @tagName(certificate.response_use));
+    testHashBytes(&hasher, @tagName(certificate.replay_policy));
+    testHashBytes(&hasher, @tagName(certificate.branch_policy));
+    testHashBool(&hasher, certificate.expected_response_kinds.@"resume");
+    testHashBool(&hasher, certificate.expected_response_kinds.return_now);
+    testHashBool(&hasher, certificate.expected_response_kinds.resume_after);
+    testHashValueRefList(&hasher, certificate.expected_response_refs);
+    testHashValueRefList(&hasher, certificate.provider_response_refs);
+    testHashOptionalU64(&hasher, certificate.journal_policy_fingerprint);
+    testHashBool(&hasher, certificate.require_treaty_bound_response_authorization);
+    for (certificate.blockers.blockers[0..certificate.blockers.count]) |blocker| testHashBytes(&hasher, @tagName(blocker.tag));
+    testHashBool(&hasher, certificate.blockers.saturated);
+    return hasher.final();
 }
 
 fn testTreatyAuthorizationV2Fingerprint(comptime Program: type, authorization: Program.Exchange.Treaty.Authorization) u64 {
@@ -27615,6 +27723,38 @@ test "Program.Exchange treaty-bound response authorization accepts and rejects s
     var lossy_v3_authorization = decoded_legacy_format_authorization;
     lossy_v3_authorization.format_version = 3;
     try std.testing.expectError(error.ProgramContractViolation, lossy_v3_authorization.encode(std.testing.allocator));
+
+    const legacy_treaty_fingerprint = testTreatyCoreV2Fingerprint(Program, result.treaty.?);
+    const legacy_certificate_fingerprint = testTreatyCertificateV2Fingerprint(Program, result.treaty.?.certificate);
+    var legacy_current_v3_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 7));
+    defer legacy_current_v3_response.deinit();
+    try legacy_current_v3_response.authorizeTreaty(result.treaty.?, .fresh);
+    var legacy_current_v3_authorization = legacy_current_v3_response.treaty_authorization.?;
+    legacy_current_v3_authorization.format_version = 3;
+    legacy_current_v3_authorization.treaty_fingerprint = legacy_treaty_fingerprint;
+    legacy_current_v3_authorization.treaty_certificate_fingerprint = legacy_certificate_fingerprint;
+    legacy_current_v3_authorization.authorization_fingerprint = testTreatyAuthorizationV3Fingerprint(Program, legacy_current_v3_authorization);
+    const legacy_current_v3_bytes = try testEncodeTreatyAuthorizationV3(Program, std.testing.allocator, legacy_current_v3_authorization);
+    defer std.testing.allocator.free(legacy_current_v3_bytes);
+    legacy_current_v3_response.treaty_authorization = try Program.Exchange.Treaty.Authorization.decode(legacy_current_v3_bytes);
+    try std.testing.expect(Program.Exchange.validateTreatyResponse(result.treaty.?, envelope, legacy_current_v3_response).allowed());
+
+    var legacy_current_v2_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 7));
+    defer legacy_current_v2_response.deinit();
+    try legacy_current_v2_response.authorizeTreaty(result.treaty.?, .fresh);
+    var legacy_current_v2_authorization = legacy_current_v2_response.treaty_authorization.?;
+    legacy_current_v2_authorization.format_version = 2;
+    legacy_current_v2_authorization.treaty_fingerprint = legacy_treaty_fingerprint;
+    legacy_current_v2_authorization.treaty_certificate_fingerprint = legacy_certificate_fingerprint;
+    legacy_current_v2_authorization.provider_fingerprint = 0;
+    legacy_current_v2_authorization.capability_fingerprint = 0;
+    legacy_current_v2_authorization.capability_path_fingerprint = 0;
+    legacy_current_v2_authorization.request_envelope_fingerprint = 0;
+    legacy_current_v2_authorization.authorization_fingerprint = testTreatyAuthorizationV2Fingerprint(Program, legacy_current_v2_authorization);
+    const legacy_current_v2_bytes = try testEncodeTreatyAuthorizationV2(Program, std.testing.allocator, legacy_current_v2_authorization);
+    defer std.testing.allocator.free(legacy_current_v2_bytes);
+    legacy_current_v2_response.treaty_authorization = try Program.Exchange.Treaty.Authorization.decode(legacy_current_v2_bytes);
+    try std.testing.expect(Program.Exchange.validateTreatyResponse(result.treaty.?, envelope, legacy_current_v2_response).allowed());
 
     const legacy_v2_request_version: u32 = 2;
     var legacy_v2_manifest_bytes = try std.testing.allocator.dupe(u8, manifest.bytes);
