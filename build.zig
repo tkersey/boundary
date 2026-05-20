@@ -561,6 +561,14 @@ pub fn build(b: *std.Build) void {
             .expected_error = "provider Program result_to_return_now requires a return-now operation offer",
         },
         .{
+            .path = "test/compile_fail/provider_program_metadata_mapping_reserved.zig",
+            .expected_error = "provider Program payload_and_metadata_to_args is reserved until provider-program metadata argument execution is implemented",
+        },
+        .{
+            .path = "test/compile_fail/provider_program_outcome_union_reserved.zig",
+            .expected_error = "provider Program result_to_outcome_union is reserved until provider-program outcome-union execution is implemented",
+        },
+        .{
             .path = "test/compile_fail/protocol_request_foreign_site.zig",
             .expected_error = "Program.protocol descriptor belongs to another program",
         },

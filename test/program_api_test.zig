@@ -23823,21 +23823,11 @@ test "Program.Exchange program-backed provider mapping declarations validate arg
         .label = "after-resume-after",
         .after = AfterSite,
         .program = ChoiceSource,
-        .map_request = .custom_comptime_mapper,
-        .mapper_fingerprint = @as(?u64, 0xfeed),
+        .map_request = .unit_args,
         .map_result = .result_to_resume_after,
     });
     try std.testing.expectEqual(@as(usize, 0), AfterDecl.handler_program_entry_parameters.len);
     try std.testing.expect(AfterDecl.handler_program_result_ref.eql(AfterSite.output_ref));
-
-    const OutcomeUnionDecl = SumSource.Exchange.ProviderHandler.program(.{
-        .label = "sum-outcome-union",
-        .op = SumSite,
-        .program = SumHandler,
-        .map_request = .payload_to_args,
-        .map_result = .result_to_outcome_union,
-    });
-    try std.testing.expect(OutcomeUnionDecl.provider_program_mapping_fingerprint != SumDecl.provider_program_mapping_fingerprint);
 }
 
 test "Program.Exchange ProviderHarness runs synchronous program-backed provider handler" {
@@ -23902,10 +23892,47 @@ test "Program.Exchange ProviderHarness runs synchronous program-backed provider 
     defer resolved.deinit();
     const treaty = resolved.treaty orelse return error.ExpectedTreaty;
 
+    const ForeignHandlerBody = struct {
+        pub const compiled_plan = pureArithmeticPlan("program-provider-sync-foreign-handler");
+    };
+    const ForeignHandlerProgram = ability.program("program-provider-sync-foreign-handler", struct {}, ForeignHandlerBody);
+    const ForeignDecl = Program.Exchange.ProviderHandler.program(.{
+        .label = "sync-program-dispatch",
+        .op = OperationSite,
+        .program = ForeignHandlerProgram,
+        .map_request = .unit_args,
+        .map_result = .result_to_resume,
+    });
+    const ForeignHarness = Program.Exchange.ProviderHarness(.{
+        .label = "sync-program-provider",
+        .provider_fingerprint = @as(?u64, 0x7151),
+        .entries = .{ForeignDecl},
+    });
+    var foreign_catalog = try ForeignHarness.buildCatalog(std.testing.allocator);
+    defer foreign_catalog.deinit();
+    try std.testing.expect(catalog.provider_offers[0].fingerprint != foreign_catalog.provider_offers[0].fingerprint);
+    const foreign_providers = [_]Program.Exchange.ProviderManifest{foreign_catalog.provider_manifest};
+    const foreign_offers = [_]Program.Exchange.ProviderOffer{foreign_catalog.provider_offers[0]};
+    var foreign_resolved = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = foreign_catalog.manifest,
+        .provider_manifests = foreign_providers[0..],
+        .provider_offers = foreign_offers[0..],
+        .capabilities = capabilities[0..],
+    });
+    defer foreign_resolved.deinit();
+    const foreign_treaty = foreign_resolved.treaty orelse return error.ExpectedTreaty;
+
     var handler_runtime = ability.Runtime.init(std.testing.allocator);
     defer handler_runtime.deinit();
     var provider_journal = Program.Session.Journal.init(std.testing.allocator);
     defer provider_journal.deinit();
+    const foreign_result = try Harness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, envelope, foreign_treaty.certificate, foreign_catalog.provider_offers[0], .{ .treaty = foreign_treaty, .journal = &provider_journal });
+    switch (foreign_result) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.offer_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
     var result = try Harness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, envelope, treaty.certificate, catalog.provider_offers[0], .{ .treaty = treaty, .journal = &provider_journal });
     switch (result) {
         .response => |*packet| {
@@ -24039,6 +24066,11 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     const wrong_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], wrong_nested_response, .{ .treaty = treaty, .journal = &provider_journal });
     switch (wrong_continue) {
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_nested_request_invalid, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    const wrong_response_use_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .response_use = .replayed });
+    switch (wrong_response_use_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.response_use_not_supported, blocker.tag),
         else => return error.ExpectedProviderRejection,
     }
     var continued = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal });

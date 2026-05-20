@@ -5795,6 +5795,15 @@ pub fn program(
                     const request_mapping = providerHarnessField(options, "map_request", RequestToProgramArgs.payload_to_args);
                     const result_mapping = providerHarnessField(options, "map_result", if (has_after_site) ProgramResultToProviderOutcome.result_to_resume_after else ProgramResultToProviderOutcome.result_to_resume);
                     const custom_mapper_fingerprint = providerHarnessField(options, "mapper_fingerprint", @as(?u64, null));
+                    switch (request_mapping) {
+                        .payload_to_args, .unit_args => {},
+                        .payload_and_metadata_to_args => @compileError("provider Program payload_and_metadata_to_args is reserved until provider-program metadata argument execution is implemented"),
+                        .custom_comptime_mapper => @compileError("provider Program custom_comptime_mapper is reserved until provider-program custom mapper execution is implemented"),
+                    }
+                    switch (result_mapping) {
+                        .result_to_resume, .result_to_return_now, .result_to_resume_after => {},
+                        .result_to_outcome_union => @compileError("provider Program result_to_outcome_union is reserved until provider-program outcome-union execution is implemented"),
+                    }
                     validateProviderProgramRequestMapping(
                         if (has_operation_site) .operation else .after,
                         SiteType,
@@ -6910,6 +6919,14 @@ pub fn program(
                         if (comptime (!@hasDecl(Entry, "program_backed") or !Entry.program_backed)) {
                             @compileError("startProgramExecution requires a program-backed provider declaration");
                         }
+                        validateManualOffer(allocator, index, offer) catch |err| switch (err) {
+                            error.ProgramContractViolation => {
+                                const failed = blocker(.offer_mismatch, request, certificate, offer.fingerprint, "provider Program step API offer does not exactly match the selected harness declaration");
+                                try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                                return .{ .rejected = failed };
+                            },
+                            else => return err,
+                        };
                         if (validateForEntry(Entry, request, certificate, offer, options_value)) |failed| {
                             try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                             return .{ .rejected = failed };
@@ -6956,8 +6973,28 @@ pub fn program(
                         options_value: HandleOptions,
                     ) Error!ProviderProgramResult(index) {
                         const Entry = entries[index];
+                        validateManualOffer(allocator, index, offer) catch |err| switch (err) {
+                            error.ProgramContractViolation => {
+                                const failed = blocker(.offer_mismatch, request, certificate, offer.fingerprint, "provider Program step API offer does not exactly match the selected harness declaration");
+                                try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, failed.tag);
+                                return .{ .rejected = failed };
+                            },
+                            else => return err,
+                        };
                         if (!providerProgramExecutionMatches(index, execution.*, request, certificate, offer)) {
                             const failed = blocker(.handler_program_restore_mismatch, request, certificate, offer.fingerprint, "provider Program execution does not match parent request/treaty/provider/offer");
+                            return .{ .rejected = failed };
+                        }
+                        const use_value = options_value.response_use orelse certificate.response_use;
+                        if (use_value != certificate.response_use) {
+                            const failed = blocker(.response_use_not_supported, request, certificate, offer.fingerprint, "provider response-use override differs from treaty certificate");
+                            try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, failed.tag);
+                            try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
+                            return .{ .rejected = failed };
+                        }
+                        if (rejectInvalidReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
+                            try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, failed.tag);
+                            try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                             return .{ .rejected = failed };
                         }
                         if (execution.session != null) {
@@ -6998,7 +7035,6 @@ pub fn program(
                             else => return err,
                         };
                         try appendProviderEvent(options_value.journal, .provider_program_resumed, request, certificate, execution.execution_fingerprint, null, null);
-                        const use_value = options_value.response_use orelse certificate.response_use;
                         return stepStartedProviderProgram(index, &session, allocator, request, certificate, offer, options_value, use_value, execution.execution_fingerprint);
                     }
 
