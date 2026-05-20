@@ -24386,6 +24386,7 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     const nested_envelope = &execution.nested_request_envelope.?;
     try std.testing.expect(nested_envelope.capsule_image != null);
     try std.testing.expectEqual(nested_envelope.request_fingerprint, execution.nested_request_fingerprint.?);
+    try std.testing.expectEqual(nested_envelope.fingerprint, execution.nested_request_envelope_fingerprint.?);
     try std.testing.expectEqual(Program.Evidence.domains.provider_program_nested_request.id, Program.Evidence.refForProviderProgramNestedRequest(execution.nested_request_fingerprint.?).domain_id);
 
     var nested_response = try HandlerProgram.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, nested_envelope.*, @as(i32, 42));
@@ -24428,6 +24429,13 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
         else => return error.ExpectedProviderRejection,
     }
     execution.nested_request_fingerprint.? -%= 1;
+    execution.nested_request_envelope_fingerprint.? +%= 1;
+    const tampered_nested_envelope_fingerprint_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal });
+    switch (tampered_nested_envelope_fingerprint_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    execution.nested_request_envelope_fingerprint.? -%= 1;
     execution.provider_program_capsule_image_fingerprint.? +%= 1;
     const tampered_capsule_fingerprint_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal });
     switch (tampered_capsule_fingerprint_continue) {

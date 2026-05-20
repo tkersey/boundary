@@ -6392,6 +6392,7 @@ pub fn program(
                             state: ProviderProgramExecutionState = .ready,
                             session: ?Entry.handler_program.Session = null,
                             nested_request_envelope: ?Entry.handler_program.Exchange.RequestEnvelope = null,
+                            nested_request_envelope_fingerprint: ?u64 = null,
                             nested_request_fingerprint: ?u64 = null,
                             provider_program_capsule_image_fingerprint: ?u64 = null,
 
@@ -7117,13 +7118,15 @@ pub fn program(
                         nested_request: anytype,
                     ) bool {
                         nested_request.validate() catch return false;
-                        if (execution.nested_request_fingerprint == null or
+                        if (execution.nested_request_envelope_fingerprint == null or
+                            execution.nested_request_fingerprint == null or
                             execution.provider_program_capsule_image_fingerprint == null or
                             nested_request.capsule_image == null or
                             nested_request.capsule_image_fingerprint == null)
                         {
                             return false;
                         }
+                        if (nested_request.fingerprint != execution.nested_request_envelope_fingerprint.?) return false;
                         if (nested_request.request_fingerprint != execution.nested_request_fingerprint.?) return false;
                         if (nested_request.capsule_image_fingerprint.? != execution.provider_program_capsule_image_fingerprint.?) return false;
                         return switch (execution.state) {
@@ -7298,6 +7301,7 @@ pub fn program(
                             .obligation_fingerprint = certificate.obligation_fingerprint,
                             .state = state,
                             .session = session,
+                            .nested_request_envelope_fingerprint = nested_request_envelope.fingerprint,
                             .nested_request_fingerprint = nested_request_envelope.request_fingerprint,
                             .provider_program_capsule_image_fingerprint = capsule_image_fingerprint,
                             .nested_request_envelope = nested_request_envelope,
