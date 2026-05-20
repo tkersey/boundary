@@ -2,6 +2,7 @@
 const lowered_machine = @import("lowered_machine");
 const lowering_api = @import("lowering_api");
 const plan_types = @import("internal_program_plan");
+const program_evidence = @import("program/evidence.zig");
 const std = @import("std");
 
 fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
@@ -1272,78 +1273,85 @@ pub fn program(
         pub const protocol = ProgramProtocolFor(label, body_compiled_plan, body_value_schema_types, body_nested_with_targets, HandlersType, Body, body_site_metadata, InterpreterAuthenticityToken);
         /// Public execution error for this program.
         pub const Error = ProgramErrorSet(Body);
+        /// Canonical evidence, fingerprint, validation, and projection substrate.
+        pub const Evidence = program_evidence;
         /// Separate fingerprint domain for protocol reinterpretation metadata.
-        pub const reinterpret_fingerprint_version: u32 = 2;
+        pub const reinterpret_fingerprint_version: u32 = Evidence.domains.reinterpretation.fingerprint_version;
         /// Separate fingerprint domain for residual ProgramPlan transformation metadata.
-        pub const residual_fingerprint_version: u32 = 1;
+        pub const residual_fingerprint_version: u32 = Evidence.domains.residualization.fingerprint_version;
         /// Separate fingerprint domain for proof-carrying effect pipeline metadata.
-        pub const pipeline_fingerprint_version: u32 = 1;
+        pub const pipeline_fingerprint_version: u32 = Evidence.domains.pipeline.fingerprint_version;
         /// Stable format version for Program.Session.Capsule durable images.
-        pub const capsule_image_format_version: u32 = 1;
+        pub const capsule_image_format_version: u32 = Evidence.domains.capsule_image.format_version.?;
         /// Stable fingerprint version for Program.Session.Capsule durable images.
-        pub const capsule_image_fingerprint_version: u32 = 1;
+        pub const capsule_image_fingerprint_version: u32 = Evidence.domains.capsule_image.fingerprint_version;
         /// Stable format version for Program.Session interaction journals.
         /// Version 5 preserves v4 fields and adds ProviderHarness event metadata.
-        pub const journal_format_version: u32 = 5;
+        pub const journal_format_version: u32 = Evidence.domains.journal.format_version.?;
         /// Stable fingerprint version for Program.Session interaction journals.
-        pub const journal_fingerprint_version: u32 = 1;
+        pub const journal_fingerprint_version: u32 = Evidence.domains.journal.fingerprint_version;
         /// Stable format version for Program.Exchange manifest images.
-        pub const exchange_manifest_format_version: u32 = 1;
+        pub const exchange_manifest_format_version: u32 = Evidence.domains.exchange_manifest.format_version.?;
         /// Stable fingerprint version for Program.Exchange manifest images.
-        pub const exchange_manifest_fingerprint_version: u32 = 1;
+        pub const exchange_manifest_fingerprint_version: u32 = Evidence.domains.exchange_manifest.fingerprint_version;
         /// Stable format version for Program.Exchange request envelopes.
         /// Version 3 preserves v2 fields and adds optional linear-session metadata.
-        pub const exchange_request_format_version: u32 = 3;
+        pub const exchange_request_format_version: u32 = Evidence.domains.exchange_request_envelope.format_version.?;
         /// Stable fingerprint version for Program.Exchange request envelopes.
-        pub const exchange_request_fingerprint_version: u32 = 3;
+        pub const exchange_request_fingerprint_version: u32 = Evidence.domains.exchange_request_envelope.fingerprint_version;
         /// Stable format version for Program.Exchange response envelopes.
-        pub const exchange_response_format_version: u32 = 1;
+        pub const exchange_response_format_version: u32 = Evidence.domains.exchange_response_envelope.format_version.?;
         /// Stable fingerprint version for Program.Exchange response envelopes.
-        pub const exchange_response_fingerprint_version: u32 = 1;
+        pub const exchange_response_fingerprint_version: u32 = Evidence.domains.exchange_response_envelope.fingerprint_version;
         /// Stable format version for Program.Exchange provider manifest images.
-        pub const exchange_provider_format_version: u32 = 1;
+        pub const exchange_provider_format_version: u32 = Evidence.domains.provider_manifest.format_version.?;
         /// Stable fingerprint version for Program.Exchange provider manifest images.
-        pub const exchange_provider_fingerprint_version: u32 = 1;
+        pub const exchange_provider_fingerprint_version: u32 = Evidence.domains.provider_manifest.fingerprint_version;
+        /// Stable fingerprint version for Program.Exchange provider identities.
+        pub const exchange_provider_identity_fingerprint_version: u32 = Evidence.domains.provider_identity.fingerprint_version;
         /// Stable format version for Program.Exchange provider offer images.
-        pub const exchange_provider_offer_format_version: u32 = 1;
+        pub const exchange_provider_offer_format_version: u32 = Evidence.domains.provider_offer.format_version.?;
         /// Stable fingerprint version for Program.Exchange provider offer images.
-        pub const exchange_provider_offer_fingerprint_version: u32 = 1;
+        pub const exchange_provider_offer_fingerprint_version: u32 = Evidence.domains.provider_offer.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange provider harness declarations.
-        pub const exchange_provider_harness_fingerprint_version: u32 = 1;
+        pub const exchange_provider_harness_fingerprint_version: u32 = Evidence.domains.provider_harness.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange morphism offer witnesses.
-        pub const exchange_morphism_offer_fingerprint_version: u32 = 1;
+        pub const exchange_morphism_offer_fingerprint_version: u32 = Evidence.domains.morphism_offer.fingerprint_version;
         /// Stable format version for Program.Exchange capability grant images.
-        pub const exchange_capability_format_version: u32 = 1;
+        pub const exchange_capability_format_version: u32 = Evidence.domains.capability.format_version.?;
         /// Stable fingerprint version for Program.Exchange capability grant images.
-        pub const exchange_capability_fingerprint_version: u32 = 1;
+        pub const exchange_capability_fingerprint_version: u32 = Evidence.domains.capability.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange authorization witnesses.
-        pub const exchange_authorization_fingerprint_version: u32 = 1;
+        pub const exchange_authorization_fingerprint_version: u32 = Evidence.domains.authorization.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange route witnesses.
-        pub const exchange_route_fingerprint_version: u32 = 1;
+        pub const exchange_route_fingerprint_version: u32 = Evidence.domains.route.fingerprint_version;
         /// Stable format version for Program.Exchange effect-session specs.
-        pub const exchange_effect_session_format_version: u32 = 1;
+        pub const exchange_effect_session_format_version: u32 = Evidence.domains.effect_session_spec.format_version.?;
         /// Stable fingerprint version for Program.Exchange effect-session specs.
-        pub const exchange_effect_session_fingerprint_version: u32 = 1;
+        pub const exchange_effect_session_fingerprint_version: u32 = Evidence.domains.effect_session_spec.fingerprint_version;
         /// Stable format version for Program.Exchange capability instances.
-        pub const exchange_capability_instance_format_version: u32 = 1;
+        pub const exchange_capability_instance_format_version: u32 = Evidence.domains.capability_instance.format_version.?;
         /// Stable fingerprint version for Program.Exchange capability instances.
-        pub const exchange_capability_instance_fingerprint_version: u32 = 1;
+        pub const exchange_capability_instance_fingerprint_version: u32 = Evidence.domains.capability_instance.fingerprint_version;
         /// Stable format version for Program.Exchange obligations.
-        pub const exchange_obligation_format_version: u32 = 1;
+        pub const exchange_obligation_format_version: u32 = Evidence.domains.obligation.format_version.?;
         /// Stable fingerprint version for Program.Exchange obligations.
-        pub const exchange_obligation_fingerprint_version: u32 = 1;
+        pub const exchange_obligation_fingerprint_version: u32 = Evidence.domains.obligation.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange obligation transitions.
-        pub const exchange_obligation_transition_fingerprint_version: u32 = 1;
+        pub const exchange_obligation_transition_fingerprint_version: u32 = Evidence.domains.obligation_transition.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange authorization results.
-        pub const exchange_authorization_result_fingerprint_version: u32 = 1;
+        pub const exchange_authorization_result_fingerprint_version: u32 = Evidence.domains.authorization_result.fingerprint_version;
         /// Stable format version for Program.Exchange Effect Treaties.
-        pub const exchange_treaty_format_version: u32 = 1;
+        pub const exchange_treaty_format_version: u32 = Evidence.domains.treaty.format_version.?;
         /// Stable fingerprint version for Program.Exchange Effect Treaties.
         /// Version 2 preserves v1 fields and adds provider usage and provider response refs.
-        pub const exchange_treaty_fingerprint_version: u32 = 2;
+        pub const exchange_treaty_fingerprint_version: u32 = Evidence.domains.treaty.fingerprint_version;
+        /// Stable fingerprint version for Program.Exchange treaty certificates.
+        /// Version 3 preserves v2 fields and adds the request envelope format witness.
+        pub const exchange_treaty_certificate_fingerprint_version: u32 = Evidence.domains.treaty_certificate.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange treaty-bound response authorization.
-        /// Version 3 preserves v2 fields and adds provider, capability, path, and request witnesses.
-        pub const exchange_treaty_authorization_fingerprint_version: u32 = 3;
+        /// Version 4 preserves v3 fields and adds the request envelope format witness.
+        pub const exchange_treaty_authorization_fingerprint_version: u32 = Evidence.domains.treaty_authorization.fingerprint_version;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {
@@ -3755,6 +3763,8 @@ pub fn program(
             pub const provider_format_version = exchange_provider_format_version;
             /// Current provider manifest image fingerprint domain version.
             pub const provider_fingerprint_version = exchange_provider_fingerprint_version;
+            /// Current provider identity fingerprint domain version.
+            pub const provider_identity_fingerprint_version = exchange_provider_identity_fingerprint_version;
             /// Current provider offer image format version.
             pub const provider_offer_format_version = exchange_provider_offer_format_version;
             /// Current provider offer image fingerprint domain version.
@@ -3791,6 +3801,8 @@ pub fn program(
             pub const treaty_format_version = exchange_treaty_format_version;
             /// Current treaty fingerprint domain version.
             pub const treaty_fingerprint_version = exchange_treaty_fingerprint_version;
+            /// Current treaty certificate fingerprint domain version.
+            pub const treaty_certificate_fingerprint_version = exchange_treaty_certificate_fingerprint_version;
             /// Current treaty authorization fingerprint domain version.
             pub const treaty_authorization_fingerprint_version = exchange_treaty_authorization_fingerprint_version;
             /// Stable fingerprint for scoping capability grants to a journal branch id.
@@ -3968,6 +3980,11 @@ pub fn program(
                 /// Deterministic fingerprint for this session spec.
                 pub fn fingerprint(self: @This()) u64 {
                     return fingerprintEffectSessionSpec(self);
+                }
+
+                /// Canonical evidence reference for this effect-session spec.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refFor(Evidence.domains.effect_session_spec, self.fingerprint(), .{ .label = self.label });
                 }
 
                 /// Return true when this state is terminal.
@@ -4162,6 +4179,14 @@ pub fn program(
                 pub fn validFingerprint(self: @This()) bool {
                     if (self.instance_fingerprint == 0) return false;
                     return self.instance_fingerprint == fingerprintCapabilityInstance(self);
+                }
+
+                /// Canonical evidence reference for this capability instance.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refFor(Evidence.domains.capability_instance, self.instance_fingerprint, .{
+                        .format_version = self.instance_version,
+                        .branch_id = self.branch_id,
+                    });
                 }
 
                 /// Release capability-instance-owned authority snapshots.
@@ -4540,6 +4565,11 @@ pub fn program(
                 pub fn validFingerprint(self: @This()) bool {
                     if (self.obligation_fingerprint == 0) return false;
                     return self.obligation_fingerprint == fingerprintObligation(self);
+                }
+
+                /// Canonical evidence reference for this obligation.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForObligation(self);
                 }
 
                 /// Release obligation-owned response-ref storage.
@@ -5067,6 +5097,15 @@ pub fn program(
                 count: usize = 0,
                 saturated: bool = false,
 
+                /// Options for lowering validation blockers into Evidence blockers.
+                pub const EvidenceBlockerOptions = struct {
+                    domain: Evidence.Domain.Id = Evidence.domains.capability.id,
+                    subject: ?Evidence.Ref = null,
+                    primary: ?Evidence.Ref = null,
+                    source: Evidence.SourceSubsystem = .capability,
+                    summary_prefix: []const u8 = "validation blocker",
+                };
+
                 /// Return true when the report contains no blockers.
                 pub fn allowed(self: @This()) bool {
                     return self.count == 0 and !self.saturated;
@@ -5099,6 +5138,58 @@ pub fn program(
                 pub fn firstTagName(self: @This()) ?[]const u8 {
                     if (self.count == 0) return null;
                     return @tagName(self.blockers[0]);
+                }
+
+                /// Lower retained blocker tags into caller-owned shared Evidence blockers.
+                pub fn toEvidenceBlockers(self: @This(), storage: []Evidence.Blocker, options: EvidenceBlockerOptions) []const Evidence.Blocker {
+                    const limit = @min(storage.len, self.count);
+                    for (self.blockers[0..limit], 0..) |tag, index| {
+                        storage[index] = .{
+                            .domain = options.domain,
+                            .tag = @tagName(tag),
+                            .subject = options.subject,
+                            .primary = options.primary orelse options.subject,
+                            .short_code = @tagName(tag),
+                            .summary = if (options.summary_prefix.len == 0) @tagName(tag) else options.summary_prefix,
+                            .source = options.source,
+                        };
+                    }
+                    return storage[0..limit];
+                }
+
+                fn evidenceOmittedFingerprint(self: @This(), report_domain: Evidence.Domain.Id, lowered_count: usize) ?u64 {
+                    if (!self.saturated and lowered_count >= self.count) return null;
+                    var builder = Evidence.FingerprintBuilder.init(Evidence.domainById(report_domain) orelse Evidence.domains.program_plan);
+                    builder.fieldBytes("kind", "validation_report_omitted_blockers");
+                    builder.fieldBool("saturated", self.saturated);
+                    builder.fieldUsize("retained_count", self.count);
+                    builder.fieldUsize("lowered_count", lowered_count);
+                    for (self.blockers[0..self.count], 0..) |tag, index| {
+                        builder.fieldUsize("blocker.index", index);
+                        builder.fieldBytes("blocker.tag", @tagName(tag));
+                        builder.fieldBool("blocker.omitted", index >= lowered_count);
+                    }
+                    return builder.finish();
+                }
+
+                /// Lower this validation report into a shared Evidence report.
+                pub fn toEvidenceReport(
+                    self: @This(),
+                    subject: Evidence.Ref,
+                    report_domain: Evidence.Domain.Id,
+                    dependencies: []const Evidence.Dependency,
+                    blocker_storage: []Evidence.Blocker,
+                    options: EvidenceBlockerOptions,
+                ) Evidence.Report {
+                    var evidence_options = options;
+                    evidence_options.domain = report_domain;
+                    evidence_options.subject = evidence_options.subject orelse subject;
+                    const blockers = self.toEvidenceBlockers(blocker_storage, evidence_options);
+                    if (self.allowed()) return Evidence.Report.ok(subject, report_domain, dependencies);
+                    if (self.evidenceOmittedFingerprint(report_domain, blockers.len)) |omitted_fingerprint| {
+                        return Evidence.Report.withIncompleteFailure(subject, report_domain, dependencies, blockers, &.{}, omitted_fingerprint, null, "validation report");
+                    }
+                    return Evidence.Report.withFailure(subject, report_domain, dependencies, blockers, &.{}, null, "validation report");
                 }
             };
 
@@ -5297,6 +5388,11 @@ pub fn program(
                             return true;
                         },
                     }
+                }
+
+                /// Canonical evidence reference for this provider manifest.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForProviderManifest(self);
                 }
             };
 
@@ -5497,6 +5593,11 @@ pub fn program(
                     }
                 }
 
+                /// Canonical evidence reference for this provider offer.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForProviderOffer(self);
+                }
+
                 /// Return true when the offer supports a target protocol operation.
                 pub fn supportsProtocolOperation(self: @This(), protocol_op_fingerprint: u64, response_refs: []const lowering_api.ValueRef) bool {
                     self.validate() catch return false;
@@ -5626,6 +5727,12 @@ pub fn program(
                 const after_sites = providerHarnessAfterSites(entries);
                 const protocol_labels = providerHarnessProtocolLabels(entries);
                 const protocol_ops = providerHarnessProtocolOps(entries);
+                const manifest_response_kinds_value = providerHarnessManifestResponseKinds(options, entries);
+                const manifest_max_request_bytes_value = providerHarnessManifestMaxRequestBytes(options, entries);
+                const manifest_max_response_bytes_value = providerHarnessManifestMaxResponseBytes(options, entries);
+                const manifest_accepts_embedded_capsules_value = providerHarnessField(options, "accepts_embedded_capsules", @as(bool, true));
+                const manifest_accepts_capsule_restore_value = providerHarnessField(options, "accepts_capsule_restore", @as(bool, true));
+                const manifest_semantic_tags_value = providerHarnessField(options, "semantic_tags", @as([]const []const u8, &.{}));
 
                 return struct {
                     /// Provider label used for the derived manifest.
@@ -5648,8 +5755,32 @@ pub fn program(
                     pub const supported_protocol_labels = protocol_labels[0..];
                     /// Protocol-operation fingerprints covered by this provider harness.
                     pub const supported_protocol_op_fingerprints = protocol_ops[0..];
+                    /// Manifest-level response-kind policy derived from harness options and declarations.
+                    pub const manifest_allowed_response_kinds = manifest_response_kinds_value;
+                    /// Manifest-level maximum request envelope bytes.
+                    pub const manifest_max_request_envelope_bytes = manifest_max_request_bytes_value;
+                    /// Manifest-level maximum response envelope bytes.
+                    pub const manifest_max_response_envelope_bytes = manifest_max_response_bytes_value;
+                    /// Manifest-level embedded-capsule admission policy.
+                    pub const manifest_accepts_embedded_capsules = manifest_accepts_embedded_capsules_value;
+                    /// Manifest-level capsule-restore admission policy.
+                    pub const manifest_accepts_capsule_restore = manifest_accepts_capsule_restore_value;
+                    /// Manifest-level semantic tags.
+                    pub const manifest_semantic_tags = manifest_semantic_tags_value;
+                    /// Manifest-level metadata bytes.
+                    pub const manifest_metadata = provider_metadata;
                     /// Handler declaration entries.
                     pub const declarations = entries;
+
+                    /// Canonical evidence domain for this handler-first provider harness.
+                    pub const evidenceDomain = Evidence.domains.provider_harness;
+                    /// Canonical evidence reference for this handler-first provider harness.
+                    pub const evidence_ref = Evidence.refForProviderHarness(@This());
+
+                    /// Return the canonical evidence reference for this provider harness type.
+                    pub fn evidenceRef() Evidence.Ref {
+                        return evidence_ref;
+                    }
 
                     /// Static provider catalog metadata.
                     pub const Metadata = struct {
@@ -5710,12 +5841,12 @@ pub fn program(
                             .supported_operation_sites = supported_operation_sites,
                             .supported_after_sites = supported_after_sites,
                             .supported_protocol_op_fingerprints = supported_protocol_op_fingerprints,
-                            .allowed_response_kinds = providerHarnessManifestResponseKinds(options, entries),
-                            .max_request_envelope_bytes = providerHarnessManifestMaxRequestBytes(options, entries),
-                            .max_response_envelope_bytes = providerHarnessManifestMaxResponseBytes(options, entries),
-                            .accepts_embedded_capsules = providerHarnessField(options, "accepts_embedded_capsules", @as(bool, true)),
-                            .accepts_capsule_restore = providerHarnessField(options, "accepts_capsule_restore", @as(bool, true)),
-                            .semantic_tags = providerHarnessField(options, "semantic_tags", @as([]const []const u8, &.{})),
+                            .allowed_response_kinds = manifest_allowed_response_kinds,
+                            .max_request_envelope_bytes = manifest_max_request_envelope_bytes,
+                            .max_response_envelope_bytes = manifest_max_response_envelope_bytes,
+                            .accepts_embedded_capsules = manifest_accepts_embedded_capsules,
+                            .accepts_capsule_restore = manifest_accepts_capsule_restore,
+                            .semantic_tags = manifest_semantic_tags,
                             .metadata = provider_metadata,
                         };
                     }
@@ -5883,9 +6014,101 @@ pub fn program(
                         treaty_fingerprint: ?u64 = null,
                         route_fingerprint: ?u64 = null,
                         request_envelope_fingerprint: ?u64 = null,
+                        request_envelope_format_version: ?u32 = null,
                         capability_fingerprint: ?u64 = null,
                         obligation_fingerprint: ?u64 = null,
                         summary: []const u8,
+
+                        /// Lower provider-specific blocker metadata into the shared Evidence blocker shape.
+                        pub fn toEvidenceBlocker(self: @This()) Evidence.Blocker {
+                            var related_storage = [_]Evidence.Ref{Evidence.refForProviderIdentity(0)} ** 6;
+                            var related_len: usize = 0;
+                            if (self.provider_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refForProviderIdentity(fingerprint);
+                                related_len += 1;
+                            }
+                            if (self.offer_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.provider_offer, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            if (self.treaty_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.treaty, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            if (self.route_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.route, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            if (self.capability_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.capability, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            if (self.obligation_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.obligation, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            var evidence_blocker = self.toEvidenceBlockerWithRelated(null);
+                            evidence_blocker.related_ref_storage = related_storage;
+                            evidence_blocker.related_ref_count = related_len;
+                            return evidence_blocker;
+                        }
+
+                        /// Lower provider-specific blocker metadata with caller-owned related-ref storage.
+                        pub fn toEvidenceBlockerWithRelated(self: @This(), storage: ?*[6]Evidence.Ref) Evidence.Blocker {
+                            var related_len: usize = 0;
+                            const related_refs = if (storage) |related_storage| blk: {
+                                if (self.provider_fingerprint) |fingerprint| {
+                                    related_storage[related_len] = Evidence.refForProviderIdentity(fingerprint);
+                                    related_len += 1;
+                                }
+                                if (self.offer_fingerprint) |fingerprint| {
+                                    related_storage[related_len] = Evidence.refFor(Evidence.domains.provider_offer, fingerprint, .{});
+                                    related_len += 1;
+                                }
+                                if (self.treaty_fingerprint) |fingerprint| {
+                                    related_storage[related_len] = Evidence.refFor(Evidence.domains.treaty, fingerprint, .{});
+                                    related_len += 1;
+                                }
+                                if (self.route_fingerprint) |fingerprint| {
+                                    related_storage[related_len] = Evidence.refFor(Evidence.domains.route, fingerprint, .{});
+                                    related_len += 1;
+                                }
+                                if (self.capability_fingerprint) |fingerprint| {
+                                    related_storage[related_len] = Evidence.refFor(Evidence.domains.capability, fingerprint, .{});
+                                    related_len += 1;
+                                }
+                                if (self.obligation_fingerprint) |fingerprint| {
+                                    related_storage[related_len] = Evidence.refFor(Evidence.domains.obligation, fingerprint, .{});
+                                    related_len += 1;
+                                }
+                                break :blk related_storage[0..related_len];
+                            } else &.{};
+                            const subject = if (self.request_envelope_fingerprint) |fingerprint| Evidence.refFor(Evidence.domains.exchange_request_envelope, fingerprint, .{ .format_version = self.request_envelope_format_version }) else null;
+                            const primary = if (self.offer_fingerprint) |fingerprint|
+                                Evidence.refFor(Evidence.domains.provider_offer, fingerprint, .{})
+                            else if (self.route_fingerprint) |fingerprint|
+                                Evidence.refFor(Evidence.domains.route, fingerprint, .{})
+                            else if (self.capability_fingerprint) |fingerprint|
+                                Evidence.refFor(Evidence.domains.capability, fingerprint, .{})
+                            else if (self.obligation_fingerprint) |fingerprint|
+                                Evidence.refFor(Evidence.domains.obligation, fingerprint, .{})
+                            else if (self.treaty_fingerprint) |fingerprint|
+                                Evidence.refFor(Evidence.domains.treaty, fingerprint, .{})
+                            else if (self.provider_fingerprint) |fingerprint|
+                                Evidence.refForProviderIdentity(fingerprint)
+                            else
+                                subject;
+                            return .{
+                                .domain = Evidence.domains.provider_request_validation.id,
+                                .tag = @tagName(self.tag),
+                                .subject = subject,
+                                .primary = primary,
+                                .related_refs = related_refs,
+                                .short_code = @tagName(self.tag),
+                                .summary = if (self.summary.len == 0) @tagName(self.tag) else self.summary,
+                                .source = .provider_harness,
+                            };
+                        }
                     };
 
                     /// Provider-side journal and replay options.
@@ -6017,6 +6240,7 @@ pub fn program(
                             .treaty_fingerprint = if (certificate) |cert| cert.treaty_fingerprint else null,
                             .route_fingerprint = if (certificate) |cert| cert.route_fingerprint else null,
                             .request_envelope_fingerprint = if (request) |envelope| envelope.fingerprint else null,
+                            .request_envelope_format_version = if (request) |envelope| envelope.request_format_version else null,
                             .capability_fingerprint = if (certificate) |cert| cert.capability_fingerprint else null,
                             .obligation_fingerprint = if (certificate) |cert| cert.obligation_fingerprint else null,
                             .summary = summary,
@@ -6074,6 +6298,11 @@ pub fn program(
                     }
 
                     fn validateLiveAuthority(request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, treaty: Treaty, options_value: HandleOptions) ?Blocker {
+                        if (treaty.request_envelope_format_version != request.request_format_version or
+                            treaty.certificate.request_envelope_format_version != request.request_format_version)
+                        {
+                            return blocker(.treaty_mismatch, request, certificate, offer.fingerprint, "live treaty cites a different request envelope format");
+                        }
                         treaty.checkCertificate() catch return blocker(.treaty_certificate_invalid, request, certificate, offer.fingerprint, "live treaty failed deterministic certificate validation");
                         if (treaty.fingerprint != certificate.treaty_fingerprint or
                             treaty.certificate.certificate_fingerprint != certificate.certificate_fingerprint)
@@ -6177,10 +6406,15 @@ pub fn program(
 
                     fn validateForEntry(comptime Entry: type, request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer, options_value: HandleOptions) ?Blocker {
                         request.validate() catch return blocker(.malformed_request_envelope, request, certificate, offer.fingerprint, "request envelope failed deterministic validation");
+                        if (certificate.request_envelope_format_version != request.request_format_version) {
+                            return blocker(.treaty_mismatch, request, certificate, offer.fingerprint, "certificate cites a different request envelope format");
+                        }
                         certificate.check() catch return blocker(.treaty_certificate_invalid, request, certificate, offer.fingerprint, "treaty certificate failed deterministic validation");
                         const treaty = options_value.treaty orelse return blocker(.treaty_missing, request, certificate, offer.fingerprint, "live treaty authority is required before provider invocation");
                         if (validateLiveAuthority(request, certificate, offer, treaty, options_value)) |failed| return failed;
-                        if (certificate.request_envelope_fingerprint != request.fingerprint or certificate.request_fingerprint != request.request_fingerprint) {
+                        if (certificate.request_envelope_fingerprint != request.fingerprint or
+                            certificate.request_fingerprint != request.request_fingerprint)
+                        {
                             return blocker(.treaty_mismatch, request, certificate, offer.fingerprint, "certificate does not cite this request envelope");
                         }
                         if (certificate.manifest_fingerprint != request.manifest_fingerprint or offer.manifest_fingerprint != request.manifest_fingerprint) {
@@ -6987,6 +7221,11 @@ pub fn program(
                     return fingerprintMorphismOffer(self);
                 }
 
+                /// Canonical evidence reference for this morphism offer.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refFor(Evidence.domains.morphism_offer, self.fingerprint(), .{ .label = self.label });
+                }
+
                 /// Return true when this offer can adapt the request source.
                 pub fn supportsSource(self: @This(), request: RequestEnvelope) bool {
                     if (self.blockers.len != 0) return false;
@@ -7068,6 +7307,7 @@ pub fn program(
                 allocator: ?std.mem.Allocator = null,
                 fingerprint: u64,
                 request_envelope_fingerprint: u64,
+                request_envelope_format_version: u32 = exchange_request_format_version,
                 request_fingerprint: u64,
                 manifest_fingerprint: u64,
                 provider_fingerprint: u64,
@@ -7098,6 +7338,11 @@ pub fn program(
                 journal_policy_fingerprint: ?u64 = null,
                 require_treaty_bound_response_authorization: bool = true,
                 certificate: Certificate,
+
+                /// Canonical evidence reference for this treaty.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForTreaty(self);
+                }
 
                 /// Treaty handling implementation mode.
                 pub const HandlingKind = enum {
@@ -7166,6 +7411,7 @@ pub fn program(
                 pub const Blocker = struct {
                     tag: Treaty.BlockerTag,
                     request_fingerprint: u64 = 0,
+                    request_format_version: ?u32 = null,
                     provider_fingerprint: ?u64 = null,
                     offer_fingerprint: ?u64 = null,
                     capability_fingerprint: ?u64 = null,
@@ -7173,6 +7419,97 @@ pub fn program(
                     obligation_fingerprint: ?u64 = null,
                     morphism_fingerprint: ?u64 = null,
                     summary: []const u8 = "",
+
+                    /// Lower treaty-specific blocker metadata into the shared Evidence blocker shape.
+                    pub fn toEvidenceBlocker(self: @This()) Evidence.Blocker {
+                        var related_storage = [_]Evidence.Ref{Evidence.refForProviderIdentity(0)} ** 6;
+                        var related_len: usize = 0;
+                        if (self.provider_fingerprint) |fingerprint| {
+                            related_storage[related_len] = Evidence.refForProviderIdentity(fingerprint);
+                            related_len += 1;
+                        }
+                        if (self.offer_fingerprint) |fingerprint| {
+                            related_storage[related_len] = Evidence.refFor(Evidence.domains.provider_offer, fingerprint, .{});
+                            related_len += 1;
+                        }
+                        if (self.capability_fingerprint) |fingerprint| {
+                            related_storage[related_len] = Evidence.refFor(Evidence.domains.capability, fingerprint, .{});
+                            related_len += 1;
+                        }
+                        if (self.capability_instance_fingerprint) |fingerprint| {
+                            related_storage[related_len] = Evidence.refFor(Evidence.domains.capability_instance, fingerprint, .{});
+                            related_len += 1;
+                        }
+                        if (self.obligation_fingerprint) |fingerprint| {
+                            related_storage[related_len] = Evidence.refFor(Evidence.domains.obligation, fingerprint, .{});
+                            related_len += 1;
+                        }
+                        if (self.morphism_fingerprint) |fingerprint| {
+                            related_storage[related_len] = Evidence.refFor(Evidence.domains.morphism_offer, fingerprint, .{});
+                            related_len += 1;
+                        }
+                        var evidence_blocker = self.toEvidenceBlockerWithRelated(null);
+                        evidence_blocker.related_ref_storage = related_storage;
+                        evidence_blocker.related_ref_count = related_len;
+                        return evidence_blocker;
+                    }
+
+                    /// Lower treaty-specific blocker metadata with caller-owned related-ref storage.
+                    pub fn toEvidenceBlockerWithRelated(self: @This(), storage: ?*[6]Evidence.Ref) Evidence.Blocker {
+                        var related_len: usize = 0;
+                        const related_refs = if (storage) |related_storage| blk: {
+                            if (self.provider_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refForProviderIdentity(fingerprint);
+                                related_len += 1;
+                            }
+                            if (self.offer_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.provider_offer, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            if (self.capability_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.capability, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            if (self.capability_instance_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.capability_instance, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            if (self.obligation_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.obligation, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            if (self.morphism_fingerprint) |fingerprint| {
+                                related_storage[related_len] = Evidence.refFor(Evidence.domains.morphism_offer, fingerprint, .{});
+                                related_len += 1;
+                            }
+                            break :blk related_storage[0..related_len];
+                        } else &.{};
+                        const request_ref = if (self.request_fingerprint != 0) Evidence.refFor(Evidence.domains.exchange_request_envelope, self.request_fingerprint, .{ .format_version = self.request_format_version }) else null;
+                        const primary = if (self.offer_fingerprint) |fingerprint|
+                            Evidence.refFor(Evidence.domains.provider_offer, fingerprint, .{})
+                        else if (self.capability_fingerprint) |fingerprint|
+                            Evidence.refFor(Evidence.domains.capability, fingerprint, .{})
+                        else if (self.capability_instance_fingerprint) |fingerprint|
+                            Evidence.refFor(Evidence.domains.capability_instance, fingerprint, .{})
+                        else if (self.obligation_fingerprint) |fingerprint|
+                            Evidence.refFor(Evidence.domains.obligation, fingerprint, .{})
+                        else if (self.morphism_fingerprint) |fingerprint|
+                            Evidence.refFor(Evidence.domains.morphism_offer, fingerprint, .{})
+                        else if (self.provider_fingerprint) |fingerprint|
+                            Evidence.refForProviderIdentity(fingerprint)
+                        else
+                            request_ref;
+                        return .{
+                            .domain = Evidence.domains.treaty_resolver.id,
+                            .tag = @tagName(self.tag),
+                            .subject = request_ref,
+                            .primary = primary,
+                            .related_refs = related_refs,
+                            .short_code = @tagName(self.tag),
+                            .summary = if (self.summary.len == 0) @tagName(self.tag) else self.summary,
+                            .source = .treaty,
+                        };
+                    }
                 };
 
                 /// Fixed-capacity blocker list used by the resolver and certificate checker.
@@ -7180,6 +7517,7 @@ pub fn program(
                     blockers: [16]Blocker = undefined,
                     count: usize = 0,
                     saturated: bool = false,
+                    request_format_version: u32 = exchange_request_format_version,
 
                     /// Return true when the list has no blockers.
                     pub fn allowed(self: @This()) bool {
@@ -7189,7 +7527,11 @@ pub fn program(
                     /// Add a blocker to the list.
                     pub fn add(self: *@This(), blocker: Blocker) void {
                         if (self.count < self.blockers.len) {
-                            self.blockers[self.count] = blocker;
+                            var stored = blocker;
+                            if (stored.request_fingerprint != 0 and stored.request_format_version == null) {
+                                stored.request_format_version = self.request_format_version;
+                            }
+                            self.blockers[self.count] = stored;
                             self.count += 1;
                         } else {
                             self.saturated = true;
@@ -7211,6 +7553,51 @@ pub fn program(
                     pub fn firstTagName(self: @This()) ?[]const u8 {
                         if (self.count == 0) return null;
                         return @tagName(self.blockers[0].tag);
+                    }
+
+                    /// Lower retained treaty blockers into caller-owned shared Evidence blockers.
+                    pub fn toEvidenceBlockers(self: @This(), storage: []Evidence.Blocker, related_storage: [][6]Evidence.Ref) []const Evidence.Blocker {
+                        const limit = @min(storage.len, self.count);
+                        for (self.blockers[0..limit], 0..) |blocker, index| {
+                            const related = if (index < related_storage.len) &related_storage[index] else null;
+                            storage[index] = blocker.toEvidenceBlockerWithRelated(related);
+                        }
+                        return storage[0..limit];
+                    }
+
+                    fn evidenceOmittedFingerprint(self: @This(), report_domain: Evidence.Domain.Id, lowered_count: usize, related_count: usize) ?u64 {
+                        if (!self.saturated and lowered_count >= self.count and related_count >= lowered_count) return null;
+                        var builder = Evidence.FingerprintBuilder.init(Evidence.domainById(report_domain) orelse Evidence.domains.program_plan);
+                        builder.fieldBytes("kind", "treaty_blocker_omitted_evidence");
+                        builder.fieldBool("saturated", self.saturated);
+                        builder.fieldUsize("retained_count", self.count);
+                        builder.fieldUsize("lowered_count", lowered_count);
+                        builder.fieldUsize("related_count", related_count);
+                        for (self.blockers[0..self.count], 0..) |blocker, index| {
+                            var full_related: [6]Evidence.Ref = undefined;
+                            const full_blocker = blocker.toEvidenceBlockerWithRelated(&full_related);
+                            builder.fieldUsize("blocker.index", index);
+                            builder.fieldU64("blocker.fingerprint", full_blocker.fingerprint());
+                            builder.fieldBool("blocker.omitted", index >= lowered_count);
+                            builder.fieldBool("blocker.related_omitted", index < lowered_count and index >= related_count);
+                        }
+                        return builder.finish();
+                    }
+
+                    /// Lower this treaty blocker list into a shared Evidence report.
+                    pub fn toEvidenceReport(
+                        self: @This(),
+                        subject: Evidence.Ref,
+                        dependencies: []const Evidence.Dependency,
+                        blocker_storage: []Evidence.Blocker,
+                        related_storage: [][6]Evidence.Ref,
+                    ) Evidence.Report {
+                        const blockers = self.toEvidenceBlockers(blocker_storage, related_storage);
+                        if (self.allowed()) return Evidence.Report.ok(subject, Evidence.domains.treaty_resolver.id, dependencies);
+                        if (self.evidenceOmittedFingerprint(Evidence.domains.treaty_resolver.id, blockers.len, related_storage.len)) |omitted_fingerprint| {
+                            return Evidence.Report.withIncompleteFailure(subject, Evidence.domains.treaty_resolver.id, dependencies, blockers, &.{}, omitted_fingerprint, null, "treaty resolver report");
+                        }
+                        return Evidence.Report.withFailure(subject, Evidence.domains.treaty_resolver.id, dependencies, blockers, &.{}, null, "treaty resolver report");
                     }
                 };
 
@@ -7255,6 +7642,7 @@ pub fn program(
                     treaty_format_version: u32 = exchange_treaty_format_version,
                     treaty_fingerprint: u64,
                     request_envelope_fingerprint: u64,
+                    request_envelope_format_version: u32 = exchange_request_format_version,
                     request_fingerprint: u64,
                     manifest_fingerprint: u64,
                     provider_fingerprint: u64,
@@ -7296,6 +7684,16 @@ pub fn program(
                         if (self.route_fingerprint == 0) return error.ProgramContractViolation;
                         if (!self.blockers.allowed()) return error.ProgramContractViolation;
                         if (self.certificate_fingerprint != fingerprintTreatyCertificate(self)) return error.ProgramContractViolation;
+                    }
+
+                    /// Canonical evidence reference for this treaty certificate.
+                    pub fn evidenceRef(self: @This()) Evidence.Ref {
+                        return Evidence.refForTreatyCertificate(self);
+                    }
+
+                    /// Shared certificate snapshot view with caller-owned dependency storage.
+                    pub fn evidenceView(self: @This(), storage: ?*[6]Evidence.Dependency) Evidence.CertificateView {
+                        return Evidence.certificateViewForTreatyCertificateWithDependencies(storage, self);
                     }
 
                     /// Clone certificate-owned slices before transferring it outside the runner.
@@ -7352,6 +7750,7 @@ pub fn program(
                     obligation_fingerprint: ?u64 = null,
                     route_fingerprint: u64,
                     request_envelope_fingerprint: u64,
+                    request_envelope_format_version: u32 = exchange_request_format_version,
                     response_envelope_fingerprint: u64,
                     usage: Usage = .copyable,
                     response_use: ResponseUse = .fresh,
@@ -7362,6 +7761,16 @@ pub fn program(
                     expected_obligation_transition_fingerprint: ?u64 = null,
                     format_version: u32 = exchange_treaty_authorization_fingerprint_version,
                     authorization_fingerprint: u64 = 0,
+
+                    /// Canonical evidence reference for this treaty authorization.
+                    pub fn evidenceRef(self: @This()) Evidence.Ref {
+                        return Evidence.refForTreatyAuthorization(self);
+                    }
+
+                    /// Shared authorization snapshot view.
+                    pub fn evidenceView(self: @This()) Evidence.AuthorizationView {
+                        return Evidence.authorizationViewForTreatyAuthorization(self);
+                    }
 
                     /// Construct a treaty-bound authorization for a response.
                     pub fn forResponse(treaty: Treaty, response: ResponseEnvelope, response_use: ResponseUse) Error!@This() {
@@ -7378,6 +7787,7 @@ pub fn program(
                             .obligation_fingerprint = treaty.obligation_fingerprint,
                             .route_fingerprint = treaty.route.fingerprint,
                             .request_envelope_fingerprint = treaty.request_envelope_fingerprint,
+                            .request_envelope_format_version = treaty.request_envelope_format_version,
                             .response_envelope_fingerprint = response.fingerprint,
                             .usage = treaty.usage,
                             .response_use = response_use,
@@ -7405,6 +7815,7 @@ pub fn program(
                             .obligation_fingerprint = certificate.obligation_fingerprint,
                             .route_fingerprint = certificate.route_fingerprint,
                             .request_envelope_fingerprint = certificate.request_envelope_fingerprint,
+                            .request_envelope_format_version = certificate.request_envelope_format_version,
                             .response_envelope_fingerprint = response.fingerprint,
                             .usage = certificate.usage,
                             .response_use = response_use,
@@ -7454,16 +7865,47 @@ pub fn program(
                     pub fn encode(self: @This(), allocator: std.mem.Allocator) Error![]u8 {
                         return switch (self.format_version) {
                             2 => encodeV2(self, allocator),
-                            exchange_treaty_authorization_fingerprint_version => encodeV3(self, allocator),
+                            3 => encodeV3(self, allocator),
+                            exchange_treaty_authorization_fingerprint_version => encodeV4(self, allocator),
                             else => error.ProgramContractViolation,
                         };
                     }
 
-                    fn encodeV3(self: @This(), allocator: std.mem.Allocator) Error![]u8 {
+                    fn encodeV4(self: @This(), allocator: std.mem.Allocator) Error![]u8 {
                         var writer = Writer.init(allocator);
                         errdefer writer.deinit();
                         try writer.writeBytes(treaty_authorization_magic);
                         try writer.writeU32(exchange_treaty_authorization_fingerprint_version);
+                        try writer.writeU64(self.treaty_fingerprint);
+                        try writer.writeU64(self.treaty_certificate_fingerprint);
+                        try writer.writeU64(self.provider_fingerprint);
+                        try writer.writeU64(self.provider_offer_fingerprint);
+                        try writer.writeU64(self.capability_fingerprint);
+                        try writeOptionalU64(&writer, self.attenuated_capability_fingerprint);
+                        try writer.writeU64(self.capability_path_fingerprint);
+                        try writeOptionalU64(&writer, self.capability_instance_fingerprint);
+                        try writeOptionalU64(&writer, self.obligation_fingerprint);
+                        try writer.writeU64(self.route_fingerprint);
+                        try writer.writeU64(self.request_envelope_fingerprint);
+                        try writer.writeU32(self.request_envelope_format_version);
+                        try writer.writeU64(self.response_envelope_fingerprint);
+                        try writeUsage(&writer, self.usage);
+                        try writeResponseUse(&writer, self.response_use);
+                        try writeResponseUse(&writer, self.replay_policy);
+                        try writeBranchPolicy(&writer, self.branch_policy);
+                        try writeOptionalU64(&writer, self.replay_source_response_fingerprint);
+                        try writeOptionalU64(&writer, self.replay_source_response_value_fingerprint);
+                        try writeOptionalU64(&writer, self.expected_obligation_transition_fingerprint);
+                        try writer.writeU64(fingerprintTreatyAuthorization(self));
+                        return writer.toOwnedSlice();
+                    }
+
+                    fn encodeV3(self: @This(), allocator: std.mem.Allocator) Error![]u8 {
+                        if (self.request_envelope_format_version != exchange_request_format_version) return error.ProgramContractViolation;
+                        var writer = Writer.init(allocator);
+                        errdefer writer.deinit();
+                        try writer.writeBytes(treaty_authorization_magic);
+                        try writer.writeU32(3);
                         try writer.writeU64(self.treaty_fingerprint);
                         try writer.writeU64(self.treaty_certificate_fingerprint);
                         try writer.writeU64(self.provider_fingerprint);
@@ -7483,7 +7925,7 @@ pub fn program(
                         try writeOptionalU64(&writer, self.replay_source_response_fingerprint);
                         try writeOptionalU64(&writer, self.replay_source_response_value_fingerprint);
                         try writeOptionalU64(&writer, self.expected_obligation_transition_fingerprint);
-                        try writer.writeU64(fingerprintTreatyAuthorization(self));
+                        try writer.writeU64(fingerprintTreatyAuthorizationV3(self));
                         return writer.toOwnedSlice();
                     }
 
@@ -7524,8 +7966,38 @@ pub fn program(
                         try reader.expectBytes(treaty_authorization_magic);
                         const format_version = try reader.readU32();
                         if (format_version == 2) return decodeV2(&reader);
+                        if (format_version == 3) return decodeV3(&reader);
                         if (format_version != exchange_treaty_authorization_fingerprint_version) return error.ProgramContractViolation;
-                        return decodeV3(&reader);
+                        return decodeV4(&reader);
+                    }
+
+                    fn decodeV4(reader: *Reader) Error!@This() {
+                        const value = @This(){
+                            .treaty_fingerprint = try reader.readU64(),
+                            .treaty_certificate_fingerprint = try reader.readU64(),
+                            .provider_fingerprint = try reader.readU64(),
+                            .provider_offer_fingerprint = try reader.readU64(),
+                            .capability_fingerprint = try reader.readU64(),
+                            .attenuated_capability_fingerprint = try readOptionalU64(reader),
+                            .capability_path_fingerprint = try reader.readU64(),
+                            .capability_instance_fingerprint = try readOptionalU64(reader),
+                            .obligation_fingerprint = try readOptionalU64(reader),
+                            .route_fingerprint = try reader.readU64(),
+                            .request_envelope_fingerprint = try reader.readU64(),
+                            .request_envelope_format_version = try reader.readU32(),
+                            .response_envelope_fingerprint = try reader.readU64(),
+                            .usage = try readUsage(reader),
+                            .response_use = try readResponseUse(reader),
+                            .replay_policy = try readResponseUse(reader),
+                            .branch_policy = try readBranchPolicy(reader),
+                            .replay_source_response_fingerprint = try readOptionalU64(reader),
+                            .replay_source_response_value_fingerprint = try readOptionalU64(reader),
+                            .expected_obligation_transition_fingerprint = try readOptionalU64(reader),
+                            .authorization_fingerprint = try reader.readU64(),
+                        };
+                        if (!reader.eof()) return error.ProgramContractViolation;
+                        if (value.authorization_fingerprint != fingerprintTreatyAuthorization(value)) return error.ProgramContractViolation;
+                        return value;
                     }
 
                     fn decodeV3(reader: *Reader) Error!@This() {
@@ -7549,10 +8021,11 @@ pub fn program(
                             .replay_source_response_fingerprint = try readOptionalU64(reader),
                             .replay_source_response_value_fingerprint = try readOptionalU64(reader),
                             .expected_obligation_transition_fingerprint = try readOptionalU64(reader),
+                            .format_version = 3,
                             .authorization_fingerprint = try reader.readU64(),
                         };
                         if (!reader.eof()) return error.ProgramContractViolation;
-                        if (value.authorization_fingerprint != fingerprintTreatyAuthorization(value)) return error.ProgramContractViolation;
+                        if (value.authorization_fingerprint != fingerprintTreatyAuthorizationV3(value)) return error.ProgramContractViolation;
                         return value;
                     }
 
@@ -7615,6 +8088,7 @@ pub fn program(
                     if (!stringListEqual(self.certificate.provider_offer_tags, self.provider_offer_tags)) return error.ProgramContractViolation;
                     if (self.certificate.capability_fingerprint != self.capability_fingerprint) return error.ProgramContractViolation;
                     if (self.certificate.request_envelope_fingerprint != self.request_envelope_fingerprint) return error.ProgramContractViolation;
+                    if (self.certificate.request_envelope_format_version != self.request_envelope_format_version) return error.ProgramContractViolation;
                     if (self.certificate.request_fingerprint != self.request_fingerprint) return error.ProgramContractViolation;
                     if (self.certificate.manifest_fingerprint != self.manifest_fingerprint) return error.ProgramContractViolation;
                     if (self.certificate.attenuated_capability_fingerprint != if (self.attenuated_capability) |capability| capability.fingerprint else null) return error.ProgramContractViolation;
@@ -7834,6 +8308,11 @@ pub fn program(
                     self.bytes = &.{};
                 }
 
+                /// Canonical evidence reference for this capability grant.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForCapability(self);
+                }
+
                 /// Return a child capability whose authority is a subset of this capability.
                 pub fn attenuate(self: @This(), allocator: std.mem.Allocator, args: Attenuation) Error!@This() {
                     if (!capabilityFieldsBoundToBytes(self)) return error.ProgramContractViolation;
@@ -7917,6 +8396,11 @@ pub fn program(
                 request_envelope_fingerprint: u64,
                 response_envelope_fingerprint: u64,
                 authorization_fingerprint: u64,
+
+                /// Canonical evidence reference for this authorization sidecar.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForAuthorization(self);
+                }
 
                 /// Construct an authorization witness for a routed response.
                 pub fn forResponse(route: Route, response: ResponseEnvelope) Error!@This() {
@@ -8018,6 +8502,11 @@ pub fn program(
                 /// Return true when this route has no blockers.
                 pub fn valid(self: @This()) bool {
                     return self.blockers.allowed();
+                }
+
+                /// Canonical evidence reference for this route witness.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForRoute(self);
                 }
             };
 
@@ -8143,7 +8632,7 @@ pub fn program(
                 pub fn resolve(inputs: Inputs) Error!TreatyResolver.Result {
                     inputs.request.validate() catch |err| switch (err) {
                         error.ProgramContractViolation => {
-                            var blockers: Treaty.BlockerList = .{};
+                            var blockers: Treaty.BlockerList = .{ .request_format_version = inputs.request.request_format_version };
                             blockers.addTag(.malformed_request, inputs.request.fingerprint, "request envelope fields are not bound to request bytes");
                             return .{ .status = .blocked, .blockers = blockers, .blocked_count = 1 };
                         },
@@ -8156,30 +8645,30 @@ pub fn program(
                         request_value.request_site_fingerprint != inputs.request.site_fingerprint or
                         request_value.protocol_op_fingerprint != requestProtocolOperationFingerprint(inputs.request))
                     {
-                        var blockers: Treaty.BlockerList = .{};
+                        var blockers: Treaty.BlockerList = .{ .request_format_version = inputs.request.request_format_version };
                         blockers.addTag(.malformed_treaty_request, inputs.request.fingerprint, "treaty request does not match request envelope");
                         return .{ .status = .blocked, .blockers = blockers };
                     }
                     if (inputs.manifest.fingerprint != inputs.request.manifest_fingerprint) {
-                        var blockers: Treaty.BlockerList = .{};
+                        var blockers: Treaty.BlockerList = .{ .request_format_version = inputs.request.request_format_version };
                         blockers.addTag(.foreign_manifest, inputs.request.fingerprint, "request envelope cites a different exchange manifest");
                         return .{ .status = .blocked, .blockers = blockers };
                     }
                     if (inputs.request.bytes.len > inputs.treaty_policy.max_envelope_bytes or
                         inputs.request.bytes.len > request_value.max_request_bytes)
                     {
-                        var blockers: Treaty.BlockerList = .{};
+                        var blockers: Treaty.BlockerList = .{ .request_format_version = inputs.request.request_format_version };
                         blockers.addTag(.envelope_too_large, inputs.request.fingerprint, "request envelope exceeds treaty byte policy");
                         return .{ .status = .blocked, .blockers = blockers };
                     }
                     if (inputs.request.capsule_image) |image| {
                         if (inputs.treaty_policy.disallow_capsule_export or image.len > inputs.treaty_policy.max_capsule_bytes or request_value.capsule_policy == .forbidden) {
-                            var blockers: Treaty.BlockerList = .{};
+                            var blockers: Treaty.BlockerList = .{ .request_format_version = inputs.request.request_format_version };
                             blockers.addTag(.capsule_export_disallowed, inputs.request.fingerprint, "capsule export is disallowed by treaty policy");
                             return .{ .status = .blocked, .blockers = blockers };
                         }
                     } else if (inputs.treaty_policy.require_capsule_embedding or request_value.capsule_policy == .required) {
-                        var blockers: Treaty.BlockerList = .{};
+                        var blockers: Treaty.BlockerList = .{ .request_format_version = inputs.request.request_format_version };
                         blockers.addTag(.capsule_export_disallowed, inputs.request.fingerprint, "treaty policy requires an embedded capsule");
                         return .{ .status = .blocked, .blockers = blockers };
                     }
@@ -8189,7 +8678,7 @@ pub fn program(
                     var valid_count: usize = 0;
                     var blocked_count: usize = 0;
                     var ambiguous_best = false;
-                    var blockers: Treaty.BlockerList = .{};
+                    var blockers: Treaty.BlockerList = .{ .request_format_version = inputs.request.request_format_version };
                     if (inputs.treaty_policy.allow_direct_handling and request_value.allow_provider_fallback) {
                         try scanDirectTreaties(inputs, request_value, &first_treaty, &valid_count, &blocked_count, &ambiguous_best, &blockers);
                     }
@@ -8464,6 +8953,11 @@ pub fn program(
                     try validateRequestEnvelopeFieldsBoundToBytes(self);
                 }
 
+                /// Canonical evidence reference for this request envelope.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForRequestEnvelope(self);
+                }
+
                 /// Release request envelope storage.
                 pub fn deinit(self: *@This()) void {
                     self.allocator.free(self.bytes);
@@ -8576,6 +9070,11 @@ pub fn program(
                     const trace = responseTraceFromEnvelope(request.request_fingerprint, self.kind, self.response_ref, self.response_value_fingerprint);
                     if (trace.fingerprint != self.response_trace_fingerprint) return error.ProgramContractViolation;
                     try validateExchangeValueImage(self.allocator, self.response_ref, self.response_value_fingerprint, self.value_image);
+                }
+
+                /// Canonical evidence reference for this response envelope.
+                pub fn evidenceRef(self: @This()) Evidence.Ref {
+                    return Evidence.refForResponseEnvelope(self);
                 }
 
                 /// Attach a deterministic authorization witness without changing response bytes.
@@ -9982,13 +10481,17 @@ pub fn program(
 
             /// Validate a response envelope against a selected treaty with explicit treaty policy.
             pub fn validateTreatyResponseWithPolicy(treaty: Treaty, request: RequestEnvelope, response: ResponseEnvelope, policy: Treaty.Policy) Treaty.BlockerList {
-                var blockers: Treaty.BlockerList = .{};
+                var blockers: Treaty.BlockerList = .{ .request_format_version = request.request_format_version };
                 if (treaty.route.fingerprint != fingerprintRoute(treaty.route)) {
                     blockers.addTag(.wrong_route, request.fingerprint, "route fingerprint does not match route fields");
                     return blockers;
                 }
                 if (treaty.fingerprint != fingerprintTreatyCore(treaty)) {
                     blockers.addTag(.wrong_treaty, request.fingerprint, "treaty fingerprint does not match treaty fields");
+                    return blockers;
+                }
+                if (treaty.request_envelope_format_version != request.request_format_version) {
+                    blockers.addTag(.wrong_treaty, request.fingerprint, "treaty cites a different request envelope format");
                     return blockers;
                 }
                 treaty.checkCertificate() catch {
@@ -10046,17 +10549,25 @@ pub fn program(
                     2 => {
                         if (authorization.authorization_fingerprint != fingerprintTreatyAuthorizationV2(authorization)) blockers.addTag(.wrong_treaty, request.fingerprint, "treaty authorization fingerprint mismatch");
                     },
+                    3 => {
+                        if (authorization.authorization_fingerprint != fingerprintTreatyAuthorizationV3(authorization)) blockers.addTag(.wrong_treaty, request.fingerprint, "treaty authorization fingerprint mismatch");
+                        if (authorization.provider_fingerprint != treaty.provider_fingerprint) blockers.addTag(.wrong_provider, request.fingerprint, "authorization cites a different provider");
+                        if (authorization.capability_fingerprint != treaty.capability_fingerprint) blockers.addTag(.wrong_capability, request.fingerprint, "authorization cites a different capability");
+                        if (authorization.capability_path_fingerprint != treaty.capability_path_fingerprint) blockers.addTag(.wrong_capability, request.fingerprint, "authorization cites a different capability path");
+                        if (authorization.request_envelope_fingerprint != request.fingerprint) blockers.addTag(.wrong_treaty, request.fingerprint, "authorization cites a different request envelope");
+                    },
                     exchange_treaty_authorization_fingerprint_version => {
                         if (authorization.authorization_fingerprint != fingerprintTreatyAuthorization(authorization)) blockers.addTag(.wrong_treaty, request.fingerprint, "treaty authorization fingerprint mismatch");
                         if (authorization.provider_fingerprint != treaty.provider_fingerprint) blockers.addTag(.wrong_provider, request.fingerprint, "authorization cites a different provider");
                         if (authorization.capability_fingerprint != treaty.capability_fingerprint) blockers.addTag(.wrong_capability, request.fingerprint, "authorization cites a different capability");
                         if (authorization.capability_path_fingerprint != treaty.capability_path_fingerprint) blockers.addTag(.wrong_capability, request.fingerprint, "authorization cites a different capability path");
                         if (authorization.request_envelope_fingerprint != request.fingerprint) blockers.addTag(.wrong_treaty, request.fingerprint, "authorization cites a different request envelope");
+                        if (authorization.request_envelope_format_version != request.request_format_version) blockers.addTag(.wrong_treaty, request.fingerprint, "authorization cites a different request envelope format");
                     },
                     else => blockers.addTag(.wrong_treaty, request.fingerprint, "unknown treaty authorization format"),
                 }
-                if (authorization.treaty_fingerprint != treaty.fingerprint) blockers.addTag(.wrong_treaty, request.fingerprint, "authorization cites a different treaty");
-                if (authorization.treaty_certificate_fingerprint != treaty.certificate.certificate_fingerprint) blockers.addTag(.wrong_certificate, request.fingerprint, "authorization cites a different treaty certificate");
+                if (!authorizationTreatyFingerprintMatches(authorization, treaty)) blockers.addTag(.wrong_treaty, request.fingerprint, "authorization cites a different treaty");
+                if (!authorizationCertificateFingerprintMatches(authorization, treaty.certificate)) blockers.addTag(.wrong_certificate, request.fingerprint, "authorization cites a different treaty certificate");
                 if (authorization.provider_offer_fingerprint != treaty.provider_offer_fingerprint) blockers.addTag(.wrong_provider, request.fingerprint, "authorization cites a different provider offer");
                 if (authorization.attenuated_capability_fingerprint != treaty.certificate.attenuated_capability_fingerprint) blockers.addTag(.wrong_capability, request.fingerprint, "authorization cites a different attenuated capability");
                 if (authorization.capability_instance_fingerprint != treaty.capability_instance_fingerprint) blockers.addTag(.capability_instance_wrong_branch, request.fingerprint, "authorization cites a different capability instance");
@@ -12072,7 +12583,50 @@ pub fn program(
             fn fingerprintTreatyCertificate(certificate: Treaty.Certificate) u64 {
                 var hasher = std.hash.Wyhash.init(0);
                 hashBytes(&hasher, "ability.exchange.treaty.certificate");
-                hashU32(&hasher, exchange_treaty_fingerprint_version);
+                hashU32(&hasher, exchange_treaty_certificate_fingerprint_version);
+                hashU64(&hasher, certificate.treaty_fingerprint);
+                hashU64(&hasher, certificate.request_envelope_fingerprint);
+                hashU32(&hasher, certificate.request_envelope_format_version);
+                hashU64(&hasher, certificate.request_fingerprint);
+                hashU64(&hasher, certificate.manifest_fingerprint);
+                hashU64(&hasher, certificate.provider_fingerprint);
+                hashU64(&hasher, certificate.provider_offer_fingerprint);
+                hashStringList(&hasher, certificate.provider_offer_tags);
+                hashU64(&hasher, certificate.capability_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.attenuated_capability_fingerprint);
+                hashU64(&hasher, certificate.capability_path_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.capability_instance_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.obligation_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.effect_session_spec_fingerprint);
+                hashU64(&hasher, certificate.route_fingerprint);
+                hashU64List(&hasher, certificate.morphism_offer_fingerprints);
+                hashU64List(&hasher, certificate.dynamic_morphism_fingerprints);
+                hashU64List(&hasher, certificate.residualization_fingerprints);
+                hashOptionalExchangeU64(&hasher, certificate.pipeline_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.source_protocol_op_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.target_protocol_op_fingerprint);
+                hashBytes(&hasher, @tagName(certificate.handling));
+                hashBytes(&hasher, @tagName(certificate.usage));
+                hashBytes(&hasher, @tagName(certificate.provider_usage));
+                hashBytes(&hasher, @tagName(certificate.response_use));
+                hashBytes(&hasher, @tagName(certificate.replay_policy));
+                hashBytes(&hasher, @tagName(certificate.branch_policy));
+                hashBool(&hasher, certificate.expected_response_kinds.@"resume");
+                hashBool(&hasher, certificate.expected_response_kinds.return_now);
+                hashBool(&hasher, certificate.expected_response_kinds.resume_after);
+                hashValueRefList(&hasher, certificate.expected_response_refs);
+                hashValueRefList(&hasher, certificate.provider_response_refs);
+                hashOptionalExchangeU64(&hasher, certificate.journal_policy_fingerprint);
+                hashBool(&hasher, certificate.require_treaty_bound_response_authorization);
+                for (certificate.blockers.blockers[0..certificate.blockers.count]) |blocker| hashBytes(&hasher, @tagName(blocker.tag));
+                hashBool(&hasher, certificate.blockers.saturated);
+                return hasher.final();
+            }
+
+            fn fingerprintTreatyCertificateV2(certificate: Treaty.Certificate) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.exchange.treaty.certificate");
+                hashU32(&hasher, 2);
                 hashU64(&hasher, certificate.treaty_fingerprint);
                 hashU64(&hasher, certificate.request_envelope_fingerprint);
                 hashU64(&hasher, certificate.request_fingerprint);
@@ -12126,6 +12680,33 @@ pub fn program(
                 hashOptionalExchangeU64(&hasher, authorization.obligation_fingerprint);
                 hashU64(&hasher, authorization.route_fingerprint);
                 hashU64(&hasher, authorization.request_envelope_fingerprint);
+                hashU32(&hasher, authorization.request_envelope_format_version);
+                hashU64(&hasher, authorization.response_envelope_fingerprint);
+                hashBytes(&hasher, @tagName(authorization.usage));
+                hashBytes(&hasher, @tagName(authorization.response_use));
+                hashBytes(&hasher, @tagName(authorization.replay_policy));
+                hashBytes(&hasher, @tagName(authorization.branch_policy));
+                hashOptionalExchangeU64(&hasher, authorization.replay_source_response_fingerprint);
+                hashOptionalExchangeU64(&hasher, authorization.replay_source_response_value_fingerprint);
+                hashOptionalExchangeU64(&hasher, authorization.expected_obligation_transition_fingerprint);
+                return hasher.final();
+            }
+
+            fn fingerprintTreatyAuthorizationV3(authorization: Treaty.Authorization) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.exchange.treaty.authorization");
+                hashU32(&hasher, 3);
+                hashU64(&hasher, authorization.treaty_fingerprint);
+                hashU64(&hasher, authorization.treaty_certificate_fingerprint);
+                hashU64(&hasher, authorization.provider_fingerprint);
+                hashU64(&hasher, authorization.provider_offer_fingerprint);
+                hashU64(&hasher, authorization.capability_fingerprint);
+                hashOptionalExchangeU64(&hasher, authorization.attenuated_capability_fingerprint);
+                hashU64(&hasher, authorization.capability_path_fingerprint);
+                hashOptionalExchangeU64(&hasher, authorization.capability_instance_fingerprint);
+                hashOptionalExchangeU64(&hasher, authorization.obligation_fingerprint);
+                hashU64(&hasher, authorization.route_fingerprint);
+                hashU64(&hasher, authorization.request_envelope_fingerprint);
                 hashU64(&hasher, authorization.response_envelope_fingerprint);
                 hashBytes(&hasher, @tagName(authorization.usage));
                 hashBytes(&hasher, @tagName(authorization.response_use));
@@ -12159,6 +12740,22 @@ pub fn program(
                 return hasher.final();
             }
 
+            fn authorizationTreatyFingerprintMatches(authorization: Treaty.Authorization, treaty: Treaty) bool {
+                if (authorization.treaty_fingerprint == treaty.fingerprint) return true;
+                return switch (authorization.format_version) {
+                    2, 3 => authorization.treaty_fingerprint == fingerprintTreatyCoreV2(treaty),
+                    else => false,
+                };
+            }
+
+            fn authorizationCertificateFingerprintMatches(authorization: Treaty.Authorization, certificate: Treaty.Certificate) bool {
+                if (authorization.treaty_certificate_fingerprint == certificate.certificate_fingerprint) return true;
+                return switch (authorization.format_version) {
+                    2, 3 => authorization.treaty_certificate_fingerprint == fingerprintTreatyCertificateV2(certificate),
+                    else => false,
+                };
+            }
+
             fn writeRequestKindSet(writer: *Writer, set: RequestKindSet) std.mem.Allocator.Error!void {
                 try writer.writeBool(set.operation);
                 try writer.writeBool(set.after);
@@ -12174,7 +12771,7 @@ pub fn program(
             fn providerIdentityFingerprint(provider_label: []const u8, metadata: []const u8) u64 {
                 var hasher = std.hash.Wyhash.init(0);
                 hashBytes(&hasher, "ability.exchange.provider.identity");
-                hashU32(&hasher, exchange_provider_fingerprint_version);
+                hashU32(&hasher, exchange_provider_identity_fingerprint_version);
                 hashBytes(&hasher, provider_label);
                 hashBytes(&hasher, metadata);
                 return hasher.final();
@@ -13604,7 +14201,7 @@ pub fn program(
                 capability: Capability,
                 morphism: ?MorphismOffer,
             ) Error!Treaty {
-                var blockers: Treaty.BlockerList = .{};
+                var blockers: Treaty.BlockerList = .{ .request_format_version = inputs.request.request_format_version };
                 if (provider.provider_fingerprint == 0 or offer.provider_fingerprint == 0 or offer.fingerprint == 0) {
                     blockers.addTag(.malformed_offer, inputs.request.fingerprint, "provider offer cannot produce a certificate-valid treaty identity");
                 }
@@ -13711,6 +14308,7 @@ pub fn program(
                     .allocator = inputs.allocator,
                     .fingerprint = 0,
                     .request_envelope_fingerprint = inputs.request.fingerprint,
+                    .request_envelope_format_version = inputs.request.request_format_version,
                     .request_fingerprint = inputs.request.request_fingerprint,
                     .manifest_fingerprint = inputs.request.manifest_fingerprint,
                     .provider_fingerprint = offer.provider_fingerprint,
@@ -13746,6 +14344,7 @@ pub fn program(
                 treaty.certificate = Treaty.Certificate{
                     .treaty_fingerprint = treaty.fingerprint,
                     .request_envelope_fingerprint = treaty.request_envelope_fingerprint,
+                    .request_envelope_format_version = treaty.request_envelope_format_version,
                     .request_fingerprint = treaty.request_fingerprint,
                     .manifest_fingerprint = treaty.manifest_fingerprint,
                     .provider_fingerprint = treaty.provider_fingerprint,
@@ -13930,6 +14529,45 @@ pub fn program(
                 hashBytes(&hasher, "ability.exchange.treaty");
                 hashU32(&hasher, exchange_treaty_fingerprint_version);
                 hashU64(&hasher, treaty.request_envelope_fingerprint);
+                hashU32(&hasher, treaty.request_envelope_format_version);
+                hashU64(&hasher, treaty.request_fingerprint);
+                hashU64(&hasher, treaty.manifest_fingerprint);
+                hashU64(&hasher, treaty.provider_fingerprint);
+                hashU64(&hasher, treaty.provider_offer_fingerprint);
+                hashStringList(&hasher, treaty.provider_offer_tags);
+                hashU64(&hasher, treaty.capability_fingerprint);
+                hashU64(&hasher, treaty.capability_path_fingerprint);
+                hashOptionalExchangeU64(&hasher, treaty.capability_instance_fingerprint);
+                hashOptionalExchangeU64(&hasher, treaty.obligation_fingerprint);
+                hashU64(&hasher, treaty.route.fingerprint);
+                hashBytes(&hasher, @tagName(treaty.handling));
+                hashU64List(&hasher, treaty.morphism_offer_fingerprints);
+                hashOptionalExchangeU64(&hasher, treaty.effect_session_spec_fingerprint);
+                hashU64List(&hasher, treaty.dynamic_morphism_fingerprints);
+                hashU64List(&hasher, treaty.residualization_fingerprints);
+                hashOptionalExchangeU64(&hasher, treaty.pipeline_fingerprint);
+                hashOptionalExchangeU64(&hasher, treaty.source_protocol_op_fingerprint);
+                hashOptionalExchangeU64(&hasher, treaty.target_protocol_op_fingerprint);
+                hashBytes(&hasher, @tagName(treaty.usage));
+                hashBytes(&hasher, @tagName(treaty.provider_usage));
+                hashBytes(&hasher, @tagName(treaty.response_use));
+                hashBytes(&hasher, @tagName(treaty.replay_policy));
+                hashBytes(&hasher, @tagName(treaty.branch_policy));
+                hashBool(&hasher, treaty.expected_response_kinds.@"resume");
+                hashBool(&hasher, treaty.expected_response_kinds.return_now);
+                hashBool(&hasher, treaty.expected_response_kinds.resume_after);
+                hashValueRefList(&hasher, treaty.expected_response_refs);
+                hashValueRefList(&hasher, treaty.provider_response_refs);
+                hashOptionalExchangeU64(&hasher, treaty.journal_policy_fingerprint);
+                hashBool(&hasher, treaty.require_treaty_bound_response_authorization);
+                return hasher.final();
+            }
+
+            fn fingerprintTreatyCoreV2(treaty: Treaty) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.exchange.treaty");
+                hashU32(&hasher, 2);
+                hashU64(&hasher, treaty.request_envelope_fingerprint);
                 hashU64(&hasher, treaty.request_fingerprint);
                 hashU64(&hasher, treaty.manifest_fingerprint);
                 hashU64(&hasher, treaty.provider_fingerprint);
@@ -14087,6 +14725,16 @@ pub fn program(
         fn hashOptionalU64(hasher: *std.hash.Wyhash, value: ?u64) void {
             hashBool(hasher, value != null);
             if (value) |actual| hashU64(hasher, actual);
+        }
+
+        fn hashOptionalUsize(hasher: *std.hash.Wyhash, value: ?usize) void {
+            hashBool(hasher, value != null);
+            if (value) |actual| hashUsize(hasher, actual);
+        }
+
+        fn hashOptionalBytes(hasher: *std.hash.Wyhash, value: ?[]const u8) void {
+            hashBool(hasher, value != null);
+            if (value) |actual| hashBytes(hasher, actual);
         }
 
         fn hashU64List(hasher: *std.hash.Wyhash, values: []const u64) void {
@@ -14504,6 +15152,22 @@ pub fn program(
             source_site_fingerprint: ?u64 = null,
             target_protocol_op_fingerprint: ?u64 = null,
             message: []const u8 = "",
+
+            /// Lower residualization-specific blocker metadata into the shared Evidence blocker shape.
+            pub fn toEvidenceBlocker(self: @This()) Evidence.Blocker {
+                return .{
+                    .domain = Evidence.domains.residualization_report.id,
+                    .tag = @tagName(self.tag),
+                    .subject = null,
+                    .primary = null,
+                    .site_index = self.source_site_index,
+                    .source_site_fingerprint = self.source_site_fingerprint,
+                    .target_protocol_op_fingerprint = self.target_protocol_op_fingerprint,
+                    .short_code = @tagName(self.tag),
+                    .summary = if (self.message.len == 0) @tagName(self.tag) else self.message,
+                    .source = .residualization,
+                };
+            }
         };
 
         /// Static source-to-residual site mapping emitted by a residualization report.
@@ -15562,6 +16226,23 @@ pub fn program(
             target_protocol_op_fingerprint: ?u64 = null,
             morphism_fingerprint: ?u64 = null,
             summary: []const u8 = "",
+
+            /// Lower pipeline-specific blocker metadata into the shared Evidence blocker shape.
+            pub fn toEvidenceBlocker(self: @This()) Evidence.Blocker {
+                return .{
+                    .domain = Evidence.domains.pipeline.id,
+                    .tag = @tagName(self.tag),
+                    .subject = null,
+                    .primary = null,
+                    .site_index = self.source_site_index,
+                    .source_site_fingerprint = self.source_site_fingerprint,
+                    .target_protocol_op_fingerprint = self.target_protocol_op_fingerprint,
+                    .morphism_fingerprint = self.morphism_fingerprint,
+                    .short_code = @tagName(self.tag),
+                    .summary = if (self.summary.len == 0) @tagName(self.tag) else self.summary,
+                    .source = .pipeline,
+                };
+            }
         };
 
         /// Route category selected or reported by the pipeline planner.
@@ -15708,6 +16389,39 @@ pub fn program(
                 }
             }
 
+            /// Canonical evidence reference for this pipeline certificate.
+            pub fn evidenceRef(self: @This()) Evidence.Ref {
+                return Evidence.refForPipelineCertificate(self);
+            }
+
+            /// Shared certificate snapshot view.
+            pub fn evidenceView(self: @This(), storage: ?*[6]Evidence.Dependency) Evidence.CertificateView {
+                const certificate_ref = self.evidenceRef();
+                const subject = Evidence.refFor(Evidence.domains.program_plan, self.source_plan_hash, .{ .label = self.source_plan_label });
+                const residual_plan_ref = Evidence.refFor(Evidence.domains.program_plan, self.residual_plan_hash, .{ .label = self.residual_program_label });
+                const source_map_ref = Evidence.refFor(Evidence.domains.pipeline_source_map, pipelineSourceMapFingerprint(self.source_to_residual_site_map, self.residual_to_source_site_map), .{ .label = self.pipeline_label });
+                const dependencies = if (storage) |out| blk: {
+                    out.* = .{
+                        .{ .role = .subject, .ref = subject },
+                        .{ .role = .residual_program, .ref = residual_plan_ref },
+                        .{ .role = .pipeline, .ref = Evidence.refFor(Evidence.domains.pipeline, self.pipeline_fingerprint, .{ .label = self.pipeline_label }) },
+                        .{ .role = .morphism, .ref = Evidence.refFor(Evidence.domains.residualization, self.residualization_fingerprint, .{ .label = self.pipeline_label }) },
+                        .{ .role = .target, .ref = Evidence.refFor(Evidence.domains.reinterpretation, self.dynamic_catalog_fingerprint, .{ .label = self.pipeline_label }) },
+                        .{ .role = .source_site, .ref = source_map_ref },
+                    };
+                    break :blk out[0..];
+                } else &.{};
+                return .{
+                    .certificate_ref = certificate_ref,
+                    .subject_ref = subject,
+                    .domain = Evidence.domains.pipeline_certificate.id,
+                    .dependencies = dependencies,
+                    .report_fingerprint = self.pipeline_fingerprint,
+                    .certificate_fingerprint = self.pipeline_fingerprint,
+                    .summary = "pipeline certificate",
+                };
+            }
+
             fn residualMapEntryForRoute(entries: []const ResidualSourceMapEntry, route: PipelineRouteWitness) ?ResidualSourceMapEntry {
                 if (route.source_site_fingerprint == null or
                     route.target_protocol_op_fingerprint == null or
@@ -15732,6 +16446,30 @@ pub fn program(
                     left.residual_site_index == right.residual_site_index and
                     left.residual_site_fingerprint == right.residual_site_fingerprint and
                     left.target_protocol_op_fingerprint == right.target_protocol_op_fingerprint;
+            }
+
+            fn pipelineSourceMapFingerprint(source_to_residual: []const ResidualSourceMapEntry, residual_to_source: []const ResidualSourceMapEntry) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.program.pipeline.source_map");
+                hashU32(&hasher, Evidence.domains.pipeline_source_map.fingerprint_version);
+                hashSourceMapEntries(&hasher, source_to_residual);
+                hashSourceMapEntries(&hasher, residual_to_source);
+                return hasher.final();
+            }
+
+            fn hashSourceMapEntries(hasher: *std.hash.Wyhash, entries: []const ResidualSourceMapEntry) void {
+                hashUsize(hasher, entries.len);
+                for (entries) |entry| {
+                    hashUsize(hasher, entry.source_site_index);
+                    hashU64(hasher, entry.source_site_fingerprint);
+                    hashOptionalUsize(hasher, entry.residual_site_index);
+                    hashOptionalU64(hasher, entry.residual_site_fingerprint);
+                    hashBytes(hasher, @tagName(entry.disposition));
+                    hashBytes(hasher, entry.target_protocol_label);
+                    hashBytes(hasher, entry.target_op_name);
+                    hashU64(hasher, entry.target_protocol_op_fingerprint);
+                    hashOptionalBytes(hasher, entry.mapping_label);
+                }
             }
         };
 

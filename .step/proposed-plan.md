@@ -1,38 +1,36 @@
-Iteration: 8
+Iteration: 9
 
-# Treaty-Bound Provider Harnesses for Effect Exchange
+# Canonical Evidence Kernel for Ability
 
 ## Summary
-Add `Program.Exchange.ProviderHarness`: a typed, deterministic, transport-neutral provider-side executor for treaty-bound request envelopes.
+Refactor Ability around a canonical `Program.Evidence` substrate for versioned evidence domains, deterministic evidence references, dependency lists, fingerprint construction, blockers, validation reports, certificate/authorization views, journal projections, and policy summaries.
 
-Treaties define the agreement. `ProviderHarness` executes the provider side of that agreement.
-
-The implementation is additive under `Program.Exchange`. It preserves `Program.Session` as the primitive host-driven defunctionalized execution machine, keeps the public root unchanged, keeps `ProgramValue` scalar, and keeps hosts responsible for identity, signing, encryption, transport, storage, scheduling, network, persistence, provider execution, cancellation side effects, and provider lifecycle.
+This is a refactor milestone, not a new effect-semantics milestone. Existing behavior, examples, public root exports, encoded formats, and semantic fingerprints must remain stable unless an intentional version bump is made and justified.
 
 ## Non-Goals/Out of Scope
-Do not change `Program.run` semantics, `Program.Session` primitive stepping semantics, Session/Capsule/Journal/Exchange/Capability/Linear Effect Session/Treaty/Handler/Interpreter/Morphism/Residualize/Pipeline APIs, the public root, or `ProgramValue`. Do not add a parser/source language, public VM API, Artifact API, async runtime, RPC framework, network server, message broker, provider marketplace, provider registry, service discovery system, agent framework, workflow engine, security/authentication layer, persistence backend, cryptographic signing/encryption, legal-contract semantics, distributed consensus, serializable request tokens, cross-thread sessions, arbitrary host handler serialization, host context serialization, or allocator/thread state serialization.
+Do not add new effect semantics, receipts, membranes, settlement, storage backends, xitdb integration, parser/source language, public VM APIs, Artifact APIs, async runtime, network/LLM integration, persistence backend, cryptographic signing/encryption, legal-contract semantics, distributed consensus, provider execution scheduling, service discovery, public-root widening, `ProgramValue` widening, serializable request tokens, cross-thread sessions, arbitrary host handler serialization, host context serialization, runtime allocator/thread serialization, or broad public-concept renames.
+
+`Program.Session` remains the primitive host-driven defunctionalized execution machine. Request tokens remain in-process misuse guards and are never serialized. Hosts still own identity, signing, encryption, transport, storage, scheduling, network, persistence, provider lifecycle, provider execution, and cancellation side effects.
 
 ## Interfaces/Types/APIs Impacted
-- `Program` version constants: add `exchange_provider_harness_fingerprint_version = 1` and only bump treaty authorization or journal versions if bytes require it.
-- `Program.Exchange.provider(...)`: handler-first declaration helper that derives provider manifest entries, `ProviderOffer` data, offer fingerprints, catalog metadata, typed request views, typed outcome type, and coverage metadata.
-- `Program.Exchange.ProviderHarness(config)`: static harness type with `providerManifest`, `providerOffers`, `catalog`, `assertValid`, `assertOffersCovered`, `Request(handler_key)`, `Outcome(handler_key)`, `handle`, `handleNext`, and `drain`.
-- `Program.Exchange.ProviderCatalog(.{ HarnessA, HarnessB })`: small static metadata helper for provider manifests, offers, fingerprints, resolver catalog inputs, and duplicate checks.
-- `Program.Exchange.ProviderOffer`: remains deterministic data. Preferred path derives it from handler declarations. Manual offers remain an advanced escape hatch only when they exactly match derived handler metadata.
-- Typed provider request views: expose provider/offer/treaty/route/capability/usage/branch/replay/obligation/capsule/morphism metadata and typed payload/current-value accessors; do not expose request tokens, runtime pointers, allocator pointers, mutable envelope internals, or host context beyond the explicit provider context argument.
-- Provider outcomes: support `resume`, `returnNow`, `resumeAfter`, `reject`, `forward`, `replay`, and optional `pending/noResponse`, with comptime checks where possible and structured blockers otherwise.
-- Provider blockers: add structured blocker tags for malformed envelopes, treaty/certificate/provider/offer/capability/route/policy mismatches, decode/capsule/byte-limit failures, handler reject/forward/pending, invalid outcomes, and response build failures.
-- Response builder: create response envelopes through existing `ResponseEnvelope` machinery, preserve response envelope fingerprint semantics, and attach treaty-bound authorization.
-- Provider-side journal events: add provider manifest/offer derived, request received/validated/rejected, handler invoked, response built/authorized/forwarded, and pending events without bumping journal v4 unless encoding requires v5.
-- Examples, tests, docs, `build.zig`, and repo path/lint manifests.
+- Add `Program.Evidence`, preferably backed by `src/program/evidence.zig`; do not widen the public root.
+- Keep existing public version constants available and source-compatible; make them delegate to Evidence domains where practical.
+- Add Evidence domain registry entries for current version/fingerprint families across ProgramPlan, Session, Capsule, Journal, Exchange, Capability, Linear Session, Treaty, ProviderHarness, Morphism, Residualization, Pipeline, and provider-side derived evidence.
+- Add `Evidence.Ref`, `Evidence.DependencyGraph`, `Evidence.FingerprintBuilder`, `Evidence.Blocker`, `Evidence.Report`, `Evidence.CertificateView`, `Evidence.AuthorizationView`, `Evidence.JournalProjection`, `Evidence.PolicySummary`, and object-shape helpers.
+- Add adapters first. Existing typed subsystem APIs remain authoritative and source-compatible while exposing `.evidenceRef()`, `.toEvidenceBlocker()`, `.toEvidenceReport()`, `.evidenceView()`, or equivalent helpers where useful.
+- Add documentation: README note, `docs/program_plan.md` Evidence/validation section, `docs/custom_effect_authoring.md` note, and authoritative `docs/evidence_kernel.md`.
+- Add focused evidence tests, preferably in `test/evidence_kernel_test.zig`, and wire into build/test manifests as needed.
 
 ## Implementation Brief
-1. step=provider_harness_core_declarations; owner=implementation; success_criteria=add handler-first provider declarations, `ProviderHarness`, derived manifest/offers/fingerprints/catalog metadata, manual-offer exact-match validation, coverage assertions, duplicate/foreign-offer rejection, and stable focused tests.
-2. step=provider_request_and_outcomes; owner=implementation; success_criteria=add typed provider request views, typed payload/current-value decode accessors, hidden request-token/runtime/allocator internals, outcome constructors, outcome-policy validation, and tests for valid/invalid request and outcome shapes.
-3. step=provider_validation_pipeline; owner=implementation; success_criteria=validate request envelope, treaty certificate, provider/offer, capability/attenuation/route, usage/response-use/replay/branch/obligation/capability-instance, capsule, byte limits, and offer support before invoking handlers, with structured blocker tests.
-4. step=response_packet_authorization; owner=implementation; success_criteria=build response envelopes from outcomes, validate them against requests, attach treaty-bound authorization citing provider/offer/treaty/certificate/route/capability/request/response fields, preserve response envelope fingerprint stability, and test unauthorized/mismatched responses.
-5. step=provider_journal_mailbox_helpers; owner=implementation; success_criteria=record provider-side journal events, preserve legacy journal decode compatibility, add `handleNext`/`drain` in-memory helpers, and test forward/reject/pending/replay paths.
-6. step=round_trip_examples_docs; owner=implementation; success_criteria=add `provider_harness_direct`, `provider_harness_morphism`, and `provider_harness_replayable` examples/build steps; update README, `docs/program_plan.md`, and `docs/custom_effect_authoring.md` with Provider Harnesses framing and non-goals.
-7. step=fixed_point_proof_and_ship; owner=implementation; success_criteria=run fixed-point de novo review, negative-ledger handoff, one-change challenge, requested proof commands, record durable `$st` proof, commit, push, and `$ship` a PR with API/proof/non-goal summary.
+1. step=evidence_inventory_and_domain_registry; owner=implementation; success_criteria=add Evidence domains doc/table and `Program.Evidence.Domain` registry covering all known format/fingerprint domains, including ProviderHarness derived/provider-side domains; existing version constants match registry; duplicate ids/names rejected; durable byte domains carry format versions; journal v4 and request envelope v3 are represented; no behavior changes.
+2. step=evidence_refs_dependencies_builder; owner=implementation; success_criteria=add deterministic `Evidence.Ref` helpers, dependency roles/list/fingerprint/lookup/duplicate checks, and `FingerprintBuilder` with explicit domain/version, stable fields, fixed-endian scalars, nested refs, optionals, and no pointer/token APIs; migrated high-risk builders preserve existing fingerprints.
+3. step=evidence_blockers_reports_views; owner=implementation; success_criteria=add shared `Evidence.Blocker`, `Evidence.Report`, `Evidence.CertificateView`, `Evidence.AuthorizationView`, `Evidence.PolicySummary`, and compile-time shape helpers; subsystem blockers and validators can lower or adapt without deleting typed APIs; report and view fingerprints/dependencies are stable.
+4. step=evidence_journal_projections; owner=implementation; success_criteria=add `Evidence.JournalProjection` and projection helpers for ProviderHarness, Treaty, Capability/Route, Obligations, Morphism offers, and provider-side events where possible; preserve journal v4 bytes and legacy v1/v2/v3/v4 decode.
+5. step=provider_harness_treaty_evidence_integration; owner=implementation; success_criteria=ProviderHarness and Treaty stacks expose Evidence refs, dependencies, reports, blocker lowering, certificate/authorization views, policy summaries, and journal projections while preserving existing APIs/fingerprints/journal bytes and examples.
+6. step=linear_capability_exchange_pipeline_adapters; owner=implementation; success_criteria=Linear Effect Sessions, Capability/Route/Authorization, Exchange envelopes, Journal, Pipeline, Residualization, and Morphism expose Evidence refs/reports/blockers/views/projections as adapters; existing fingerprints, envelope bytes, journal legacy decode, and examples remain stable.
+7. step=evidence_docs_architecture_guide; owner=documentation; success_criteria=README, `docs/program_plan.md`, `docs/custom_effect_authoring.md`, and new `docs/evidence_kernel.md` explain domains, refs, dependencies, blockers, reports, certificates/authorizations, journal projections, version-bump policy, request-token boundary, no cryptographic-security claim, and how future maintainers add evidence objects/events/blockers/tests.
+8. step=evidence_kernel_tests; owner=verification; success_criteria=add focused tests for registry uniqueness/version parity, refs, dependencies, builder semantics, blocker lowering, reports, certificate/authorization views, journal projections, legacy journal decode, ProviderHarness/Treaty/Capability/Linear/Exchange/Journal/Pipeline/Residualization adapter parity, and unchanged fingerprints.
+9. step=fixed_point_review_and_closure; owner=verification; success_criteria=run fixed-point routing preflight, negative-ledger pass, de novo review/challenge loop, one-change challenge, full requested proof suite, record `$st` proof, commit and push only relevant changes, and `$ship` a PR with evidence-kernel summary and proof.
 
 ## Proof Commands
 ```bash
@@ -40,6 +38,32 @@ zig version
 zig fmt --check build.zig src examples test bench
 git diff --check
 zig build --summary all
+zig build test --summary all
+zig build test --summary none -- --test-filter "evidence"
+zig build test --summary none -- --test-filter "domain"
+zig build test --summary none -- --test-filter "fingerprint"
+zig build test --summary none -- --test-filter "blocker"
+zig build test --summary none -- --test-filter "report"
+zig build test --summary none -- --test-filter "certificate"
+zig build test --summary none -- --test-filter "authorization"
+zig build test --summary none -- --test-filter "journal projection"
+zig build test --summary none -- --test-filter "provider harness"
+zig build test --summary none -- --test-filter "provider request"
+zig build test --summary none -- --test-filter "provider outcome"
+zig build test --summary none -- --test-filter "provider journal"
+zig build test --summary none -- --test-filter "derived offer"
+zig build test --summary none -- --test-filter "treaty"
+zig build test --summary none -- --test-filter "offer"
+zig build test --summary none -- --test-filter "resolver"
+zig build test --summary none -- --test-filter "capability"
+zig build test --summary none -- --test-filter "linear"
+zig build test --summary none -- --test-filter "obligation"
+zig build test --summary none -- --test-filter "exchange"
+zig build test --summary none -- --test-filter "journal"
+zig build test --summary none -- --test-filter "mailbox"
+zig build test --summary none -- --test-filter "pipeline"
+zig build test --summary none -- --test-filter "residual"
+zig build test --summary none -- --test-filter "morphism"
 zig build run-provider-harness-direct
 zig build run-provider-harness-morphism
 zig build run-provider-harness-replayable
@@ -62,20 +86,5 @@ zig build run-continuation-branching
 zig build run-custom-approval-workflow
 zig build run-agent-loop
 zig build run-typed-program-plan
-zig build test --summary all
-zig build test --summary none -- --test-filter "provider harness"
-zig build test --summary none -- --test-filter "provider request"
-zig build test --summary none -- --test-filter "provider outcome"
-zig build test --summary none -- --test-filter "provider journal"
-zig build test --summary none -- --test-filter "derived offer"
-zig build test --summary none -- --test-filter "treaty"
-zig build test --summary none -- --test-filter "offer"
-zig build test --summary none -- --test-filter "resolver"
-zig build test --summary none -- --test-filter "capability"
-zig build test --summary none -- --test-filter "linear"
-zig build test --summary none -- --test-filter "obligation"
-zig build test --summary none -- --test-filter "exchange"
-zig build test --summary none -- --test-filter "journal"
-zig build test --summary none -- --test-filter "mailbox"
 zig build lint -- --max-warnings 0
 ```
