@@ -1799,6 +1799,8 @@ pub fn program(
                     branch_id: ?u64 = null,
                     previous_state_fingerprint: ?u64 = null,
                     next_state_fingerprint: ?u64 = null,
+                    provider_program_execution_fingerprint: ?u64 = null,
+                    provider_program_nested_request_fingerprint: ?u64 = null,
                     blocker_tag: ?[]const u8 = null,
 
                     /// Exchange ledger event kind.
@@ -3476,6 +3478,8 @@ pub fn program(
                 try writeOptionalJournalU64(writer, event.branch_id);
                 try writeOptionalJournalU64(writer, event.previous_state_fingerprint);
                 try writeOptionalJournalU64(writer, event.next_state_fingerprint);
+                try writeOptionalJournalU64(writer, event.provider_program_execution_fingerprint);
+                try writeOptionalJournalU64(writer, event.provider_program_nested_request_fingerprint);
                 try writer.writeBool(event.blocker_tag != null);
                 if (event.blocker_tag) |tag| try writer.writeLenBytes(tag);
             }
@@ -3498,6 +3502,8 @@ pub fn program(
                 const branch_id = if (format_version >= 3) try readOptionalJournalU64(reader) else null;
                 const previous_state_fingerprint = if (format_version >= 3) try readOptionalJournalU64(reader) else null;
                 const next_state_fingerprint = if (format_version >= 3) try readOptionalJournalU64(reader) else null;
+                const provider_program_execution_fingerprint = if (format_version >= 6) try readOptionalJournalU64(reader) else null;
+                const provider_program_nested_request_fingerprint = if (format_version >= 6) try readOptionalJournalU64(reader) else null;
                 const blocker_tag = if (try reader.readBool()) blk: {
                     const tag = try allocator.dupe(u8, try reader.readLenBytes());
                     break :blk tag;
@@ -3520,6 +3526,8 @@ pub fn program(
                     .branch_id = branch_id,
                     .previous_state_fingerprint = previous_state_fingerprint,
                     .next_state_fingerprint = next_state_fingerprint,
+                    .provider_program_execution_fingerprint = provider_program_execution_fingerprint,
+                    .provider_program_nested_request_fingerprint = provider_program_nested_request_fingerprint,
                     .blocker_tag = blocker_tag,
                 };
             }
@@ -3804,6 +3812,7 @@ pub fn program(
             const treaty_authorization_magic = "ABL_EXT1";
             const capability_magic = "ABL_EXC1";
             const authorization_magic = "ABL_EXA1";
+            const exchange_manifest_journal_format_version: u32 = 5;
 
             /// Current encoded manifest image format version.
             pub const manifest_format_version = exchange_manifest_format_version;
@@ -6498,6 +6507,25 @@ pub fn program(
                         });
                     }
 
+                    fn appendProviderProgramEvent(journal: ?*Session.Journal, kind: Session.Journal.ExchangeEvent.Kind, request: RequestEnvelope, certificate: Treaty.Certificate, execution_fingerprint: u64, nested_request_fingerprint: ?u64, nested_response_fingerprint: ?u64, blocker_tag: ?ProviderBlockerTag) Error!void {
+                        const ledger = journal orelse return;
+                        try ledger.appendExchangeEvent(.{
+                            .kind = kind,
+                            .provider_fingerprint = provider_fingerprint,
+                            .capability_fingerprint = certificate.capability_fingerprint,
+                            .route_fingerprint = certificate.route_fingerprint,
+                            .request_envelope_fingerprint = request.fingerprint,
+                            .response_envelope_fingerprint = nested_response_fingerprint,
+                            .treaty_fingerprint = certificate.treaty_fingerprint,
+                            .treaty_certificate_fingerprint = certificate.certificate_fingerprint,
+                            .provider_offer_fingerprint = certificate.provider_offer_fingerprint,
+                            .provider_program_execution_fingerprint = execution_fingerprint,
+                            .provider_program_nested_request_fingerprint = nested_request_fingerprint,
+                            .blocker_tag = if (blocker_tag) |tag| @tagName(tag) else null,
+                            .branch_id = if (request.usage_metadata) |metadata_value| metadata_value.branch_id else null,
+                        });
+                    }
+
                     fn requestView(comptime Entry: type, request: RequestEnvelope, certificate: Treaty.Certificate, offer: ProviderOffer) Request(Entry) {
                         _ = offer;
                         return .{
@@ -6948,11 +6976,11 @@ pub fn program(
 
                         try appendProviderEvent(options_value.journal, .provider_request_validated, request, certificate, null, null, null);
                         const execution_fingerprint = providerProgramExecutionFingerprint(Entry, request, certificate, offer);
-                        try appendProviderEvent(options_value.journal, .provider_program_started, request, certificate, execution_fingerprint, null, null);
+                        try appendProviderProgramEvent(options_value.journal, .provider_program_started, request, certificate, execution_fingerprint, null, null, null);
                         var handler_start = startHandlerProgramSession(Entry, runtime, handler_handlers, allocator, request, certificate, offer) catch |err| switch (err) {
                             error.ProgramContractViolation => {
                                 const failed = blocker(.handler_program_arg_mismatch, request, certificate, offer.fingerprint, "provider Program request-to-args mapping failed");
-                                try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution_fingerprint, null, failed.tag);
+                                try appendProviderProgramEvent(options_value.journal, .provider_program_rejected, request, certificate, execution_fingerprint, null, null, failed.tag);
                                 try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                 return .{ .rejected = failed };
                             },
@@ -6980,7 +7008,7 @@ pub fn program(
                         validateManualOffer(allocator, index, offer) catch |err| switch (err) {
                             error.ProgramContractViolation => {
                                 const failed = blocker(.offer_mismatch, request, certificate, offer.fingerprint, "provider Program step API offer does not exactly match the selected harness declaration");
-                                try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, failed.tag);
+                                try appendProviderProgramEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, null, failed.tag);
                                 return .{ .rejected = failed };
                             },
                             else => return err,
@@ -6991,19 +7019,19 @@ pub fn program(
                             return .{ .rejected = failed };
                         }
                         if (validateForEntry(Entry, request, certificate, offer, options_value)) |failed| {
-                            try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, expected_execution_fingerprint, null, failed.tag);
+                            try appendProviderProgramEvent(options_value.journal, .provider_program_rejected, request, certificate, expected_execution_fingerprint, null, null, failed.tag);
                             try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                             return .{ .rejected = failed };
                         }
                         const use_value = options_value.response_use orelse certificate.response_use;
                         if (use_value != certificate.response_use) {
                             const failed = blocker(.response_use_not_supported, request, certificate, offer.fingerprint, "provider response-use override differs from treaty certificate");
-                            try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, failed.tag);
+                            try appendProviderProgramEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, null, failed.tag);
                             try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                             return .{ .rejected = failed };
                         }
                         if (rejectInvalidReplaySource(request, certificate, offer, use_value, options_value)) |failed| {
-                            try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, failed.tag);
+                            try appendProviderProgramEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, null, failed.tag);
                             try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                             return .{ .rejected = failed };
                         }
@@ -7021,14 +7049,14 @@ pub fn program(
                         }
                         if (nested_response.request_envelope_fingerprint != nested_request.fingerprint) {
                             const failed = blocker(.handler_program_nested_request_invalid, request, certificate, offer.fingerprint, "nested response does not answer the parked provider Program request");
-                            try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, failed.tag);
+                            try appendProviderProgramEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, null, failed.tag);
                             return .{ .rejected = failed };
                         }
-                        try appendProviderEvent(options_value.journal, .provider_program_nested_response, request, certificate, nested_response.fingerprint, null, null);
+                        try appendProviderProgramEvent(options_value.journal, .provider_program_nested_response, request, certificate, execution.execution_fingerprint, nested_request.request_fingerprint, nested_response.fingerprint, null);
                         var session = Entry.handler_program.Exchange.restoreFromRequestEnvelope(runtime, handler_handlers, nested_request) catch |err| switch (err) {
                             error.ProgramContractViolation => {
                                 const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program capsule image could not be restored");
-                                try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, failed.tag);
+                                try appendProviderProgramEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, null, failed.tag);
                                 return .{ .rejected = failed };
                             },
                             else => |other| return providerProgramMapHandlerError(other),
@@ -7041,14 +7069,14 @@ pub fn program(
                             error.ProgramContractViolation => {
                                 session.deinit();
                                 const failed = blocker(.handler_program_nested_request_invalid, request, certificate, offer.fingerprint, "nested response failed provider Program response application");
-                                try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, failed.tag);
+                                try appendProviderProgramEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, null, failed.tag);
                                 return .{ .rejected = failed };
                             },
                             else => |other| return providerProgramMapHandlerError(other),
                         };
                         execution.nested_request_envelope.?.deinit();
                         execution.nested_request_envelope = null;
-                        try appendProviderEvent(options_value.journal, .provider_program_resumed, request, certificate, execution.execution_fingerprint, null, null);
+                        try appendProviderProgramEvent(options_value.journal, .provider_program_resumed, request, certificate, execution.execution_fingerprint, null, null, null);
                         return stepStartedProviderProgram(index, &session, allocator, request, certificate, offer, options_value, use_value, execution.execution_fingerprint);
                     }
 
@@ -7110,7 +7138,7 @@ pub fn program(
                             error.ProgramContractViolation => {
                                 session.deinit();
                                 const failed = blocker(.handler_program_effect_unhandled, request, certificate, offer.fingerprint, "provider Program execution failed before producing a provider outcome");
-                                try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
+                                try appendProviderProgramEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, null, failed.tag);
                                 try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                 return .{ .rejected = failed };
                             },
@@ -7124,7 +7152,7 @@ pub fn program(
                                 switch (packet_result) {
                                     .response => |*packet| {
                                         packet.provider_program_execution_fingerprint = execution_fingerprint;
-                                        try appendProviderEvent(options_value.journal, .provider_program_completed, request, certificate, execution_fingerprint, null, null);
+                                        try appendProviderProgramEvent(options_value.journal, .provider_program_completed, request, certificate, execution_fingerprint, null, null, null);
                                     },
                                     else => {},
                                 }
@@ -7139,7 +7167,7 @@ pub fn program(
                                     error.ProgramContractViolation => {
                                         session.deinit();
                                         const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program capsule could not be captured");
-                                        try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
+                                        try appendProviderProgramEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, null, failed.tag);
                                         return .{ .rejected = failed };
                                     },
                                     else => |other| return providerProgramMapHandlerError(other),
@@ -7149,7 +7177,7 @@ pub fn program(
                                     error.ProgramContractViolation => {
                                         session.deinit();
                                         const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program capsule image could not be encoded");
-                                        try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
+                                        try appendProviderProgramEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, null, failed.tag);
                                         return .{ .rejected = failed };
                                     },
                                     else => |other| return providerProgramMapHandlerError(other),
@@ -7159,14 +7187,14 @@ pub fn program(
                                     error.ProgramContractViolation => {
                                         session.deinit();
                                         const failed = blocker(.handler_program_nested_request_invalid, request, certificate, offer.fingerprint, "provider Program nested request envelope could not be built");
-                                        try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
+                                        try appendProviderProgramEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, null, failed.tag);
                                         return .{ .rejected = failed };
                                     },
                                     else => |other| return providerProgramMapHandlerError(other),
                                 };
                                 errdefer nested_envelope.deinit();
-                                try appendProviderEvent(options_value.journal, .provider_program_nested_request, request, certificate, nested_envelope.fingerprint, null, null);
-                                try appendProviderEvent(options_value.journal, .provider_program_parked, request, certificate, execution_fingerprint, null, null);
+                                try appendProviderProgramEvent(options_value.journal, .provider_program_nested_request, request, certificate, execution_fingerprint, nested_envelope.request_fingerprint, null, null);
+                                try appendProviderProgramEvent(options_value.journal, .provider_program_parked, request, certificate, execution_fingerprint, nested_envelope.request_fingerprint, null, null);
                                 session.deinit();
                                 return .{ .provider_suspended = providerProgramExecutionValue(index, request, certificate, offer, execution_fingerprint, .parked_on_nested_request, null, nested_envelope, image.image_fingerprint) };
                             },
@@ -7175,7 +7203,7 @@ pub fn program(
                                     error.ProgramContractViolation => {
                                         session.deinit();
                                         const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program capsule could not be captured");
-                                        try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
+                                        try appendProviderProgramEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, null, failed.tag);
                                         return .{ .rejected = failed };
                                     },
                                     else => |other| return providerProgramMapHandlerError(other),
@@ -7185,7 +7213,7 @@ pub fn program(
                                     error.ProgramContractViolation => {
                                         session.deinit();
                                         const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program capsule image could not be encoded");
-                                        try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
+                                        try appendProviderProgramEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, null, failed.tag);
                                         return .{ .rejected = failed };
                                     },
                                     else => |other| return providerProgramMapHandlerError(other),
@@ -7195,14 +7223,14 @@ pub fn program(
                                     error.ProgramContractViolation => {
                                         session.deinit();
                                         const failed = blocker(.handler_program_nested_request_invalid, request, certificate, offer.fingerprint, "provider Program nested after envelope could not be built");
-                                        try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
+                                        try appendProviderProgramEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, null, failed.tag);
                                         return .{ .rejected = failed };
                                     },
                                     else => |other| return providerProgramMapHandlerError(other),
                                 };
                                 errdefer nested_envelope.deinit();
-                                try appendProviderEvent(options_value.journal, .provider_program_nested_request, request, certificate, nested_envelope.fingerprint, null, null);
-                                try appendProviderEvent(options_value.journal, .provider_program_parked, request, certificate, execution_fingerprint, null, null);
+                                try appendProviderProgramEvent(options_value.journal, .provider_program_nested_request, request, certificate, execution_fingerprint, nested_envelope.request_fingerprint, null, null);
+                                try appendProviderProgramEvent(options_value.journal, .provider_program_parked, request, certificate, execution_fingerprint, nested_envelope.request_fingerprint, null, null);
                                 session.deinit();
                                 return .{ .provider_suspended = providerProgramExecutionValue(index, request, certificate, offer, execution_fingerprint, .parked_on_nested_after, null, nested_envelope, image.image_fingerprint) };
                             },
@@ -12115,7 +12143,7 @@ pub fn program(
             }
 
             fn writeManifestPayload(writer: *Writer) anyerror!void {
-                try writeManifestPayloadWithVersions(writer, exchange_request_format_version, exchange_request_fingerprint_version, journal_format_version);
+                try writeManifestPayloadWithVersions(writer, exchange_request_format_version, exchange_request_fingerprint_version, exchange_manifest_journal_format_version);
             }
 
             fn writeManifestPayloadWithVersions(

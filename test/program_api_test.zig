@@ -15755,6 +15755,8 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     legacy_manifest_index += 8 + @as(usize, @intCast(legacy_manifest_plan_label_len));
     legacy_manifest_index += 8 + 4 + 4 + 4;
     const manifest_journal_format_offset = legacy_manifest_index;
+    try std.testing.expectEqual(@as(u32, 5), std.mem.readInt(u32, manifest.bytes[manifest_journal_format_offset..][0..4], .little));
+    try std.testing.expect(Program.Session.journal_format_version != std.mem.readInt(u32, manifest.bytes[manifest_journal_format_offset..][0..4], .little));
     std.mem.writeInt(u32, legacy_manifest[legacy_manifest_index..][0..4], legacy_manifest_request_version, .little);
     const legacy_manifest_payload = legacy_manifest[0 .. legacy_manifest.len - 8];
     std.mem.writeInt(u64, legacy_manifest[legacy_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_manifest_payload), .little);
@@ -24088,14 +24090,39 @@ test "Program.Exchange ProviderHarness runs synchronous program-backed provider 
     var saw_program_completed = false;
     for (provider_journal.entries.items) |entry| switch (entry) {
         .exchange_event => |event| switch (event.kind) {
-            .provider_program_started => saw_program_started = true,
-            .provider_program_completed => saw_program_completed = true,
+            .provider_program_started => {
+                saw_program_started = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expectEqual(@as(?u64, null), event.response_envelope_fingerprint);
+            },
+            .provider_program_completed => {
+                saw_program_completed = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expectEqual(@as(?u64, null), event.response_envelope_fingerprint);
+            },
             else => {},
         },
         else => {},
     };
     try std.testing.expect(saw_program_started);
     try std.testing.expect(saw_program_completed);
+    const sync_provider_journal_bytes = try provider_journal.encode(std.testing.allocator);
+    defer std.testing.allocator.free(sync_provider_journal_bytes);
+    var decoded_sync_provider_journal = try Program.Session.Journal.decode(std.testing.allocator, sync_provider_journal_bytes);
+    defer decoded_sync_provider_journal.deinit();
+    var decoded_saw_program_started = false;
+    for (decoded_sync_provider_journal.entries.items) |entry| switch (entry) {
+        .exchange_event => |event| switch (event.kind) {
+            .provider_program_started => {
+                decoded_saw_program_started = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expectEqual(@as(?u64, null), event.response_envelope_fingerprint);
+            },
+            else => {},
+        },
+        else => {},
+    };
+    try std.testing.expect(decoded_saw_program_started);
 }
 
 test "Program.Exchange ProviderHarness suspends and resumes nested program-backed provider handler" {
@@ -24272,9 +24299,24 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     var saw_parked = false;
     for (provider_journal.entries.items) |entry| switch (entry) {
         .exchange_event => |event| switch (event.kind) {
-            .provider_program_nested_request => saw_nested_request = true,
-            .provider_program_nested_response => saw_nested_response = true,
-            .provider_program_parked => saw_parked = true,
+            .provider_program_nested_request => {
+                saw_nested_request = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expect(event.provider_program_nested_request_fingerprint != null);
+                try std.testing.expectEqual(@as(?u64, null), event.response_envelope_fingerprint);
+            },
+            .provider_program_nested_response => {
+                saw_nested_response = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expect(event.provider_program_nested_request_fingerprint != null);
+                try std.testing.expect(event.response_envelope_fingerprint != null);
+            },
+            .provider_program_parked => {
+                saw_parked = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expect(event.provider_program_nested_request_fingerprint != null);
+                try std.testing.expectEqual(@as(?u64, null), event.response_envelope_fingerprint);
+            },
             else => {},
         },
         else => {},
@@ -24282,6 +24324,24 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     try std.testing.expect(saw_nested_request);
     try std.testing.expect(saw_nested_response);
     try std.testing.expect(saw_parked);
+    const nested_provider_journal_bytes = try provider_journal.encode(std.testing.allocator);
+    defer std.testing.allocator.free(nested_provider_journal_bytes);
+    var decoded_nested_provider_journal = try Program.Session.Journal.decode(std.testing.allocator, nested_provider_journal_bytes);
+    defer decoded_nested_provider_journal.deinit();
+    var decoded_saw_nested_request = false;
+    for (decoded_nested_provider_journal.entries.items) |entry| switch (entry) {
+        .exchange_event => |event| switch (event.kind) {
+            .provider_program_nested_request => {
+                decoded_saw_nested_request = true;
+                try std.testing.expect(event.provider_program_execution_fingerprint != null);
+                try std.testing.expect(event.provider_program_nested_request_fingerprint != null);
+                try std.testing.expectEqual(@as(?u64, null), event.response_envelope_fingerprint);
+            },
+            else => {},
+        },
+        else => {},
+    };
+    try std.testing.expect(decoded_saw_nested_request);
 }
 
 test "Program.Exchange ProviderHarness accepts handlerless after current values" {
