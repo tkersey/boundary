@@ -20040,6 +20040,33 @@ test "ability.program enters runtime execution before encoding entry args" {
     try std.testing.expectEqual(@as(i32, 42), result.value);
 }
 
+test "Program.Session.start enters runtime execution before encoding entry args" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const EncodeGuardHandlers = struct {
+        runtime: *ability.Runtime,
+    };
+    const ParameterizedBody = struct {
+        pub const compiled_plan = parameterizedIdentityPlan("session-guarded-parameterized-identity");
+
+        pub fn encodeArgs(handlers: EncodeGuardHandlers) []const ability.ir.ProgramValue {
+            std.testing.expectError(error.RuntimeBusy, handlers.runtime.deinitChecked()) catch unreachable;
+            return &.{.{ .i32 = 42 }};
+        }
+    };
+    const Program = ability.program("session-guarded-parameterized-identity", EncodeGuardHandlers, ParameterizedBody);
+    var session = try Program.Session.start(&runtime, .{ .runtime = &runtime });
+    defer session.deinit();
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+}
+
 test "ability.program rejects destroyed runtime before encoding entry args" {
     var runtime = ability.Runtime.init(std.testing.allocator);
     try runtime.deinitChecked();
@@ -20059,6 +20086,28 @@ test "ability.program rejects destroyed runtime before encoding entry args" {
     const Program = ability.program("destroyed-before-parameterized-identity", EncodeHandlers, ParameterizedBody);
 
     try std.testing.expectError(error.RuntimeDestroyed, Program.run(&runtime, .{ .calls = &encode_calls }));
+    try std.testing.expectEqual(@as(usize, 0), encode_calls);
+}
+
+test "Program.Session.start rejects destroyed runtime before encoding entry args" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    try runtime.deinitChecked();
+
+    var encode_calls: usize = 0;
+    const EncodeHandlers = struct {
+        calls: *usize,
+    };
+    const ParameterizedBody = struct {
+        pub const compiled_plan = parameterizedIdentityPlan("session-destroyed-before-parameterized-identity");
+
+        pub fn encodeArgs(handlers: EncodeHandlers) []const ability.ir.ProgramValue {
+            handlers.calls.* += 1;
+            return &.{.{ .i32 = 42 }};
+        }
+    };
+    const Program = ability.program("session-destroyed-before-parameterized-identity", EncodeHandlers, ParameterizedBody);
+
+    try std.testing.expectError(error.RuntimeDestroyed, Program.Session.start(&runtime, .{ .calls = &encode_calls }));
     try std.testing.expectEqual(@as(usize, 0), encode_calls);
 }
 

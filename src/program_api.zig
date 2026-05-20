@@ -3535,10 +3535,14 @@ pub fn program(
             /// Start a host-driven execution session without leaving runtime execution active.
             pub fn start(runtime: *lowered_machine.Runtime, handlers: HandlersType) Error!Session {
                 const mutable_handlers = handlers;
-                const args = if (comptime hasDeclSafe(Body, "encodeArgs"))
-                    Body.encodeArgs(mutable_handlers)
-                else
-                    @as([]const lowered_machine.ProgramValue, &.{});
+                const args = blk: {
+                    lowered_machine.beginExecution(runtime) catch |err| return mapProgramRunError(Error, err);
+                    defer lowered_machine.endExecution(runtime);
+                    break :blk if (comptime hasDeclSafe(Body, "encodeArgs"))
+                        Body.encodeArgs(mutable_handlers)
+                    else
+                        @as([]const lowered_machine.ProgramValue, &.{});
+                };
                 return startWithArgs(runtime, mutable_handlers, args);
             }
 
