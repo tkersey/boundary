@@ -1218,6 +1218,50 @@ fn parameterizedIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan 
     }) catch unreachable;
 }
 
+fn stringIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const arg = ability.ir.builder.local(root, 0);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.returnValue(root, arg) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .string,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 22,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn stackedAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const outer_resume = ability.ir.builder.local(root, 0);
@@ -15755,8 +15799,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     legacy_manifest_index += 8 + @as(usize, @intCast(legacy_manifest_plan_label_len));
     legacy_manifest_index += 8 + 4 + 4 + 4;
     const manifest_journal_format_offset = legacy_manifest_index;
-    try std.testing.expectEqual(@as(u32, 5), std.mem.readInt(u32, manifest.bytes[manifest_journal_format_offset..][0..4], .little));
-    try std.testing.expect(Program.Session.journal_format_version != std.mem.readInt(u32, manifest.bytes[manifest_journal_format_offset..][0..4], .little));
+    try std.testing.expectEqual(Program.Session.journal_format_version, std.mem.readInt(u32, manifest.bytes[manifest_journal_format_offset..][0..4], .little));
     std.mem.writeInt(u32, legacy_manifest[legacy_manifest_index..][0..4], legacy_manifest_request_version, .little);
     const legacy_manifest_payload = legacy_manifest[0 .. legacy_manifest.len - 8];
     std.mem.writeInt(u64, legacy_manifest[legacy_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_manifest_payload), .little);
@@ -18767,6 +18810,31 @@ test "ability.program accepts inferred public ProgramValue entry arg arrays" {
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 42), result.value);
+}
+
+test "ability.program session clones public string entry args" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const EmptyHandlers = struct {};
+    const Body = struct {
+        pub const compiled_plan = stringIdentityPlan("session-public-string-args-cloned");
+    };
+    const Program = ability.program("session-public-string-args-cloned", EmptyHandlers, Body);
+    const input = try std.testing.allocator.dupe(u8, "alpha");
+    defer std.testing.allocator.free(input);
+    var args = [_]ability.ir.ProgramValue{.{ .string = input }};
+    var session = try Program.Session.startWithArgs(&runtime, .{}, &args);
+    defer session.deinit();
+    @memcpy(input, "bravo");
+
+    var result = switch (try session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer result.deinit();
+    try std.testing.expectEqualStrings("alpha", result.value);
 }
 
 test "ability.program rejects public ProgramValue entry arg length mismatches" {
@@ -24442,10 +24510,20 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     }
     try std.testing.expect(execution.nested_request_envelope != null);
     execution.execution_fingerprint +%= 1;
+    const tampered_execution_journal_len = provider_journal.entries.items.len;
     const tampered_execution_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
     switch (tampered_execution_continue) {
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
         else => return error.ExpectedProviderRejection,
+    }
+    try std.testing.expectEqual(tampered_execution_journal_len + 1, provider_journal.entries.items.len);
+    switch (provider_journal.entries.items[tampered_execution_journal_len]) {
+        .exchange_event => |event| {
+            try std.testing.expectEqual(Program.Session.Journal.ExchangeEvent.Kind.provider_program_rejected, event.kind);
+            try std.testing.expectEqualStrings(@tagName(Harness.ProviderBlockerTag.handler_program_restore_mismatch), event.blocker_tag.?);
+            try std.testing.expect(event.provider_program_execution_fingerprint != null);
+        },
+        else => return error.ExpectedJournalEvent,
     }
     execution.execution_fingerprint -%= 1;
     try std.testing.expect(execution.nested_request_envelope != null);

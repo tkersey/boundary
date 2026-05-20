@@ -6418,6 +6418,21 @@ pub fn ExecutableSessionForPlan(
             return cloneExecutableValueByIdentityWithContext(&clone_context, value);
         }
 
+        fn cloneEntryArgs(
+            scratch: *InterpreterScratch(session_after_stack_capacity),
+            values: []ExecutableValue,
+        ) anyerror!void {
+            if (comptime entry.parameter_count == 0) return;
+            if (comptime compiled_plan.locals.len == 0) return error.ProgramContractViolation;
+            var clone_context = CloneContext.init(scratch);
+            defer clone_context.deinit();
+            for (values, 0..) |value, index| {
+                const local = compiled_plan.locals[entry.first_local + index];
+                const ref: program_plan.ValueRef = .{ .codec = local.codec, .schema_index = local.schema_index };
+                values[index] = try cloneExecutableValueForRefWithContext(ref, &clone_context, value);
+            }
+        }
+
         const session_id_source = struct {
             var next: std.atomic.Value(usize) = std.atomic.Value(usize).init(1);
         };
@@ -6455,6 +6470,7 @@ pub fn ExecutableSessionForPlan(
 
             var entry_args: [entry.parameter_count]ExecutableValue = undefined;
             try encodeEntryArgs(compiled_plan, schema_types, &self.scratch, entry_args[0..], args);
+            try cloneEntryArgs(&self.scratch, entry_args[0..]);
             try pushActiveInterpreterFrame(allocator, compiled_plan, &self.scratch, &self.frames, compiled_plan.entry_index, entry_args[0..]);
             return self;
         }

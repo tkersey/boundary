@@ -3819,8 +3819,6 @@ pub fn program(
             const treaty_authorization_magic = "ABL_EXT1";
             const capability_magic = "ABL_EXC1";
             const authorization_magic = "ABL_EXA1";
-            const exchange_manifest_journal_format_version: u32 = 5;
-
             /// Current encoded manifest image format version.
             pub const manifest_format_version = exchange_manifest_format_version;
             /// Current manifest image fingerprint domain version.
@@ -7024,6 +7022,7 @@ pub fn program(
                         const expected_execution_fingerprint = providerProgramExecutionFingerprint(Entry, request, certificate, offer);
                         if (!providerProgramExecutionMatches(index, execution.*, request, certificate, offer, expected_execution_fingerprint)) {
                             const failed = blocker(.handler_program_restore_mismatch, request, certificate, offer.fingerprint, "provider Program execution does not match parent request/treaty/provider/offer");
+                            try appendProviderProgramEvent(options_value.journal, .provider_program_rejected, request, certificate, expected_execution_fingerprint, null, null, failed.tag);
                             return .{ .rejected = failed };
                         }
                         if (validateForEntry(Entry, request, certificate, offer, options_value)) |failed| {
@@ -7045,14 +7044,17 @@ pub fn program(
                         }
                         if (execution.session != null) {
                             const failed = blocker(.handler_program_restore_mismatch, request, certificate, offer.fingerprint, "provider Program execution unexpectedly retained a live parked session");
+                            try appendProviderProgramEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, null, failed.tag);
                             return .{ .rejected = failed };
                         }
                         const nested_request = execution.nested_request_envelope orelse {
                             const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program execution has no parked session");
+                            try appendProviderProgramEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, null, failed.tag);
                             return .{ .rejected = failed };
                         };
                         if (!providerProgramNestedRequestMatchesExecution(execution.*, nested_request)) {
                             const failed = blocker(.handler_program_restore_mismatch, request, certificate, offer.fingerprint, "provider Program nested request does not match parked execution metadata");
+                            try appendProviderProgramEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, null, failed.tag);
                             return .{ .rejected = failed };
                         }
                         if (nested_response.request_envelope_fingerprint != nested_request.fingerprint) {
@@ -12112,7 +12114,7 @@ pub fn program(
             }
 
             fn writeManifestPayload(writer: *Writer) anyerror!void {
-                try writeManifestPayloadWithVersions(writer, exchange_request_format_version, exchange_request_fingerprint_version, exchange_manifest_journal_format_version);
+                try writeManifestPayloadWithVersions(writer, exchange_request_format_version, exchange_request_fingerprint_version, journal_format_version);
             }
 
             fn writeManifestPayloadWithVersions(
