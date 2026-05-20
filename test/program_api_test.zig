@@ -1174,6 +1174,67 @@ fn sessionChoicePlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
+fn sessionTwoChoicePlan(comptime label: []const u8) ability.ir.ProgramPlan {
+    const root = ability.ir.builder.function(0);
+    const first_resume = ability.ir.builder.local(root, 0);
+    const second_resume = ability.ir.builder.local(root, 1);
+    const instructions = [_]ability.ir.plan.Instruction{
+        ability.ir.builder.callOp(root, first_resume, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.callOp(root, second_resume, ability.ir.builder.op(root, 0), null) catch unreachable,
+        ability.ir.builder.returnValue(root, second_resume) catch unreachable,
+    };
+    const functions = [_]ability.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .i32,
+        .result_codec = .i32,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]ability.ir.plan.Requirement{.{
+        .label = "authored",
+        .first_op = 0,
+        .op_count = 1,
+    }};
+    const ops = [_]ability.ir.plan.Op{.{
+        .requirement_index = 0,
+        .op_name = "choose",
+        .mode = .choice,
+        .payload_codec = .unit,
+        .resume_codec = .i32,
+        .has_after = false,
+    }};
+    const blocks = [_]ability.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+
+    return ability.ir.builder.finish(.{
+        .label = label,
+        .ir_hash = 13,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 fn parameterizedIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     const root = ability.ir.builder.function(0);
     const arg = ability.ir.builder.local(root, 0);
@@ -24488,6 +24549,7 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     };
     defer execution.deinit();
     try std.testing.expectEqual(Harness.ProviderProgramExecutionState.parked_on_nested_request, execution.state);
+    try std.testing.expectEqual(@as(usize, 0), execution.nested_turn_index);
     try std.testing.expectEqual(Program.Evidence.domains.provider_program_execution.id, execution.evidenceRef().domain_id);
     try std.testing.expectEqual(@as(?u64, 42), execution.branch_id);
     try std.testing.expectEqual(@as(?u64, 42), execution.evidenceRef().branch_id);
@@ -24578,6 +24640,13 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
         else => return error.ExpectedProviderRejection,
     }
     execution.provider_program_capsule_image_fingerprint.? -%= 1;
+    execution.nested_turn_index += 1;
+    const tampered_nested_turn_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
+    switch (tampered_nested_turn_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_restore_mismatch, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    execution.nested_turn_index -= 1;
     execution.state = .done;
     const tampered_state_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .capability_instance_state = &instance });
     switch (tampered_state_continue) {
@@ -24691,6 +24760,110 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
         else => {},
     };
     try std.testing.expect(decoded_saw_nested_request);
+}
+
+test "Program.Exchange ProviderHarness increments nested turn indexes across repeated program-backed provider suspensions" {
+    const Body = struct {
+        pub const compiled_plan = compiledTransformPlan("program-provider-nested-turn-source");
+    };
+    const Program = ability.program("program-provider-nested-turn-source", struct {}, Body);
+    const OperationSite = Program.protocol.operationSite("authored", "dispatch", 0);
+    const HandlerBody = struct {
+        pub const compiled_plan = sessionTwoChoicePlan("program-provider-nested-turn-handler");
+    };
+    const HandlerProgram = ability.program("program-provider-nested-turn-handler", struct {}, HandlerBody);
+    const OperationDecl = Program.Exchange.ProviderHandler.program(.{
+        .label = "nested-turn-program-dispatch",
+        .op = OperationSite,
+        .program = HandlerProgram,
+        .map_request = .unit_args,
+        .map_result = .result_to_resume,
+    });
+    const Harness = Program.Exchange.ProviderHarness(.{
+        .label = "nested-turn-program-provider",
+        .provider_fingerprint = @as(?u64, 0x7252),
+        .entries = .{OperationDecl},
+    });
+
+    var runtime = ability.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var session = try Program.Session.start(&runtime, .{});
+    defer session.deinit();
+    const parent_request = switch (try session.next()) {
+        .request => |value| value,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    const parent_trace = parent_request.trace();
+    var parent_envelope = try Program.Exchange.RequestEnvelope.fromRequest(std.testing.allocator, parent_request, .{});
+    defer parent_envelope.deinit();
+    var catalog = try Harness.buildCatalog(std.testing.allocator);
+    defer catalog.deinit();
+    var capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "nested-turn-program-issuer",
+        .provider_fingerprint = Harness.provider_fingerprint,
+        .manifest_fingerprint = catalog.manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true, .after = false },
+        .allowed_operation_sites = &.{parent_trace.operation_site_index},
+        .allowed_protocol_op_fingerprints = &.{parent_trace.operation_site_fingerprint},
+        .allowed_requirement_labels = &.{parent_trace.requirement_label},
+        .allowed_op_names = &.{parent_trace.op_name},
+    });
+    defer capability.deinit();
+    const providers = [_]Program.Exchange.ProviderManifest{catalog.provider_manifest};
+    const offers = [_]Program.Exchange.ProviderOffer{catalog.provider_offers[0]};
+    const capabilities = [_]Program.Exchange.Capability{capability};
+    var resolved = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = parent_envelope,
+        .manifest = catalog.manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+    });
+    defer resolved.deinit();
+    const treaty = resolved.treaty orelse return error.ExpectedTreaty;
+
+    var handler_runtime = ability.Runtime.init(std.testing.allocator);
+    defer handler_runtime.deinit();
+    var started = try Harness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], .{ .treaty = treaty });
+    var execution = switch (started) {
+        .provider_suspended => |*value| moved: {
+            const moved_value = value.*;
+            value.session = null;
+            value.nested_request_envelope = null;
+            break :moved moved_value;
+        },
+        .response => |*packet| {
+            packet.deinit();
+            return error.ExpectedProviderSuspension;
+        },
+        .rejected => return error.ExpectedProviderSuspension,
+    };
+    defer execution.deinit();
+    try std.testing.expectEqual(Harness.ProviderProgramExecutionState.parked_on_nested_request, execution.state);
+    try std.testing.expectEqual(@as(usize, 0), execution.nested_turn_index);
+    try std.testing.expectEqual(@as(usize, 0), execution.nested_request_envelope.?.turn_index);
+
+    var first_nested_response = try HandlerProgram.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, execution.nested_request_envelope.?, @as(i32, 7));
+    defer first_nested_response.deinit();
+    var first_continued = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], first_nested_response, .{ .treaty = treaty });
+    switch (first_continued) {
+        .provider_suspended => |*value| {
+            execution.deinit();
+            execution = value.*;
+            value.session = null;
+            value.nested_request_envelope = null;
+        },
+        .response => |*packet| {
+            packet.deinit();
+            return error.ExpectedProviderSuspension;
+        },
+        .rejected => return error.ExpectedProviderSuspension,
+    }
+    try std.testing.expectEqual(Harness.ProviderProgramExecutionState.parked_on_nested_request, execution.state);
+    try std.testing.expectEqual(@as(usize, 1), execution.nested_turn_index);
+    try std.testing.expectEqual(@as(usize, 1), execution.nested_request_envelope.?.turn_index);
 }
 
 test "Program.Exchange ProviderHarness accepts handlerless after current values" {

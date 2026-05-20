@@ -6995,7 +6995,7 @@ pub fn program(
                         };
                         defer handler_start.deinitMappedValue(allocator);
                         errdefer handler_start.session.deinit();
-                        return stepStartedProviderProgram(index, &handler_start.session, allocator, request, certificate, offer, options_value, use_value, execution_fingerprint);
+                        return stepStartedProviderProgram(index, &handler_start.session, allocator, request, certificate, offer, options_value, use_value, execution_fingerprint, 0);
                     }
 
                     /// Resume a parked provider Program after its nested request is answered.
@@ -7086,7 +7086,13 @@ pub fn program(
                         };
                         try appendProviderProgramEvent(options_value.journal, .provider_program_nested_response, request, certificate, execution.execution_fingerprint, nested_request.request_fingerprint, nested_response.fingerprint, null);
                         try appendProviderProgramEvent(options_value.journal, .provider_program_resumed, request, certificate, execution.execution_fingerprint, null, null, null);
-                        const resumed_result = try stepStartedProviderProgram(index, &session, allocator, request, certificate, offer, options_value, use_value, execution.execution_fingerprint);
+                        const next_nested_turn_index = std.math.add(usize, execution.nested_turn_index, 1) catch {
+                            session.deinit();
+                            const failed = blocker(.handler_program_restore_mismatch, request, certificate, offer.fingerprint, "provider Program nested turn index overflowed");
+                            try appendProviderProgramEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, null, failed.tag);
+                            return .{ .rejected = failed };
+                        };
+                        const resumed_result = try stepStartedProviderProgram(index, &session, allocator, request, certificate, offer, options_value, use_value, execution.execution_fingerprint, next_nested_turn_index);
                         switch (resumed_result) {
                             .response, .provider_suspended => {
                                 execution.nested_request_envelope.?.deinit();
@@ -7133,6 +7139,7 @@ pub fn program(
                         }
                         if (nested_request.fingerprint != execution.nested_request_envelope_fingerprint.?) return false;
                         if (nested_request.request_fingerprint != execution.nested_request_fingerprint.?) return false;
+                        if (nested_request.turn_index != execution.nested_turn_index) return false;
                         if (nested_request.capsule_image_fingerprint.? != execution.provider_program_capsule_image_fingerprint.?) return false;
                         return switch (execution.state) {
                             .parked_on_nested_request => nested_request.kind == .operation,
@@ -7151,6 +7158,7 @@ pub fn program(
                         options_value: HandleOptions,
                         use_value: ResponseUse,
                         execution_fingerprint: u64,
+                        nested_turn_index: usize,
                     ) Error!ProviderProgramResult(index) {
                         const Entry = entries[index];
                         const step = session.next() catch |err| switch (err) {
@@ -7222,7 +7230,7 @@ pub fn program(
                                 try appendProviderProgramEvent(options_value.journal, .provider_program_nested_request, request, certificate, execution_fingerprint, nested_envelope.request_fingerprint, null, null);
                                 try appendProviderProgramEvent(options_value.journal, .provider_program_parked, request, certificate, execution_fingerprint, nested_envelope.request_fingerprint, null, null);
                                 session.deinit();
-                                return .{ .provider_suspended = providerProgramExecutionValue(index, request, certificate, offer, execution_fingerprint, .parked_on_nested_request, null, nested_envelope, image.image_fingerprint) };
+                                return .{ .provider_suspended = providerProgramExecutionValue(index, request, certificate, offer, execution_fingerprint, nested_turn_index, .parked_on_nested_request, null, nested_envelope, image.image_fingerprint) };
                             },
                             .after => |nested_after| {
                                 var capsule = session.capture(allocator) catch |err| switch (err) {
@@ -7258,7 +7266,7 @@ pub fn program(
                                 try appendProviderProgramEvent(options_value.journal, .provider_program_nested_request, request, certificate, execution_fingerprint, nested_envelope.request_fingerprint, null, null);
                                 try appendProviderProgramEvent(options_value.journal, .provider_program_parked, request, certificate, execution_fingerprint, nested_envelope.request_fingerprint, null, null);
                                 session.deinit();
-                                return .{ .provider_suspended = providerProgramExecutionValue(index, request, certificate, offer, execution_fingerprint, .parked_on_nested_after, null, nested_envelope, image.image_fingerprint) };
+                                return .{ .provider_suspended = providerProgramExecutionValue(index, request, certificate, offer, execution_fingerprint, nested_turn_index, .parked_on_nested_after, null, nested_envelope, image.image_fingerprint) };
                             },
                         }
                     }
@@ -7287,6 +7295,7 @@ pub fn program(
                         certificate: Treaty.Certificate,
                         offer: ProviderOffer,
                         execution_fingerprint: u64,
+                        nested_turn_index: usize,
                         state: ProviderProgramExecutionState,
                         session: ?entries[index].handler_program.Session,
                         nested_request_envelope: entries[index].handler_program.Exchange.RequestEnvelope,
@@ -7305,6 +7314,7 @@ pub fn program(
                             .capability_instance_fingerprint = certificate.capability_instance_fingerprint,
                             .obligation_fingerprint = certificate.obligation_fingerprint,
                             .branch_id = if (request.usage_metadata) |metadata_value| metadata_value.branch_id else null,
+                            .nested_turn_index = nested_turn_index,
                             .state = state,
                             .session = session,
                             .nested_request_envelope_fingerprint = nested_request_envelope.fingerprint,
