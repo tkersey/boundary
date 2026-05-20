@@ -1313,6 +1313,8 @@ pub fn program(
         pub const exchange_provider_identity_fingerprint_version: u32 = Evidence.domains.provider_identity.fingerprint_version;
         /// Stable format version for Program.Exchange provider offer images.
         pub const exchange_provider_offer_format_version: u32 = Evidence.domains.provider_offer.format_version.?;
+        /// Stable format version for Program.Exchange program-backed provider offer images.
+        pub const exchange_provider_program_offer_format_version: u32 = 2;
         /// Stable fingerprint version for Program.Exchange provider offer images.
         pub const exchange_provider_offer_fingerprint_version: u32 = Evidence.domains.provider_offer.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange provider harness declarations.
@@ -3798,7 +3800,7 @@ pub fn program(
             const response_magic = "ABL_EXR1";
             const provider_magic = "ABL_EXP1";
             const provider_offer_magic = "ABL_EXO1";
-            const provider_offer_program_format_version: u32 = 2;
+            const provider_offer_program_format_version: u32 = exchange_provider_program_offer_format_version;
             const treaty_authorization_magic = "ABL_EXT1";
             const capability_magic = "ABL_EXC1";
             const authorization_magic = "ABL_EXA1";
@@ -3823,6 +3825,8 @@ pub fn program(
             pub const provider_identity_fingerprint_version = exchange_provider_identity_fingerprint_version;
             /// Current provider offer image format version.
             pub const provider_offer_format_version = exchange_provider_offer_format_version;
+            /// Current program-backed provider offer image format version.
+            pub const provider_program_offer_format_version = exchange_provider_program_offer_format_version;
             /// Current provider offer image fingerprint domain version.
             pub const provider_offer_fingerprint_version = exchange_provider_offer_fingerprint_version;
             /// Current provider harness declaration fingerprint domain version.
@@ -7742,17 +7746,24 @@ pub fn program(
                 comptime custom_mapper_fingerprint: ?u64,
             ) void {
                 const parameters = HandlerProgram.contract.entry_parameters;
+                const request_ref = providerProgramRequestValueRef(kind_value, Site);
                 switch (request_mapping) {
                     .payload_to_args => {
                         if (parameters.len != 1) @compileError("provider Program payload_to_args requires exactly one handler Program argument");
-                        if (!parameters[0].ref.eql(providerProgramRequestValueRef(kind_value, Site))) {
+                        if (!parameters[0].ref.eql(request_ref)) {
                             @compileError("provider Program payload_to_args argument ref does not match request payload/current-value ref");
+                        }
+                        if (!providerProgramValueRefsCompatible(body_compiled_plan, request_ref, HandlerProgram.compiled_plan, parameters[0].ref)) {
+                            @compileError("provider Program payload_to_args argument schema does not match request payload/current-value schema");
                         }
                     },
                     .payload_and_metadata_to_args => {
                         if (parameters.len != 2) @compileError("provider Program payload_and_metadata_to_args requires payload/current-value plus metadata arguments");
-                        if (!parameters[0].ref.eql(providerProgramRequestValueRef(kind_value, Site))) {
+                        if (!parameters[0].ref.eql(request_ref)) {
                             @compileError("provider Program payload_and_metadata_to_args first argument ref does not match request payload/current-value ref");
+                        }
+                        if (!providerProgramValueRefsCompatible(body_compiled_plan, request_ref, HandlerProgram.compiled_plan, parameters[0].ref)) {
+                            @compileError("provider Program payload_and_metadata_to_args first argument schema does not match request payload/current-value schema");
                         }
                         if (parameters[1].ref.schema_index == null and parameters[1].ref.codec == .unit) {
                             @compileError("provider Program metadata argument must be represented by a non-unit value ref");
@@ -7780,18 +7791,27 @@ pub fn program(
                             @compileError("provider Program result_to_resume requires a resumable operation offer");
                         }
                         if (!result_ref.eql(Site.resume_ref)) @compileError("provider Program result_to_resume result ref does not match operation resume ref");
+                        if (!providerProgramValueRefsCompatible(HandlerProgram.compiled_plan, result_ref, body_compiled_plan, Site.resume_ref)) {
+                            @compileError("provider Program result_to_resume result schema does not match operation resume schema");
+                        }
                     },
                     .result_to_return_now => {
                         if (kind_value != .operation or !Site.may_return_now) {
                             @compileError("provider Program result_to_return_now requires a return-now operation offer");
                         }
                         if (!result_ref.eql(Site.result_ref)) @compileError("provider Program result_to_return_now result ref does not match operation result ref");
+                        if (!providerProgramValueRefsCompatible(HandlerProgram.compiled_plan, result_ref, body_compiled_plan, Site.result_ref)) {
+                            @compileError("provider Program result_to_return_now result schema does not match operation result schema");
+                        }
                     },
                     .result_to_resume_after => {
                         if (kind_value != .after) {
                             @compileError("provider Program result_to_resume_after requires an after handler");
                         }
                         if (!result_ref.eql(Site.output_ref)) @compileError("provider Program result_to_resume_after result ref does not match after output ref");
+                        if (!providerProgramValueRefsCompatible(HandlerProgram.compiled_plan, result_ref, body_compiled_plan, Site.output_ref)) {
+                            @compileError("provider Program result_to_resume_after result schema does not match after output schema");
+                        }
                     },
                     .result_to_outcome_union => {
                         if (result_ref.schema_index == null) @compileError("provider Program result_to_outcome_union requires a typed union/product result schema");
@@ -7811,6 +7831,85 @@ pub fn program(
                 builder.fieldBytes(prefix ++ ".codec", @tagName(ref.codec));
                 builder.fieldBool(prefix ++ ".schema.present", ref.schema_index != null);
                 if (ref.schema_index) |schema_index| builder.fieldUsize(prefix ++ ".schema", schema_index);
+            }
+
+            fn providerProgramValueRefsCompatible(
+                comptime left_plan: lowering_api.ProgramPlan,
+                comptime left_ref: lowering_api.ValueRef,
+                comptime right_plan: lowering_api.ProgramPlan,
+                comptime right_ref: lowering_api.ValueRef,
+            ) bool {
+                if (left_ref.codec != right_ref.codec) return false;
+                return switch (left_ref.codec) {
+                    .product, .sum => providerProgramSchemasCompatible(left_plan, left_ref.schema_index, right_plan, right_ref.schema_index),
+                    else => left_ref.schema_index == null and right_ref.schema_index == null,
+                };
+            }
+
+            fn providerProgramSchemasCompatible(
+                comptime left_plan: lowering_api.ProgramPlan,
+                comptime left_schema_index: ?u16,
+                comptime right_plan: lowering_api.ProgramPlan,
+                comptime right_schema_index: ?u16,
+            ) bool {
+                const left_index = left_schema_index orelse return false;
+                const right_index = right_schema_index orelse return false;
+                if (left_index >= left_plan.value_schemas.len or right_index >= right_plan.value_schemas.len) return false;
+                const left_schema = left_plan.value_schemas[left_index];
+                const right_schema = right_plan.value_schemas[right_index];
+                if (left_schema.codec != right_schema.codec) return false;
+                if (!std.mem.eql(u8, left_schema.label, right_schema.label)) return false;
+                return switch (left_schema.codec) {
+                    .product => providerProgramProductSchemasCompatible(left_plan, left_schema, right_plan, right_schema),
+                    .sum => providerProgramSumSchemasCompatible(left_plan, left_schema, right_plan, right_schema),
+                    else => false,
+                };
+            }
+
+            fn providerProgramProductSchemasCompatible(
+                comptime left_plan: lowering_api.ProgramPlan,
+                comptime left_schema: anytype,
+                comptime right_plan: lowering_api.ProgramPlan,
+                comptime right_schema: anytype,
+            ) bool {
+                if (left_schema.field_count != right_schema.field_count) return false;
+                if (left_schema.first_field + left_schema.field_count > left_plan.value_fields.len) return false;
+                if (right_schema.first_field + right_schema.field_count > right_plan.value_fields.len) return false;
+                inline for (0..left_schema.field_count) |field_offset| {
+                    const left_field = left_plan.value_fields[left_schema.first_field + field_offset];
+                    const right_field = right_plan.value_fields[right_schema.first_field + field_offset];
+                    if (!std.mem.eql(u8, left_field.name, right_field.name)) return false;
+                    if (!providerProgramValueRefsCompatible(
+                        left_plan,
+                        .{ .codec = left_field.codec, .schema_index = left_field.schema_index },
+                        right_plan,
+                        .{ .codec = right_field.codec, .schema_index = right_field.schema_index },
+                    )) return false;
+                }
+                return true;
+            }
+
+            fn providerProgramSumSchemasCompatible(
+                comptime left_plan: lowering_api.ProgramPlan,
+                comptime left_schema: anytype,
+                comptime right_plan: lowering_api.ProgramPlan,
+                comptime right_schema: anytype,
+            ) bool {
+                if (left_schema.variant_count != right_schema.variant_count) return false;
+                if (left_schema.first_variant + left_schema.variant_count > left_plan.value_variants.len) return false;
+                if (right_schema.first_variant + right_schema.variant_count > right_plan.value_variants.len) return false;
+                inline for (0..left_schema.variant_count) |variant_offset| {
+                    const left_variant = left_plan.value_variants[left_schema.first_variant + variant_offset];
+                    const right_variant = right_plan.value_variants[right_schema.first_variant + variant_offset];
+                    if (!std.mem.eql(u8, left_variant.name, right_variant.name)) return false;
+                    if (!providerProgramValueRefsCompatible(
+                        left_plan,
+                        .{ .codec = left_variant.codec, .schema_index = left_variant.schema_index },
+                        right_plan,
+                        .{ .codec = right_variant.codec, .schema_index = right_variant.schema_index },
+                    )) return false;
+                }
+                return true;
             }
 
             fn validateProviderHarnessOptions(comptime options: anytype) void {

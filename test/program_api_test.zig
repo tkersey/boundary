@@ -23532,7 +23532,8 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expectEqual(@as(usize, 1), program_catalog.provider_offers.len);
     try std.testing.expect(program_catalog.provider_manifest.supportsRequest(request_envelope));
     try std.testing.expect(program_catalog.provider_offers[0].supportsRequest(request_envelope));
-    try std.testing.expectEqual(@as(u32, 2), program_catalog.provider_offers[0].format_version);
+    try std.testing.expectEqual(Program.exchange_provider_program_offer_format_version, Program.Exchange.provider_program_offer_format_version);
+    try std.testing.expectEqual(Program.Exchange.provider_program_offer_format_version, program_catalog.provider_offers[0].format_version);
     try std.testing.expectEqual(
         @as(?u64, ProgramBackedDecl.provider_program_mapping_fingerprint),
         program_catalog.provider_offers[0].provider_program_mapping_fingerprint,
