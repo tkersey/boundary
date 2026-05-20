@@ -23544,6 +23544,14 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer decoded_program_offer.deinit();
     try std.testing.expectEqual(program_catalog.provider_offers[0].fingerprint, decoded_program_offer.fingerprint);
     try std.testing.expectEqual(program_catalog.provider_offers[0].provider_program_mapping_fingerprint, decoded_program_offer.provider_program_mapping_fingerprint);
+    var wrong_format_program_offer = program_catalog.provider_offers[0];
+    wrong_format_program_offer.format_version = Program.exchange_provider_offer_format_version;
+    try std.testing.expectError(error.ProgramContractViolation, wrong_format_program_offer.validate());
+    try std.testing.expect(!wrong_format_program_offer.supportsRequest(request_envelope));
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        ProgramBackedHarness.validateManualOffer(std.testing.allocator, 0, wrong_format_program_offer),
+    );
 
     const ForeignHandlerBody = struct {
         pub const compiled_plan = pureArithmeticPlan("program-backed-provider-foreign-handler");

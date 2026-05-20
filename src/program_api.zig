@@ -11950,6 +11950,7 @@ pub fn program(
                 reader.expectBytes(provider_offer_magic) catch return false;
                 const format_version = reader.readU32() catch return false;
                 if (format_version != exchange_provider_offer_format_version and format_version != provider_offer_program_format_version) return false;
+                if (format_version != offer.format_version) return false;
                 if ((reader.readU32() catch return false) != exchange_provider_offer_fingerprint_version) return false;
                 if (!std.mem.eql(u8, reader.readLenBytes() catch return false, offer.label)) return false;
                 if ((reader.readU64() catch return false) != offer.provider_fingerprint) return false;
