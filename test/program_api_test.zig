@@ -23808,6 +23808,21 @@ test "Program.Exchange program-backed provider mapping declarations validate arg
     };
     const ChoiceSource = ability.program("program-provider-mapping-choice-source", struct {}, ChoiceBody);
     const ChoiceSite = ChoiceSource.protocol.operationSite("authored", "dispatch", 0);
+    const ChoiceResumeHandlerBody = struct {
+        pub const compiled_plan = pureArithmeticPlan("program-provider-mapping-choice-resume-handler");
+    };
+    const ChoiceResumeHandler = ability.program("program-provider-mapping-choice-resume-handler", struct {}, ChoiceResumeHandlerBody);
+    const ChoiceResumeDecl = ChoiceSource.Exchange.ProviderHandler.program(.{
+        .label = "choice-resume",
+        .op = ChoiceSite,
+        .program = ChoiceResumeHandler,
+        .map_request = .unit_args,
+        .map_result = .result_to_resume,
+    });
+    try std.testing.expect(ChoiceResumeDecl.offer_options.allowed_response_kinds.?.@"resume");
+    try std.testing.expect(!ChoiceResumeDecl.offer_options.allowed_response_kinds.?.return_now);
+    try std.testing.expect(!ChoiceResumeDecl.offer_options.allowed_response_kinds.?.resume_after);
+
     const ChoiceReturnDecl = ChoiceSource.Exchange.ProviderHandler.program(.{
         .label = "choice-return-now",
         .op = ChoiceSite,
@@ -24087,6 +24102,15 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_nested_request_invalid, blocker.tag),
         else => return error.ExpectedProviderRejection,
     }
+    var corrupt_nested_response = try HandlerProgram.Exchange.ResponseEnvelope.decode(std.testing.allocator, nested_response.bytes);
+    defer corrupt_nested_response.deinit();
+    corrupt_nested_response.response_trace_fingerprint +%= 1;
+    const corrupt_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], corrupt_nested_response, .{ .treaty = treaty, .journal = &provider_journal });
+    switch (corrupt_continue) {
+        .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.handler_program_nested_request_invalid, blocker.tag),
+        else => return error.ExpectedProviderRejection,
+    }
+    try std.testing.expect(execution.nested_request_envelope != null);
     const wrong_response_use_continue = try Harness.continueProgramExecution(0, &execution, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], nested_response, .{ .treaty = treaty, .journal = &provider_journal, .response_use = .replayed });
     switch (wrong_response_use_continue) {
         .rejected => |blocker| try std.testing.expectEqual(Harness.ProviderBlockerTag.response_use_not_supported, blocker.tag),

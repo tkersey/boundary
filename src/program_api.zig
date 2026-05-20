@@ -7019,8 +7019,6 @@ pub fn program(
                             },
                             else => return err,
                         };
-                        execution.nested_request_envelope.?.deinit();
-                        execution.nested_request_envelope = null;
                         errdefer session.deinit();
                         Entry.handler_program.Exchange.applyResponse(&session, nested_response, .{
                             .request_envelope_fingerprint = nested_request.fingerprint,
@@ -7034,6 +7032,8 @@ pub fn program(
                             },
                             else => return err,
                         };
+                        execution.nested_request_envelope.?.deinit();
+                        execution.nested_request_envelope = null;
                         try appendProviderEvent(options_value.journal, .provider_program_resumed, request, certificate, execution.execution_fingerprint, null, null);
                         return stepStartedProviderProgram(index, &session, allocator, request, certificate, offer, options_value, use_value, execution.execution_fingerprint);
                     }
@@ -7517,9 +7517,36 @@ pub fn program(
             }
 
             fn providerProgramResponseKinds(comptime options: anytype) ?Policy.ResponseKindSet {
-                if (comptime providerHarnessHasField(@TypeOf(options), "allowed_response_kinds")) return options.allowed_response_kinds;
-                if (comptime providerHarnessHasField(@TypeOf(options), "response_kinds")) return options.response_kinds;
-                return null;
+                const mapped = comptime providerProgramMappedResponseKinds(options);
+                if (comptime providerHarnessHasField(@TypeOf(options), "allowed_response_kinds")) {
+                    comptime validateProviderProgramResponseKinds(options.allowed_response_kinds, mapped);
+                    return options.allowed_response_kinds;
+                }
+                if (comptime providerHarnessHasField(@TypeOf(options), "response_kinds")) {
+                    comptime validateProviderProgramResponseKinds(options.response_kinds, mapped);
+                    return options.response_kinds;
+                }
+                return mapped;
+            }
+
+            fn providerProgramMappedResponseKinds(comptime options: anytype) Policy.ResponseKindSet {
+                const has_after_site = comptime providerHarnessHasField(@TypeOf(options), "after");
+                const result_mapping = providerHarnessField(options, "map_result", if (has_after_site) ProgramResultToProviderOutcome.result_to_resume_after else ProgramResultToProviderOutcome.result_to_resume);
+                return switch (result_mapping) {
+                    .result_to_resume => .{ .@"resume" = true, .return_now = false, .resume_after = false },
+                    .result_to_return_now => .{ .@"resume" = false, .return_now = true, .resume_after = false },
+                    .result_to_resume_after => .{ .@"resume" = false, .return_now = false, .resume_after = true },
+                    .result_to_outcome_union => @compileError("provider Program result_to_outcome_union is reserved until provider-program outcome-union execution is implemented"),
+                };
+            }
+
+            fn validateProviderProgramResponseKinds(comptime declared: Policy.ResponseKindSet, comptime mapped: Policy.ResponseKindSet) void {
+                if (declared.@"resume" != mapped.@"resume" or
+                    declared.return_now != mapped.return_now or
+                    declared.resume_after != mapped.resume_after)
+                {
+                    @compileError("provider Program response_kinds must exactly match map_result response kind");
+                }
             }
 
             fn providerProgramUsageSet(comptime options: anytype) UsageSet {
