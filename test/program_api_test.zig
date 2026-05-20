@@ -23871,6 +23871,7 @@ test "Program.Exchange ProviderHarness runs synchronous program-backed provider 
     const Program = ability.program("program-provider-sync-source", struct {}, Body);
     const OperationSite = Program.protocol.operationSite("authored", "dispatch", 0);
     const HandlerBody = struct {
+        pub const Error = error{Denied};
         pub const compiled_plan = pureArithmeticPlan("program-provider-sync-handler");
     };
     const HandlerProgram = ability.program("program-provider-sync-handler", struct {}, HandlerBody);
@@ -23927,6 +23928,7 @@ test "Program.Exchange ProviderHarness runs synchronous program-backed provider 
     const treaty = resolved.treaty orelse return error.ExpectedTreaty;
 
     const ForeignHandlerBody = struct {
+        pub const Error = error{Denied};
         pub const compiled_plan = pureArithmeticPlan("program-provider-sync-foreign-handler");
     };
     const ForeignHandlerProgram = ability.program("program-provider-sync-foreign-handler", struct {}, ForeignHandlerBody);
@@ -24009,6 +24011,7 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     const Program = ability.program("program-provider-nested-source", struct {}, Body);
     const OperationSite = Program.protocol.operationSite("authored", "dispatch", 0);
     const HandlerBody = struct {
+        pub const Error = error{Denied};
         pub const compiled_plan = sessionChoicePlan("program-provider-nested-handler");
     };
     const HandlerProgram = ability.program("program-provider-nested-handler", struct {}, HandlerBody);

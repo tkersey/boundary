@@ -7017,7 +7017,7 @@ pub fn program(
                                 try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, failed.tag);
                                 return .{ .rejected = failed };
                             },
-                            else => return err,
+                            else => |other| return providerProgramMapHandlerError(other),
                         };
                         errdefer session.deinit();
                         Entry.handler_program.Exchange.applyResponse(&session, nested_response, .{
@@ -7030,7 +7030,7 @@ pub fn program(
                                 try appendProviderEvent(options_value.journal, .provider_program_rejected, request, certificate, execution.execution_fingerprint, null, failed.tag);
                                 return .{ .rejected = failed };
                             },
-                            else => return err,
+                            else => |other| return providerProgramMapHandlerError(other),
                         };
                         execution.nested_request_envelope.?.deinit();
                         execution.nested_request_envelope = null;
@@ -7072,7 +7072,7 @@ pub fn program(
                                 try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                                 return .{ .rejected = failed };
                             },
-                            else => return err,
+                            else => |other| return providerProgramMapHandlerError(other),
                         };
                         switch (step) {
                             .done => |result_value| {
@@ -7093,11 +7093,32 @@ pub fn program(
                                 };
                             },
                             .request => |nested_request| {
-                                var capsule = try session.capture(allocator);
+                                var capsule = session.capture(allocator) catch |err| switch (err) {
+                                    error.ProgramContractViolation => {
+                                        const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program capsule could not be captured");
+                                        try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
+                                        return .{ .rejected = failed };
+                                    },
+                                    else => |other| return providerProgramMapHandlerError(other),
+                                };
                                 defer capsule.deinit();
-                                var image = try capsule.encode(allocator);
+                                var image = capsule.encode(allocator) catch |err| switch (err) {
+                                    error.ProgramContractViolation => {
+                                        const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program capsule image could not be encoded");
+                                        try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
+                                        return .{ .rejected = failed };
+                                    },
+                                    else => |other| return providerProgramMapHandlerError(other),
+                                };
                                 defer image.deinit();
-                                var nested_envelope = try Entry.handler_program.Exchange.RequestEnvelope.fromRequest(allocator, nested_request, .{ .capsule = image });
+                                var nested_envelope = Entry.handler_program.Exchange.RequestEnvelope.fromRequest(allocator, nested_request, .{ .capsule = image }) catch |err| switch (err) {
+                                    error.ProgramContractViolation => {
+                                        const failed = blocker(.handler_program_nested_request_invalid, request, certificate, offer.fingerprint, "provider Program nested request envelope could not be built");
+                                        try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
+                                        return .{ .rejected = failed };
+                                    },
+                                    else => |other| return providerProgramMapHandlerError(other),
+                                };
                                 errdefer nested_envelope.deinit();
                                 try appendProviderEvent(options_value.journal, .provider_program_nested_request, request, certificate, nested_envelope.fingerprint, null, null);
                                 try appendProviderEvent(options_value.journal, .provider_program_parked, request, certificate, execution_fingerprint, null, null);
@@ -7105,11 +7126,32 @@ pub fn program(
                                 return .{ .provider_suspended = providerProgramExecutionValue(index, request, certificate, offer, execution_fingerprint, .parked_on_nested_request, null, nested_envelope, image.image_fingerprint) };
                             },
                             .after => |nested_after| {
-                                var capsule = try session.capture(allocator);
+                                var capsule = session.capture(allocator) catch |err| switch (err) {
+                                    error.ProgramContractViolation => {
+                                        const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program capsule could not be captured");
+                                        try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
+                                        return .{ .rejected = failed };
+                                    },
+                                    else => |other| return providerProgramMapHandlerError(other),
+                                };
                                 defer capsule.deinit();
-                                var image = try capsule.encode(allocator);
+                                var image = capsule.encode(allocator) catch |err| switch (err) {
+                                    error.ProgramContractViolation => {
+                                        const failed = blocker(.handler_program_capsule_missing, request, certificate, offer.fingerprint, "provider Program capsule image could not be encoded");
+                                        try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
+                                        return .{ .rejected = failed };
+                                    },
+                                    else => |other| return providerProgramMapHandlerError(other),
+                                };
                                 defer image.deinit();
-                                var nested_envelope = try Entry.handler_program.Exchange.RequestEnvelope.fromAfter(allocator, nested_after, .{ .capsule = image });
+                                var nested_envelope = Entry.handler_program.Exchange.RequestEnvelope.fromAfter(allocator, nested_after, .{ .capsule = image }) catch |err| switch (err) {
+                                    error.ProgramContractViolation => {
+                                        const failed = blocker(.handler_program_nested_request_invalid, request, certificate, offer.fingerprint, "provider Program nested after envelope could not be built");
+                                        try appendProviderEvent(options_value.journal, .provider_program_failed, request, certificate, execution_fingerprint, null, failed.tag);
+                                        return .{ .rejected = failed };
+                                    },
+                                    else => |other| return providerProgramMapHandlerError(other),
+                                };
                                 errdefer nested_envelope.deinit();
                                 try appendProviderEvent(options_value.journal, .provider_program_nested_request, request, certificate, nested_envelope.fingerprint, null, null);
                                 try appendProviderEvent(options_value.journal, .provider_program_parked, request, certificate, execution_fingerprint, null, null);
@@ -7193,7 +7235,7 @@ pub fn program(
                         offer: ProviderOffer,
                     ) Error!HandlerProgramSessionStart(Entry) {
                         return switch (Entry.request_to_program_args) {
-                            .unit_args => .{ .session = try Entry.handler_program.Session.startWithArgs(runtime, handler_handlers, .{}) },
+                            .unit_args => .{ .session = Entry.handler_program.Session.startWithArgs(runtime, handler_handlers, .{}) catch |err| return providerProgramMapHandlerError(err) },
                             .payload_to_args => startHandlerProgramSessionWithPayload(Entry, runtime, handler_handlers, allocator, request),
                             .payload_and_metadata_to_args, .custom_comptime_mapper => {
                                 _ = certificate;
@@ -7214,8 +7256,23 @@ pub fn program(
                         const value = try decodeExchangeValueImageValue(allocator, request.value_ref, request.value_fingerprint, request.value_image, ValueType);
                         errdefer deinitBodyOwnedResultValue(allocator, value);
                         return .{
-                            .session = try Entry.handler_program.Session.startWithArgs(runtime, handler_handlers, .{value}),
+                            .session = Entry.handler_program.Session.startWithArgs(runtime, handler_handlers, .{value}) catch |err| return providerProgramMapHandlerError(err),
                             .mapped_request_value = value,
+                        };
+                    }
+
+                    fn providerProgramMapHandlerError(err: anyerror) Error {
+                        return switch (err) {
+                            error.OutOfMemory => error.OutOfMemory,
+                            error.CrossThread => error.CrossThread,
+                            error.ExecutionBudgetExceeded => error.ExecutionBudgetExceeded,
+                            error.RuntimeBusy => error.RuntimeBusy,
+                            error.RuntimeDestroyed => error.RuntimeDestroyed,
+                            error.MissingPrompt => error.MissingPrompt,
+                            error.NonDiagonalComplete => error.NonDiagonalComplete,
+                            error.FrontendSuspend => error.FrontendSuspend,
+                            error.ProgramContractViolation => error.ProgramContractViolation,
+                            else => error.ProgramContractViolation,
                         };
                     }
 
