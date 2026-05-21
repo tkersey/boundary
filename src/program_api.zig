@@ -1364,6 +1364,16 @@ pub fn program(
         /// Stable fingerprint version for Program.Exchange treaty-bound response authorization.
         /// Version 4 preserves v3 fields and adds the request envelope format witness.
         pub const exchange_treaty_authorization_fingerprint_version: u32 = Evidence.domains.treaty_authorization.fingerprint_version;
+        /// Stable format version for evidence-marked host intrinsic descriptors.
+        pub const evidence_host_intrinsic_format_version: u32 = Evidence.domains.host_intrinsic.format_version.?;
+        /// Stable fingerprint version for evidence-marked host intrinsic descriptors.
+        pub const evidence_host_intrinsic_fingerprint_version: u32 = Evidence.domains.host_intrinsic.fingerprint_version;
+        /// Stable fingerprint version for semantic body classifications.
+        pub const evidence_semantic_body_fingerprint_version: u32 = Evidence.domains.semantic_body.fingerprint_version;
+        /// Stable fingerprint version for defunctionalization policy metadata.
+        pub const evidence_defunctionalization_policy_fingerprint_version: u32 = Evidence.domains.defunctionalization_policy.fingerprint_version;
+        /// Stable fingerprint version for defunctionalization report metadata.
+        pub const evidence_defunctionalization_report_fingerprint_version: u32 = Evidence.domains.defunctionalization_report.fingerprint_version;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {
@@ -1443,6 +1453,68 @@ pub fn program(
                 return finishResult(allocator, mutable_handlers, raw.value);
             }
             return finishResult(allocator, &mutable_handlers, raw.value);
+        }
+
+        const run_handler_intrinsic_refs = runHandlerIntrinsicRefs();
+
+        /// Defunctionalization audit for Program.run's host-provided handler set.
+        pub fn runHandlerSetDefunctionalizationReport() Evidence.DefunctionalizationReport {
+            return Evidence.DefunctionalizationReport.init(.{
+                .scope_kind = .run_handler_set,
+                .scope_ref = Evidence.refFor(Evidence.domains.program_plan, body_compiled_plan_hash, .{ .label = label }),
+                .counts = .{
+                    .kernel_primitive = 1,
+                    .host_intrinsic = protocol.operation_site_count + protocol.after_site_count,
+                },
+                .intrinsic_refs = &run_handler_intrinsic_refs,
+                .summary = "Program.run handler set classification",
+            });
+        }
+
+        /// Assert Program.run's handler set against a defunctionalization policy.
+        pub fn assertRunHandlersDefunctionalized(policy: Evidence.DefunctionalizationPolicy) error{ HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
+            try runHandlerSetDefunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
+        }
+
+        fn runHandlerIntrinsicRefs() [protocol.operation_site_count + protocol.after_site_count]Evidence.Ref {
+            @setEvalBranchQuota(10000);
+            var refs: [protocol.operation_site_count + protocol.after_site_count]Evidence.Ref = undefined;
+            var index: usize = 0;
+            inline for (protocol.operation_site_metadata) |site| {
+                refs[index] = runOperationHandlerIntrinsic(site).evidenceRef();
+                index += 1;
+            }
+            inline for (protocol.after_site_metadata) |site| {
+                refs[index] = runAfterHandlerIntrinsic(site).evidenceRef();
+                index += 1;
+            }
+            return refs;
+        }
+
+        fn runOperationHandlerIntrinsic(comptime site: lowering_api.SessionOperationYieldSite) Evidence.HostIntrinsic {
+            return Evidence.HostIntrinsic.init(.{
+                .label = site.op_name,
+                .kind = .run_handler_function,
+                .owner_subsystem = .semantic_boundary,
+                .allowed_protocol_labels = &.{site.requirement_label},
+                .allowed_site_indexes = &.{site.index},
+                .allowed_protocol_op_fingerprints = &.{site.fingerprint},
+                .associated_handler_descriptor = "Program.run operation handler",
+                .reason = "function-backed Program.run handler",
+            });
+        }
+
+        fn runAfterHandlerIntrinsic(comptime site: lowering_api.SessionAfterYieldSite) Evidence.HostIntrinsic {
+            return Evidence.HostIntrinsic.init(.{
+                .label = site.original_op_name,
+                .kind = .run_handler_function,
+                .owner_subsystem = .semantic_boundary,
+                .allowed_protocol_labels = &.{site.original_requirement_label},
+                .allowed_after_site_indexes = &.{site.index},
+                .allowed_protocol_op_fingerprints = &.{site.source_operation_site_fingerprint},
+                .associated_handler_descriptor = "Program.run after handler",
+                .reason = "function-backed Program.run after-continuation handler",
+            });
         }
 
         /// Execute the compiled ProgramPlan with explicit caller-provided entry args.
@@ -5048,6 +5120,85 @@ pub fn program(
                 }
             };
 
+            /// Current exchange manifest fingerprint for static provider intrinsic evidence.
+            pub const exchange_manifest_fingerprint_value = currentExchangeManifestFingerprint();
+
+            fn currentExchangeManifestFingerprint() u64 {
+                @setEvalBranchQuota(100000);
+                const payload_len = comptime currentExchangeManifestPayloadLen();
+                var buffer: [payload_len]u8 = undefined;
+                var fixed = std.heap.FixedBufferAllocator.init(&buffer);
+                var writer = Session.ExchangeByteWriter.init(fixed.allocator());
+                defer writer.deinit();
+                writer.bytes.ensureTotalCapacityPrecise(fixed.allocator(), payload_len) catch unreachable;
+                writeManifestPayload(&writer) catch unreachable;
+                if (writer.bytes.items.len != payload_len) unreachable;
+                return exchangeFingerprint("ability.exchange.manifest", exchange_manifest_fingerprint_version, writer.bytes.items);
+            }
+
+            fn currentExchangeManifestPayloadLen() usize {
+                var len: usize = 0;
+                len += manifest_magic.len;
+                len += 6 * @sizeOf(u32);
+                len += lenBytesSize(label);
+                len += lenBytesSize(body_compiled_plan.label);
+                len += @sizeOf(u64);
+                len += 5 * @sizeOf(u32);
+                len += @sizeOf(u64);
+                for (compiled_plan.value_schemas) |schema| {
+                    len += lenBytesSize(schema.label);
+                    len += exchangeValueRefSize(.{ .codec = schema.codec, .schema_index = 0 });
+                    len += 4 * @sizeOf(u16);
+                }
+                len += @sizeOf(u64);
+                for (compiled_plan.value_fields) |field| {
+                    len += lenBytesSize(field.name);
+                    len += exchangeValueRefSize(.{ .codec = field.codec, .schema_index = field.schema_index });
+                }
+                len += @sizeOf(u64);
+                for (compiled_plan.value_variants) |variant| {
+                    len += lenBytesSize(variant.name);
+                    len += exchangeValueRefSize(.{ .codec = variant.codec, .schema_index = variant.schema_index });
+                }
+                len += @sizeOf(u64);
+                inline for (protocol.operation_site_metadata) |site| {
+                    len += @sizeOf(u64);
+                    len += @sizeOf(u64);
+                    len += optionalBytesSize(site.semantic_label);
+                    len += lenBytesSize(site.requirement_label);
+                    len += lenBytesSize(site.op_name);
+                    len += @sizeOf(u8);
+                    len += exchangeValueRefSize(site.payload_ref);
+                    len += exchangeValueRefSize(site.resume_ref);
+                    len += exchangeValueRefSize(site.result_ref);
+                    len += @sizeOf(u8);
+                }
+                len += @sizeOf(u64);
+                inline for (protocol.after_site_metadata) |site| {
+                    len += @sizeOf(u64);
+                    len += @sizeOf(u64);
+                    len += optionalBytesSize(site.semantic_label);
+                    len += @sizeOf(u64);
+                    len += @sizeOf(u64);
+                    len += lenBytesSize(site.original_requirement_label);
+                    len += lenBytesSize(site.original_op_name);
+                    len += exchangeValueRefSize(site.result_ref);
+                }
+                return len;
+            }
+
+            fn lenBytesSize(bytes: []const u8) usize {
+                return @sizeOf(u64) + bytes.len;
+            }
+
+            fn optionalBytesSize(bytes: ?[]const u8) usize {
+                return @sizeOf(u8) + if (bytes) |actual| lenBytesSize(actual) else 0;
+            }
+
+            fn exchangeValueRefSize(ref: lowering_api.ValueRef) usize {
+                return @sizeOf(u8) + @sizeOf(u8) + if (ref.schema_index != null) @sizeOf(u16) else 0;
+            }
+
             /// Local guardrails for envelope size, capsule, site, and response-kind acceptance.
             pub const Policy = struct {
                 allow_capsules: bool = true,
@@ -5294,6 +5445,8 @@ pub fn program(
             pub const ProviderManifest = struct {
                 allocator: std.mem.Allocator,
                 bytes: []u8,
+                format_version: u32 = exchange_provider_format_version,
+                fingerprint_version: u32 = exchange_provider_fingerprint_version,
                 fingerprint: u64,
                 label: []u8,
                 provider_fingerprint: u64,
@@ -5302,6 +5455,7 @@ pub fn program(
                 supported_operation_sites: []const usize,
                 supported_after_sites: []const usize,
                 supported_protocol_op_fingerprints: []const u64,
+                supported_provider_program_mapping_fingerprints: []const u64,
                 allowed_response_kinds: Policy.ResponseKindSet,
                 max_request_envelope_bytes: usize,
                 max_response_envelope_bytes: usize,
@@ -5319,6 +5473,7 @@ pub fn program(
                     supported_operation_sites: []const usize = &.{},
                     supported_after_sites: []const usize = &.{},
                     supported_protocol_op_fingerprints: []const u64 = &.{},
+                    supported_provider_program_mapping_fingerprints: []const u64 = &.{},
                     allowed_response_kinds: Policy.ResponseKindSet = .{},
                     max_request_envelope_bytes: usize = std.math.maxInt(usize),
                     max_response_envelope_bytes: usize = std.math.maxInt(usize),
@@ -5351,6 +5506,8 @@ pub fn program(
                     errdefer allocator.free(after_sites);
                     const protocol_ops = try cloneU64s(allocator, options.supported_protocol_op_fingerprints);
                     errdefer allocator.free(protocol_ops);
+                    const program_mappings = try cloneU64s(allocator, options.supported_provider_program_mapping_fingerprints);
+                    errdefer allocator.free(program_mappings);
                     const tags = try cloneStringList(allocator, options.semantic_tags);
                     errdefer freeStringList(allocator, tags);
                     const metadata = try allocator.dupe(u8, options.metadata);
@@ -5358,6 +5515,8 @@ pub fn program(
                     return .{
                         .allocator = allocator,
                         .bytes = owned_bytes,
+                        .format_version = exchange_provider_format_version,
+                        .fingerprint_version = exchange_provider_fingerprint_version,
                         .fingerprint = fingerprint,
                         .label = label_value,
                         .provider_fingerprint = provider_fp,
@@ -5366,6 +5525,7 @@ pub fn program(
                         .supported_operation_sites = operation_sites,
                         .supported_after_sites = after_sites,
                         .supported_protocol_op_fingerprints = protocol_ops,
+                        .supported_provider_program_mapping_fingerprints = program_mappings,
                         .allowed_response_kinds = options.allowed_response_kinds,
                         .max_request_envelope_bytes = options.max_request_envelope_bytes,
                         .max_response_envelope_bytes = options.max_response_envelope_bytes,
@@ -5378,11 +5538,11 @@ pub fn program(
 
                 /// Decode and validate a provider manifest image.
                 pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) Error!@This() {
-                    const payload = try checkedPayload(bytes, "ability.exchange.provider", exchange_provider_fingerprint_version);
-                    var reader = Reader.init(payload);
+                    const checked = try checkedProviderPayload(bytes);
+                    var reader = Reader.init(checked.payload);
                     try reader.expectBytes(provider_magic);
-                    if (try reader.readU32() != exchange_provider_format_version) return error.ProgramContractViolation;
-                    if (try reader.readU32() != exchange_provider_fingerprint_version) return error.ProgramContractViolation;
+                    if (try reader.readU32() != checked.format_version) return error.ProgramContractViolation;
+                    if (try reader.readU32() != checked.fingerprint_version) return error.ProgramContractViolation;
                     const provider_fp = try reader.readU64();
                     const label_value = try allocator.dupe(u8, try reader.readLenBytes());
                     errdefer allocator.free(label_value);
@@ -5396,6 +5556,8 @@ pub fn program(
                     errdefer allocator.free(after_sites);
                     const protocol_ops = try readU64List(allocator, &reader);
                     errdefer allocator.free(protocol_ops);
+                    const program_mappings = if (checked.format_version >= 2) try readU64List(allocator, &reader) else try allocator.alloc(u64, 0);
+                    errdefer allocator.free(program_mappings);
                     const response_kinds = try readResponseKindSet(&reader);
                     const max_request = try reader.readUsize();
                     const max_response = try reader.readUsize();
@@ -5411,7 +5573,9 @@ pub fn program(
                     return .{
                         .allocator = allocator,
                         .bytes = owned,
-                        .fingerprint = try checkedBytesFingerprint(bytes, "ability.exchange.provider", exchange_provider_fingerprint_version),
+                        .format_version = checked.format_version,
+                        .fingerprint_version = checked.fingerprint_version,
+                        .fingerprint = checked.fingerprint,
                         .label = label_value,
                         .provider_fingerprint = provider_fp,
                         .supported_program_manifest_fingerprints = manifests,
@@ -5419,6 +5583,7 @@ pub fn program(
                         .supported_operation_sites = operation_sites,
                         .supported_after_sites = after_sites,
                         .supported_protocol_op_fingerprints = protocol_ops,
+                        .supported_provider_program_mapping_fingerprints = program_mappings,
                         .allowed_response_kinds = response_kinds,
                         .max_request_envelope_bytes = max_request,
                         .max_response_envelope_bytes = max_response,
@@ -5438,6 +5603,7 @@ pub fn program(
                     self.allocator.free(self.supported_operation_sites);
                     self.allocator.free(self.supported_after_sites);
                     self.allocator.free(self.supported_protocol_op_fingerprints);
+                    self.allocator.free(self.supported_provider_program_mapping_fingerprints);
                     freeStringList(self.allocator, self.semantic_tags);
                     self.allocator.free(self.metadata);
                     self.bytes = &.{};
@@ -5476,6 +5642,20 @@ pub fn program(
                 }
             };
 
+            const ProviderProgramMappingAttestation = struct {
+                token: u64,
+
+                fn init(offer_fingerprint: u64, provider_fingerprint: u64, mapping_fingerprint: u64) @This() {
+                    return .{ .token = providerProgramMappingAttestationToken(offer_fingerprint, provider_fingerprint, mapping_fingerprint) };
+                }
+
+                fn matches(self: @This(), offer: ProviderOffer) bool {
+                    const mapping_fingerprint = offer.provider_program_mapping_fingerprint orelse return false;
+                    return self.token == providerProgramMappingAttestationToken(offer.fingerprint, offer.provider_fingerprint, mapping_fingerprint) and
+                        providerOfferFieldsBoundToBytes(offer);
+                }
+            };
+
             /// Deterministic typed handling claim for one provider-offered effect surface.
             pub const ProviderOffer = struct {
                 allocator: std.mem.Allocator,
@@ -5505,6 +5685,7 @@ pub fn program(
                 tags: []const []const u8,
                 metadata: []u8,
                 provider_program_mapping_fingerprint: ?u64 = null,
+                provider_program_mapping_attestation: ?ProviderProgramMappingAttestation = null,
 
                 /// Options used to encode a provider offer.
                 pub const Options = struct {
@@ -5535,6 +5716,16 @@ pub fn program(
 
                 /// Encode a provider offer into deterministic owned bytes.
                 pub fn encode(allocator: std.mem.Allocator, options: Options) Error!@This() {
+                    if (options.provider_program_mapping_fingerprint != null) return error.ProgramContractViolation;
+                    return encodeUnchecked(allocator, options);
+                }
+
+                fn encodeProgramMapped(allocator: std.mem.Allocator, options: Options) Error!@This() {
+                    if (options.provider_program_mapping_fingerprint == null) return error.ProgramContractViolation;
+                    return encodeUnchecked(allocator, options);
+                }
+
+                fn encodeUnchecked(allocator: std.mem.Allocator, options: Options) Error!@This() {
                     try validateProviderOfferOptions(options);
                     var writer = Writer.init(allocator);
                     errdefer writer.deinit();
@@ -5542,7 +5733,17 @@ pub fn program(
                     const payload = writer.bytes.items;
                     const fingerprint = exchangeFingerprint("ability.exchange.provider_offer", exchange_provider_offer_fingerprint_version, payload);
                     try writer.writeU64(fingerprint);
-                    return providerOfferFromOptions(allocator, try writer.toOwnedSlice(), fingerprint, options);
+                    const attestation: ?ProviderProgramMappingAttestation = if (options.provider_program_mapping_fingerprint) |mapping_fingerprint|
+                        ProviderProgramMappingAttestation.init(fingerprint, options.provider_fingerprint, mapping_fingerprint)
+                    else
+                        null;
+                    return providerOfferFromOptions(
+                        allocator,
+                        try writer.toOwnedSlice(),
+                        fingerprint,
+                        options,
+                        attestation,
+                    );
                 }
 
                 /// Decode and validate a provider offer image.
@@ -5630,6 +5831,9 @@ pub fn program(
                     if (self.provider_program_mapping_fingerprint) |fingerprint| {
                         if (fingerprint == 0) return error.ProgramContractViolation;
                     }
+                    if (self.provider_program_mapping_attestation) |attestation| {
+                        if (!attestation.matches(self)) return error.ProgramContractViolation;
+                    }
                     if (!providerOfferFieldsBoundToBytes(self)) return error.ProgramContractViolation;
                 }
 
@@ -5685,6 +5889,52 @@ pub fn program(
                 /// Canonical evidence reference for this provider offer.
                 pub fn evidenceRef(self: @This()) Evidence.Ref {
                     return Evidence.refForProviderOffer(self);
+                }
+
+                /// Semantic body classification visible from the offer bytes.
+                pub fn semanticBody(self: @This()) Evidence.SemanticBody {
+                    if (self.provider_program_mapping_fingerprint != null) return .unknown;
+                    return .host_intrinsic;
+                }
+
+                /// Semantic body classification after checking provider-manifest mapping evidence.
+                pub fn semanticBodyWithProvider(self: @This(), provider: ProviderManifest) Evidence.SemanticBody {
+                    if (self.provider_program_mapping_fingerprint) |fingerprint| {
+                        if (providerProgramMappingBackedByManifest(self, provider, fingerprint)) return .ability_program;
+                        return .unknown;
+                    }
+                    return .host_intrinsic;
+                }
+
+                /// Return true when this in-process offer carries a harness-owned provider-program mapping witness.
+                pub fn providerProgramMappingAttested(self: @This()) bool {
+                    const attestation = self.provider_program_mapping_attestation orelse return false;
+                    return attestation.matches(self);
+                }
+
+                /// Host-intrinsic descriptor for function-backed provider offers.
+                pub fn hostIntrinsic(self: @This()) ?Evidence.HostIntrinsic {
+                    return providerOfferHostIntrinsicFromOptions(providerOfferOptionsFromOffer(self));
+                }
+
+                /// Optional HostIntrinsic evidence ref for opaque function-backed offers.
+                pub fn hostIntrinsicRef(self: @This()) ?Evidence.Ref {
+                    if (self.hostIntrinsic()) |intrinsic| return intrinsic.evidenceRef();
+                    return null;
+                }
+
+                /// Optional Ability-program body ref for program-backed offers.
+                pub fn programBodyRef(self: @This()) ?Evidence.Ref {
+                    if (self.provider_program_mapping_fingerprint) |fingerprint| {
+                        return Evidence.refFor(Evidence.domains.provider_program_mapping, fingerprint, .{ .label = self.label });
+                    }
+                    return null;
+                }
+
+                fn providerOfferHostIntrinsicDescriptor(self: @This()) []const u8 {
+                    if (self.supported_operation_sites.len != 0 and self.supported_after_sites.len == 0) return "provider operation handler";
+                    if (self.supported_after_sites.len != 0 and self.supported_operation_sites.len == 0) return "provider after handler";
+                    return "provider handler";
                 }
 
                 /// Return true when the offer supports a target protocol operation.
@@ -5766,6 +6016,16 @@ pub fn program(
 
             /// Handler-first declarations for provider harness catalogs.
             pub const ProviderHandler = struct {
+                /// Declare a host-intrinsic operation handler for a concrete Program protocol site.
+                pub fn intrinsicOperation(comptime SiteType: type, comptime handler_value: anytype, comptime options: ProviderHandlerOptions) type {
+                    return operation(SiteType, handler_value, options);
+                }
+
+                /// Declare a host-intrinsic after-continuation handler for a concrete Program protocol site.
+                pub fn intrinsicAfter(comptime SiteType: type, comptime handler_value: anytype, comptime options: ProviderHandlerOptions) type {
+                    return after(SiteType, handler_value, options);
+                }
+
                 /// Declare an operation handler for a concrete Program protocol site.
                 pub fn operation(comptime SiteType: type, comptime handler_value: anytype, comptime options: ProviderHandlerOptions) type {
                     return struct {
@@ -5777,6 +6037,8 @@ pub fn program(
                         pub const handler = handler_value;
                         /// Provider-offer options for this handler declaration.
                         pub const offer_options = options;
+                        /// Function-backed provider handlers are explicit host intrinsics.
+                        pub const semantic_body = Evidence.SemanticBody.host_intrinsic;
                     };
                 }
 
@@ -5791,6 +6053,8 @@ pub fn program(
                         pub const handler = handler_value;
                         /// Provider-offer options for this handler declaration.
                         pub const offer_options = options;
+                        /// Function-backed provider handlers are explicit host intrinsics.
+                        pub const semantic_body = Evidence.SemanticBody.host_intrinsic;
                     };
                 }
 
@@ -5813,6 +6077,9 @@ pub fn program(
                     const request_mapping = providerHarnessField(options, "map_request", RequestToProgramArgs.payload_to_args);
                     const result_mapping = providerHarnessField(options, "map_result", if (has_after_site) ProgramResultToProviderOutcome.result_to_resume_after else ProgramResultToProviderOutcome.result_to_resume);
                     const custom_mapper_fingerprint = providerHarnessField(options, "mapper_fingerprint", @as(?u64, null));
+                    if (custom_mapper_fingerprint != null) {
+                        @compileError("provider Program mapper_fingerprint is reserved until provider-program custom mapper execution is implemented");
+                    }
                     switch (request_mapping) {
                         .payload_to_args, .unit_args => {},
                         .payload_and_metadata_to_args => @compileError("provider Program payload_and_metadata_to_args is reserved until provider-program metadata argument execution is implemented"),
@@ -5859,6 +6126,8 @@ pub fn program(
                         pub const handler_program_result_ref = ProgramType.contract.result_ref;
                         /// Stable witness for the handler Program and mapping agreement.
                         pub const provider_program_mapping_fingerprint = mapping_fingerprint;
+                        /// Program-backed provider handlers are canonical Ability-native program bodies.
+                        pub const semantic_body = Evidence.SemanticBody.ability_program;
                         /// Provider-offer options for this handler declaration.
                         pub const offer_options = providerProgramOfferOptions(options);
                     };
@@ -5869,22 +6138,22 @@ pub fn program(
             pub const Provider = struct {
                 /// Declare one operation-site provider handler with derived catalog metadata.
                 pub fn operation(comptime site: type, comptime handler_fn: anytype) type {
-                    return ProviderHandler.operation(site, handler_fn, .{});
+                    return ProviderHandler.intrinsicOperation(site, handler_fn, .{});
                 }
 
                 /// Declare one operation-site provider handler with explicit catalog metadata.
                 pub fn operationWithOffer(comptime site: type, comptime handler_fn: anytype, comptime offer_options: ProviderHandlerOptions) type {
-                    return ProviderHandler.operation(site, handler_fn, offer_options);
+                    return ProviderHandler.intrinsicOperation(site, handler_fn, offer_options);
                 }
 
                 /// Declare one after-continuation provider handler with derived catalog metadata.
                 pub fn after(comptime site: type, comptime handler_fn: anytype) type {
-                    return ProviderHandler.after(site, handler_fn, .{});
+                    return ProviderHandler.intrinsicAfter(site, handler_fn, .{});
                 }
 
                 /// Declare one after-continuation provider handler with explicit catalog metadata.
                 pub fn afterWithOffer(comptime site: type, comptime handler_fn: anytype, comptime offer_options: ProviderHandlerOptions) type {
-                    return ProviderHandler.after(site, handler_fn, offer_options);
+                    return ProviderHandler.intrinsicAfter(site, handler_fn, offer_options);
                 }
             };
 
@@ -5902,12 +6171,14 @@ pub fn program(
                 const after_sites = providerHarnessAfterSites(entries);
                 const protocol_labels = providerHarnessProtocolLabels(entries);
                 const protocol_ops = providerHarnessProtocolOps(entries);
+                const program_mapping_fingerprints = providerHarnessProgramMappingFingerprints(entries);
                 const manifest_response_kinds_value = providerHarnessManifestResponseKinds(options, entries);
                 const manifest_max_request_bytes_value = providerHarnessManifestMaxRequestBytes(options, entries);
                 const manifest_max_response_bytes_value = providerHarnessManifestMaxResponseBytes(options, entries);
                 const manifest_accepts_embedded_capsules_value = providerHarnessField(options, "accepts_embedded_capsules", @as(bool, true));
                 const manifest_accepts_capsule_restore_value = providerHarnessField(options, "accepts_capsule_restore", @as(bool, true));
                 const manifest_semantic_tags_value = providerHarnessField(options, "semantic_tags", @as([]const []const u8, &.{}));
+                const defunctionalization_intrinsic_refs = providerHarnessIntrinsicRefs(entries, exchange_manifest_fingerprint_value, provider_fp);
 
                 return struct {
                     /// Provider label used for the derived manifest.
@@ -5930,6 +6201,8 @@ pub fn program(
                     pub const supported_protocol_labels = protocol_labels[0..];
                     /// Protocol-operation fingerprints covered by this provider harness.
                     pub const supported_protocol_op_fingerprints = protocol_ops[0..];
+                    /// Provider-program mappings proven by this provider harness.
+                    pub const supported_provider_program_mapping_fingerprints = program_mapping_fingerprints[0..];
                     /// Manifest-level response-kind policy derived from harness options and declarations.
                     pub const manifest_allowed_response_kinds = manifest_response_kinds_value;
                     /// Manifest-level maximum request envelope bytes.
@@ -5957,6 +6230,37 @@ pub fn program(
                         return evidence_ref;
                     }
 
+                    /// Return the semantic body classification for one handler declaration.
+                    pub fn declarationSemanticBody(comptime index: usize) Evidence.SemanticBody {
+                        if (index >= entries.len) @compileError("Program.Exchange.ProviderHarness declaration index out of range");
+                        return providerHarnessEntrySemanticBody(entries[index]);
+                    }
+
+                    /// Return the HostIntrinsic descriptor for a function-backed declaration.
+                    pub fn declarationHostIntrinsic(comptime index: usize) ?Evidence.HostIntrinsic {
+                        if (index >= entries.len) @compileError("Program.Exchange.ProviderHarness declaration index out of range");
+                        const Entry = entries[index];
+                        if (providerHarnessEntrySemanticBody(Entry) != .host_intrinsic) return null;
+                        return providerOfferHostIntrinsicFromOptions(offerOptions(index, exchange_manifest_fingerprint_value));
+                    }
+
+                    /// Machine-readable semantic boundary audit for this provider harness.
+                    pub fn defunctionalizationReport() Evidence.DefunctionalizationReport {
+                        return Evidence.DefunctionalizationReport.init(.{
+                            .scope_kind = .provider_harness,
+                            .scope_ref = evidence_ref,
+                            .counts = providerHarnessSemanticCounts(entries),
+                            .intrinsic_refs = &defunctionalization_intrinsic_refs,
+                            .dependencies = &.{.{ .role = .provider_harness, .ref = evidence_ref }},
+                            .summary = provider_label_text,
+                        });
+                    }
+
+                    /// Assert this provider harness satisfies a defunctionalization policy.
+                    pub fn assertDefunctionalized(policy: Evidence.DefunctionalizationPolicy) error{ HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
+                        try defunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
+                    }
+
                     /// Static provider catalog metadata.
                     pub const Metadata = struct {
                         label: []const u8,
@@ -5982,6 +6286,7 @@ pub fn program(
                         provider_manifest: ProviderManifest,
                         provider_offers: []ProviderOffer,
                         offer_fingerprints: []u64,
+                        intrinsic_refs: []Evidence.Ref,
                         metadata: Metadata,
 
                         /// Release provider catalog storage.
@@ -5989,10 +6294,24 @@ pub fn program(
                             for (self.provider_offers) |*offer| offer.deinit();
                             self.allocator.free(self.provider_offers);
                             self.allocator.free(self.offer_fingerprints);
+                            self.allocator.free(self.intrinsic_refs);
                             self.provider_manifest.deinit();
                             self.manifest.deinit();
                             self.provider_offers = &.{};
                             self.offer_fingerprints = &.{};
+                            self.intrinsic_refs = &.{};
+                        }
+
+                        /// Machine-readable semantic boundary audit for this owned catalog.
+                        pub fn defunctionalizationReport(self: *const @This()) Evidence.DefunctionalizationReport {
+                            return Evidence.DefunctionalizationReport.init(.{
+                                .scope_kind = .provider_harness,
+                                .scope_ref = evidence_ref,
+                                .counts = providerHarnessSemanticCounts(entries),
+                                .intrinsic_refs = self.intrinsic_refs,
+                                .dependencies = &.{.{ .role = .provider_harness, .ref = evidence_ref }},
+                                .summary = provider_label_text,
+                            });
                         }
                     };
 
@@ -6016,6 +6335,7 @@ pub fn program(
                             .supported_operation_sites = supported_operation_sites,
                             .supported_after_sites = supported_after_sites,
                             .supported_protocol_op_fingerprints = supported_protocol_op_fingerprints,
+                            .supported_provider_program_mapping_fingerprints = supported_provider_program_mapping_fingerprints,
                             .allowed_response_kinds = manifest_allowed_response_kinds,
                             .max_request_envelope_bytes = manifest_max_request_envelope_bytes,
                             .max_response_envelope_bytes = manifest_max_response_envelope_bytes,
@@ -6047,8 +6367,8 @@ pub fn program(
                         errdefer allocator.free(offers);
                         var initialized: usize = 0;
                         errdefer for (offers[0..initialized]) |*offer| offer.deinit();
-                        inline for (entries, 0..) |_, index| {
-                            offers[index] = try ProviderOffer.encode(allocator, offerOptions(index, manifest.fingerprint));
+                        inline for (entries, 0..) |Entry, index| {
+                            offers[index] = try encodeProviderHarnessOffer(allocator, Entry, manifest.fingerprint, provider_fingerprint);
                             initialized += 1;
                         }
 
@@ -6056,12 +6376,23 @@ pub fn program(
                         errdefer allocator.free(offer_fingerprints);
                         for (offers, 0..) |offer, index| offer_fingerprints[index] = offer.fingerprint;
 
+                        var intrinsic_refs = try allocator.alloc(Evidence.Ref, providerHarnessHostIntrinsicCount(entries));
+                        errdefer allocator.free(intrinsic_refs);
+                        var intrinsic_index: usize = 0;
+                        inline for (entries, 0..) |Entry, index| {
+                            if (comptime providerHarnessEntrySemanticBody(Entry) == .host_intrinsic) {
+                                intrinsic_refs[intrinsic_index] = offers[index].hostIntrinsicRef() orelse return error.ProgramContractViolation;
+                                intrinsic_index += 1;
+                            }
+                        }
+
                         return .{
                             .allocator = allocator,
                             .manifest = manifest,
                             .provider_manifest = provider_manifest,
                             .provider_offers = offers,
                             .offer_fingerprints = offer_fingerprints,
+                            .intrinsic_refs = intrinsic_refs,
                             .metadata = metadata,
                         };
                     }
@@ -6081,7 +6412,7 @@ pub fn program(
                     pub fn providerOffer(allocator: std.mem.Allocator, comptime index: usize) Error!ProviderOffer {
                         var manifest = try Manifest.encode(allocator);
                         defer manifest.deinit();
-                        return ProviderOffer.encode(allocator, offerOptions(index, manifest.fingerprint));
+                        return encodeProviderHarnessOffer(allocator, entries[index], manifest.fingerprint, provider_fingerprint);
                     }
 
                     /// Build every provider offer derived from this harness.
@@ -6092,8 +6423,8 @@ pub fn program(
                         errdefer allocator.free(offers);
                         var initialized: usize = 0;
                         errdefer for (offers[0..initialized]) |*offer| offer.deinit();
-                        inline for (entries, 0..) |_, index| {
-                            offers[index] = try ProviderOffer.encode(allocator, offerOptions(index, manifest.fingerprint));
+                        inline for (entries, 0..) |Entry, index| {
+                            offers[index] = try encodeProviderHarnessOffer(allocator, Entry, manifest.fingerprint, provider_fingerprint);
                             initialized += 1;
                         }
                         return offers;
@@ -6137,7 +6468,7 @@ pub fn program(
                     pub fn validateManualOffer(allocator: std.mem.Allocator, comptime index: usize, offer: ProviderOffer) Error!void {
                         var manifest = try Manifest.encode(allocator);
                         defer manifest.deinit();
-                        var expected = try ProviderOffer.encode(allocator, offerOptions(index, manifest.fingerprint));
+                        var expected = try encodeProviderHarnessOffer(allocator, entries[index], manifest.fingerprint, provider_fingerprint);
                         defer expected.deinit();
                         try offer.validate();
                         if (offer.fingerprint != expected.fingerprint or !std.mem.eql(u8, offer.bytes, expected.bytes)) return error.ProgramContractViolation;
@@ -7560,8 +7891,8 @@ pub fn program(
                             try appendProviderEvent(options_value.journal, .provider_request_rejected, request, certificate, null, null, failed.tag);
                             return .{ .rejected = failed };
                         }
-                        inline for (entries, 0..) |Entry, index| {
-                            var offer = try ProviderOffer.encode(allocator, offerOptions(index, manifest.fingerprint));
+                        inline for (entries) |Entry| {
+                            var offer = try encodeProviderHarnessOffer(allocator, Entry, manifest.fingerprint, provider_fingerprint);
                             defer offer.deinit();
                             if (offer.fingerprint == certificate.provider_offer_fingerprint) {
                                 return handleEntry(Entry, ctx, allocator, request, certificate, offer, options_value);
@@ -7951,6 +8282,46 @@ pub fn program(
                     },
                     else => @compileError("Program.Exchange.ProviderHarness listed non-provider handler declaration"),
                 }
+                comptime assertProviderHarnessProgramBackedEntry(Entry);
+            }
+
+            fn assertProviderHarnessProgramBackedEntry(comptime Entry: type) void {
+                @setEvalBranchQuota(100000);
+                const has_mapping = @hasDecl(Entry, "provider_program_mapping_fingerprint");
+                const has_program_marker = @hasDecl(Entry, "program_backed") and Entry.program_backed;
+                if (!has_mapping and !has_program_marker) return;
+                if (!has_mapping or
+                    !has_program_marker or
+                    !@hasDecl(Entry, "handler_program") or
+                    !@hasDecl(Entry, "request_to_program_args") or
+                    !@hasDecl(Entry, "program_result_to_provider_outcome"))
+                {
+                    @compileError("Program.Exchange.ProviderHarness program-backed entries must be declared with ProviderHandler.program");
+                }
+                const HandlerProgram = Entry.handler_program;
+                if (!hasDeclSafe(HandlerProgram, "compiled_plan") or !hasDeclSafe(HandlerProgram, "contract")) {
+                    @compileError("Program.Exchange.ProviderHarness program-backed entries must use an Ability Program handler");
+                }
+                validateProviderProgramRequestMapping(Entry.kind, Entry.Site, HandlerProgram, Entry.request_to_program_args, null);
+                const expected = providerProgramMappingFingerprint(
+                    Entry.kind,
+                    Entry.Site,
+                    HandlerProgram,
+                    Entry.request_to_program_args,
+                    Entry.program_result_to_provider_outcome,
+                    null,
+                );
+                if (Entry.provider_program_mapping_fingerprint != expected) {
+                    @compileError("Program.Exchange.ProviderHarness program-backed mapping fingerprint does not match handler Program");
+                }
+                if (comptime @hasDecl(Entry, "semantic_body") and Entry.semantic_body != .ability_program) {
+                    @compileError("Program.Exchange.ProviderHarness program-backed entries must declare ability_program semantic body");
+                }
+            }
+
+            fn providerHarnessEntryProgramBacked(comptime Entry: type) bool {
+                comptime assertProviderHarnessProgramBackedEntry(Entry);
+                return @hasDecl(Entry, "provider_program_mapping_fingerprint");
             }
 
             fn assertProviderHarnessNoDuplicates(comptime entries: anytype) void {
@@ -8035,6 +8406,146 @@ pub fn program(
                     ops[index] = providerHarnessEntryProtocolOpFingerprint(Entry);
                 }
                 return ops;
+            }
+
+            fn providerHarnessProgramMappingCount(comptime entries: anytype) usize {
+                comptime var count: usize = 0;
+                inline for (entries) |Entry| {
+                    if (comptime providerHarnessEntryProgramBacked(Entry)) count += 1;
+                }
+                return count;
+            }
+
+            fn providerHarnessProgramMappingFingerprints(comptime entries: anytype) [providerHarnessProgramMappingCount(entries)]u64 {
+                comptime var mappings: [providerHarnessProgramMappingCount(entries)]u64 = undefined;
+                comptime var index: usize = 0;
+                inline for (entries) |Entry| {
+                    if (comptime providerHarnessEntryProgramBacked(Entry)) {
+                        mappings[index] = Entry.provider_program_mapping_fingerprint;
+                        index += 1;
+                    }
+                }
+                return mappings;
+            }
+
+            fn providerHarnessEntrySemanticBody(comptime Entry: type) Evidence.SemanticBody {
+                if (comptime providerHarnessEntryProgramBacked(Entry)) {
+                    return .ability_program;
+                }
+                if (comptime @hasDecl(Entry, "semantic_body") and Entry.semantic_body != .host_intrinsic) {
+                    @compileError("Program.Exchange.ProviderHarness function-backed entries must declare host_intrinsic semantic body");
+                }
+                return .host_intrinsic;
+            }
+
+            fn providerHarnessHostIntrinsicCount(comptime entries: anytype) usize {
+                comptime var count: usize = 0;
+                inline for (entries) |Entry| {
+                    const body = comptime providerHarnessEntrySemanticBody(Entry);
+                    if (body == .host_intrinsic) count += 1;
+                }
+                return count;
+            }
+
+            fn providerHarnessSemanticCounts(comptime entries: anytype) Evidence.DefunctionalizationReport.Counts {
+                comptime var counts: Evidence.DefunctionalizationReport.Counts = .{};
+                inline for (entries) |Entry| {
+                    const body = comptime providerHarnessEntrySemanticBody(Entry);
+                    switch (body) {
+                        .ability_program => counts.ability_program += 1,
+                        .declarative => counts.declarative += 1,
+                        .residualized_program => counts.residualized_program += 1,
+                        .pipeline => counts.pipeline += 1,
+                        .kernel_primitive => counts.kernel_primitive += 1,
+                        .host_intrinsic => counts.host_intrinsic += 1,
+                        .unknown => counts.unknown += 1,
+                    }
+                }
+                return counts;
+            }
+
+            fn providerHarnessEntryHostIntrinsic(comptime Entry: type, manifest_fingerprint: u64, provider_fingerprint: u64) Evidence.HostIntrinsic {
+                return providerOfferHostIntrinsicFromOptions(providerHarnessOfferOptions(Entry, manifest_fingerprint, provider_fingerprint)).?;
+            }
+
+            fn encodeProviderHarnessOffer(
+                allocator: std.mem.Allocator,
+                comptime Entry: type,
+                manifest_fingerprint: u64,
+                provider_fingerprint: u64,
+            ) Error!ProviderOffer {
+                const operation_sites: []const usize = switch (Entry.kind) {
+                    .operation => &[_]usize{Entry.Site.index},
+                    .after => &[_]usize{},
+                    else => unreachable,
+                };
+                const after_sites: []const usize = switch (Entry.kind) {
+                    .operation => &[_]usize{},
+                    .after => &[_]usize{Entry.Site.index},
+                    else => unreachable,
+                };
+                const protocol_ops = [_]u64{providerHarnessEntryProtocolOpFingerprint(Entry)};
+                const protocol_labels = [_][]const u8{providerHarnessEntryProtocolLabel(Entry)};
+                const accepted_payload_refs: []const lowering_api.ValueRef = switch (Entry.kind) {
+                    .operation => &[_]lowering_api.ValueRef{Entry.Site.payload_ref},
+                    .after => &[_]lowering_api.ValueRef{},
+                    else => unreachable,
+                };
+                const accepted_current_value_refs: []const lowering_api.ValueRef = switch (Entry.kind) {
+                    .operation => &[_]lowering_api.ValueRef{},
+                    .after => if (Entry.Site.current_value_ref) |ref| &[_]lowering_api.ValueRef{ref} else &[_]lowering_api.ValueRef{},
+                    else => unreachable,
+                };
+                const response_kinds = comptime providerHarnessEntryResponseKinds(Entry);
+                const produced_response_refs = providerHarnessProducedResponseRefs(Entry, response_kinds);
+                const options = ProviderOffer.Options{
+                    .label = Entry.offer_options.label orelse providerHarnessDefaultOfferLabel(Entry),
+                    .provider_fingerprint = provider_fingerprint,
+                    .manifest_fingerprint = manifest_fingerprint,
+                    .supported_operation_sites = operation_sites,
+                    .supported_after_sites = after_sites,
+                    .supported_protocol_op_fingerprints = protocol_ops[0..],
+                    .supported_protocol_labels = protocol_labels[0..],
+                    .accepted_payload_refs = accepted_payload_refs,
+                    .accepted_current_value_refs = accepted_current_value_refs,
+                    .produced_response_refs = produced_response_refs,
+                    .allowed_response_kinds = response_kinds,
+                    .supported_usage_modes = Entry.offer_options.supported_usage_modes,
+                    .supported_response_uses = Entry.offer_options.supported_response_uses,
+                    .supported_replay_policies = Entry.offer_options.supported_replay_policies,
+                    .supported_branch_policies = Entry.offer_options.supported_branch_policies,
+                    .capsule_policy = Entry.offer_options.capsule_policy,
+                    .opens_obligation = Entry.offer_options.opens_obligation,
+                    .max_request_bytes = Entry.offer_options.max_request_bytes,
+                    .max_response_bytes = Entry.offer_options.max_response_bytes,
+                    .max_capsule_bytes = Entry.offer_options.max_capsule_bytes,
+                    .tags = Entry.offer_options.tags,
+                    .metadata = Entry.offer_options.metadata,
+                    .provider_program_mapping_fingerprint = if (comptime providerHarnessEntryProgramBacked(Entry)) Entry.provider_program_mapping_fingerprint else null,
+                };
+                return if (comptime providerHarnessEntryProgramBacked(Entry))
+                    ProviderOffer.encodeProgramMapped(allocator, options)
+                else
+                    ProviderOffer.encode(allocator, options);
+            }
+
+            fn providerHarnessIntrinsicRefs(comptime entries: anytype, manifest_fingerprint: u64, provider_fingerprint: u64) [providerHarnessHostIntrinsicCount(entries)]Evidence.Ref {
+                @setEvalBranchQuota(100000);
+                var refs: [providerHarnessHostIntrinsicCount(entries)]Evidence.Ref = undefined;
+                var index: usize = 0;
+                inline for (entries) |Entry| {
+                    const body = comptime providerHarnessEntrySemanticBody(Entry);
+                    if (body == .host_intrinsic) {
+                        const intrinsic = providerHarnessEntryHostIntrinsic(Entry, manifest_fingerprint, provider_fingerprint);
+                        refs[index] = Evidence.refFor(Evidence.domains.host_intrinsic, intrinsic.fingerprint, .{
+                            .format_version = intrinsic.format_version,
+                            .label = intrinsic.label,
+                            .kind_tag = @tagName(intrinsic.kind),
+                        });
+                        index += 1;
+                    }
+                }
+                return refs;
             }
 
             fn providerHarnessEntryProtocolLabel(comptime Entry: type) []const u8 {
@@ -8197,8 +8708,114 @@ pub fn program(
                     .max_capsule_bytes = Entry.offer_options.max_capsule_bytes,
                     .tags = Entry.offer_options.tags,
                     .metadata = Entry.offer_options.metadata,
-                    .provider_program_mapping_fingerprint = if (comptime @hasDecl(Entry, "provider_program_mapping_fingerprint")) Entry.provider_program_mapping_fingerprint else null,
+                    .provider_program_mapping_fingerprint = if (comptime providerHarnessEntryProgramBacked(Entry)) Entry.provider_program_mapping_fingerprint else null,
                 };
+            }
+
+            fn providerOfferOptionsFromOffer(offer: ProviderOffer) ProviderOffer.Options {
+                return .{
+                    .label = offer.label,
+                    .provider_fingerprint = offer.provider_fingerprint,
+                    .manifest_fingerprint = offer.manifest_fingerprint,
+                    .supported_operation_sites = offer.supported_operation_sites,
+                    .supported_after_sites = offer.supported_after_sites,
+                    .supported_protocol_op_fingerprints = offer.supported_protocol_op_fingerprints,
+                    .supported_protocol_labels = offer.supported_protocol_labels,
+                    .accepted_payload_refs = offer.accepted_payload_refs,
+                    .accepted_current_value_refs = offer.accepted_current_value_refs,
+                    .produced_response_refs = offer.produced_response_refs,
+                    .allowed_response_kinds = offer.allowed_response_kinds,
+                    .supported_usage_modes = offer.supported_usage_modes,
+                    .supported_response_uses = offer.supported_response_uses,
+                    .supported_replay_policies = offer.supported_replay_policies,
+                    .supported_branch_policies = offer.supported_branch_policies,
+                    .capsule_policy = offer.capsule_policy,
+                    .opens_obligation = offer.opens_obligation,
+                    .max_request_bytes = offer.max_request_bytes,
+                    .max_response_bytes = offer.max_response_bytes,
+                    .max_capsule_bytes = offer.max_capsule_bytes,
+                    .tags = offer.tags,
+                    .metadata = offer.metadata,
+                    .provider_program_mapping_fingerprint = offer.provider_program_mapping_fingerprint,
+                };
+            }
+
+            fn providerOfferIntrinsicPolicyFingerprint(offer: ProviderOffer) u64 {
+                return providerOfferIntrinsicPolicyFingerprintFromOptions(providerOfferOptionsFromOffer(offer));
+            }
+
+            fn providerOfferHostIntrinsicFromOptions(options: ProviderOffer.Options) ?Evidence.HostIntrinsic {
+                if (options.provider_program_mapping_fingerprint != null) return null;
+                return Evidence.HostIntrinsic.init(.{
+                    .label = options.label,
+                    .kind = .provider_function,
+                    .owner_subsystem = .provider_harness,
+                    .allowed_protocol_labels = options.supported_protocol_labels,
+                    .allowed_site_indexes = options.supported_operation_sites,
+                    .allowed_after_site_indexes = options.supported_after_sites,
+                    .allowed_protocol_op_fingerprints = options.supported_protocol_op_fingerprints,
+                    .associated_provider_fingerprint = options.provider_fingerprint,
+                    .associated_manifest_fingerprint = options.manifest_fingerprint,
+                    .provider_offer_policy_fingerprint = providerOfferIntrinsicPolicyFingerprintFromOptions(options),
+                    .associated_handler_descriptor = providerOfferHostIntrinsicDescriptorFromOptions(options),
+                    .reason = "function-backed provider handler",
+                    .usage_mode_summary = "provider harness declaration",
+                    .tags = options.tags,
+                    .metadata = options.metadata,
+                });
+            }
+
+            fn providerOfferHostIntrinsicDescriptorFromOptions(options: ProviderOffer.Options) []const u8 {
+                if (options.supported_operation_sites.len != 0 and options.supported_after_sites.len == 0) return "provider operation handler";
+                if (options.supported_after_sites.len != 0 and options.supported_operation_sites.len == 0) return "provider after handler";
+                return "provider handler";
+            }
+
+            fn providerOfferIntrinsicPolicyFingerprintFromOptions(options: ProviderOffer.Options) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.exchange.provider_offer.intrinsic_policy");
+                hashU32(&hasher, exchange_provider_offer_fingerprint_version);
+                hashBytes(&hasher, options.label);
+                hashU64(&hasher, options.provider_fingerprint);
+                hashU64(&hasher, options.manifest_fingerprint);
+                hashUsizeList(&hasher, options.supported_operation_sites);
+                hashUsizeList(&hasher, options.supported_after_sites);
+                hashU64List(&hasher, options.supported_protocol_op_fingerprints);
+                hashStringList(&hasher, options.supported_protocol_labels);
+                hashValueRefList(&hasher, options.accepted_payload_refs);
+                hashValueRefList(&hasher, options.accepted_current_value_refs);
+                hashValueRefList(&hasher, options.produced_response_refs);
+                hashBool(&hasher, options.allowed_response_kinds.@"resume");
+                hashBool(&hasher, options.allowed_response_kinds.return_now);
+                hashBool(&hasher, options.allowed_response_kinds.resume_after);
+                hashBool(&hasher, options.supported_usage_modes.copyable);
+                hashBool(&hasher, options.supported_usage_modes.replayable);
+                hashBool(&hasher, options.supported_usage_modes.affine);
+                hashBool(&hasher, options.supported_usage_modes.linear);
+                hashBool(&hasher, options.supported_usage_modes.ephemeral);
+                hashBool(&hasher, options.supported_response_uses.fresh);
+                hashBool(&hasher, options.supported_response_uses.replayed);
+                hashBool(&hasher, options.supported_response_uses.deterministic_replay);
+                hashBool(&hasher, options.supported_response_uses.override);
+                hashBool(&hasher, options.supported_replay_policies.fresh);
+                hashBool(&hasher, options.supported_replay_policies.replayed);
+                hashBool(&hasher, options.supported_replay_policies.deterministic_replay);
+                hashBool(&hasher, options.supported_replay_policies.override);
+                hashBool(&hasher, options.supported_branch_policies.unrestricted);
+                hashBool(&hasher, options.supported_branch_policies.replay_only);
+                hashBool(&hasher, options.supported_branch_policies.single_live_branch);
+                hashBool(&hasher, options.supported_branch_policies.split_required);
+                hashBool(&hasher, options.supported_branch_policies.no_branch);
+                hashBool(&hasher, options.supported_branch_policies.host_owned);
+                hashBytes(&hasher, @tagName(options.capsule_policy));
+                hashBool(&hasher, options.opens_obligation);
+                hashUsize(&hasher, options.max_request_bytes);
+                hashUsize(&hasher, options.max_response_bytes);
+                hashUsize(&hasher, options.max_capsule_bytes);
+                hashStringList(&hasher, options.tags);
+                hashBytes(&hasher, options.metadata);
+                hashOptionalU64(&hasher, options.provider_program_mapping_fingerprint);
+                return hasher.final();
             }
 
             /// Exchange-facing metadata for one protocol adaptation offer.
@@ -8254,6 +8871,51 @@ pub fn program(
                 /// Return true when this offer cites a static residual or pipeline adapter.
                 pub fn hasStaticAdapter(self: @This()) bool {
                     return self.residual_morphism_fingerprint != null or self.pipeline_fingerprint != null;
+                }
+
+                /// Return true when an offer tries to cite both opaque and static adapter bodies.
+                pub fn hasMixedAdapterBody(self: @This()) bool {
+                    return self.dynamic_morphism_fingerprint != null and self.hasStaticAdapter();
+                }
+
+                /// Classify the semantic body used by this morphism adapter.
+                pub fn semanticBody(self: @This()) Evidence.SemanticBody {
+                    if (self.dynamic_morphism_fingerprint != null) return .host_intrinsic;
+                    if (self.pipeline_fingerprint != null) return .pipeline;
+                    if (self.residual_morphism_fingerprint != null) return .residualized_program;
+                    return .unknown;
+                }
+
+                /// Host-intrinsic descriptor for dynamic, opaque morphism mappers.
+                pub fn hostIntrinsic(self: @This()) ?Evidence.HostIntrinsic {
+                    if (self.semanticBody() != .host_intrinsic) return null;
+                    return Evidence.HostIntrinsic.init(.{
+                        .label = self.label,
+                        .kind = .dynamic_morphism_mapper,
+                        .owner_subsystem = .morphism,
+                        .associated_morphism_offer_ref = self.evidenceRef(),
+                        .reason = "dynamic morphism mapper is opaque host code",
+                        .stability = .host_owned,
+                        .metadata = "ability.exchange.morphism_offer.dynamic_mapper",
+                    });
+                }
+
+                /// Evidence reference for an opaque dynamic morphism mapper, when present.
+                pub fn hostIntrinsicRef(self: @This()) ?Evidence.Ref {
+                    const intrinsic = self.hostIntrinsic() orelse return null;
+                    return intrinsic.evidenceRef();
+                }
+
+                /// Defunctionalization coverage report for this morphism offer.
+                pub fn defunctionalizationReport(self: @This()) Evidence.DefunctionalizationReport {
+                    const body = self.semanticBody();
+                    return Evidence.DefunctionalizationReport.init(.{
+                        .scope_kind = .morphism_offer,
+                        .scope_ref = self.evidenceRef(),
+                        .counts = Evidence.DefunctionalizationReport.Counts.fromBody(body),
+                        .primary_intrinsic_ref = self.hostIntrinsicRef(),
+                        .summary = "morphism offer semantic body classification",
+                    });
                 }
             };
 
@@ -8337,11 +8999,50 @@ pub fn program(
                 provider_response_refs: []const lowering_api.ValueRef = &.{},
                 journal_policy_fingerprint: ?u64 = null,
                 require_treaty_bound_response_authorization: bool = true,
+                provider_semantic_body: Evidence.SemanticBody = .unknown,
+                morphism_semantic_body: ?Evidence.SemanticBody = null,
+                provider_intrinsic_ref: ?Evidence.Ref = null,
+                morphism_intrinsic_ref: ?Evidence.Ref = null,
                 certificate: Certificate,
 
                 /// Canonical evidence reference for this treaty.
                 pub fn evidenceRef(self: @This()) Evidence.Ref {
                     return Evidence.refForTreaty(self);
+                }
+
+                /// Summarize semantic body coverage for this selected treaty.
+                pub fn defunctionalizationReport(self: @This()) Evidence.DefunctionalizationReport {
+                    var counts = Evidence.DefunctionalizationReport.Counts.fromBody(self.provider_semantic_body);
+                    if (self.morphism_semantic_body) |body| {
+                        const morphism_counts = Evidence.DefunctionalizationReport.Counts.fromBody(body);
+                        counts.ability_program += morphism_counts.ability_program;
+                        counts.declarative += morphism_counts.declarative;
+                        counts.residualized_program += morphism_counts.residualized_program;
+                        counts.pipeline += morphism_counts.pipeline;
+                        counts.kernel_primitive += morphism_counts.kernel_primitive;
+                        counts.host_intrinsic += morphism_counts.host_intrinsic;
+                        counts.unknown += morphism_counts.unknown;
+                    }
+                    return Evidence.DefunctionalizationReport.init(.{
+                        .scope_kind = .treaty,
+                        .scope_ref = self.evidenceRef(),
+                        .counts = counts,
+                        .primary_intrinsic_ref = self.provider_intrinsic_ref,
+                        .secondary_intrinsic_ref = self.morphism_intrinsic_ref,
+                        .summary = "treaty semantic body classification",
+                    });
+                }
+
+                /// Assert that this treaty satisfies a defunctionalization policy.
+                pub fn assertDefunctionalized(self: @This(), policy: Evidence.DefunctionalizationPolicy) error{ ProgramContractViolation, HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
+                    self.checkCertificate() catch return error.ProgramContractViolation;
+                    try self.defunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
+                    if (policy.require_program_backed_providers and self.provider_semantic_body != .ability_program) return error.HostIntrinsicsPresent;
+                    if (policy.require_declarative_morphisms) {
+                        if (self.morphism_semantic_body) |body| {
+                            if (body != .declarative and body != .residualized_program and body != .pipeline) return error.HostIntrinsicsPresent;
+                        }
+                    }
                 }
 
                 /// Treaty handling implementation mode.
@@ -8405,6 +9106,12 @@ pub fn program(
                     wrong_route,
                     wrong_morphism,
                     wrong_response_kind,
+                    intrinsic_provider_rejected,
+                    intrinsic_morphism_rejected,
+                    unknown_semantic_body,
+                    non_defunctionalized_route,
+                    unallowlisted_intrinsic,
+                    intrinsic_count_exceeded,
                 };
 
                 /// Structured treaty blocker with optional candidate fingerprints.
@@ -8418,6 +9125,7 @@ pub fn program(
                     capability_instance_fingerprint: ?u64 = null,
                     obligation_fingerprint: ?u64 = null,
                     morphism_fingerprint: ?u64 = null,
+                    host_intrinsic_count: usize = 0,
                     summary: []const u8 = "",
 
                     /// Lower treaty-specific blocker metadata into the shared Evidence blocker shape.
@@ -8626,6 +9334,12 @@ pub fn program(
                     max_capsule_bytes: usize = std.math.maxInt(usize),
                     ambiguity_policy: AmbiguityPolicy = .reject_ambiguous,
                     provider_priority: ?[]const u64 = null,
+                    defunctionalization_policy: ?Evidence.DefunctionalizationPolicy = null,
+                    reject_intrinsic_provider: bool = false,
+                    reject_intrinsic_morphism: bool = false,
+                    prefer_program_backed_provider: bool = false,
+                    allowed_intrinsic_kinds: []const Evidence.HostIntrinsic.Kind = &.{},
+                    allowed_intrinsic_fingerprints: []const u64 = &.{},
 
                     /// Convert treaty policy into the lower Exchange envelope policy.
                     pub fn exchangePolicy(self: @This()) Exchange.Policy {
@@ -8672,6 +9386,10 @@ pub fn program(
                     provider_response_refs: []const lowering_api.ValueRef = &.{},
                     journal_policy_fingerprint: ?u64 = null,
                     require_treaty_bound_response_authorization: bool = true,
+                    provider_semantic_body: Evidence.SemanticBody = .unknown,
+                    morphism_semantic_body: ?Evidence.SemanticBody = null,
+                    provider_intrinsic_ref: ?Evidence.Ref = null,
+                    morphism_intrinsic_ref: ?Evidence.Ref = null,
                     blockers: BlockerList = .{},
                     certificate_fingerprint: u64 = 0,
 
@@ -8683,6 +9401,10 @@ pub fn program(
                         if (self.capability_fingerprint == 0 or self.capability_path_fingerprint == 0) return error.ProgramContractViolation;
                         if (self.route_fingerprint == 0) return error.ProgramContractViolation;
                         if (!self.blockers.allowed()) return error.ProgramContractViolation;
+                        if ((self.provider_semantic_body == .host_intrinsic) != (self.provider_intrinsic_ref != null)) return error.ProgramContractViolation;
+                        if (self.morphism_semantic_body) |body| {
+                            if ((body == .host_intrinsic) != (self.morphism_intrinsic_ref != null)) return error.ProgramContractViolation;
+                        } else if (self.morphism_intrinsic_ref != null) return error.ProgramContractViolation;
                         if (self.certificate_fingerprint != fingerprintTreatyCertificate(self)) return error.ProgramContractViolation;
                     }
 
@@ -8710,6 +9432,10 @@ pub fn program(
                         errdefer allocator.free(provider_refs);
                         const provider_tags = try cloneStringList(allocator, self.provider_offer_tags);
                         errdefer freeStringList(allocator, provider_tags);
+                        var provider_intrinsic = try cloneOptionalEvidenceRef(allocator, self.provider_intrinsic_ref);
+                        errdefer freeOptionalEvidenceRef(allocator, &provider_intrinsic);
+                        var morphism_intrinsic = try cloneOptionalEvidenceRef(allocator, self.morphism_intrinsic_ref);
+                        errdefer freeOptionalEvidenceRef(allocator, &morphism_intrinsic);
                         var cloned = self;
                         cloned.morphism_offer_fingerprints = morphism_fps;
                         cloned.dynamic_morphism_fingerprints = dynamic_fps;
@@ -8717,6 +9443,8 @@ pub fn program(
                         cloned.expected_response_refs = response_refs;
                         cloned.provider_response_refs = provider_refs;
                         cloned.provider_offer_tags = provider_tags;
+                        cloned.provider_intrinsic_ref = provider_intrinsic;
+                        cloned.morphism_intrinsic_ref = morphism_intrinsic;
                         return cloned;
                     }
 
@@ -8728,6 +9456,8 @@ pub fn program(
                         allocator.free(self.expected_response_refs);
                         allocator.free(self.provider_response_refs);
                         freeStringList(allocator, self.provider_offer_tags);
+                        freeOptionalEvidenceRef(allocator, &self.provider_intrinsic_ref);
+                        freeOptionalEvidenceRef(allocator, &self.morphism_intrinsic_ref);
                         self.morphism_offer_fingerprints = &.{};
                         self.dynamic_morphism_fingerprints = &.{};
                         self.residualization_fingerprints = &.{};
@@ -9069,6 +9799,8 @@ pub fn program(
                         allocator.free(self.provider_response_refs);
                         allocator.free(self.certificate.dynamic_morphism_fingerprints);
                         allocator.free(self.certificate.residualization_fingerprints);
+                        freeOptionalEvidenceRef(allocator, &self.provider_intrinsic_ref);
+                        freeOptionalEvidenceRef(allocator, &self.morphism_intrinsic_ref);
                     }
                     self.morphism_offer_fingerprints = &.{};
                     self.provider_offer_tags = &.{};
@@ -9076,6 +9808,8 @@ pub fn program(
                     self.residualization_fingerprints = &.{};
                     self.expected_response_refs = &.{};
                     self.provider_response_refs = &.{};
+                    self.certificate.provider_intrinsic_ref = null;
+                    self.certificate.morphism_intrinsic_ref = null;
                 }
 
                 /// Check the treaty certificate against the selected treaty.
@@ -9122,6 +9856,10 @@ pub fn program(
                     if (!valueRefListEqual(self.certificate.provider_response_refs, self.provider_response_refs)) return error.ProgramContractViolation;
                     if (self.certificate.journal_policy_fingerprint != self.journal_policy_fingerprint) return error.ProgramContractViolation;
                     if (self.certificate.require_treaty_bound_response_authorization != self.require_treaty_bound_response_authorization) return error.ProgramContractViolation;
+                    if (self.certificate.provider_semantic_body != self.provider_semantic_body) return error.ProgramContractViolation;
+                    if (self.certificate.morphism_semantic_body != self.morphism_semantic_body) return error.ProgramContractViolation;
+                    if (!optionalEvidenceRefsEqual(self.certificate.provider_intrinsic_ref, self.provider_intrinsic_ref)) return error.ProgramContractViolation;
+                    if (!optionalEvidenceRefsEqual(self.certificate.morphism_intrinsic_ref, self.morphism_intrinsic_ref)) return error.ProgramContractViolation;
                 }
             };
 
@@ -9626,6 +10364,69 @@ pub fn program(
                     pub fn deinit(self: *@This()) void {
                         if (self.treaty) |*value| value.deinit();
                     }
+
+                    /// Summarize semantic body coverage for the selected treaty or blockers.
+                    pub fn defunctionalizationReport(self: @This()) Evidence.DefunctionalizationReport {
+                        if (self.treaty) |treaty| return treaty.defunctionalizationReport();
+                        const counts = self.defunctionalizationBlockerCounts();
+                        return Evidence.DefunctionalizationReport.init(.{
+                            .scope_kind = .treaty_resolver_result,
+                            .scope_ref = Evidence.refFor(Evidence.domains.treaty_resolver, @intFromEnum(self.status), .{ .kind_tag = @tagName(self.status) }),
+                            .counts = counts,
+                            .summary = "treaty resolver result has no selected treaty",
+                        });
+                    }
+
+                    /// Assert that the resolver result satisfies a defunctionalization policy.
+                    pub fn assertDefunctionalized(self: @This(), policy: Evidence.DefunctionalizationPolicy) error{ ProgramContractViolation, HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
+                        if (self.treaty) |treaty| {
+                            try treaty.assertDefunctionalized(policy);
+                            return;
+                        }
+                        try self.defunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
+                        if (policy.require_program_backed_providers and self.hasProviderBodyPolicyBlocker()) {
+                            return error.HostIntrinsicsPresent;
+                        }
+                        if (policy.require_declarative_morphisms and self.hasMorphismBodyPolicyBlocker()) {
+                            return error.HostIntrinsicsPresent;
+                        }
+                    }
+
+                    fn defunctionalizationBlockerCounts(self: @This()) Evidence.DefunctionalizationReport.Counts {
+                        var counts: Evidence.DefunctionalizationReport.Counts = .{};
+                        for (self.blockers.blockers[0..self.blockers.count]) |blocker| {
+                            if (blocker.tag == .unknown_semantic_body) counts.unknown += 1;
+                            if (blocker.tag == .intrinsic_provider_rejected or
+                                blocker.tag == .intrinsic_morphism_rejected or
+                                blocker.tag == .unallowlisted_intrinsic)
+                            {
+                                counts.host_intrinsic += 1;
+                            }
+                            if (blocker.tag == .intrinsic_count_exceeded) counts.host_intrinsic += blocker.host_intrinsic_count;
+                        }
+                        return counts;
+                    }
+
+                    fn hasProviderBodyPolicyBlocker(self: @This()) bool {
+                        for (self.blockers.blockers[0..self.blockers.count]) |blocker| {
+                            if (blocker.tag == .intrinsic_provider_rejected) return true;
+                            if (blocker.tag == .non_defunctionalized_route and blocker.offer_fingerprint != null) return true;
+                        }
+                        return false;
+                    }
+
+                    fn hasMorphismBodyPolicyBlocker(self: @This()) bool {
+                        for (self.blockers.blockers[0..self.blockers.count]) |blocker| {
+                            if (blocker.tag == .intrinsic_morphism_rejected) return true;
+                            if (blocker.tag == .non_defunctionalized_route and
+                                blocker.morphism_fingerprint != null and
+                                blocker.offer_fingerprint == null)
+                            {
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
                 };
 
                 /// Resolve a treaty from request/catalog/policy inputs.
@@ -9687,7 +10488,7 @@ pub fn program(
                     }
                     if (valid_count == 1 and first_treaty != null) return .{ .status = .treaty, .treaty = first_treaty, .candidate_count = valid_count, .blocked_count = blocked_count };
                     if (valid_count > 1) {
-                        if (treatyEffectiveAmbiguityPolicy(inputs.treaty_policy, request_value) != .reject_ambiguous and !ambiguous_best and first_treaty != null) {
+                        if (treatyAllowsSelectedAmbiguity(inputs.treaty_policy, request_value) and !ambiguous_best and first_treaty != null) {
                             return .{ .status = .treaty, .treaty = first_treaty, .candidate_count = valid_count, .blocked_count = blocked_count };
                         }
                         if (first_treaty) |*value| value.deinit();
@@ -11518,6 +12319,7 @@ pub fn program(
                 if (!policy.allowed_response_uses.allows(treaty.response_use)) blockers.addTag(.response_use_incompatible, request.fingerprint, "treaty response-use violates current policy");
                 if (!policy.allowed_branch_policies.allows(treaty.branch_policy)) blockers.addTag(.branch_policy_incompatible, request.fingerprint, "treaty branch policy violates current policy");
                 if (!providerOfferTagsAllowPolicy(policy, treaty.certificate.provider_offer_tags)) blockers.addTag(.wrong_provider, request.fingerprint, "current treaty tag policy rejects provider offer tags");
+                if (treatyDefunctionalizationPolicyBlocker(policy, treaty)) |tag| blockers.addTag(tag, request.fingerprint, "current treaty defunctionalization policy rejects treaty semantic body");
                 if (policy.disallow_fresh_response and treaty.response_use == .fresh) blockers.addTag(.replay_policy_incompatible, request.fingerprint, "current treaty policy disallows fresh responses");
                 if (policy.require_replay_only_response and treaty.response_use != .replayed and treaty.response_use != .deterministic_replay) blockers.addTag(.replay_policy_incompatible, request.fingerprint, "current treaty policy requires replay-only responses");
                 if (policy.require_obligation_opening and treaty.obligation_fingerprint == null) blockers.addTag(.obligation_open_failed, request.fingerprint, "current treaty policy requires an opened obligation");
@@ -12033,6 +12835,7 @@ pub fn program(
                 bytes: []u8,
                 fingerprint: u64,
                 options: ProviderOffer.Options,
+                provider_program_mapping_attestation: ?ProviderProgramMappingAttestation,
             ) Error!ProviderOffer {
                 errdefer allocator.free(bytes);
                 const label_value = try allocator.dupe(u8, options.label);
@@ -12083,6 +12886,7 @@ pub fn program(
                     .tags = tags_value,
                     .metadata = metadata_value,
                     .provider_program_mapping_fingerprint = options.provider_program_mapping_fingerprint,
+                    .provider_program_mapping_attestation = provider_program_mapping_attestation,
                 };
             }
 
@@ -12122,6 +12926,28 @@ pub fn program(
                 const program_mapping_fingerprint: ?u64 = if (format_version == provider_offer_program_format_version) reader.readU64() catch return false else null;
                 if (program_mapping_fingerprint != offer.provider_program_mapping_fingerprint) return false;
                 return reader.eof();
+            }
+
+            fn providerProgramMappingAttestationToken(offer_fingerprint: u64, provider_fingerprint: u64, mapping_fingerprint: u64) u64 {
+                var hasher = std.hash.Wyhash.init(@intFromPtr(&provider_program_mapping_attestation_seed));
+                hashBytes(&hasher, "ability.exchange.provider_program.mapping.attestation");
+                hashU64(&hasher, offer_fingerprint);
+                hashU64(&hasher, provider_fingerprint);
+                hashU64(&hasher, mapping_fingerprint);
+                return hasher.final();
+            }
+
+            var provider_program_mapping_attestation_seed: u8 = 0;
+
+            fn providerProgramMappingBackedByManifest(offer: ProviderOffer, provider: ProviderManifest, mapping_fingerprint: u64) bool {
+                return offer.format_version == provider_offer_program_format_version and
+                    offer.providerProgramMappingAttested() and
+                    provider.format_version >= exchange_provider_format_version and
+                    provider.provider_fingerprint == offer.provider_fingerprint and
+                    providerOfferFieldsBoundToBytes(offer) and
+                    providerFieldsBoundToBytes(provider) and
+                    listAllowsU64(provider.supported_program_manifest_fingerprints, offer.manifest_fingerprint) and
+                    listContainsU64(provider.supported_provider_program_mapping_fingerprints, mapping_fingerprint);
             }
 
             fn writeManifestPayload(writer: *Writer) anyerror!void {
@@ -13002,6 +13828,37 @@ pub fn program(
                 return exchangeFingerprint(domain, version, payload);
             }
 
+            const CheckedProviderPayload = struct {
+                payload: []const u8,
+                fingerprint: u64,
+                format_version: u32,
+                fingerprint_version: u32,
+            };
+
+            fn checkedProviderPayload(bytes: []const u8) Error!CheckedProviderPayload {
+                if (bytes.len < 8) return error.ProgramContractViolation;
+                const payload = bytes[0 .. bytes.len - 8];
+                const actual = std.mem.readInt(u64, bytes[bytes.len - 8 ..][0..8], .little);
+                var reader = Reader.init(payload);
+                try reader.expectBytes(provider_magic);
+                const format_version = try reader.readU32();
+                const fingerprint_version = try reader.readU32();
+                if (!supportedProviderManifestVersions(format_version, fingerprint_version)) return error.ProgramContractViolation;
+                const expected = exchangeFingerprint("ability.exchange.provider", fingerprint_version, payload);
+                if (actual != expected) return error.ProgramContractViolation;
+                return .{
+                    .payload = payload,
+                    .fingerprint = expected,
+                    .format_version = format_version,
+                    .fingerprint_version = fingerprint_version,
+                };
+            }
+
+            fn supportedProviderManifestVersions(format_version: u32, fingerprint_version: u32) bool {
+                return (format_version == 1 and fingerprint_version == 1) or
+                    (format_version == exchange_provider_format_version and fingerprint_version == exchange_provider_fingerprint_version);
+            }
+
             fn supportedRequestEnvelopeVersions(format_version: u32, fingerprint_version: u32) bool {
                 return (format_version == 1 and fingerprint_version == 1) or
                     (format_version == 2 and fingerprint_version == 2) or
@@ -13172,6 +14029,37 @@ pub fn program(
 
             fn cloneValueRefs(allocator: std.mem.Allocator, values: []const lowering_api.ValueRef) Error![]lowering_api.ValueRef {
                 return allocator.dupe(lowering_api.ValueRef, values) catch |err| return mapProgramRunError(Error, err);
+            }
+
+            fn cloneOptionalEvidenceRef(allocator: std.mem.Allocator, value: ?Evidence.Ref) Error!?Evidence.Ref {
+                const ref = value orelse return null;
+                return try cloneEvidenceRef(allocator, ref);
+            }
+
+            fn cloneEvidenceRef(allocator: std.mem.Allocator, value: Evidence.Ref) Error!Evidence.Ref {
+                var cloned = value;
+                cloned.label = if (value.label) |label_value| blk: {
+                    const owned = allocator.dupe(u8, label_value) catch |err| return mapProgramRunError(Error, err);
+                    break :blk owned;
+                } else null;
+                errdefer if (cloned.label) |label_value| allocator.free(label_value);
+                cloned.kind_tag = if (value.kind_tag) |kind_tag| blk: {
+                    const owned = allocator.dupe(u8, kind_tag) catch |err| return mapProgramRunError(Error, err);
+                    break :blk owned;
+                } else null;
+                return cloned;
+            }
+
+            fn freeOptionalEvidenceRef(allocator: std.mem.Allocator, value: *?Evidence.Ref) void {
+                if (value.*) |*ref| freeEvidenceRef(allocator, ref);
+                value.* = null;
+            }
+
+            fn freeEvidenceRef(allocator: std.mem.Allocator, value: *Evidence.Ref) void {
+                if (value.label) |label_value| allocator.free(label_value);
+                if (value.kind_tag) |kind_tag| allocator.free(kind_tag);
+                value.label = null;
+                value.kind_tag = null;
             }
 
             fn cloneStringList(allocator: std.mem.Allocator, values: []const []const u8) Error![]const []const u8 {
@@ -13629,6 +14517,11 @@ pub fn program(
                 hashValueRefList(&hasher, certificate.provider_response_refs);
                 hashOptionalExchangeU64(&hasher, certificate.journal_policy_fingerprint);
                 hashBool(&hasher, certificate.require_treaty_bound_response_authorization);
+                hashBytes(&hasher, @tagName(certificate.provider_semantic_body));
+                hashBool(&hasher, certificate.morphism_semantic_body != null);
+                if (certificate.morphism_semantic_body) |body| hashBytes(&hasher, @tagName(body));
+                hashOptionalEvidenceRef(&hasher, certificate.provider_intrinsic_ref);
+                hashOptionalEvidenceRef(&hasher, certificate.morphism_intrinsic_ref);
                 for (certificate.blockers.blockers[0..certificate.blockers.count]) |blocker| hashBytes(&hasher, @tagName(blocker.tag));
                 hashBool(&hasher, certificate.blockers.saturated);
                 return hasher.final();
@@ -13640,6 +14533,49 @@ pub fn program(
                 hashU32(&hasher, 2);
                 hashU64(&hasher, certificate.treaty_fingerprint);
                 hashU64(&hasher, certificate.request_envelope_fingerprint);
+                hashU64(&hasher, certificate.request_fingerprint);
+                hashU64(&hasher, certificate.manifest_fingerprint);
+                hashU64(&hasher, certificate.provider_fingerprint);
+                hashU64(&hasher, certificate.provider_offer_fingerprint);
+                hashStringList(&hasher, certificate.provider_offer_tags);
+                hashU64(&hasher, certificate.capability_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.attenuated_capability_fingerprint);
+                hashU64(&hasher, certificate.capability_path_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.capability_instance_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.obligation_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.effect_session_spec_fingerprint);
+                hashU64(&hasher, certificate.route_fingerprint);
+                hashU64List(&hasher, certificate.morphism_offer_fingerprints);
+                hashU64List(&hasher, certificate.dynamic_morphism_fingerprints);
+                hashU64List(&hasher, certificate.residualization_fingerprints);
+                hashOptionalExchangeU64(&hasher, certificate.pipeline_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.source_protocol_op_fingerprint);
+                hashOptionalExchangeU64(&hasher, certificate.target_protocol_op_fingerprint);
+                hashBytes(&hasher, @tagName(certificate.handling));
+                hashBytes(&hasher, @tagName(certificate.usage));
+                hashBytes(&hasher, @tagName(certificate.provider_usage));
+                hashBytes(&hasher, @tagName(certificate.response_use));
+                hashBytes(&hasher, @tagName(certificate.replay_policy));
+                hashBytes(&hasher, @tagName(certificate.branch_policy));
+                hashBool(&hasher, certificate.expected_response_kinds.@"resume");
+                hashBool(&hasher, certificate.expected_response_kinds.return_now);
+                hashBool(&hasher, certificate.expected_response_kinds.resume_after);
+                hashValueRefList(&hasher, certificate.expected_response_refs);
+                hashValueRefList(&hasher, certificate.provider_response_refs);
+                hashOptionalExchangeU64(&hasher, certificate.journal_policy_fingerprint);
+                hashBool(&hasher, certificate.require_treaty_bound_response_authorization);
+                for (certificate.blockers.blockers[0..certificate.blockers.count]) |blocker| hashBytes(&hasher, @tagName(blocker.tag));
+                hashBool(&hasher, certificate.blockers.saturated);
+                return hasher.final();
+            }
+
+            fn fingerprintTreatyCertificateV3(certificate: Treaty.Certificate) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.exchange.treaty.certificate");
+                hashU32(&hasher, 3);
+                hashU64(&hasher, certificate.treaty_fingerprint);
+                hashU64(&hasher, certificate.request_envelope_fingerprint);
+                hashU32(&hasher, certificate.request_envelope_format_version);
                 hashU64(&hasher, certificate.request_fingerprint);
                 hashU64(&hasher, certificate.manifest_fingerprint);
                 hashU64(&hasher, certificate.provider_fingerprint);
@@ -13755,6 +14691,7 @@ pub fn program(
                 if (authorization.treaty_fingerprint == treaty.fingerprint) return true;
                 return switch (authorization.format_version) {
                     2, 3 => authorization.treaty_fingerprint == fingerprintTreatyCoreV2(treaty),
+                    exchange_treaty_authorization_fingerprint_version => authorization.treaty_fingerprint == fingerprintTreatyCoreV3(treaty),
                     else => false,
                 };
             }
@@ -13763,8 +14700,15 @@ pub fn program(
                 if (authorization.treaty_certificate_fingerprint == certificate.certificate_fingerprint) return true;
                 return switch (authorization.format_version) {
                     2, 3 => authorization.treaty_certificate_fingerprint == fingerprintTreatyCertificateV2(certificate),
+                    exchange_treaty_authorization_fingerprint_version => authorization.treaty_certificate_fingerprint == fingerprintTreatyCertificateV3WithTreatyFingerprint(certificate, authorization.treaty_fingerprint),
                     else => false,
                 };
+            }
+
+            fn fingerprintTreatyCertificateV3WithTreatyFingerprint(certificate: Treaty.Certificate, treaty_fingerprint: u64) u64 {
+                var legacy_certificate = certificate;
+                legacy_certificate.treaty_fingerprint = treaty_fingerprint;
+                return fingerprintTreatyCertificateV3(legacy_certificate);
             }
 
             fn writeRequestKindSet(writer: *Writer, set: RequestKindSet) std.mem.Allocator.Error!void {
@@ -13799,6 +14743,7 @@ pub fn program(
                 try writeUsizeList(writer, options.supported_operation_sites);
                 try writeUsizeList(writer, options.supported_after_sites);
                 try writeU64List(writer, options.supported_protocol_op_fingerprints);
+                try writeU64List(writer, options.supported_provider_program_mapping_fingerprints);
                 try writeResponseKindSet(writer, options.allowed_response_kinds);
                 try writer.writeUsize(options.max_request_envelope_bytes);
                 try writer.writeUsize(options.max_response_envelope_bytes);
@@ -13942,13 +14887,14 @@ pub fn program(
             }
 
             fn providerFieldsBoundToBytes(provider: ProviderManifest) bool {
-                const payload = checkedPayload(provider.bytes, "ability.exchange.provider", exchange_provider_fingerprint_version) catch return false;
-                const fingerprint = checkedBytesFingerprint(provider.bytes, "ability.exchange.provider", exchange_provider_fingerprint_version) catch return false;
-                if (fingerprint != provider.fingerprint) return false;
-                var reader = Reader.init(payload);
+                const checked = checkedProviderPayload(provider.bytes) catch return false;
+                if (checked.fingerprint != provider.fingerprint) return false;
+                if (checked.format_version != provider.format_version) return false;
+                if (checked.fingerprint_version != provider.fingerprint_version) return false;
+                var reader = Reader.init(checked.payload);
                 reader.expectBytes(provider_magic) catch return false;
-                if ((reader.readU32() catch return false) != exchange_provider_format_version) return false;
-                if ((reader.readU32() catch return false) != exchange_provider_fingerprint_version) return false;
+                if ((reader.readU32() catch return false) != checked.format_version) return false;
+                if ((reader.readU32() catch return false) != checked.fingerprint_version) return false;
                 if ((reader.readU64() catch return false) != provider.provider_fingerprint) return false;
                 if (!std.mem.eql(u8, reader.readLenBytes() catch return false, provider.label)) return false;
                 expectU64List(&reader, provider.supported_program_manifest_fingerprints) catch return false;
@@ -13956,6 +14902,11 @@ pub fn program(
                 expectUsizeList(&reader, provider.supported_operation_sites) catch return false;
                 expectUsizeList(&reader, provider.supported_after_sites) catch return false;
                 expectU64List(&reader, provider.supported_protocol_op_fingerprints) catch return false;
+                if (checked.format_version >= 2) {
+                    expectU64List(&reader, provider.supported_provider_program_mapping_fingerprints) catch return false;
+                } else if (provider.supported_provider_program_mapping_fingerprints.len != 0) {
+                    return false;
+                }
                 const response_kinds = readResponseKindSet(&reader) catch return false;
                 if (!responseKindSetsEqual(response_kinds, provider.allowed_response_kinds)) return false;
                 if ((reader.readUsize() catch return false) != provider.max_request_envelope_bytes) return false;
@@ -14028,6 +14979,19 @@ pub fn program(
             fn hashOptionalExchangeValueRef(hasher: *std.hash.Wyhash, value: ?lowering_api.ValueRef) void {
                 hashBool(hasher, value != null);
                 if (value) |actual| hashValueRef(hasher, actual);
+            }
+
+            fn hashOptionalEvidenceRef(hasher: *std.hash.Wyhash, value: ?Evidence.Ref) void {
+                hashBool(hasher, value != null);
+                if (value) |actual| {
+                    hashBytes(hasher, @tagName(actual.domain_id));
+                    hashU64(hasher, actual.fingerprint);
+                    hashOptionalExchangeU64(hasher, if (actual.format_version) |format_version| @as(u64, format_version) else null);
+                    hashOptionalBytes(hasher, actual.label);
+                    hashOptionalExchangeU64(hasher, actual.branch_id);
+                    hashOptionalUsize(hasher, actual.site_index);
+                    hashOptionalBytes(hasher, actual.kind_tag);
+                }
             }
 
             fn stateLabelFingerprint(state: []const u8) u64 {
@@ -14332,6 +15296,11 @@ pub fn program(
                 return false;
             }
 
+            fn listContainsU64(list: []const u64, value: u64) bool {
+                for (list) |item| if (item == value) return true;
+                return false;
+            }
+
             fn listAllowsUsize(list: []const usize, value: usize) bool {
                 if (list.len == 0) return true;
                 for (list) |item| if (item == value) return true;
@@ -14376,6 +15345,26 @@ pub fn program(
                 if (left.len != right.len) return false;
                 for (left, right) |left_item, right_item| if (!std.mem.eql(u8, left_item, right_item)) return false;
                 return true;
+            }
+
+            fn optionalBytesEqual(left: ?[]const u8, right: ?[]const u8) bool {
+                if (left == null or right == null) return left == null and right == null;
+                return std.mem.eql(u8, left.?, right.?);
+            }
+
+            fn evidenceRefsEqual(left: Evidence.Ref, right: Evidence.Ref) bool {
+                return left.domain_id == right.domain_id and
+                    left.fingerprint == right.fingerprint and
+                    left.format_version == right.format_version and
+                    optionalBytesEqual(left.label, right.label) and
+                    left.branch_id == right.branch_id and
+                    left.site_index == right.site_index and
+                    optionalBytesEqual(left.kind_tag, right.kind_tag);
+            }
+
+            fn optionalEvidenceRefsEqual(left: ?Evidence.Ref, right: ?Evidence.Ref) bool {
+                if (left == null or right == null) return left == null and right == null;
+                return evidenceRefsEqual(left.?, right.?);
             }
 
             fn usizeListSubset(child: []const usize, parent: []const usize) bool {
@@ -14695,6 +15684,50 @@ pub fn program(
                 blockers: *Treaty.BlockerList,
             ) Error!void {
                 offer_loop: for (inputs.provider_offers) |offer| {
+                    const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse {
+                        blocked_count.* += 1;
+                        blockers.add(.{
+                            .tag = .malformed_offer,
+                            .request_fingerprint = inputs.request.fingerprint,
+                            .provider_fingerprint = offer.provider_fingerprint,
+                            .offer_fingerprint = offer.fingerprint,
+                            .summary = "provider offer is not backed by a provider manifest",
+                        });
+                        continue :offer_loop;
+                    };
+                    if (!providerFieldsBoundToBytes(provider.*)) {
+                        blocked_count.* += 1;
+                        blockers.add(.{
+                            .tag = .malformed_offer,
+                            .request_fingerprint = inputs.request.fingerprint,
+                            .provider_fingerprint = provider.provider_fingerprint,
+                            .offer_fingerprint = offer.fingerprint,
+                            .summary = "provider manifest fields are not bound to provider bytes",
+                        });
+                        continue :offer_loop;
+                    }
+                    offer.validate() catch {
+                        blocked_count.* += 1;
+                        blockers.add(.{
+                            .tag = .malformed_offer,
+                            .request_fingerprint = inputs.request.fingerprint,
+                            .provider_fingerprint = offer.provider_fingerprint,
+                            .offer_fingerprint = offer.fingerprint,
+                            .summary = "provider offer fields are not bound to provider offer bytes",
+                        });
+                        continue :offer_loop;
+                    };
+                    if (treatyProviderBodyBlocker(inputs.treaty_policy, provider.*, offer)) |tag| {
+                        blocked_count.* += 1;
+                        blockers.add(.{
+                            .tag = tag,
+                            .request_fingerprint = inputs.request.fingerprint,
+                            .provider_fingerprint = offer.provider_fingerprint,
+                            .offer_fingerprint = offer.fingerprint,
+                            .summary = "provider offer semantic body is rejected by defunctionalization policy",
+                        });
+                        continue :offer_loop;
+                    }
                     if (!offerSourceSurfaceCompatible(offer, inputs.request) or !providerOfferTagPolicyAllows(inputs.treaty_policy, request_value, offer)) {
                         blocked_count.* += 1;
                         blockers.add(.{
@@ -14728,17 +15761,6 @@ pub fn program(
                         });
                         continue :offer_loop;
                     }
-                    const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse {
-                        blocked_count.* += 1;
-                        blockers.add(.{
-                            .tag = .malformed_offer,
-                            .request_fingerprint = inputs.request.fingerprint,
-                            .provider_fingerprint = offer.provider_fingerprint,
-                            .offer_fingerprint = offer.fingerprint,
-                            .summary = "provider offer is not backed by a provider manifest",
-                        });
-                        continue :offer_loop;
-                    };
                     var matched_capability = false;
                     capability_loop: for (inputs.capabilities) |capability| {
                         if (capability.provider_fingerprint != offer.provider_fingerprint or capability.manifest_fingerprint != inputs.request.manifest_fingerprint) continue :capability_loop;
@@ -14785,6 +15807,16 @@ pub fn program(
                     return;
                 }
                 morphism_loop: for (inputs.morphism_offers) |morphism| {
+                    if (morphism.hasMixedAdapterBody()) {
+                        blocked_count.* += 1;
+                        blockers.add(.{ .tag = .malformed_offer, .request_fingerprint = inputs.request.fingerprint, .morphism_fingerprint = morphism.fingerprint(), .summary = "morphism offer mixes dynamic and static adapter evidence" });
+                        continue :morphism_loop;
+                    }
+                    if (treatyMorphismBodyBlocker(inputs.treaty_policy, morphism)) |tag| {
+                        blocked_count.* += 1;
+                        blockers.add(.{ .tag = tag, .request_fingerprint = inputs.request.fingerprint, .morphism_fingerprint = morphism.fingerprint(), .summary = "morphism offer semantic body is rejected by defunctionalization policy" });
+                        continue :morphism_loop;
+                    }
                     if (!morphismSupportsSourceForTreaty(morphism, inputs.request, request_value)) {
                         blocked_count.* += 1;
                         blockers.add(.{ .tag = .morphism_missing, .request_fingerprint = inputs.request.fingerprint, .morphism_fingerprint = morphism.fingerprint(), .summary = "morphism offer does not match the source request" });
@@ -14807,6 +15839,54 @@ pub fn program(
                         continue :morphism_loop;
                     }
                     offer_loop: for (inputs.provider_offers) |offer| {
+                        const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse {
+                            blocked_count.* += 1;
+                            blockers.add(.{
+                                .tag = .malformed_offer,
+                                .request_fingerprint = inputs.request.fingerprint,
+                                .provider_fingerprint = offer.provider_fingerprint,
+                                .offer_fingerprint = offer.fingerprint,
+                                .morphism_fingerprint = morphism.fingerprint(),
+                                .summary = "morphism provider offer is not backed by a provider manifest",
+                            });
+                            continue :offer_loop;
+                        };
+                        if (!providerFieldsBoundToBytes(provider.*)) {
+                            blocked_count.* += 1;
+                            blockers.add(.{
+                                .tag = .malformed_offer,
+                                .request_fingerprint = inputs.request.fingerprint,
+                                .provider_fingerprint = provider.provider_fingerprint,
+                                .offer_fingerprint = offer.fingerprint,
+                                .morphism_fingerprint = morphism.fingerprint(),
+                                .summary = "provider manifest fields are not bound to provider bytes",
+                            });
+                            continue :offer_loop;
+                        }
+                        offer.validate() catch {
+                            blocked_count.* += 1;
+                            blockers.add(.{
+                                .tag = .malformed_offer,
+                                .request_fingerprint = inputs.request.fingerprint,
+                                .provider_fingerprint = offer.provider_fingerprint,
+                                .offer_fingerprint = offer.fingerprint,
+                                .morphism_fingerprint = morphism.fingerprint(),
+                                .summary = "provider offer fields are not bound to provider offer bytes",
+                            });
+                            continue :offer_loop;
+                        };
+                        if (treatyProviderBodyBlocker(inputs.treaty_policy, provider.*, offer)) |tag| {
+                            blocked_count.* += 1;
+                            blockers.add(.{
+                                .tag = tag,
+                                .request_fingerprint = inputs.request.fingerprint,
+                                .provider_fingerprint = offer.provider_fingerprint,
+                                .offer_fingerprint = offer.fingerprint,
+                                .morphism_fingerprint = morphism.fingerprint(),
+                                .summary = "morphism provider semantic body is rejected by defunctionalization policy",
+                            });
+                            continue :offer_loop;
+                        }
                         var source_response_refs: [3]lowering_api.ValueRef = undefined;
                         const source_response_refs_len = responseRefsForMorphismOffer(inputs.request, request_value, morphism, &source_response_refs);
                         const target_response_refs = targetResponseRefsForMorphismOffer(source_response_refs[0..source_response_refs_len], morphism);
@@ -14822,18 +15902,6 @@ pub fn program(
                             });
                             continue :offer_loop;
                         }
-                        const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse {
-                            blocked_count.* += 1;
-                            blockers.add(.{
-                                .tag = .malformed_offer,
-                                .request_fingerprint = inputs.request.fingerprint,
-                                .provider_fingerprint = offer.provider_fingerprint,
-                                .offer_fingerprint = offer.fingerprint,
-                                .morphism_fingerprint = morphism.fingerprint(),
-                                .summary = "morphism provider offer is not backed by a provider manifest",
-                            });
-                            continue :offer_loop;
-                        };
                         if (!inputs.treaty_policy.allowed_usage_modes.allows(treatyUsage(inputs.request, request_value)) or
                             !offer.supported_usage_modes.allows(morphism.target_usage))
                         {
@@ -14869,18 +15937,6 @@ pub fn program(
                                 .offer_fingerprint = offer.fingerprint,
                                 .morphism_fingerprint = morphism.fingerprint(),
                                 .summary = "provider offer does not satisfy treaty tag policy",
-                            });
-                            continue :offer_loop;
-                        }
-                        if (!providerFieldsBoundToBytes(provider.*)) {
-                            blocked_count.* += 1;
-                            blockers.add(.{
-                                .tag = .malformed_offer,
-                                .request_fingerprint = inputs.request.fingerprint,
-                                .provider_fingerprint = provider.provider_fingerprint,
-                                .offer_fingerprint = offer.fingerprint,
-                                .morphism_fingerprint = morphism.fingerprint(),
-                                .summary = "provider manifest fields are not bound to provider bytes",
                             });
                             continue :offer_loop;
                         }
@@ -14954,11 +16010,26 @@ pub fn program(
                 return policy.ambiguity_policy;
             }
 
+            fn treatyAllowsSelectedAmbiguity(policy: Treaty.Policy, request_value: TreatyRequest) bool {
+                return treatyEffectiveAmbiguityPolicy(policy, request_value) != .reject_ambiguous or
+                    treatyDefunctionalizationPreferenceEnabled(policy);
+            }
+
             fn treatyTieIsAmbiguous(policy: Treaty.Policy, request_value: TreatyRequest) bool {
                 return treatyEffectiveAmbiguityPolicy(policy, request_value) != .host_ordered;
             }
 
             fn treatyCandidatePreferred(policy: Treaty.Policy, request_value: TreatyRequest, candidate: Treaty, selected: Treaty) bool {
+                if (treatyDefunctionalizationPreferenceEnabled(policy)) {
+                    const candidate_rank = treatySemanticOpacityRank(policy, candidate);
+                    const selected_rank = treatySemanticOpacityRank(policy, selected);
+                    if (treatyDefunctionalizationProviderPreferenceEnabled(policy) and candidate_rank.provider != selected_rank.provider) {
+                        return candidate_rank.provider < selected_rank.provider;
+                    }
+                    if (treatyDefunctionalizationMorphismPreferenceEnabled(policy) and candidate_rank.morphism != selected_rank.morphism) {
+                        return candidate_rank.morphism < selected_rank.morphism;
+                    }
+                }
                 return switch (treatyEffectiveAmbiguityPolicy(policy, request_value)) {
                     .reject_ambiguous => false,
                     .prefer_direct => treatyHandlingRank(candidate.handling, .prefer_direct) < treatyHandlingRank(selected.handling, .prefer_direct),
@@ -15068,6 +16139,212 @@ pub fn program(
             fn stringListContains(list: []const []const u8, value: []const u8) bool {
                 for (list) |item| if (std.mem.eql(u8, item, value)) return true;
                 return false;
+            }
+
+            fn treatyDefunctionalizationPolicy(policy: Treaty.Policy) ?Evidence.DefunctionalizationPolicy {
+                const configured =
+                    policy.reject_intrinsic_provider or
+                    policy.reject_intrinsic_morphism or
+                    policy.prefer_program_backed_provider or
+                    policy.allowed_intrinsic_kinds.len != 0 or
+                    policy.allowed_intrinsic_fingerprints.len != 0;
+                if (policy.defunctionalization_policy == null and !configured) return null;
+                var defunc = policy.defunctionalization_policy orelse Evidence.DefunctionalizationPolicy{
+                    .label = "treaty",
+                    .allow_host_intrinsics = true,
+                    .allowed_intrinsic_kinds = policy.allowed_intrinsic_kinds,
+                    .allowed_intrinsic_fingerprints = policy.allowed_intrinsic_fingerprints,
+                    .reject_unknown = policy.reject_intrinsic_provider or
+                        policy.reject_intrinsic_morphism or
+                        policy.allowed_intrinsic_kinds.len != 0 or
+                        policy.allowed_intrinsic_fingerprints.len != 0,
+                    .reject_dynamic_mappers = policy.reject_intrinsic_morphism,
+                    .require_program_backed_providers = policy.reject_intrinsic_provider,
+                    .require_declarative_morphisms = policy.reject_intrinsic_morphism,
+                    .prefer_ability_program = policy.prefer_program_backed_provider,
+                    .prefer_declarative = policy.reject_intrinsic_morphism,
+                    .prefer_residualized = policy.reject_intrinsic_morphism,
+                };
+                defunc.reject_unknown = defunc.reject_unknown or
+                    policy.reject_intrinsic_provider or
+                    policy.reject_intrinsic_morphism or
+                    policy.allowed_intrinsic_kinds.len != 0 or
+                    policy.allowed_intrinsic_fingerprints.len != 0;
+                defunc.reject_dynamic_mappers = defunc.reject_dynamic_mappers or policy.reject_intrinsic_morphism;
+                defunc.require_program_backed_providers = defunc.require_program_backed_providers or policy.reject_intrinsic_provider;
+                defunc.require_declarative_morphisms = defunc.require_declarative_morphisms or policy.reject_intrinsic_morphism;
+                defunc.prefer_ability_program = defunc.prefer_ability_program or policy.prefer_program_backed_provider;
+                defunc.prefer_declarative = defunc.prefer_declarative or policy.reject_intrinsic_morphism;
+                defunc.prefer_residualized = defunc.prefer_residualized or policy.reject_intrinsic_morphism;
+                return defunc;
+            }
+
+            fn treatyProviderBodyBlocker(policy: Treaty.Policy, provider: ProviderManifest, offer: ProviderOffer) ?Treaty.BlockerTag {
+                const defunc = treatyDefunctionalizationPolicy(policy) orelse return null;
+                const body = offer.semanticBodyWithProvider(provider);
+                if (body == .unknown and defunc.reject_unknown) return .unknown_semantic_body;
+                if (body == .host_intrinsic) {
+                    const intrinsic = offer.hostIntrinsic() orelse return .unknown_semantic_body;
+                    if (policy.reject_intrinsic_provider or defunc.require_program_backed_providers or defunc.require_no_intrinsics_in_treaties) return .intrinsic_provider_rejected;
+                    if (!defunc.allowsIntrinsic(intrinsic)) return .unallowlisted_intrinsic;
+                    if (!intrinsicRefAllowedByTreatyPolicy(intrinsic.evidenceRef(), policy)) return .unallowlisted_intrinsic;
+                }
+                if (defunc.require_program_backed_providers and body != .ability_program) return .non_defunctionalized_route;
+                return null;
+            }
+
+            fn treatyMorphismBodyBlocker(policy: Treaty.Policy, morphism: MorphismOffer) ?Treaty.BlockerTag {
+                const defunc = treatyDefunctionalizationPolicy(policy) orelse return null;
+                const body = morphism.semanticBody();
+                if (body == .unknown and defunc.reject_unknown) return .unknown_semantic_body;
+                if (body == .host_intrinsic) {
+                    const intrinsic = morphism.hostIntrinsic() orelse return .unknown_semantic_body;
+                    if (policy.reject_intrinsic_morphism or defunc.reject_dynamic_mappers or defunc.require_declarative_morphisms or defunc.require_no_intrinsics_in_treaties) return .intrinsic_morphism_rejected;
+                    if (!defunc.allowsIntrinsic(intrinsic)) return .unallowlisted_intrinsic;
+                    if (!intrinsicRefAllowedByTreatyPolicy(intrinsic.evidenceRef(), policy)) return .unallowlisted_intrinsic;
+                }
+                if (defunc.require_declarative_morphisms and body != .declarative and body != .residualized_program and body != .pipeline) return .non_defunctionalized_route;
+                return null;
+            }
+
+            fn treatyHostIntrinsicCount(provider_body: Evidence.SemanticBody, morphism_body: ?Evidence.SemanticBody) usize {
+                var count: usize = 0;
+                if (provider_body == .host_intrinsic) count += 1;
+                if (morphism_body) |body| {
+                    if (body == .host_intrinsic) count += 1;
+                }
+                return count;
+            }
+
+            fn treatyIntrinsicCountBlocker(policy: Treaty.Policy, provider_body: Evidence.SemanticBody, morphism_body: ?Evidence.SemanticBody) ?Treaty.BlockerTag {
+                const defunc = treatyDefunctionalizationPolicy(policy) orelse return null;
+                const maximum = defunc.maximum_intrinsic_count orelse return null;
+                const count = treatyHostIntrinsicCount(provider_body, morphism_body);
+                if (count > maximum) return .intrinsic_count_exceeded;
+                return null;
+            }
+
+            fn treatyDefunctionalizationPolicyBlocker(policy: Treaty.Policy, treaty: Treaty) ?Treaty.BlockerTag {
+                const defunc = treatyDefunctionalizationPolicy(policy) orelse return null;
+                treaty.defunctionalizationReport().assertOnlyAllowlistedIntrinsics(defunc) catch |err| {
+                    return switch (err) {
+                        error.UnknownSemanticBody => .unknown_semantic_body,
+                        error.IntrinsicCountExceeded => .intrinsic_count_exceeded,
+                        error.HostIntrinsicsPresent => treatyHostIntrinsicPolicyBlocker(policy, defunc, treaty),
+                    };
+                };
+                if (treatyHostIntrinsicPolicyBlocker(policy, defunc, treaty)) |tag| return tag;
+                if (defunc.require_program_backed_providers and treaty.provider_semantic_body != .ability_program) return .non_defunctionalized_route;
+                if (defunc.require_declarative_morphisms) {
+                    if (treaty.morphism_semantic_body) |body| {
+                        if (body != .declarative and body != .residualized_program and body != .pipeline) return .non_defunctionalized_route;
+                    }
+                }
+                return null;
+            }
+
+            fn treatyHostIntrinsicPolicyBlocker(policy: Treaty.Policy, defunc: Evidence.DefunctionalizationPolicy, treaty: Treaty) ?Treaty.BlockerTag {
+                if (treaty.provider_semantic_body == .host_intrinsic) {
+                    if (policy.reject_intrinsic_provider or defunc.require_program_backed_providers or defunc.require_no_intrinsics_in_treaties or !defunc.allow_host_intrinsics) {
+                        return .intrinsic_provider_rejected;
+                    }
+                    if (treaty.provider_intrinsic_ref) |intrinsic_ref| {
+                        if (!intrinsicRefAllowedByDefunctionalizationPolicy(intrinsic_ref, defunc)) return .unallowlisted_intrinsic;
+                        if (!intrinsicRefAllowedByTreatyPolicy(intrinsic_ref, policy)) return .unallowlisted_intrinsic;
+                    } else return .unallowlisted_intrinsic;
+                }
+                if (treaty.morphism_semantic_body) |body| {
+                    if (body == .host_intrinsic) {
+                        if (policy.reject_intrinsic_morphism or defunc.reject_dynamic_mappers or defunc.require_declarative_morphisms or defunc.require_no_intrinsics_in_treaties or !defunc.allow_host_intrinsics) {
+                            return .intrinsic_morphism_rejected;
+                        }
+                        if (treaty.morphism_intrinsic_ref) |intrinsic_ref| {
+                            if (!intrinsicRefAllowedByDefunctionalizationPolicy(intrinsic_ref, defunc)) return .unallowlisted_intrinsic;
+                            if (!intrinsicRefAllowedByTreatyPolicy(intrinsic_ref, policy)) return .unallowlisted_intrinsic;
+                        } else return .unallowlisted_intrinsic;
+                    }
+                }
+                return null;
+            }
+
+            fn intrinsicRefAllowedByDefunctionalizationPolicy(intrinsic_ref: Evidence.Ref, policy: Evidence.DefunctionalizationPolicy) bool {
+                return policy.allowsIntrinsicRef(intrinsic_ref);
+            }
+
+            fn intrinsicRefAllowedByTreatyPolicy(intrinsic_ref: Evidence.Ref, policy: Treaty.Policy) bool {
+                if (policy.allowed_intrinsic_fingerprints.len == 0 and policy.allowed_intrinsic_kinds.len == 0) return true;
+                if (intrinsic_ref.domain_id != Evidence.domains.host_intrinsic.id) return false;
+                for (policy.allowed_intrinsic_fingerprints) |allowed| {
+                    if (allowed == intrinsic_ref.fingerprint) return true;
+                }
+                if (intrinsic_ref.kind_tag) |kind_tag| {
+                    for (policy.allowed_intrinsic_kinds) |allowed| {
+                        if (std.mem.eql(u8, @tagName(allowed), kind_tag)) return true;
+                    }
+                }
+                return false;
+            }
+
+            fn treatyDefunctionalizationPreferenceEnabled(policy: Treaty.Policy) bool {
+                return treatyDefunctionalizationProviderPreferenceEnabled(policy) or
+                    treatyDefunctionalizationMorphismPreferenceEnabled(policy);
+            }
+
+            fn treatyDefunctionalizationProviderPreferenceEnabled(policy: Treaty.Policy) bool {
+                const defunc = treatyDefunctionalizationPolicy(policy) orelse return false;
+                return defunc.prefer_ability_program;
+            }
+
+            fn treatyDefunctionalizationMorphismPreferenceEnabled(policy: Treaty.Policy) bool {
+                const defunc = treatyDefunctionalizationPolicy(policy) orelse return false;
+                return defunc.prefer_declarative or defunc.prefer_residualized;
+            }
+
+            fn providerSemanticBodyRank(body: Evidence.SemanticBody) u8 {
+                return switch (body) {
+                    .ability_program => 0,
+                    .declarative, .residualized_program, .pipeline => 1,
+                    .kernel_primitive => 2,
+                    .host_intrinsic => 3,
+                    .unknown => 4,
+                };
+            }
+
+            fn morphismSemanticBodyRank(policy: Treaty.Policy, body: Evidence.SemanticBody) u8 {
+                const defunc = treatyDefunctionalizationPolicy(policy) orelse return providerSemanticBodyRank(body);
+                if (defunc.prefer_declarative and !defunc.prefer_residualized) {
+                    return switch (body) {
+                        .declarative => 0,
+                        .residualized_program => 1,
+                        .pipeline => 2,
+                        .ability_program, .kernel_primitive => 3,
+                        .host_intrinsic => 4,
+                        .unknown => 5,
+                    };
+                }
+                if (defunc.prefer_residualized and !defunc.prefer_declarative) {
+                    return switch (body) {
+                        .residualized_program => 0,
+                        .pipeline => 1,
+                        .declarative => 2,
+                        .ability_program, .kernel_primitive => 3,
+                        .host_intrinsic => 4,
+                        .unknown => 5,
+                    };
+                }
+                return providerSemanticBodyRank(body);
+            }
+
+            const TreatySemanticOpacityRank = struct {
+                provider: u8,
+                morphism: u8,
+            };
+
+            fn treatySemanticOpacityRank(policy: Treaty.Policy, treaty: Treaty) TreatySemanticOpacityRank {
+                return .{
+                    .provider = providerSemanticBodyRank(treaty.provider_semantic_body),
+                    .morphism = if (treaty.morphism_semantic_body) |body| morphismSemanticBodyRank(policy, body) else 0,
+                };
             }
 
             fn treatyObligationMatches(
@@ -15313,6 +16590,26 @@ pub fn program(
                     if (morphism_offer.pipeline_fingerprint != null) .pipeline_adapted else if (morphism_offer.residual_morphism_fingerprint != null) .residualized else .dynamic_morphism
                 else
                     .direct;
+                const provider_semantic_body = offer.semanticBodyWithProvider(provider);
+                const morphism_semantic_body = if (morphism) |morphism_offer| morphism_offer.semanticBody() else null;
+                var provider_intrinsic_ref = try cloneOptionalEvidenceRef(inputs.allocator, offer.hostIntrinsicRef());
+                errdefer freeOptionalEvidenceRef(inputs.allocator, &provider_intrinsic_ref);
+                var morphism_intrinsic_ref = if (morphism) |morphism_offer|
+                    try cloneOptionalEvidenceRef(inputs.allocator, morphism_offer.hostIntrinsicRef())
+                else
+                    null;
+                errdefer freeOptionalEvidenceRef(inputs.allocator, &morphism_intrinsic_ref);
+                if (treatyIntrinsicCountBlocker(inputs.treaty_policy, provider_semantic_body, morphism_semantic_body)) |tag| {
+                    blockers.add(.{
+                        .tag = tag,
+                        .request_fingerprint = inputs.request.fingerprint,
+                        .provider_fingerprint = offer.provider_fingerprint,
+                        .offer_fingerprint = offer.fingerprint,
+                        .morphism_fingerprint = if (morphism) |morphism_offer| morphism_offer.fingerprint() else null,
+                        .host_intrinsic_count = treatyHostIntrinsicCount(provider_semantic_body, morphism_semantic_body),
+                        .summary = "selected treaty route exceeds defunctionalization intrinsic count policy",
+                    });
+                }
                 const require_treaty_bound_response_authorization = inputs.treaty_policy.require_treaty_bound_response_authorization or request_value.require_treaty_bound_response_authorization;
                 const capability_instance_fingerprint = selectTreatyCapabilityInstance(inputs, request_value, provider, selected_capability, morphism);
                 var treaty = Treaty{
@@ -15349,6 +16646,10 @@ pub fn program(
                     .provider_response_refs = provider_response_refs,
                     .journal_policy_fingerprint = selected_capability.journal_policy_fingerprint,
                     .require_treaty_bound_response_authorization = require_treaty_bound_response_authorization,
+                    .provider_semantic_body = provider_semantic_body,
+                    .morphism_semantic_body = morphism_semantic_body,
+                    .provider_intrinsic_ref = provider_intrinsic_ref,
+                    .morphism_intrinsic_ref = morphism_intrinsic_ref,
                     .certificate = undefined,
                 };
                 treaty.fingerprint = fingerprintTreatyCore(treaty);
@@ -15385,6 +16686,10 @@ pub fn program(
                     .provider_response_refs = provider_response_refs,
                     .journal_policy_fingerprint = treaty.journal_policy_fingerprint,
                     .require_treaty_bound_response_authorization = treaty.require_treaty_bound_response_authorization,
+                    .provider_semantic_body = provider_semantic_body,
+                    .morphism_semantic_body = morphism_semantic_body,
+                    .provider_intrinsic_ref = treaty.provider_intrinsic_ref,
+                    .morphism_intrinsic_ref = treaty.morphism_intrinsic_ref,
                     .blockers = blockers,
                 };
                 treaty.certificate.certificate_fingerprint = fingerprintTreatyCertificate(treaty.certificate);
@@ -15571,6 +16876,11 @@ pub fn program(
                 hashValueRefList(&hasher, treaty.provider_response_refs);
                 hashOptionalExchangeU64(&hasher, treaty.journal_policy_fingerprint);
                 hashBool(&hasher, treaty.require_treaty_bound_response_authorization);
+                hashBytes(&hasher, @tagName(treaty.provider_semantic_body));
+                hashBool(&hasher, treaty.morphism_semantic_body != null);
+                if (treaty.morphism_semantic_body) |body| hashBytes(&hasher, @tagName(body));
+                hashOptionalEvidenceRef(&hasher, treaty.provider_intrinsic_ref);
+                hashOptionalEvidenceRef(&hasher, treaty.morphism_intrinsic_ref);
                 return hasher.final();
             }
 
@@ -15579,6 +16889,45 @@ pub fn program(
                 hashBytes(&hasher, "ability.exchange.treaty");
                 hashU32(&hasher, 2);
                 hashU64(&hasher, treaty.request_envelope_fingerprint);
+                hashU64(&hasher, treaty.request_fingerprint);
+                hashU64(&hasher, treaty.manifest_fingerprint);
+                hashU64(&hasher, treaty.provider_fingerprint);
+                hashU64(&hasher, treaty.provider_offer_fingerprint);
+                hashStringList(&hasher, treaty.provider_offer_tags);
+                hashU64(&hasher, treaty.capability_fingerprint);
+                hashU64(&hasher, treaty.capability_path_fingerprint);
+                hashOptionalExchangeU64(&hasher, treaty.capability_instance_fingerprint);
+                hashOptionalExchangeU64(&hasher, treaty.obligation_fingerprint);
+                hashU64(&hasher, treaty.route.fingerprint);
+                hashBytes(&hasher, @tagName(treaty.handling));
+                hashU64List(&hasher, treaty.morphism_offer_fingerprints);
+                hashOptionalExchangeU64(&hasher, treaty.effect_session_spec_fingerprint);
+                hashU64List(&hasher, treaty.dynamic_morphism_fingerprints);
+                hashU64List(&hasher, treaty.residualization_fingerprints);
+                hashOptionalExchangeU64(&hasher, treaty.pipeline_fingerprint);
+                hashOptionalExchangeU64(&hasher, treaty.source_protocol_op_fingerprint);
+                hashOptionalExchangeU64(&hasher, treaty.target_protocol_op_fingerprint);
+                hashBytes(&hasher, @tagName(treaty.usage));
+                hashBytes(&hasher, @tagName(treaty.provider_usage));
+                hashBytes(&hasher, @tagName(treaty.response_use));
+                hashBytes(&hasher, @tagName(treaty.replay_policy));
+                hashBytes(&hasher, @tagName(treaty.branch_policy));
+                hashBool(&hasher, treaty.expected_response_kinds.@"resume");
+                hashBool(&hasher, treaty.expected_response_kinds.return_now);
+                hashBool(&hasher, treaty.expected_response_kinds.resume_after);
+                hashValueRefList(&hasher, treaty.expected_response_refs);
+                hashValueRefList(&hasher, treaty.provider_response_refs);
+                hashOptionalExchangeU64(&hasher, treaty.journal_policy_fingerprint);
+                hashBool(&hasher, treaty.require_treaty_bound_response_authorization);
+                return hasher.final();
+            }
+
+            fn fingerprintTreatyCoreV3(treaty: Treaty) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "ability.exchange.treaty");
+                hashU32(&hasher, 3);
+                hashU64(&hasher, treaty.request_envelope_fingerprint);
+                hashU32(&hasher, treaty.request_envelope_format_version);
                 hashU64(&hasher, treaty.request_fingerprint);
                 hashU64(&hasher, treaty.manifest_fingerprint);
                 hashU64(&hasher, treaty.provider_fingerprint);
@@ -17957,6 +19306,24 @@ pub fn program(
                     }
                 }
 
+                /// Defunctionalization audit for this proof-carrying pipeline.
+                pub fn defunctionalizationReport() Evidence.DefunctionalizationReport {
+                    return Evidence.DefunctionalizationReport.init(.{
+                        .scope_kind = .pipeline,
+                        .scope_ref = Evidence.refFor(Evidence.domains.pipeline, Report.fingerprint, .{ .label = Report.pipeline_label }),
+                        .counts = .{
+                            .pipeline = 1,
+                            .residualized_program = ResidualizedRoutes.values.len,
+                        },
+                        .summary = "pipeline semantic body classification",
+                    });
+                }
+
+                /// Assert this pipeline against a defunctionalization policy.
+                pub fn assertDefunctionalized(policy: Evidence.DefunctionalizationPolicy) error{ HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
+                    try defunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
+                }
+
                 /// Find the residual site corresponding to a source operation site.
                 pub fn residualForSourceSite(comptime SourceSite: type) ?ResidualSourceMapEntry {
                     return ResidualProgram.residualForSourceSite(SourceSite);
@@ -18638,6 +20005,8 @@ pub fn program(
                     const kind = .operation;
                     const Site = site;
                     const function = handler_fn;
+                    /// Function-backed Program.Handler entries are host intrinsics.
+                    pub const semantic_body = Evidence.SemanticBody.host_intrinsic;
                 };
             }
 
@@ -18648,6 +20017,8 @@ pub fn program(
                     const kind = .after;
                     const Site = site;
                     const function = handler_fn;
+                    /// Function-backed Program.Handler entries are host intrinsics.
+                    pub const semantic_body = Evidence.SemanticBody.host_intrinsic;
                 };
             }
 
@@ -18658,6 +20029,8 @@ pub fn program(
                     const kind = .protocol_operation;
                     const TargetOp = target_op;
                     const function = handler_fn;
+                    /// Function-backed Program.Handler entries are host intrinsics.
+                    pub const semantic_body = Evidence.SemanticBody.host_intrinsic;
                 };
             }
 
@@ -18672,6 +20045,8 @@ pub fn program(
                     const Site = MorphismType.source;
                     const Morphism = MorphismType;
                     const function = handler_fn;
+                    /// Dynamic morphism handler entries are host intrinsics.
+                    pub const semantic_body = Evidence.SemanticBody.host_intrinsic;
                 };
             }
 
@@ -19020,6 +20395,24 @@ pub fn program(
                         else => {},
                     };
                     return .{ .operation_sites = operation_count, .after_sites = after_count };
+                }
+
+                const intrinsic_refs = interpreterIntrinsicRefs(entries);
+
+                /// Machine-readable semantic boundary audit for this interpreter catalog.
+                pub fn defunctionalizationReport() Evidence.DefunctionalizationReport {
+                    return Evidence.DefunctionalizationReport.init(.{
+                        .scope_kind = .interpreter,
+                        .scope_ref = Evidence.refFor(Evidence.domains.program_plan, body_compiled_plan_hash, .{ .label = label, .kind_tag = "interpreter" }),
+                        .counts = interpreterSemanticCounts(entries),
+                        .intrinsic_refs = &intrinsic_refs,
+                        .summary = label,
+                    });
+                }
+
+                /// Assert this interpreter satisfies a defunctionalization policy.
+                pub fn assertDefunctionalized(policy: Evidence.DefunctionalizationPolicy) error{ HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
+                    try defunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
                 }
 
                 fn validateProgramArgument(comptime ProgramType: type) void {
@@ -19684,7 +21077,93 @@ pub fn program(
                     },
                     else => @compileError("Program.Interpreter entries must be Program.Handler declarations"),
                 }
+                if (comptime @hasDecl(Entry, "semantic_body") and Entry.semantic_body != .host_intrinsic) {
+                    @compileError("Program.Interpreter function-backed entries must declare host_intrinsic semantic body");
+                }
             }
+        }
+
+        fn interpreterEntrySemanticBody(comptime Entry: type) Evidence.SemanticBody {
+            if (comptime @hasDecl(Entry, "semantic_body")) return Entry.semantic_body;
+            return .host_intrinsic;
+        }
+
+        fn interpreterHostIntrinsicCount(comptime entries: anytype) usize {
+            comptime var count: usize = 0;
+            inline for (entries) |Entry| {
+                const body = comptime interpreterEntrySemanticBody(Entry);
+                if (body == .host_intrinsic) count += 1;
+            }
+            return count;
+        }
+
+        fn interpreterSemanticCounts(comptime entries: anytype) Evidence.DefunctionalizationReport.Counts {
+            comptime var counts: Evidence.DefunctionalizationReport.Counts = .{};
+            inline for (entries) |Entry| {
+                const body = comptime interpreterEntrySemanticBody(Entry);
+                switch (body) {
+                    .ability_program => counts.ability_program += 1,
+                    .declarative => counts.declarative += 1,
+                    .residualized_program => counts.residualized_program += 1,
+                    .pipeline => counts.pipeline += 1,
+                    .kernel_primitive => counts.kernel_primitive += 1,
+                    .host_intrinsic => counts.host_intrinsic += 1,
+                    .unknown => counts.unknown += 1,
+                }
+            }
+            return counts;
+        }
+
+        fn interpreterEntryLabel(comptime Entry: type) []const u8 {
+            return switch (Entry.kind) {
+                .operation => Entry.Site.op_name,
+                .after => Entry.Site.original_op_name,
+                .protocol_operation => Entry.TargetOp.op_name,
+                else => "handler",
+            };
+        }
+
+        fn interpreterEntryHostIntrinsic(comptime Entry: type) Evidence.HostIntrinsic {
+            return Evidence.HostIntrinsic.init(.{
+                .label = interpreterEntryLabel(Entry),
+                .kind = if (comptime @hasDecl(Entry, "Morphism")) .dynamic_morphism_mapper else .interpreter_function,
+                .owner_subsystem = .semantic_boundary,
+                .allowed_site_indexes = switch (Entry.kind) {
+                    .operation => &.{Entry.Site.index},
+                    else => &.{},
+                },
+                .allowed_after_site_indexes = switch (Entry.kind) {
+                    .after => &.{Entry.Site.index},
+                    else => &.{},
+                },
+                .allowed_protocol_op_fingerprints = switch (Entry.kind) {
+                    .operation => &.{Entry.Site.fingerprint},
+                    .after => &.{Entry.Site.source_operation_site_fingerprint},
+                    .protocol_operation => &.{Entry.TargetOp.fingerprint},
+                    else => &.{},
+                },
+                .associated_handler_descriptor = "Program.Interpreter handler",
+                .reason = "function-backed Program.Interpreter handler",
+            });
+        }
+
+        fn interpreterIntrinsicRefs(comptime entries: anytype) [interpreterHostIntrinsicCount(entries)]Evidence.Ref {
+            @setEvalBranchQuota(10000);
+            var refs: [interpreterHostIntrinsicCount(entries)]Evidence.Ref = undefined;
+            var index: usize = 0;
+            inline for (entries) |Entry| {
+                const body = comptime interpreterEntrySemanticBody(Entry);
+                if (body == .host_intrinsic) {
+                    const intrinsic = interpreterEntryHostIntrinsic(Entry);
+                    refs[index] = Evidence.refFor(Evidence.domains.host_intrinsic, intrinsic.fingerprint, .{
+                        .format_version = intrinsic.format_version,
+                        .label = intrinsic.label,
+                        .kind_tag = @tagName(intrinsic.kind),
+                    });
+                    index += 1;
+                }
+            }
+            return refs;
         }
 
         fn assertInterpreterCoversAll(comptime entries: anytype) void {

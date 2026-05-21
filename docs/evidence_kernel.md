@@ -47,7 +47,7 @@ Current domains are registered in `Program.Evidence.domains`:
 | `ability.exchange.request` | exchange | 3 | 3 | yes | yes | yes | yes | yes | yes | exchange |
 | `ability.exchange.response` | exchange | 1 | 1 | yes | yes | yes | yes | yes | yes | exchange |
 | `ability.exchange.provider.identity` | exchange | - | 1 | no | yes | yes | yes | yes | yes | provider identity |
-| `ability.exchange.provider` | exchange | 1 | 1 | yes | yes | yes | yes | yes | yes | provider manifest |
+| `ability.exchange.provider` | exchange | 2 | 2 | yes | yes | yes | yes | yes | yes | provider manifest |
 | `ability.exchange.provider_offer` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | offer |
 | `ability.exchange.provider.derived_manifest` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | derived manifest |
 | `ability.exchange.provider.derived_offer` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | derived offer |
@@ -68,8 +68,8 @@ Current domains are registered in `Program.Evidence.domains`:
 | `ability.exchange.capability_instance` | linear_session | 1 | 1 | yes | yes | yes | yes | yes | yes | linear |
 | `ability.exchange.obligation` | linear_session | 1 | 1 | yes | yes | yes | yes | yes | yes | obligation |
 | `ability.exchange.obligation.transition` | linear_session | - | 1 | no | yes | yes | yes | yes | yes | obligation |
-| `ability.exchange.treaty` | treaty | 1 | 3 | no | yes | yes | yes | yes | yes | treaty |
-| `ability.exchange.treaty.certificate` | treaty | 1 | 3 | no | yes | yes | yes | yes | yes | certificate |
+| `ability.exchange.treaty` | treaty | 1 | 4 | no | yes | yes | yes | yes | yes | treaty |
+| `ability.exchange.treaty.certificate` | treaty | 1 | 4 | no | yes | yes | yes | yes | yes | certificate |
 | `ability.exchange.treaty.authorization` | treaty | 4 | 4 | yes | yes | yes | yes | yes | yes | authorization |
 | `ability.exchange.treaty.authorization.v3` | treaty | 3 | 3 | yes | yes | yes | yes | yes | yes | legacy authorization |
 | `ability.exchange.treaty.authorization.v2` | treaty | 2 | 2 | yes | yes | yes | yes | yes | yes | legacy authorization |
@@ -80,6 +80,10 @@ Current domains are registered in `Program.Evidence.domains`:
 | `ability.program.pipeline` | pipeline | - | 1 | no | yes | yes | yes | no | yes | pipeline |
 | `ability.program.pipeline.certificate` | pipeline | - | 1 | no | yes | yes | yes | no | yes | pipeline |
 | `ability.program.pipeline.source_map` | pipeline | - | 1 | no | yes | yes | yes | no | yes | source map |
+| `ability.evidence.semantic_body` | semantic_boundary | - | 1 | no | yes | yes | yes | yes | yes | semantic body |
+| `ability.evidence.host_intrinsic` | semantic_boundary | 1 | 1 | no | yes | yes | yes | yes | yes | host intrinsic |
+| `ability.evidence.defunctionalization_report` | semantic_boundary | - | 1 | no | yes | yes | yes | yes | yes | defunctionalization |
+| `ability.evidence.defunctionalization_policy` | semantic_boundary | - | 1 | no | yes | yes | yes | yes | yes | intrinsic allowlist |
 
 The current journal format is v6 because provider-program execution adds
 provider-side started, parked, nested request/response, resumed, completed,
@@ -184,6 +188,24 @@ replacing rich policy types. It can cite policy domains, policy fingerprints,
 labels, enum flags, byte limits, usage modes, response-use classes, branch
 policies, replay policies, and summary refs.
 
+## Defunctionalization Boundary
+
+`Evidence.SemanticBody` classifies every semantic execution body as
+`ability_program`, `declarative`, `residualized_program`, `pipeline`,
+`kernel_primitive`, `host_intrinsic`, or `unknown`.
+
+`Evidence.HostIntrinsic` describes opaque host behavior with an explicit label,
+kind, owner subsystem, associated refs, policy summaries, tags, metadata, and
+dependencies. Its fingerprint excludes function pointer addresses, allocator
+pointers, runtime addresses, thread IDs, request tokens, and nondeterministic
+host identity.
+
+`Evidence.DefunctionalizationReport` counts body classifications for a scope and
+lowers to `Evidence.Report`. `Evidence.DefunctionalizationPolicy` can reject
+host intrinsics, reject unknown bodies, allowlist intrinsics, reject dynamic
+mappers, require program-backed providers, require declarative/static morphisms,
+and express route preferences for less opaque treaty selection.
+
 ## Version Bump Policy
 
 - Bump a format version only when encoded bytes change.
@@ -252,3 +274,8 @@ capability, route, treaty, and obligation refs when present.
 Treaty resolver failures lower to `Evidence.Blocker` with `source = .treaty`.
 Successful treaty validation produces an `Evidence.Report` with no error
 blockers.
+
+Defunctionalization blockers such as `intrinsic_provider_rejected`,
+`intrinsic_morphism_rejected`, `unknown_semantic_body`,
+`non_defunctionalized_route`, `unallowlisted_intrinsic`, and
+`intrinsic_count_exceeded` lower through the same blocker/report path.

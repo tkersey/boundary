@@ -845,6 +845,28 @@ encryption, or distributed system. Hosts own identity, signing, encryption,
 transport, storage, scheduling, network, persistence, provider lifecycle,
 cancellation, retries, and side effects.
 
+### Defunctionalization Boundary
+
+Ability-native semantics should be Ability programs or declarative Ability data.
+Opaque host functions are supported only as explicit host intrinsics at the world
+boundary. Ability does not pretend opaque host callbacks are algebraic-effect
+semantics.
+
+`Program.Evidence.SemanticBody` classifies execution bodies as
+`ability_program`, `declarative`, `residualized_program`, `pipeline`,
+`kernel_primitive`, `host_intrinsic`, or `unknown`. Program-backed
+ProviderHarness declarations report `ability_program`; function-backed
+ProviderHarness declarations, `Program.Interpreter` handlers, `Program.run`
+handler sets, and dynamic morphism mappers report `host_intrinsic`.
+Residualized and pipeline-backed morphisms report static Ability-native bodies.
+
+`Program.Evidence.DefunctionalizationReport` summarizes those classifications
+for providers, offers, treaties, resolver results, interpreters, run handler
+sets, morphism offers, pipelines, journals, and catalogs.
+`Program.Evidence.DefunctionalizationPolicy` can reject intrinsics or unknown
+bodies, allowlist intrinsics, require program-backed providers, require
+static/declarative morphisms, and make TreatyResolver prefer less opaque routes.
+
 ### Linear Effect Sessions
 
 Continuations can be copied; the world often cannot. Linear Effect Sessions are
@@ -1211,7 +1233,8 @@ Ability's proof machinery. Evidence domains centralize the format and
 fingerprint versions used by ProgramPlan hashes, session trace/request/response
 fingerprints, capsule images, journals, exchange envelopes, provider identities,
 provider manifests, provider offers, capabilities, routes, authorizations, linear obligations,
-treaties, ProviderHarness metadata, morphisms, residualization, and pipelines.
+treaties, ProviderHarness metadata, morphisms, residualization, pipelines,
+semantic body classifications, host intrinsics, and defunctionalization reports.
 
 Format versions govern encoded bytes. Fingerprint versions govern canonical
 digest semantics. Journal versions govern event encoding. Certificates and
@@ -1228,7 +1251,8 @@ blocker/report APIs remain source-compatible. `Evidence.CertificateView`,
 `Evidence.AuthorizationView`, `Evidence.JournalProjection`, and
 `Evidence.PolicySummary` make validated proof snapshots and journal metadata
 consistent across ProviderHarness, Treaties, Linear Effect Sessions,
-Capabilities, Exchange, Journal, Residualization, and Pipeline surfaces.
+Capabilities, Exchange, Journal, Residualization, Pipeline, and
+Defunctionalization Boundary surfaces.
 
 Evidence fingerprints are deterministic semantic witnesses. They are not
 cryptographic signatures, authentication tokens, or transport security. Hosts

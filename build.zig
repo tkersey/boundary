@@ -553,8 +553,20 @@ pub fn build(b: *std.Build) void {
             .expected_error = "Program.Exchange.ProviderHarness listed duplicate operation handler",
         },
         .{
+            .path = "test/compile_fail/provider_harness_forged_semantic_body.zig",
+            .expected_error = "Program.Exchange.ProviderHarness function-backed entries must declare host_intrinsic semantic body",
+        },
+        .{
+            .path = "test/compile_fail/provider_harness_forged_program_mapping.zig",
+            .expected_error = "Program.Exchange.ProviderHarness program-backed entries must be declared with ProviderHandler.program",
+        },
+        .{
             .path = "test/compile_fail/provider_program_payload_arg_mismatch.zig",
             .expected_error = "provider Program payload_to_args argument schema does not match request payload/current-value schema",
+        },
+        .{
+            .path = "test/compile_fail/provider_program_mapper_fingerprint_reserved.zig",
+            .expected_error = "provider Program mapper_fingerprint is reserved until provider-program custom mapper execution is implemented",
         },
         .{
             .path = "test/compile_fail/provider_program_structured_schema_mismatch.zig",
@@ -625,6 +637,10 @@ pub fn build(b: *std.Build) void {
             .expected_error = "Program.Handler site descriptor belongs to another program",
         },
         .{
+            .path = "test/compile_fail/interpreter_forged_semantic_body.zig",
+            .expected_error = "Program.Interpreter function-backed entries must declare host_intrinsic semantic body",
+        },
+        .{
             .path = "test/compile_fail/interpreter_coverage_omitted_operation.zig",
             .expected_error = "Program.Interpreter coverage omitted reachable operation site",
         },
@@ -687,6 +703,8 @@ pub fn build(b: *std.Build) void {
         .{ .name = "ability-provider-harness-direct", .path = "examples/provider_harness_direct.zig", .step = "run-provider-harness-direct", .desc = "Run the direct ProviderHarness treaty execution example." },
         .{ .name = "ability-provider-harness-morphism", .path = "examples/provider_harness_morphism.zig", .step = "run-provider-harness-morphism", .desc = "Run the morphism ProviderHarness treaty execution example." },
         .{ .name = "ability-provider-harness-replayable", .path = "examples/provider_harness_replayable.zig", .step = "run-provider-harness-replayable", .desc = "Run the replayable ProviderHarness treaty execution example." },
+        .{ .name = "ability-defunctionalization-boundary", .path = "examples/defunctionalization_boundary.zig", .step = "run-defunctionalization-boundary", .desc = "Run the defunctionalization boundary audit example." },
+        .{ .name = "ability-host-intrinsic-allowlist", .path = "examples/host_intrinsic_allowlist.zig", .step = "run-host-intrinsic-allowlist", .desc = "Run the host intrinsic allowlist example." },
         .{ .name = "ability-program-provider-direct", .path = "examples/program_provider_direct.zig", .step = "run-program-provider-direct", .desc = "Run the direct program-backed ProviderHarness example." },
         .{ .name = "ability-program-provider-nested", .path = "examples/program_provider_nested.zig", .step = "run-program-provider-nested", .desc = "Run the nested program-backed ProviderHarness example." },
         .{ .name = "ability-program-provider-resume", .path = "examples/program_provider_resume.zig", .step = "run-program-provider-resume", .desc = "Run the parked and resumed program-backed ProviderHarness example." },

@@ -404,6 +404,27 @@ serialization. Hosts still own identity, signing, encryption, transport,
 storage, scheduling, network, persistence, provider lifecycle, cancellation,
 retries, and side effects.
 
+### Defunctionalization Boundary
+
+Custom effects should keep Ability-native semantics in Ability programs or
+declarative Ability data. Opaque Zig functions are still available, but they are
+host intrinsics at the world boundary. They are not inspectable effect
+semantics.
+
+Use program-backed providers when a provider body should be Ability-native.
+Function-backed `ProviderHandler.intrinsicOperation` and `intrinsicAfter`
+declare host-intrinsic provider handlers. The older `operation` and `after`
+forms remain source-compatible aliases for function-backed intrinsic handlers.
+Dynamic morphism mapper functions are also host intrinsics; residualized and
+pipeline-backed morphisms are static Ability-native transformations.
+
+Use `Program.Evidence.DefunctionalizationReport` and
+`Program.Evidence.DefunctionalizationPolicy` to audit custom protocols,
+provider harnesses, interpreters, `Program.run` handler sets, morphism offers,
+and treaty resolution. Strict policy rejects host intrinsics and unknown bodies.
+World-boundary policy can allowlist declared intrinsics by fingerprint, kind, or
+label.
+
 ### Linear Effect Sessions
 
 Continuations can be copied; the world often cannot. Linear Effect Sessions add
@@ -495,6 +516,8 @@ manually.
     protocol surface needs machine-readable validation evidence across
     contracts, protocol descriptors, sessions, exchange envelopes, treaties, or
     provider harnesses.
+15. Audit semantic boundaries with `DefunctionalizationReport` and enforce them
+    with `DefunctionalizationPolicy` when custom protocols cross host code.
 
 ## Non-Goals
 
@@ -520,7 +543,7 @@ manually.
 - No cross-thread sessions, persistence backend, or required trace serialization
   format.
 - No residualization of arbitrary Zig closures or host functions; those remain
-  interpreter-only.
+  explicit host intrinsics.
 
 Custom protocols participate in Evidence through the existing
 Program.contract, Program.protocol, Program.Session, and Program.Exchange

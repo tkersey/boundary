@@ -537,6 +537,34 @@ network, persistence, provider lifecycle, cancellation, and retries; request
 tokens, runtime allocators, thread state, and arbitrary host handlers are not
 serialized.
 
+#### Defunctionalization boundary audit
+
+Ability-native semantics are represented as Ability programs or declarative
+Ability data. Opaque host functions remain supported, but they are marked as
+host intrinsics, not treated as inspectable effect semantics.
+
+`Program.Evidence.SemanticBody` classifies semantic bodies as
+`ability_program`, `declarative`, `residualized_program`, `pipeline`,
+`kernel_primitive`, `host_intrinsic`, or `unknown`.
+`Program.Evidence.HostIntrinsic` gives opaque host behavior a deterministic
+descriptor and Evidence ref. `Program.Evidence.DefunctionalizationReport` counts
+the boundary kinds for provider harnesses, provider offers, treaties, resolver
+results, interpreters, `Program.run` handler sets, morphism offers, pipelines,
+journals, and catalogs. `Program.Evidence.DefunctionalizationPolicy` can reject
+intrinsics, reject unknown bodies, allowlist intrinsics, reject dynamic mappers,
+require program-backed providers, require static/declarative morphisms, and
+prefer less opaque treaty routes.
+
+Program-backed provider declarations report `ability_program`; function-backed
+ProviderHarness declarations report `host_intrinsic`. `Program.Interpreter` and
+`Program.run` handler functions are host intrinsics. Dynamic morphism mapper
+functions are host intrinsics; residualized and pipeline-backed morphisms report
+static Ability-native bodies. TreatyResolver can reject or prefer routes using
+those classifications, and rechecks defunctionalization policy during
+treaty-response validation.
+
+See [docs/defunctionalization_boundary.md](docs/defunctionalization_boundary.md).
+
 ### Linear Effect Sessions
 
 Continuations can be copied; the world often cannot. Linear Effect Sessions are
@@ -633,6 +661,14 @@ authoring and public plan-native helpers:
   example entrypoint used for morphism treaty proof wiring.
 - `examples/provider_harness_replayable.zig` demonstrates the provider harness
   example entrypoint used for replayable treaty proof wiring.
+- `examples/defunctionalization_boundary.zig` demonstrates program-backed and
+  function-backed providers answering the same request, then prints semantic
+  body classifications, intrinsic fingerprint, treaty preference, and strict
+  intrinsic rejection.
+- `examples/host_intrinsic_allowlist.zig` demonstrates a function-backed
+  provider as an explicit host intrinsic: strict policy rejects it, a
+  world-boundary allowlist admits it, and the treaty-authorized response
+  completes.
 - `examples/durable_capsule_replay.zig` demonstrates v1 capsule image
   encode/decode, restored fresh request tokens, and reusable approve/deny
   branches.

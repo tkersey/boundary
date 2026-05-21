@@ -11,6 +11,7 @@ build.zig
 examples/agent_loop.zig
 examples/continuation_branching.zig
 examples/custom_approval_workflow.zig
+examples/defunctionalization_boundary.zig
 examples/durable_capsule_replay.zig
 examples/effect_capability_attenuation.zig
 examples/effect_capability_routing.zig
@@ -20,6 +21,7 @@ examples/effect_pipeline.zig
 examples/effect_treaty_direct.zig
 examples/effect_treaty_morphism.zig
 examples/effect_treaty_replayable.zig
+examples/host_intrinsic_allowlist.zig
 examples/interpreter_branching.zig
 examples/journal_replay.zig
 examples/linear_branch_safety.zig
@@ -107,6 +109,7 @@ test/compile_fail/interpreter_duplicate_protocol_operation_handler.zig
 test/compile_fail/interpreter_effect_row_foreign_program.zig
 test/compile_fail/interpreter_elimination_missing_protocol_operation.zig
 test/compile_fail/interpreter_foreign_site.zig
+test/compile_fail/interpreter_forged_semantic_body.zig
 test/compile_fail/interpreter_invalid_transform_return_now.zig
 test/compile_fail/interpreter_plain_operation_reinterpret.zig
 test/compile_fail/interpreter_protocol_handler_mutable_payload.zig
@@ -128,7 +131,10 @@ test/compile_fail/protocol_request_foreign_site.zig
 test/compile_fail/protocol_target_response_abort_resume.zig
 test/compile_fail/protocol_target_response_transform_return_now.zig
 test/compile_fail/provider_harness_duplicate_handler.zig
+test/compile_fail/provider_harness_forged_program_mapping.zig
+test/compile_fail/provider_harness_forged_semantic_body.zig
 test/compile_fail/provider_program_payload_arg_mismatch.zig
+test/compile_fail/provider_program_mapper_fingerprint_reserved.zig
 test/compile_fail/provider_program_metadata_mapping_reserved.zig
 test/compile_fail/provider_program_outcome_union_reserved.zig
 test/compile_fail/provider_program_structured_schema_mismatch.zig
