@@ -5643,14 +5643,15 @@ pub fn program(
             };
 
             const ProviderProgramMappingAttestation = struct {
-                offer_fingerprint: u64,
-                provider_fingerprint: u64,
-                mapping_fingerprint: u64,
+                token: u64,
+
+                fn init(offer_fingerprint: u64, provider_fingerprint: u64, mapping_fingerprint: u64) @This() {
+                    return .{ .token = providerProgramMappingAttestationToken(offer_fingerprint, provider_fingerprint, mapping_fingerprint) };
+                }
 
                 fn matches(self: @This(), offer: ProviderOffer) bool {
-                    return self.offer_fingerprint == offer.fingerprint and
-                        self.provider_fingerprint == offer.provider_fingerprint and
-                        offer.provider_program_mapping_fingerprint == self.mapping_fingerprint and
+                    const mapping_fingerprint = offer.provider_program_mapping_fingerprint orelse return false;
+                    return self.token == providerProgramMappingAttestationToken(offer.fingerprint, offer.provider_fingerprint, mapping_fingerprint) and
                         providerOfferFieldsBoundToBytes(offer);
                 }
             };
@@ -5732,11 +5733,10 @@ pub fn program(
                     const payload = writer.bytes.items;
                     const fingerprint = exchangeFingerprint("ability.exchange.provider_offer", exchange_provider_offer_fingerprint_version, payload);
                     try writer.writeU64(fingerprint);
-                    const attestation: ?ProviderProgramMappingAttestation = if (options.provider_program_mapping_fingerprint) |mapping_fingerprint| .{
-                        .offer_fingerprint = fingerprint,
-                        .provider_fingerprint = options.provider_fingerprint,
-                        .mapping_fingerprint = mapping_fingerprint,
-                    } else null;
+                    const attestation: ?ProviderProgramMappingAttestation = if (options.provider_program_mapping_fingerprint) |mapping_fingerprint|
+                        ProviderProgramMappingAttestation.init(fingerprint, options.provider_fingerprint, mapping_fingerprint)
+                    else
+                        null;
                     return providerOfferFromOptions(
                         allocator,
                         try writer.toOwnedSlice(),
@@ -8884,9 +8884,9 @@ pub fn program(
 
                 /// Classify the semantic body used by this morphism adapter.
                 pub fn semanticBody(self: @This()) Evidence.SemanticBody {
-                    if (self.dynamic_morphism_fingerprint != null) return .host_intrinsic;
                     if (self.pipeline_fingerprint != null) return .pipeline;
                     if (self.residual_morphism_fingerprint != null) return .residualized_program;
+                    if (self.dynamic_morphism_fingerprint != null) return .host_intrinsic;
                     return .unknown;
                 }
 
@@ -12909,6 +12909,17 @@ pub fn program(
                 return reader.eof();
             }
 
+            fn providerProgramMappingAttestationToken(offer_fingerprint: u64, provider_fingerprint: u64, mapping_fingerprint: u64) u64 {
+                var hasher = std.hash.Wyhash.init(@intFromPtr(&provider_program_mapping_attestation_seed));
+                hashBytes(&hasher, "ability.exchange.provider_program.mapping.attestation");
+                hashU64(&hasher, offer_fingerprint);
+                hashU64(&hasher, provider_fingerprint);
+                hashU64(&hasher, mapping_fingerprint);
+                return hasher.final();
+            }
+
+            var provider_program_mapping_attestation_seed: u8 = 0;
+
             fn providerProgramMappingBackedByManifest(offer: ProviderOffer, provider: ProviderManifest, mapping_fingerprint: u64) bool {
                 return offer.format_version == provider_offer_program_format_version and
                     offer.providerProgramMappingAttested() and
@@ -16114,6 +16125,7 @@ pub fn program(
                     const intrinsic = offer.hostIntrinsic() orelse return .unknown_semantic_body;
                     if (policy.reject_intrinsic_provider or defunc.require_program_backed_providers or defunc.require_no_intrinsics_in_treaties) return .intrinsic_provider_rejected;
                     if (!defunc.allowsIntrinsic(intrinsic)) return .unallowlisted_intrinsic;
+                    if (!intrinsicRefAllowedByTreatyPolicy(intrinsic.evidenceRef(), policy)) return .unallowlisted_intrinsic;
                 }
                 if (defunc.require_program_backed_providers and body != .ability_program) return .non_defunctionalized_route;
                 return null;
@@ -16127,6 +16139,7 @@ pub fn program(
                     const intrinsic = morphism.hostIntrinsic() orelse return .unknown_semantic_body;
                     if (policy.reject_intrinsic_morphism or defunc.reject_dynamic_mappers or defunc.require_declarative_morphisms or defunc.require_no_intrinsics_in_treaties) return .intrinsic_morphism_rejected;
                     if (!defunc.allowsIntrinsic(intrinsic)) return .unallowlisted_intrinsic;
+                    if (!intrinsicRefAllowedByTreatyPolicy(intrinsic.evidenceRef(), policy)) return .unallowlisted_intrinsic;
                 }
                 if (defunc.require_declarative_morphisms and body != .declarative and body != .residualized_program and body != .pipeline) return .non_defunctionalized_route;
                 return null;
@@ -16158,6 +16171,7 @@ pub fn program(
                         error.HostIntrinsicsPresent => treatyHostIntrinsicPolicyBlocker(policy, defunc, treaty),
                     };
                 };
+                if (treatyHostIntrinsicPolicyBlocker(policy, defunc, treaty)) |tag| return tag;
                 if (defunc.require_program_backed_providers and treaty.provider_semantic_body != .ability_program) return .non_defunctionalized_route;
                 if (defunc.require_declarative_morphisms) {
                     if (treaty.morphism_semantic_body) |body| {
@@ -16167,13 +16181,14 @@ pub fn program(
                 return null;
             }
 
-            fn treatyHostIntrinsicPolicyBlocker(policy: Treaty.Policy, defunc: Evidence.DefunctionalizationPolicy, treaty: Treaty) Treaty.BlockerTag {
+            fn treatyHostIntrinsicPolicyBlocker(policy: Treaty.Policy, defunc: Evidence.DefunctionalizationPolicy, treaty: Treaty) ?Treaty.BlockerTag {
                 if (treaty.provider_semantic_body == .host_intrinsic) {
                     if (policy.reject_intrinsic_provider or defunc.require_program_backed_providers or defunc.require_no_intrinsics_in_treaties or !defunc.allow_host_intrinsics) {
                         return .intrinsic_provider_rejected;
                     }
                     if (treaty.provider_intrinsic_ref) |intrinsic_ref| {
                         if (!intrinsicRefAllowedByDefunctionalizationPolicy(intrinsic_ref, defunc)) return .unallowlisted_intrinsic;
+                        if (!intrinsicRefAllowedByTreatyPolicy(intrinsic_ref, policy)) return .unallowlisted_intrinsic;
                     } else return .unallowlisted_intrinsic;
                 }
                 if (treaty.morphism_semantic_body) |body| {
@@ -16183,13 +16198,15 @@ pub fn program(
                         }
                         if (treaty.morphism_intrinsic_ref) |intrinsic_ref| {
                             if (!intrinsicRefAllowedByDefunctionalizationPolicy(intrinsic_ref, defunc)) return .unallowlisted_intrinsic;
+                            if (!intrinsicRefAllowedByTreatyPolicy(intrinsic_ref, policy)) return .unallowlisted_intrinsic;
                         } else return .unallowlisted_intrinsic;
                     }
                 }
-                return .non_defunctionalized_route;
+                return null;
             }
 
             fn intrinsicRefAllowedByDefunctionalizationPolicy(intrinsic_ref: Evidence.Ref, policy: Evidence.DefunctionalizationPolicy) bool {
+                if (intrinsic_ref.domain_id != Evidence.domains.host_intrinsic.id) return false;
                 if (policy.reject_dynamic_mappers) {
                     if (intrinsic_ref.kind_tag) |kind_tag| {
                         if (std.mem.eql(u8, kind_tag, @tagName(Evidence.HostIntrinsic.Kind.dynamic_morphism_mapper))) return false;
@@ -16213,6 +16230,20 @@ pub fn program(
                 return policy.allowed_intrinsic_fingerprints.len == 0 and
                     policy.allowed_intrinsic_kinds.len == 0 and
                     policy.allowed_intrinsic_labels.len == 0;
+            }
+
+            fn intrinsicRefAllowedByTreatyPolicy(intrinsic_ref: Evidence.Ref, policy: Treaty.Policy) bool {
+                if (policy.allowed_intrinsic_fingerprints.len == 0 and policy.allowed_intrinsic_kinds.len == 0) return true;
+                if (intrinsic_ref.domain_id != Evidence.domains.host_intrinsic.id) return false;
+                for (policy.allowed_intrinsic_fingerprints) |allowed| {
+                    if (allowed == intrinsic_ref.fingerprint) return true;
+                }
+                if (intrinsic_ref.kind_tag) |kind_tag| {
+                    for (policy.allowed_intrinsic_kinds) |allowed| {
+                        if (std.mem.eql(u8, @tagName(allowed), kind_tag)) return true;
+                    }
+                }
+                return false;
             }
 
             fn treatyDefunctionalizationPreferenceEnabled(policy: Treaty.Policy) bool {

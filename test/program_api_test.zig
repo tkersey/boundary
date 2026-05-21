@@ -24049,6 +24049,49 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     });
     defer allowlisted_by_harness_report.deinit();
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, allowlisted_by_harness_report.status);
+    var mixed_policy_reject = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = request_envelope,
+        .manifest = catalog.manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+        .treaty_policy = .{
+            .reject_intrinsic_provider = true,
+            .defunctionalization_policy = .{
+                .label = "explicit-but-provider-rejected",
+                .allow_host_intrinsics = true,
+                .reject_unknown = true,
+                .allowed_intrinsic_fingerprints = &.{function_report.intrinsic_refs[0].fingerprint},
+            },
+        },
+    });
+    defer mixed_policy_reject.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, mixed_policy_reject.status);
+    var saw_mixed_policy_provider_rejected = false;
+    for (mixed_policy_reject.blockers.blockers[0..mixed_policy_reject.blockers.count]) |blocker| {
+        if (blocker.tag == .intrinsic_provider_rejected) saw_mixed_policy_provider_rejected = true;
+    }
+    try std.testing.expect(saw_mixed_policy_provider_rejected);
+    var mixed_policy_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, request_envelope, @as(i32, 7));
+    defer mixed_policy_response.deinit();
+    try mixed_policy_response.authorizeTreaty(allowlisted_by_harness_report.treaty.?, .fresh);
+    const mixed_policy_response_report = Program.Exchange.validateTreatyResponseWithPolicy(
+        allowlisted_by_harness_report.treaty.?,
+        request_envelope,
+        mixed_policy_response,
+        .{
+            .reject_intrinsic_provider = true,
+            .defunctionalization_policy = .{
+                .label = "explicit-but-provider-rejected",
+                .allow_host_intrinsics = true,
+                .reject_unknown = true,
+                .allowed_intrinsic_fingerprints = &.{function_report.intrinsic_refs[0].fingerprint},
+            },
+        },
+    );
+    try std.testing.expect(!mixed_policy_response_report.allowed());
+    try std.testing.expectEqualStrings("intrinsic_provider_rejected", mixed_policy_response_report.firstTagName().?);
     try std.testing.expectError(error.HostIntrinsicsPresent, allowlisted_by_harness_report.assertDefunctionalized(.{
         .label = "program-backed-provider-required",
         .allow_host_intrinsics = true,
@@ -24207,6 +24250,9 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expectEqual(program_catalog.provider_offers[0].fingerprint, decoded_program_offer.fingerprint);
     try std.testing.expectEqual(program_catalog.provider_offers[0].provider_program_mapping_fingerprint, decoded_program_offer.provider_program_mapping_fingerprint);
     try std.testing.expect(program_catalog.provider_offers[0].providerProgramMappingAttested());
+    try std.testing.expect(!decoded_program_offer.providerProgramMappingAttested());
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, decoded_program_offer.semanticBodyWithProvider(program_catalog.provider_manifest));
+    decoded_program_offer.provider_program_mapping_attestation = .{ .token = 0 };
     try std.testing.expect(!decoded_program_offer.providerProgramMappingAttested());
     try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, decoded_program_offer.semanticBodyWithProvider(program_catalog.provider_manifest));
     var decoded_program_provider = try Program.Exchange.ProviderManifest.decode(std.testing.allocator, program_catalog.provider_manifest.bytes);
@@ -28030,10 +28076,20 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
         .allow_host_intrinsics = true,
         .reject_dynamic_mappers = true,
     }));
+    try std.testing.expectError(error.HostIntrinsicsPresent, dynamic_report.assertOnlyAllowlistedIntrinsics(.{
+        .label = "declarative-morphism-required",
+        .allow_host_intrinsics = true,
+        .require_declarative_morphisms = true,
+    }));
     try std.testing.expectEqual(Program.Evidence.SemanticBody.pipeline, residualized.semanticBody());
     try std.testing.expectEqual(@as(usize, 1), residualized.defunctionalizationReport().pipeline_count);
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.host_intrinsic, mixed_static_dynamic.semanticBody());
-    try std.testing.expect(mixed_static_dynamic.hostIntrinsicRef() != null);
+    try residualized.defunctionalizationReport().assertOnlyAllowlistedIntrinsics(.{
+        .label = "declarative-morphism-required",
+        .allow_host_intrinsics = true,
+        .require_declarative_morphisms = true,
+    });
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.pipeline, mixed_static_dynamic.semanticBody());
+    try std.testing.expect(mixed_static_dynamic.hostIntrinsicRef() == null);
 
     var defunc_dynamic_blocked = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
@@ -28067,12 +28123,9 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
         .treaty_policy = .{ .reject_intrinsic_morphism = true },
     });
     defer mixed_static_dynamic_blocked.deinit();
-    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, mixed_static_dynamic_blocked.status);
-    var saw_mixed_intrinsic_morphism_rejected = false;
-    for (mixed_static_dynamic_blocked.blockers.blockers[0..mixed_static_dynamic_blocked.blockers.count]) |blocker| {
-        if (blocker.tag == .intrinsic_morphism_rejected) saw_mixed_intrinsic_morphism_rejected = true;
-    }
-    try std.testing.expect(saw_mixed_intrinsic_morphism_rejected);
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, mixed_static_dynamic_blocked.status);
+    try std.testing.expectEqual(Program.Exchange.Treaty.HandlingKind.pipeline_adapted, mixed_static_dynamic_blocked.treaty.?.handling);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.pipeline, mixed_static_dynamic_blocked.treaty.?.morphism_semantic_body.?);
 
     var strict_provider_blocked = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,

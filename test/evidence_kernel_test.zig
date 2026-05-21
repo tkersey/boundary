@@ -230,6 +230,25 @@ test "defunctionalization reports and policies enforce strict and allowlist mode
         .reject_unknown = true,
         .allowed_intrinsic_fingerprints = &.{intrinsic.fingerprint},
     });
+    const forged_non_intrinsic_ref = Evidence.refFor(Evidence.domains.provider_offer, intrinsic.fingerprint, .{
+        .label = intrinsic.label,
+        .kind_tag = @tagName(intrinsic.kind),
+    });
+    const forged_non_intrinsic_report = Evidence.DefunctionalizationReport.init(.{
+        .scope_kind = .provider_harness,
+        .scope_ref = scope,
+        .counts = .{ .host_intrinsic = 1 },
+        .intrinsic_refs = &.{forged_non_intrinsic_ref},
+        .summary = "forged non-intrinsic ref",
+    });
+    try std.testing.expectError(error.HostIntrinsicsPresent, forged_non_intrinsic_report.assertOnlyAllowlistedIntrinsics(.{
+        .label = "forged_non_intrinsic",
+        .allow_host_intrinsics = true,
+        .reject_unknown = true,
+        .allowed_intrinsic_fingerprints = &.{intrinsic.fingerprint},
+        .allowed_intrinsic_kinds = &.{intrinsic.kind},
+        .allowed_intrinsic_labels = &.{intrinsic.label},
+    }));
     try std.testing.expectError(error.HostIntrinsicsPresent, report.assertOnlyAllowlistedIntrinsics(.{
         .label = "program_backed_required",
         .allow_host_intrinsics = true,

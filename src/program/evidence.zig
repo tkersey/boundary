@@ -1437,6 +1437,7 @@ pub const DefunctionalizationReport = struct {
         if (!policy.allow_host_intrinsics and self.host_intrinsic_count != 0) return error.HostIntrinsicsPresent;
         if (!policy.allow_kernel_primitives and self.kernel_primitive_count != 0) return error.HostIntrinsicsPresent;
         if (policy.require_program_backed_providers and self.providerScopeRequiresProgramBodies()) return error.HostIntrinsicsPresent;
+        if (policy.require_declarative_morphisms and self.morphismScopeRequiresDeclarativeBody()) return error.HostIntrinsicsPresent;
         if (self.host_intrinsic_count != 0 and policy.require_no_intrinsics_in_treaties) {
             return error.HostIntrinsicsPresent;
         }
@@ -1486,9 +1487,32 @@ pub const DefunctionalizationReport = struct {
         if (!provider_scoped) return false;
         return self.host_intrinsic_count != 0 or self.unknown_count != 0;
     }
+
+    fn morphismScopeRequiresDeclarativeBody(self: @This()) bool {
+        const morphism_scoped = switch (self.scope_kind) {
+            .morphism_offer => true,
+            .program,
+            .provider_harness,
+            .provider_offer,
+            .treaty,
+            .treaty_resolver_result,
+            .interpreter,
+            .run_handler_set,
+            .pipeline,
+            .journal,
+            .catalog,
+            => false,
+        };
+        if (!morphism_scoped) return false;
+        return self.ability_program_count != 0 or
+            self.kernel_primitive_count != 0 or
+            self.host_intrinsic_count != 0 or
+            self.unknown_count != 0;
+    }
 };
 
 fn intrinsicRefAllowedByPolicy(intrinsic_ref: Ref, policy: DefunctionalizationPolicy) bool {
+    if (intrinsic_ref.domain_id != domains.host_intrinsic.id) return false;
     if (policy.reject_dynamic_mappers) {
         if (intrinsic_ref.kind_tag) |kind_tag| {
             if (std.mem.eql(u8, kind_tag, @tagName(HostIntrinsic.Kind.dynamic_morphism_mapper))) return false;
