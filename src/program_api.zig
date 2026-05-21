@@ -10384,7 +10384,11 @@ pub fn program(
                             return;
                         }
                         try self.defunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
-                        if (self.hasNonDefunctionalizedRouteBlocker()) return error.HostIntrinsicsPresent;
+                        if (self.hasNonDefunctionalizedRouteBlocker() and
+                            (policy.require_program_backed_providers or policy.require_declarative_morphisms))
+                        {
+                            return error.HostIntrinsicsPresent;
+                        }
                     }
 
                     fn defunctionalizationBlockerCounts(self: @This()) Evidence.DefunctionalizationReport.Counts {
@@ -15821,6 +15825,18 @@ pub fn program(
                             });
                             continue :offer_loop;
                         };
+                        if (!providerFieldsBoundToBytes(provider.*)) {
+                            blocked_count.* += 1;
+                            blockers.add(.{
+                                .tag = .malformed_offer,
+                                .request_fingerprint = inputs.request.fingerprint,
+                                .provider_fingerprint = provider.provider_fingerprint,
+                                .offer_fingerprint = offer.fingerprint,
+                                .morphism_fingerprint = morphism.fingerprint(),
+                                .summary = "provider manifest fields are not bound to provider bytes",
+                            });
+                            continue :offer_loop;
+                        }
                         if (treatyProviderBodyBlocker(inputs.treaty_policy, provider.*, offer)) |tag| {
                             blocked_count.* += 1;
                             blockers.add(.{
@@ -15883,18 +15899,6 @@ pub fn program(
                                 .offer_fingerprint = offer.fingerprint,
                                 .morphism_fingerprint = morphism.fingerprint(),
                                 .summary = "provider offer does not satisfy treaty tag policy",
-                            });
-                            continue :offer_loop;
-                        }
-                        if (!providerFieldsBoundToBytes(provider.*)) {
-                            blocked_count.* += 1;
-                            blockers.add(.{
-                                .tag = .malformed_offer,
-                                .request_fingerprint = inputs.request.fingerprint,
-                                .provider_fingerprint = provider.provider_fingerprint,
-                                .offer_fingerprint = offer.fingerprint,
-                                .morphism_fingerprint = morphism.fingerprint(),
-                                .summary = "provider manifest fields are not bound to provider bytes",
                             });
                             continue :offer_loop;
                         }

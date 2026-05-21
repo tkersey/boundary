@@ -24385,6 +24385,34 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         .allow_host_intrinsics = true,
         .require_declarative_morphisms = true,
     }));
+    var tampered_morphism_provider = program_catalog.provider_manifest;
+    tampered_morphism_provider.max_response_envelope_bytes -= 1;
+    const tampered_morphism_providers = [_]Program.Exchange.ProviderManifest{tampered_morphism_provider};
+    var tampered_morphism_provider_result = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = request_envelope,
+        .manifest = program_catalog.manifest,
+        .provider_manifests = tampered_morphism_providers[0..],
+        .provider_offers = attested_program_offers[0..],
+        .capabilities = (&[_]Program.Exchange.Capability{program_capability})[0..],
+        .morphism_offers = program_dynamic_morphisms[0..],
+        .treaty_request = program_morphism_request,
+        .treaty_policy = .{ .defunctionalization_policy = .{
+            .label = "tampered-morphism-provider",
+            .allow_host_intrinsics = true,
+            .reject_unknown = true,
+        } },
+    });
+    defer tampered_morphism_provider_result.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, tampered_morphism_provider_result.status);
+    var saw_tampered_morphism_provider = false;
+    var saw_tampered_morphism_unknown = false;
+    for (tampered_morphism_provider_result.blockers.blockers[0..tampered_morphism_provider_result.blockers.count]) |blocker| {
+        if (blocker.tag == .malformed_offer) saw_tampered_morphism_provider = true;
+        if (blocker.tag == .unknown_semantic_body) saw_tampered_morphism_unknown = true;
+    }
+    try std.testing.expect(saw_tampered_morphism_provider);
+    try std.testing.expect(!saw_tampered_morphism_unknown);
     var decoded_program_result = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = request_envelope,
@@ -24422,6 +24450,10 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         .allow_host_intrinsics = true,
         .require_program_backed_providers = true,
     }));
+    try program_required_unknown_result.assertDefunctionalized(.{
+        .label = "later-permissive-policy",
+        .allow_host_intrinsics = true,
+    });
     var wrong_format_program_offer = program_catalog.provider_offers[0];
     wrong_format_program_offer.format_version = Program.exchange_provider_offer_format_version;
     try std.testing.expectError(error.ProgramContractViolation, wrong_format_program_offer.validate());
