@@ -24244,6 +24244,21 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, preferred_mixed.status);
     try std.testing.expectEqual(ProgramBackedHarness.provider_fingerprint, preferred_mixed.treaty.?.provider_fingerprint);
     try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, preferred_mixed.treaty.?.provider_semantic_body);
+    var morphism_preference_only_mixed = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = request_envelope,
+        .manifest = catalog.manifest,
+        .provider_manifests = mixed_providers[0..],
+        .provider_offers = mixed_offers[0..],
+        .capabilities = mixed_capabilities[0..],
+        .treaty_policy = .{ .defunctionalization_policy = .{
+            .label = "morphism-preference-only",
+            .allow_host_intrinsics = true,
+            .prefer_declarative = true,
+        } },
+    });
+    defer morphism_preference_only_mixed.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.ambiguous_treaties, morphism_preference_only_mixed.status);
 
     var decoded_program_offer = try Program.Exchange.ProviderOffer.decode(std.testing.allocator, program_catalog.provider_offers[0].bytes);
     defer decoded_program_offer.deinit();

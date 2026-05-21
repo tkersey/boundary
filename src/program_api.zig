@@ -15976,8 +15976,12 @@ pub fn program(
                 if (treatyDefunctionalizationPreferenceEnabled(policy)) {
                     const candidate_rank = treatySemanticOpacityRank(candidate);
                     const selected_rank = treatySemanticOpacityRank(selected);
-                    if (candidate_rank.provider != selected_rank.provider) return candidate_rank.provider < selected_rank.provider;
-                    if (candidate_rank.morphism != selected_rank.morphism) return candidate_rank.morphism < selected_rank.morphism;
+                    if (treatyDefunctionalizationProviderPreferenceEnabled(policy) and candidate_rank.provider != selected_rank.provider) {
+                        return candidate_rank.provider < selected_rank.provider;
+                    }
+                    if (treatyDefunctionalizationMorphismPreferenceEnabled(policy) and candidate_rank.morphism != selected_rank.morphism) {
+                        return candidate_rank.morphism < selected_rank.morphism;
+                    }
                 }
                 return switch (treatyEffectiveAmbiguityPolicy(policy, request_value)) {
                     .reject_ambiguous => false,
@@ -16247,11 +16251,18 @@ pub fn program(
             }
 
             fn treatyDefunctionalizationPreferenceEnabled(policy: Treaty.Policy) bool {
-                if (policy.prefer_program_backed_provider) return true;
-                if (policy.defunctionalization_policy) |defunc| {
-                    return defunc.prefer_ability_program or defunc.prefer_declarative or defunc.prefer_residualized;
-                }
-                return false;
+                return treatyDefunctionalizationProviderPreferenceEnabled(policy) or
+                    treatyDefunctionalizationMorphismPreferenceEnabled(policy);
+            }
+
+            fn treatyDefunctionalizationProviderPreferenceEnabled(policy: Treaty.Policy) bool {
+                const defunc = treatyDefunctionalizationPolicy(policy) orelse return false;
+                return defunc.prefer_ability_program;
+            }
+
+            fn treatyDefunctionalizationMorphismPreferenceEnabled(policy: Treaty.Policy) bool {
+                const defunc = treatyDefunctionalizationPolicy(policy) orelse return false;
+                return defunc.prefer_declarative or defunc.prefer_residualized;
             }
 
             fn semanticBodyRank(body: Evidence.SemanticBody) u8 {
