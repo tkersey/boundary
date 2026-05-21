@@ -1,11 +1,11 @@
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const NoError = error{};
 const timed_iterations: usize = 50_000;
 const warmup_iterations: usize = 20_000;
 const samples_per_run: usize = 9;
-const preserveValue = ability.preserveValue;
+const preserveValue = boundary.preserveValue;
 
 const Sample = struct {
     checksum: usize,
@@ -41,24 +41,24 @@ const resource_large_items_per_body: usize = 32;
 const writer_small_items_per_body: usize = 16;
 const writer_large_items_per_body: usize = 64;
 
-const RawStatePrompt = ability.Prompt(.resume_then_transform, usize, usize, NoError);
-const ReaderPrompt = ability.Prompt(.resume_then_transform, usize, usize, NoError);
-const OptionalReturnPrompt = ability.Prompt(.resume_or_return, usize, usize, NoError);
-const OptionalResumePrompt = ability.Prompt(.resume_or_return, usize, usize, NoError);
-const ExceptionPrompt = ability.Prompt(.direct_return, usize, usize, NoError);
-const AlgebraicTransformPrompt = ability.Prompt(.resume_then_transform, usize, usize, NoError);
-const AlgebraicChoicePrompt = ability.Prompt(.resume_or_return, usize, usize, NoError);
-const AlgebraicAbortPrompt = ability.Prompt(.direct_return, usize, usize, NoError);
+const RawStatePrompt = boundary.Prompt(.resume_then_transform, usize, usize, NoError);
+const ReaderPrompt = boundary.Prompt(.resume_then_transform, usize, usize, NoError);
+const OptionalReturnPrompt = boundary.Prompt(.resume_or_return, usize, usize, NoError);
+const OptionalResumePrompt = boundary.Prompt(.resume_or_return, usize, usize, NoError);
+const ExceptionPrompt = boundary.Prompt(.direct_return, usize, usize, NoError);
+const AlgebraicTransformPrompt = boundary.Prompt(.resume_then_transform, usize, usize, NoError);
+const AlgebraicChoicePrompt = boundary.Prompt(.resume_or_return, usize, usize, NoError);
+const AlgebraicAbortPrompt = boundary.Prompt(.direct_return, usize, usize, NoError);
 
-const StateInstance = ability.effect.state.Instance(usize, NoError);
-const ReaderInstance = ability.effect.reader.Instance(usize, NoError);
-const OptionalInstance = ability.effect.optional.Instance(usize, NoError);
-const ExceptionInstance = ability.effect.exception.Instance(usize, NoError);
-const ResourceInstance = ability.effect.resource.Instance(usize, NoError);
-const WriterInstance = ability.effect.writer.Instance(usize, NoError);
-const AlgebraicTransformOp = ability.algebraic.TransformOp("algebraic_transform_micro", usize, usize);
-const AlgebraicChoiceOp = ability.algebraic.ChoiceOp("algebraic_choice_micro", usize, usize);
-const AlgebraicAbortOp = ability.algebraic.AbortOp("algebraic_abort_micro", usize);
+const StateInstance = boundary.effect.state.Instance(usize, NoError);
+const ReaderInstance = boundary.effect.reader.Instance(usize, NoError);
+const OptionalInstance = boundary.effect.optional.Instance(usize, NoError);
+const ExceptionInstance = boundary.effect.exception.Instance(usize, NoError);
+const ResourceInstance = boundary.effect.resource.Instance(usize, NoError);
+const WriterInstance = boundary.effect.writer.Instance(usize, NoError);
+const AlgebraicTransformOp = boundary.algebraic.TransformOp("algebraic_transform_micro", usize, usize);
+const AlgebraicChoiceOp = boundary.algebraic.ChoiceOp("algebraic_choice_micro", usize, usize);
+const AlgebraicAbortOp = boundary.algebraic.AbortOp("algebraic_abort_micro", usize);
 
 const raw_state = struct {
     var prompt_ptr: ?*const RawStatePrompt = null;
@@ -89,16 +89,16 @@ const raw_state = struct {
         }
     };
 
-    fn get() ability.ResetError(NoError)!usize {
-        return try ability.frontend.transform(usize, prompt_ptr.?, get_handle);
+    fn get() boundary.ResetError(NoError)!usize {
+        return try boundary.frontend.transform(usize, prompt_ptr.?, get_handle);
     }
 
-    fn set(value: usize) ability.ResetError(NoError)!void {
+    fn set(value: usize) boundary.ResetError(NoError)!void {
         pending_state = value;
-        _ = try ability.frontend.transform(void, prompt_ptr.?, set_handle);
+        _ = try boundary.frontend.transform(void, prompt_ptr.?, set_handle);
     }
 
-    fn body() ability.ResetError(NoError)!usize {
+    fn body() boundary.ResetError(NoError)!usize {
         const before = try get();
         try set(before + 1);
         return try get();
@@ -107,10 +107,10 @@ const raw_state = struct {
 
 const effect_state = struct {
     /// Execute the state-effect micro benchmark body.
-    pub fn body(comptime Cap: type, ctx: anytype) ability.ResetError(NoError)!usize {
-        const before = try ability.effect.state.get(Cap, ctx);
-        try ability.effect.state.set(Cap, ctx, before + 1);
-        return try ability.effect.state.get(Cap, ctx);
+    pub fn body(comptime Cap: type, ctx: anytype) boundary.ResetError(NoError)!usize {
+        const before = try boundary.effect.state.get(Cap, ctx);
+        try boundary.effect.state.set(Cap, ctx, before + 1);
+        return try boundary.effect.state.get(Cap, ctx);
     }
 };
 
@@ -130,19 +130,19 @@ const raw_reader = struct {
         }
     };
 
-    fn ask() ability.ResetError(NoError)!usize {
-        return try ability.frontend.transform(usize, prompt_ptr.?, ask_handle);
+    fn ask() boundary.ResetError(NoError)!usize {
+        return try boundary.frontend.transform(usize, prompt_ptr.?, ask_handle);
     }
 
-    fn body() ability.ResetError(NoError)!usize {
+    fn body() boundary.ResetError(NoError)!usize {
         return (try ask()) + 1;
     }
 };
 
 const effect_reader_micro = struct {
     /// Execute the reader-effect micro benchmark body.
-    pub fn body(comptime Cap: type, ctx: anytype) ability.ResetError(NoError)!usize {
-        return (try ability.effect.reader.ask(Cap, ctx)) + 1;
+    pub fn body(comptime Cap: type, ctx: anytype) boundary.ResetError(NoError)!usize {
+        return (try boundary.effect.reader.ask(Cap, ctx)) + 1;
     }
 };
 
@@ -162,11 +162,11 @@ const raw_reader_batch = struct {
         }
     };
 
-    fn ask() ability.ResetError(NoError)!usize {
-        return try ability.frontend.transform(usize, prompt_ptr.?, ask_handle);
+    fn ask() boundary.ResetError(NoError)!usize {
+        return try boundary.frontend.transform(usize, prompt_ptr.?, ask_handle);
     }
 
-    fn body() ability.ResetError(NoError)!usize {
+    fn body() boundary.ResetError(NoError)!usize {
         var checksum: usize = 0;
         var current: usize = 0;
         while (current < reader_items_per_body) : (current += 1) {
@@ -178,11 +178,11 @@ const raw_reader_batch = struct {
 
 const effect_reader_batch = struct {
     /// Execute the reader-effect amortized benchmark body.
-    pub fn body(comptime Cap: type, ctx: anytype) ability.ResetError(NoError)!usize {
+    pub fn body(comptime Cap: type, ctx: anytype) boundary.ResetError(NoError)!usize {
         var checksum: usize = 0;
         var current: usize = 0;
         while (current < reader_items_per_body) : (current += 1) {
-            checksum += try ability.effect.reader.ask(Cap, ctx);
+            checksum += try boundary.effect.reader.ask(Cap, ctx);
         }
         return checksum;
     }
@@ -194,8 +194,8 @@ const raw_optional_return = struct {
 
     const handler = struct {
         /// Return immediately from the raw optional benchmark.
-        pub fn resumeOrReturn() ability.ResumeOrReturn(usize, usize) {
-            return ability.ResumeOrReturn(usize, usize).returnNow(current_value + 1);
+        pub fn resumeOrReturn() boundary.ResumeOrReturn(usize, usize) {
+            return boundary.ResumeOrReturn(usize, usize).returnNow(current_value + 1);
         }
 
         /// Preserve the resumed answer if this branch ever resumes.
@@ -204,8 +204,8 @@ const raw_optional_return = struct {
         }
     };
 
-    fn body() ability.ResetError(NoError)!usize {
-        _ = try ability.frontend.choice(usize, prompt_ptr.?, handler);
+    fn body() boundary.ResetError(NoError)!usize {
+        _ = try boundary.frontend.choice(usize, prompt_ptr.?, handler);
         return 0;
     }
 };
@@ -213,8 +213,8 @@ const raw_optional_return = struct {
 const effect_optional_return_micro = struct {
     const policy = struct {
         /// Return immediately from the effect optional benchmark.
-        pub fn resumeOrReturn() ability.ResumeOrReturn(usize, usize) {
-            return ability.ResumeOrReturn(usize, usize).returnNow(raw_optional_return.current_value + 1);
+        pub fn resumeOrReturn() boundary.ResumeOrReturn(usize, usize) {
+            return boundary.ResumeOrReturn(usize, usize).returnNow(raw_optional_return.current_value + 1);
         }
 
         /// Preserve the resumed answer if this branch ever resumes.
@@ -224,13 +224,13 @@ const effect_optional_return_micro = struct {
     };
 
     /// Execute the return-now optional micro benchmark body.
-    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(ability.effect.optional.requestProgram(Cap, ctx, struct {
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(boundary.effect.optional.requestProgram(Cap, ctx, struct {
         /// Return the direct-answer branch if the request unexpectedly resumes.
         pub fn apply(_: usize) usize {
             return 0;
         }
     })) {
-        return ability.effect.optional.requestProgram(Cap, ctx, struct {
+        return boundary.effect.optional.requestProgram(Cap, ctx, struct {
             /// Return the direct-answer branch if the request unexpectedly resumes.
             pub fn apply(_: usize) usize {
                 return 0;
@@ -245,8 +245,8 @@ const raw_optional_return_prelude = struct {
 
     const handler = struct {
         /// Return immediately after the amortized prelude.
-        pub fn resumeOrReturn() ability.ResumeOrReturn(usize, usize) {
-            return ability.ResumeOrReturn(usize, usize).returnNow(current_value);
+        pub fn resumeOrReturn() boundary.ResumeOrReturn(usize, usize) {
+            return boundary.ResumeOrReturn(usize, usize).returnNow(current_value);
         }
 
         /// Preserve the resumed answer if this branch ever resumes.
@@ -255,13 +255,13 @@ const raw_optional_return_prelude = struct {
         }
     };
 
-    fn body() ability.ResetError(NoError)!usize {
+    fn body() boundary.ResetError(NoError)!usize {
         var checksum: usize = 0;
         var current: usize = 0;
         while (current < prelude_items_per_body) : (current += 1) {
             checksum +%= current_value + current + 1;
         }
-        _ = try ability.frontend.choice(usize, prompt_ptr.?, handler);
+        _ = try boundary.frontend.choice(usize, prompt_ptr.?, handler);
         return checksum;
     }
 };
@@ -269,8 +269,8 @@ const raw_optional_return_prelude = struct {
 const effect_optional_return_prelude = struct {
     const policy = struct {
         /// Return immediately after the amortized prelude.
-        pub fn resumeOrReturn() ability.ResumeOrReturn(usize, usize) {
-            return ability.ResumeOrReturn(usize, usize).returnNow(raw_optional_return_prelude.current_value);
+        pub fn resumeOrReturn() boundary.ResumeOrReturn(usize, usize) {
+            return boundary.ResumeOrReturn(usize, usize).returnNow(raw_optional_return_prelude.current_value);
         }
 
         /// Preserve the resumed answer if this branch ever resumes.
@@ -280,7 +280,7 @@ const effect_optional_return_prelude = struct {
     };
 
     /// Execute the return-now amortized benchmark body.
-    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(ability.effect.optional.requestProgram(Cap, ctx, struct {
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(boundary.effect.optional.requestProgram(Cap, ctx, struct {
         /// Recompute the amortized prelude checksum if the request unexpectedly resumes.
         pub fn apply(_: usize) usize {
             var checksum: usize = 0;
@@ -291,7 +291,7 @@ const effect_optional_return_prelude = struct {
             return checksum;
         }
     })) {
-        return ability.effect.optional.requestProgram(Cap, ctx, struct {
+        return boundary.effect.optional.requestProgram(Cap, ctx, struct {
             /// Recompute the amortized prelude checksum if the request unexpectedly resumes.
             pub fn apply(_: usize) usize {
                 var checksum: usize = 0;
@@ -311,8 +311,8 @@ const raw_optional_resume = struct {
 
     const handler = struct {
         /// Resume once from the raw optional benchmark.
-        pub fn resumeOrReturn() ability.ResumeOrReturn(usize, usize) {
-            return ability.ResumeOrReturn(usize, usize).resumeWith(current_value);
+        pub fn resumeOrReturn() boundary.ResumeOrReturn(usize, usize) {
+            return boundary.ResumeOrReturn(usize, usize).resumeWith(current_value);
         }
 
         /// Preserve the resumed answer unchanged.
@@ -321,8 +321,8 @@ const raw_optional_resume = struct {
         }
     };
 
-    fn body() ability.ResetError(NoError)!usize {
-        const value = try ability.frontend.choice(usize, prompt_ptr.?, handler);
+    fn body() boundary.ResetError(NoError)!usize {
+        const value = try boundary.frontend.choice(usize, prompt_ptr.?, handler);
         return value + 1;
     }
 };
@@ -330,8 +330,8 @@ const raw_optional_resume = struct {
 const effect_optional_resume_micro = struct {
     const policy = struct {
         /// Resume once from the effect optional benchmark.
-        pub fn resumeOrReturn() ability.ResumeOrReturn(usize, usize) {
-            return ability.ResumeOrReturn(usize, usize).resumeWith(raw_optional_resume.current_value);
+        pub fn resumeOrReturn() boundary.ResumeOrReturn(usize, usize) {
+            return boundary.ResumeOrReturn(usize, usize).resumeWith(raw_optional_resume.current_value);
         }
 
         /// Preserve the resumed answer unchanged.
@@ -341,13 +341,13 @@ const effect_optional_resume_micro = struct {
     };
 
     /// Execute the resumptive optional micro benchmark body.
-    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(ability.effect.optional.requestProgram(Cap, ctx, struct {
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(boundary.effect.optional.requestProgram(Cap, ctx, struct {
         /// Increment the resumed optional value for the micro lane.
         pub fn apply(value: usize) usize {
             return value + 1;
         }
     })) {
-        return ability.effect.optional.requestProgram(Cap, ctx, struct {
+        return boundary.effect.optional.requestProgram(Cap, ctx, struct {
             /// Increment the resumed optional value for the micro lane.
             pub fn apply(value: usize) usize {
                 return value + 1;
@@ -362,8 +362,8 @@ const raw_optional_resume_batch = struct {
 
     const handler = struct {
         /// Resume once from the amortized raw optional benchmark.
-        pub fn resumeOrReturn() ability.ResumeOrReturn(usize, usize) {
-            return ability.ResumeOrReturn(usize, usize).resumeWith(current_value);
+        pub fn resumeOrReturn() boundary.ResumeOrReturn(usize, usize) {
+            return boundary.ResumeOrReturn(usize, usize).resumeWith(current_value);
         }
 
         /// Preserve the resumed answer unchanged.
@@ -372,8 +372,8 @@ const raw_optional_resume_batch = struct {
         }
     };
 
-    fn body() ability.ResetError(NoError)!usize {
-        const value = try ability.frontend.choice(usize, prompt_ptr.?, handler);
+    fn body() boundary.ResetError(NoError)!usize {
+        const value = try boundary.frontend.choice(usize, prompt_ptr.?, handler);
         var checksum: usize = value;
         var current: usize = 0;
         while (current < prelude_items_per_body) : (current += 1) {
@@ -386,8 +386,8 @@ const raw_optional_resume_batch = struct {
 const effect_optional_resume_batch = struct {
     const policy = struct {
         /// Resume once from the amortized effect optional benchmark.
-        pub fn resumeOrReturn() ability.ResumeOrReturn(usize, usize) {
-            return ability.ResumeOrReturn(usize, usize).resumeWith(raw_optional_resume_batch.current_value);
+        pub fn resumeOrReturn() boundary.ResumeOrReturn(usize, usize) {
+            return boundary.ResumeOrReturn(usize, usize).resumeWith(raw_optional_resume_batch.current_value);
         }
 
         /// Preserve the resumed answer unchanged.
@@ -397,7 +397,7 @@ const effect_optional_resume_batch = struct {
     };
 
     /// Execute the resumptive amortized optional benchmark body.
-    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(ability.effect.optional.requestProgram(Cap, ctx, struct {
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(boundary.effect.optional.requestProgram(Cap, ctx, struct {
         /// Add the amortized prelude checksum to the resumed optional value.
         pub fn apply(value: usize) usize {
             var checksum: usize = value;
@@ -408,7 +408,7 @@ const effect_optional_resume_batch = struct {
             return checksum;
         }
     })) {
-        return ability.effect.optional.requestProgram(Cap, ctx, struct {
+        return boundary.effect.optional.requestProgram(Cap, ctx, struct {
             /// Add the amortized prelude checksum to the resumed optional value.
             pub fn apply(value: usize) usize {
                 var checksum: usize = value;
@@ -433,9 +433,9 @@ const raw_exception = struct {
         }
     };
 
-    fn body() ability.ResetError(NoError)!usize {
+    fn body() boundary.ResetError(NoError)!usize {
         pending_payload += 1;
-        try ability.frontend.abort(prompt_ptr.?, handler);
+        try boundary.frontend.abort(prompt_ptr.?, handler);
         return 0;
     }
 };
@@ -449,8 +449,8 @@ const effect_exception_micro = struct {
     };
 
     /// Execute the thrown-path exception micro benchmark body.
-    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(ability.effect.exception.throwProgram(Cap, ctx, raw_exception.pending_payload + 1)) {
-        return ability.effect.exception.throwProgram(Cap, ctx, raw_exception.pending_payload + 1);
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(boundary.effect.exception.throwProgram(Cap, ctx, raw_exception.pending_payload + 1)) {
+        return boundary.effect.exception.throwProgram(Cap, ctx, raw_exception.pending_payload + 1);
     }
 };
 
@@ -465,13 +465,13 @@ const raw_exception_prelude = struct {
         }
     };
 
-    fn body() ability.ResetError(NoError)!usize {
+    fn body() boundary.ResetError(NoError)!usize {
         var checksum: usize = 0;
         var current: usize = 0;
         while (current < prelude_items_per_body) : (current += 1) {
             checksum +%= pending_payload + current;
         }
-        try ability.frontend.abort(prompt_ptr.?, handler);
+        try boundary.frontend.abort(prompt_ptr.?, handler);
         return checksum;
     }
 };
@@ -485,13 +485,13 @@ const effect_exception_prelude = struct {
     };
 
     /// Execute the amortized thrown-path exception benchmark body.
-    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(ability.effect.exception.throwProgram(Cap, ctx, raw_exception_prelude.pending_payload)) {
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(boundary.effect.exception.throwProgram(Cap, ctx, raw_exception_prelude.pending_payload)) {
         var checksum: usize = 0;
         var current: usize = 0;
         while (current < prelude_items_per_body) : (current += 1) {
             checksum +%= raw_exception_prelude.pending_payload + current;
         }
-        return ability.effect.exception.throwProgram(Cap, ctx, raw_exception_prelude.pending_payload + checksum);
+        return boundary.effect.exception.throwProgram(Cap, ctx, raw_exception_prelude.pending_payload + checksum);
     }
 };
 
@@ -511,8 +511,8 @@ const raw_algebraic_transform = struct {
         }
     };
 
-    fn body() ability.ResetError(NoError)!usize {
-        const value = try ability.frontend.transform(usize, prompt_ptr.?, handler);
+    fn body() boundary.ResetError(NoError)!usize {
+        const value = try boundary.frontend.transform(usize, prompt_ptr.?, handler);
         return value + 1;
     }
 };
@@ -530,9 +530,9 @@ const effect_algebraic_transform = struct {
             return answer;
         }
     };
-    const program = ability.algebraic.Program(usize, NoError, .{AlgebraicTransformOp});
+    const program = boundary.algebraic.Program(usize, NoError, .{AlgebraicTransformOp});
     const configured = program.handlers(.{
-        ability.algebraic.handleTransform(AlgebraicTransformOp, no_state{}, handler),
+        boundary.algebraic.handleTransform(AlgebraicTransformOp, no_state{}, handler),
     });
     const continuation = struct {
         /// Increment the resumed transform value for the benchmark lane.
@@ -555,8 +555,8 @@ const raw_algebraic_choice = struct {
 
     const handler = struct {
         /// Return immediately from the raw algebraic choice benchmark.
-        pub fn resumeOrReturn() ability.ResumeOrReturn(usize, usize) {
-            return ability.ResumeOrReturn(usize, usize).returnNow(current_value + 1);
+        pub fn resumeOrReturn() boundary.ResumeOrReturn(usize, usize) {
+            return boundary.ResumeOrReturn(usize, usize).returnNow(current_value + 1);
         }
 
         /// Preserve the resumed raw algebraic choice answer unchanged.
@@ -565,8 +565,8 @@ const raw_algebraic_choice = struct {
         }
     };
 
-    fn body() ability.ResetError(NoError)!usize {
-        _ = try ability.frontend.choice(usize, prompt_ptr.?, handler);
+    fn body() boundary.ResetError(NoError)!usize {
+        _ = try boundary.frontend.choice(usize, prompt_ptr.?, handler);
         return 0;
     }
 };
@@ -575,8 +575,8 @@ const effect_algebraic_choice = struct {
     const no_state = struct {};
     const handler = struct {
         /// Choose the direct-return branch for the public algebraic choice micro benchmark.
-        pub fn resumeOrReturn(_: no_state, payload: usize) ability.ResumeOrReturn(usize, usize) {
-            return ability.ResumeOrReturn(usize, usize).returnNow(payload + 1);
+        pub fn resumeOrReturn(_: no_state, payload: usize) boundary.ResumeOrReturn(usize, usize) {
+            return boundary.ResumeOrReturn(usize, usize).returnNow(payload + 1);
         }
 
         /// Preserve the resumed choice answer unchanged.
@@ -584,9 +584,9 @@ const effect_algebraic_choice = struct {
             return answer;
         }
     };
-    const program = ability.algebraic.Program(usize, NoError, .{AlgebraicChoiceOp});
+    const program = boundary.algebraic.Program(usize, NoError, .{AlgebraicChoiceOp});
     const configured = program.handlers(.{
-        ability.algebraic.handleChoice(AlgebraicChoiceOp, no_state{}, handler),
+        boundary.algebraic.handleChoice(AlgebraicChoiceOp, no_state{}, handler),
     });
     const continuation = struct {
         /// Return the direct-answer branch if the algebraic choice unexpectedly resumes.
@@ -614,8 +614,8 @@ const raw_algebraic_abort = struct {
         }
     };
 
-    fn body() ability.ResetError(NoError)!usize {
-        try ability.frontend.abort(prompt_ptr.?, handler);
+    fn body() boundary.ResetError(NoError)!usize {
+        try boundary.frontend.abort(prompt_ptr.?, handler);
         return 0;
     }
 };
@@ -628,9 +628,9 @@ const effect_algebraic_abort = struct {
             return payload;
         }
     };
-    const program = ability.algebraic.Program(usize, NoError, .{AlgebraicAbortOp});
+    const program = boundary.algebraic.Program(usize, NoError, .{AlgebraicAbortOp});
     const configured = program.handlers(.{
-        ability.algebraic.handleAbort(AlgebraicAbortOp, no_state{}, handler),
+        boundary.algebraic.handleAbort(AlgebraicAbortOp, no_state{}, handler),
     });
     const continuation = struct {
         /// Unreachable continuation placeholder for the abort lane.
@@ -697,11 +697,11 @@ const effect_resource = struct {
     };
 
     /// Execute the normal-path resource benchmark body.
-    pub fn body(comptime Cap: type, ctx: anytype, comptime items_per_body: usize) ability.ResetError(NoError)!usize {
+    pub fn body(comptime Cap: type, ctx: anytype, comptime items_per_body: usize) boundary.ResetError(NoError)!usize {
         var checksum: usize = 0;
         var items_remaining = items_per_body;
         while (items_remaining != 0) : (items_remaining -= 1) {
-            checksum += try ability.effect.resource.acquire(Cap, ctx);
+            checksum += try boundary.effect.resource.acquire(Cap, ctx);
         }
         return checksum;
     }
@@ -726,11 +726,11 @@ const raw_writer = struct {
 
 const effect_writer = struct {
     /// Execute the append-only writer benchmark body.
-    pub fn body(comptime Cap: type, ctx: anytype, comptime items_per_body: usize) ability.ResetError(NoError)!usize {
+    pub fn body(comptime Cap: type, ctx: anytype, comptime items_per_body: usize) boundary.ResetError(NoError)!usize {
         var current: usize = 0;
         while (current < items_per_body) : (current += 1) {
             const item = current + 1;
-            try ability.effect.writer.tell(Cap, ctx, item);
+            try boundary.effect.writer.tell(Cap, ctx, item);
         }
         return 0;
     }
@@ -758,154 +758,154 @@ fn summarizeSamples(values: *const [samples_per_run]u64) struct { min: u64, medi
     };
 }
 
-fn runStateRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *RawStatePrompt, iterations: usize) !Sample {
+fn runStateRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *RawStatePrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runStateEffectSample(io, runtime, &StateInstance.init(), iterations);
 }
 
-fn runStateEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
+fn runStateEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
-        const result = preserveValue(try ability.effect.state.handle(usize, runtime, instance, index, effect_state));
+        const result = preserveValue(try boundary.effect.state.handle(usize, runtime, instance, index, effect_state));
         checksum += result.value + result.state;
     }
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runReaderRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *ReaderPrompt, iterations: usize) !Sample {
+fn runReaderRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *ReaderPrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runReaderEffectSample(io, runtime, &ReaderInstance.init(), iterations);
 }
 
-fn runReaderEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const ReaderInstance, iterations: usize) !Sample {
+fn runReaderEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const ReaderInstance, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
-        checksum += preserveValue(try ability.effect.reader.handle(usize, runtime, instance, index, effect_reader_micro));
+        checksum += preserveValue(try boundary.effect.reader.handle(usize, runtime, instance, index, effect_reader_micro));
     }
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runReaderBatchRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *ReaderPrompt, iterations: usize) !Sample {
+fn runReaderBatchRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *ReaderPrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runReaderBatchEffectSample(io, runtime, &ReaderInstance.init(), iterations);
 }
 
-fn runReaderBatchEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const ReaderInstance, iterations: usize) !Sample {
+fn runReaderBatchEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const ReaderInstance, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
-        checksum += preserveValue(try ability.effect.reader.handle(usize, runtime, instance, index, effect_reader_batch));
+        checksum += preserveValue(try boundary.effect.reader.handle(usize, runtime, instance, index, effect_reader_batch));
     }
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runOptionalReturnRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
+fn runOptionalReturnRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runOptionalReturnEffectSample(io, runtime, &OptionalInstance.init(), iterations);
 }
 
-fn runOptionalReturnEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
+fn runOptionalReturnEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_return.current_value = index;
-        checksum += preserveValue(try ability.effect.optional.handle(usize, runtime, instance, effect_optional_return_micro.policy, effect_optional_return_micro));
+        checksum += preserveValue(try boundary.effect.optional.handle(usize, runtime, instance, effect_optional_return_micro.policy, effect_optional_return_micro));
     }
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runOptionalReturnPreludeRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
+fn runOptionalReturnPreludeRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runOptionalReturnPreludeEffectSample(io, runtime, &OptionalInstance.init(), iterations);
 }
 
-fn runOptionalReturnPreludeEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
+fn runOptionalReturnPreludeEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_return_prelude.current_value = index;
-        checksum += preserveValue(try ability.effect.optional.handle(usize, runtime, instance, effect_optional_return_prelude.policy, effect_optional_return_prelude));
+        checksum += preserveValue(try boundary.effect.optional.handle(usize, runtime, instance, effect_optional_return_prelude.policy, effect_optional_return_prelude));
     }
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runOptionalResumeRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
+fn runOptionalResumeRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runOptionalResumeEffectSample(io, runtime, &OptionalInstance.init(), iterations);
 }
 
-fn runOptionalResumeEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
+fn runOptionalResumeEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_resume.current_value = index;
-        checksum += preserveValue(try ability.effect.optional.handle(usize, runtime, instance, effect_optional_resume_micro.policy, effect_optional_resume_micro));
+        checksum += preserveValue(try boundary.effect.optional.handle(usize, runtime, instance, effect_optional_resume_micro.policy, effect_optional_resume_micro));
     }
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runOptionalResumeBatchRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
+fn runOptionalResumeBatchRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runOptionalResumeBatchEffectSample(io, runtime, &OptionalInstance.init(), iterations);
 }
 
-fn runOptionalResumeBatchEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
+fn runOptionalResumeBatchEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_resume_batch.current_value = index;
-        checksum += preserveValue(try ability.effect.optional.handle(usize, runtime, instance, effect_optional_resume_batch.policy, effect_optional_resume_batch));
+        checksum += preserveValue(try boundary.effect.optional.handle(usize, runtime, instance, effect_optional_resume_batch.policy, effect_optional_resume_batch));
     }
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runExceptionRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
+fn runExceptionRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runExceptionEffectSample(io, runtime, &ExceptionInstance.init(), iterations);
 }
 
-fn runExceptionEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
+fn runExceptionEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_exception.pending_payload = index;
-        checksum += preserveValue(try ability.effect.exception.handle(usize, runtime, instance, effect_exception_micro.catcher, effect_exception_micro));
+        checksum += preserveValue(try boundary.effect.exception.handle(usize, runtime, instance, effect_exception_micro.catcher, effect_exception_micro));
     }
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runExceptionPreludeRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
+fn runExceptionPreludeRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runExceptionPreludeEffectSample(io, runtime, &ExceptionInstance.init(), iterations);
 }
 
-fn runExceptionPreludeEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
+fn runExceptionPreludeEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_exception_prelude.pending_payload = index;
-        checksum += preserveValue(try ability.effect.exception.handle(usize, runtime, instance, effect_exception_prelude.catcher, effect_exception_prelude));
+        checksum += preserveValue(try boundary.effect.exception.handle(usize, runtime, instance, effect_exception_prelude.catcher, effect_exception_prelude));
     }
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runAlgebraicTransformRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *AlgebraicTransformPrompt, iterations: usize) !Sample {
+fn runAlgebraicTransformRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *AlgebraicTransformPrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runAlgebraicTransformEffectSample(io, runtime, iterations);
 }
 
-fn runAlgebraicTransformEffectSample(io: std.Io, runtime: *ability.Runtime, iterations: usize) !Sample {
+fn runAlgebraicTransformEffectSample(io: std.Io, runtime: *boundary.Runtime, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
@@ -916,12 +916,12 @@ fn runAlgebraicTransformEffectSample(io: std.Io, runtime: *ability.Runtime, iter
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runAlgebraicChoiceRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *AlgebraicChoicePrompt, iterations: usize) !Sample {
+fn runAlgebraicChoiceRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *AlgebraicChoicePrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runAlgebraicChoiceEffectSample(io, runtime, iterations);
 }
 
-fn runAlgebraicChoiceEffectSample(io: std.Io, runtime: *ability.Runtime, iterations: usize) !Sample {
+fn runAlgebraicChoiceEffectSample(io: std.Io, runtime: *boundary.Runtime, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
@@ -932,12 +932,12 @@ fn runAlgebraicChoiceEffectSample(io: std.Io, runtime: *ability.Runtime, iterati
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runAlgebraicAbortRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *AlgebraicAbortPrompt, iterations: usize) !Sample {
+fn runAlgebraicAbortRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *AlgebraicAbortPrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runAlgebraicAbortEffectSample(io, runtime, iterations);
 }
 
-fn runAlgebraicAbortEffectSample(io: std.Io, runtime: *ability.Runtime, iterations: usize) !Sample {
+fn runAlgebraicAbortEffectSample(io: std.Io, runtime: *boundary.Runtime, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
@@ -959,7 +959,7 @@ fn runResourceRawSample(io: std.Io, allocator: std.mem.Allocator, comptime items
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runResourceEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const ResourceInstance, comptime items_per_body: usize, iterations: usize) !Sample {
+fn runResourceEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const ResourceInstance, comptime items_per_body: usize, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
@@ -968,11 +968,11 @@ fn runResourceEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *con
         raw_resource.acquire_count = 0;
         const body = struct {
             /// Bridge the resource-effect helper into the benchmark handle body.
-            pub fn body(comptime Cap: type, ctx: anytype) ability.ResetError(NoError)!usize {
+            pub fn body(comptime Cap: type, ctx: anytype) boundary.ResetError(NoError)!usize {
                 return try effect_resource.body(Cap, ctx, items_per_body);
             }
         };
-        checksum += preserveValue(try ability.effect.resource.handle(usize, runtime, instance, effect_resource.manager, body));
+        checksum += preserveValue(try boundary.effect.resource.handle(usize, runtime, instance, effect_resource.manager, body));
     }
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
@@ -987,7 +987,7 @@ fn runWriterRawSample(io: std.Io, allocator: std.mem.Allocator, comptime items_p
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runWriterEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const WriterInstance, comptime items_per_body: usize, iterations: usize) !Sample {
+fn runWriterEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const WriterInstance, comptime items_per_body: usize, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     const allocator = std.heap.smp_allocator;
     var checksum: usize = 0;
@@ -995,11 +995,11 @@ fn runWriterEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const
     while (index < iterations) : (index += 1) {
         const body = struct {
             /// Bridge the writer-effect helper into the benchmark handle body.
-            pub fn body(comptime Cap: type, ctx: anytype) ability.ResetError(NoError)!usize {
+            pub fn body(comptime Cap: type, ctx: anytype) boundary.ResetError(NoError)!usize {
                 return try effect_writer.body(Cap, ctx, items_per_body);
             }
         };
-        const result = preserveValue(try ability.effect.writer.handle(usize, usize, runtime, instance, allocator, body));
+        const result = preserveValue(try boundary.effect.writer.handle(usize, usize, runtime, instance, allocator, body));
         defer allocator.free(result.items);
         std.mem.doNotOptimizeAway(result.items.ptr);
         var item_checksum: usize = result.items.len + result.value;
@@ -1052,73 +1052,73 @@ fn printLane(writer: anytype, report: LaneReport) !void {
 
 /// Benchmark every shipped effect family against its chosen comparator lanes.
 pub fn main(init: std.process.Init) anyerror!void {
-    var state_raw_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var state_raw_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer state_raw_runtime.deinit();
     var state_raw_prompt = RawStatePrompt.init();
     raw_state.prompt_ptr = &state_raw_prompt;
-    var state_effect_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var state_effect_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer state_effect_runtime.deinit();
     var state_effect_instance = StateInstance.init();
 
-    var reader_raw_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var reader_raw_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer reader_raw_runtime.deinit();
     var reader_raw_prompt = ReaderPrompt.init();
     raw_reader.prompt_ptr = &reader_raw_prompt;
     raw_reader_batch.prompt_ptr = &reader_raw_prompt;
-    var reader_effect_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var reader_effect_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer reader_effect_runtime.deinit();
     var reader_effect_instance = ReaderInstance.init();
 
-    var optional_return_raw_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var optional_return_raw_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer optional_return_raw_runtime.deinit();
     var optional_return_prompt = OptionalReturnPrompt.init();
     raw_optional_return.prompt_ptr = &optional_return_prompt;
     raw_optional_return_prelude.prompt_ptr = &optional_return_prompt;
-    var optional_return_effect_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var optional_return_effect_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer optional_return_effect_runtime.deinit();
     var optional_return_effect_instance = OptionalInstance.init();
 
-    var optional_resume_raw_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var optional_resume_raw_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer optional_resume_raw_runtime.deinit();
     var optional_resume_prompt = OptionalResumePrompt.init();
     raw_optional_resume.prompt_ptr = &optional_resume_prompt;
     raw_optional_resume_batch.prompt_ptr = &optional_resume_prompt;
-    var optional_resume_effect_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var optional_resume_effect_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer optional_resume_effect_runtime.deinit();
     var optional_resume_effect_instance = OptionalInstance.init();
 
-    var exception_raw_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var exception_raw_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer exception_raw_runtime.deinit();
     var exception_prompt = ExceptionPrompt.init();
     raw_exception.prompt_ptr = &exception_prompt;
     raw_exception_prelude.prompt_ptr = &exception_prompt;
-    var exception_effect_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var exception_effect_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer exception_effect_runtime.deinit();
     var exception_effect_instance = ExceptionInstance.init();
-    var algebraic_transform_raw_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var algebraic_transform_raw_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer algebraic_transform_raw_runtime.deinit();
     var algebraic_transform_prompt = AlgebraicTransformPrompt.init();
     raw_algebraic_transform.prompt_ptr = &algebraic_transform_prompt;
-    var algebraic_transform_effect_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var algebraic_transform_effect_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer algebraic_transform_effect_runtime.deinit();
-    var algebraic_choice_raw_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var algebraic_choice_raw_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer algebraic_choice_raw_runtime.deinit();
     var algebraic_choice_prompt = AlgebraicChoicePrompt.init();
     raw_algebraic_choice.prompt_ptr = &algebraic_choice_prompt;
-    var algebraic_choice_effect_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var algebraic_choice_effect_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer algebraic_choice_effect_runtime.deinit();
-    var algebraic_abort_raw_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var algebraic_abort_raw_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer algebraic_abort_raw_runtime.deinit();
     var algebraic_abort_prompt = AlgebraicAbortPrompt.init();
     raw_algebraic_abort.prompt_ptr = &algebraic_abort_prompt;
-    var algebraic_abort_effect_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var algebraic_abort_effect_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer algebraic_abort_effect_runtime.deinit();
 
-    var resource_effect_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var resource_effect_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer resource_effect_runtime.deinit();
     var resource_effect_instance = ResourceInstance.init();
 
-    var writer_effect_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var writer_effect_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer writer_effect_runtime.deinit();
     var writer_effect_instance = WriterInstance.init();
 

@@ -1,6 +1,6 @@
-const ability = @import("ability");
+const boundary = @import("boundary");
 
-const Schemas = ability.ir.schema.Registry(.{
+const Schemas = boundary.ir.schema.Registry(.{
     *const i32,
 });
 

@@ -1,13 +1,13 @@
-const ability = @import("ability");
+const boundary = @import("boundary");
 
 const ProductPayload = struct {
     value: i32,
 };
 
-const Protocol = ability.ir.schema.Protocol(.{
+const Protocol = boundary.ir.schema.Protocol(.{
     .label = "descriptor-missing-ref",
     .ops = .{
-        ability.ir.schema.transform("check", ProductPayload, i32),
+        boundary.ir.schema.transform("check", ProductPayload, i32),
     },
 });
 

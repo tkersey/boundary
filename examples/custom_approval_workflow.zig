@@ -1,5 +1,5 @@
 // zlinter-disable declaration_naming require_doc_comment no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 pub const Transcript = struct {
@@ -39,12 +39,12 @@ const ApprovalBranch = enum { approve, deny };
 const ApprovalHandler = struct {
     branch: ApprovalBranch,
 
-    pub fn dispatch(self: *const @This(), payload: []const u8) !ability.effect.choice.Decision(i32, []const u8) {
+    pub fn dispatch(self: *const @This(), payload: []const u8) !boundary.effect.choice.Decision(i32, []const u8) {
         transcript.current.choices += 1;
         transcript.current.last_choice = payload;
         return switch (self.branch) {
-            .approve => ability.effect.choice.Decision(i32, []const u8).resumeWith(1),
-            .deny => ability.effect.choice.Decision(i32, []const u8).returnNow("denied"),
+            .approve => boundary.effect.choice.Decision(i32, []const u8).resumeWith(1),
+            .deny => boundary.effect.choice.Decision(i32, []const u8).returnNow("denied"),
         };
     }
 
@@ -77,16 +77,16 @@ const WorkflowHandlers = struct {
     },
 };
 
-pub const WorkflowProtocol = ability.ir.schema.Protocol(.{
+pub const WorkflowProtocol = boundary.ir.schema.Protocol(.{
     .label = "workflow",
     .ops = .{
-        ability.ir.schema.transform("exists", []const u8, i32),
-        ability.ir.schema.choiceAfter("request", []const u8, i32),
-        ability.ir.schema.abort("invalid", []const u8),
+        boundary.ir.schema.transform("exists", []const u8, i32),
+        boundary.ir.schema.choiceAfter("request", []const u8, i32),
+        boundary.ir.schema.abort("invalid", []const u8),
     },
 });
 
-pub const WorkflowSchemas = ability.ir.schema.Registry(.{ []const u8, i32 });
+pub const WorkflowSchemas = boundary.ir.schema.Registry(.{ []const u8, i32 });
 
 pub const WorkflowRows = WorkflowProtocol.Rows(WorkflowHandlers, .{
     .requirement_index = 0,
@@ -95,7 +95,7 @@ pub const WorkflowRows = WorkflowProtocol.Rows(WorkflowHandlers, .{
 });
 
 const workflow_semantic_spec = blk: {
-    const semantic = ability.ir.builder.semantic;
+    const semantic = boundary.ir.builder.semantic;
     const Exists = WorkflowRows.op("exists");
     const Request = WorkflowRows.op("request");
     const Invalid = WorkflowRows.op("invalid");
@@ -154,7 +154,7 @@ const workflow_semantic_spec = blk: {
     };
 };
 
-const workflow_compiled = ability.ir.builder.semantic.finish(workflow_semantic_spec) catch |err|
+const workflow_compiled = boundary.ir.builder.semantic.finish(workflow_semantic_spec) catch |err|
     @compileError("invalid custom-approval semantic plan: " ++ @errorName(err));
 
 pub const WorkflowBody = struct {
@@ -163,10 +163,10 @@ pub const WorkflowBody = struct {
     pub const compiled_plan = workflow_compiled.plan;
 };
 
-pub const WorkflowProgram = ability.program("custom-approval", WorkflowHandlers, WorkflowBody);
+pub const WorkflowProgram = boundary.program("custom-approval", WorkflowHandlers, WorkflowBody);
 
 fn runCase(
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     state: DirectoryState,
     branch: ApprovalBranch,
 ) !RunResult {
@@ -182,15 +182,15 @@ fn runCase(
     return .{ .value = result.value, .transcript = currentTranscript() };
 }
 
-pub fn runApprove(runtime: *ability.Runtime) !RunResult {
+pub fn runApprove(runtime: *boundary.Runtime) !RunResult {
     return runCase(runtime, .present, .approve);
 }
 
-pub fn runDeny(runtime: *ability.Runtime) !RunResult {
+pub fn runDeny(runtime: *boundary.Runtime) !RunResult {
     return runCase(runtime, .present, .deny);
 }
 
-pub fn runInvalid(runtime: *ability.Runtime) !RunResult {
+pub fn runInvalid(runtime: *boundary.Runtime) !RunResult {
     return runCase(runtime, .missing, .approve);
 }
 
@@ -265,7 +265,7 @@ fn checkSessionTrace(
 }
 
 fn runSessionCase(
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     state: DirectoryState,
     branch: ApprovalBranch,
     mode: TraceMode,
@@ -364,7 +364,7 @@ fn runSessionCase(
 }
 
 pub fn runSessionReplay(
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     state: DirectoryState,
     branch: ApprovalBranch,
 ) !SessionRunResult {
@@ -379,16 +379,16 @@ pub fn runSessionReplay(
     return recorded;
 }
 
-pub fn runApproveSession(runtime: *ability.Runtime) !SessionRunResult {
+pub fn runApproveSession(runtime: *boundary.Runtime) !SessionRunResult {
     return runSessionReplay(runtime, .present, .approve);
 }
 
-pub fn runInvalidSession(runtime: *ability.Runtime) !SessionRunResult {
+pub fn runInvalidSession(runtime: *boundary.Runtime) !SessionRunResult {
     return runSessionReplay(runtime, .missing, .approve);
 }
 
 pub fn run(writer: anytype) !void {
-    var runtime = ability.Runtime.init(std.heap.page_allocator);
+    var runtime = boundary.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
     const approved = try runApprove(&runtime);

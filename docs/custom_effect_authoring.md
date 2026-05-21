@@ -1,18 +1,18 @@
 # Custom effect authoring
 
 Minimal schema-first custom protocol-family authoring is available under
-`ability.ir.schema`. It is public-adjacent and additive: the public root remains
+`boundary.ir.schema`. It is public-adjacent and additive: the public root remains
 small, and the schema path still emits ordinary `ProgramPlan` facts consumed by
-`ability.program`.
+`boundary.program`.
 
 ## Boundary
 
 The public root remains:
 
-- `ability.effect`
-- `ability.ir`
-- `ability.program`
-- `ability.Runtime`
+- `boundary.effect`
+- `boundary.ir`
+- `boundary.program`
+- `boundary.Runtime`
 
 Custom protocol families do not create a second IR. They do not expose
 `effect.Define`, `effect.ops`, old generated-family APIs, direct-style custom
@@ -27,24 +27,24 @@ protocols, schema registries, and semantic program authoring.
 Define a family as schema data:
 
 ```zig
-const Approval = ability.ir.schema.Protocol(.{
+const Approval = boundary.ir.schema.Protocol(.{
     .label = "approval",
     .lifecycle_tag = .generated_family,
     .ops = .{
-        ability.ir.schema.transform("exists", []const u8, i32),
-        ability.ir.schema.choiceAfter("request", []const u8, i32),
-        ability.ir.schema.abort("invalid", []const u8),
+        boundary.ir.schema.transform("exists", []const u8, i32),
+        boundary.ir.schema.choiceAfter("request", []const u8, i32),
+        boundary.ir.schema.abort("invalid", []const u8),
     },
 });
 ```
 
 The operation constructors are:
 
-- `ability.ir.schema.transform(name, Payload, Resume)`
-- `ability.ir.schema.transformAfter(name, Payload, Resume)`
-- `ability.ir.schema.choice(name, Payload, Resume)`
-- `ability.ir.schema.choiceAfter(name, Payload, Resume)`
-- `ability.ir.schema.abort(name, Payload)`
+- `boundary.ir.schema.transform(name, Payload, Resume)`
+- `boundary.ir.schema.transformAfter(name, Payload, Resume)`
+- `boundary.ir.schema.choice(name, Payload, Resume)`
+- `boundary.ir.schema.choiceAfter(name, Payload, Resume)`
+- `boundary.ir.schema.abort(name, Payload)`
 
 `schema.op.*` exposes the same constructors for call sites that prefer a nested
 namespace. Abort ops have no after hook and use the existing terminal
@@ -99,9 +99,9 @@ sum refs require explicit caller-owned indexes:
 const Rows = Approval.Rows(Handlers, .{
     .requirement_index = 0,
     .first_op = 0,
-    .schema_refs = ability.ir.schema.SchemaRefs(.{
-        ability.ir.schema.ref(ProductPayload, 0),
-        ability.ir.schema.ref(Decision, 1),
+    .schema_refs = boundary.ir.schema.SchemaRefs(.{
+        boundary.ir.schema.ref(ProductPayload, 0),
+        boundary.ir.schema.ref(Decision, 1),
     }),
 });
 ```
@@ -114,7 +114,7 @@ ref entries continue to fail through the existing `SchemaRefs` map logic.
 For ordinary plans, derive schema tables and refs together:
 
 ```zig
-const Schemas = ability.ir.schema.Registry(.{
+const Schemas = boundary.ir.schema.Registry(.{
     RequestId,
     ApprovalDecision,
     Action,
@@ -140,7 +140,7 @@ const Exists = ApprovalRows.op("exists");
 const Request = ApprovalRows.op("request");
 const Invalid = ApprovalRows.op("invalid");
 
-const compiled = ability.ir.builder.semantic.finish(.{
+const compiled = boundary.ir.builder.semantic.finish(.{
     .label = "approval",
     .ir_hash = 11,
     .entry = "run",
@@ -149,23 +149,23 @@ const compiled = ability.ir.builder.semantic.finish(.{
     .ops = &ApprovalRows.ops,
     .functions = .{.{
         .symbol_name = "run",
-        .requirements = ability.ir.builder.semantic.span(0, 1),
+        .requirements = boundary.ir.builder.semantic.span(0, 1),
         .params = .{},
         .locals = .{
-            ability.ir.builder.semantic.local("request", RequestId),
-            ability.ir.builder.semantic.local("decision", ApprovalDecision),
+            boundary.ir.builder.semantic.local("request", RequestId),
+            boundary.ir.builder.semantic.local("decision", ApprovalDecision),
         },
         .result = ApprovalDecision,
         .blocks = .{.{
             .name = "entry",
             .instructions = .{
-                ability.ir.builder.semantic.call(Request, .{
+                boundary.ir.builder.semantic.call(Request, .{
                     .dst = "decision",
                     .payload = "request",
                     .label = "approval.request",
                 }),
             },
-            .terminator = ability.ir.builder.semantic.returnValue("decision"),
+            .terminator = boundary.ir.builder.semantic.returnValue("decision"),
         }},
     }},
 }) catch |err| @compileError("invalid approval plan: " ++ @errorName(err));
@@ -173,7 +173,7 @@ const compiled = ability.ir.builder.semantic.finish(.{
 
 The semantic builder computes locals, blocks, instruction spans, terminator
 targets, and descriptor-backed op references while still emitting an ordinary
-`ability.ir.ProgramPlan`. Authors name blocks and locals instead of computing
+`boundary.ir.ProgramPlan`. Authors name blocks and locals instead of computing
 `first_*` and `*_count` spans. Instruction helpers cover scalar constants,
 integer arithmetic, zero comparison, sum matching/extraction, descriptor-backed
 protocol calls, branches, jumps, value/unit/error returns, and optional semantic
@@ -186,13 +186,13 @@ uses. Semantic calls remove the need to duplicate op names, modes, payload refs,
 resume refs, and op table indexes while still letting the caller own protocol
 families, branch structure, value schemas, outputs, and cleanup hooks.
 
-Raw `ability.ir.plan.*` rows and `ability.ir.builder.layout` remain available
+Raw `boundary.ir.plan.*` rows and `boundary.ir.builder.layout` remain available
 for exact table-shape tests, unsupported instructions, and advanced kernel
 authoring. They are no longer the default path for custom effect examples.
 
 ## Contract and Protocol
 
-After a schema family is lowered into a `ProgramPlan`, `ability.program` treats
+After a schema family is lowered into a `ProgramPlan`, `boundary.program` treats
 it like any other plan:
 
 - `Program.contract.requirements` exposes the custom requirement row.
@@ -265,7 +265,7 @@ embedded capsule image before applying a compatible response.
 
 The mailbox runner is intentionally synchronous and transport-neutral: hosts
 own queues, files, brokers, networks, schedulers, async runtimes, databases,
-tools, humans, models, and persistence. Ability owns the envelope format,
+tools, humans, models, and persistence. Boundary owns the envelope format,
 schema/ref validation, fingerprints, capsule compatibility checks, policy
 guardrails, and journal-recordable exchange facts. Exchange fingerprints are
 semantic witnesses, not security tokens or cryptographic authorization.
@@ -371,7 +371,7 @@ discovery systems, source languages, VMs, or Artifact APIs.
 
 ProviderHarness made provider callbacks typed. Program-backed providers make
 provider handlers defunctionalized. Use `ProviderHandler.program` when the
-provider-side implementation should itself be an Ability Program: inspectable
+provider-side implementation should itself be an Boundary Program: inspectable
 through `Program.contract`, driven through `Program.Session`, capturable through
 normal capsules, journaled as a provider sub-computation, and able to yield
 nested effects.
@@ -406,17 +406,17 @@ retries, and side effects.
 
 ### Defunctionalization Boundary
 
-Custom effects should keep Ability-native semantics in Ability programs or
-declarative Ability data. Opaque Zig functions are still available, but they are
+Custom effects should keep Boundary-native semantics in Boundary programs or
+declarative Boundary data. Opaque Zig functions are still available, but they are
 host intrinsics at the world boundary. They are not inspectable effect
 semantics.
 
-Use program-backed providers when a provider body should be Ability-native.
+Use program-backed providers when a provider body should be Boundary-native.
 Function-backed `ProviderHandler.intrinsicOperation` and `intrinsicAfter`
 declare host-intrinsic provider handlers. The older `operation` and `after`
 forms remain source-compatible aliases for function-backed intrinsic handlers.
 Dynamic morphism mapper functions are also host intrinsics; residualized and
-pipeline-backed morphisms are static Ability-native transformations.
+pipeline-backed morphisms are static Boundary-native transformations.
 
 Use `Program.Evidence.DefunctionalizationReport` and
 `Program.Evidence.DefunctionalizationPolicy` to audit custom protocols,
@@ -493,11 +493,11 @@ manually.
 
 ## Preferred Path
 
-1. Define the protocol with `ability.ir.schema.Protocol`.
-2. Define value schemas with `ability.ir.schema.Registry`.
+1. Define the protocol with `boundary.ir.schema.Protocol`.
+2. Define value schemas with `boundary.ir.schema.Registry`.
 3. Lower rows with `Protocol.Rows(Handlers, .{ .schema_refs = Schemas.schema_refs, ... })`.
-4. Author control flow with `ability.ir.builder.semantic`.
-5. Execute with `ability.program` and `Program.run`.
+4. Author control flow with `boundary.ir.builder.semantic`.
+5. Execute with `boundary.program` and `Program.run`.
 6. Step host-driven runs with `Program.Session`.
 7. Bind dynamic requests with `Program.protocol`.
 8. Derive protocol-level op descriptors with `Protocol.operation` when a handler

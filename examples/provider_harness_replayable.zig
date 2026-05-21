@@ -1,16 +1,16 @@
 // zlinter-disable declaration_naming field_ordering require_doc_comment no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const Handlers = struct {};
-const ApprovalProtocol = ability.ir.schema.Protocol(.{
+const ApprovalProtocol = boundary.ir.schema.Protocol(.{
     .label = "approval",
-    .ops = .{ability.ir.schema.transform("request", []const u8, i32)},
+    .ops = .{boundary.ir.schema.transform("request", []const u8, i32)},
 });
 const Rows = ApprovalProtocol.Rows(Handlers, .{ .requirement_index = 0, .first_op = 0 });
-const semantic = ability.ir.builder.semantic;
+const semantic = boundary.ir.builder.semantic;
 const Request = Rows.op("request");
-const compiled = ability.ir.builder.semantic.finish(.{
+const compiled = boundary.ir.builder.semantic.finish(.{
     .label = "provider-harness-replayable",
     .ir_hash = 0x70726f76696403,
     .entry = "run",
@@ -37,7 +37,7 @@ const Body = struct {
     pub const site_metadata = compiled.site_metadata;
     pub const compiled_plan = compiled.plan;
 };
-const Program = ability.program("provider-harness-replayable", Handlers, Body);
+const Program = boundary.program("provider-harness-replayable", Handlers, Body);
 const ApprovalRequest = Program.protocol.operationSite("approval", "request", 0);
 
 const Outcome = union(enum) {
@@ -75,7 +75,7 @@ const Harness = Program.Exchange.ProviderHarness(.{
     .entries = .{ApprovalDecl},
 });
 
-fn nextEnvelope(allocator: std.mem.Allocator, runtime: *ability.Runtime) !struct {
+fn nextEnvelope(allocator: std.mem.Allocator, runtime: *boundary.Runtime) !struct {
     session: Program.Session,
     envelope: Program.Exchange.RequestEnvelope,
 } {
@@ -93,7 +93,7 @@ fn nextEnvelope(allocator: std.mem.Allocator, runtime: *ability.Runtime) !struct
 
 pub fn run(writer: anytype) !void {
     const allocator = std.heap.page_allocator;
-    var runtime = ability.Runtime.init(allocator);
+    var runtime = boundary.Runtime.init(allocator);
     defer runtime.deinit();
     var catalog = try Harness.buildCatalog(allocator);
     defer catalog.deinit();

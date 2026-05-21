@@ -1,17 +1,17 @@
 # ProgramPlan authoring
 
-`ability.program(label, Handlers, Body)` is the public execution entry point for
+`boundary.program(label, Handlers, Body)` is the public execution entry point for
 compiled plans. A body must expose `Body.compiled_plan`, and that value must be
-an `ability.ir.ProgramPlan`.
+an `boundary.ir.ProgramPlan`.
 
-The root package stays small: `ability.effect`, `ability.ir`,
-`ability.program`, and `ability.Runtime`.
+The root package stays small: `boundary.effect`, `boundary.ir`,
+`boundary.program`, and `boundary.Runtime`.
 
 ## Scalar body
 
 A scalar plan uses scalar locals and scalar `ProgramValue` entry arguments. If
 the plan has entry parameters, `Body.encodeArgs(handlers)` may return a slice or
-array pointer of `ability.ir.ProgramValue`.
+array pointer of `boundary.ir.ProgramValue`.
 
 ## Typed product body
 
@@ -86,8 +86,8 @@ body documents allocator ownership and implements the matching cleanup hook.
 ## Nested lexical-with targets
 
 Nested lexical-with execution is explicit. A body opts in with
-`Body.nested_with_targets`, using `ability.ir.NestedWithTarget` entries that map
-metadata packets to function indexes. `ability.ir.builder.finishWithNestedTargets`
+`Body.nested_with_targets`, using `boundary.ir.NestedWithTarget` entries that map
+metadata packets to function indexes. `boundary.ir.builder.finishWithNestedTargets`
 validates the target list while producing the same `ProgramPlan` shape.
 
 The metadata string must exactly match the `call_nested_with` instruction packet.
@@ -103,19 +103,19 @@ There is no global target discovery.
 
 ## Semantic Program Authoring
 
-`ability.ir.builder.semantic` is the preferred authoring layer for ordinary
+`boundary.ir.builder.semantic` is the preferred authoring layer for ordinary
 custom protocol programs. It is a construction helper, not a source language:
 `finish(spec)` lowers typed functions, parameters, locals, named blocks,
-terminators, and protocol calls into the existing `ability.ir.ProgramPlan`.
+terminators, and protocol calls into the existing `boundary.ir.ProgramPlan`.
 After construction, execution, validation, contracts, sessions, protocol
 descriptors, traces, and fingerprints all observe the same ordinary plan kernel.
 
-The semantic builder sits above raw `ability.ir.plan.*` rows,
-`ability.ir.builder.layout`, and schema protocol row descriptors. Authors can
+The semantic builder sits above raw `boundary.ir.plan.*` rows,
+`boundary.ir.builder.layout`, and schema protocol row descriptors. Authors can
 declare locals by Zig type and call protocol descriptors directly:
 
 ```zig
-const Schemas = ability.ir.schema.Registry(.{ Request, Decision });
+const Schemas = boundary.ir.schema.Registry(.{ Request, Decision });
 const Rows = Workflow.Rows(Handlers, .{
     .requirement_index = 0,
     .first_op = 0,
@@ -123,7 +123,7 @@ const Rows = Workflow.Rows(Handlers, .{
 });
 const RequestOp = Rows.op("request");
 
-const compiled = ability.ir.builder.semantic.finish(.{
+const compiled = boundary.ir.builder.semantic.finish(.{
     .label = "approval",
     .ir_hash = 11,
     .entry = "run",
@@ -132,23 +132,23 @@ const compiled = ability.ir.builder.semantic.finish(.{
     .ops = &Rows.ops,
     .functions = .{.{
         .symbol_name = "run",
-        .requirements = ability.ir.builder.semantic.span(0, 1),
+        .requirements = boundary.ir.builder.semantic.span(0, 1),
         .params = .{},
         .locals = .{
-            ability.ir.builder.semantic.local("payload", Request),
-            ability.ir.builder.semantic.local("decision", Decision),
+            boundary.ir.builder.semantic.local("payload", Request),
+            boundary.ir.builder.semantic.local("decision", Decision),
         },
         .result = Decision,
         .blocks = .{.{
             .name = "entry",
             .instructions = .{
-                ability.ir.builder.semantic.call(RequestOp, .{
+                boundary.ir.builder.semantic.call(RequestOp, .{
                     .dst = "decision",
                     .payload = "payload",
                     .label = "approval.request",
                 }),
             },
-            .terminator = ability.ir.builder.semantic.returnValue("decision"),
+            .terminator = boundary.ir.builder.semantic.returnValue("decision"),
         }},
     }},
 }) catch |err| @compileError("invalid semantic plan: " ++ @errorName(err));
@@ -183,7 +183,7 @@ version unless the hashed contents change.
 
 Raw ProgramPlan construction remains available for kernel tests, unsupported
 instructions, exact table-shape assertions, and advanced escape-hatch work.
-`ability.ir.builder.layout` is still useful when the caller wants nested
+`boundary.ir.builder.layout` is still useful when the caller wants nested
 function/block specs but already owns raw instruction rows. New custom effect
 programs should start with `schema.Protocol`, `schema.Registry`, and the
 semantic builder.
@@ -321,12 +321,12 @@ outcome is impossible. Runtime outcome application still validates the live
 request, response ref, and typed value before resuming the session.
 
 Protocol-level operation descriptors are available directly from
-`ability.ir.schema.Protocol`, without a `ProgramPlan` call site:
+`boundary.ir.schema.Protocol`, without a `ProgramPlan` call site:
 
 ```zig
-const Policy = ability.ir.schema.Protocol(.{
+const Policy = boundary.ir.schema.Protocol(.{
     .label = "policy",
-    .ops = .{ability.ir.schema.transform("check", []const u8, bool)},
+    .ops = .{boundary.ir.schema.transform("check", []const u8, bool)},
 });
 const Check = Policy.operation("check", .{});
 ```
@@ -419,8 +419,8 @@ declarative subset of those protocol morphisms into a new ordinary
 `ProgramPlan`, so a host can run or step the residual program directly.
 
 `Program.ResidualMorphism(.{ ... })` accepts a source `Program.protocol`
-operation-site descriptor, a target `ability.ir.schema.Protocol.operation`
-descriptor, a restricted payload mapping expression from `ability.ir.expr`, a
+operation-site descriptor, a target `boundary.ir.schema.Protocol.operation`
+descriptor, a restricted payload mapping expression from `boundary.ir.expr`, a
 response mapping descriptor, a disposition, and an optional mapping label. The
 first compiled shape is intentionally narrow: identity or payload passthrough
 payload mappings and identity resume response mappings are compiled by replacing
@@ -433,7 +433,7 @@ fail-closed reporting, but unsupported plan rewrites block before a residual
 const ApprovalViaPolicy = ApprovalProgram.ResidualMorphism(.{
     .source = ApprovalRequest,
     .target = CheckPolicy,
-    .payload = ability.ir.expr.identity(),
+    .payload = boundary.ir.expr.identity(),
     .response = ApprovalProgram.ResidualResponse.resumeIdentity(),
     .label = "approval.request-as-policy.check",
 });
@@ -805,7 +805,7 @@ engine, source language, VM, or Artifact API.
 ProviderHarness made provider callbacks typed. Program-backed providers make
 provider handlers defunctionalized. A declaration can use
 `Program.Exchange.ProviderHandler.program(.{ ... })` to bind an offer to an
-ordinary Ability Program instead of a Zig callback. The declaration still
+ordinary Boundary Program instead of a Zig callback. The declaration still
 derives the provider manifest entry, provider offer, offer fingerprint, catalog
 metadata, value refs, response metadata, and Evidence refs. A manual
 `ProviderOffer` remains an escape hatch, but it must exactly match the
@@ -847,18 +847,18 @@ cancellation, retries, and side effects.
 
 ### Defunctionalization Boundary
 
-Ability-native semantics should be Ability programs or declarative Ability data.
+Boundary-native semantics should be Boundary programs or declarative Boundary data.
 Opaque host functions are supported only as explicit host intrinsics at the world
-boundary. Ability does not pretend opaque host callbacks are algebraic-effect
+boundary. Boundary does not pretend opaque host callbacks are algebraic-effect
 semantics.
 
 `Program.Evidence.SemanticBody` classifies execution bodies as
-`ability_program`, `declarative`, `residualized_program`, `pipeline`,
+`boundary_program`, `declarative`, `residualized_program`, `pipeline`,
 `kernel_primitive`, `host_intrinsic`, or `unknown`. Program-backed
-ProviderHarness declarations report `ability_program`; function-backed
+ProviderHarness declarations report `boundary_program`; function-backed
 ProviderHarness declarations, `Program.Interpreter` handlers, `Program.run`
 handler sets, and dynamic morphism mappers report `host_intrinsic`.
-Residualized and pipeline-backed morphisms report static Ability-native bodies.
+Residualized and pipeline-backed morphisms report static Boundary-native bodies.
 
 `Program.Evidence.DefunctionalizationReport` summarizes those classifications
 for providers, offers, treaties, resolver results, interpreters, run handler
@@ -870,7 +870,7 @@ static/declarative morphisms, and make TreatyResolver prefer less opaque routes.
 ### Linear Effect Sessions
 
 Continuations can be copied; the world often cannot. Linear Effect Sessions are
-Ability's deterministic usage calculus for capability-routed external effects.
+Boundary's deterministic usage calculus for capability-routed external effects.
 The public surface stays under `Program.Exchange`: `Usage` distinguishes
 copyable, replayable, affine, linear, and ephemeral effects; `ResponseUse`
 records fresh, replayed, deterministic-replay, or override responses; and
@@ -886,7 +886,7 @@ optional capsule image fingerprint, and lifecycle status. Obligations transition
 through open, consumed, replayed, canceled, or abandoned. Affine and linear
 obligations reject duplicate fresh consumption; linear obligations must be
 consumed or explicitly canceled unless a host-owned abandonment policy says
-Ability should only record metadata.
+Boundary should only record metadata.
 
 Request envelopes have optional session/instance/obligation metadata, usage
 mode, branch policy, replay policy, ephemeral flag, and cancelability flag.
@@ -906,12 +906,12 @@ execution, tools, humans, models, and persistence.
 ## Effect schema row lowering
 
 Built-in effect schemas can lower to ProgramPlan requirement, operation, and
-output rows through `ability.ir.schema.LowerBinding`. The caller supplies the
+output rows through `boundary.ir.schema.LowerBinding`. The caller supplies the
 binding type and the table offsets:
 
 ```zig
-const StateRows = ability.ir.schema.LowerBinding(
-    ability.ir.schema.Binding("state", ability.effect.state.Schema(i32, error{}), void),
+const StateRows = boundary.ir.schema.LowerBinding(
+    boundary.ir.schema.Binding("state", boundary.effect.state.Schema(i32, error{}), void),
     .{ .requirement_index = 0, .first_op = 0, .first_output = 0 },
 );
 ```
@@ -934,15 +934,15 @@ and sum refs require a caller-owned, local schema-index map so the lowerer can
 emit the same ordinary ProgramPlan refs a raw row would contain:
 
 ```zig
-const schema_refs = ability.ir.schema.SchemaRefs(.{
-    ability.ir.schema.ref(ProductPayload, 0),
-    ability.ir.schema.ref(OptionalPayload, 1),
+const schema_refs = boundary.ir.schema.SchemaRefs(.{
+    boundary.ir.schema.ref(ProductPayload, 0),
+    boundary.ir.schema.ref(OptionalPayload, 1),
 });
 
-const ExceptionRows = ability.ir.schema.LowerBinding(
-    ability.ir.schema.Binding(
+const ExceptionRows = boundary.ir.schema.LowerBinding(
+    boundary.ir.schema.Binding(
         "exception",
-        ability.effect.exception.Schema(ProductPayload, error{}, void),
+        boundary.effect.exception.Schema(ProductPayload, error{}, void),
         void,
     ),
     .{ .requirement_index = 0, .first_op = 0, .schema_refs = schema_refs },
@@ -955,7 +955,7 @@ compile time. The indexes are the caller's existing `value_schemas` table
 indexes; nested product/sum schema rows still reference whatever caller-owned
 schema indexes those rows declare. No hidden registry or global schema discovery
 exists.
-For new authored programs, `ability.ir.schema.Registry(.{ ... })` is the usual
+For new authored programs, `boundary.ir.schema.Registry(.{ ... })` is the usual
 way to derive those schema tables and `schema_refs` together.
 
 Writer accumulator schemas distinguish the final handler output from the
@@ -964,22 +964,22 @@ ProgramPlan `OutputPlan` row records the accumulator item ref, because the body
 `Outputs` type owns the collection shape and cleanup.
 
 For built-in plan-native helpers, schema lowering is preferred over hand-written
-per-built-in row generators. Raw `ability.ir.plan.*` rows remain available for
+per-built-in row generators. Raw `boundary.ir.plan.*` rows remain available for
 tests that deliberately exercise table escape hatches or unsupported shapes.
 
 ## Custom Protocol Families
 
 Custom protocol families are schema-first authoring data under
-`ability.ir.schema.Protocol`. They lower through the same ProgramPlan row path
+`boundary.ir.schema.Protocol`. They lower through the same ProgramPlan row path
 as built-ins:
 
 ```zig
-const Approval = ability.ir.schema.Protocol(.{
+const Approval = boundary.ir.schema.Protocol(.{
     .label = "approval",
     .ops = .{
-        ability.ir.schema.transform("exists", []const u8, i32),
-        ability.ir.schema.choiceAfter("request", []const u8, i32),
-        ability.ir.schema.abort("invalid", []const u8),
+        boundary.ir.schema.transform("exists", []const u8, i32),
+        boundary.ir.schema.choiceAfter("request", []const u8, i32),
+        boundary.ir.schema.abort("invalid", []const u8),
     },
 });
 
@@ -1010,7 +1010,7 @@ authoring:
 
 ```zig
 const Request = ApprovalRows.op("request");
-ability.ir.builder.semantic.call(Request, .{
+boundary.ir.builder.semantic.call(Request, .{
     .dst = "decision",
     .payload = "approval_request",
     .label = "approval.request",
@@ -1029,7 +1029,7 @@ external protocol-operation handlers. They expose the protocol label, op name,
 mode, payload/resume/result types, schema refs, and stable protocol-op
 fingerprint without adding a ProgramPlan call site.
 
-After compilation with `ability.program`, no custom runtime surface is needed.
+After compilation with `boundary.program`, no custom runtime surface is needed.
 `Program.contract` exposes the custom requirement/op rows and session yield
 sites, and `Program.protocol` derives typed host-facing descriptors from those
 sites. Session hosts can use `matches`, `as`, typed payload/value views,
@@ -1057,8 +1057,8 @@ request plus reusable capsule.
 
 ## Built-in plan helper namespaces
 
-`ability.effect.optional.plan`, `ability.effect.state.plan`,
-`ability.effect.reader.plan`, and `ability.effect.writer.plan` are reusable
+`boundary.effect.optional.plan`, `boundary.effect.state.plan`,
+`boundary.effect.reader.plan`, and `boundary.effect.writer.plan` are reusable
 plan-native helper namespaces. They emit ordinary ProgramPlan rows, value refs,
 locals, op refs, and instruction helpers; they do not add a runtime, VM, parser,
 compiler, source language, Artifact surface, public root export, value codec, or
@@ -1067,24 +1067,24 @@ custom-effect API.
 The state, reader, and writer helpers are transform/output built-ins backed by
 the shared schema lowerer:
 
-- `ability.effect.state.plan` exposes state-cell row lowering, scalar and
+- `boundary.effect.state.plan` exposes state-cell row lowering, scalar and
   explicit-schema state refs/locals, `get` and `set` op refs, `callGet`,
   `callSet`, and the canonical final-state output row shape. The caller owns the
   requirement index, first op index, first output index, and any schema refs.
-- `ability.effect.reader.plan` exposes reader-environment row lowering, scalar
+- `boundary.effect.reader.plan` exposes reader-environment row lowering, scalar
   and explicit-schema environment refs/locals, the `ask` op ref, and `callAsk`.
   Reader has no ProgramPlan output row.
-- `ability.effect.writer.plan` exposes writer-accumulator row lowering, scalar
+- `boundary.effect.writer.plan` exposes writer-accumulator row lowering, scalar
   and explicit-schema item refs/locals, the `tell` op ref, `callTell`, and the
   canonical accumulator output row shape. The ProgramPlan output row records the
   accumulator item ref.
 
-These helpers pair with `ability.ir.builder.layout` for ordinary plan authoring:
+These helpers pair with `boundary.ir.builder.layout` for ordinary plan authoring:
 the helpers produce requirement/op/output metadata and call instructions, while
 the layout builder computes function/local/block/instruction table offsets.
 Raw ProgramPlan rows remain available when exact table construction is the goal.
-Compatibility APIs such as `ability.effect.state.handle`,
-`ability.effect.reader.handle`, and `ability.effect.writer.handle` remain
+Compatibility APIs such as `boundary.effect.state.handle`,
+`boundary.effect.reader.handle`, and `boundary.effect.writer.handle` remain
 available.
 
 Output ownership stays with the body. `Body.collectOutputs` materializes the
@@ -1109,15 +1109,15 @@ tagged-union payload extraction, output collection and cleanup, and
 plan-native choice operation. The handler either resumes with a typed optional
 sum value or returns immediately. The plan branches with `sum_variant_is`,
 extracts the `some` payload with `sum_extract_payload`, and leaves the
-compatibility `ability.effect.optional.handle` path intact.
-`ability.effect.optional.plan` is the reusable plan-native helper namespace for
+compatibility `boundary.effect.optional.handle` path intact.
+`boundary.effect.optional.plan` is the reusable plan-native helper namespace for
 this shape. It supplies the optional outcome convention, requirement/op rows,
 schema rows with caller-owned field/variant offsets, variant rows, and sum-match
 instructions; ordinary authored plans still own their layout-builder control
 flow.
 
 `examples/plan_native_state_reader.zig` demonstrates state and reader through
-`ability.effect.state.plan`, `ability.effect.reader.plan`, and the layout
+`boundary.effect.state.plan`, `boundary.effect.reader.plan`, and the layout
 builder. Its requirement, op, and output metadata come from schema lowering
 through those helper namespaces. The state schema contributes `state_cell`
 metadata and a binding-labeled final-state output declaration. The reader schema
@@ -1125,7 +1125,7 @@ contributes `reader_environment` metadata and borrows its environment through
 the handler, without a handler-owned side channel for the returned value.
 
 `examples/plan_native_writer.zig` demonstrates writer accumulation through
-`ability.effect.writer.plan` and the layout builder. The helper lowers the
+`boundary.effect.writer.plan` and the layout builder. The helper lowers the
 `writer_accumulator` requirement and accumulator output metadata. The ProgramPlan
 output row records the accumulator item codec, while `Body.Outputs` remains the
 collected slice materialized as `Program.Result.outputs` and released through
@@ -1153,15 +1153,15 @@ answer without any network or LLM integration.
 
 ## Layout builder
 
-Raw `ability.ir.plan.*` tables remain available as the low-level escape hatch.
+Raw `boundary.ir.plan.*` tables remain available as the low-level escape hatch.
 Use them when a test needs exact table control, when reproducing a validation
 failure, or when deliberately asserting individual `first_*` and `*_count`
 values.
 
-`ability.ir.builder.layout` is the lower construction layer under semantic
+`boundary.ir.builder.layout` is the lower construction layer under semantic
 authoring. It accepts nested function specs with local specs, block specs,
 instruction lists, and terminators, then computes the flattened table offsets
-for the existing `ability.ir.ProgramPlan`:
+for the existing `boundary.ir.ProgramPlan`:
 
 - function `first_local`, `local_count`, `first_block`, `entry_block`,
   `block_count`, `first_instruction`, and `instruction_count`
@@ -1175,16 +1175,16 @@ adds typed local/result declarations, descriptor-backed protocol calls, named
 block targets, and optional site labels above this layer. The schema lowerer
 handles requirement/op/output metadata when an effect binding schema exists.
 
-`ability.ir.builder.layout.finish` and `finishWithNestedTargets` validate
+`boundary.ir.builder.layout.finish` and `finishWithNestedTargets` validate
 through the same ProgramPlan validator and return the same
-`ability.ir.ProgramPlan` shape as `ability.ir.builder.finish`. The layout
+`boundary.ir.ProgramPlan` shape as `boundary.ir.builder.finish`. The layout
 builder is a comptime authoring layer; use it from `Body.compiled_plan` or
 other comptime plan constants.
 
 The layout builder is not a parser, compiler, VM, Artifact surface, source
 language, value codec, or second IR. Nothing survives past construction except
 the validated `ProgramPlan`. Use it directly when you need raw instruction rows
-or exact lower-level shape control; use `ability.ir.builder.semantic` for
+or exact lower-level shape control; use `boundary.ir.builder.semantic` for
 ordinary custom protocol programs.
 
 `Program.contract` is the public proof surface for generated plans. Tests should
@@ -1192,7 +1192,7 @@ assert contract facts such as labels, result refs, entry parameter refs, value
 schemas, fields, variants, requirements, ops, payload/resume refs, after flags,
 nested-with targets, and outputs instead of depending on mutable table access.
 
-`ability.ir.schema.LowerBinding` is the preferred row-metadata route for
+`boundary.ir.schema.LowerBinding` is the preferred row-metadata route for
 built-in plan-native helpers. Built-ins should share that schema path instead
 of adding bespoke requirement/op/output row generators. Optional-shaped helpers
 may still provide control-flow conveniences, but the common metadata should
@@ -1203,9 +1203,9 @@ custom effects, a parser, compiler, VM, Artifact surface, source language,
 value codec, second IR, or new execution semantics. They only emit ordinary
 ProgramPlan row structs that can be inspected through `Program.contract`.
 
-For common typed examples, `ability.ir.builder.typed` remains available and now
+For common typed examples, `boundary.ir.builder.typed` remains available and now
 builds through the layout layer while still returning the same
-`ability.ir.ProgramPlan`:
+`boundary.ir.ProgramPlan`:
 
 - `scalarConstI32`
 - `productIdentity`
@@ -1219,7 +1219,7 @@ variant branches, tagged-union `i32` payload extraction, and output declarations
 ## Custom effect authoring
 
 Minimal schema-first custom protocol-family authoring is available under
-`ability.ir.schema.Protocol`. It is plan-native: custom descriptions lower to
+`boundary.ir.schema.Protocol`. It is plan-native: custom descriptions lower to
 the same ProgramPlan requirement, op, value schema, output, nested-with, and
 contract metadata used by built-in prototypes.
 
@@ -1229,7 +1229,7 @@ boundary and non-goals.
 ## Evidence And Validation
 
 Each concrete `Program` exposes `Program.Evidence`, the shared substrate for
-Ability's proof machinery. Evidence domains centralize the format and
+Boundary's proof machinery. Evidence domains centralize the format and
 fingerprint versions used by ProgramPlan hashes, session trace/request/response
 fingerprints, capsule images, journals, exchange envelopes, provider identities,
 provider manifests, provider offers, capabilities, routes, authorizations, linear obligations,

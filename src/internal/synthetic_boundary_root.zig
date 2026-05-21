@@ -1,5 +1,5 @@
-const shared = @import("ability_shared");
-// zlinter-disable require_doc_comment - synthetic ability root is an internal generated-packet shim.
+const shared = @import("boundary_shared");
+// zlinter-disable require_doc_comment - synthetic boundary root is an internal generated-packet shim.
 
 /// Synthetic lexical-effect root used only by generated anonymous-body lowering packets.
 pub const effect = shared.effect;

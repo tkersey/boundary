@@ -156,7 +156,7 @@ fn addZigPathCoverageGuard(b: *std.Build, lint_step: *std.Build.Step) void {
         "sh",
         "-c",
         \\set -eu
-        \\tmp="${TMPDIR:-/tmp}/ability-zig-paths-$$"
+        \\tmp="${TMPDIR:-/tmp}/boundary-zig-paths-$$"
         \\trap 'rm -f "$tmp.actual" "$tmp.expected"' EXIT
         \\find src examples test bench -type f -name '*.zig' | sort > "$tmp.actual"
         \\grep -E '^(src|examples|test|bench)/.*\.zig$' repo_zig_paths.txt | sort > "$tmp.expected"
@@ -271,7 +271,7 @@ fn addCoreModules(
     };
 }
 
-fn wireAbilityImports(mod: *std.Build.Module, core: CoreModules) void {
+fn wireBoundaryImports(mod: *std.Build.Module, core: CoreModules) void {
     mod.addImport("portable_core", core.portable_core);
     mod.addImport("lowered_machine", core.lowered_machine);
     mod.addImport("prompt_contract_support", core.prompt_contract);
@@ -291,30 +291,30 @@ pub fn build(b: *std.Build) void {
     const test_args = parseTestArgs(b);
     const core = addCoreModules(b, target, optimize);
 
-    const ability_shared = b.createModule(.{
-        .root_source_file = b.path("src/ability_shared.zig"),
+    const boundary_shared = b.createModule(.{
+        .root_source_file = b.path("src/boundary_shared.zig"),
         .target = target,
         .optimize = optimize,
     });
-    wireAbilityImports(ability_shared, core);
+    wireBoundaryImports(boundary_shared, core);
 
-    const ability = b.addModule("ability", .{
+    const boundary = b.addModule("boundary", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
-    ability.addImport("ability_shared", ability_shared);
+    boundary.addImport("boundary_shared", boundary_shared);
 
     const lib_check = b.addLibrary(.{
         .linkage = .static,
-        .name = "ability",
-        .root_module = ability,
+        .name = "boundary",
+        .root_module = boundary,
     });
     b.installArtifact(lib_check);
 
-    const test_step = b.step("test", "Run the ability test suite.");
-    addTestArtifact(b, test_step, ability, test_args);
-    addTestArtifact(b, test_step, ability_shared, test_args);
+    const test_step = b.step("test", "Run the boundary test suite.");
+    addTestArtifact(b, test_step, boundary, test_args);
+    addTestArtifact(b, test_step, boundary_shared, test_args);
     addTestArtifact(b, test_step, core.effect_ir, test_args);
     addTestArtifact(b, test_step, core.frontend, test_args);
     addTestArtifact(b, test_step, core.internal_kernel, test_args);
@@ -333,11 +333,11 @@ pub fn build(b: *std.Build) void {
     addTestArtifact(b, test_step, ir_api_tests_mod, test_args);
 
     const synthetic_root_tests_mod = b.createModule(.{
-        .root_source_file = b.path("src/internal/synthetic_ability_root.zig"),
+        .root_source_file = b.path("src/internal/synthetic_boundary_root.zig"),
         .target = target,
         .optimize = optimize,
     });
-    synthetic_root_tests_mod.addImport("ability_shared", ability_shared);
+    synthetic_root_tests_mod.addImport("boundary_shared", boundary_shared);
     addTestArtifact(b, test_step, synthetic_root_tests_mod, test_args);
 
     const agent_loop_tests_mod = b.createModule(.{
@@ -345,7 +345,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    agent_loop_tests_mod.addImport("ability", ability);
+    agent_loop_tests_mod.addImport("boundary", boundary);
     addTestArtifact(b, test_step, agent_loop_tests_mod, test_args);
 
     const program_api_tests_mod = b.createModule(.{
@@ -363,9 +363,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    custom_approval_mod.addImport("ability", ability);
-    plan_native_resource_mod.addImport("ability", ability);
-    program_api_tests_mod.addImport("ability", ability);
+    custom_approval_mod.addImport("boundary", boundary);
+    plan_native_resource_mod.addImport("boundary", boundary);
+    program_api_tests_mod.addImport("boundary", boundary);
     program_api_tests_mod.addImport("custom_approval_workflow", custom_approval_mod);
     program_api_tests_mod.addImport("plan_native_resource", plan_native_resource_mod);
     const program_api_tests = b.addTest(.{ .root_module = program_api_tests_mod, .filters = test_args.filters });
@@ -376,7 +376,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    evidence_kernel_tests_mod.addImport("ability", ability);
+    evidence_kernel_tests_mod.addImport("boundary", boundary);
     const evidence_kernel_tests = b.addTest(.{ .root_module = evidence_kernel_tests_mod, .filters = test_args.filters });
     test_step.dependOn(&addRunArtifactWithArgs(b, evidence_kernel_tests, test_args.passthrough).step);
 
@@ -385,7 +385,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    contract_matrix_mod.addImport("ability", ability);
+    contract_matrix_mod.addImport("boundary", boundary);
     const contract_matrix_tests = b.addTest(.{ .root_module = contract_matrix_mod, .filters = test_args.filters });
     test_step.dependOn(&addRunArtifactWithArgs(b, contract_matrix_tests, test_args.passthrough).step);
 
@@ -394,7 +394,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    public_optional_tests_mod.addImport("ability", ability);
+    public_optional_tests_mod.addImport("boundary", boundary);
     const public_optional_tests = b.addTest(.{ .root_module = public_optional_tests_mod, .filters = test_args.filters });
     test_step.dependOn(&addRunArtifactWithArgs(b, public_optional_tests, test_args.passthrough).step);
 
@@ -671,7 +671,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         });
-        compile_fail_mod.addImport("ability", ability);
+        compile_fail_mod.addImport("boundary", boundary);
         addCompileFailArtifact(b, compile_fail_step, compile_fail_mod, spec.expected_error);
     }
 
@@ -681,39 +681,39 @@ pub fn build(b: *std.Build) void {
         step: []const u8,
         desc: []const u8,
     }{
-        .{ .name = "ability-state-basic", .path = "examples/state_basic.zig", .step = "run-state-basic", .desc = "Run the state effect example." },
-        .{ .name = "ability-typed-program-plan", .path = "examples/typed_program_plan.zig", .step = "run-typed-program-plan", .desc = "Run the typed ProgramPlan example." },
-        .{ .name = "ability-plan-native-optional", .path = "examples/plan_native_optional.zig", .step = "run-plan-native-optional", .desc = "Run the plan-native optional example." },
-        .{ .name = "ability-plan-native-state-reader", .path = "examples/plan_native_state_reader.zig", .step = "run-plan-native-state-reader", .desc = "Run the plan-native state/reader example." },
-        .{ .name = "ability-plan-native-writer", .path = "examples/plan_native_writer.zig", .step = "run-plan-native-writer", .desc = "Run the plan-native writer example." },
-        .{ .name = "ability-plan-native-exception", .path = "examples/plan_native_exception.zig", .step = "run-plan-native-exception", .desc = "Run the plan-native exception example." },
-        .{ .name = "ability-plan-native-resource", .path = "examples/plan_native_resource.zig", .step = "run-plan-native-resource", .desc = "Run the plan-native resource example." },
-        .{ .name = "ability-custom-approval-workflow", .path = "examples/custom_approval_workflow.zig", .step = "run-custom-approval-workflow", .desc = "Run the custom approval workflow example." },
-        .{ .name = "ability-agent-loop", .path = "examples/agent_loop.zig", .step = "run-agent-loop", .desc = "Run the host-driven Program.Session agent loop example." },
-        .{ .name = "ability-continuation-branching", .path = "examples/continuation_branching.zig", .step = "run-continuation-branching", .desc = "Run the Program.Session continuation capsule branching example." },
-        .{ .name = "ability-interpreter-branching", .path = "examples/interpreter_branching.zig", .step = "run-interpreter-branching", .desc = "Run the continuation-aware Program.Interpreter branching example." },
-        .{ .name = "ability-protocol-reinterpretation", .path = "examples/protocol_reinterpretation.zig", .step = "run-protocol-reinterpretation", .desc = "Run the protocol morphism reinterpretation example." },
-        .{ .name = "ability-residualized-approval-policy", .path = "examples/residualized_approval_policy.zig", .step = "run-residualized-approval-policy", .desc = "Run the residualized approval policy example." },
-        .{ .name = "ability-effect-pipeline", .path = "examples/effect_pipeline.zig", .step = "run-effect-pipeline", .desc = "Run the proof-carrying effect pipeline example." },
-        .{ .name = "ability-effect-capability-routing", .path = "examples/effect_capability_routing.zig", .step = "run-effect-capability-routing", .desc = "Run the capability-routed Effect Exchange example." },
-        .{ .name = "ability-effect-capability-attenuation", .path = "examples/effect_capability_attenuation.zig", .step = "run-effect-capability-attenuation", .desc = "Run the Effect Exchange capability attenuation example." },
-        .{ .name = "ability-effect-treaty-direct", .path = "examples/effect_treaty_direct.zig", .step = "run-effect-treaty-direct", .desc = "Run the direct Effect Treaty negotiation example." },
-        .{ .name = "ability-effect-treaty-morphism", .path = "examples/effect_treaty_morphism.zig", .step = "run-effect-treaty-morphism", .desc = "Run the morphism-adapted Effect Treaty negotiation example." },
-        .{ .name = "ability-effect-treaty-replayable", .path = "examples/effect_treaty_replayable.zig", .step = "run-effect-treaty-replayable", .desc = "Run the replay-policy Effect Treaty example." },
-        .{ .name = "ability-provider-harness-direct", .path = "examples/provider_harness_direct.zig", .step = "run-provider-harness-direct", .desc = "Run the direct ProviderHarness treaty execution example." },
-        .{ .name = "ability-provider-harness-morphism", .path = "examples/provider_harness_morphism.zig", .step = "run-provider-harness-morphism", .desc = "Run the morphism ProviderHarness treaty execution example." },
-        .{ .name = "ability-provider-harness-replayable", .path = "examples/provider_harness_replayable.zig", .step = "run-provider-harness-replayable", .desc = "Run the replayable ProviderHarness treaty execution example." },
-        .{ .name = "ability-defunctionalization-boundary", .path = "examples/defunctionalization_boundary.zig", .step = "run-defunctionalization-boundary", .desc = "Run the defunctionalization boundary audit example." },
-        .{ .name = "ability-host-intrinsic-allowlist", .path = "examples/host_intrinsic_allowlist.zig", .step = "run-host-intrinsic-allowlist", .desc = "Run the host intrinsic allowlist example." },
-        .{ .name = "ability-program-provider-direct", .path = "examples/program_provider_direct.zig", .step = "run-program-provider-direct", .desc = "Run the direct program-backed ProviderHarness example." },
-        .{ .name = "ability-program-provider-nested", .path = "examples/program_provider_nested.zig", .step = "run-program-provider-nested", .desc = "Run the nested program-backed ProviderHarness example." },
-        .{ .name = "ability-program-provider-resume", .path = "examples/program_provider_resume.zig", .step = "run-program-provider-resume", .desc = "Run the parked and resumed program-backed ProviderHarness example." },
-        .{ .name = "ability-effect-exchange-mailbox", .path = "examples/effect_exchange_mailbox.zig", .step = "run-effect-exchange-mailbox", .desc = "Run the transport-neutral Effect Exchange mailbox example." },
-        .{ .name = "ability-effect-exchange-restart", .path = "examples/effect_exchange_restart.zig", .step = "run-effect-exchange-restart", .desc = "Run the Effect Exchange capsule restart example." },
-        .{ .name = "ability-linear-effect-sessions", .path = "examples/linear_effect_sessions.zig", .step = "run-linear-effect-sessions", .desc = "Run the Linear Effect Sessions obligation example." },
-        .{ .name = "ability-linear-branch-safety", .path = "examples/linear_branch_safety.zig", .step = "run-linear-branch-safety", .desc = "Run the Linear Effect Sessions branch safety example." },
-        .{ .name = "ability-durable-capsule-replay", .path = "examples/durable_capsule_replay.zig", .step = "run-durable-capsule-replay", .desc = "Run the durable Program.Session capsule image replay example." },
-        .{ .name = "ability-journal-replay", .path = "examples/journal_replay.zig", .step = "run-journal-replay", .desc = "Run the Program.Session interaction journal replay example." },
+        .{ .name = "boundary-state-basic", .path = "examples/state_basic.zig", .step = "run-state-basic", .desc = "Run the state effect example." },
+        .{ .name = "boundary-typed-program-plan", .path = "examples/typed_program_plan.zig", .step = "run-typed-program-plan", .desc = "Run the typed ProgramPlan example." },
+        .{ .name = "boundary-plan-native-optional", .path = "examples/plan_native_optional.zig", .step = "run-plan-native-optional", .desc = "Run the plan-native optional example." },
+        .{ .name = "boundary-plan-native-state-reader", .path = "examples/plan_native_state_reader.zig", .step = "run-plan-native-state-reader", .desc = "Run the plan-native state/reader example." },
+        .{ .name = "boundary-plan-native-writer", .path = "examples/plan_native_writer.zig", .step = "run-plan-native-writer", .desc = "Run the plan-native writer example." },
+        .{ .name = "boundary-plan-native-exception", .path = "examples/plan_native_exception.zig", .step = "run-plan-native-exception", .desc = "Run the plan-native exception example." },
+        .{ .name = "boundary-plan-native-resource", .path = "examples/plan_native_resource.zig", .step = "run-plan-native-resource", .desc = "Run the plan-native resource example." },
+        .{ .name = "boundary-custom-approval-workflow", .path = "examples/custom_approval_workflow.zig", .step = "run-custom-approval-workflow", .desc = "Run the custom approval workflow example." },
+        .{ .name = "boundary-agent-loop", .path = "examples/agent_loop.zig", .step = "run-agent-loop", .desc = "Run the host-driven Program.Session agent loop example." },
+        .{ .name = "boundary-continuation-branching", .path = "examples/continuation_branching.zig", .step = "run-continuation-branching", .desc = "Run the Program.Session continuation capsule branching example." },
+        .{ .name = "boundary-interpreter-branching", .path = "examples/interpreter_branching.zig", .step = "run-interpreter-branching", .desc = "Run the continuation-aware Program.Interpreter branching example." },
+        .{ .name = "boundary-protocol-reinterpretation", .path = "examples/protocol_reinterpretation.zig", .step = "run-protocol-reinterpretation", .desc = "Run the protocol morphism reinterpretation example." },
+        .{ .name = "boundary-residualized-approval-policy", .path = "examples/residualized_approval_policy.zig", .step = "run-residualized-approval-policy", .desc = "Run the residualized approval policy example." },
+        .{ .name = "boundary-effect-pipeline", .path = "examples/effect_pipeline.zig", .step = "run-effect-pipeline", .desc = "Run the proof-carrying effect pipeline example." },
+        .{ .name = "boundary-effect-capability-routing", .path = "examples/effect_capability_routing.zig", .step = "run-effect-capability-routing", .desc = "Run the capability-routed Effect Exchange example." },
+        .{ .name = "boundary-effect-capability-attenuation", .path = "examples/effect_capability_attenuation.zig", .step = "run-effect-capability-attenuation", .desc = "Run the Effect Exchange capability attenuation example." },
+        .{ .name = "boundary-effect-treaty-direct", .path = "examples/effect_treaty_direct.zig", .step = "run-effect-treaty-direct", .desc = "Run the direct Effect Treaty negotiation example." },
+        .{ .name = "boundary-effect-treaty-morphism", .path = "examples/effect_treaty_morphism.zig", .step = "run-effect-treaty-morphism", .desc = "Run the morphism-adapted Effect Treaty negotiation example." },
+        .{ .name = "boundary-effect-treaty-replayable", .path = "examples/effect_treaty_replayable.zig", .step = "run-effect-treaty-replayable", .desc = "Run the replay-policy Effect Treaty example." },
+        .{ .name = "boundary-provider-harness-direct", .path = "examples/provider_harness_direct.zig", .step = "run-provider-harness-direct", .desc = "Run the direct ProviderHarness treaty execution example." },
+        .{ .name = "boundary-provider-harness-morphism", .path = "examples/provider_harness_morphism.zig", .step = "run-provider-harness-morphism", .desc = "Run the morphism ProviderHarness treaty execution example." },
+        .{ .name = "boundary-provider-harness-replayable", .path = "examples/provider_harness_replayable.zig", .step = "run-provider-harness-replayable", .desc = "Run the replayable ProviderHarness treaty execution example." },
+        .{ .name = "boundary-defunctionalization-boundary", .path = "examples/defunctionalization_boundary.zig", .step = "run-defunctionalization-boundary", .desc = "Run the defunctionalization boundary audit example." },
+        .{ .name = "boundary-host-intrinsic-allowlist", .path = "examples/host_intrinsic_allowlist.zig", .step = "run-host-intrinsic-allowlist", .desc = "Run the host intrinsic allowlist example." },
+        .{ .name = "boundary-program-provider-direct", .path = "examples/program_provider_direct.zig", .step = "run-program-provider-direct", .desc = "Run the direct program-backed ProviderHarness example." },
+        .{ .name = "boundary-program-provider-nested", .path = "examples/program_provider_nested.zig", .step = "run-program-provider-nested", .desc = "Run the nested program-backed ProviderHarness example." },
+        .{ .name = "boundary-program-provider-resume", .path = "examples/program_provider_resume.zig", .step = "run-program-provider-resume", .desc = "Run the parked and resumed program-backed ProviderHarness example." },
+        .{ .name = "boundary-effect-exchange-mailbox", .path = "examples/effect_exchange_mailbox.zig", .step = "run-effect-exchange-mailbox", .desc = "Run the transport-neutral Effect Exchange mailbox example." },
+        .{ .name = "boundary-effect-exchange-restart", .path = "examples/effect_exchange_restart.zig", .step = "run-effect-exchange-restart", .desc = "Run the Effect Exchange capsule restart example." },
+        .{ .name = "boundary-linear-effect-sessions", .path = "examples/linear_effect_sessions.zig", .step = "run-linear-effect-sessions", .desc = "Run the Linear Effect Sessions obligation example." },
+        .{ .name = "boundary-linear-branch-safety", .path = "examples/linear_branch_safety.zig", .step = "run-linear-branch-safety", .desc = "Run the Linear Effect Sessions branch safety example." },
+        .{ .name = "boundary-durable-capsule-replay", .path = "examples/durable_capsule_replay.zig", .step = "run-durable-capsule-replay", .desc = "Run the durable Program.Session capsule image replay example." },
+        .{ .name = "boundary-journal-replay", .path = "examples/journal_replay.zig", .step = "run-journal-replay", .desc = "Run the Program.Session interaction journal replay example." },
     };
     inline for (examples) |example| {
         const exe_mod = b.createModule(.{
@@ -721,7 +721,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         });
-        exe_mod.addImport("ability", ability);
+        exe_mod.addImport("boundary", boundary);
         const exe = b.addExecutable(.{ .name = example.name, .root_module = exe_mod });
         const run_step = b.step(example.step, example.desc);
         if (target.query.isNative()) {
@@ -734,12 +734,12 @@ pub fn build(b: *std.Build) void {
     const bench_check_step = b.step("bench-check", "Compile retained benchmark programs.");
     test_step.dependOn(bench_check_step);
 
-    const ability_bench = b.createModule(.{
+    const boundary_bench = b.createModule(.{
         .root_source_file = b.path("src/bench_support.zig"),
         .target = target,
         .optimize = bench_optimize,
     });
-    wireAbilityImports(ability_bench, core);
+    wireBoundaryImports(boundary_bench, core);
 
     const bench_specs = [_]struct {
         name: []const u8,
@@ -747,14 +747,14 @@ pub fn build(b: *std.Build) void {
         step: []const u8,
         desc: []const u8,
     }{
-        .{ .name = "ability-abortive-effect-decompose-bench", .path = "bench/abortive_effect_decompose_bench.zig", .step = "bench-abortive-effect-decompose", .desc = "Run the abortive effect decomposition benchmark." },
-        .{ .name = "ability-algebraic-builder-decompose-bench", .path = "bench/algebraic_builder_decompose_bench.zig", .step = "bench-algebraic-builder-decompose", .desc = "Run the algebraic builder decomposition benchmark." },
-        .{ .name = "ability-direct-first-suspend-bench", .path = "bench/direct_first_suspend_bench.zig", .step = "bench-first-suspend", .desc = "Run the direct-style first-suspend benchmark." },
-        .{ .name = "ability-effect-family-matrix-bench", .path = "bench/effect_family_matrix_bench.zig", .step = "bench-family-matrix", .desc = "Compare every retained effect family against its comparator lane." },
-        .{ .name = "ability-direct-no-capture-bench", .path = "bench/no_capture_bench.zig", .step = "bench", .desc = "Run the direct-style no-capture benchmark." },
-        .{ .name = "ability-resource-effect-decompose-bench", .path = "bench/resource_effect_decompose_bench.zig", .step = "bench-resource-effect-decompose", .desc = "Run the resource effect decomposition benchmark." },
-        .{ .name = "ability-state-effect-bench", .path = "bench/state_effect_bench.zig", .step = "bench-state-effect", .desc = "Compare the additive state effect against the raw prompt baseline." },
-        .{ .name = "ability-writer-effect-decompose-bench", .path = "bench/writer_effect_decompose_bench.zig", .step = "bench-writer-effect-decompose", .desc = "Run the writer effect decomposition benchmark." },
+        .{ .name = "boundary-abortive-effect-decompose-bench", .path = "bench/abortive_effect_decompose_bench.zig", .step = "bench-abortive-effect-decompose", .desc = "Run the abortive effect decomposition benchmark." },
+        .{ .name = "boundary-algebraic-builder-decompose-bench", .path = "bench/algebraic_builder_decompose_bench.zig", .step = "bench-algebraic-builder-decompose", .desc = "Run the algebraic builder decomposition benchmark." },
+        .{ .name = "boundary-direct-first-suspend-bench", .path = "bench/direct_first_suspend_bench.zig", .step = "bench-first-suspend", .desc = "Run the direct-style first-suspend benchmark." },
+        .{ .name = "boundary-effect-family-matrix-bench", .path = "bench/effect_family_matrix_bench.zig", .step = "bench-family-matrix", .desc = "Compare every retained effect family against its comparator lane." },
+        .{ .name = "boundary-direct-no-capture-bench", .path = "bench/no_capture_bench.zig", .step = "bench", .desc = "Run the direct-style no-capture benchmark." },
+        .{ .name = "boundary-resource-effect-decompose-bench", .path = "bench/resource_effect_decompose_bench.zig", .step = "bench-resource-effect-decompose", .desc = "Run the resource effect decomposition benchmark." },
+        .{ .name = "boundary-state-effect-bench", .path = "bench/state_effect_bench.zig", .step = "bench-state-effect", .desc = "Compare the additive state effect against the raw prompt baseline." },
+        .{ .name = "boundary-writer-effect-decompose-bench", .path = "bench/writer_effect_decompose_bench.zig", .step = "bench-writer-effect-decompose", .desc = "Run the writer effect decomposition benchmark." },
     };
     inline for (bench_specs) |bench| {
         const bench_mod = b.createModule(.{
@@ -762,7 +762,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = bench_optimize,
         });
-        bench_mod.addImport("ability", ability_bench);
+        bench_mod.addImport("boundary", boundary_bench);
         bench_mod.addImport("lowered_machine", core.lowered_machine);
         const bench_exe = b.addExecutable(.{ .name = bench.name, .root_module = bench_mod });
         bench_check_step.dependOn(&bench_exe.step);
@@ -784,9 +784,9 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = bench_optimize,
         });
-        zprof_hotspots_mod.addImport("ability", ability_bench);
+        zprof_hotspots_mod.addImport("boundary", boundary_bench);
         zprof_hotspots_mod.addImport("zprof", zprof_dep.module("zprof"));
-        const zprof_hotspots_exe = b.addExecutable(.{ .name = "ability-zprof-hotspots", .root_module = zprof_hotspots_mod });
+        const zprof_hotspots_exe = b.addExecutable(.{ .name = "boundary-zprof-hotspots", .root_module = zprof_hotspots_mod });
         zprof_hotspots_step.dependOn(&b.addRunArtifact(zprof_hotspots_exe).step);
     }
 

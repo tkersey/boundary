@@ -7,7 +7,7 @@ const lexical_with = @import("../internal/lexical_support.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
 const sealed_engine = @import("../internal/sealed_engine.zig");
-const ability = lowered_machine;
+const boundary = lowered_machine;
 const std = @import("std");
 
 /// Stable compile-time manifest for one generated effect family.
@@ -827,7 +827,7 @@ pub fn Build(comptime spec: anytype) type {
                     pub const caller_source = family.contextCallerSource(Config.ContextPtr);
 
                     ctx: ?Config.ContextPtr,
-                    runtime: ?*ability.Runtime,
+                    runtime: ?*boundary.Runtime,
                     handlers_ptr: ?*Config.Handlers,
                     previous_eff: Config.PreviousEff,
                     outputs_ptr: ?*lexical_with.OutputBundleType(Config.Handlers),
@@ -842,7 +842,7 @@ pub fn Build(comptime spec: anytype) type {
                                 const frame = struct {
                                     /// Caller source location forwarded into the rebuilt generated continuation chain.
                                     pub const caller_source = Handle.caller_source;
-                                    runtime: *ability.Runtime,
+                                    runtime: *boundary.Runtime,
                                     handlers_ptr: *Config.Handlers,
                                     previous_eff: Config.PreviousEff,
                                     current_handle: Handle,
@@ -878,7 +878,7 @@ pub fn Build(comptime spec: anytype) type {
                     pub const caller_source = family.contextCallerSource(Config.ContextPtr);
 
                     ctx: ?Config.ContextPtr,
-                    runtime: ?*ability.Runtime,
+                    runtime: ?*boundary.Runtime,
                     handlers_ptr: ?*Config.Handlers,
                     previous_eff: Config.PreviousEff,
                     outputs_ptr: ?*lexical_with.OutputBundleType(Config.Handlers),
@@ -893,7 +893,7 @@ pub fn Build(comptime spec: anytype) type {
                                 const frame = struct {
                                     /// Caller source location forwarded into the rebuilt payload-carrying continuation chain.
                                     pub const caller_source = Handle.caller_source;
-                                    runtime: *ability.Runtime,
+                                    runtime: *boundary.Runtime,
                                     handlers_ptr: *Config.Handlers,
                                     previous_eff: Config.PreviousEff,
                                     current_handle: Handle,
@@ -963,7 +963,7 @@ pub fn Build(comptime spec: anytype) type {
             return @Struct(.auto, null, &field_names, &field_types, &field_attrs);
         }
 
-        /// Handler handle used by `ability.effect handlers` for generated families.
+        /// Handler handle used by `boundary.effect handlers` for generated families.
         pub fn LexicalHandle(
             comptime Cap: type,
             comptime ContextPtrType: type,
@@ -974,7 +974,7 @@ pub fn Build(comptime spec: anytype) type {
             return LexicalFieldContainerHandle(Cap, ContextPtrType, HandlersType, PreviousEffType, index);
         }
 
-        /// Descriptor value used by `ability.effect handlers` for generated families.
+        /// Descriptor value used by `boundary.effect handlers` for generated families.
         pub fn LexicalDescriptor(comptime HandlerType: type) type {
             return struct {
                 const produces_output = mode == .resume_then_transform and stateTypeProducesOutput(StateType);
@@ -1068,19 +1068,19 @@ pub fn Build(comptime spec: anytype) type {
         }
 
         /// Run one generated family body under a fresh exact context and hidden engine bindings.
-        pub fn handle(comptime AnswerType: type, runtime: *ability.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+        pub fn handle(comptime AnswerType: type, runtime: *boundary.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
             const HandlerType = @TypeOf(handler);
             const RunErrorSetType = HandleErrorSet(AnswerType, HandlerType, Body);
             return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body);
         }
 
         /// Explicit error-set helper for generated-family handlers.
-        pub fn handleWithErrorSet(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *ability.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+        pub fn handleWithErrorSet(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *boundary.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
             return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body);
         }
 
         // zlinter-disable max_positional_args - this internal seam keeps the handler-state packet explicit while generated-family handlers run through the shared engine.
-        fn handleWithLexicalState(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *ability.Runtime, instance: anytype, handler: anytype, lexical_state: ?*anyopaque, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+        fn handleWithLexicalState(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *boundary.Runtime, instance: anytype, handler: anytype, lexical_state: ?*anyopaque, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
             var handler_value = handler;
             const handler_ptr = &handler_value;
             const HandlerType = @TypeOf(handler_value);
@@ -1202,14 +1202,14 @@ pub fn Build(comptime spec: anytype) type {
         /// Public proof-helper surface for generated families.
         pub const proof = struct {
             /// Expected compile-fail marker for missing-context misuse.
-            pub const expected_missing_context = "expected a pointer to an ability.effect context";
+            pub const expected_missing_context = "expected a pointer to an boundary.effect context";
             /// Expected compile-fail marker for forged-context misuse.
-            pub const expected_forged_context = "expected exact ability.effect context type";
+            pub const expected_forged_context = "expected exact boundary.effect context type";
             /// Expected compile-fail marker for cross-instance misuse.
             pub const expected_cross_instance = "context capability does not match supplied capability";
 
             /// Run one generated-family example harness through the public handle surface.
-            pub fn exampleHarness(comptime AnswerType: type, runtime: *ability.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+            pub fn exampleHarness(comptime AnswerType: type, runtime: *boundary.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
                 return self_type.handle(AnswerType, runtime, instance, handler, Body);
             }
         };

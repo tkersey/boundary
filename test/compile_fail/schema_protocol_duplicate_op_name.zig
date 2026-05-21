@@ -1,11 +1,11 @@
 // zlinter-disable declaration_naming require_doc_comment
-const ability = @import("ability");
+const boundary = @import("boundary");
 
-const DuplicateOps = ability.ir.schema.Protocol(.{
+const DuplicateOps = boundary.ir.schema.Protocol(.{
     .label = "approval",
     .ops = .{
-        ability.ir.schema.transform("exists", void, i32),
-        ability.ir.schema.choice("exists", void, i32),
+        boundary.ir.schema.transform("exists", void, i32),
+        boundary.ir.schema.choice("exists", void, i32),
     },
 });
 

@@ -1,13 +1,13 @@
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const NoError = error{};
 const timed_iterations: usize = 50_000;
 const warmup_iterations: usize = 20_000;
 const samples_per_run: usize = 5;
-const preserveValue = ability.preserveValue;
+const preserveValue = boundary.preserveValue;
 
-const WriterInstance = ability.effect.writer.Instance(usize, NoError);
+const WriterInstance = boundary.effect.writer.Instance(usize, NoError);
 
 const Sample = struct {
     checksum: usize,
@@ -69,7 +69,7 @@ const LaneReport = struct {
 };
 
 const WriterBenchContext = struct {
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     instance: *const WriterInstance,
     allocator: std.mem.Allocator,
 };
@@ -110,10 +110,10 @@ const raw_writer = struct {
 };
 
 const effect_writer = struct {
-    fn body(comptime Cap: type, ctx: anytype, comptime items_per_body: usize) ability.ResetError(NoError)!usize {
+    fn body(comptime Cap: type, ctx: anytype, comptime items_per_body: usize) boundary.ResetError(NoError)!usize {
         var current: usize = 0;
         while (current < items_per_body) : (current += 1) {
-            try ability.effect.writer.tell(Cap, ctx, current + 1);
+            try boundary.effect.writer.tell(Cap, ctx, current + 1);
         }
         return 0;
     }
@@ -136,11 +136,11 @@ fn runWriterEffectSample(io: std.Io, context: WriterBenchContext, comptime items
     while (index < iterations) : (index += 1) {
         const body = struct {
             /// Re-enter the current writer handle with a fixed item count.
-            pub fn body(comptime Cap: type, ctx: anytype) ability.ResetError(NoError)!usize {
+            pub fn body(comptime Cap: type, ctx: anytype) boundary.ResetError(NoError)!usize {
                 return try effect_writer.body(Cap, ctx, items_per_body);
             }
         };
-        const result = preserveValue(try ability.effect.writer.handle(usize, usize, context.runtime, context.instance, context.allocator, body));
+        const result = preserveValue(try boundary.effect.writer.handle(usize, usize, context.runtime, context.instance, context.allocator, body));
         defer context.allocator.free(result.items);
         std.mem.doNotOptimizeAway(result.items.ptr);
         var item_checksum: usize = result.items.len + result.value;
@@ -191,7 +191,7 @@ fn printLine(writer: anytype, report: *const LaneReport) !void {
     );
 }
 
-fn runLane(io: std.Io, runtime: *ability.Runtime, instance: *const WriterInstance, allocator: std.mem.Allocator, comptime items_per_body: usize) !LaneReport {
+fn runLane(io: std.Io, runtime: *boundary.Runtime, instance: *const WriterInstance, allocator: std.mem.Allocator, comptime items_per_body: usize) !LaneReport {
     const context = WriterBenchContext{
         .runtime = runtime,
         .instance = instance,
@@ -242,7 +242,7 @@ fn runLane(io: std.Io, runtime: *ability.Runtime, instance: *const WriterInstanc
 
 /// Decompose writer-effect append and finalization costs for representative item counts.
 pub fn main(init: std.process.Init) anyerror!void {
-    var runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer runtime.deinit();
     var instance = WriterInstance.init();
 

@@ -30,11 +30,11 @@ surface that users need in source distributions.
 Public:
 
 - `src/root.zig`
-- `src/ability_shared.zig`
+- `src/boundary_shared.zig`
 - `src/effect/root.zig`
 - `src/ir_api.zig`
 - `src/program_api.zig`
-- `src/lowered_machine.zig` through the public `ability.Runtime` alias
+- `src/lowered_machine.zig` through the public `boundary.Runtime` alias
 
 Public-adjacent:
 
@@ -101,17 +101,17 @@ Tests:
 
 ## Built-in effects roadmap
 
-Built-ins stay under `ability.effect` until plan-native replacements have
+Built-ins stay under `boundary.effect` until plan-native replacements have
 equivalent examples and tests. Compatibility APIs should remain available while
 the plan-native paths prove parity.
 
 Migration state:
 
 1. Optional plan helpers are established under
-   `ability.effect.optional.plan`.
+   `boundary.effect.optional.plan`.
 2. State, reader, and writer plan helpers are established under
-   `ability.effect.state.plan`, `ability.effect.reader.plan`, and
-   `ability.effect.writer.plan`.
+   `boundary.effect.state.plan`, `boundary.effect.reader.plan`, and
+   `boundary.effect.writer.plan`.
 3. Exception and resource are the next built-in migration targets for reusable
    plan-native helper namespaces.
 4. Custom effect authoring remains later: schema-first helpers should lower to

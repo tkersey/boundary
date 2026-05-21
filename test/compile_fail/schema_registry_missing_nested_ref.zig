@@ -1,4 +1,4 @@
-const ability = @import("ability");
+const boundary = @import("boundary");
 
 const InnerPayload = struct {
     amount: i32,
@@ -8,7 +8,7 @@ const OuterPayload = struct {
     inner: InnerPayload,
 };
 
-const Schemas = ability.ir.schema.Registry(.{
+const Schemas = boundary.ir.schema.Registry(.{
     OuterPayload,
 });
 

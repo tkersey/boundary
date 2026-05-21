@@ -1,13 +1,13 @@
-# ability
+# boundary
 
-`ability` is a Zig library for explicit local effect programs.
+`boundary` is a Zig library for explicit local effect programs.
 
 The public package root is intentionally small:
 
-- `ability.effect`
-- `ability.ir`
-- `ability.program`
-- `ability.Runtime`
+- `boundary.effect`
+- `boundary.ir`
+- `boundary.program`
+- `boundary.Runtime`
 
 `effect` defines the effect families. `ir` exposes the public ProgramPlan
 builder. `program` gives a reusable execution surface for one named compiled
@@ -23,11 +23,11 @@ tokens. See [docs/evidence_kernel.md](docs/evidence_kernel.md).
 
 ## Program
 
-`ability.program` executes a `Body.compiled_plan`. The plan is built at comptime
-with `ability.ir.builder`, validated before it escapes, and interpreted by
+`boundary.program` executes a `Body.compiled_plan`. The plan is built at comptime
+with `boundary.ir.builder`, validated before it escapes, and interpreted by
 `Program.run`.
 
-`ability.ir.ProgramPlan` executes scalar values directly and can execute
+`boundary.ir.ProgramPlan` executes scalar values directly and can execute
 structured `product` and `sum` values when the body declares an exact
 `Body.value_schema_types` tuple matching the plan schema tables. `ProgramValue`
 stays the scalar public carrier; typed bodies may instead return a tuple from
@@ -39,13 +39,13 @@ Helper calls run through an interpreter-owned frame stack. Recursive helper
 plans are bounded by the interpreter step budget rather than by host stack depth.
 Nested lexical-with rows stay fail-closed unless `Body.nested_with_targets`
 maps the exact metadata packet to a concrete zero-argument plan function using
-`ability.ir.NestedWithTarget`. Unsupported plans report a capped capability
+`boundary.ir.NestedWithTarget`. Unsupported plans report a capped capability
 ledger in compile errors; the ledger records stable blocker tags, function and
 instruction coordinates, and whether the 64-record cap truncated diagnostics.
 
 ```zig
 const std = @import("std");
-const ability = @import("ability");
+const boundary = @import("boundary");
 
 const Handlers = struct {
     authored: struct {
@@ -59,14 +59,14 @@ const Handlers = struct {
     },
 };
 
-fn plan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, value, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+fn plan() boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, value, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -83,12 +83,12 @@ fn plan() ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "authored", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{ .requirement_index = 0, .op_name = "authored", .mode = .transform, .payload_codec = .unit, .resume_codec = .i32, .has_after = true }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "authored", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{ .requirement_index = 0, .op_name = "authored", .mode = .transform, .payload_codec = .unit, .resume_codec = .i32, .has_after = true }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = "demo",
         .ir_hash = 1,
         .entry = root,
@@ -108,10 +108,10 @@ const Body = struct {
 };
 
 pub fn main() !void {
-    var runtime = ability.Runtime.init(std.heap.page_allocator);
+    var runtime = boundary.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const Program = ability.program("demo", Handlers, Body);
+    const Program = boundary.program("demo", Handlers, Body);
     var result = try Program.run(&runtime, .{ .authored = .{} });
     defer result.deinit();
 
@@ -141,7 +141,7 @@ Bodies that declare `Outputs` must implement
 `Body.deinitOutputs`.
 
 Plans with entry parameters can add `Body.encodeArgs(handlers)` and return
-either `[]const ability.ir.ProgramValue` for scalar arguments or a tuple whose
+either `[]const boundary.ir.ProgramValue` for scalar arguments or a tuple whose
 field types match the entry locals. Product and sum schemas require
 `Body.value_schema_types`; nested lexical-with execution requires
 `Body.nested_with_targets`.
@@ -236,7 +236,7 @@ for hosts that need lower-level control.
 
 Declarative morphisms can also be residualized. `Program.ResidualMorphism`
 describes a source `Program.protocol` operation site, a target
-`schema.Protocol.operation` descriptor, restricted `ability.ir.expr` payload
+`schema.Protocol.operation` descriptor, restricted `boundary.ir.expr` payload
 mapping metadata, response mapping metadata, and a disposition. The first
 residualizer compiles supported identity/payload mappings with identity resume
 responses into an ordinary `ProgramPlan` by replacing the source operation row
@@ -263,10 +263,10 @@ manual interpreters, capsules, morphisms, and residualization remain available.
 See [docs/program_plan.md](docs/program_plan.md) for semantic program
 authoring, typed product/sum bodies, tuple entry args, outputs, cleanup hooks,
 nested-with targets, and `Program.contract`.
-`ability.ir.builder.semantic` is the preferred construction layer for ordinary
+`boundary.ir.builder.semantic` is the preferred construction layer for ordinary
 custom protocol programs: it accepts typed params/locals/results, named blocks,
 protocol op descriptors, and optional site labels, then emits an ordinary
-`ProgramPlan`. `ability.effect.optional.plan` provides reusable
+`ProgramPlan`. `boundary.effect.optional.plan` provides reusable
 optional-specific rows and instructions for plan-native optional authoring while
 compatibility APIs remain in place.
 `examples/typed_program_plan.zig` runs product execution, sum matching,
@@ -279,7 +279,7 @@ remain in place.
 See [docs/custom_effect_authoring.md](docs/custom_effect_authoring.md) for the
 preferred custom effect path: define `schema.Protocol`, derive schemas with
 `schema.Registry`, author control flow with `builder.semantic`, execute through
-`ability.program`, bind requests with `Program.protocol`, and audit/replay with
+`boundary.program`, bind requests with `Program.protocol`, and audit/replay with
 traces and fingerprints. Raw `ProgramPlan` tables remain available for advanced
 kernel work; old `effect.Define`, `effect.ops`, and generated direct-style
 custom effects remain outside the public surface.
@@ -404,7 +404,7 @@ parked session and verifies the current request fingerprint before resuming.
 `Exchange.Policy` provides local guardrails for allowed sites, response kinds,
 capsule embedding, response value images, and envelope/payload sizes. The policy
 is not cryptographic security. `Exchange.MailboxRunner` is a small nonblocking
-pattern over host-owned outbox/inbox storage; Ability owns canonical bytes and
+pattern over host-owned outbox/inbox storage; Boundary owns canonical bytes and
 validation, while hosts own transport, persistence, scheduling, network, async,
 RPC, message brokers, databases, tools, humans, and models.
 
@@ -432,7 +432,7 @@ inbox response. `Session.Journal` can record provider/capability/route and
 authorization events for route selection, blocked routes, authorized responses,
 and rejected responses. These capabilities are deterministic validation data,
 not secret bearer tokens, identity, signing, encryption, transport security, or
-network authentication. Hosts that need those properties wrap Ability’s data in
+network authentication. Hosts that need those properties wrap Boundary’s data in
 their own security and transport systems.
 
 ### Effect Treaties
@@ -513,7 +513,7 @@ not exactly match the derived handler declaration.
 
 ProviderHarness made provider callbacks typed. Program-backed providers make
 provider handlers defunctionalized. `ProviderHandler.program` binds a provider
-offer to an ordinary Ability `Program`: the request payload or current value is
+offer to an ordinary Boundary `Program`: the request payload or current value is
 mapped into handler entry args, the handler runs through `Program.Session`, and
 the handler result maps back to a provider outcome such as resume, return-now,
 or resume-after.
@@ -539,12 +539,12 @@ serialized.
 
 #### Defunctionalization boundary audit
 
-Ability-native semantics are represented as Ability programs or declarative
-Ability data. Opaque host functions remain supported, but they are marked as
+Boundary-native semantics are represented as Boundary programs or declarative
+Boundary data. Opaque host functions remain supported, but they are marked as
 host intrinsics, not treated as inspectable effect semantics.
 
 `Program.Evidence.SemanticBody` classifies semantic bodies as
-`ability_program`, `declarative`, `residualized_program`, `pipeline`,
+`boundary_program`, `declarative`, `residualized_program`, `pipeline`,
 `kernel_primitive`, `host_intrinsic`, or `unknown`.
 `Program.Evidence.HostIntrinsic` gives opaque host behavior a deterministic
 descriptor and Evidence ref. `Program.Evidence.DefunctionalizationReport` counts
@@ -555,11 +555,11 @@ intrinsics, reject unknown bodies, allowlist intrinsics, reject dynamic mappers,
 require program-backed providers, require static/declarative morphisms, and
 prefer less opaque treaty routes.
 
-Program-backed provider declarations report `ability_program`; function-backed
+Program-backed provider declarations report `boundary_program`; function-backed
 ProviderHarness declarations report `host_intrinsic`. `Program.Interpreter` and
 `Program.run` handler functions are host intrinsics. Dynamic morphism mapper
 functions are host intrinsics; residualized and pipeline-backed morphisms report
-static Ability-native bodies. TreatyResolver can reject or prefer routes using
+static Boundary-native bodies. TreatyResolver can reject or prefer routes using
 those classifications, and rechecks defunctionalization policy during
 treaty-response validation.
 
@@ -607,9 +607,9 @@ used by `Program.run`.
 
 ## Effects
 
-Effect families remain under `ability.effect`. Built-in and custom bound
+Effect families remain under `boundary.effect`. Built-in and custom bound
 programs that expose `has_compiled_plan` execute through the same ProgramPlan
-interpreter used by `ability.program`.
+interpreter used by `boundary.program`.
 
 The shipped examples build reusable programs from semantic ProgramPlan
 authoring and public plan-native helpers:
@@ -621,7 +621,7 @@ authoring and public plan-native helpers:
   control flow.
 - `examples/plan_native_optional.zig` demonstrates optional-like control flow as
   a plan-native choice op with a typed sum resume value, using
-  `ability.effect.optional.plan`.
+  `boundary.effect.optional.plan`.
 - `examples/plan_native_state_reader.zig` demonstrates state and reader as
   plan-native transform ops with final state returned through outputs.
 - `examples/plan_native_writer.zig` demonstrates writer accumulation through

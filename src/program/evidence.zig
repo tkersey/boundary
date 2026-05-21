@@ -110,57 +110,57 @@ pub const Domain = struct {
 };
 
 pub const domains = struct {
-    pub const program_plan = Domain{ .id = .program_plan, .name = "ability.program.plan", .fingerprint_version = 1, .owner = .program_plan, .kind = .fingerprint, .tests = "program plan" };
-    pub const session_trace = Domain{ .id = .session_trace, .name = "ability.session.trace", .fingerprint_version = 2, .owner = .session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "trace" };
-    pub const session_request = Domain{ .id = .session_request, .name = "ability.session.request", .fingerprint_version = 2, .owner = .session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "request" };
-    pub const session_response = Domain{ .id = .session_response, .name = "ability.session.response", .fingerprint_version = 2, .owner = .session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "response" };
-    pub const session_continuation = Domain{ .id = .session_continuation, .name = "ability.session.continuation", .fingerprint_version = 2, .owner = .session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "continuation" };
-    pub const capsule = Domain{ .id = .capsule, .name = "ability.session.capsule", .fingerprint_version = 2, .owner = .capsule, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "capsule" };
-    pub const capsule_image = Domain{ .id = .capsule_image, .name = "ability.program.capsule.image", .format_version = 1, .fingerprint_version = 1, .owner = .capsule, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "capsule image" };
-    pub const journal = Domain{ .id = .journal, .name = "ability.program.session.journal", .format_version = 6, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .tests = "journal" };
-    pub const journal_legacy_v4 = Domain{ .id = .journal_legacy_v4, .name = "ability.program.session.journal.v4", .format_version = 4, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .tests = "legacy journal" };
-    pub const journal_entry = Domain{ .id = .journal_entry, .name = "ability.session.journal.entry", .format_version = 6, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .tests = "journal entry" };
-    pub const exchange_manifest = Domain{ .id = .exchange_manifest, .name = "ability.exchange.manifest", .format_version = 1, .fingerprint_version = 1, .owner = .exchange, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "exchange manifest" };
-    pub const exchange_request_envelope = Domain{ .id = .exchange_request_envelope, .name = "ability.exchange.request", .format_version = 3, .fingerprint_version = 3, .owner = .exchange, .kind = .envelope, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "exchange request" };
-    pub const exchange_response_envelope = Domain{ .id = .exchange_response_envelope, .name = "ability.exchange.response", .format_version = 1, .fingerprint_version = 1, .owner = .exchange, .kind = .envelope, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "exchange response" };
-    pub const provider_identity = Domain{ .id = .provider_identity, .name = "ability.exchange.provider.identity", .fingerprint_version = 1, .owner = .exchange, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "provider identity" };
-    pub const provider_manifest = Domain{ .id = .provider_manifest, .name = "ability.exchange.provider", .format_version = 2, .fingerprint_version = 2, .owner = .exchange, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "provider manifest" };
-    pub const provider_offer = Domain{ .id = .provider_offer, .name = "ability.exchange.provider_offer", .format_version = 1, .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "provider offer" };
-    pub const derived_provider_manifest = Domain{ .id = .derived_provider_manifest, .name = "ability.exchange.provider.derived_manifest", .format_version = 1, .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "derived provider manifest" };
-    pub const derived_provider_offer = Domain{ .id = .derived_provider_offer, .name = "ability.exchange.provider.derived_offer", .format_version = 1, .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "derived offer" };
-    pub const provider_harness = Domain{ .id = .provider_harness, .name = "ability.exchange.provider.harness", .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "provider harness" };
-    pub const provider_request_validation = Domain{ .id = .provider_request_validation, .name = "ability.exchange.provider.request_validation", .fingerprint_version = 1, .owner = .provider_harness, .kind = .report, .journal_referenced = true, .certificate_referenced = true, .tests = "provider request" };
-    pub const provider_response_authorization = Domain{ .id = .provider_response_authorization, .name = "ability.exchange.provider.response_authorization", .fingerprint_version = 1, .owner = .provider_harness, .kind = .authorization, .journal_referenced = true, .certificate_referenced = true, .tests = "provider outcome" };
-    pub const provider_journal_event = Domain{ .id = .provider_journal_event, .name = "ability.exchange.provider.journal_event", .format_version = 6, .fingerprint_version = 1, .owner = .provider_harness, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .tests = "provider journal" };
-    pub const provider_program_execution = Domain{ .id = .provider_program_execution, .name = "ability.exchange.provider_program.execution", .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "provider program" };
-    pub const provider_program_mapping = Domain{ .id = .provider_program_mapping, .name = "ability.exchange.provider_program.mapping", .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "program provider" };
-    pub const provider_program_nested_request = Domain{ .id = .provider_program_nested_request, .name = "ability.exchange.provider_program.nested_request", .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "nested provider" };
-    pub const morphism_offer = Domain{ .id = .morphism_offer, .name = "ability.exchange.morphism_offer", .fingerprint_version = 1, .owner = .morphism, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "morphism offer" };
-    pub const capability = Domain{ .id = .capability, .name = "ability.exchange.capability", .format_version = 1, .fingerprint_version = 1, .owner = .capability, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "capability" };
-    pub const capability_attenuation_path = Domain{ .id = .capability_attenuation_path, .name = "ability.exchange.capability.path", .fingerprint_version = 1, .owner = .capability, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "capability attenuation" };
-    pub const route = Domain{ .id = .route, .name = "ability.exchange.route", .fingerprint_version = 1, .owner = .capability, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "route" };
-    pub const authorization = Domain{ .id = .authorization, .name = "ability.exchange.authorization", .format_version = 1, .fingerprint_version = 1, .owner = .capability, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "authorization" };
-    pub const authorization_result = Domain{ .id = .authorization_result, .name = "ability.exchange.authorization.result", .fingerprint_version = 1, .owner = .linear_session, .kind = .authorization, .journal_referenced = true, .certificate_referenced = true, .tests = "authorization" };
-    pub const effect_session_spec = Domain{ .id = .effect_session_spec, .name = "ability.exchange.effect_session", .format_version = 1, .fingerprint_version = 1, .owner = .linear_session, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "linear" };
-    pub const capability_instance = Domain{ .id = .capability_instance, .name = "ability.exchange.capability_instance", .format_version = 1, .fingerprint_version = 1, .owner = .linear_session, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "capability instance" };
-    pub const obligation = Domain{ .id = .obligation, .name = "ability.exchange.obligation", .format_version = 1, .fingerprint_version = 1, .owner = .linear_session, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "obligation" };
-    pub const obligation_transition = Domain{ .id = .obligation_transition, .name = "ability.exchange.obligation.transition", .fingerprint_version = 1, .owner = .linear_session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "obligation transition" };
-    pub const treaty = Domain{ .id = .treaty, .name = "ability.exchange.treaty", .format_version = 1, .fingerprint_version = 4, .owner = .treaty, .kind = .certificate, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "treaty" };
-    pub const treaty_certificate = Domain{ .id = .treaty_certificate, .name = "ability.exchange.treaty.certificate", .format_version = 1, .fingerprint_version = 4, .owner = .treaty, .kind = .certificate, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "certificate" };
-    pub const treaty_authorization = Domain{ .id = .treaty_authorization, .name = "ability.exchange.treaty.authorization", .format_version = 4, .fingerprint_version = 4, .owner = .treaty, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "authorization" };
-    pub const treaty_authorization_legacy_v3 = Domain{ .id = .treaty_authorization_legacy_v3, .name = "ability.exchange.treaty.authorization.v3", .format_version = 3, .fingerprint_version = 3, .owner = .treaty, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "legacy authorization" };
-    pub const treaty_authorization_legacy_v2 = Domain{ .id = .treaty_authorization_legacy_v2, .name = "ability.exchange.treaty.authorization.v2", .format_version = 2, .fingerprint_version = 2, .owner = .treaty, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "legacy authorization" };
-    pub const treaty_resolver = Domain{ .id = .treaty_resolver, .name = "ability.exchange.treaty.resolver", .fingerprint_version = 1, .owner = .treaty, .kind = .report, .journal_referenced = true, .certificate_referenced = true, .tests = "resolver" };
-    pub const reinterpretation = Domain{ .id = .reinterpretation, .name = "ability.session.reinterpret", .fingerprint_version = 2, .owner = .morphism, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "reinterpretation" };
-    pub const residualization = Domain{ .id = .residualization, .name = "ability.program.residualization", .fingerprint_version = 1, .owner = .residualization, .kind = .fingerprint, .certificate_referenced = true, .tests = "residual" };
-    pub const residualization_report = Domain{ .id = .residualization_report, .name = "ability.program.residualization.report", .fingerprint_version = 1, .owner = .residualization, .kind = .report, .certificate_referenced = true, .tests = "residual" };
-    pub const pipeline = Domain{ .id = .pipeline, .name = "ability.program.pipeline", .fingerprint_version = 1, .owner = .pipeline, .kind = .fingerprint, .certificate_referenced = true, .tests = "pipeline" };
-    pub const pipeline_certificate = Domain{ .id = .pipeline_certificate, .name = "ability.program.pipeline.certificate", .fingerprint_version = 1, .owner = .pipeline, .kind = .certificate, .certificate_referenced = true, .tests = "pipeline certificate" };
-    pub const pipeline_source_map = Domain{ .id = .pipeline_source_map, .name = "ability.program.pipeline.source_map", .fingerprint_version = 1, .owner = .pipeline, .kind = .derived_metadata, .certificate_referenced = true, .tests = "source map" };
-    pub const semantic_body = Domain{ .id = .semantic_body, .name = "ability.evidence.semantic_body", .fingerprint_version = 1, .owner = .semantic_boundary, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "semantic body" };
-    pub const host_intrinsic = Domain{ .id = .host_intrinsic, .name = "ability.evidence.host_intrinsic", .format_version = 1, .fingerprint_version = 1, .owner = .semantic_boundary, .kind = .derived_metadata, .stability = .host_owned_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "host intrinsic" };
-    pub const defunctionalization_report = Domain{ .id = .defunctionalization_report, .name = "ability.evidence.defunctionalization_report", .fingerprint_version = 1, .owner = .semantic_boundary, .kind = .report, .journal_referenced = true, .certificate_referenced = true, .tests = "defunctionalization" };
-    pub const defunctionalization_policy = Domain{ .id = .defunctionalization_policy, .name = "ability.evidence.defunctionalization_policy", .fingerprint_version = 1, .owner = .semantic_boundary, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "intrinsic allowlist" };
+    pub const program_plan = Domain{ .id = .program_plan, .name = "boundary.program.plan", .fingerprint_version = 1, .owner = .program_plan, .kind = .fingerprint, .tests = "program plan" };
+    pub const session_trace = Domain{ .id = .session_trace, .name = "boundary.session.trace", .fingerprint_version = 2, .owner = .session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "trace" };
+    pub const session_request = Domain{ .id = .session_request, .name = "boundary.session.request", .fingerprint_version = 2, .owner = .session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "request" };
+    pub const session_response = Domain{ .id = .session_response, .name = "boundary.session.response", .fingerprint_version = 2, .owner = .session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "response" };
+    pub const session_continuation = Domain{ .id = .session_continuation, .name = "boundary.session.continuation", .fingerprint_version = 2, .owner = .session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "continuation" };
+    pub const capsule = Domain{ .id = .capsule, .name = "boundary.session.capsule", .fingerprint_version = 2, .owner = .capsule, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "capsule" };
+    pub const capsule_image = Domain{ .id = .capsule_image, .name = "boundary.program.capsule.image", .format_version = 1, .fingerprint_version = 1, .owner = .capsule, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "capsule image" };
+    pub const journal = Domain{ .id = .journal, .name = "boundary.program.session.journal", .format_version = 6, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .tests = "journal" };
+    pub const journal_legacy_v4 = Domain{ .id = .journal_legacy_v4, .name = "boundary.program.session.journal.v4", .format_version = 4, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .tests = "legacy journal" };
+    pub const journal_entry = Domain{ .id = .journal_entry, .name = "boundary.session.journal.entry", .format_version = 6, .fingerprint_version = 1, .owner = .journal, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .tests = "journal entry" };
+    pub const exchange_manifest = Domain{ .id = .exchange_manifest, .name = "boundary.exchange.manifest", .format_version = 1, .fingerprint_version = 1, .owner = .exchange, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "exchange manifest" };
+    pub const exchange_request_envelope = Domain{ .id = .exchange_request_envelope, .name = "boundary.exchange.request", .format_version = 3, .fingerprint_version = 3, .owner = .exchange, .kind = .envelope, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "exchange request" };
+    pub const exchange_response_envelope = Domain{ .id = .exchange_response_envelope, .name = "boundary.exchange.response", .format_version = 1, .fingerprint_version = 1, .owner = .exchange, .kind = .envelope, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "exchange response" };
+    pub const provider_identity = Domain{ .id = .provider_identity, .name = "boundary.exchange.provider.identity", .fingerprint_version = 1, .owner = .exchange, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "provider identity" };
+    pub const provider_manifest = Domain{ .id = .provider_manifest, .name = "boundary.exchange.provider", .format_version = 2, .fingerprint_version = 2, .owner = .exchange, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "provider manifest" };
+    pub const provider_offer = Domain{ .id = .provider_offer, .name = "boundary.exchange.provider_offer", .format_version = 1, .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "provider offer" };
+    pub const derived_provider_manifest = Domain{ .id = .derived_provider_manifest, .name = "boundary.exchange.provider.derived_manifest", .format_version = 1, .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "derived provider manifest" };
+    pub const derived_provider_offer = Domain{ .id = .derived_provider_offer, .name = "boundary.exchange.provider.derived_offer", .format_version = 1, .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "derived offer" };
+    pub const provider_harness = Domain{ .id = .provider_harness, .name = "boundary.exchange.provider.harness", .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "provider harness" };
+    pub const provider_request_validation = Domain{ .id = .provider_request_validation, .name = "boundary.exchange.provider.request_validation", .fingerprint_version = 1, .owner = .provider_harness, .kind = .report, .journal_referenced = true, .certificate_referenced = true, .tests = "provider request" };
+    pub const provider_response_authorization = Domain{ .id = .provider_response_authorization, .name = "boundary.exchange.provider.response_authorization", .fingerprint_version = 1, .owner = .provider_harness, .kind = .authorization, .journal_referenced = true, .certificate_referenced = true, .tests = "provider outcome" };
+    pub const provider_journal_event = Domain{ .id = .provider_journal_event, .name = "boundary.exchange.provider.journal_event", .format_version = 6, .fingerprint_version = 1, .owner = .provider_harness, .kind = .journal, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .tests = "provider journal" };
+    pub const provider_program_execution = Domain{ .id = .provider_program_execution, .name = "boundary.exchange.provider_program.execution", .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "provider program" };
+    pub const provider_program_mapping = Domain{ .id = .provider_program_mapping, .name = "boundary.exchange.provider_program.mapping", .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "program provider" };
+    pub const provider_program_nested_request = Domain{ .id = .provider_program_nested_request, .name = "boundary.exchange.provider_program.nested_request", .fingerprint_version = 1, .owner = .provider_harness, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "nested provider" };
+    pub const morphism_offer = Domain{ .id = .morphism_offer, .name = "boundary.exchange.morphism_offer", .fingerprint_version = 1, .owner = .morphism, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "morphism offer" };
+    pub const capability = Domain{ .id = .capability, .name = "boundary.exchange.capability", .format_version = 1, .fingerprint_version = 1, .owner = .capability, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "capability" };
+    pub const capability_attenuation_path = Domain{ .id = .capability_attenuation_path, .name = "boundary.exchange.capability.path", .fingerprint_version = 1, .owner = .capability, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "capability attenuation" };
+    pub const route = Domain{ .id = .route, .name = "boundary.exchange.route", .fingerprint_version = 1, .owner = .capability, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "route" };
+    pub const authorization = Domain{ .id = .authorization, .name = "boundary.exchange.authorization", .format_version = 1, .fingerprint_version = 1, .owner = .capability, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "authorization" };
+    pub const authorization_result = Domain{ .id = .authorization_result, .name = "boundary.exchange.authorization.result", .fingerprint_version = 1, .owner = .linear_session, .kind = .authorization, .journal_referenced = true, .certificate_referenced = true, .tests = "authorization" };
+    pub const effect_session_spec = Domain{ .id = .effect_session_spec, .name = "boundary.exchange.effect_session", .format_version = 1, .fingerprint_version = 1, .owner = .linear_session, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "linear" };
+    pub const capability_instance = Domain{ .id = .capability_instance, .name = "boundary.exchange.capability_instance", .format_version = 1, .fingerprint_version = 1, .owner = .linear_session, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "capability instance" };
+    pub const obligation = Domain{ .id = .obligation, .name = "boundary.exchange.obligation", .format_version = 1, .fingerprint_version = 1, .owner = .linear_session, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .journal_referenced = true, .certificate_referenced = true, .tests = "obligation" };
+    pub const obligation_transition = Domain{ .id = .obligation_transition, .name = "boundary.exchange.obligation.transition", .fingerprint_version = 1, .owner = .linear_session, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "obligation transition" };
+    pub const treaty = Domain{ .id = .treaty, .name = "boundary.exchange.treaty", .format_version = 1, .fingerprint_version = 4, .owner = .treaty, .kind = .certificate, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "treaty" };
+    pub const treaty_certificate = Domain{ .id = .treaty_certificate, .name = "boundary.exchange.treaty.certificate", .format_version = 1, .fingerprint_version = 4, .owner = .treaty, .kind = .certificate, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "certificate" };
+    pub const treaty_authorization = Domain{ .id = .treaty_authorization, .name = "boundary.exchange.treaty.authorization", .format_version = 4, .fingerprint_version = 4, .owner = .treaty, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "authorization" };
+    pub const treaty_authorization_legacy_v3 = Domain{ .id = .treaty_authorization_legacy_v3, .name = "boundary.exchange.treaty.authorization.v3", .format_version = 3, .fingerprint_version = 3, .owner = .treaty, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "legacy authorization" };
+    pub const treaty_authorization_legacy_v2 = Domain{ .id = .treaty_authorization_legacy_v2, .name = "boundary.exchange.treaty.authorization.v2", .format_version = 2, .fingerprint_version = 2, .owner = .treaty, .kind = .authorization, .stability = .durable_bytes, .bytes_encoded = true, .stable_audit_metadata = true, .journal_referenced = true, .certificate_referenced = true, .tests = "legacy authorization" };
+    pub const treaty_resolver = Domain{ .id = .treaty_resolver, .name = "boundary.exchange.treaty.resolver", .fingerprint_version = 1, .owner = .treaty, .kind = .report, .journal_referenced = true, .certificate_referenced = true, .tests = "resolver" };
+    pub const reinterpretation = Domain{ .id = .reinterpretation, .name = "boundary.session.reinterpret", .fingerprint_version = 2, .owner = .morphism, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "reinterpretation" };
+    pub const residualization = Domain{ .id = .residualization, .name = "boundary.program.residualization", .fingerprint_version = 1, .owner = .residualization, .kind = .fingerprint, .certificate_referenced = true, .tests = "residual" };
+    pub const residualization_report = Domain{ .id = .residualization_report, .name = "boundary.program.residualization.report", .fingerprint_version = 1, .owner = .residualization, .kind = .report, .certificate_referenced = true, .tests = "residual" };
+    pub const pipeline = Domain{ .id = .pipeline, .name = "boundary.program.pipeline", .fingerprint_version = 1, .owner = .pipeline, .kind = .fingerprint, .certificate_referenced = true, .tests = "pipeline" };
+    pub const pipeline_certificate = Domain{ .id = .pipeline_certificate, .name = "boundary.program.pipeline.certificate", .fingerprint_version = 1, .owner = .pipeline, .kind = .certificate, .certificate_referenced = true, .tests = "pipeline certificate" };
+    pub const pipeline_source_map = Domain{ .id = .pipeline_source_map, .name = "boundary.program.pipeline.source_map", .fingerprint_version = 1, .owner = .pipeline, .kind = .derived_metadata, .certificate_referenced = true, .tests = "source map" };
+    pub const semantic_body = Domain{ .id = .semantic_body, .name = "boundary.evidence.semantic_body", .fingerprint_version = 1, .owner = .semantic_boundary, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "semantic body" };
+    pub const host_intrinsic = Domain{ .id = .host_intrinsic, .name = "boundary.evidence.host_intrinsic", .format_version = 1, .fingerprint_version = 1, .owner = .semantic_boundary, .kind = .derived_metadata, .stability = .host_owned_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "host intrinsic" };
+    pub const defunctionalization_report = Domain{ .id = .defunctionalization_report, .name = "boundary.evidence.defunctionalization_report", .fingerprint_version = 1, .owner = .semantic_boundary, .kind = .report, .journal_referenced = true, .certificate_referenced = true, .tests = "defunctionalization" };
+    pub const defunctionalization_policy = Domain{ .id = .defunctionalization_policy, .name = "boundary.evidence.defunctionalization_policy", .fingerprint_version = 1, .owner = .semantic_boundary, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "intrinsic allowlist" };
 };
 
 pub const all_domains = &[_]Domain{
@@ -935,7 +935,7 @@ pub const PolicySummary = struct {
 };
 
 pub const SemanticBody = enum {
-    ability_program,
+    boundary_program,
     declarative,
     residualized_program,
     pipeline,
@@ -957,7 +957,7 @@ pub const SemanticBody = enum {
 
     pub fn isNonIntrinsic(self: @This()) bool {
         return switch (self) {
-            .ability_program, .declarative, .residualized_program, .pipeline, .kernel_primitive => true,
+            .boundary_program, .declarative, .residualized_program, .pipeline, .kernel_primitive => true,
             .host_intrinsic, .unknown => false,
         };
     }
@@ -1161,7 +1161,7 @@ pub const DefunctionalizationPolicy = struct {
     require_no_intrinsics_in_treaties: bool = false,
     allow_test_fixtures: bool = false,
     allow_kernel_primitives: bool = true,
-    prefer_ability_program: bool = false,
+    prefer_boundary_program: bool = false,
     prefer_declarative: bool = false,
     prefer_residualized: bool = false,
     maximum_intrinsic_count: ?usize = null,
@@ -1175,7 +1175,7 @@ pub const DefunctionalizationPolicy = struct {
             .require_program_backed_providers = true,
             .require_declarative_morphisms = true,
             .require_no_intrinsics_in_treaties = true,
-            .prefer_ability_program = true,
+            .prefer_boundary_program = true,
             .prefer_declarative = true,
             .prefer_residualized = true,
             .maximum_intrinsic_count = 0,
@@ -1187,7 +1187,7 @@ pub const DefunctionalizationPolicy = struct {
             .label = "world_boundary",
             .allow_host_intrinsics = true,
             .reject_unknown = true,
-            .prefer_ability_program = true,
+            .prefer_boundary_program = true,
             .prefer_declarative = true,
             .prefer_residualized = true,
         };
@@ -1221,7 +1221,7 @@ pub const DefunctionalizationPolicy = struct {
         builder.fieldBool("require_no_intrinsics_in_treaties", self.require_no_intrinsics_in_treaties);
         builder.fieldBool("allow_test_fixtures", self.allow_test_fixtures);
         builder.fieldBool("allow_kernel_primitives", self.allow_kernel_primitives);
-        builder.fieldBool("prefer_ability_program", self.prefer_ability_program);
+        builder.fieldBool("prefer_boundary_program", self.prefer_boundary_program);
         builder.fieldBool("prefer_declarative", self.prefer_declarative);
         builder.fieldBool("prefer_residualized", self.prefer_residualized);
         builder.fieldOptionalU64("maximum_intrinsic_count", if (self.maximum_intrinsic_count) |value| @as(u64, @intCast(value)) else null);
@@ -1266,7 +1266,7 @@ pub const DefunctionalizationReport = struct {
     scope_ref: Ref,
     report_fingerprint: u64,
     total_bodies: usize = 0,
-    ability_program_count: usize = 0,
+    boundary_program_count: usize = 0,
     declarative_count: usize = 0,
     residualized_program_count: usize = 0,
     pipeline_count: usize = 0,
@@ -1297,7 +1297,7 @@ pub const DefunctionalizationReport = struct {
     };
 
     pub const Counts = struct {
-        ability_program: usize = 0,
+        boundary_program: usize = 0,
         declarative: usize = 0,
         residualized_program: usize = 0,
         pipeline: usize = 0,
@@ -1308,7 +1308,7 @@ pub const DefunctionalizationReport = struct {
         pub fn fromBody(body: SemanticBody) @This() {
             var counts: @This() = .{};
             switch (body) {
-                .ability_program => counts.ability_program = 1,
+                .boundary_program => counts.boundary_program = 1,
                 .declarative => counts.declarative = 1,
                 .residualized_program => counts.residualized_program = 1,
                 .pipeline => counts.pipeline = 1,
@@ -1320,7 +1320,7 @@ pub const DefunctionalizationReport = struct {
         }
 
         pub fn total(self: @This()) usize {
-            return self.ability_program + self.declarative + self.residualized_program + self.pipeline + self.kernel_primitive + self.host_intrinsic + self.unknown;
+            return self.boundary_program + self.declarative + self.residualized_program + self.pipeline + self.kernel_primitive + self.host_intrinsic + self.unknown;
         }
     };
 
@@ -1344,7 +1344,7 @@ pub const DefunctionalizationReport = struct {
             .scope_ref = options.scope_ref,
             .report_fingerprint = 0,
             .total_bodies = options.counts.total(),
-            .ability_program_count = options.counts.ability_program,
+            .boundary_program_count = options.counts.boundary_program,
             .declarative_count = options.counts.declarative,
             .residualized_program_count = options.counts.residualized_program,
             .pipeline_count = options.counts.pipeline,
@@ -1369,7 +1369,7 @@ pub const DefunctionalizationReport = struct {
         builder.fieldBytes("scope_kind", @tagName(self.scope_kind));
         builder.fieldRef("scope_ref", self.scope_ref);
         builder.fieldUsize("total", self.total_bodies);
-        builder.fieldUsize("ability_program", self.ability_program_count);
+        builder.fieldUsize("boundary_program", self.boundary_program_count);
         builder.fieldUsize("declarative", self.declarative_count);
         builder.fieldUsize("residualized_program", self.residualized_program_count);
         builder.fieldUsize("pipeline", self.pipeline_count);
@@ -1530,7 +1530,7 @@ pub const DefunctionalizationReport = struct {
             => false,
         };
         if (!morphism_scoped) return false;
-        return self.ability_program_count != 0 or
+        return self.boundary_program_count != 0 or
             self.kernel_primitive_count != 0 or
             self.host_intrinsic_count != 0 or
             self.unknown_count != 0;

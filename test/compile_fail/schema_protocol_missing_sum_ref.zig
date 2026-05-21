@@ -1,15 +1,15 @@
 // zlinter-disable declaration_naming require_doc_comment
-const ability = @import("ability");
+const boundary = @import("boundary");
 
 const Decision = union(enum) {
     approve: i32,
     deny,
 };
 
-const Approval = ability.ir.schema.Protocol(.{
+const Approval = boundary.ir.schema.Protocol(.{
     .label = "approval",
     .ops = .{
-        ability.ir.schema.choice("request", void, Decision),
+        boundary.ir.schema.choice("request", void, Decision),
     },
 });
 

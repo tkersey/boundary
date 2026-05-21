@@ -1,12 +1,12 @@
 // zlinter-disable declaration_naming require_doc_comment
-const ability = @import("ability");
+const boundary = @import("boundary");
 
 const ProductPayload = struct {
     amount: i32,
 };
 
-const ProductStateRows = ability.ir.schema.LowerBinding(
-    ability.ir.schema.Binding("state", ability.effect.state.Schema(ProductPayload, error{}), void),
+const ProductStateRows = boundary.ir.schema.LowerBinding(
+    boundary.ir.schema.Binding("state", boundary.effect.state.Schema(ProductPayload, error{}), void),
     .{ .requirement_index = 0, .first_op = 0, .first_output = 0 },
 );
 

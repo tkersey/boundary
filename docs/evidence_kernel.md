@@ -1,6 +1,6 @@
 # Evidence Kernel
 
-Ability's core product is typed, explicit, inspectable, replayable, durable,
+Boundary's core product is typed, explicit, inspectable, replayable, durable,
 transformable, and verifiable effectful computation. The proof data around that
 computation is therefore part of the library spine, not incidental metadata.
 
@@ -9,8 +9,8 @@ fingerprints, versioned byte formats, validation blockers, validation reports,
 certificates, authorizations, journal projections, and dependency references one
 common vocabulary while preserving the existing subsystem APIs.
 
-The public root remains `ability.effect`, `ability.ir`, `ability.program`, and
-`ability.Runtime`. Evidence is exposed through a concrete `Program` type as
+The public root remains `boundary.effect`, `boundary.ir`, `boundary.program`, and
+`boundary.Runtime`. Evidence is exposed through a concrete `Program` type as
 `Program.Evidence`.
 
 ## Evidence Domains
@@ -33,57 +33,57 @@ Current domains are registered in `Program.Evidence.domains`:
 
 | Domain | Owner | Format | Fingerprint | Bytes | Stable audit | Tokens excluded | Runtime ids excluded | Journal refs | Certificate refs | Existing coverage |
 | --- | --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- |
-| `ability.program.plan` | program_plan | - | 1 | no | yes | yes | yes | no | no | program plan |
-| `ability.session.trace` | session | - | 2 | no | yes | yes | yes | yes | yes | trace |
-| `ability.session.request` | session | - | 2 | no | yes | yes | yes | yes | yes | request |
-| `ability.session.response` | session | - | 2 | no | yes | yes | yes | yes | yes | response |
-| `ability.session.continuation` | session | - | 2 | no | yes | yes | yes | no | yes | continuation |
-| `ability.session.capsule` | capsule | - | 2 | no | yes | yes | yes | yes | yes | capsule |
-| `ability.program.capsule.image` | capsule | 1 | 1 | yes | yes | yes | yes | yes | yes | capsule image |
-| `ability.program.session.journal` | journal | 6 | 1 | yes | yes | yes | yes | no | no | journal |
-| `ability.program.session.journal.v4` | journal | 4 | 1 | yes | yes | yes | yes | no | no | legacy journal |
-| `ability.session.journal.entry` | journal | 6 | 1 | yes | yes | yes | yes | yes | no | journal entry |
-| `ability.exchange.manifest` | exchange | 1 | 1 | yes | yes | yes | yes | yes | yes | exchange |
-| `ability.exchange.request` | exchange | 3 | 3 | yes | yes | yes | yes | yes | yes | exchange |
-| `ability.exchange.response` | exchange | 1 | 1 | yes | yes | yes | yes | yes | yes | exchange |
-| `ability.exchange.provider.identity` | exchange | - | 1 | no | yes | yes | yes | yes | yes | provider identity |
-| `ability.exchange.provider` | exchange | 2 | 2 | yes | yes | yes | yes | yes | yes | provider manifest |
-| `ability.exchange.provider_offer` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | offer |
-| `ability.exchange.provider.derived_manifest` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | derived manifest |
-| `ability.exchange.provider.derived_offer` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | derived offer |
-| `ability.exchange.provider.harness` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | provider harness |
-| `ability.exchange.provider.request_validation` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | provider request |
-| `ability.exchange.provider.response_authorization` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | provider outcome |
-| `ability.exchange.provider.journal_event` | provider_harness | 6 | 1 | yes | yes | yes | yes | yes | no | provider journal |
-| `ability.exchange.provider_program.execution` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | provider program |
-| `ability.exchange.provider_program.mapping` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | program provider |
-| `ability.exchange.provider_program.nested_request` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | nested provider |
-| `ability.exchange.morphism_offer` | morphism | - | 1 | no | yes | yes | yes | yes | yes | morphism |
-| `ability.exchange.capability` | capability | 1 | 1 | yes | yes | yes | yes | yes | yes | capability |
-| `ability.exchange.capability.path` | capability | - | 1 | no | yes | yes | yes | yes | yes | capability |
-| `ability.exchange.route` | capability | - | 1 | no | yes | yes | yes | yes | yes | route |
-| `ability.exchange.authorization` | capability | 1 | 1 | yes | yes | yes | yes | yes | yes | authorization |
-| `ability.exchange.authorization.result` | linear_session | - | 1 | no | yes | yes | yes | yes | yes | authorization |
-| `ability.exchange.effect_session` | linear_session | 1 | 1 | yes | yes | yes | yes | no | yes | linear |
-| `ability.exchange.capability_instance` | linear_session | 1 | 1 | yes | yes | yes | yes | yes | yes | linear |
-| `ability.exchange.obligation` | linear_session | 1 | 1 | yes | yes | yes | yes | yes | yes | obligation |
-| `ability.exchange.obligation.transition` | linear_session | - | 1 | no | yes | yes | yes | yes | yes | obligation |
-| `ability.exchange.treaty` | treaty | 1 | 4 | no | yes | yes | yes | yes | yes | treaty |
-| `ability.exchange.treaty.certificate` | treaty | 1 | 4 | no | yes | yes | yes | yes | yes | certificate |
-| `ability.exchange.treaty.authorization` | treaty | 4 | 4 | yes | yes | yes | yes | yes | yes | authorization |
-| `ability.exchange.treaty.authorization.v3` | treaty | 3 | 3 | yes | yes | yes | yes | yes | yes | legacy authorization |
-| `ability.exchange.treaty.authorization.v2` | treaty | 2 | 2 | yes | yes | yes | yes | yes | yes | legacy authorization |
-| `ability.exchange.treaty.resolver` | treaty | - | 1 | no | yes | yes | yes | yes | yes | resolver |
-| `ability.session.reinterpret` | morphism | - | 2 | no | yes | yes | yes | yes | yes | reinterpretation |
-| `ability.program.residualization` | residualization | - | 1 | no | yes | yes | yes | no | yes | residual |
-| `ability.program.residualization.report` | residualization | - | 1 | no | yes | yes | yes | no | yes | residual |
-| `ability.program.pipeline` | pipeline | - | 1 | no | yes | yes | yes | no | yes | pipeline |
-| `ability.program.pipeline.certificate` | pipeline | - | 1 | no | yes | yes | yes | no | yes | pipeline |
-| `ability.program.pipeline.source_map` | pipeline | - | 1 | no | yes | yes | yes | no | yes | source map |
-| `ability.evidence.semantic_body` | semantic_boundary | - | 1 | no | yes | yes | yes | yes | yes | semantic body |
-| `ability.evidence.host_intrinsic` | semantic_boundary | 1 | 1 | no | yes | yes | yes | yes | yes | host intrinsic |
-| `ability.evidence.defunctionalization_report` | semantic_boundary | - | 1 | no | yes | yes | yes | yes | yes | defunctionalization |
-| `ability.evidence.defunctionalization_policy` | semantic_boundary | - | 1 | no | yes | yes | yes | yes | yes | intrinsic allowlist |
+| `boundary.program.plan` | program_plan | - | 1 | no | yes | yes | yes | no | no | program plan |
+| `boundary.session.trace` | session | - | 2 | no | yes | yes | yes | yes | yes | trace |
+| `boundary.session.request` | session | - | 2 | no | yes | yes | yes | yes | yes | request |
+| `boundary.session.response` | session | - | 2 | no | yes | yes | yes | yes | yes | response |
+| `boundary.session.continuation` | session | - | 2 | no | yes | yes | yes | no | yes | continuation |
+| `boundary.session.capsule` | capsule | - | 2 | no | yes | yes | yes | yes | yes | capsule |
+| `boundary.program.capsule.image` | capsule | 1 | 1 | yes | yes | yes | yes | yes | yes | capsule image |
+| `boundary.program.session.journal` | journal | 6 | 1 | yes | yes | yes | yes | no | no | journal |
+| `boundary.program.session.journal.v4` | journal | 4 | 1 | yes | yes | yes | yes | no | no | legacy journal |
+| `boundary.session.journal.entry` | journal | 6 | 1 | yes | yes | yes | yes | yes | no | journal entry |
+| `boundary.exchange.manifest` | exchange | 1 | 1 | yes | yes | yes | yes | yes | yes | exchange |
+| `boundary.exchange.request` | exchange | 3 | 3 | yes | yes | yes | yes | yes | yes | exchange |
+| `boundary.exchange.response` | exchange | 1 | 1 | yes | yes | yes | yes | yes | yes | exchange |
+| `boundary.exchange.provider.identity` | exchange | - | 1 | no | yes | yes | yes | yes | yes | provider identity |
+| `boundary.exchange.provider` | exchange | 2 | 2 | yes | yes | yes | yes | yes | yes | provider manifest |
+| `boundary.exchange.provider_offer` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | offer |
+| `boundary.exchange.provider.derived_manifest` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | derived manifest |
+| `boundary.exchange.provider.derived_offer` | provider_harness | 1 | 1 | yes | yes | yes | yes | yes | yes | derived offer |
+| `boundary.exchange.provider.harness` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | provider harness |
+| `boundary.exchange.provider.request_validation` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | provider request |
+| `boundary.exchange.provider.response_authorization` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | provider outcome |
+| `boundary.exchange.provider.journal_event` | provider_harness | 6 | 1 | yes | yes | yes | yes | yes | no | provider journal |
+| `boundary.exchange.provider_program.execution` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | provider program |
+| `boundary.exchange.provider_program.mapping` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | program provider |
+| `boundary.exchange.provider_program.nested_request` | provider_harness | - | 1 | no | yes | yes | yes | yes | yes | nested provider |
+| `boundary.exchange.morphism_offer` | morphism | - | 1 | no | yes | yes | yes | yes | yes | morphism |
+| `boundary.exchange.capability` | capability | 1 | 1 | yes | yes | yes | yes | yes | yes | capability |
+| `boundary.exchange.capability.path` | capability | - | 1 | no | yes | yes | yes | yes | yes | capability |
+| `boundary.exchange.route` | capability | - | 1 | no | yes | yes | yes | yes | yes | route |
+| `boundary.exchange.authorization` | capability | 1 | 1 | yes | yes | yes | yes | yes | yes | authorization |
+| `boundary.exchange.authorization.result` | linear_session | - | 1 | no | yes | yes | yes | yes | yes | authorization |
+| `boundary.exchange.effect_session` | linear_session | 1 | 1 | yes | yes | yes | yes | no | yes | linear |
+| `boundary.exchange.capability_instance` | linear_session | 1 | 1 | yes | yes | yes | yes | yes | yes | linear |
+| `boundary.exchange.obligation` | linear_session | 1 | 1 | yes | yes | yes | yes | yes | yes | obligation |
+| `boundary.exchange.obligation.transition` | linear_session | - | 1 | no | yes | yes | yes | yes | yes | obligation |
+| `boundary.exchange.treaty` | treaty | 1 | 4 | no | yes | yes | yes | yes | yes | treaty |
+| `boundary.exchange.treaty.certificate` | treaty | 1 | 4 | no | yes | yes | yes | yes | yes | certificate |
+| `boundary.exchange.treaty.authorization` | treaty | 4 | 4 | yes | yes | yes | yes | yes | yes | authorization |
+| `boundary.exchange.treaty.authorization.v3` | treaty | 3 | 3 | yes | yes | yes | yes | yes | yes | legacy authorization |
+| `boundary.exchange.treaty.authorization.v2` | treaty | 2 | 2 | yes | yes | yes | yes | yes | yes | legacy authorization |
+| `boundary.exchange.treaty.resolver` | treaty | - | 1 | no | yes | yes | yes | yes | yes | resolver |
+| `boundary.session.reinterpret` | morphism | - | 2 | no | yes | yes | yes | yes | yes | reinterpretation |
+| `boundary.program.residualization` | residualization | - | 1 | no | yes | yes | yes | no | yes | residual |
+| `boundary.program.residualization.report` | residualization | - | 1 | no | yes | yes | yes | no | yes | residual |
+| `boundary.program.pipeline` | pipeline | - | 1 | no | yes | yes | yes | no | yes | pipeline |
+| `boundary.program.pipeline.certificate` | pipeline | - | 1 | no | yes | yes | yes | no | yes | pipeline |
+| `boundary.program.pipeline.source_map` | pipeline | - | 1 | no | yes | yes | yes | no | yes | source map |
+| `boundary.evidence.semantic_body` | semantic_boundary | - | 1 | no | yes | yes | yes | yes | yes | semantic body |
+| `boundary.evidence.host_intrinsic` | semantic_boundary | 1 | 1 | no | yes | yes | yes | yes | yes | host intrinsic |
+| `boundary.evidence.defunctionalization_report` | semantic_boundary | - | 1 | no | yes | yes | yes | yes | yes | defunctionalization |
+| `boundary.evidence.defunctionalization_policy` | semantic_boundary | - | 1 | no | yes | yes | yes | yes | yes | intrinsic allowlist |
 
 The current journal format is v6 because provider-program execution adds
 provider-side started, parked, nested request/response, resumed, completed,
@@ -191,7 +191,7 @@ policies, replay policies, and summary refs.
 ## Defunctionalization Boundary
 
 `Evidence.SemanticBody` classifies every semantic execution body as
-`ability_program`, `declarative`, `residualized_program`, `pipeline`,
+`boundary_program`, `declarative`, `residualized_program`, `pipeline`,
 `kernel_primitive`, `host_intrinsic`, or `unknown`.
 
 `Evidence.HostIntrinsic` describes opaque host behavior with an explicit label,

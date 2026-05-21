@@ -863,7 +863,7 @@ fn sessionOperationSiteFingerprint(
     site: SessionOperationYieldSite,
 ) u64 {
     var hasher = std.hash.Wyhash.init(0);
-    sessionSiteHashBytes(&hasher, "ability.session.static_site");
+    sessionSiteHashBytes(&hasher, "boundary.session.static_site");
     sessionSiteHashU32(&hasher, trace_fingerprint_version);
     sessionSiteHashBytes(&hasher, "operation");
     sessionSiteHashU64(&hasher, compiled_plan.hash());
@@ -892,7 +892,7 @@ fn sessionAfterSiteFingerprint(
     site: SessionAfterYieldSite,
 ) u64 {
     var hasher = std.hash.Wyhash.init(0);
-    sessionSiteHashBytes(&hasher, "ability.session.static_site");
+    sessionSiteHashBytes(&hasher, "boundary.session.static_site");
     sessionSiteHashU32(&hasher, trace_fingerprint_version);
     sessionSiteHashBytes(&hasher, "after");
     sessionSiteHashU64(&hasher, compiled_plan.hash());
@@ -4196,7 +4196,7 @@ pub fn ExecutableSessionForPlan(
                 try writeCapsuleMetadata(&writer, self.metadata_value);
                 try writeCoreImage(&writer, &self.core);
                 const payload = writer.bytes.items;
-                const checksum = durableFingerprint("ability.session.capsule.image.payload", payload);
+                const checksum = durableFingerprint("boundary.session.capsule.image.payload", payload);
                 try writer.writeU64(checksum);
                 return writer.toOwnedSlice();
             }
@@ -4205,7 +4205,7 @@ pub fn ExecutableSessionForPlan(
                 if (bytes.len < capsule_image_magic.len + 4 + 4 + 8) return error.ProgramContractViolation;
                 const stored_checksum = std.mem.readInt(u64, bytes[bytes.len - 8 ..][0..8], .little);
                 const payload = bytes[0 .. bytes.len - 8];
-                if (stored_checksum != durableFingerprint("ability.session.capsule.image.payload", payload)) {
+                if (stored_checksum != durableFingerprint("boundary.session.capsule.image.payload", payload)) {
                     return error.ProgramContractViolation;
                 }
                 var reader = DurableReader.init(payload);
@@ -5846,7 +5846,7 @@ pub fn ExecutableSessionForPlan(
         }
 
         fn traceHashCommonRequestPrefix(hasher: *std.hash.Wyhash, turn_index: usize, kind: Trace.RequestKind) void {
-            traceHashBytes(hasher, "ability.session.request");
+            traceHashBytes(hasher, "boundary.session.request");
             traceHashU32(hasher, trace_fingerprint_version);
             traceHashBytes(hasher, program_label);
             traceHashBytes(hasher, compiled_plan.label);
@@ -5938,7 +5938,7 @@ pub fn ExecutableSessionForPlan(
             response_value_fingerprint: u64,
         ) Trace.Response {
             var hasher = std.hash.Wyhash.init(0);
-            traceHashBytes(&hasher, "ability.session.response");
+            traceHashBytes(&hasher, "boundary.session.response");
             traceHashU32(&hasher, trace_fingerprint_version);
             traceHashU64(&hasher, request_fingerprint);
             traceHashResponseKind(&hasher, kind);
@@ -5956,7 +5956,7 @@ pub fn ExecutableSessionForPlan(
         fn fingerprintTypedValueForRef(ref: program_plan.ValueRef, value: anytype) error{ProgramContractViolation}!u64 {
             if (!typeMatchesRuntimeRef(schema_types, ref, @TypeOf(value))) return error.ProgramContractViolation;
             var hasher = std.hash.Wyhash.init(0);
-            traceHashBytes(&hasher, "ability.session.value");
+            traceHashBytes(&hasher, "boundary.session.value");
             traceHashU32(&hasher, trace_fingerprint_version);
             traceHashValueRef(&hasher, ref);
             try traceHashTypedValuePayload(&hasher, ref, value);
@@ -5966,7 +5966,7 @@ pub fn ExecutableSessionForPlan(
         fn fingerprintExecutableValueForRef(ref: program_plan.ValueRef, value: ExecutableValue) error{ProgramContractViolation}!u64 {
             if (!valueMatchesRef(ref, value)) return error.ProgramContractViolation;
             var hasher = std.hash.Wyhash.init(0);
-            traceHashBytes(&hasher, "ability.session.value");
+            traceHashBytes(&hasher, "boundary.session.value");
             traceHashU32(&hasher, trace_fingerprint_version);
             traceHashValueRef(&hasher, ref);
             try traceHashExecutableValuePayload(&hasher, ref, value);
@@ -7677,7 +7677,7 @@ pub fn ExecutableSessionForPlan(
         fn continuationFingerprint(self: *const Self) error{ProgramContractViolation}!u64 {
             const pending = self.pending orelse return error.ProgramContractViolation;
             var hasher = std.hash.Wyhash.init(0);
-            traceHashBytes(&hasher, "ability.session.continuation");
+            traceHashBytes(&hasher, "boundary.session.continuation");
             traceHashU32(&hasher, capsule_version);
             traceHashU32(&hasher, continuation_fingerprint_version);
             traceHashBytes(&hasher, program_label);
@@ -7792,7 +7792,7 @@ fn encodeTypedTupleEntryArgs(
     const Args = @TypeOf(args);
     const args_info = @typeInfo(Args);
     if (args_info != .@"struct" or !args_info.@"struct".is_tuple) {
-        @compileError("Body.encodeArgs must return []const ability.ir.ProgramValue or a tuple matching entry parameters");
+        @compileError("Body.encodeArgs must return []const boundary.ir.ProgramValue or a tuple matching entry parameters");
     }
     const fields = args_info.@"struct".fields;
     if (fields.len != entry.parameter_count) {
@@ -9217,55 +9217,55 @@ fn supportStructuredAfterHelperResultPlan() program_plan.ProgramPlan {
     }) catch |err| supportPlanError(err);
 }
 
-test "ability.program executable support accepts scalar entry codecs" {
+test "boundary.program executable support accepts scalar entry codecs" {
     inline for (.{ program_plan.ValueCodec.unit, .bool, .i32, .usize, .string }) |codec| {
         try validateExecutablePlanSupport(supportResultPlan(codec));
     }
 }
 
-test "ability.program executable support rejects structured result codecs" {
+test "boundary.program executable support rejects structured result codecs" {
     inline for (.{ program_plan.ValueCodec.product, .sum, .string_list }) |codec| {
         try std.testing.expectError(error.UnsupportedResultCodec, validateExecutablePlanSupport(supportResultPlan(codec)));
     }
 }
 
-test "ability.program executable support rejects structured terminal helper result codecs" {
+test "boundary.program executable support rejects structured terminal helper result codecs" {
     try std.testing.expectError(error.UnsupportedResultCodec, validateExecutablePlanSupport(supportStructuredTerminalHelperResultPlan()));
 }
 
-test "ability.program executable support rejects structured after helper result codecs" {
+test "boundary.program executable support rejects structured after helper result codecs" {
     try std.testing.expectError(error.UnsupportedResultCodec, validateExecutablePlanSupport(supportStructuredAfterHelperResultPlan()));
 }
 
-test "ability.program executable support rejects structured entry parameter codecs" {
+test "boundary.program executable support rejects structured entry parameter codecs" {
     inline for (.{ program_plan.ValueCodec.product, .sum, .string_list }) |codec| {
         try std.testing.expectError(error.UnsupportedParameterCodec, validateExecutablePlanSupport(supportParameterPlan(codec)));
     }
 }
 
-test "ability.program executable support rejects structured helper parameter codecs" {
+test "boundary.program executable support rejects structured helper parameter codecs" {
     try std.testing.expectError(error.UnsupportedParameterCodec, validateExecutablePlanSupport(supportStructuredHelperParameterPlan()));
 }
 
-test "ability.program executable support rejects structured op payload codecs" {
+test "boundary.program executable support rejects structured op payload codecs" {
     inline for (.{ program_plan.ValueCodec.product, .sum, .string_list }) |codec| {
         try std.testing.expectError(error.UnsupportedPayloadCodec, validateExecutablePlanSupport(supportOpPlan(codec, .unit)));
     }
 }
 
-test "ability.program executable support rejects structured op resume codecs" {
+test "boundary.program executable support rejects structured op resume codecs" {
     inline for (.{ program_plan.ValueCodec.product, .sum, .string_list }) |codec| {
         try std.testing.expectError(error.UnsupportedResumeCodec, validateExecutablePlanSupport(supportOpPlan(.unit, codec)));
     }
 }
 
-test "ability.program executable support rejects nested-with, reachable structured locals, and helper cycles" {
+test "boundary.program executable support rejects nested-with, reachable structured locals, and helper cycles" {
     try std.testing.expectError(error.UnsupportedNestedWith, validateExecutablePlanSupport(supportNestedWithPlan()));
     try std.testing.expectError(error.UnsupportedLocalCodec, validateExecutablePlanSupport(supportStructuredHelperLocalPlan()));
     try std.testing.expectError(error.UnsupportedHelperCycle, validateExecutablePlanSupport(supportHelperCyclePlan()));
 }
 
-test "ability.program executable capability ledger records unresolved nested-with blockers" {
+test "boundary.program executable capability ledger records unresolved nested-with blockers" {
     const ledger = ExecutableCapabilityLedgerForPlan(supportNestedWithPlan(), &.{}, &.{});
     try std.testing.expectEqual(@as(usize, 1), ledger.blockers.len);
     try std.testing.expectEqual(CapabilityBlockerTag.nested_with_unresolved, ledger.blockers[0].tag);
@@ -9274,7 +9274,7 @@ test "ability.program executable capability ledger records unresolved nested-wit
     try std.testing.expect(!ledger.truncated);
 }
 
-test "ability.program executable capability ledger does not block typed helper recursion" {
+test "boundary.program executable capability ledger does not block typed helper recursion" {
     try validateTypedExecutablePlanSupport(supportHelperCyclePlan(), &.{});
 
     const ledger = ExecutableCapabilityLedgerForPlan(supportHelperCyclePlan(), &.{}, &.{});
@@ -9282,13 +9282,13 @@ test "ability.program executable capability ledger does not block typed helper r
     try std.testing.expect(!ledger.truncated);
 }
 
-test "ability.program executable capability ledger caps blocker records" {
+test "boundary.program executable capability ledger caps blocker records" {
     const ledger = ExecutableCapabilityLedgerForPlan(supportManyNestedWithPlan(max_capability_blockers + 1), &.{}, &.{});
     try std.testing.expectEqual(@as(usize, max_capability_blockers), ledger.blockers.len);
     try std.testing.expect(ledger.truncated);
 }
 
-test "ability.program executable support validates resolver-backed nested target bodies" {
+test "boundary.program executable support validates resolver-backed nested target bodies" {
     const targets = [_]NestedWithTarget{.{
         .metadata = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi",
         .function_index = 1,
@@ -9301,7 +9301,7 @@ test "ability.program executable support validates resolver-backed nested target
     try std.testing.expectEqual(CapabilityBlockerTag.payload_codec, ledger.blockers[0].tag);
 }
 
-test "ability.program executable capability ledger accepts string-list nested target results" {
+test "boundary.program executable capability ledger accepts string-list nested target results" {
     const targets = [_]NestedWithTarget{.{
         .metadata = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi",
         .function_index = 1,
@@ -9412,7 +9412,7 @@ test "Program.Session decoded operation pending requires a resumable active fram
     }
 }
 
-test "ability.program executable support rejects terminal nested target result mismatches" {
+test "boundary.program executable support rejects terminal nested target result mismatches" {
     const targets = [_]NestedWithTarget{.{
         .metadata = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi",
         .function_index = 1,
@@ -9425,11 +9425,11 @@ test "ability.program executable support rejects terminal nested target result m
     try std.testing.expectEqual(CapabilityBlockerTag.nested_with_result_codec, ledger.blockers[0].tag);
 }
 
-test "ability.program executable support ignores unreachable structured helper metadata" {
+test "boundary.program executable support ignores unreachable structured helper metadata" {
     try validateExecutablePlanSupport(supportUnreachableStructuredHelperPlan());
 }
 
-test "ability.program executable support ignores post-terminal structured helper metadata" {
+test "boundary.program executable support ignores post-terminal structured helper metadata" {
     try validateExecutablePlanSupport(supportAbortBeforeStructuredHelperPlan());
     try validateExecutablePlanSupport(supportAbortBeforeStructuredSuccessorPlan());
     try validateExecutablePlanSupport(supportErrorBeforeStructuredHelperPlan());

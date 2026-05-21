@@ -1,16 +1,16 @@
 # Defunctionalization Boundary
 
-Ability-native effect semantics should be Ability programs or declarative Ability
-data. Ability does not pretend opaque host callbacks are algebraic-effect
+Boundary-native effect semantics should be Boundary programs or declarative Boundary
+data. Boundary does not pretend opaque host callbacks are algebraic-effect
 semantics. It marks them as host intrinsics.
 
 `Program.Evidence.SemanticBody` classifies semantic execution bodies:
 
-- `ability_program`: represented by an Ability `Program` or `ProgramPlan`.
-- `declarative`: represented by deterministic declarative Ability data.
+- `boundary_program`: represented by an Boundary `Program` or `ProgramPlan`.
+- `declarative`: represented by deterministic declarative Boundary data.
 - `residualized_program`: transformed into a residual `ProgramPlan`.
 - `pipeline`: produced by a proof-carrying `Program.Pipeline`.
-- `kernel_primitive`: Ability's own interpreter/kernel machinery.
+- `kernel_primitive`: Boundary's own interpreter/kernel machinery.
 - `host_intrinsic`: opaque host code or external-world behavior.
 - `unknown`: incomplete or invalid classification.
 
@@ -18,7 +18,7 @@ Host intrinsics are necessary at the world boundary: tool calls, model calls,
 file writes, human approval, randomness, clocks, foreign systems, test fixtures,
 function-backed ProviderHarness handlers, `Program.run` handler functions,
 `Program.Interpreter` handler functions, and dynamic morphism mapper functions.
-They are not inspectable Ability semantics.
+They are not inspectable Boundary semantics.
 
 `Program.Evidence.HostIntrinsic` gives each declared intrinsic a deterministic
 descriptor and evidence ref. Its fingerprint is based on declared labels, kind,
@@ -38,7 +38,7 @@ morphisms, and prefer less opaque routes.
 
 ProviderHarness now reports:
 
-- program-backed provider declarations as `ability_program`
+- program-backed provider declarations as `boundary_program`
 - function-backed declarations as `host_intrinsic`
 - provider-program mapping fingerprints in the derived provider manifest
 - derived provider offers with `semanticBodyWithProvider`, `hostIntrinsicRef`,
@@ -59,7 +59,7 @@ serializable request tokens, cross-thread sessions, arbitrary host-handler
 serialization, or runtime allocator/thread serialization.
 
 `Program.Session` remains the primitive host-driven defunctionalized execution
-machine. Program-backed providers are the canonical Ability-native provider
+machine. Program-backed providers are the canonical Boundary-native provider
 handler form. Declarative morphisms, residualization, and pipelines are the
-canonical Ability-native transformation forms. Host functions remain available
+canonical Boundary-native transformation forms. Host functions remain available
 as explicit host intrinsics at the world boundary.

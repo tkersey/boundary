@@ -1,17 +1,17 @@
 // zlinter-disable declaration_naming field_naming field_ordering require_doc_comment no_inferred_error_unions max_positional_args
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const RefExpectation = struct {
-    codec: ability.ir.ValueCodec,
+    codec: boundary.ir.ValueCodec,
     schema_index: ?u16 = null,
 };
 
-fn mustInstruction(result: anyerror!ability.ir.plan.Instruction) ability.ir.plan.Instruction {
+fn mustInstruction(result: anyerror!boundary.ir.plan.Instruction) boundary.ir.plan.Instruction {
     return result catch |err| std.debug.panic("invalid contract matrix instruction: {s}", .{@errorName(err)});
 }
 
-fn mustPlan(result: anyerror!ability.ir.ProgramPlan) ability.ir.ProgramPlan {
+fn mustPlan(result: anyerror!boundary.ir.ProgramPlan) boundary.ir.ProgramPlan {
     return result catch |err| std.debug.panic("invalid contract matrix plan: {s}", .{@errorName(err)});
 }
 
@@ -68,16 +68,16 @@ fn expectNoNestedTargetsOrReturnErrors(comptime Contract: type) !void {
     try std.testing.expectEqual(@as(usize, 0), Contract.return_errors.len);
 }
 
-const optional_plan = ability.effect.optional.plan;
-const reader_plan = ability.effect.reader.plan;
-const state_plan = ability.effect.state.plan;
-const writer_plan = ability.effect.writer.plan;
+const optional_plan = boundary.effect.optional.plan;
+const reader_plan = boundary.effect.reader.plan;
+const state_plan = boundary.effect.state.plan;
+const writer_plan = boundary.effect.writer.plan;
 const OptionalOutcome = optional_plan.Outcome(i32);
 
 const OptionalHandlers = struct {
     request: struct {
-        pub fn dispatch(_: *const @This()) !ability.effect.choice.Decision(OptionalOutcome, i32) {
-            return ability.effect.choice.Decision(OptionalOutcome, i32).resumeWith(40);
+        pub fn dispatch(_: *const @This()) !boundary.effect.choice.Decision(OptionalOutcome, i32) {
+            return boundary.effect.choice.Decision(OptionalOutcome, i32).resumeWith(40);
         }
 
         pub fn afterDispatch(_: *const @This(), value: i32) !i32 {
@@ -86,19 +86,19 @@ const OptionalHandlers = struct {
     },
 };
 
-fn optionalPlan() ability.ir.ProgramPlan {
-    const layout = ability.ir.builder.layout;
-    const root = comptime ability.ir.builder.function(0);
-    const resumed = comptime ability.ir.builder.local(root, 0);
-    const is_some = comptime ability.ir.builder.local(root, 1);
-    const extracted = comptime ability.ir.builder.local(root, 2);
-    const fallback = comptime ability.ir.builder.local(root, 3);
-    const requirements = [_]ability.ir.plan.Requirement{optional_plan.requirement(0)};
-    const ops = [_]ability.ir.plan.Op{optional_plan.requestOp(0, 0, .present)};
+fn optionalPlan() boundary.ir.ProgramPlan {
+    const layout = boundary.ir.builder.layout;
+    const root = comptime boundary.ir.builder.function(0);
+    const resumed = comptime boundary.ir.builder.local(root, 0);
+    const is_some = comptime boundary.ir.builder.local(root, 1);
+    const extracted = comptime boundary.ir.builder.local(root, 2);
+    const fallback = comptime boundary.ir.builder.local(root, 3);
+    const requirements = [_]boundary.ir.plan.Requirement{optional_plan.requirement(0)};
+    const ops = [_]boundary.ir.plan.Op{optional_plan.requestOp(0, 0, .present)};
     const variants = optional_plan.variants(i32);
-    const schemas = [_]ability.ir.ValueSchemaPlan{optional_plan.schema(i32, 0, 0)};
+    const schemas = [_]boundary.ir.ValueSchemaPlan{optional_plan.schema(i32, 0, 0)};
 
-    return mustPlan(ability.ir.builder.layout.finish(.{
+    return mustPlan(boundary.ir.builder.layout.finish(.{
         .label = "matrix-plan-native-optional",
         .ir_hash = 9001,
         .entry = root,
@@ -108,8 +108,8 @@ fn optionalPlan() ability.ir.ProgramPlan {
         .value_variants = &variants,
         .functions = .{.{
             .symbol_name = "run",
-            .value_ref = ability.ir.ValueRef{ .codec = .i32 },
-            .result_ref = ability.ir.ValueRef{ .codec = .i32 },
+            .value_ref = boundary.ir.ValueRef{ .codec = .i32 },
+            .result_ref = boundary.ir.ValueRef{ .codec = .i32 },
             .requirements = layout.span(0, 1),
             .locals = .{
                 optional_plan.local(0),
@@ -120,24 +120,24 @@ fn optionalPlan() ability.ir.ProgramPlan {
             .blocks = .{
                 .{
                     .instructions = .{
-                        mustInstruction(optional_plan.callRequest(root, resumed, ability.ir.builder.op(root, 0))),
+                        mustInstruction(optional_plan.callRequest(root, resumed, boundary.ir.builder.op(root, 0))),
                         mustInstruction(optional_plan.isSome(root, is_some, resumed)),
                     },
-                    .terminator = ability.ir.plan.Terminator{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                    .terminator = boundary.ir.plan.Terminator{ .kind = .branch_if, .primary = 1, .secondary = 2 },
                 },
                 .{
                     .instructions = .{
                         mustInstruction(optional_plan.extractSome(root, extracted, resumed)),
-                        mustInstruction(ability.ir.builder.returnValue(root, extracted)),
+                        mustInstruction(boundary.ir.builder.returnValue(root, extracted)),
                     },
-                    .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                    .terminator = boundary.ir.plan.Terminator{ .kind = .return_value },
                 },
                 .{
                     .instructions = .{
                         .{ .kind = .const_i32, .dst = fallback.index, .operand = 0 },
-                        mustInstruction(ability.ir.builder.returnValue(root, fallback)),
+                        mustInstruction(boundary.ir.builder.returnValue(root, fallback)),
                     },
-                    .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                    .terminator = boundary.ir.plan.Terminator{ .kind = .return_value },
                 },
             },
         }},
@@ -148,20 +148,20 @@ const ProductThenOptionalInput = struct {
     amount: i32,
 };
 
-fn productThenOptionalPlan() ability.ir.ProgramPlan {
-    const layout = ability.ir.builder.layout;
-    const root = comptime ability.ir.builder.function(0);
-    const resumed = comptime ability.ir.builder.local(root, 1);
-    const is_some = comptime ability.ir.builder.local(root, 2);
-    const extracted = comptime ability.ir.builder.local(root, 3);
-    const fallback = comptime ability.ir.builder.local(root, 4);
-    const fields = [_]ability.ir.ValueFieldPlan{
-        ability.ir.value.field("amount", i32),
+fn productThenOptionalPlan() boundary.ir.ProgramPlan {
+    const layout = boundary.ir.builder.layout;
+    const root = comptime boundary.ir.builder.function(0);
+    const resumed = comptime boundary.ir.builder.local(root, 1);
+    const is_some = comptime boundary.ir.builder.local(root, 2);
+    const extracted = comptime boundary.ir.builder.local(root, 3);
+    const fallback = comptime boundary.ir.builder.local(root, 4);
+    const fields = [_]boundary.ir.ValueFieldPlan{
+        boundary.ir.value.field("amount", i32),
     };
-    const requirements = [_]ability.ir.plan.Requirement{optional_plan.requirement(0)};
-    const ops = [_]ability.ir.plan.Op{optional_plan.requestOp(0, 1, .present)};
+    const requirements = [_]boundary.ir.plan.Requirement{optional_plan.requirement(0)};
+    const ops = [_]boundary.ir.plan.Op{optional_plan.requestOp(0, 1, .present)};
     const variants = optional_plan.variants(i32);
-    const schemas = [_]ability.ir.ValueSchemaPlan{
+    const schemas = [_]boundary.ir.ValueSchemaPlan{
         .{
             .label = @typeName(ProductThenOptionalInput),
             .codec = .product,
@@ -171,7 +171,7 @@ fn productThenOptionalPlan() ability.ir.ProgramPlan {
         optional_plan.schema(i32, @intCast(fields.len), 0),
     };
 
-    return mustPlan(ability.ir.builder.layout.finish(.{
+    return mustPlan(boundary.ir.builder.layout.finish(.{
         .label = "matrix-product-then-optional",
         .ir_hash = 9010,
         .entry = root,
@@ -182,8 +182,8 @@ fn productThenOptionalPlan() ability.ir.ProgramPlan {
         .value_variants = &variants,
         .functions = .{.{
             .symbol_name = "run",
-            .value_ref = ability.ir.ValueRef{ .codec = .i32 },
-            .result_ref = ability.ir.ValueRef{ .codec = .i32 },
+            .value_ref = boundary.ir.ValueRef{ .codec = .i32 },
+            .result_ref = boundary.ir.ValueRef{ .codec = .i32 },
             .parameter_count = 1,
             .requirements = layout.span(0, 1),
             .locals = .{
@@ -196,24 +196,24 @@ fn productThenOptionalPlan() ability.ir.ProgramPlan {
             .blocks = .{
                 .{
                     .instructions = .{
-                        mustInstruction(optional_plan.callRequest(root, resumed, ability.ir.builder.op(root, 0))),
+                        mustInstruction(optional_plan.callRequest(root, resumed, boundary.ir.builder.op(root, 0))),
                         mustInstruction(optional_plan.isSome(root, is_some, resumed)),
                     },
-                    .terminator = ability.ir.plan.Terminator{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                    .terminator = boundary.ir.plan.Terminator{ .kind = .branch_if, .primary = 1, .secondary = 2 },
                 },
                 .{
                     .instructions = .{
                         mustInstruction(optional_plan.extractSome(root, extracted, resumed)),
-                        mustInstruction(ability.ir.builder.returnValue(root, extracted)),
+                        mustInstruction(boundary.ir.builder.returnValue(root, extracted)),
                     },
-                    .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                    .terminator = boundary.ir.plan.Terminator{ .kind = .return_value },
                 },
                 .{
                     .instructions = .{
                         .{ .kind = .const_i32, .dst = fallback.index, .operand = 0 },
-                        mustInstruction(ability.ir.builder.returnValue(root, fallback)),
+                        mustInstruction(boundary.ir.builder.returnValue(root, fallback)),
                     },
-                    .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                    .terminator = boundary.ir.plan.Terminator{ .kind = .return_value },
                 },
             },
         }},
@@ -226,25 +226,25 @@ const LayoutProductPayload = struct {
 
 const LayoutProductHandlers = struct {};
 
-fn layoutProductOutputPlan() ability.ir.ProgramPlan {
-    const layout = ability.ir.builder.layout;
-    const root = comptime ability.ir.builder.function(0);
-    const payload = comptime ability.ir.builder.local(root, 0);
-    const fields = [_]ability.ir.ValueFieldPlan{
-        ability.ir.value.field("amount", i32),
+fn layoutProductOutputPlan() boundary.ir.ProgramPlan {
+    const layout = boundary.ir.builder.layout;
+    const root = comptime boundary.ir.builder.function(0);
+    const payload = comptime boundary.ir.builder.local(root, 0);
+    const fields = [_]boundary.ir.ValueFieldPlan{
+        boundary.ir.value.field("amount", i32),
     };
-    const schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(LayoutProductPayload),
         .codec = .product,
         .first_field = 0,
         .field_count = @intCast(fields.len),
     }};
-    const outputs = [_]ability.ir.plan.Output{.{
+    const outputs = [_]boundary.ir.plan.Output{.{
         .label = "writer",
         .codec = .i32,
     }};
 
-    return mustPlan(ability.ir.builder.layout.finish(.{
+    return mustPlan(boundary.ir.builder.layout.finish(.{
         .label = "matrix-layout-product-output",
         .ir_hash = 9002,
         .entry = root,
@@ -253,8 +253,8 @@ fn layoutProductOutputPlan() ability.ir.ProgramPlan {
         .value_fields = &fields,
         .functions = .{.{
             .symbol_name = "run",
-            .value_ref = ability.ir.ValueRef{ .codec = .product, .schema_index = 0 },
-            .result_ref = ability.ir.ValueRef{ .codec = .product, .schema_index = 0 },
+            .value_ref = boundary.ir.ValueRef{ .codec = .product, .schema_index = 0 },
+            .result_ref = boundary.ir.ValueRef{ .codec = .product, .schema_index = 0 },
             .parameter_count = 1,
             .outputs = layout.span(0, 1),
             .locals = .{
@@ -262,9 +262,9 @@ fn layoutProductOutputPlan() ability.ir.ProgramPlan {
             },
             .blocks = .{.{
                 .instructions = .{
-                    mustInstruction(ability.ir.builder.returnValue(root, payload)),
+                    mustInstruction(boundary.ir.builder.returnValue(root, payload)),
                 },
-                .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                .terminator = boundary.ir.plan.Terminator{ .kind = .return_value },
             }},
         }},
     }));
@@ -290,7 +290,7 @@ test "layout builder contract exposes product parameter and output metadata" {
             allocator.free(outputs);
         }
     };
-    const Program = ability.program("matrix-layout-product-output", LayoutProductHandlers, Body);
+    const Program = boundary.program("matrix-layout-product-output", LayoutProductHandlers, Body);
 
     try std.testing.expectEqualStrings("matrix-layout-product-output", Program.contract.label);
     try expectRef(Program.contract.result_ref, .{ .codec = .product, .schema_index = 0 });
@@ -299,7 +299,7 @@ test "layout builder contract exposes product parameter and output metadata" {
     try expectRef(Program.contract.entry_parameters[0].ref, .{ .codec = .product, .schema_index = 0 });
     try std.testing.expectEqual(@as(usize, 1), Program.contract.value_schemas.len);
     try std.testing.expectEqualStrings(@typeName(LayoutProductPayload), Program.contract.value_schemas[0].label);
-    try std.testing.expectEqual(ability.ir.ValueCodec.product, Program.contract.value_schemas[0].codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.product, Program.contract.value_schemas[0].codec);
     try std.testing.expectEqual(@as(u16, 0), Program.contract.value_schemas[0].first_field);
     try std.testing.expectEqual(@as(u16, 1), Program.contract.value_schemas[0].field_count);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.value_fields.len);
@@ -308,7 +308,7 @@ test "layout builder contract exposes product parameter and output metadata" {
     try std.testing.expectEqual(@as(usize, 0), Program.contract.value_variants.len);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.outputs.len);
     try std.testing.expectEqualStrings("writer", Program.contract.outputs[0].label);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.outputs[0].codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, Program.contract.outputs[0].codec);
     try std.testing.expectEqual(@as(?u16, null), Program.contract.outputs[0].schema_index);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.requirements.len);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.ops.len);
@@ -321,7 +321,7 @@ test "plan-native contract conformance matrix optional" {
         pub const value_schema_types = .{OptionalOutcome};
         pub const compiled_plan = optionalPlan();
     };
-    const Program = ability.program("matrix-plan-native-optional", OptionalHandlers, Body);
+    const Program = boundary.program("matrix-plan-native-optional", OptionalHandlers, Body);
 
     try expectRequirement(Program.contract, 0, "optional", .choice_policy, .none);
     try expectOp(
@@ -338,7 +338,7 @@ test "plan-native contract conformance matrix optional" {
     try std.testing.expectEqual(@as(usize, 0), Program.contract.outputs.len);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.value_schemas.len);
     try std.testing.expectEqualStrings(@typeName(OptionalOutcome), Program.contract.value_schemas[0].label);
-    try std.testing.expectEqual(ability.ir.ValueCodec.sum, Program.contract.value_schemas[0].codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.sum, Program.contract.value_schemas[0].codec);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.value_fields.len);
     try std.testing.expectEqual(@as(usize, 2), Program.contract.value_variants.len);
     try std.testing.expectEqualStrings("none", Program.contract.value_variants[0].name);
@@ -358,7 +358,7 @@ test "optional helper schema preserves field offsets after product schemas" {
             return .{ProductThenOptionalInput{ .amount = 7 }};
         }
     };
-    const Program = ability.program("matrix-product-then-optional", OptionalHandlers, Body);
+    const Program = boundary.program("matrix-product-then-optional", OptionalHandlers, Body);
 
     try expectRef(Program.contract.entry_parameters[0].ref, .{ .codec = .product, .schema_index = 0 });
     try expectOp(
@@ -373,17 +373,17 @@ test "optional helper schema preserves field offsets after product schemas" {
     );
     try std.testing.expectEqual(@as(usize, 2), Program.contract.value_schemas.len);
     try std.testing.expectEqualStrings(@typeName(ProductThenOptionalInput), Program.contract.value_schemas[0].label);
-    try std.testing.expectEqual(ability.ir.ValueCodec.product, Program.contract.value_schemas[0].codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.product, Program.contract.value_schemas[0].codec);
     try std.testing.expectEqual(@as(u16, 0), Program.contract.value_schemas[0].first_field);
     try std.testing.expectEqual(@as(u16, 1), Program.contract.value_schemas[0].field_count);
     try std.testing.expectEqualStrings(@typeName(OptionalOutcome), Program.contract.value_schemas[1].label);
-    try std.testing.expectEqual(ability.ir.ValueCodec.sum, Program.contract.value_schemas[1].codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.sum, Program.contract.value_schemas[1].codec);
     try std.testing.expectEqual(@as(u16, 1), Program.contract.value_schemas[1].first_field);
     try std.testing.expectEqual(@as(u16, 0), Program.contract.value_schemas[1].first_variant);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.value_fields.len);
     try std.testing.expectEqual(@as(usize, 2), Program.contract.value_variants.len);
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var result = try Program.run(&runtime, .{ .request = .{} });
     defer result.deinit();
@@ -408,12 +408,12 @@ const StateReaderHandlers = struct {
     },
 };
 
-fn stateReaderPlan() ability.ir.ProgramPlan {
-    const layout = ability.ir.builder.layout;
-    const root = comptime ability.ir.builder.function(0);
-    const env = comptime ability.ir.builder.local(root, 0);
-    const before = comptime ability.ir.builder.local(root, 1);
-    const next = comptime ability.ir.builder.local(root, 2);
+fn stateReaderPlan() boundary.ir.ProgramPlan {
+    const layout = boundary.ir.builder.layout;
+    const root = comptime boundary.ir.builder.function(0);
+    const env = comptime boundary.ir.builder.local(root, 0);
+    const before = comptime boundary.ir.builder.local(root, 1);
+    const next = comptime boundary.ir.builder.local(root, 2);
     const StateRows = state_plan.Rows("state", i32, error{}, .{
         .requirement_index = 0,
         .first_op = 0,
@@ -424,13 +424,13 @@ fn stateReaderPlan() ability.ir.ProgramPlan {
         .first_op = StateRows.op_count,
         .first_output = StateRows.output_count,
     });
-    const requirements = [_]ability.ir.plan.Requirement{
+    const requirements = [_]boundary.ir.plan.Requirement{
         StateRows.requirement,
         ReaderRows.requirement,
     };
     const ops = StateRows.ops ++ ReaderRows.ops;
     const outputs = StateRows.outputs ++ ReaderRows.outputs;
-    return mustPlan(ability.ir.builder.layout.finish(.{
+    return mustPlan(boundary.ir.builder.layout.finish(.{
         .label = "matrix-plan-native-state-reader",
         .ir_hash = 9002,
         .entry = root,
@@ -439,8 +439,8 @@ fn stateReaderPlan() ability.ir.ProgramPlan {
         .outputs = &outputs,
         .functions = .{.{
             .symbol_name = "run",
-            .value_ref = ability.ir.ValueRef{ .codec = .i32 },
-            .result_ref = ability.ir.ValueRef{ .codec = .i32 },
+            .value_ref = boundary.ir.ValueRef{ .codec = .i32 },
+            .result_ref = boundary.ir.ValueRef{ .codec = .i32 },
             .requirements = layout.span(0, 2),
             .outputs = layout.span(0, 1),
             .locals = .{
@@ -454,9 +454,9 @@ fn stateReaderPlan() ability.ir.ProgramPlan {
                     mustInstruction(state_plan.callGet(root, before, state_plan.getOp(root, 0))),
                     .{ .kind = .add_i32, .dst = next.index, .operand = before.index, .aux = env.index },
                     mustInstruction(state_plan.callSet(root, next, state_plan.setOp(root, 0))),
-                    mustInstruction(ability.ir.builder.returnValue(root, next)),
+                    mustInstruction(boundary.ir.builder.returnValue(root, next)),
                 },
-                .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                .terminator = boundary.ir.plan.Terminator{ .kind = .return_value },
             }},
         }},
     }));
@@ -475,7 +475,7 @@ test "plan-native contract conformance matrix state reader" {
             allocator.free(outputs);
         }
     };
-    const Program = ability.program("matrix-plan-native-state-reader", StateReaderHandlers, Body);
+    const Program = boundary.program("matrix-plan-native-state-reader", StateReaderHandlers, Body);
 
     try expectRequirement(Program.contract, 0, "state", .state_cell, .final_state);
     try expectRequirement(Program.contract, 1, "reader", .reader_environment, .none);
@@ -485,7 +485,7 @@ test "plan-native contract conformance matrix state reader" {
     try expectRef(Program.contract.result_ref, .{ .codec = .i32 });
     try std.testing.expectEqual(@as(usize, 1), Program.contract.outputs.len);
     try std.testing.expectEqualStrings("state", Program.contract.outputs[0].label);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.outputs[0].codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, Program.contract.outputs[0].codec);
     try std.testing.expectEqual(@as(?u16, null), Program.contract.outputs[0].schema_index);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.value_schemas.len);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.value_fields.len);
@@ -502,21 +502,21 @@ const WriterHandlers = struct {
     },
 };
 
-fn writerPlan() ability.ir.ProgramPlan {
-    const layout = ability.ir.builder.layout;
-    const root = comptime ability.ir.builder.function(0);
-    const first = comptime ability.ir.builder.local(root, 0);
-    const second = comptime ability.ir.builder.local(root, 1);
+fn writerPlan() boundary.ir.ProgramPlan {
+    const layout = boundary.ir.builder.layout;
+    const root = comptime boundary.ir.builder.function(0);
+    const first = comptime boundary.ir.builder.local(root, 0);
+    const second = comptime boundary.ir.builder.local(root, 1);
     const WriterRows = writer_plan.Rows("writer", i32, error{}, .{
         .requirement_index = 0,
         .first_op = 0,
         .first_output = 0,
     });
-    const requirements = [_]ability.ir.plan.Requirement{WriterRows.requirement};
+    const requirements = [_]boundary.ir.plan.Requirement{WriterRows.requirement};
     const ops = WriterRows.ops;
     const outputs = WriterRows.outputs;
 
-    return mustPlan(ability.ir.builder.layout.finish(.{
+    return mustPlan(boundary.ir.builder.layout.finish(.{
         .label = "matrix-plan-native-writer",
         .ir_hash = 9003,
         .entry = root,
@@ -538,7 +538,7 @@ fn writerPlan() ability.ir.ProgramPlan {
                     .{ .kind = .const_i32, .dst = second.index, .operand = 8 },
                     mustInstruction(writer_plan.callTell(root, second, writer_plan.tellOp(root, 0))),
                 },
-                .terminator = ability.ir.plan.Terminator{ .kind = .return_unit },
+                .terminator = boundary.ir.plan.Terminator{ .kind = .return_unit },
             }},
         }},
     }));
@@ -557,7 +557,7 @@ test "plan-native contract conformance matrix writer" {
             allocator.free(outputs);
         }
     };
-    const Program = ability.program("matrix-plan-native-writer", WriterHandlers, Body);
+    const Program = boundary.program("matrix-plan-native-writer", WriterHandlers, Body);
 
     try expectRequirement(Program.contract, 0, "writer", .writer_accumulator, .accumulator);
     try expectOp(Program.contract, 0, "writer", "tell", .transform, .{ .codec = .i32 }, .{ .codec = .unit }, false);
@@ -565,7 +565,7 @@ test "plan-native contract conformance matrix writer" {
     try std.testing.expectEqual([]i32, Program.contract.OutputsType);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.outputs.len);
     try std.testing.expectEqualStrings("writer", Program.contract.outputs[0].label);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.outputs[0].codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, Program.contract.outputs[0].codec);
     try std.testing.expectEqual(@as(?u16, null), Program.contract.outputs[0].schema_index);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.value_schemas.len);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.value_fields.len);
@@ -606,20 +606,20 @@ const StructuredEffectHandlers = struct {
     },
 };
 
-fn structuredStateReaderWriterPlan() ability.ir.ProgramPlan {
-    const layout = ability.ir.builder.layout;
-    const root = comptime ability.ir.builder.function(0);
-    const current_state = comptime ability.ir.builder.local(root, 0);
-    const environment = comptime ability.ir.builder.local(root, 1);
-    const fields = [_]ability.ir.ValueFieldPlan{ability.ir.value.field("amount", i32)};
-    const schemas = [_]ability.ir.ValueSchemaPlan{.{
+fn structuredStateReaderWriterPlan() boundary.ir.ProgramPlan {
+    const layout = boundary.ir.builder.layout;
+    const root = comptime boundary.ir.builder.function(0);
+    const current_state = comptime boundary.ir.builder.local(root, 0);
+    const environment = comptime boundary.ir.builder.local(root, 1);
+    const fields = [_]boundary.ir.ValueFieldPlan{boundary.ir.value.field("amount", i32)};
+    const schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(StructuredEffectPayload),
         .codec = .product,
         .first_field = 0,
         .field_count = @intCast(fields.len),
     }};
-    const schema_refs = ability.ir.schema.SchemaRefs(.{
-        ability.ir.schema.ref(StructuredEffectPayload, 0),
+    const schema_refs = boundary.ir.schema.SchemaRefs(.{
+        boundary.ir.schema.ref(StructuredEffectPayload, 0),
     });
     const StateRows = state_plan.Rows("state", StructuredEffectPayload, error{}, .{
         .requirement_index = 0,
@@ -639,7 +639,7 @@ fn structuredStateReaderWriterPlan() ability.ir.ProgramPlan {
         .first_output = StateRows.output_count,
         .schema_refs = schema_refs,
     });
-    const requirements = [_]ability.ir.plan.Requirement{
+    const requirements = [_]boundary.ir.plan.Requirement{
         StateRows.requirement,
         ReaderRows.requirement,
         WriterRows.requirement,
@@ -647,7 +647,7 @@ fn structuredStateReaderWriterPlan() ability.ir.ProgramPlan {
     const ops = StateRows.ops ++ ReaderRows.ops ++ WriterRows.ops;
     const outputs = StateRows.outputs ++ WriterRows.outputs;
 
-    return mustPlan(ability.ir.builder.layout.finish(.{
+    return mustPlan(boundary.ir.builder.layout.finish(.{
         .label = "matrix-plan-native-structured-effects",
         .ir_hash = 9011,
         .entry = root,
@@ -671,7 +671,7 @@ fn structuredStateReaderWriterPlan() ability.ir.ProgramPlan {
                     mustInstruction(state_plan.callSet(root, current_state, state_plan.setOp(root, 0))),
                     mustInstruction(writer_plan.callTell(root, environment, writer_plan.tellOp(root, StateRows.op_count + ReaderRows.op_count))),
                 },
-                .terminator = ability.ir.plan.Terminator{ .kind = .return_unit },
+                .terminator = boundary.ir.plan.Terminator{ .kind = .return_unit },
             }},
         }},
     }));
@@ -694,7 +694,7 @@ test "plan-native contract conformance matrix structured state reader writer hel
             allocator.free(outputs.writer_items);
         }
     };
-    const Program = ability.program("matrix-plan-native-structured-effects", StructuredEffectHandlers, Body);
+    const Program = boundary.program("matrix-plan-native-structured-effects", StructuredEffectHandlers, Body);
 
     try expectRequirement(Program.contract, 0, "state", .state_cell, .final_state);
     try expectRequirement(Program.contract, 1, "reader", .reader_environment, .none);
@@ -711,7 +711,7 @@ test "plan-native contract conformance matrix structured state reader writer hel
     try expectRef(Program.contract.outputs[1], .{ .codec = .product, .schema_index = 0 });
     try std.testing.expectEqual(@as(usize, 1), Program.contract.value_schemas.len);
     try std.testing.expectEqualStrings(@typeName(StructuredEffectPayload), Program.contract.value_schemas[0].label);
-    try std.testing.expectEqual(ability.ir.ValueCodec.product, Program.contract.value_schemas[0].codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.product, Program.contract.value_schemas[0].codec);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.value_fields.len);
     try std.testing.expectEqualStrings("amount", Program.contract.value_fields[0].name);
     try expectRef(Program.contract.value_fields[0].ref, .{ .codec = .i32 });
@@ -749,15 +749,15 @@ const SumExceptionHandlers = struct {
     },
 };
 
-fn scalarExceptionPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn scalarExceptionPlan() boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_i32, .dst = payload.index, .operand = 40 },
-        mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload)),
+        mustInstruction(boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), payload)),
     };
-    const ExceptionRows = ability.ir.schema.LowerBinding(
-        ability.ir.schema.Binding("exception", ability.effect.exception.Schema(i32, error{}, void), void),
+    const ExceptionRows = boundary.ir.schema.LowerBinding(
+        boundary.ir.schema.Binding("exception", boundary.effect.exception.Schema(i32, error{}, void), void),
         .{ .requirement_index = 0, .first_op = 0 },
     );
     return exceptionPlan(
@@ -774,29 +774,29 @@ fn scalarExceptionPlan() ability.ir.ProgramPlan {
     );
 }
 
-fn productExceptionPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload)),
+fn productExceptionPlan() boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        mustInstruction(boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), payload)),
     };
-    const ExceptionRows = ability.ir.schema.LowerBinding(
-        ability.ir.schema.Binding("exception", ability.effect.exception.Schema(ProductPayload, error{}, void), void),
+    const ExceptionRows = boundary.ir.schema.LowerBinding(
+        boundary.ir.schema.Binding("exception", boundary.effect.exception.Schema(ProductPayload, error{}, void), void),
         .{
             .requirement_index = 0,
             .first_op = 0,
-            .schema_refs = ability.ir.schema.SchemaRefs(.{
-                ability.ir.schema.ref(ProductPayload, 0),
+            .schema_refs = boundary.ir.schema.SchemaRefs(.{
+                boundary.ir.schema.ref(ProductPayload, 0),
             }),
         },
     );
-    const schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(ProductPayload),
         .codec = .product,
         .first_field = 0,
         .field_count = 1,
     }};
-    const fields = [_]ability.ir.ValueFieldPlan{.{ .name = "amount", .codec = .i32 }};
+    const fields = [_]boundary.ir.ValueFieldPlan{.{ .name = "amount", .codec = .i32 }};
     return exceptionPlan(
         ExceptionRows,
         "matrix-plan-native-exception-product",
@@ -811,27 +811,27 @@ fn productExceptionPlan() ability.ir.ProgramPlan {
     );
 }
 
-fn sumExceptionPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload)),
+fn sumExceptionPlan() boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        mustInstruction(boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), payload)),
     };
-    const ExceptionRows = ability.ir.schema.LowerBinding(
-        ability.ir.schema.Binding("exception", ability.effect.exception.Schema(OptionalPayload, error{}, void), void),
+    const ExceptionRows = boundary.ir.schema.LowerBinding(
+        boundary.ir.schema.Binding("exception", boundary.effect.exception.Schema(OptionalPayload, error{}, void), void),
         .{
             .requirement_index = 0,
             .first_op = 0,
-            .schema_refs = ability.ir.schema.SchemaRefs(.{
-                ability.ir.schema.ref(OptionalPayload, 0),
+            .schema_refs = boundary.ir.schema.SchemaRefs(.{
+                boundary.ir.schema.ref(OptionalPayload, 0),
             }),
         },
     );
-    const variants = [_]ability.ir.ValueVariantPlan{
-        ability.ir.value.unitVariant("none"),
-        ability.ir.value.variant("some", i32),
+    const variants = [_]boundary.ir.ValueVariantPlan{
+        boundary.ir.value.unitVariant("none"),
+        boundary.ir.value.variant("some", i32),
     };
-    const schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(OptionalPayload),
         .codec = .sum,
         .first_variant = 0,
@@ -855,24 +855,24 @@ fn exceptionPlan(
     comptime ExceptionRows: type,
     comptime label: []const u8,
     comptime hash: u64,
-    comptime result_ref: ability.ir.ValueRef,
+    comptime result_ref: boundary.ir.ValueRef,
     comptime parameter_count: u16,
-    instructions: []const ability.ir.plan.Instruction,
-    locals: []const ability.ir.plan.Local,
-    schemas: []const ability.ir.ValueSchemaPlan,
-    fields: []const ability.ir.ValueFieldPlan,
-    variants: []const ability.ir.ValueVariantPlan,
-) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const requirements = [_]ability.ir.plan.Requirement{ExceptionRows.requirement};
+    instructions: []const boundary.ir.plan.Instruction,
+    locals: []const boundary.ir.plan.Local,
+    schemas: []const boundary.ir.ValueSchemaPlan,
+    fields: []const boundary.ir.ValueFieldPlan,
+    variants: []const boundary.ir.ValueVariantPlan,
+) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const requirements = [_]boundary.ir.plan.Requirement{ExceptionRows.requirement};
     const ops = ExceptionRows.ops;
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
-    return mustPlan(ability.ir.builder.finish(.{
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
+    return mustPlan(boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = hash,
         .entry = root,
@@ -927,9 +927,9 @@ test "plan-native contract conformance matrix exception" {
             return .{@as(OptionalPayload, 60)};
         }
     };
-    const ScalarProgram = ability.program("matrix-plan-native-exception-scalar", ScalarExceptionHandlers, ScalarBody);
-    const ProductProgram = ability.program("matrix-plan-native-exception-product", ProductExceptionHandlers, ProductBody);
-    const SumProgram = ability.program("matrix-plan-native-exception-sum", SumExceptionHandlers, SumBody);
+    const ScalarProgram = boundary.program("matrix-plan-native-exception-scalar", ScalarExceptionHandlers, ScalarBody);
+    const ProductProgram = boundary.program("matrix-plan-native-exception-product", ProductExceptionHandlers, ProductBody);
+    const SumProgram = boundary.program("matrix-plan-native-exception-sum", SumExceptionHandlers, SumBody);
 
     try expectRequirement(ScalarProgram.contract, 0, "exception", .abort_catch, .none);
     try expectOp(ScalarProgram.contract, 0, "exception", "throw", .abort, .{ .codec = .i32 }, .{ .codec = .unit }, false);
@@ -942,7 +942,7 @@ test "plan-native contract conformance matrix exception" {
     try expectRef(ProductProgram.contract.result_ref, .{ .codec = .product, .schema_index = 0 });
     try std.testing.expectEqual(@as(usize, 1), ProductProgram.contract.value_schemas.len);
     try std.testing.expectEqualStrings(@typeName(ProductPayload), ProductProgram.contract.value_schemas[0].label);
-    try std.testing.expectEqual(ability.ir.ValueCodec.product, ProductProgram.contract.value_schemas[0].codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.product, ProductProgram.contract.value_schemas[0].codec);
     try std.testing.expectEqual(@as(usize, 1), ProductProgram.contract.value_fields.len);
     try std.testing.expectEqualStrings("amount", ProductProgram.contract.value_fields[0].name);
     try expectRef(ProductProgram.contract.value_fields[0].ref, .{ .codec = .i32 });
@@ -954,7 +954,7 @@ test "plan-native contract conformance matrix exception" {
     try expectRef(SumProgram.contract.result_ref, .{ .codec = .i32 });
     try std.testing.expectEqual(@as(usize, 1), SumProgram.contract.value_schemas.len);
     try std.testing.expectEqualStrings(@typeName(OptionalPayload), SumProgram.contract.value_schemas[0].label);
-    try std.testing.expectEqual(ability.ir.ValueCodec.sum, SumProgram.contract.value_schemas[0].codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.sum, SumProgram.contract.value_schemas[0].codec);
     try std.testing.expectEqual(@as(usize, 2), SumProgram.contract.value_variants.len);
     try std.testing.expectEqualStrings("none", SumProgram.contract.value_variants[0].name);
     try expectRef(SumProgram.contract.value_variants[0].ref, .{ .codec = .unit });
@@ -991,64 +991,64 @@ const ResourceHandlers = struct {
         }
     },
     request: struct {
-        pub fn dispatch(_: *const @This()) !ability.effect.choice.Decision(i32, i32) {
-            return ability.effect.choice.Decision(i32, i32).returnNow(90);
+        pub fn dispatch(_: *const @This()) !boundary.effect.choice.Decision(i32, i32) {
+            return boundary.effect.choice.Decision(i32, i32).returnNow(90);
         }
     },
 };
 
-fn resourcePlan(comptime mode: ResourceMode) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const outer = ability.ir.builder.local(root, 0);
-    const inner = ability.ir.builder.local(root, 1);
-    const value = ability.ir.builder.local(root, 2);
+fn resourcePlan(comptime mode: ResourceMode) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const outer = boundary.ir.builder.local(root, 0);
+    const inner = boundary.ir.builder.local(root, 1);
+    const value = boundary.ir.builder.local(root, 2);
     const instructions = comptime blk: {
-        var buffer: [6]ability.ir.plan.Instruction = undefined;
-        buffer[0] = mustInstruction(ability.ir.builder.callOp(root, outer, ability.ir.builder.op(root, 0), null));
-        buffer[1] = mustInstruction(ability.ir.builder.callOp(root, inner, ability.ir.builder.op(root, 0), null));
-        buffer[2] = mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 1), inner));
-        buffer[3] = mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 1), outer));
+        var buffer: [6]boundary.ir.plan.Instruction = undefined;
+        buffer[0] = mustInstruction(boundary.ir.builder.callOp(root, outer, boundary.ir.builder.op(root, 0), null));
+        buffer[1] = mustInstruction(boundary.ir.builder.callOp(root, inner, boundary.ir.builder.op(root, 0), null));
+        buffer[2] = mustInstruction(boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 1), inner));
+        buffer[3] = mustInstruction(boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 1), outer));
         switch (mode) {
             .normal => {
                 buffer[4] = .{ .kind = .const_i32, .dst = value.index, .operand = 12 };
-                buffer[5] = mustInstruction(ability.ir.builder.returnValue(root, value));
+                buffer[5] = mustInstruction(boundary.ir.builder.returnValue(root, value));
             },
             .exception_escape => {
                 buffer[4] = .{ .kind = .const_i32, .dst = value.index, .operand = 80 };
-                buffer[5] = mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 2), value));
+                buffer[5] = mustInstruction(boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 2), value));
             },
             .optional_escape => {
-                buffer[4] = mustInstruction(ability.ir.builder.callOp(root, value, ability.ir.builder.op(root, 2), null));
-                buffer[5] = mustInstruction(ability.ir.builder.returnValue(root, value));
+                buffer[4] = mustInstruction(boundary.ir.builder.callOp(root, value, boundary.ir.builder.op(root, 2), null));
+                buffer[5] = mustInstruction(boundary.ir.builder.returnValue(root, value));
             },
         }
         break :blk buffer;
     };
-    const ResourceRows = ability.ir.schema.LowerBinding(
-        ability.ir.schema.Binding("resource", ability.effect.resource.Schema(Resource, error{}, void), void),
+    const ResourceRows = boundary.ir.schema.LowerBinding(
+        boundary.ir.schema.Binding("resource", boundary.effect.resource.Schema(Resource, error{}, void), void),
         .{
             .requirement_index = 0,
             .first_op = 0,
-            .schema_refs = ability.ir.schema.SchemaRefs(.{
-                ability.ir.schema.ref(Resource, 0),
+            .schema_refs = boundary.ir.schema.SchemaRefs(.{
+                boundary.ir.schema.ref(Resource, 0),
             }),
         },
     );
-    const ExceptionRows = ability.ir.schema.LowerBinding(
-        ability.ir.schema.Binding("exception", ability.effect.exception.Schema(i32, error{}, void), void),
+    const ExceptionRows = boundary.ir.schema.LowerBinding(
+        boundary.ir.schema.Binding("exception", boundary.effect.exception.Schema(i32, error{}, void), void),
         .{ .requirement_index = 1, .first_op = ResourceRows.op_count },
     );
-    const OptionalRows = ability.ir.schema.LowerBinding(
-        ability.ir.schema.Binding("optional", ability.effect.optional.Schema(i32, error{}, void), void),
+    const OptionalRows = boundary.ir.schema.LowerBinding(
+        boundary.ir.schema.Binding("optional", boundary.effect.optional.Schema(i32, error{}, void), void),
         .{ .requirement_index = 1, .first_op = ResourceRows.op_count },
     );
     const requirements = switch (mode) {
-        .normal => [_]ability.ir.plan.Requirement{ResourceRows.requirement},
-        .exception_escape => [_]ability.ir.plan.Requirement{
+        .normal => [_]boundary.ir.plan.Requirement{ResourceRows.requirement},
+        .exception_escape => [_]boundary.ir.plan.Requirement{
             ResourceRows.requirement,
             ExceptionRows.requirement,
         },
-        .optional_escape => [_]ability.ir.plan.Requirement{
+        .optional_escape => [_]boundary.ir.plan.Requirement{
             ResourceRows.requirement,
             OptionalRows.requirement,
         },
@@ -1058,21 +1058,21 @@ fn resourcePlan(comptime mode: ResourceMode) ability.ir.ProgramPlan {
         .exception_escape => ResourceRows.ops ++ ExceptionRows.ops,
         .optional_escape => ResourceRows.ops ++ OptionalRows.ops,
     };
-    const schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Resource),
         .codec = .product,
         .first_field = 0,
         .field_count = 1,
     }};
-    const fields = [_]ability.ir.ValueFieldPlan{.{ .name = "id", .codec = .i32 }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const fields = [_]boundary.ir.ValueFieldPlan{.{ .name = "id", .codec = .i32 }};
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = if (mode == .exception_escape) .return_unit else .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = if (mode == .exception_escape) .return_unit else .return_value }};
 
-    return mustPlan(ability.ir.builder.finish(.{
+    return mustPlan(boundary.ir.builder.finish(.{
         .label = switch (mode) {
             .normal => "matrix-plan-native-resource-normal",
             .exception_escape => "matrix-plan-native-resource-exception",
@@ -1133,9 +1133,9 @@ test "plan-native contract conformance matrix resource" {
         pub const value_schema_types = .{Resource};
         pub const compiled_plan = resourcePlan(.optional_escape);
     };
-    const NormalProgram = ability.program("matrix-plan-native-resource-normal", ResourceHandlers, NormalBody);
-    const ExceptionProgram = ability.program("matrix-plan-native-resource-exception", ResourceHandlers, ExceptionBody);
-    const OptionalProgram = ability.program("matrix-plan-native-resource-optional", ResourceHandlers, OptionalBody);
+    const NormalProgram = boundary.program("matrix-plan-native-resource-normal", ResourceHandlers, NormalBody);
+    const ExceptionProgram = boundary.program("matrix-plan-native-resource-exception", ResourceHandlers, ExceptionBody);
+    const OptionalProgram = boundary.program("matrix-plan-native-resource-optional", ResourceHandlers, OptionalBody);
 
     try expectRequirement(NormalProgram.contract, 0, "resource", .resource_bracket, .none);
     try expectOp(NormalProgram.contract, 0, "resource", "acquire", .transform, .{ .codec = .unit }, .{ .codec = .product, .schema_index = 0 }, false);
@@ -1144,7 +1144,7 @@ test "plan-native contract conformance matrix resource" {
     try std.testing.expectEqual(@as(usize, 0), NormalProgram.contract.outputs.len);
     try std.testing.expectEqual(@as(usize, 1), NormalProgram.contract.value_schemas.len);
     try std.testing.expectEqualStrings(@typeName(Resource), NormalProgram.contract.value_schemas[0].label);
-    try std.testing.expectEqual(ability.ir.ValueCodec.product, NormalProgram.contract.value_schemas[0].codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.product, NormalProgram.contract.value_schemas[0].codec);
     try std.testing.expectEqual(@as(usize, 1), NormalProgram.contract.value_fields.len);
     try std.testing.expectEqualStrings("id", NormalProgram.contract.value_fields[0].name);
     try expectRef(NormalProgram.contract.value_fields[0].ref, .{ .codec = .i32 });

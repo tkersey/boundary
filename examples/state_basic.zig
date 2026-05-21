@@ -1,12 +1,12 @@
 // zlinter-disable declaration_naming require_doc_comment no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
-fn mustInstruction(result: anyerror!ability.ir.plan.Instruction) ability.ir.plan.Instruction {
+fn mustInstruction(result: anyerror!boundary.ir.plan.Instruction) boundary.ir.plan.Instruction {
     return result catch |err| std.debug.panic("invalid state-basic instruction: {s}", .{@errorName(err)});
 }
 
-fn mustPlan(result: anyerror!ability.ir.ProgramPlan) ability.ir.ProgramPlan {
+fn mustPlan(result: anyerror!boundary.ir.ProgramPlan) boundary.ir.ProgramPlan {
     return result catch |err| std.debug.panic("invalid state-basic plan: {s}", .{@errorName(err)});
 }
 
@@ -27,21 +27,21 @@ const StateHandlers = struct {
     },
 };
 
-fn statePlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const before = ability.ir.builder.local(root, 0);
-    const next = ability.ir.builder.local(root, 1);
-    const after = ability.ir.builder.local(root, 2);
-    const total = ability.ir.builder.local(root, 3);
-    const instructions = [_]ability.ir.plan.Instruction{
-        mustInstruction(ability.ir.builder.callOp(root, before, ability.ir.builder.op(root, 0), null)),
+fn statePlan() boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const before = boundary.ir.builder.local(root, 0);
+    const next = boundary.ir.builder.local(root, 1);
+    const after = boundary.ir.builder.local(root, 2);
+    const total = boundary.ir.builder.local(root, 3);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        mustInstruction(boundary.ir.builder.callOp(root, before, boundary.ir.builder.op(root, 0), null)),
         .{ .kind = .add_const_i32, .dst = next.index, .operand = before.index, .aux = 1 },
-        mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 1), next)),
-        mustInstruction(ability.ir.builder.callOp(root, after, ability.ir.builder.op(root, 0), null)),
+        mustInstruction(boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 1), next)),
+        mustInstruction(boundary.ir.builder.callOp(root, after, boundary.ir.builder.op(root, 0), null)),
         .{ .kind = .add_i32, .dst = total.index, .operand = before.index, .aux = after.index },
-        mustInstruction(ability.ir.builder.returnValue(root, total)),
+        mustInstruction(boundary.ir.builder.returnValue(root, total)),
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 0,
@@ -57,15 +57,15 @@ fn statePlan() ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "state", .first_op = 0, .op_count = 2 }};
-    const ops = [_]ability.ir.plan.Op{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "state", .first_op = 0, .op_count = 2 }};
+    const ops = [_]boundary.ir.plan.Op{
         .{ .requirement_index = 0, .op_name = "get", .mode = .transform, .payload_codec = .unit, .resume_codec = .i32 },
         .{ .requirement_index = 0, .op_name = "set", .mode = .transform, .payload_codec = .i32, .resume_codec = .unit },
     };
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return mustPlan(ability.ir.builder.finish(.{
+    return mustPlan(boundary.ir.builder.finish(.{
         .label = "state-basic",
         .ir_hash = 10,
         .entry = root,
@@ -86,11 +86,11 @@ const StateBody = struct {
 
 /// Write the state-effect transcript through an explicit reusable program.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = ability.Runtime.init(std.heap.page_allocator);
+    var runtime = boundary.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
     var state: i32 = 5;
-    const Program = ability.program("state-basic", StateHandlers, StateBody);
+    const Program = boundary.program("state-basic", StateHandlers, StateBody);
     var result = try Program.run(&runtime, .{
         .get = .{ .state = &state },
         .set = .{ .state = &state },

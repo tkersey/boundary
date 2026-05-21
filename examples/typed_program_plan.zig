@@ -1,5 +1,5 @@
 // zlinter-disable declaration_naming require_doc_comment no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const EmptyHandlers = struct {};
@@ -13,11 +13,11 @@ const Tagged = union(enum) {
     yes: i32,
 };
 
-const ProductSchemas = ability.ir.schema.Registry(.{Item});
-const OptionalSchemas = ability.ir.schema.Registry(.{?i32});
-const TaggedSchemas = ability.ir.schema.Registry(.{Tagged});
+const ProductSchemas = boundary.ir.schema.Registry(.{Item});
+const OptionalSchemas = boundary.ir.schema.Registry(.{?i32});
+const TaggedSchemas = boundary.ir.schema.Registry(.{Tagged});
 
-const writer_outputs = [_]ability.ir.plan.Output{.{
+const writer_outputs = [_]boundary.ir.plan.Output{.{
     .label = "writer",
     .codec = .i32,
 }};
@@ -26,8 +26,8 @@ fn productIdentityPlan(
     comptime Payload: type,
     comptime label: []const u8,
     comptime Schemas: type,
-) ability.ir.ProgramPlan {
-    const semantic = ability.ir.builder.semantic;
+) boundary.ir.ProgramPlan {
+    const semantic = boundary.ir.builder.semantic;
     return (semantic.finish(.{
         .label = label,
         .ir_hash = 0x746270000002,
@@ -60,8 +60,8 @@ fn sumVariantI32BranchPlan(
     comptime Sum: type,
     comptime Schemas: type,
     comptime spec: SumVariantI32BranchSpec,
-) ability.ir.ProgramPlan {
-    const semantic = ability.ir.builder.semantic;
+) boundary.ir.ProgramPlan {
+    const semantic = boundary.ir.builder.semantic;
     return (semantic.finish(.{
         .label = spec.label,
         .ir_hash = 0x746270000003,
@@ -109,8 +109,8 @@ fn sumExtractI32PayloadPlan(
     comptime label: []const u8,
     comptime Schemas: type,
     comptime variant_ordinal: u16,
-) ability.ir.ProgramPlan {
-    const semantic = ability.ir.builder.semantic;
+) boundary.ir.ProgramPlan {
+    const semantic = boundary.ir.builder.semantic;
     return (semantic.finish(.{
         .label = label,
         .ir_hash = 0x746270000004,
@@ -138,9 +138,9 @@ fn sumExtractI32PayloadPlan(
 
 fn unitWithOutputsPlan(
     comptime label: []const u8,
-    comptime outputs: []const ability.ir.plan.Output,
-) ability.ir.ProgramPlan {
-    const semantic = ability.ir.builder.semantic;
+    comptime outputs: []const boundary.ir.plan.Output,
+) boundary.ir.ProgramPlan {
+    const semantic = boundary.ir.builder.semantic;
     return (semantic.finish(.{
         .label = label,
         .ir_hash = 0x746270000005,
@@ -254,28 +254,28 @@ const OutputBody = struct {
 
 /// Run typed ProgramPlan examples through the public API.
 pub fn run(writer: anytype) !void {
-    var runtime = ability.Runtime.init(std.heap.page_allocator);
+    var runtime = boundary.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const ProductProgram = ability.program("typed-product-example", EmptyHandlers, ProductBody);
+    const ProductProgram = boundary.program("typed-product-example", EmptyHandlers, ProductBody);
     var product = try ProductProgram.run(&runtime, .{});
     defer product.deinit();
     try writer.print("product.amount={d}\n", .{product.value.amount});
 
-    const SomeProgram = ability.program("typed-sum-some-example", EmptyHandlers, SomeBody);
+    const SomeProgram = boundary.program("typed-sum-some-example", EmptyHandlers, SomeBody);
     var some = try SomeProgram.run(&runtime, .{});
     defer some.deinit();
-    const NoneProgram = ability.program("typed-sum-none-example", EmptyHandlers, NoneBody);
+    const NoneProgram = boundary.program("typed-sum-none-example", EmptyHandlers, NoneBody);
     var none = try NoneProgram.run(&runtime, .{});
     defer none.deinit();
     try writer.print("optional.some={d} optional.none={d}\n", .{ some.value, none.value });
 
-    const TaggedProgram = ability.program("tagged-payload-example", EmptyHandlers, TaggedBody);
+    const TaggedProgram = boundary.program("tagged-payload-example", EmptyHandlers, TaggedBody);
     var tagged = try TaggedProgram.run(&runtime, .{});
     defer tagged.deinit();
     try writer.print("tagged.yes={d}\n", .{tagged.value});
 
-    const OutputProgram = ability.program("output-cleanup-example", OutputHandlers, OutputBody);
+    const OutputProgram = boundary.program("output-cleanup-example", OutputHandlers, OutputBody);
     Cleanup.outputs_deinitialized = false;
     var output = try OutputProgram.run(&runtime, .{ .writer = .{ .value = 12 } });
     try writer.print("output.writer={d}\n", .{output.outputs[0]});

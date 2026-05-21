@@ -1,10 +1,10 @@
 // zlinter-disable declaration_naming require_doc_comment
-const ability = @import("ability");
+const boundary = @import("boundary");
 
-const EmptyLabel = ability.ir.schema.Protocol(.{
+const EmptyLabel = boundary.ir.schema.Protocol(.{
     .label = "",
     .ops = .{
-        ability.ir.schema.transform("step", void, i32),
+        boundary.ir.schema.transform("step", void, i32),
     },
 });
 

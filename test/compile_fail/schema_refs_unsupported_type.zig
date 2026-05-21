@@ -1,8 +1,8 @@
 // zlinter-disable declaration_naming require_doc_comment
-const ability = @import("ability");
+const boundary = @import("boundary");
 
-const UnsupportedRefs = ability.ir.schema.SchemaRefs(.{
-    ability.ir.schema.ref(*const i32, 0),
+const UnsupportedRefs = boundary.ir.schema.SchemaRefs(.{
+    boundary.ir.schema.ref(*const i32, 0),
 });
 
 test "schema refs reject unsupported entry types" {

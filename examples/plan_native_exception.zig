@@ -1,12 +1,12 @@
 // zlinter-disable declaration_naming require_doc_comment no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
-fn mustInstruction(result: anyerror!ability.ir.plan.Instruction) ability.ir.plan.Instruction {
+fn mustInstruction(result: anyerror!boundary.ir.plan.Instruction) boundary.ir.plan.Instruction {
     return result catch |err| std.debug.panic("invalid exception instruction: {s}", .{@errorName(err)});
 }
 
-fn mustPlan(result: anyerror!ability.ir.ProgramPlan) ability.ir.ProgramPlan {
+fn mustPlan(result: anyerror!boundary.ir.ProgramPlan) boundary.ir.ProgramPlan {
     return result catch |err| std.debug.panic("invalid exception plan: {s}", .{@errorName(err)});
 }
 
@@ -16,20 +16,20 @@ const ProductPayload = struct {
 
 const OptionalPayload = ?i32;
 
-fn scalarExceptionPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn scalarExceptionPlan() boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_i32, .dst = payload.index, .operand = 40 },
-        mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload)),
+        mustInstruction(boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), payload)),
     };
-    const ExceptionRows = ability.ir.schema.LowerBinding(
-        ability.ir.schema.Binding("exception", ability.effect.exception.Schema(i32, error{}, void), void),
+    const ExceptionRows = boundary.ir.schema.LowerBinding(
+        boundary.ir.schema.Binding("exception", boundary.effect.exception.Schema(i32, error{}, void), void),
         .{ .requirement_index = 0, .first_op = 0 },
     );
-    const requirements = [_]ability.ir.plan.Requirement{ExceptionRows.requirement};
+    const requirements = [_]boundary.ir.plan.Requirement{ExceptionRows.requirement};
     const ops = ExceptionRows.ops;
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
         .result_codec = .i32,
@@ -45,14 +45,14 @@ fn scalarExceptionPlan() ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return mustPlan(ability.ir.builder.finish(.{
+    return mustPlan(boundary.ir.builder.finish(.{
         .label = "plan-native-exception-scalar",
         .ir_hash = 70,
         .entry = root,
@@ -67,25 +67,25 @@ fn scalarExceptionPlan() ability.ir.ProgramPlan {
     }));
 }
 
-fn productExceptionPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload)),
+fn productExceptionPlan() boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        mustInstruction(boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), payload)),
     };
-    const ExceptionRows = ability.ir.schema.LowerBinding(
-        ability.ir.schema.Binding("exception", ability.effect.exception.Schema(ProductPayload, error{}, void), void),
+    const ExceptionRows = boundary.ir.schema.LowerBinding(
+        boundary.ir.schema.Binding("exception", boundary.effect.exception.Schema(ProductPayload, error{}, void), void),
         .{
             .requirement_index = 0,
             .first_op = 0,
-            .schema_refs = ability.ir.schema.SchemaRefs(.{
-                ability.ir.schema.ref(ProductPayload, 0),
+            .schema_refs = boundary.ir.schema.SchemaRefs(.{
+                boundary.ir.schema.ref(ProductPayload, 0),
             }),
         },
     );
-    const requirements = [_]ability.ir.plan.Requirement{ExceptionRows.requirement};
+    const requirements = [_]boundary.ir.plan.Requirement{ExceptionRows.requirement};
     const ops = ExceptionRows.ops;
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
         .result_codec = .product,
@@ -103,24 +103,24 @@ fn productExceptionPlan() ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(ProductPayload),
         .codec = .product,
         .first_field = 0,
         .field_count = 1,
     }};
-    const fields = [_]ability.ir.ValueFieldPlan{.{
+    const fields = [_]boundary.ir.ValueFieldPlan{.{
         .name = "amount",
         .codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return mustPlan(ability.ir.builder.finish(.{
+    return mustPlan(boundary.ir.builder.finish(.{
         .label = "plan-native-exception-product",
         .ir_hash = 71,
         .entry = root,
@@ -138,25 +138,25 @@ fn productExceptionPlan() ability.ir.ProgramPlan {
     }));
 }
 
-fn sumExceptionPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        mustInstruction(ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload)),
+fn sumExceptionPlan() boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        mustInstruction(boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), payload)),
     };
-    const ExceptionRows = ability.ir.schema.LowerBinding(
-        ability.ir.schema.Binding("exception", ability.effect.exception.Schema(OptionalPayload, error{}, void), void),
+    const ExceptionRows = boundary.ir.schema.LowerBinding(
+        boundary.ir.schema.Binding("exception", boundary.effect.exception.Schema(OptionalPayload, error{}, void), void),
         .{
             .requirement_index = 0,
             .first_op = 0,
-            .schema_refs = ability.ir.schema.SchemaRefs(.{
-                ability.ir.schema.ref(OptionalPayload, 0),
+            .schema_refs = boundary.ir.schema.SchemaRefs(.{
+                boundary.ir.schema.ref(OptionalPayload, 0),
             }),
         },
     );
-    const requirements = [_]ability.ir.plan.Requirement{ExceptionRows.requirement};
+    const requirements = [_]boundary.ir.plan.Requirement{ExceptionRows.requirement};
     const ops = ExceptionRows.ops;
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
         .result_codec = .i32,
@@ -173,24 +173,24 @@ fn sumExceptionPlan() ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const variants = [_]ability.ir.ValueVariantPlan{
-        ability.ir.value.unitVariant("none"),
-        ability.ir.value.variant("some", i32),
+    const variants = [_]boundary.ir.ValueVariantPlan{
+        boundary.ir.value.unitVariant("none"),
+        boundary.ir.value.variant("some", i32),
     };
-    const schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(OptionalPayload),
         .codec = .sum,
         .first_variant = 0,
         .variant_count = @intCast(variants.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return mustPlan(ability.ir.builder.finish(.{
+    return mustPlan(boundary.ir.builder.finish(.{
         .label = "plan-native-exception-sum",
         .ir_hash = 72,
         .entry = root,
@@ -255,12 +255,12 @@ const SumBody = struct {
 };
 
 pub fn run(writer: anytype) !void {
-    var runtime = ability.Runtime.init(std.heap.page_allocator);
+    var runtime = boundary.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const ScalarProgram = ability.program("plan-native-exception-scalar", ScalarHandlers, ScalarBody);
-    const ProductProgram = ability.program("plan-native-exception-product", ProductHandlers, ProductBody);
-    const SumProgram = ability.program("plan-native-exception-sum", SumHandlers, SumBody);
+    const ScalarProgram = boundary.program("plan-native-exception-scalar", ScalarHandlers, ScalarBody);
+    const ProductProgram = boundary.program("plan-native-exception-product", ProductHandlers, ProductBody);
+    const SumProgram = boundary.program("plan-native-exception-sum", SumHandlers, SumBody);
 
     var scalar = try ScalarProgram.run(&runtime, .{ .throw = .{} });
     defer scalar.deinit();

@@ -1,4 +1,4 @@
-const shared = @import("ability_shared");
+const shared = @import("boundary_shared");
 
 /// Public effect namespace.
 pub const effect = shared.effect;

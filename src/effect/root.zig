@@ -1,7 +1,7 @@
 const family = @import("family.zig");
 /// Public handler choice-decision helper namespace.
 pub const choice = @import("choice.zig");
-/// Exception effect family for returning a thrown payload through `ability.effect handlers`.
+/// Exception effect family for returning a thrown payload through `boundary.effect handlers`.
 pub const exception = @import("exception.zig");
 /// Optional effect family for choosing between early return and resumed execution.
 pub const optional = @import("optional.zig");

@@ -1,13 +1,13 @@
 // zlinter-disable declaration_naming require_doc_comment no_hidden_allocations no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const ApprovalHandlers = struct {};
 
-const ApprovalProtocol = ability.ir.schema.Protocol(.{
+const ApprovalProtocol = boundary.ir.schema.Protocol(.{
     .label = "approval",
     .ops = .{
-        ability.ir.schema.transform("score", []const u8, i32),
+        boundary.ir.schema.transform("score", []const u8, i32),
     },
 });
 
@@ -17,7 +17,7 @@ const ApprovalRows = ApprovalProtocol.Rows(ApprovalHandlers, .{
 });
 
 const approval_semantic_spec = blk: {
-    const semantic = ability.ir.builder.semantic;
+    const semantic = boundary.ir.builder.semantic;
     const ScoreOp = ApprovalRows.op("score");
 
     break :blk .{
@@ -51,7 +51,7 @@ const approval_semantic_spec = blk: {
     };
 };
 
-const approval_compiled = ability.ir.builder.semantic.finish(approval_semantic_spec) catch |err|
+const approval_compiled = boundary.ir.builder.semantic.finish(approval_semantic_spec) catch |err|
     @compileError("invalid journal-replay semantic plan: " ++ @errorName(err));
 
 const ApprovalBody = struct {
@@ -59,12 +59,12 @@ const ApprovalBody = struct {
     pub const compiled_plan = approval_compiled.plan;
 };
 
-const ApprovalProgram = ability.program("journal-replay", ApprovalHandlers, ApprovalBody);
+const ApprovalProgram = boundary.program("journal-replay", ApprovalHandlers, ApprovalBody);
 const ScoreSite = ApprovalProgram.protocol.operationSite("approval", "score", 0);
 
 pub fn run(writer: anytype) !void {
     const allocator = std.heap.page_allocator;
-    var runtime = ability.Runtime.init(allocator);
+    var runtime = boundary.Runtime.init(allocator);
     defer runtime.deinit();
 
     var session = try ApprovalProgram.Session.start(&runtime, .{});

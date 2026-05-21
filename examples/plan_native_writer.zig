@@ -1,14 +1,14 @@
 // zlinter-disable declaration_naming require_doc_comment no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
-const writer_plan = ability.effect.writer.plan;
+const writer_plan = boundary.effect.writer.plan;
 
-fn mustInstruction(result: anyerror!ability.ir.plan.Instruction) ability.ir.plan.Instruction {
+fn mustInstruction(result: anyerror!boundary.ir.plan.Instruction) boundary.ir.plan.Instruction {
     return result catch |err| std.debug.panic("invalid writer instruction: {s}", .{@errorName(err)});
 }
 
-fn mustPlan(result: anyerror!ability.ir.ProgramPlan) ability.ir.ProgramPlan {
+fn mustPlan(result: anyerror!boundary.ir.ProgramPlan) boundary.ir.ProgramPlan {
     return result catch |err| std.debug.panic("invalid writer plan: {s}", .{@errorName(err)});
 }
 
@@ -24,21 +24,21 @@ const WriterHandlers = struct {
     },
 };
 
-fn writerPlan() ability.ir.ProgramPlan {
-    const layout = ability.ir.builder.layout;
-    const root = comptime ability.ir.builder.function(0);
-    const first = comptime ability.ir.builder.local(root, 0);
-    const second = comptime ability.ir.builder.local(root, 1);
+fn writerPlan() boundary.ir.ProgramPlan {
+    const layout = boundary.ir.builder.layout;
+    const root = comptime boundary.ir.builder.function(0);
+    const first = comptime boundary.ir.builder.local(root, 0);
+    const second = comptime boundary.ir.builder.local(root, 1);
     const WriterRows = writer_plan.Rows("writer", i32, error{}, .{
         .requirement_index = 0,
         .first_op = 0,
         .first_output = 0,
     });
-    const requirements = [_]ability.ir.plan.Requirement{WriterRows.requirement};
+    const requirements = [_]boundary.ir.plan.Requirement{WriterRows.requirement};
     const ops = WriterRows.ops;
     const outputs = WriterRows.outputs;
 
-    return mustPlan(ability.ir.builder.layout.finish(.{
+    return mustPlan(boundary.ir.builder.layout.finish(.{
         .label = "plan-native-writer",
         .ir_hash = 60,
         .entry = root,
@@ -60,7 +60,7 @@ fn writerPlan() ability.ir.ProgramPlan {
                     .{ .kind = .const_i32, .dst = second.index, .operand = 8 },
                     mustInstruction(writer_plan.callTell(root, second, writer_plan.tellOp(root, 0))),
                 },
-                .terminator = ability.ir.plan.Terminator{ .kind = .return_unit },
+                .terminator = boundary.ir.plan.Terminator{ .kind = .return_unit },
             }},
         }},
     }));
@@ -87,12 +87,12 @@ const WriterBody = struct {
 };
 
 pub fn run(writer: anytype) !void {
-    var runtime = ability.Runtime.init(std.heap.page_allocator);
+    var runtime = boundary.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
     var values = [_]i32{0} ** 8;
     var count: usize = 0;
-    const Program = ability.program("plan-native-writer", WriterHandlers, WriterBody);
+    const Program = boundary.program("plan-native-writer", WriterHandlers, WriterBody);
     Cleanup.outputs_deinitialized = false;
     var result = try Program.run(&runtime, .{ .tell = .{ .values = &values, .count = &count } });
     try writer.print("outputs={d},{d} count={d}\n", .{ result.outputs[0], result.outputs[1], result.outputs.len });

@@ -1,4 +1,4 @@
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const NoError = error{};
@@ -6,14 +6,14 @@ const timed_iterations: usize = 50_000;
 const warmup_iterations: usize = 20_000;
 const samples_per_run: usize = 5;
 const prelude_items_per_body: usize = 32;
-const preserveValue = ability.preserveValue;
+const preserveValue = boundary.preserveValue;
 
-const OptionalReturnPrompt = ability.Prompt(.resume_or_return, usize, usize, NoError);
-const OptionalResumePrompt = ability.Prompt(.resume_or_return, usize, usize, NoError);
-const ExceptionPrompt = ability.Prompt(.direct_return, usize, usize, NoError);
+const OptionalReturnPrompt = boundary.Prompt(.resume_or_return, usize, usize, NoError);
+const OptionalResumePrompt = boundary.Prompt(.resume_or_return, usize, usize, NoError);
+const ExceptionPrompt = boundary.Prompt(.direct_return, usize, usize, NoError);
 
-const OptionalInstance = ability.effect.optional.Instance(usize, NoError);
-const ExceptionInstance = ability.effect.exception.Instance(usize, NoError);
+const OptionalInstance = boundary.effect.optional.Instance(usize, NoError);
+const ExceptionInstance = boundary.effect.exception.Instance(usize, NoError);
 
 const Sample = struct {
     checksum: usize,
@@ -49,8 +49,8 @@ const raw_optional_return = struct {
 
     const handler = struct {
         /// Return immediately with the current synthetic payload.
-        pub fn resumeOrReturn() ability.ResumeOrReturn(usize, usize) {
-            return ability.ResumeOrReturn(usize, usize).returnNow(current_value);
+        pub fn resumeOrReturn() boundary.ResumeOrReturn(usize, usize) {
+            return boundary.ResumeOrReturn(usize, usize).returnNow(current_value);
         }
 
         /// Preserve any resumed answer unchanged.
@@ -59,13 +59,13 @@ const raw_optional_return = struct {
         }
     };
 
-    fn body() ability.ResetError(NoError)!usize {
+    fn body() boundary.ResetError(NoError)!usize {
         var checksum: usize = 0;
         var current: usize = 0;
         while (current < prelude_items_per_body) : (current += 1) {
             checksum +%= current_value + current + 1;
         }
-        _ = try ability.frontend.choice(usize, prompt_ptr.?, handler);
+        _ = try boundary.frontend.choice(usize, prompt_ptr.?, handler);
         return checksum;
     }
 };
@@ -73,8 +73,8 @@ const raw_optional_return = struct {
 const effect_optional_return = struct {
     const policy = struct {
         /// Return immediately with the current synthetic payload.
-        pub fn resumeOrReturn() ability.ResumeOrReturn(usize, usize) {
-            return ability.ResumeOrReturn(usize, usize).returnNow(raw_optional_return.current_value);
+        pub fn resumeOrReturn() boundary.ResumeOrReturn(usize, usize) {
+            return boundary.ResumeOrReturn(usize, usize).returnNow(raw_optional_return.current_value);
         }
 
         /// Preserve any resumed answer unchanged.
@@ -84,7 +84,7 @@ const effect_optional_return = struct {
     };
 
     /// Execute the heavier return-now optional lane.
-    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(ability.effect.optional.requestProgram(Cap, ctx, struct {
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(boundary.effect.optional.requestProgram(Cap, ctx, struct {
         /// Recompute the prelude checksum if the optional request unexpectedly resumes.
         pub fn apply(_: usize) usize {
             var checksum: usize = 0;
@@ -95,7 +95,7 @@ const effect_optional_return = struct {
             return checksum;
         }
     })) {
-        return ability.effect.optional.requestProgram(Cap, ctx, struct {
+        return boundary.effect.optional.requestProgram(Cap, ctx, struct {
             /// Recompute the prelude checksum if the optional request unexpectedly resumes.
             pub fn apply(_: usize) usize {
                 var inner_checksum: usize = 0;
@@ -115,8 +115,8 @@ const raw_optional_resume = struct {
 
     const handler = struct {
         /// Resume once with the current synthetic payload.
-        pub fn resumeOrReturn() ability.ResumeOrReturn(usize, usize) {
-            return ability.ResumeOrReturn(usize, usize).resumeWith(current_value);
+        pub fn resumeOrReturn() boundary.ResumeOrReturn(usize, usize) {
+            return boundary.ResumeOrReturn(usize, usize).resumeWith(current_value);
         }
 
         /// Preserve any resumed answer unchanged.
@@ -125,8 +125,8 @@ const raw_optional_resume = struct {
         }
     };
 
-    fn body() ability.ResetError(NoError)!usize {
-        const value = try ability.frontend.choice(usize, prompt_ptr.?, handler);
+    fn body() boundary.ResetError(NoError)!usize {
+        const value = try boundary.frontend.choice(usize, prompt_ptr.?, handler);
         var checksum: usize = value;
         var current: usize = 0;
         while (current < prelude_items_per_body) : (current += 1) {
@@ -139,8 +139,8 @@ const raw_optional_resume = struct {
 const effect_optional_resume = struct {
     const policy = struct {
         /// Resume once with the current synthetic payload.
-        pub fn resumeOrReturn() ability.ResumeOrReturn(usize, usize) {
-            return ability.ResumeOrReturn(usize, usize).resumeWith(raw_optional_resume.current_value);
+        pub fn resumeOrReturn() boundary.ResumeOrReturn(usize, usize) {
+            return boundary.ResumeOrReturn(usize, usize).resumeWith(raw_optional_resume.current_value);
         }
 
         /// Preserve any resumed answer unchanged.
@@ -150,7 +150,7 @@ const effect_optional_resume = struct {
     };
 
     /// Execute the heavier resumptive optional lane.
-    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(ability.effect.optional.requestProgram(Cap, ctx, struct {
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(boundary.effect.optional.requestProgram(Cap, ctx, struct {
         /// Resume and add the amortized prelude checksum to the resumed value.
         pub fn apply(value: usize) usize {
             var checksum: usize = value;
@@ -161,7 +161,7 @@ const effect_optional_resume = struct {
             return checksum;
         }
     })) {
-        return ability.effect.optional.requestProgram(Cap, ctx, struct {
+        return boundary.effect.optional.requestProgram(Cap, ctx, struct {
             /// Resume and add the amortized prelude checksum to the resumed value.
             pub fn apply(value: usize) usize {
                 var checksum: usize = value;
@@ -186,13 +186,13 @@ const raw_exception = struct {
         }
     };
 
-    fn body() ability.ResetError(NoError)!usize {
+    fn body() boundary.ResetError(NoError)!usize {
         var checksum: usize = 0;
         var current: usize = 0;
         while (current < prelude_items_per_body) : (current += 1) {
             checksum +%= pending_payload + current;
         }
-        try ability.frontend.abort(prompt_ptr.?, handler);
+        try boundary.frontend.abort(prompt_ptr.?, handler);
         return checksum;
     }
 };
@@ -206,60 +206,60 @@ const effect_exception = struct {
     };
 
     /// Execute the heavier thrown-path exception lane.
-    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(ability.effect.exception.throwProgram(Cap, ctx, raw_exception.pending_payload)) {
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(boundary.effect.exception.throwProgram(Cap, ctx, raw_exception.pending_payload)) {
         var checksum: usize = 0;
         var current: usize = 0;
         while (current < prelude_items_per_body) : (current += 1) {
             checksum +%= raw_exception.pending_payload + current;
         }
-        return ability.effect.exception.throwProgram(Cap, ctx, raw_exception.pending_payload + checksum);
+        return boundary.effect.exception.throwProgram(Cap, ctx, raw_exception.pending_payload + checksum);
     }
 };
 
-fn runOptionalReturnRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
+fn runOptionalReturnRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runOptionalReturnEffectSample(io, runtime, &OptionalInstance.init(), iterations);
 }
 
-fn runOptionalReturnEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
+fn runOptionalReturnEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_return.current_value = index;
-        checksum += preserveValue(try ability.effect.optional.handle(usize, runtime, instance, effect_optional_return.policy, effect_optional_return));
+        checksum += preserveValue(try boundary.effect.optional.handle(usize, runtime, instance, effect_optional_return.policy, effect_optional_return));
     }
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runOptionalResumeRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
+fn runOptionalResumeRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runOptionalResumeEffectSample(io, runtime, &OptionalInstance.init(), iterations);
 }
 
-fn runOptionalResumeEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
+fn runOptionalResumeEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_resume.current_value = index;
-        checksum += preserveValue(try ability.effect.optional.handle(usize, runtime, instance, effect_optional_resume.policy, effect_optional_resume));
+        checksum += preserveValue(try boundary.effect.optional.handle(usize, runtime, instance, effect_optional_resume.policy, effect_optional_resume));
     }
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runExceptionRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
+fn runExceptionRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runExceptionEffectSample(io, runtime, &ExceptionInstance.init(), iterations);
 }
 
-fn runExceptionEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
+fn runExceptionEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_exception.pending_payload = index;
-        checksum += preserveValue(try ability.effect.exception.handle(usize, runtime, instance, effect_exception.catcher, effect_exception));
+        checksum += preserveValue(try boundary.effect.exception.handle(usize, runtime, instance, effect_exception.catcher, effect_exception));
     }
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
@@ -282,19 +282,19 @@ fn printLine(writer: anytype, name: []const u8, raw_samples: *const [samples_per
 
 /// Decompose heavier optional and exception abortive paths for acceptance decisions.
 pub fn main(init: std.process.Init) anyerror!void {
-    var optional_return_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var optional_return_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer optional_return_runtime.deinit();
     var optional_return_prompt = OptionalReturnPrompt.init();
     raw_optional_return.prompt_ptr = &optional_return_prompt;
     var optional_return_instance = OptionalInstance.init();
 
-    var optional_resume_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var optional_resume_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer optional_resume_runtime.deinit();
     var optional_resume_prompt = OptionalResumePrompt.init();
     raw_optional_resume.prompt_ptr = &optional_resume_prompt;
     var optional_resume_instance = OptionalInstance.init();
 
-    var exception_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var exception_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer exception_runtime.deinit();
     var exception_prompt = ExceptionPrompt.init();
     raw_exception.prompt_ptr = &exception_prompt;

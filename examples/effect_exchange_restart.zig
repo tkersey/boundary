@@ -1,13 +1,13 @@
 // zlinter-disable declaration_naming require_doc_comment no_hidden_allocations no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const ApprovalHandlers = struct {};
 
-const ApprovalProtocol = ability.ir.schema.Protocol(.{
+const ApprovalProtocol = boundary.ir.schema.Protocol(.{
     .label = "approval",
     .ops = .{
-        ability.ir.schema.transform("score", []const u8, i32),
+        boundary.ir.schema.transform("score", []const u8, i32),
     },
 });
 
@@ -17,7 +17,7 @@ const ApprovalRows = ApprovalProtocol.Rows(ApprovalHandlers, .{
 });
 
 const approval_semantic_spec = blk: {
-    const semantic = ability.ir.builder.semantic;
+    const semantic = boundary.ir.builder.semantic;
     const ScoreOp = ApprovalRows.op("score");
 
     break :blk .{
@@ -51,7 +51,7 @@ const approval_semantic_spec = blk: {
     };
 };
 
-const approval_compiled = ability.ir.builder.semantic.finish(approval_semantic_spec) catch |err|
+const approval_compiled = boundary.ir.builder.semantic.finish(approval_semantic_spec) catch |err|
     @compileError("invalid effect-exchange-restart semantic plan: " ++ @errorName(err));
 
 const ApprovalBody = struct {
@@ -59,14 +59,14 @@ const ApprovalBody = struct {
     pub const compiled_plan = approval_compiled.plan;
 };
 
-const ApprovalProgram = ability.program("effect-exchange-restart", ApprovalHandlers, ApprovalBody);
+const ApprovalProgram = boundary.program("effect-exchange-restart", ApprovalHandlers, ApprovalBody);
 
 pub fn run(writer: anytype) !void {
     const allocator = std.heap.page_allocator;
     var journal = ApprovalProgram.Session.Journal.init(allocator);
     defer journal.deinit();
 
-    var runtime = ability.Runtime.init(allocator);
+    var runtime = boundary.Runtime.init(allocator);
     var session = try ApprovalProgram.Session.start(&runtime, .{});
     const request = switch (try session.next()) {
         .request => |yielded| yielded,
@@ -87,7 +87,7 @@ pub fn run(writer: anytype) !void {
 
     var decoded_request = try ApprovalProgram.Exchange.RequestEnvelope.decode(allocator, request_envelope.bytes);
     defer decoded_request.deinit();
-    var restored_runtime = ability.Runtime.init(allocator);
+    var restored_runtime = boundary.Runtime.init(allocator);
     defer restored_runtime.deinit();
     var restored = try ApprovalProgram.Exchange.restoreFromRequestEnvelope(&restored_runtime, .{}, decoded_request);
     defer restored.deinit();
@@ -113,7 +113,7 @@ pub fn run(writer: anytype) !void {
     defer allocator.free(journal_bytes);
     var decoded_journal = try ApprovalProgram.Session.Journal.decode(allocator, journal_bytes);
     defer decoded_journal.deinit();
-    var replay_runtime = ability.Runtime.init(allocator);
+    var replay_runtime = boundary.Runtime.init(allocator);
     defer replay_runtime.deinit();
     var replay_session = try ApprovalProgram.Session.start(&replay_runtime, .{});
     defer replay_session.deinit();

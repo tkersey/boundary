@@ -1,14 +1,14 @@
 // zlinter-disable declaration_naming require_doc_comment
-const ability = @import("ability");
+const boundary = @import("boundary");
 
 const ProductPayload = struct {
     amount: i32,
 };
 
-const Approval = ability.ir.schema.Protocol(.{
+const Approval = boundary.ir.schema.Protocol(.{
     .label = "approval",
     .ops = .{
-        ability.ir.schema.transform("exists", ProductPayload, i32),
+        boundary.ir.schema.transform("exists", ProductPayload, i32),
     },
 });
 

@@ -1,16 +1,16 @@
 // zlinter-disable declaration_naming require_doc_comment
-const ability = @import("ability");
+const boundary = @import("boundary");
 
 const Payload = ?i32;
 
-fn invalidSumExtractPlan() ability.ir.ProgramPlan {
-    const instructions = [_]ability.ir.plan.Instruction{.{
+fn invalidSumExtractPlan() boundary.ir.ProgramPlan {
+    const instructions = [_]boundary.ir.plan.Instruction{.{
         .kind = .sum_extract_payload,
         .dst = 1,
         .operand = 0,
         .aux = 1,
     }};
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
         .parameter_count = 1,
@@ -26,28 +26,28 @@ fn invalidSumExtractPlan() ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .sum,
         .first_variant = 0,
         .variant_count = 2,
     }};
-    const value_variants = [_]ability.ir.ValueVariantPlan{
+    const value_variants = [_]boundary.ir.ValueVariantPlan{
         .{ .name = "none" },
         .{ .name = "some", .codec = .i32 },
     };
-    const locals = [_]ability.ir.plan.Local{
+    const locals = [_]boundary.ir.plan.Local{
         .{ .codec = .sum, .schema_index = 0 },
         .{ .codec = .bool },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return ability.ir.ProgramPlan{
+    return boundary.ir.ProgramPlan{
         .label = "invalid-sum-extract-destination",
         .ir_hash = 2,
         .entry_index = 0,
@@ -69,7 +69,7 @@ const Body = struct {
     pub const compiled_plan = invalidSumExtractPlan();
 };
 
-const Program = ability.program("invalid-sum-extract-destination", struct {}, Body);
+const Program = boundary.program("invalid-sum-extract-destination", struct {}, Body);
 
 test "sum extraction destination must match payload" {
     _ = Program;

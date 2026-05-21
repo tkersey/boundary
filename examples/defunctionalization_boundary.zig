@@ -1,13 +1,13 @@
 // zlinter-disable declaration_naming field_ordering require_doc_comment no_hidden_allocations no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const SourceHandlers = struct {};
-const semantic = ability.ir.builder.semantic;
+const semantic = boundary.ir.builder.semantic;
 
-const ApprovalProtocol = ability.ir.schema.Protocol(.{
+const ApprovalProtocol = boundary.ir.schema.Protocol(.{
     .label = "approval",
-    .ops = .{ability.ir.schema.transform("request", []const u8, i32)},
+    .ops = .{boundary.ir.schema.transform("request", []const u8, i32)},
 });
 const ApprovalRows = ApprovalProtocol.Rows(SourceHandlers, .{ .requirement_index = 0, .first_op = 0 });
 const ApprovalRequestOp = ApprovalRows.op("request");
@@ -39,7 +39,7 @@ const SourceBody = struct {
     pub const site_metadata = source_compiled.site_metadata;
     pub const compiled_plan = source_compiled.plan;
 };
-const SourceProgram = ability.program("defunctionalization-boundary-source", SourceHandlers, SourceBody);
+const SourceProgram = boundary.program("defunctionalization-boundary-source", SourceHandlers, SourceBody);
 const ApprovalRequest = SourceProgram.protocol.operationSite("approval", "request", 0);
 
 const handler_compiled = semantic.finish(.{
@@ -62,7 +62,7 @@ const handler_compiled = semantic.finish(.{
 const HandlerBody = struct {
     pub const compiled_plan = handler_compiled.plan;
 };
-const HandlerProgram = ability.program("defunctionalization-boundary-program-provider", struct {}, HandlerBody);
+const HandlerProgram = boundary.program("defunctionalization-boundary-program-provider", struct {}, HandlerBody);
 
 const ProgramDecl = SourceProgram.Exchange.ProviderHandler.program(.{
     .label = "program-backed-approval",
@@ -119,7 +119,7 @@ fn capabilityFor(allocator: std.mem.Allocator, catalog: anytype, provider_finger
 
 pub fn run(writer: anytype) !void {
     const allocator = std.heap.page_allocator;
-    var runtime = ability.Runtime.init(allocator);
+    var runtime = boundary.Runtime.init(allocator);
     defer runtime.deinit();
 
     var session = try SourceProgram.Session.start(&runtime, .{});

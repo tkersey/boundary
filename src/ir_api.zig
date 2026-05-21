@@ -1064,11 +1064,11 @@ pub const builder = struct {
     /// Higher-level typed ProgramPlan constructors for common public examples.
     pub const typed = struct {
         fn mustPlan(result: program_plan.ValidationError!program_plan.ProgramPlan) program_plan.ProgramPlan {
-            return result catch |err| @compileError("ability.ir.builder.typed produced invalid ProgramPlan: " ++ @errorName(err));
+            return result catch |err| @compileError("boundary.ir.builder.typed produced invalid ProgramPlan: " ++ @errorName(err));
         }
 
         fn mustInstruction(result: program_plan.ValidationError!program_plan.Instruction) program_plan.Instruction {
-            return result catch |err| @compileError("ability.ir.builder.typed produced invalid instruction: " ++ @errorName(err));
+            return result catch |err| @compileError("boundary.ir.builder.typed produced invalid instruction: " ++ @errorName(err));
         }
 
         fn constI32(dst: LocalRef, comptime literal: i32) program_plan.Instruction {
@@ -1361,7 +1361,7 @@ pub const expr = struct {
 
         pub fn fingerprint(comptime self: @This()) u64 {
             var hasher = standard.hash.Wyhash.init(0);
-            hashBytes(&hasher, "ability.ir.expr");
+            hashBytes(&hasher, "boundary.ir.expr");
             hashBytes(&hasher, @tagName(self.kind));
             hashOptionalValueRef(&hasher, self.value_ref);
             hashBytes(&hasher, self.name);
@@ -2089,7 +2089,7 @@ pub const schema = struct {
     ) u64 {
         @setEvalBranchQuota(10_000);
         var hasher = standard.hash.Wyhash.init(0);
-        protocolHashBytes(&hasher, "ability.schema.protocol.operation");
+        protocolHashBytes(&hasher, "boundary.schema.protocol.operation");
         protocolHashBytes(&hasher, protocol_label);
         protocolHashBytes(&hasher, op_name);
         protocolHashU16(&hasher, op_ordinal);

@@ -1,10 +1,10 @@
 // zlinter-disable declaration_naming require_doc_comment no_swallow_error
-const ability = @import("ability");
+const boundary = @import("boundary");
 
-const Policy = ability.ir.schema.Protocol(.{
+const Policy = boundary.ir.schema.Protocol(.{
     .label = "policy",
     .ops = .{
-        ability.ir.schema.transform("check", void, bool),
+        boundary.ir.schema.transform("check", void, bool),
     },
 });
 

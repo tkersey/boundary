@@ -1,13 +1,13 @@
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const NoError = error{};
 const timed_iterations: usize = 50_000;
 const warmup_iterations: usize = 20_000;
 const samples_per_run: usize = 5;
-const preserveValue = ability.preserveValue;
+const preserveValue = boundary.preserveValue;
 
-const ResourceInstance = ability.effect.resource.Instance(usize, NoError);
+const ResourceInstance = boundary.effect.resource.Instance(usize, NoError);
 
 const Sample = struct {
     checksum: usize,
@@ -97,11 +97,11 @@ const effect_resource = struct {
         }
     };
 
-    fn body(comptime Cap: type, ctx: anytype, comptime items_per_body: usize) ability.ResetError(NoError)!usize {
+    fn body(comptime Cap: type, ctx: anytype, comptime items_per_body: usize) boundary.ResetError(NoError)!usize {
         var checksum: usize = 0;
         var items_remaining = items_per_body;
         while (items_remaining != 0) : (items_remaining -= 1) {
-            checksum += try ability.effect.resource.acquire(Cap, ctx);
+            checksum += try boundary.effect.resource.acquire(Cap, ctx);
         }
         return checksum;
     }
@@ -181,7 +181,7 @@ fn runResourceRawSample(io: std.Io, allocator: std.mem.Allocator, comptime items
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runResourceEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const ResourceInstance, comptime items_per_body: usize, iterations: usize) !Sample {
+fn runResourceEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const ResourceInstance, comptime items_per_body: usize, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
@@ -190,11 +190,11 @@ fn runResourceEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *con
         raw_resource.acquire_count = 0;
         const body = struct {
             /// Re-enter the current resource handle with a fixed acquire count.
-            pub fn body(comptime Cap: type, ctx: anytype) ability.ResetError(NoError)!usize {
+            pub fn body(comptime Cap: type, ctx: anytype) boundary.ResetError(NoError)!usize {
                 return try effect_resource.body(Cap, ctx, items_per_body);
             }
         };
-        checksum += preserveValue(try ability.effect.resource.handle(usize, runtime, instance, effect_resource.manager, body));
+        checksum += preserveValue(try boundary.effect.resource.handle(usize, runtime, instance, effect_resource.manager, body));
     }
     return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
@@ -232,7 +232,7 @@ fn printLine(writer: anytype, report: *const LaneReport) !void {
     );
 }
 
-fn runLane(io: std.Io, runtime: *ability.Runtime, instance: *const ResourceInstance, allocator: std.mem.Allocator, comptime items_per_body: usize) !LaneReport {
+fn runLane(io: std.Io, runtime: *boundary.Runtime, instance: *const ResourceInstance, allocator: std.mem.Allocator, comptime items_per_body: usize) !LaneReport {
     _ = try runResourceRawSample(io, allocator, items_per_body, warmup_iterations);
     _ = try runResourceEffectSample(io, runtime, instance, items_per_body, warmup_iterations);
     _ = try runResourceCleanupOnlySample(io, allocator, items_per_body, warmup_iterations);
@@ -278,7 +278,7 @@ fn runLane(io: std.Io, runtime: *ability.Runtime, instance: *const ResourceInsta
 
 /// Decompose resource-effect acquire and cleanup costs for representative stack depths.
 pub fn main(init: std.process.Init) anyerror!void {
-    var runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer runtime.deinit();
     var instance = ResourceInstance.init();
 

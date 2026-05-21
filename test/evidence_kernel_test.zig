@@ -1,10 +1,10 @@
 // zlinter-disable no_inferred_error_unions no_swallow_error require_doc_comment
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
-fn unitPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const functions = [_]ability.ir.plan.Function{.{
+fn unitPlan() boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
         .result_codec = .unit,
@@ -21,9 +21,9 @@ fn unitPlan() ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = 0,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
-    return ability.ir.builder.finish(.{
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
+    return boundary.ir.builder.finish(.{
         .label = "evidence-test-plan",
         .ir_hash = 1,
         .entry = root,
@@ -38,7 +38,7 @@ fn unitPlan() ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-const Program = ability.program("evidence-test", struct {}, struct {
+const Program = boundary.program("evidence-test", struct {}, struct {
     pub const compiled_plan = unitPlan();
 });
 
@@ -100,15 +100,15 @@ test "evidence domain registry is unique and mirrors public version constants" {
     try std.testing.expectEqual(@as(u32, 2), Evidence.domains.treaty_authorization_legacy_v2.format_version.?);
     try std.testing.expectEqual(Program.pipeline_fingerprint_version, Evidence.domains.pipeline.fingerprint_version);
 
-    try std.testing.expectEqualStrings("ability.program.capsule.image", Evidence.domains.capsule_image.name);
-    try std.testing.expectEqualStrings("ability.program.session.journal", Evidence.domains.journal.name);
-    try std.testing.expectEqualStrings("ability.exchange.provider_offer", Evidence.domains.provider_offer.name);
-    try std.testing.expectEqualStrings("ability.exchange.morphism_offer", Evidence.domains.morphism_offer.name);
-    try std.testing.expectEqualStrings("ability.exchange.capability.path", Evidence.domains.capability_attenuation_path.name);
-    try std.testing.expectEqualStrings("ability.exchange.authorization.result", Evidence.domains.authorization_result.name);
-    try std.testing.expectEqualStrings("ability.session.reinterpret", Evidence.domains.reinterpretation.name);
-    try std.testing.expectEqualStrings("ability.evidence.semantic_body", Evidence.domains.semantic_body.name);
-    try std.testing.expectEqualStrings("ability.evidence.host_intrinsic", Evidence.domains.host_intrinsic.name);
+    try std.testing.expectEqualStrings("boundary.program.capsule.image", Evidence.domains.capsule_image.name);
+    try std.testing.expectEqualStrings("boundary.program.session.journal", Evidence.domains.journal.name);
+    try std.testing.expectEqualStrings("boundary.exchange.provider_offer", Evidence.domains.provider_offer.name);
+    try std.testing.expectEqualStrings("boundary.exchange.morphism_offer", Evidence.domains.morphism_offer.name);
+    try std.testing.expectEqualStrings("boundary.exchange.capability.path", Evidence.domains.capability_attenuation_path.name);
+    try std.testing.expectEqualStrings("boundary.exchange.authorization.result", Evidence.domains.authorization_result.name);
+    try std.testing.expectEqualStrings("boundary.session.reinterpret", Evidence.domains.reinterpretation.name);
+    try std.testing.expectEqualStrings("boundary.evidence.semantic_body", Evidence.domains.semantic_body.name);
+    try std.testing.expectEqualStrings("boundary.evidence.host_intrinsic", Evidence.domains.host_intrinsic.name);
 
     for (Evidence.all_domains) |domain| {
         try std.testing.expect(domain.request_tokens_excluded);
@@ -119,7 +119,7 @@ test "evidence domain registry is unique and mirrors public version constants" {
 }
 
 test "semantic body classifications expose stable evidence refs" {
-    try std.testing.expect(Evidence.SemanticBody.ability_program.isNonIntrinsic());
+    try std.testing.expect(Evidence.SemanticBody.boundary_program.isNonIntrinsic());
     try std.testing.expect(Evidence.SemanticBody.declarative.isNonIntrinsic());
     try std.testing.expect(Evidence.SemanticBody.residualized_program.isNonIntrinsic());
     try std.testing.expect(Evidence.SemanticBody.pipeline.isNonIntrinsic());
@@ -128,10 +128,10 @@ test "semantic body classifications expose stable evidence refs" {
     try std.testing.expect(Evidence.SemanticBody.unknown.isUnknown());
     try std.testing.expect(!Evidence.SemanticBody.kernel_primitive.isHostIntrinsic());
 
-    const program_ref = Evidence.SemanticBody.ability_program.evidenceRef();
+    const program_ref = Evidence.SemanticBody.boundary_program.evidenceRef();
     const intrinsic_ref = Evidence.SemanticBody.host_intrinsic.evidenceRef();
     try std.testing.expectEqual(Evidence.domains.semantic_body.id, program_ref.domain_id);
-    try std.testing.expectEqualStrings("ability_program", program_ref.kind_tag.?);
+    try std.testing.expectEqualStrings("boundary_program", program_ref.kind_tag.?);
     try std.testing.expect(program_ref.fingerprint != intrinsic_ref.fingerprint);
 }
 
@@ -218,7 +218,7 @@ test "defunctionalization reports and policies enforce strict and allowlist mode
         .scope_kind = .provider_harness,
         .scope_ref = scope,
         .counts = .{
-            .ability_program = 1,
+            .boundary_program = 1,
             .kernel_primitive = 1,
             .host_intrinsic = 1,
         },
@@ -250,7 +250,7 @@ test "defunctionalization reports and policies enforce strict and allowlist mode
     });
 
     try std.testing.expectEqual(@as(usize, 3), report.total_bodies);
-    try std.testing.expectEqual(@as(usize, 1), report.ability_program_count);
+    try std.testing.expectEqual(@as(usize, 1), report.boundary_program_count);
     try std.testing.expectEqual(@as(usize, 1), report.kernel_primitive_count);
     try std.testing.expectEqual(@as(usize, 1), report.host_intrinsic_count);
     try std.testing.expectEqual(Evidence.domains.defunctionalization_report.id, report.evidenceRef().domain_id);

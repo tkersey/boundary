@@ -1,25 +1,25 @@
 // zlinter-disable declaration_naming require_doc_comment no_swallow_error
-const ability = @import("ability");
+const boundary = @import("boundary");
 
 const nested_with_metadata = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi";
 
-fn nestedPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const nested = ability.ir.builder.function(1);
-    const root_value = ability.ir.builder.local(root, 0);
-    const nested_value = ability.ir.builder.local(nested, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn nestedPlan() boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const nested = boundary.ir.builder.function(1);
+    const root_value = boundary.ir.builder.local(root, 0);
+    const nested_value = boundary.ir.builder.local(nested, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{
             .kind = .call_nested_with,
             .dst = root_value.index,
-            .aux = @intFromEnum(ability.ir.ValueCodec.string),
+            .aux = @intFromEnum(boundary.ir.ValueCodec.string),
             .string_literal = nested_with_metadata,
         },
-        ability.ir.builder.returnValue(root, root_value) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_value) catch unreachable,
         .{ .kind = .const_i32, .dst = nested_value.index, .operand = 1 },
-        ability.ir.builder.returnValue(nested, nested_value) catch unreachable,
+        boundary.ir.builder.returnValue(nested, nested_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .string,
@@ -51,16 +51,16 @@ fn nestedPlan() ability.ir.ProgramPlan {
             .instruction_count = 2,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = "nested-with-result-codec-mismatch",
         .ir_hash = 3,
         .entry = root,
@@ -77,13 +77,13 @@ fn nestedPlan() ability.ir.ProgramPlan {
 
 const Body = struct {
     pub const compiled_plan = nestedPlan();
-    pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+    pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
         .metadata = nested_with_metadata,
         .function_index = 1,
     }};
 };
 
-const Program = ability.program("nested-with-result-codec-mismatch", struct {}, Body);
+const Program = boundary.program("nested-with-result-codec-mismatch", struct {}, Body);
 
 test "nested-with result codec mismatch is rejected" {
     _ = Program;

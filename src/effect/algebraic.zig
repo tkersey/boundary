@@ -6,7 +6,7 @@ const internal = @import("../internal/algebraic_engine.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
 const sealed_engine = @import("../internal/sealed_engine.zig");
-const ability = struct {
+const boundary = struct {
     const Runtime = lowered_machine.Runtime;
 };
 const std = @import("std");
@@ -44,7 +44,7 @@ pub inline fn stateSet(
 /// Run a state family through the shared algebraic engine.
 pub fn handleState(
     comptime AnswerType: type,
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     instance: anytype,
     initial_state: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
@@ -130,7 +130,7 @@ pub fn handleState(
 pub fn handleStateWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     instance: anytype,
     initial_state: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
@@ -240,7 +240,7 @@ pub inline fn readerAsk(
 /// Run a reader family through the shared algebraic engine.
 pub fn handleReader(
     comptime AnswerType: type,
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     instance: anytype,
     environment: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
@@ -306,7 +306,7 @@ pub fn handleReader(
 pub fn handleReaderWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     instance: anytype,
     environment: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
@@ -394,7 +394,7 @@ pub inline fn writerTell(
 /// Run a writer family through the shared algebraic engine.
 pub fn handleWriter(
     comptime WriterContract: type,
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     instance: anytype,
     allocator: std.mem.Allocator,
     comptime Body: type,
@@ -475,7 +475,7 @@ fn WriterHandleResult(comptime WriterContract: type) type {
 pub fn handleWriterWithErrorSet(
     comptime WriterContract: type,
     comptime RunErrorSetType: type,
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     instance: anytype,
     allocator: std.mem.Allocator,
     comptime Body: type,
@@ -661,7 +661,7 @@ pub inline fn optionalComputeProgram(
 /// Run an optional family through the shared algebraic engine.
 pub fn handleOptional(
     comptime AnswerType: type,
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     instance: anytype,
     comptime Policy: type,
     comptime Body: type,
@@ -745,7 +745,7 @@ pub fn handleOptional(
 pub fn handleOptionalWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     instance: anytype,
     comptime Policy: type,
     comptime Body: type,
@@ -827,7 +827,7 @@ pub fn handleOptionalWithErrorSet(
 /// Run a continuation-taking lexical optional family through the shared algebraic engine.
 pub fn handleOptionalLexical(
     comptime AnswerType: type,
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     instance: anytype,
     comptime Policy: type,
     comptime Body: type,
@@ -1067,7 +1067,7 @@ pub inline fn exceptionComputeProgram(
 /// Run an exception family through the shared algebraic engine.
 pub fn handleException(
     comptime AnswerType: type,
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     instance: anytype,
     comptime Catch: type,
     comptime Body: type,
@@ -1143,7 +1143,7 @@ pub fn handleException(
 pub fn handleExceptionWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     instance: anytype,
     comptime Catch: type,
     comptime Body: type,
@@ -1277,7 +1277,7 @@ pub inline fn resourceComputeProgram(
 /// Run a resource family through the shared algebraic engine.
 pub fn handleResource(
     comptime AnswerType: type,
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     instance: anytype,
     comptime Manager: type,
     comptime Body: type,
@@ -1400,7 +1400,7 @@ pub fn handleResource(
 pub fn handleResourceWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
-    runtime: *ability.Runtime,
+    runtime: *boundary.Runtime,
     instance: anytype,
     comptime Manager: type,
     comptime Body: type,

@@ -1,20 +1,20 @@
 // zlinter-disable declaration_naming require_doc_comment no_hidden_allocations no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const Handlers = struct {};
 
-const ToolProtocol = ability.ir.schema.Protocol(.{
+const ToolProtocol = boundary.ir.schema.Protocol(.{
     .label = "tool",
     .ops = .{
-        ability.ir.schema.transform("call", []const u8, i32),
+        boundary.ir.schema.transform("call", []const u8, i32),
     },
 });
 
 const Rows = ToolProtocol.Rows(Handlers, .{ .requirement_index = 0, .first_op = 0 });
 
 const semantic_spec = blk: {
-    const semantic = ability.ir.builder.semantic;
+    const semantic = boundary.ir.builder.semantic;
     const Call = Rows.op("call");
     break :blk .{
         .label = "effect-capability-attenuation",
@@ -43,7 +43,7 @@ const semantic_spec = blk: {
     };
 };
 
-const compiled = ability.ir.builder.semantic.finish(semantic_spec) catch |err|
+const compiled = boundary.ir.builder.semantic.finish(semantic_spec) catch |err|
     @compileError("invalid effect capability attenuation example: " ++ @errorName(err));
 
 const Body = struct {
@@ -51,12 +51,12 @@ const Body = struct {
     pub const compiled_plan = compiled.plan;
 };
 
-const Program = ability.program("effect-capability-attenuation", Handlers, Body);
+const Program = boundary.program("effect-capability-attenuation", Handlers, Body);
 const ToolSite = Program.protocol.operationSite("tool", "call", 0);
 
 pub fn run(writer: anytype) !void {
     const allocator = std.heap.page_allocator;
-    var runtime = ability.Runtime.init(allocator);
+    var runtime = boundary.Runtime.init(allocator);
     defer runtime.deinit();
 
     var manifest = try Program.Exchange.Manifest.encode(allocator);

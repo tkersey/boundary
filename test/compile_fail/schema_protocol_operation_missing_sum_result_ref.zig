@@ -1,14 +1,14 @@
-const ability = @import("ability");
+const boundary = @import("boundary");
 
 const Decision = enum {
     allow,
     deny,
 };
 
-const Protocol = ability.ir.schema.Protocol(.{
+const Protocol = boundary.ir.schema.Protocol(.{
     .label = "descriptor-missing-sum-result-ref",
     .ops = .{
-        ability.ir.schema.abort("reject", []const u8),
+        boundary.ir.schema.abort("reject", []const u8),
     },
 });
 

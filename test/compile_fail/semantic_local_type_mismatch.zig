@@ -1,7 +1,7 @@
-const ability = @import("ability");
+const boundary = @import("boundary");
 
 test "semantic builder rejects local type mismatch" {
-    _ = comptime ability.ir.builder.semantic.finish(.{
+    _ = comptime boundary.ir.builder.semantic.finish(.{
         .label = "semantic.local.mismatch",
         .ir_hash = 0,
         .entry = "run",
@@ -9,15 +9,15 @@ test "semantic builder rejects local type mismatch" {
             .symbol_name = "run",
             .params = .{},
             .locals = .{
-                ability.ir.builder.semantic.local("result", i32),
+                boundary.ir.builder.semantic.local("result", i32),
             },
             .result = i32,
             .blocks = .{.{
                 .name = "entry",
                 .instructions = .{
-                    ability.ir.builder.semantic.constString("result", "wrong"),
+                    boundary.ir.builder.semantic.constString("result", "wrong"),
                 },
-                .terminator = ability.ir.builder.semantic.returnValue("result"),
+                .terminator = boundary.ir.builder.semantic.returnValue("result"),
             }},
         }},
     });

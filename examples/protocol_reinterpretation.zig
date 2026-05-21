@@ -1,13 +1,13 @@
 // zlinter-disable declaration_naming require_doc_comment no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const ApprovalHandlers = struct {};
 
-const ApprovalProtocol = ability.ir.schema.Protocol(.{
+const ApprovalProtocol = boundary.ir.schema.Protocol(.{
     .label = "approval",
     .ops = .{
-        ability.ir.schema.choice("request", []const u8, i32),
+        boundary.ir.schema.choice("request", []const u8, i32),
     },
 });
 
@@ -16,17 +16,17 @@ const ApprovalRows = ApprovalProtocol.Rows(ApprovalHandlers, .{
     .first_op = 0,
 });
 
-const PolicyProtocol = ability.ir.schema.Protocol(.{
+const PolicyProtocol = boundary.ir.schema.Protocol(.{
     .label = "policy",
     .ops = .{
-        ability.ir.schema.transform("check", []const u8, bool),
+        boundary.ir.schema.transform("check", []const u8, bool),
     },
 });
 
 const CheckPolicy = PolicyProtocol.operation("check", .{});
 
 const approval_semantic_spec = blk: {
-    const semantic = ability.ir.builder.semantic;
+    const semantic = boundary.ir.builder.semantic;
     const RequestApproval = ApprovalRows.op("request");
 
     break :blk .{
@@ -60,7 +60,7 @@ const approval_semantic_spec = blk: {
     };
 };
 
-const approval_compiled = ability.ir.builder.semantic.finish(approval_semantic_spec) catch |err|
+const approval_compiled = boundary.ir.builder.semantic.finish(approval_semantic_spec) catch |err|
     @compileError("invalid protocol-reinterpretation semantic plan: " ++ @errorName(err));
 
 const ApprovalBody = struct {
@@ -68,7 +68,7 @@ const ApprovalBody = struct {
     pub const compiled_plan = approval_compiled.plan;
 };
 
-const ApprovalProgram = ability.program("protocol-reinterpretation", ApprovalHandlers, ApprovalBody);
+const ApprovalProgram = boundary.program("protocol-reinterpretation", ApprovalHandlers, ApprovalBody);
 const ApprovalRequest = ApprovalProgram.protocol.operationSite("approval", "request", 0);
 
 const ApprovalPolicyMapper = struct {
@@ -123,7 +123,7 @@ fn expectDone(result: anytype) !ApprovalProgram.Result {
 
 pub fn run(writer: anytype) !void {
     const allocator = std.heap.page_allocator;
-    var runtime = ability.Runtime.init(allocator);
+    var runtime = boundary.Runtime.init(allocator);
     defer runtime.deinit();
 
     SourceOnly.assertReinterprets(ApprovalRequest, CheckPolicy);

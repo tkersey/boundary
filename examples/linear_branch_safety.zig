@@ -1,13 +1,13 @@
 // zlinter-disable declaration_naming require_doc_comment no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const Handlers = struct {};
 
-const Protocol = ability.ir.schema.Protocol(.{
+const Protocol = boundary.ir.schema.Protocol(.{
     .label = "branch-safety",
     .ops = .{
-        ability.ir.schema.transform("approval", []const u8, i32),
+        boundary.ir.schema.transform("approval", []const u8, i32),
     },
 });
 
@@ -17,7 +17,7 @@ const Rows = Protocol.Rows(Handlers, .{
 });
 
 const semantic_spec = blk: {
-    const semantic = ability.ir.builder.semantic;
+    const semantic = boundary.ir.builder.semantic;
     const ApprovalOp = Rows.op("approval");
 
     break :blk .{
@@ -51,7 +51,7 @@ const semantic_spec = blk: {
     };
 };
 
-const compiled = ability.ir.builder.semantic.finish(semantic_spec) catch |err|
+const compiled = boundary.ir.builder.semantic.finish(semantic_spec) catch |err|
     @compileError("invalid linear-branch-safety semantic plan: " ++ @errorName(err));
 
 const Body = struct {
@@ -59,7 +59,7 @@ const Body = struct {
     pub const compiled_plan = compiled.plan;
 };
 
-const Program = ability.program("linear-branch-safety", Handlers, Body);
+const Program = boundary.program("linear-branch-safety", Handlers, Body);
 
 fn printPolicy(writer: anytype, policy: Program.Exchange.BranchPolicy, response_use: Program.Exchange.ResponseUse, open: bool, capsule: bool) !void {
     const report = Program.Exchange.validateBranchPolicy(policy, .linear, response_use, open, capsule);
@@ -78,7 +78,7 @@ fn printPolicy(writer: anytype, policy: Program.Exchange.BranchPolicy, response_
 
 pub fn run(writer: anytype) !void {
     const allocator = std.heap.page_allocator;
-    var runtime = ability.Runtime.init(allocator);
+    var runtime = boundary.Runtime.init(allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();

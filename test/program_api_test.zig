@@ -1,5 +1,5 @@
 // zlinter-disable declaration_naming field_ordering no_inferred_error_unions no_swallow_error require_doc_comment
-const ability = @import("ability");
+const boundary = @import("boundary");
 const custom_approval = @import("custom_approval_workflow");
 const plan_native_resource = @import("plan_native_resource");
 const std = @import("std");
@@ -31,7 +31,7 @@ fn testHashBytes(hasher: *std.hash.Wyhash, bytes: []const u8) void {
 
 fn testCapsulePayloadFingerprint(comptime Program: type, payload: []const u8) u64 {
     var hasher = std.hash.Wyhash.init(0);
-    testHashBytes(&hasher, "ability.session.capsule.image.payload");
+    testHashBytes(&hasher, "boundary.session.capsule.image.payload");
     testHashU32(&hasher, Program.Session.capsule_image_fingerprint_version);
     testHashBytes(&hasher, payload);
     return hasher.final();
@@ -39,7 +39,7 @@ fn testCapsulePayloadFingerprint(comptime Program: type, payload: []const u8) u6
 
 fn testProgramCapsuleImageFingerprint(comptime Program: type, image_bytes: []const u8) u64 {
     var hasher = std.hash.Wyhash.init(0);
-    testHashBytes(&hasher, "ability.program.capsule.image");
+    testHashBytes(&hasher, "boundary.program.capsule.image");
     testHashU32(&hasher, Program.Session.capsule_image_fingerprint_version);
     testHashBytes(&hasher, image_bytes);
     return hasher.final();
@@ -47,7 +47,7 @@ fn testProgramCapsuleImageFingerprint(comptime Program: type, image_bytes: []con
 
 fn testProgramJournalFingerprint(comptime Program: type, image_bytes: []const u8) u64 {
     var hasher = std.hash.Wyhash.init(0);
-    testHashBytes(&hasher, "ability.program.session.journal");
+    testHashBytes(&hasher, "boundary.program.session.journal");
     testHashU32(&hasher, Program.Session.journal_fingerprint_version);
     testHashBytes(&hasher, image_bytes);
     return hasher.final();
@@ -80,7 +80,7 @@ fn testHashStringList(hasher: *std.hash.Wyhash, values: []const []const u8) void
     for (values) |value| testHashBytes(hasher, value);
 }
 
-fn testHashValueRef(hasher: *std.hash.Wyhash, ref: ability.ir.ValueRef) void {
+fn testHashValueRef(hasher: *std.hash.Wyhash, ref: boundary.ir.ValueRef) void {
     testHashBytes(hasher, @tagName(ref.codec));
     if (ref.schema_index) |schema_index| {
         testHashU32(hasher, schema_index);
@@ -89,7 +89,7 @@ fn testHashValueRef(hasher: *std.hash.Wyhash, ref: ability.ir.ValueRef) void {
     }
 }
 
-fn testHashValueRefList(hasher: *std.hash.Wyhash, values: []const ability.ir.ValueRef) void {
+fn testHashValueRefList(hasher: *std.hash.Wyhash, values: []const boundary.ir.ValueRef) void {
     testHashUsize(hasher, values.len);
     for (values) |value| testHashValueRef(hasher, value);
 }
@@ -143,7 +143,7 @@ fn testBranchPolicyTag(comptime Program: type, value: Program.Exchange.BranchPol
 
 fn testTreatyCoreV2Fingerprint(comptime Program: type, treaty: Program.Exchange.Treaty) u64 {
     var hasher = std.hash.Wyhash.init(0);
-    testHashBytes(&hasher, "ability.exchange.treaty");
+    testHashBytes(&hasher, "boundary.exchange.treaty");
     testHashU32(&hasher, 2);
     testHashU64(&hasher, treaty.request_envelope_fingerprint);
     testHashU64(&hasher, treaty.request_fingerprint);
@@ -181,7 +181,7 @@ fn testTreatyCoreV2Fingerprint(comptime Program: type, treaty: Program.Exchange.
 
 fn testTreatyCoreV3Fingerprint(comptime Program: type, treaty: Program.Exchange.Treaty) u64 {
     var hasher = std.hash.Wyhash.init(0);
-    testHashBytes(&hasher, "ability.exchange.treaty");
+    testHashBytes(&hasher, "boundary.exchange.treaty");
     testHashU32(&hasher, 3);
     testHashU64(&hasher, treaty.request_envelope_fingerprint);
     testHashU32(&hasher, treaty.request_envelope_format_version);
@@ -220,7 +220,7 @@ fn testTreatyCoreV3Fingerprint(comptime Program: type, treaty: Program.Exchange.
 
 fn testTreatyCertificateV2Fingerprint(comptime Program: type, certificate: Program.Exchange.Treaty.Certificate) u64 {
     var hasher = std.hash.Wyhash.init(0);
-    testHashBytes(&hasher, "ability.exchange.treaty.certificate");
+    testHashBytes(&hasher, "boundary.exchange.treaty.certificate");
     testHashU32(&hasher, 2);
     testHashU64(&hasher, certificate.treaty_fingerprint);
     testHashU64(&hasher, certificate.request_envelope_fingerprint);
@@ -262,7 +262,7 @@ fn testTreatyCertificateV2Fingerprint(comptime Program: type, certificate: Progr
 
 fn testTreatyCertificateV3Fingerprint(comptime Program: type, certificate: Program.Exchange.Treaty.Certificate) u64 {
     var hasher = std.hash.Wyhash.init(0);
-    testHashBytes(&hasher, "ability.exchange.treaty.certificate");
+    testHashBytes(&hasher, "boundary.exchange.treaty.certificate");
     testHashU32(&hasher, 3);
     testHashU64(&hasher, certificate.treaty_fingerprint);
     testHashU64(&hasher, certificate.request_envelope_fingerprint);
@@ -305,7 +305,7 @@ fn testTreatyCertificateV3Fingerprint(comptime Program: type, certificate: Progr
 
 fn testTreatyAuthorizationV4Fingerprint(comptime Program: type, authorization: Program.Exchange.Treaty.Authorization) u64 {
     var hasher = std.hash.Wyhash.init(0);
-    testHashBytes(&hasher, "ability.exchange.treaty.authorization");
+    testHashBytes(&hasher, "boundary.exchange.treaty.authorization");
     testHashU32(&hasher, Program.exchange_treaty_authorization_fingerprint_version);
     testHashU64(&hasher, authorization.treaty_fingerprint);
     testHashU64(&hasher, authorization.treaty_certificate_fingerprint);
@@ -332,7 +332,7 @@ fn testTreatyAuthorizationV4Fingerprint(comptime Program: type, authorization: P
 
 fn testTreatyAuthorizationV2Fingerprint(comptime Program: type, authorization: Program.Exchange.Treaty.Authorization) u64 {
     var hasher = std.hash.Wyhash.init(0);
-    testHashBytes(&hasher, "ability.exchange.treaty.authorization");
+    testHashBytes(&hasher, "boundary.exchange.treaty.authorization");
     testHashU32(&hasher, 2);
     testHashU64(&hasher, authorization.treaty_fingerprint);
     testHashU64(&hasher, authorization.treaty_certificate_fingerprint);
@@ -354,7 +354,7 @@ fn testTreatyAuthorizationV2Fingerprint(comptime Program: type, authorization: P
 
 fn testTreatyAuthorizationV3Fingerprint(comptime Program: type, authorization: Program.Exchange.Treaty.Authorization) u64 {
     var hasher = std.hash.Wyhash.init(0);
-    testHashBytes(&hasher, "ability.exchange.treaty.authorization");
+    testHashBytes(&hasher, "boundary.exchange.treaty.authorization");
     testHashU32(&hasher, 3);
     testHashU64(&hasher, authorization.treaty_fingerprint);
     testHashU64(&hasher, authorization.treaty_certificate_fingerprint);
@@ -490,16 +490,16 @@ const TestImageCursor = struct {
         if (try self.readU8() != 0) try self.skip(8);
     }
 
-    fn readValueCodec(self: *@This()) !ability.ir.ValueCodec {
+    fn readValueCodec(self: *@This()) !boundary.ir.ValueCodec {
         return switch (try self.readU8()) {
-            @intFromEnum(ability.ir.ValueCodec.unit) => .unit,
-            @intFromEnum(ability.ir.ValueCodec.bool) => .bool,
-            @intFromEnum(ability.ir.ValueCodec.i32) => .i32,
-            @intFromEnum(ability.ir.ValueCodec.product) => .product,
-            @intFromEnum(ability.ir.ValueCodec.usize) => .usize,
-            @intFromEnum(ability.ir.ValueCodec.string) => .string,
-            @intFromEnum(ability.ir.ValueCodec.string_list) => .string_list,
-            @intFromEnum(ability.ir.ValueCodec.sum) => .sum,
+            @intFromEnum(boundary.ir.ValueCodec.unit) => .unit,
+            @intFromEnum(boundary.ir.ValueCodec.bool) => .bool,
+            @intFromEnum(boundary.ir.ValueCodec.i32) => .i32,
+            @intFromEnum(boundary.ir.ValueCodec.product) => .product,
+            @intFromEnum(boundary.ir.ValueCodec.usize) => .usize,
+            @intFromEnum(boundary.ir.ValueCodec.string) => .string,
+            @intFromEnum(boundary.ir.ValueCodec.string_list) => .string_list,
+            @intFromEnum(boundary.ir.ValueCodec.sum) => .sum,
             else => error.ProgramContractViolation,
         };
     }
@@ -514,13 +514,13 @@ const TestImageCursor = struct {
         for (0..count) |_| try self.skipValueRef();
     }
 
-    fn readValueRefCodec(self: *@This()) !ability.ir.ValueCodec {
+    fn readValueRefCodec(self: *@This()) !boundary.ir.ValueCodec {
         const codec = try self.readValueCodec();
         if (try self.readU8() != 0) try self.skip(2);
         return codec;
     }
 
-    fn skipValueForCodec(self: *@This(), codec: ability.ir.ValueCodec) !void {
+    fn skipValueForCodec(self: *@This(), codec: boundary.ir.ValueCodec) !void {
         switch (codec) {
             .unit => {},
             .bool => try self.skip(1),
@@ -547,11 +547,11 @@ const TestImageCursor = struct {
         }
     }
 
-    fn skipMaybeValueForCodec(self: *@This(), codec: ability.ir.ValueCodec) !void {
+    fn skipMaybeValueForCodec(self: *@This(), codec: boundary.ir.ValueCodec) !void {
         if (try self.readU8() != 0) try self.skipValueForCodec(codec);
     }
 
-    fn skipImageValueForCodec(self: *@This(), codec: ability.ir.ValueCodec) !void {
+    fn skipImageValueForCodec(self: *@This(), codec: boundary.ir.ValueCodec) !void {
         switch (try self.readU8()) {
             0 => try self.skipValueForCodec(codec),
             1 => try self.skip(8),
@@ -559,7 +559,7 @@ const TestImageCursor = struct {
         }
     }
 
-    fn skipMaybeImageValueForCodec(self: *@This(), codec: ability.ir.ValueCodec) !void {
+    fn skipMaybeImageValueForCodec(self: *@This(), codec: boundary.ir.ValueCodec) !void {
         switch (try self.readU8()) {
             0 => {},
             1 => try self.skipValueForCodec(codec),
@@ -835,11 +835,11 @@ fn rewriteCapsuleImageChecksum(comptime Program: type, image_bytes: []u8) void {
     std.mem.writeInt(u64, image_bytes[image_bytes.len - 8 ..][0..8], testCapsulePayloadFingerprint(Program, payload), .little);
 }
 
-fn expectRuntimeParked(runtime: *const ability.Runtime) !void {
+fn expectRuntimeParked(runtime: *const boundary.Runtime) !void {
     try std.testing.expectEqual(@as(usize, 0), runtime.core.active_reset_count);
 }
 
-fn expectLiveSessions(runtime: *const ability.Runtime, expected: usize) !void {
+fn expectLiveSessions(runtime: *const boundary.Runtime, expected: usize) !void {
     try std.testing.expectEqual(expected, runtime.core.live_session_count);
 }
 
@@ -980,14 +980,14 @@ fn ForwardOperationHandler(comptime Program: type, comptime Site: type) type {
     };
 }
 
-fn compiledTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const resume_local = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resume_local, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(root, resume_local) catch unreachable,
+fn compiledTransformPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const resume_local = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resume_local, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, resume_local) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -1004,12 +1004,12 @@ fn compiledTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "authored",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "dispatch",
         .mode = .transform,
@@ -1017,14 +1017,14 @@ fn compiledTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .resume_codec = .i32,
         .has_after = true,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 1,
         .entry = root,
@@ -1039,14 +1039,14 @@ fn compiledTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn choiceReturnNowPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const resume_local = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resume_local, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(root, resume_local) catch unreachable,
+fn choiceReturnNowPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const resume_local = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resume_local, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, resume_local) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -1063,12 +1063,12 @@ fn choiceReturnNowPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "authored",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "dispatch",
         .mode = .choice,
@@ -1076,14 +1076,14 @@ fn choiceReturnNowPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .resume_codec = .i32,
         .has_after = true,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 11,
         .entry = root,
@@ -1098,16 +1098,16 @@ fn choiceReturnNowPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn choiceResumeI32ReturnBoolPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const resume_local = ability.ir.builder.local(root, 0);
-    const result = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resume_local, ability.ir.builder.op(root, 0), null) catch unreachable,
+fn choiceResumeI32ReturnBoolPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const resume_local = boundary.ir.builder.local(root, 0);
+    const result = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resume_local, boundary.ir.builder.op(root, 0), null) catch unreachable,
         .{ .kind = .compare_eq_zero, .dst = result.index, .operand = resume_local.index },
-        ability.ir.builder.returnValue(root, result) catch unreachable,
+        boundary.ir.builder.returnValue(root, result) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .bool,
         .result_codec = .bool,
@@ -1124,12 +1124,12 @@ fn choiceResumeI32ReturnBoolPlan(comptime label: []const u8) ability.ir.ProgramP
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "authored",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "dispatch",
         .mode = .choice,
@@ -1137,14 +1137,14 @@ fn choiceResumeI32ReturnBoolPlan(comptime label: []const u8) ability.ir.ProgramP
         .resume_codec = .i32,
         .has_after = true,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 12,
         .entry = root,
@@ -1159,15 +1159,15 @@ fn choiceResumeI32ReturnBoolPlan(comptime label: []const u8) ability.ir.ProgramP
     }) catch unreachable;
 }
 
-fn twoAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, value, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.callOp(root, value, ability.ir.builder.op(root, 1), null) catch unreachable,
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+fn twoAfterPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, value, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.callOp(root, value, boundary.ir.builder.op(root, 1), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -1184,11 +1184,11 @@ fn twoAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{
+    const requirements = [_]boundary.ir.plan.Requirement{
         .{ .label = "first", .first_op = 0, .op_count = 1 },
         .{ .label = "second", .first_op = 1, .op_count = 1 },
     };
-    const ops = [_]ability.ir.plan.Op{
+    const ops = [_]boundary.ir.plan.Op{
         .{
             .requirement_index = 0,
             .op_name = "first",
@@ -1206,10 +1206,10 @@ fn twoAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .has_after = true,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 12,
         .entry = root,
@@ -1224,14 +1224,14 @@ fn twoAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn sessionChoicePlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const resume_local = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resume_local, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(root, resume_local) catch unreachable,
+fn sessionChoicePlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const resume_local = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resume_local, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, resume_local) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -1248,12 +1248,12 @@ fn sessionChoicePlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "authored",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "choose",
         .mode = .choice,
@@ -1261,14 +1261,14 @@ fn sessionChoicePlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .resume_codec = .i32,
         .has_after = false,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 12,
         .entry = root,
@@ -1283,16 +1283,16 @@ fn sessionChoicePlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn sessionTwoChoicePlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const first_resume = ability.ir.builder.local(root, 0);
-    const second_resume = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, first_resume, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.callOp(root, second_resume, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(root, second_resume) catch unreachable,
+fn sessionTwoChoicePlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const first_resume = boundary.ir.builder.local(root, 0);
+    const second_resume = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, first_resume, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.callOp(root, second_resume, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, second_resume) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -1309,12 +1309,12 @@ fn sessionTwoChoicePlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "authored",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "choose",
         .mode = .choice,
@@ -1322,14 +1322,14 @@ fn sessionTwoChoicePlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .resume_codec = .i32,
         .has_after = false,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 13,
         .entry = root,
@@ -1344,13 +1344,13 @@ fn sessionTwoChoicePlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn parameterizedIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const arg = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.returnValue(root, arg) catch unreachable,
+fn parameterizedIdentityPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const arg = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.returnValue(root, arg) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 1,
@@ -1366,14 +1366,14 @@ fn parameterizedIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan 
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 21,
         .entry = root,
@@ -1388,13 +1388,13 @@ fn parameterizedIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan 
     }) catch unreachable;
 }
 
-fn stringIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const arg = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.returnValue(root, arg) catch unreachable,
+fn stringIdentityPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const arg = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.returnValue(root, arg) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .string,
         .parameter_count = 1,
@@ -1410,14 +1410,14 @@ fn stringIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 22,
         .entry = root,
@@ -1432,16 +1432,16 @@ fn stringIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn stackedAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const outer_resume = ability.ir.builder.local(root, 0);
-    const inner_resume = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, outer_resume, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.callOp(root, inner_resume, ability.ir.builder.op(root, 1), null) catch unreachable,
-        ability.ir.builder.returnValue(root, inner_resume) catch unreachable,
+fn stackedAfterPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const outer_resume = boundary.ir.builder.local(root, 0);
+    const inner_resume = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, outer_resume, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.callOp(root, inner_resume, boundary.ir.builder.op(root, 1), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, inner_resume) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .string,
@@ -1458,11 +1458,11 @@ fn stackedAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{
+    const requirements = [_]boundary.ir.plan.Requirement{
         .{ .label = "outer", .first_op = 0, .op_count = 1 },
         .{ .label = "inner", .first_op = 1, .op_count = 1 },
     };
-    const ops = [_]ability.ir.plan.Op{
+    const ops = [_]boundary.ir.plan.Op{
         .{
             .requirement_index = 0,
             .op_name = "outer",
@@ -1480,14 +1480,14 @@ fn stackedAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .has_after = true,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 18,
         .entry = root,
@@ -1502,20 +1502,20 @@ fn stackedAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn branchedHandlerlessAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const skip_inner = ability.ir.builder.local(root, 0);
-    const outer_resume = ability.ir.builder.local(root, 1);
-    const inner_resume = ability.ir.builder.local(root, 2);
-    const condition = ability.ir.builder.local(root, 3);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, outer_resume, ability.ir.builder.op(root, 0), null) catch unreachable,
+fn branchedHandlerlessAfterPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const skip_inner = boundary.ir.builder.local(root, 0);
+    const outer_resume = boundary.ir.builder.local(root, 1);
+    const inner_resume = boundary.ir.builder.local(root, 2);
+    const condition = boundary.ir.builder.local(root, 3);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, outer_resume, boundary.ir.builder.op(root, 0), null) catch unreachable,
         .{ .kind = .compare_eq_zero, .dst = condition.index, .operand = skip_inner.index },
-        ability.ir.builder.callOp(root, inner_resume, ability.ir.builder.op(root, 1), null) catch unreachable,
-        ability.ir.builder.returnValue(root, inner_resume) catch unreachable,
-        ability.ir.builder.returnValue(root, outer_resume) catch unreachable,
+        boundary.ir.builder.callOp(root, inner_resume, boundary.ir.builder.op(root, 1), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, inner_resume) catch unreachable,
+        boundary.ir.builder.returnValue(root, outer_resume) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .string,
@@ -1532,11 +1532,11 @@ fn branchedHandlerlessAfterPlan(comptime label: []const u8) ability.ir.ProgramPl
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{
+    const requirements = [_]boundary.ir.plan.Requirement{
         .{ .label = "outer", .first_op = 0, .op_count = 1 },
         .{ .label = "inner", .first_op = 1, .op_count = 1 },
     };
-    const ops = [_]ability.ir.plan.Op{
+    const ops = [_]boundary.ir.plan.Op{
         .{
             .requirement_index = 0,
             .op_name = "outer",
@@ -1554,18 +1554,18 @@ fn branchedHandlerlessAfterPlan(comptime label: []const u8) ability.ir.ProgramPl
             .has_after = true,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
         .{ .first_instruction = 4, .instruction_count = 1, .terminator_index = 2 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 19,
         .entry = root,
@@ -1580,15 +1580,15 @@ fn branchedHandlerlessAfterPlan(comptime label: []const u8) ability.ir.ProgramPl
     }) catch unreachable;
 }
 
-fn terminalBypassesAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const resume_value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resume_value, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 1), null) catch unreachable,
-        ability.ir.builder.returnValue(root, resume_value) catch unreachable,
+fn terminalBypassesAfterPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const resume_value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resume_value, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 1), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, resume_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .string,
@@ -1605,11 +1605,11 @@ fn terminalBypassesAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan 
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{
+    const requirements = [_]boundary.ir.plan.Requirement{
         .{ .label = "outer", .first_op = 0, .op_count = 1 },
         .{ .label = "abort", .first_op = 1, .op_count = 1 },
     };
-    const ops = [_]ability.ir.plan.Op{
+    const ops = [_]boundary.ir.plan.Op{
         .{
             .requirement_index = 0,
             .op_name = "outer",
@@ -1626,14 +1626,14 @@ fn terminalBypassesAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan 
             .resume_codec = .unit,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 33,
         .entry = root,
@@ -1648,14 +1648,14 @@ fn terminalBypassesAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan 
     }) catch unreachable;
 }
 
-fn exceptionScalarThrowPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn exceptionScalarThrowPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_i32, .dst = payload.index, .operand = 40 },
-        ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload) catch unreachable,
+        boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
         .result_codec = .i32,
@@ -1671,27 +1671,27 @@ fn exceptionScalarThrowPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "exception",
         .first_op = 0,
         .op_count = 1,
         .lifecycle_tag = .abort_catch,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "throw",
         .mode = .abort,
         .payload_codec = .i32,
         .resume_codec = .unit,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 66,
         .entry = root,
@@ -1706,13 +1706,13 @@ fn exceptionScalarThrowPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn exceptionProductThrowPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload) catch unreachable,
+fn exceptionProductThrowPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
         .result_codec = .product,
@@ -1730,13 +1730,13 @@ fn exceptionProductThrowPlan(comptime Payload: type, comptime label: []const u8)
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "exception",
         .first_op = 0,
         .op_count = 1,
         .lifecycle_tag = .abort_catch,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "throw",
         .mode = .abort,
@@ -1744,24 +1744,24 @@ fn exceptionProductThrowPlan(comptime Payload: type, comptime label: []const u8)
         .payload_schema_index = 0,
         .resume_codec = .unit,
     }};
-    const schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .product,
         .first_field = 0,
         .field_count = 1,
     }};
-    const fields = [_]ability.ir.ValueFieldPlan{.{
+    const fields = [_]boundary.ir.ValueFieldPlan{.{
         .name = "amount",
         .codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 67,
         .entry = root,
@@ -1779,13 +1779,13 @@ fn exceptionProductThrowPlan(comptime Payload: type, comptime label: []const u8)
     }) catch unreachable;
 }
 
-fn exceptionSumThrowPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload) catch unreachable,
+fn exceptionSumThrowPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
         .result_codec = .i32,
@@ -1802,13 +1802,13 @@ fn exceptionSumThrowPlan(comptime Payload: type, comptime label: []const u8) abi
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "exception",
         .first_op = 0,
         .op_count = 1,
         .lifecycle_tag = .abort_catch,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "throw",
         .mode = .abort,
@@ -1816,24 +1816,24 @@ fn exceptionSumThrowPlan(comptime Payload: type, comptime label: []const u8) abi
         .payload_schema_index = 0,
         .resume_codec = .unit,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .sum,
         .first_variant = 0,
         .variant_count = 2,
     }};
-    const value_variants = [_]ability.ir.ValueVariantPlan{
+    const value_variants = [_]boundary.ir.ValueVariantPlan{
         .{ .name = "none", .codec = .unit },
         .{ .name = "some", .codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 68,
         .entry = root,
@@ -1851,18 +1851,18 @@ fn exceptionSumThrowPlan(comptime Payload: type, comptime label: []const u8) abi
     }) catch unreachable;
 }
 
-fn nestedExceptionThrowPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const root_value = ability.ir.builder.local(root, 0);
-    const payload = ability.ir.builder.local(helper, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
-        ability.ir.builder.returnValue(root, root_value) catch unreachable,
+fn nestedExceptionThrowPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const root_value = boundary.ir.builder.local(root, 0);
+    const payload = boundary.ir.builder.local(helper, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_value) catch unreachable,
         .{ .kind = .const_i32, .dst = payload.index, .operand = 70 },
-        ability.ir.builder.callOp(helper, null, ability.ir.builder.op(helper, 0), payload) catch unreachable,
+        boundary.ir.builder.callOp(helper, null, boundary.ir.builder.op(helper, 0), payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -1896,29 +1896,29 @@ fn nestedExceptionThrowPlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .instruction_count = 2,
         },
     };
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "exception",
         .first_op = 0,
         .op_count = 1,
         .lifecycle_tag = .abort_catch,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "throw",
         .mode = .abort,
         .payload_codec = .i32,
         .resume_codec = .unit,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_unit },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 69,
         .entry = root,
@@ -1933,18 +1933,18 @@ fn nestedExceptionThrowPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn duplicateOperationNamesPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const left_value = ability.ir.builder.local(root, 0);
-    const right_value = ability.ir.builder.local(root, 1);
-    const total = ability.ir.builder.local(root, 2);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, left_value, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.callOp(root, right_value, ability.ir.builder.op(root, 1), null) catch unreachable,
+fn duplicateOperationNamesPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const left_value = boundary.ir.builder.local(root, 0);
+    const right_value = boundary.ir.builder.local(root, 1);
+    const total = boundary.ir.builder.local(root, 2);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, left_value, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.callOp(root, right_value, boundary.ir.builder.op(root, 1), null) catch unreachable,
         .{ .kind = .add_i32, .dst = total.index, .operand = left_value.index, .aux = right_value.index },
-        ability.ir.builder.returnValue(root, total) catch unreachable,
+        boundary.ir.builder.returnValue(root, total) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 0,
@@ -1960,22 +1960,22 @@ fn duplicateOperationNamesPlan(comptime label: []const u8) ability.ir.ProgramPla
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{
+    const requirements = [_]boundary.ir.plan.Requirement{
         .{ .label = "left", .first_op = 0, .op_count = 1 },
         .{ .label = "right", .first_op = 1, .op_count = 1 },
     };
-    const ops = [_]ability.ir.plan.Op{
+    const ops = [_]boundary.ir.plan.Op{
         .{ .requirement_index = 0, .op_name = "get", .mode = .transform, .payload_codec = .unit, .resume_codec = .i32 },
         .{ .requirement_index = 1, .op_name = "get", .mode = .transform, .payload_codec = .unit, .resume_codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 34,
         .entry = root,
@@ -1990,14 +1990,14 @@ fn duplicateOperationNamesPlan(comptime label: []const u8) ability.ir.ProgramPla
     }) catch unreachable;
 }
 
-fn invalidUnitPayloadOperandPlan(comptime label: []const u8) !ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn invalidUnitPayloadOperandPlan(comptime label: []const u8) !boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .call_op, .dst = value.index, .operand = 0, .aux = 99 },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 0,
@@ -2013,18 +2013,18 @@ fn invalidUnitPayloadOperandPlan(comptime label: []const u8) !ability.ir.Program
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "source", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "source", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "get",
         .mode = .transform,
         .payload_codec = .unit,
         .resume_codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 35,
         .entry = root,
@@ -2039,11 +2039,11 @@ fn invalidUnitPayloadOperandPlan(comptime label: []const u8) !ability.ir.Program
     });
 }
 
-fn invalidUnitHelperDestinationPlan(comptime label: []const u8) !ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const instructions = [_]ability.ir.plan.Instruction{.{ .kind = .call_helper, .dst = 99, .operand = helper.index }};
-    const functions = [_]ability.ir.plan.Function{
+fn invalidUnitHelperDestinationPlan(comptime label: []const u8) !boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const instructions = [_]boundary.ir.plan.Instruction{.{ .kind = .call_helper, .dst = 99, .operand = helper.index }};
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .unit,
@@ -2077,16 +2077,16 @@ fn invalidUnitHelperDestinationPlan(comptime label: []const u8) !ability.ir.Prog
             .instruction_count = 0,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
         .{ .first_instruction = 1, .instruction_count = 0, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_unit },
         .{ .kind = .return_unit },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 36,
         .entry = root,
@@ -2139,9 +2139,9 @@ const CompiledBody = struct {
     pub const compiled_plan = compiledTransformPlan("compiled-body");
 };
 
-fn voidReturnPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const functions = [_]ability.ir.plan.Function{.{
+fn voidReturnPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
         .parameter_count = 0,
@@ -2157,10 +2157,10 @@ fn voidReturnPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = 0,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 82,
         .entry = root,
@@ -2175,14 +2175,14 @@ fn voidReturnPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn stringLiteralPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn stringLiteralPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_string, .dst = value.index, .string_literal = "scalar string" },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .string,
         .parameter_count = 0,
@@ -2198,10 +2198,10 @@ fn stringLiteralPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 83,
         .entry = root,
@@ -2216,21 +2216,21 @@ fn stringLiteralPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn overflowArithmeticPlan(comptime label: []const u8, comptime use_binary_add: bool) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const rhs = ability.ir.builder.local(root, 1);
-    const instructions = comptime if (use_binary_add) [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, value, ability.ir.builder.op(root, 0), null) catch unreachable,
+fn overflowArithmeticPlan(comptime label: []const u8, comptime use_binary_add: bool) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const rhs = boundary.ir.builder.local(root, 1);
+    const instructions = comptime if (use_binary_add) [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, value, boundary.ir.builder.op(root, 0), null) catch unreachable,
         .{ .kind = .const_i32, .dst = rhs.index, .operand = 1 },
         .{ .kind = .add_i32, .dst = value.index, .operand = value.index, .aux = rhs.index },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
-    } else [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, value, ability.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
+    } else [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, value, boundary.ir.builder.op(root, 0), null) catch unreachable,
         .{ .kind = .add_const_i32, .dst = value.index, .operand = value.index, .aux = 1 },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 0,
@@ -2246,30 +2246,30 @@ fn overflowArithmeticPlan(comptime label: []const u8, comptime use_binary_add: b
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "source",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "source",
         .mode = .transform,
         .payload_codec = .unit,
         .resume_codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
     const locals = comptime if (use_binary_add)
-        [_]ability.ir.plan.Local{ .{ .codec = .i32 }, .{ .codec = .i32 } }
+        [_]boundary.ir.plan.Local{ .{ .codec = .i32 }, .{ .codec = .i32 } }
     else
-        [_]ability.ir.plan.Local{.{ .codec = .i32 }};
+        [_]boundary.ir.plan.Local{.{ .codec = .i32 }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = if (use_binary_add) 17 else 16,
         .entry = root,
@@ -2284,15 +2284,15 @@ fn overflowArithmeticPlan(comptime label: []const u8, comptime use_binary_add: b
     }) catch unreachable;
 }
 
-fn subOneOverflowPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, value, ability.ir.builder.op(root, 0), null) catch unreachable,
+fn subOneOverflowPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, value, boundary.ir.builder.op(root, 0), null) catch unreachable,
         .{ .kind = .sub_one, .dst = value.index, .operand = value.index },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 0,
@@ -2308,26 +2308,26 @@ fn subOneOverflowPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "source",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "source",
         .mode = .transform,
         .payload_codec = .unit,
         .resume_codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 19,
         .entry = root,
@@ -2342,13 +2342,13 @@ fn subOneOverflowPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn unsupportedStructuredPayloadPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload) catch unreachable,
+fn unsupportedStructuredPayloadPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .parameter_count = 0,
         .first_requirement = 0,
@@ -2363,12 +2363,12 @@ fn unsupportedStructuredPayloadPlan(comptime label: []const u8) ability.ir.Progr
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "structured",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "structured",
         .mode = .transform,
@@ -2376,24 +2376,24 @@ fn unsupportedStructuredPayloadPlan(comptime label: []const u8) ability.ir.Progr
         .payload_schema_index = 0,
         .resume_codec = .unit,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = "Payload",
         .codec = .product,
         .first_field = 0,
         .field_count = 1,
     }};
-    const value_fields = [_]ability.ir.ValueFieldPlan{.{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{.{
         .name = "amount",
         .codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 15,
         .entry = root,
@@ -2411,14 +2411,14 @@ fn unsupportedStructuredPayloadPlan(comptime label: []const u8) ability.ir.Progr
     }) catch unreachable;
 }
 
-fn scalarPlanWithUnreachableStructuredSchema(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const helper_value = ability.ir.builder.local(helper, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.returnValue(helper, helper_value) catch unreachable,
+fn scalarPlanWithUnreachableStructuredSchema(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const helper_value = boundary.ir.builder.local(helper, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.returnValue(helper, helper_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .unit,
@@ -2453,26 +2453,26 @@ fn scalarPlanWithUnreachableStructuredSchema(comptime label: []const u8) ability
             .instruction_count = @intCast(instructions.len),
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 },
         .{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_unit },
         .{ .kind = .return_value },
     };
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = "DeadPayload",
         .codec = .product,
         .first_field = 0,
         .field_count = 1,
     }};
-    const value_fields = [_]ability.ir.ValueFieldPlan{.{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{.{
         .name = "amount",
         .codec = .i32,
     }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 90,
         .entry = root,
@@ -2490,13 +2490,13 @@ fn scalarPlanWithUnreachableStructuredSchema(comptime label: []const u8) ability
     }) catch unreachable;
 }
 
-fn productIdentityPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.returnValue(root, payload) catch unreachable,
+fn productIdentityPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.returnValue(root, payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .product,
         .value_schema_index = 0,
@@ -2513,24 +2513,24 @@ fn productIdentityPlan(comptime Payload: type, comptime label: []const u8) abili
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .product,
         .first_field = 0,
         .field_count = 1,
     }};
-    const value_fields = [_]ability.ir.ValueFieldPlan{.{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{.{
         .name = "amount",
         .codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 23,
         .entry = root,
@@ -2548,13 +2548,13 @@ fn productIdentityPlan(comptime Payload: type, comptime label: []const u8) abili
     }) catch unreachable;
 }
 
-fn productIdentityPlanWithPayloadSchemaIndexOne(comptime Padding: type, comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.returnValue(root, payload) catch unreachable,
+fn productIdentityPlanWithPayloadSchemaIndexOne(comptime Padding: type, comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.returnValue(root, payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .product,
         .value_schema_index = 1,
@@ -2571,7 +2571,7 @@ fn productIdentityPlanWithPayloadSchemaIndexOne(comptime Padding: type, comptime
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{
         .{
             .label = @typeName(Padding),
             .codec = .product,
@@ -2585,18 +2585,18 @@ fn productIdentityPlanWithPayloadSchemaIndexOne(comptime Padding: type, comptime
             .field_count = 1,
         },
     };
-    const value_fields = [_]ability.ir.ValueFieldPlan{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{
         .{ .name = "ignored", .codec = .bool },
         .{ .name = "amount", .codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 24,
         .entry = root,
@@ -2614,13 +2614,13 @@ fn productIdentityPlanWithPayloadSchemaIndexOne(comptime Padding: type, comptime
     }) catch unreachable;
 }
 
-fn sumIdentityPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.returnValue(root, payload) catch unreachable,
+fn sumIdentityPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.returnValue(root, payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .sum,
         .value_schema_index = 0,
@@ -2637,24 +2637,24 @@ fn sumIdentityPlan(comptime Payload: type, comptime label: []const u8) ability.i
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .sum,
         .first_variant = 0,
         .variant_count = 2,
     }};
-    const value_variants = [_]ability.ir.ValueVariantPlan{
+    const value_variants = [_]boundary.ir.ValueVariantPlan{
         .{ .name = "none", .codec = .unit },
         .{ .name = "some", .codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 24,
         .entry = root,
@@ -2672,19 +2672,19 @@ fn sumIdentityPlan(comptime Payload: type, comptime label: []const u8) ability.i
     }) catch unreachable;
 }
 
-fn sumVariantBranchPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const condition = ability.ir.builder.local(root, 1);
-    const result = ability.ir.builder.local(root, 2);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.sumVariantIs(root, condition, payload, 1) catch unreachable,
+fn sumVariantBranchPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const condition = boundary.ir.builder.local(root, 1);
+    const result = boundary.ir.builder.local(root, 2);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.sumVariantIs(root, condition, payload, 1) catch unreachable,
         .{ .kind = .const_i32, .dst = result.index, .operand = 11 },
-        ability.ir.builder.returnValue(root, result) catch unreachable,
+        boundary.ir.builder.returnValue(root, result) catch unreachable,
         .{ .kind = .const_i32, .dst = result.index, .operand = 22 },
-        ability.ir.builder.returnValue(root, result) catch unreachable,
+        boundary.ir.builder.returnValue(root, result) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 1,
@@ -2700,28 +2700,28 @@ fn sumVariantBranchPlan(comptime Payload: type, comptime label: []const u8) abil
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .sum,
         .first_variant = 0,
         .variant_count = 2,
     }};
-    const value_variants = [_]ability.ir.ValueVariantPlan{
+    const value_variants = [_]boundary.ir.ValueVariantPlan{
         .{ .name = "none", .codec = .unit },
         .{ .name = "some", .codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
         .{ .first_instruction = 1, .instruction_count = 2, .terminator_index = 1 },
         .{ .first_instruction = 3, .instruction_count = 2, .terminator_index = 2 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 34,
         .entry = root,
@@ -2739,15 +2739,15 @@ fn sumVariantBranchPlan(comptime Payload: type, comptime label: []const u8) abil
     }) catch unreachable;
 }
 
-fn sumPayloadExtractionPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const extracted = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.sumExtractPayload(root, extracted, payload, 1) catch unreachable,
-        ability.ir.builder.returnValue(root, extracted) catch unreachable,
+fn sumPayloadExtractionPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const extracted = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.sumExtractPayload(root, extracted, payload, 1) catch unreachable,
+        boundary.ir.builder.returnValue(root, extracted) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 1,
@@ -2763,24 +2763,24 @@ fn sumPayloadExtractionPlan(comptime Payload: type, comptime label: []const u8) 
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .sum,
         .first_variant = 0,
         .variant_count = 2,
     }};
-    const value_variants = [_]ability.ir.ValueVariantPlan{
+    const value_variants = [_]boundary.ir.ValueVariantPlan{
         .{ .name = "none", .codec = .unit },
         .{ .name = "some", .codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 35,
         .entry = root,
@@ -2798,19 +2798,19 @@ fn sumPayloadExtractionPlan(comptime Payload: type, comptime label: []const u8) 
     }) catch unreachable;
 }
 
-fn enumVariantBranchPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const condition = ability.ir.builder.local(root, 1);
-    const result = ability.ir.builder.local(root, 2);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.sumVariantIs(root, condition, payload, 1) catch unreachable,
+fn enumVariantBranchPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const condition = boundary.ir.builder.local(root, 1);
+    const result = boundary.ir.builder.local(root, 2);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.sumVariantIs(root, condition, payload, 1) catch unreachable,
         .{ .kind = .const_i32, .dst = result.index, .operand = 11 },
-        ability.ir.builder.returnValue(root, result) catch unreachable,
+        boundary.ir.builder.returnValue(root, result) catch unreachable,
         .{ .kind = .const_i32, .dst = result.index, .operand = 22 },
-        ability.ir.builder.returnValue(root, result) catch unreachable,
+        boundary.ir.builder.returnValue(root, result) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 1,
@@ -2826,28 +2826,28 @@ fn enumVariantBranchPlan(comptime Payload: type, comptime label: []const u8) abi
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .sum,
         .first_variant = 0,
         .variant_count = 2,
     }};
-    const value_variants = [_]ability.ir.ValueVariantPlan{
+    const value_variants = [_]boundary.ir.ValueVariantPlan{
         .{ .name = "none", .codec = .unit },
         .{ .name = "yes", .codec = .unit },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
         .{ .first_instruction = 1, .instruction_count = 2, .terminator_index = 1 },
         .{ .first_instruction = 3, .instruction_count = 2, .terminator_index = 2 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 37,
         .entry = root,
@@ -2865,15 +2865,15 @@ fn enumVariantBranchPlan(comptime Payload: type, comptime label: []const u8) abi
     }) catch unreachable;
 }
 
-fn taggedUnionPayloadExtractionPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const extracted = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.sumExtractPayload(root, extracted, payload, 1) catch unreachable,
-        ability.ir.builder.returnValue(root, extracted) catch unreachable,
+fn taggedUnionPayloadExtractionPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const extracted = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.sumExtractPayload(root, extracted, payload, 1) catch unreachable,
+        boundary.ir.builder.returnValue(root, extracted) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 1,
@@ -2889,24 +2889,24 @@ fn taggedUnionPayloadExtractionPlan(comptime Payload: type, comptime label: []co
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .sum,
         .first_variant = 0,
         .variant_count = 2,
     }};
-    const value_variants = [_]ability.ir.ValueVariantPlan{
+    const value_variants = [_]boundary.ir.ValueVariantPlan{
         .{ .name = "none", .codec = .unit },
         .{ .name = "yes", .codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 38,
         .entry = root,
@@ -2925,12 +2925,12 @@ fn taggedUnionPayloadExtractionPlan(comptime Payload: type, comptime label: []co
 }
 
 fn validateSingleSumInstruction(
-    comptime instruction: ability.ir.plan.Instruction,
-    comptime locals: []const ability.ir.plan.Local,
-) !ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const instructions = [_]ability.ir.plan.Instruction{instruction};
-    const functions = [_]ability.ir.plan.Function{.{
+    comptime instruction: boundary.ir.plan.Instruction,
+    comptime locals: []const boundary.ir.plan.Local,
+) !boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const instructions = [_]boundary.ir.plan.Instruction{instruction};
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
         .parameter_count = 0,
@@ -2946,24 +2946,24 @@ fn validateSingleSumInstruction(
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = "?i32",
         .codec = .sum,
         .first_variant = 0,
         .variant_count = 2,
     }};
-    const value_variants = [_]ability.ir.ValueVariantPlan{
+    const value_variants = [_]boundary.ir.ValueVariantPlan{
         .{ .name = "none", .codec = .unit },
         .{ .name = "some", .codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = "single-sum-instruction",
         .ir_hash = 36,
         .entry = root,
@@ -2981,13 +2981,13 @@ fn validateSingleSumInstruction(
     });
 }
 
-fn duplicateSchemaIdentityPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.returnValue(root, payload) catch unreachable,
+fn duplicateSchemaIdentityPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.returnValue(root, payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .product,
         .value_schema_index = 1,
@@ -3004,7 +3004,7 @@ fn duplicateSchemaIdentityPlan(comptime Payload: type, comptime label: []const u
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{
         .{
             .label = @typeName(Payload),
             .codec = .product,
@@ -3018,18 +3018,18 @@ fn duplicateSchemaIdentityPlan(comptime Payload: type, comptime label: []const u
             .field_count = 1,
         },
     };
-    const value_fields = [_]ability.ir.ValueFieldPlan{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{
         .{ .name = "amount", .codec = .i32 },
         .{ .name = "amount", .codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 31,
         .entry = root,
@@ -3047,15 +3047,15 @@ fn duplicateSchemaIdentityPlan(comptime Payload: type, comptime label: []const u
     }) catch unreachable;
 }
 
-fn duplicateSchemaSumPayloadExtractionPlan(comptime SumPayload: type, comptime Item: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const extracted = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.sumExtractPayload(root, extracted, payload, 1) catch unreachable,
-        ability.ir.builder.returnValue(root, extracted) catch unreachable,
+fn duplicateSchemaSumPayloadExtractionPlan(comptime SumPayload: type, comptime Item: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const extracted = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.sumExtractPayload(root, extracted, payload, 1) catch unreachable,
+        boundary.ir.builder.returnValue(root, extracted) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .product,
         .value_schema_index = 2,
@@ -3072,7 +3072,7 @@ fn duplicateSchemaSumPayloadExtractionPlan(comptime SumPayload: type, comptime I
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{
         .{
             .label = @typeName(SumPayload),
             .codec = .sum,
@@ -3094,22 +3094,22 @@ fn duplicateSchemaSumPayloadExtractionPlan(comptime SumPayload: type, comptime I
             .first_variant = 2,
         },
     };
-    const value_fields = [_]ability.ir.ValueFieldPlan{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{
         .{ .name = "amount", .codec = .i32 },
         .{ .name = "amount", .codec = .i32 },
     };
-    const value_variants = [_]ability.ir.ValueVariantPlan{
+    const value_variants = [_]boundary.ir.ValueVariantPlan{
         .{ .name = "none", .codec = .unit },
         .{ .name = "some", .codec = .product, .schema_index = 2 },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 39,
         .entry = root,
@@ -3127,12 +3127,12 @@ fn duplicateSchemaSumPayloadExtractionPlan(comptime SumPayload: type, comptime I
     }) catch unreachable;
 }
 
-fn duplicateSchemaAbortResultPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), null) catch unreachable,
+fn duplicateSchemaAbortResultPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), null) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .product,
         .value_schema_index = 1,
@@ -3149,19 +3149,19 @@ fn duplicateSchemaAbortResultPlan(comptime Payload: type, comptime label: []cons
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "structured",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "structured",
         .mode = .abort,
         .payload_codec = .unit,
         .resume_codec = .unit,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{
         .{
             .label = @typeName(Payload),
             .codec = .product,
@@ -3175,18 +3175,18 @@ fn duplicateSchemaAbortResultPlan(comptime Payload: type, comptime label: []cons
             .field_count = 1,
         },
     };
-    const value_fields = [_]ability.ir.ValueFieldPlan{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{
         .{ .name = "amount", .codec = .i32 },
         .{ .name = "amount", .codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 32,
         .entry = root,
@@ -3204,13 +3204,13 @@ fn duplicateSchemaAbortResultPlan(comptime Payload: type, comptime label: []cons
     }) catch unreachable;
 }
 
-fn duplicateSchemaPayloadPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload) catch unreachable,
+fn duplicateSchemaPayloadPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
         .parameter_count = 1,
@@ -3226,12 +3226,12 @@ fn duplicateSchemaPayloadPlan(comptime Payload: type, comptime label: []const u8
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "structured",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "payload",
         .mode = .transform,
@@ -3239,7 +3239,7 @@ fn duplicateSchemaPayloadPlan(comptime Payload: type, comptime label: []const u8
         .payload_schema_index = 1,
         .resume_codec = .unit,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{
         .{
             .label = @typeName(Payload),
             .codec = .product,
@@ -3253,18 +3253,18 @@ fn duplicateSchemaPayloadPlan(comptime Payload: type, comptime label: []const u8
             .field_count = 1,
         },
     };
-    const value_fields = [_]ability.ir.ValueFieldPlan{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{
         .{ .name = "amount", .codec = .i32 },
         .{ .name = "amount", .codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 34,
         .entry = root,
@@ -3282,15 +3282,15 @@ fn duplicateSchemaPayloadPlan(comptime Payload: type, comptime label: []const u8
     }) catch unreachable;
 }
 
-fn duplicateSchemaResumePlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const resumed = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+fn duplicateSchemaResumePlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const resumed = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), payload) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .product,
         .value_schema_index = 1,
@@ -3309,8 +3309,8 @@ fn duplicateSchemaResumePlan(comptime Payload: type, comptime label: []const u8)
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "round_trip",
         .mode = .transform,
@@ -3319,7 +3319,7 @@ fn duplicateSchemaResumePlan(comptime Payload: type, comptime label: []const u8)
         .resume_codec = .product,
         .resume_schema_index = 1,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{
         .{
             .label = @typeName(Payload),
             .codec = .product,
@@ -3333,14 +3333,14 @@ fn duplicateSchemaResumePlan(comptime Payload: type, comptime label: []const u8)
             .field_count = 1,
         },
     };
-    const value_fields = [_]ability.ir.ValueFieldPlan{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{
         .{ .name = "amount", .codec = .i32 },
         .{ .name = "amount", .codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 35,
         .entry = root,
@@ -3358,14 +3358,14 @@ fn duplicateSchemaResumePlan(comptime Payload: type, comptime label: []const u8)
     }) catch unreachable;
 }
 
-fn duplicateSchemaAfterResultPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const resumed = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+fn duplicateSchemaAfterResultPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const resumed = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .product,
         .value_schema_index = 1,
@@ -3384,12 +3384,12 @@ fn duplicateSchemaAfterResultPlan(comptime Payload: type, comptime label: []cons
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "structured",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "structured",
         .mode = .transform,
@@ -3398,7 +3398,7 @@ fn duplicateSchemaAfterResultPlan(comptime Payload: type, comptime label: []cons
         .resume_schema_index = 1,
         .has_after = true,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{
         .{
             .label = @typeName(Payload),
             .codec = .product,
@@ -3412,18 +3412,18 @@ fn duplicateSchemaAfterResultPlan(comptime Payload: type, comptime label: []cons
             .field_count = 1,
         },
     };
-    const value_fields = [_]ability.ir.ValueFieldPlan{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{
         .{ .name = "amount", .codec = .i32 },
         .{ .name = "amount", .codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 33,
         .entry = root,
@@ -3441,13 +3441,13 @@ fn duplicateSchemaAfterResultPlan(comptime Payload: type, comptime label: []cons
     }) catch unreachable;
 }
 
-fn structuredPayloadOpPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload) catch unreachable,
+fn structuredPayloadOpPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .parameter_count = 1,
         .first_requirement = 0,
@@ -3462,12 +3462,12 @@ fn structuredPayloadOpPlan(comptime Payload: type, comptime label: []const u8) a
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "structured",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "structured",
         .mode = .transform,
@@ -3475,24 +3475,24 @@ fn structuredPayloadOpPlan(comptime Payload: type, comptime label: []const u8) a
         .payload_schema_index = 0,
         .resume_codec = .unit,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .product,
         .first_field = 0,
         .field_count = 1,
     }};
-    const value_fields = [_]ability.ir.ValueFieldPlan{.{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{.{
         .name = "amount",
         .codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 24,
         .entry = root,
@@ -3510,18 +3510,18 @@ fn structuredPayloadOpPlan(comptime Payload: type, comptime label: []const u8) a
     }) catch unreachable;
 }
 
-fn structuredHelperPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const root_arg = ability.ir.builder.local(root, 0);
-    const root_result = ability.ir.builder.local(root, 1);
-    const helper_arg = ability.ir.builder.local(helper, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelper(root, root_result, helper, 0) catch unreachable,
-        ability.ir.builder.returnValue(root, root_result) catch unreachable,
-        ability.ir.builder.returnValue(helper, helper_arg) catch unreachable,
+fn structuredHelperPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const root_arg = boundary.ir.builder.local(root, 0);
+    const root_result = boundary.ir.builder.local(root, 1);
+    const helper_arg = boundary.ir.builder.local(helper, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelper(root, root_result, helper, 0) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_result) catch unreachable,
+        boundary.ir.builder.returnValue(helper, helper_arg) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .product,
@@ -3557,26 +3557,26 @@ fn structuredHelperPlan(comptime Payload: type, comptime label: []const u8) abil
             .instruction_count = 1,
         },
     };
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .product,
         .first_field = 0,
         .field_count = 1,
     }};
-    const value_fields = [_]ability.ir.ValueFieldPlan{.{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{.{
         .name = "amount",
         .codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 25,
         .entry = root,
@@ -3599,18 +3599,18 @@ fn structuredHelperPlan(comptime Payload: type, comptime label: []const u8) abil
     }) catch unreachable;
 }
 
-fn parameterizedHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const root_arg = ability.ir.builder.local(root, 0);
-    const root_result = ability.ir.builder.local(root, 1);
-    const helper_arg = ability.ir.builder.local(helper, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelper(root, root_result, helper, 0) catch unreachable,
-        ability.ir.builder.returnValue(root, root_result) catch unreachable,
-        ability.ir.builder.returnValue(helper, helper_arg) catch unreachable,
+fn parameterizedHelperPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const root_arg = boundary.ir.builder.local(root, 0);
+    const root_result = boundary.ir.builder.local(root, 1);
+    const helper_arg = boundary.ir.builder.local(helper, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelper(root, root_result, helper, 0) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_result) catch unreachable,
+        boundary.ir.builder.returnValue(helper, helper_arg) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -3644,15 +3644,15 @@ fn parameterizedHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .instruction_count = 1,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 49,
         .entry = root,
@@ -3668,25 +3668,25 @@ fn parameterizedHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn recursiveCountdownHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const root_arg = ability.ir.builder.local(root, 0);
-    const root_result = ability.ir.builder.local(root, 1);
-    const helper_arg = ability.ir.builder.local(helper, 0);
-    const helper_next = ability.ir.builder.local(helper, 1);
-    const helper_cond = ability.ir.builder.local(helper, 2);
-    const helper_result = ability.ir.builder.local(helper, 3);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelper(root, root_result, helper, 0) catch unreachable,
-        ability.ir.builder.returnValue(root, root_result) catch unreachable,
+fn recursiveCountdownHelperPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const root_arg = boundary.ir.builder.local(root, 0);
+    const root_result = boundary.ir.builder.local(root, 1);
+    const helper_arg = boundary.ir.builder.local(helper, 0);
+    const helper_next = boundary.ir.builder.local(helper, 1);
+    const helper_cond = boundary.ir.builder.local(helper, 2);
+    const helper_result = boundary.ir.builder.local(helper, 3);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelper(root, root_result, helper, 0) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_result) catch unreachable,
         .{ .kind = .compare_eq_zero, .dst = helper_cond.index, .operand = helper_arg.index },
-        ability.ir.builder.returnValue(helper, helper_arg) catch unreachable,
+        boundary.ir.builder.returnValue(helper, helper_arg) catch unreachable,
         .{ .kind = .sub_one, .dst = helper_next.index, .operand = helper_arg.index },
-        ability.ir.builder.callHelper(helper, helper_result, helper, 1) catch unreachable,
-        ability.ir.builder.returnValue(helper, helper_result) catch unreachable,
+        boundary.ir.builder.callHelper(helper, helper_result, helper, 1) catch unreachable,
+        boundary.ir.builder.returnValue(helper, helper_result) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -3720,20 +3720,20 @@ fn recursiveCountdownHelperPlan(comptime label: []const u8) ability.ir.ProgramPl
             .instruction_count = 5,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 1 },
         .{ .first_instruction = 3, .instruction_count = 1, .terminator_index = 2 },
         .{ .first_instruction = 4, .instruction_count = 3, .terminator_index = 3 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .branch_if, .primary = 2, .secondary = 3 },
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 27,
         .entry = root,
@@ -3756,14 +3756,14 @@ fn recursiveCountdownHelperPlan(comptime label: []const u8) ability.ir.ProgramPl
     }) catch unreachable;
 }
 
-fn unboundedHelperCyclePlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelper(root, null, helper, null) catch unreachable,
-        ability.ir.builder.callHelper(helper, null, helper, null) catch unreachable,
+fn unboundedHelperCyclePlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelper(root, null, helper, null) catch unreachable,
+        boundary.ir.builder.callHelper(helper, null, helper, null) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .parameter_count = 0,
@@ -3795,16 +3795,16 @@ fn unboundedHelperCyclePlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .instruction_count = 1,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
         .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_unit },
         .{ .kind = .return_unit },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 28,
         .entry = root,
@@ -3821,23 +3821,23 @@ fn unboundedHelperCyclePlan(comptime label: []const u8) ability.ir.ProgramPlan {
 
 const nested_with_metadata = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi";
 
-fn resolvedNestedWithPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const nested = ability.ir.builder.function(1);
-    const root_value = ability.ir.builder.local(root, 0);
-    const nested_value = ability.ir.builder.local(nested, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn resolvedNestedWithPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const nested = boundary.ir.builder.function(1);
+    const root_value = boundary.ir.builder.local(root, 0);
+    const nested_value = boundary.ir.builder.local(nested, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{
             .kind = .call_nested_with,
             .dst = root_value.index,
-            .aux = @intFromEnum(ability.ir.ValueCodec.i32),
+            .aux = @intFromEnum(boundary.ir.ValueCodec.i32),
             .string_literal = nested_with_metadata,
         },
-        ability.ir.builder.returnValue(root, root_value) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_value) catch unreachable,
         .{ .kind = .const_i32, .dst = nested_value.index, .operand = 42 },
-        ability.ir.builder.returnValue(nested, nested_value) catch unreachable,
+        boundary.ir.builder.returnValue(nested, nested_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -3871,16 +3871,16 @@ fn resolvedNestedWithPlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .instruction_count = 2,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 29,
         .entry = root,
@@ -3895,23 +3895,23 @@ fn resolvedNestedWithPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn resolvedNestedWithStringListPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const nested = ability.ir.builder.function(1);
-    const root_value = ability.ir.builder.local(root, 0);
-    const nested_value = ability.ir.builder.local(nested, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn resolvedNestedWithStringListPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const nested = boundary.ir.builder.function(1);
+    const root_value = boundary.ir.builder.local(root, 0);
+    const nested_value = boundary.ir.builder.local(nested, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{
             .kind = .call_nested_with,
             .dst = root_value.index,
-            .aux = @intFromEnum(ability.ir.ValueCodec.string_list),
+            .aux = @intFromEnum(boundary.ir.ValueCodec.string_list),
             .string_literal = nested_with_metadata,
         },
-        ability.ir.builder.returnValue(root, root_value) catch unreachable,
-        ability.ir.builder.callOp(nested, nested_value, ability.ir.builder.op(nested, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(nested, nested_value) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_value) catch unreachable,
+        boundary.ir.builder.callOp(nested, nested_value, boundary.ir.builder.op(nested, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(nested, nested_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .string_list,
@@ -3943,28 +3943,28 @@ fn resolvedNestedWithStringListPlan(comptime label: []const u8) ability.ir.Progr
             .instruction_count = 2,
         },
     };
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "authored",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "dispatch",
         .mode = .transform,
         .payload_codec = .unit,
         .resume_codec = .string_list,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 49,
         .entry = root,
@@ -3979,18 +3979,18 @@ fn resolvedNestedWithStringListPlan(comptime label: []const u8) ability.ir.Progr
     }) catch unreachable;
 }
 
-fn sessionStringListResponsePlan(comptime label: []const u8) ability.ir.ProgramPlan {
+fn sessionStringListResponsePlan(comptime label: []const u8) boundary.ir.ProgramPlan {
     return sessionStringListResponsePlanWithMode(label, .transform);
 }
 
-fn sessionStringListResponsePlanWithMode(comptime label: []const u8, comptime mode: ability.ir.PlanControlMode) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const resumed = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+fn sessionStringListResponsePlanWithMode(comptime label: []const u8, comptime mode: boundary.ir.PlanControlMode) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const resumed = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .string_list,
         .result_codec = .string_list,
@@ -4006,18 +4006,18 @@ fn sessionStringListResponsePlanWithMode(comptime label: []const u8, comptime mo
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "string_list_response",
         .mode = mode,
         .payload_codec = .unit,
         .resume_codec = .string_list,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 52,
         .entry = root,
@@ -4032,13 +4032,13 @@ fn sessionStringListResponsePlanWithMode(comptime label: []const u8, comptime mo
     }) catch unreachable;
 }
 
-fn stringListIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+fn stringListIdentityPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .string_list,
         .parameter_count = 1,
@@ -4054,10 +4054,10 @@ fn stringListIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = 1,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 51,
         .entry = root,
@@ -4072,23 +4072,23 @@ fn stringListIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn resolvedNestedWithSplitCompletionPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const nested = ability.ir.builder.function(1);
-    const root_value = ability.ir.builder.local(root, 0);
-    const nested_value = ability.ir.builder.local(nested, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn resolvedNestedWithSplitCompletionPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const nested = boundary.ir.builder.function(1);
+    const root_value = boundary.ir.builder.local(root, 0);
+    const nested_value = boundary.ir.builder.local(nested, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{
             .kind = .call_nested_with,
             .dst = root_value.index,
-            .aux = @intFromEnum(ability.ir.ValueCodec.i32),
+            .aux = @intFromEnum(boundary.ir.ValueCodec.i32),
             .string_literal = nested_with_metadata,
         },
-        ability.ir.builder.returnValue(root, root_value) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_value) catch unreachable,
         .{ .kind = .const_i32, .dst = nested_value.index, .operand = 42 },
-        ability.ir.builder.returnValue(nested, nested_value) catch unreachable,
+        boundary.ir.builder.returnValue(nested, nested_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -4121,16 +4121,16 @@ fn resolvedNestedWithSplitCompletionPlan(comptime label: []const u8) ability.ir.
             .instruction_count = 2,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 48,
         .entry = root,
@@ -4145,23 +4145,23 @@ fn resolvedNestedWithSplitCompletionPlan(comptime label: []const u8) ability.ir.
     }) catch unreachable;
 }
 
-fn resolvedNestedWithAfterCompletionPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const nested = ability.ir.builder.function(1);
-    const root_value = ability.ir.builder.local(root, 0);
-    const nested_value = ability.ir.builder.local(nested, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn resolvedNestedWithAfterCompletionPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const nested = boundary.ir.builder.function(1);
+    const root_value = boundary.ir.builder.local(root, 0);
+    const nested_value = boundary.ir.builder.local(nested, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{
             .kind = .call_nested_with,
             .dst = root_value.index,
-            .aux = @intFromEnum(ability.ir.ValueCodec.string),
+            .aux = @intFromEnum(boundary.ir.ValueCodec.string),
             .string_literal = nested_with_metadata,
         },
-        ability.ir.builder.returnValue(root, root_value) catch unreachable,
-        ability.ir.builder.callOp(nested, nested_value, ability.ir.builder.op(nested, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(nested, nested_value) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_value) catch unreachable,
+        boundary.ir.builder.callOp(nested, nested_value, boundary.ir.builder.op(nested, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(nested, nested_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .string,
@@ -4194,12 +4194,12 @@ fn resolvedNestedWithAfterCompletionPlan(comptime label: []const u8) ability.ir.
             .instruction_count = 2,
         },
     };
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "authored",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "dispatch",
         .mode = .transform,
@@ -4207,16 +4207,16 @@ fn resolvedNestedWithAfterCompletionPlan(comptime label: []const u8) ability.ir.
         .resume_codec = .i32,
         .has_after = true,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 50,
         .entry = root,
@@ -4231,18 +4231,18 @@ fn resolvedNestedWithAfterCompletionPlan(comptime label: []const u8) ability.ir.
     }) catch unreachable;
 }
 
-fn terminalNestedWithSplitResultPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const nested = ability.ir.builder.function(1);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn terminalNestedWithSplitResultPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const nested = boundary.ir.builder.function(1);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{
             .kind = .call_nested_with,
-            .aux = @intFromEnum(ability.ir.ValueCodec.unit),
+            .aux = @intFromEnum(boundary.ir.ValueCodec.unit),
             .string_literal = nested_with_metadata,
         },
-        ability.ir.builder.callOp(nested, null, ability.ir.builder.op(nested, 0), null) catch unreachable,
+        boundary.ir.builder.callOp(nested, null, boundary.ir.builder.op(nested, 0), null) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -4276,32 +4276,32 @@ fn terminalNestedWithSplitResultPlan(comptime label: []const u8) ability.ir.Prog
             .instruction_count = 1,
         },
     };
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "abort",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "dispatch",
         .mode = .abort,
         .payload_codec = .unit,
         .resume_codec = .unit,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
         .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_unit },
         .{ .kind = .return_unit },
     };
 
-    const targets = .{ability.ir.NestedWithTarget{
+    const targets = .{boundary.ir.NestedWithTarget{
         .metadata = nested_with_metadata,
         .function_index = nested.index,
     }};
-    return ability.ir.builder.finishWithNestedTargets(.{
+    return boundary.ir.builder.finishWithNestedTargets(.{
         .label = label,
         .ir_hash = 51,
         .entry = root,
@@ -4316,27 +4316,27 @@ fn terminalNestedWithSplitResultPlan(comptime label: []const u8) ability.ir.Prog
     }, targets) catch unreachable;
 }
 
-fn helperNestedWithPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const nested = ability.ir.builder.function(2);
-    const root_value = ability.ir.builder.local(root, 0);
-    const helper_value = ability.ir.builder.local(helper, 0);
-    const nested_value = ability.ir.builder.local(nested, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
-        ability.ir.builder.returnValue(root, root_value) catch unreachable,
+fn helperNestedWithPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const nested = boundary.ir.builder.function(2);
+    const root_value = boundary.ir.builder.local(root, 0);
+    const helper_value = boundary.ir.builder.local(helper, 0);
+    const nested_value = boundary.ir.builder.local(nested, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_value) catch unreachable,
         .{
             .kind = .call_nested_with,
             .dst = helper_value.index,
-            .aux = @intFromEnum(ability.ir.ValueCodec.i32),
+            .aux = @intFromEnum(boundary.ir.ValueCodec.i32),
             .string_literal = nested_with_metadata,
         },
-        ability.ir.builder.returnValue(helper, helper_value) catch unreachable,
+        boundary.ir.builder.returnValue(helper, helper_value) catch unreachable,
         .{ .kind = .const_i32, .dst = nested_value.index, .operand = 64 },
-        ability.ir.builder.returnValue(nested, nested_value) catch unreachable,
+        boundary.ir.builder.returnValue(nested, nested_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -4383,18 +4383,18 @@ fn helperNestedWithPlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .instruction_count = 2,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
         .{ .first_instruction = 4, .instruction_count = 2, .terminator_index = 2 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 62,
         .entry = root,
@@ -4409,18 +4409,18 @@ fn helperNestedWithPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn terminalNestedWithProductResultPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const nested = ability.ir.builder.function(1);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn terminalNestedWithProductResultPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const nested = boundary.ir.builder.function(1);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{
             .kind = .call_nested_with,
-            .aux = @intFromEnum(ability.ir.ValueCodec.unit),
+            .aux = @intFromEnum(boundary.ir.ValueCodec.unit),
             .string_literal = nested_with_metadata,
         },
-        ability.ir.builder.callOp(nested, null, ability.ir.builder.op(nested, 0), null) catch unreachable,
+        boundary.ir.builder.callOp(nested, null, boundary.ir.builder.op(nested, 0), null) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .unit,
@@ -4456,42 +4456,42 @@ fn terminalNestedWithProductResultPlan(comptime Payload: type, comptime label: [
             .instruction_count = 1,
         },
     };
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "abort",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "dispatch",
         .mode = .abort,
         .payload_codec = .unit,
         .resume_codec = .unit,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .product,
         .first_field = 0,
         .field_count = 1,
     }};
-    const value_fields = [_]ability.ir.ValueFieldPlan{.{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{.{
         .name = "amount",
         .codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
         .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_unit },
         .{ .kind = .return_unit },
     };
-    const targets = .{ability.ir.NestedWithTarget{
+    const targets = .{boundary.ir.NestedWithTarget{
         .metadata = nested_with_metadata,
         .function_index = nested.index,
     }};
 
-    return ability.ir.builder.finishWithNestedTargets(.{
+    return boundary.ir.builder.finishWithNestedTargets(.{
         .label = label,
         .ir_hash = 63,
         .entry = root,
@@ -4509,18 +4509,18 @@ fn terminalNestedWithProductResultPlan(comptime Payload: type, comptime label: [
     }, targets) catch unreachable;
 }
 
-fn terminalNestedWithSumResultPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const nested = ability.ir.builder.function(1);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn terminalNestedWithSumResultPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const nested = boundary.ir.builder.function(1);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{
             .kind = .call_nested_with,
-            .aux = @intFromEnum(ability.ir.ValueCodec.unit),
+            .aux = @intFromEnum(boundary.ir.ValueCodec.unit),
             .string_literal = nested_with_metadata,
         },
-        ability.ir.builder.callOp(nested, null, ability.ir.builder.op(nested, 0), null) catch unreachable,
+        boundary.ir.builder.callOp(nested, null, boundary.ir.builder.op(nested, 0), null) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .unit,
@@ -4556,42 +4556,42 @@ fn terminalNestedWithSumResultPlan(comptime Payload: type, comptime label: []con
             .instruction_count = 1,
         },
     };
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "abort",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "dispatch",
         .mode = .abort,
         .payload_codec = .unit,
         .resume_codec = .unit,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .sum,
         .first_variant = 0,
         .variant_count = 2,
     }};
-    const value_variants = [_]ability.ir.ValueVariantPlan{
+    const value_variants = [_]boundary.ir.ValueVariantPlan{
         .{ .name = "none", .codec = .unit },
         .{ .name = "some", .codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
         .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_unit },
         .{ .kind = .return_unit },
     };
-    const targets = .{ability.ir.NestedWithTarget{
+    const targets = .{boundary.ir.NestedWithTarget{
         .metadata = nested_with_metadata,
         .function_index = nested.index,
     }};
 
-    return ability.ir.builder.finishWithNestedTargets(.{
+    return boundary.ir.builder.finishWithNestedTargets(.{
         .label = label,
         .ir_hash = 64,
         .entry = root,
@@ -4609,18 +4609,18 @@ fn terminalNestedWithSumResultPlan(comptime Payload: type, comptime label: []con
     }, targets) catch unreachable;
 }
 
-fn nestedWithOutputCollectionPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const nested = ability.ir.builder.function(1);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn nestedWithOutputCollectionPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const nested = boundary.ir.builder.function(1);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{
             .kind = .call_nested_with,
-            .aux = @intFromEnum(ability.ir.ValueCodec.unit),
+            .aux = @intFromEnum(boundary.ir.ValueCodec.unit),
             .string_literal = nested_with_metadata,
         },
-        ability.ir.builder.callOp(nested, null, ability.ir.builder.op(nested, 0), null) catch unreachable,
+        boundary.ir.builder.callOp(nested, null, boundary.ir.builder.op(nested, 0), null) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .first_requirement = 0,
@@ -4650,32 +4650,32 @@ fn nestedWithOutputCollectionPlan(comptime label: []const u8) ability.ir.Program
             .instruction_count = 1,
         },
     };
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "observe",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "dispatch",
         .mode = .transform,
         .payload_codec = .unit,
         .resume_codec = .unit,
     }};
-    const outputs = [_]ability.ir.plan.Output{.{
+    const outputs = [_]boundary.ir.plan.Output{.{
         .label = "observed",
         .codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
         .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_unit },
         .{ .kind = .return_unit },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 65,
         .entry = root,
@@ -4690,9 +4690,9 @@ fn nestedWithOutputCollectionPlan(comptime label: []const u8) ability.ir.Program
     }) catch unreachable;
 }
 
-fn outputMetadataPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const functions = [_]ability.ir.plan.Function{.{
+fn outputMetadataPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .first_requirement = 0,
         .requirement_count = 0,
@@ -4706,18 +4706,18 @@ fn outputMetadataPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = 0,
     }};
-    const outputs = [_]ability.ir.plan.Output{.{
+    const outputs = [_]boundary.ir.plan.Output{.{
         .label = "writer",
         .codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = 0,
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 26,
         .entry = root,
@@ -4732,24 +4732,24 @@ fn outputMetadataPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn writerAccumulatorPlan(comptime label: []const u8, comptime values: []const i32) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
+fn writerAccumulatorPlan(comptime label: []const u8, comptime values: []const i32) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
     const instruction_count = values.len * 2;
     const instructions = comptime blk: {
-        var buffer: [instruction_count]ability.ir.plan.Instruction = undefined;
+        var buffer: [instruction_count]boundary.ir.plan.Instruction = undefined;
         for (values, 0..) |value, index| {
-            const payload = ability.ir.builder.local(root, @intCast(index));
+            const payload = boundary.ir.builder.local(root, @intCast(index));
             buffer[index * 2] = .{ .kind = .const_i32, .dst = payload.index, .operand = @intCast(value) };
-            buffer[index * 2 + 1] = ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload) catch unreachable;
+            buffer[index * 2 + 1] = boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), payload) catch unreachable;
         }
         break :blk buffer;
     };
     const locals = comptime blk: {
-        var buffer: [values.len]ability.ir.plan.Local = undefined;
+        var buffer: [values.len]boundary.ir.plan.Local = undefined;
         for (&buffer) |*local_plan| local_plan.* = .{ .codec = .i32 };
         break :blk buffer;
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .first_requirement = 0,
         .requirement_count = 1,
@@ -4763,32 +4763,32 @@ fn writerAccumulatorPlan(comptime label: []const u8, comptime values: []const i3
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "writer",
         .first_op = 0,
         .op_count = 1,
         .lifecycle_tag = .writer_accumulator,
         .output_tag = .accumulator,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "tell",
         .mode = .transform,
         .payload_codec = .i32,
         .resume_codec = .unit,
     }};
-    const outputs = [_]ability.ir.plan.Output{.{
+    const outputs = [_]boundary.ir.plan.Output{.{
         .label = "writer",
         .codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 61,
         .entry = root,
@@ -4803,14 +4803,14 @@ fn writerAccumulatorPlan(comptime label: []const u8, comptime values: []const i3
     }) catch unreachable;
 }
 
-test "ability.program exposes scalar ProgramPlan contract metadata" {
+test "boundary.program exposes scalar ProgramPlan contract metadata" {
     const Body = struct {
         pub const compiled_plan = pureArithmeticPlan("contract-scalar-plan");
     };
-    const Program = ability.program("contract-scalar", struct {}, Body);
+    const Program = boundary.program("contract-scalar", struct {}, Body);
 
     try std.testing.expectEqualStrings("contract-scalar", Program.contract.label);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.result_codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, Program.contract.result_codec);
     try std.testing.expectEqual(@as(?u16, null), Program.contract.result_schema_index);
     try std.testing.expectEqual(i32, Program.contract.ResultType);
     try std.testing.expectEqual(void, Program.contract.OutputsType);
@@ -4841,7 +4841,7 @@ test "ability.program exposes scalar ProgramPlan contract metadata" {
     try std.testing.expect(!@hasDecl(Program.contract, "VM"));
 }
 
-test "ability.program exposes product result contract metadata" {
+test "boundary.program exposes product result contract metadata" {
     const Payload = struct {
         amount: i32,
     };
@@ -4853,24 +4853,24 @@ test "ability.program exposes product result contract metadata" {
             return .{Payload{ .amount = 7 }};
         }
     };
-    const Program = ability.program("contract-product", struct {}, Body);
+    const Program = boundary.program("contract-product", struct {}, Body);
 
-    try std.testing.expectEqual(ability.ir.ValueCodec.product, Program.contract.result_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.product, Program.contract.result_ref.codec);
     try std.testing.expectEqual(@as(?u16, 0), Program.contract.result_ref.schema_index);
     try std.testing.expect(Program.contract.has_typed_result_schema);
     try std.testing.expectEqual(Payload, Program.contract.ResultType);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.value_schemas.len);
     try std.testing.expectEqualStrings(@typeName(Payload), Program.contract.value_schemas[0].label);
-    try std.testing.expectEqual(ability.ir.ValueCodec.product, Program.contract.value_schemas[0].codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.product, Program.contract.value_schemas[0].codec);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.value_fields.len);
     try std.testing.expectEqualStrings("amount", Program.contract.value_fields[0].name);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.value_fields[0].ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, Program.contract.value_fields[0].ref.codec);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.entry_parameters.len);
-    try std.testing.expectEqual(ability.ir.ValueCodec.product, Program.contract.entry_parameters[0].ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.product, Program.contract.entry_parameters[0].ref.codec);
     try std.testing.expectEqual(@as(?u16, 0), Program.contract.entry_parameters[0].ref.schema_index);
 }
 
-test "ability.program exposes sum result contract metadata" {
+test "boundary.program exposes sum result contract metadata" {
     const Payload = ?i32;
     const Body = struct {
         pub const value_schema_types = .{Payload};
@@ -4880,22 +4880,22 @@ test "ability.program exposes sum result contract metadata" {
             return .{@as(Payload, 7)};
         }
     };
-    const Program = ability.program("contract-sum", struct {}, Body);
+    const Program = boundary.program("contract-sum", struct {}, Body);
 
-    try std.testing.expectEqual(ability.ir.ValueCodec.sum, Program.contract.result_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.sum, Program.contract.result_ref.codec);
     try std.testing.expectEqual(@as(?u16, 0), Program.contract.result_ref.schema_index);
     try std.testing.expect(Program.contract.has_typed_result_schema);
     try std.testing.expectEqual(Payload, Program.contract.ResultType);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.value_schemas.len);
-    try std.testing.expectEqual(ability.ir.ValueCodec.sum, Program.contract.value_schemas[0].codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.sum, Program.contract.value_schemas[0].codec);
     try std.testing.expectEqual(@as(usize, 2), Program.contract.value_variants.len);
     try std.testing.expectEqualStrings("none", Program.contract.value_variants[0].name);
-    try std.testing.expectEqual(ability.ir.ValueCodec.unit, Program.contract.value_variants[0].ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.unit, Program.contract.value_variants[0].ref.codec);
     try std.testing.expectEqualStrings("some", Program.contract.value_variants[1].name);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.value_variants[1].ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, Program.contract.value_variants[1].ref.codec);
 }
 
-test "ability.program exposes output contract metadata" {
+test "boundary.program exposes output contract metadata" {
     const Body = struct {
         pub const Outputs = []const i32;
         pub const compiled_plan = outputMetadataPlan("contract-output-plan");
@@ -4904,23 +4904,23 @@ test "ability.program exposes output contract metadata" {
             return &[_]i32{};
         }
     };
-    const Program = ability.program("contract-output", struct {}, Body);
+    const Program = boundary.program("contract-output", struct {}, Body);
 
     try std.testing.expectEqual(@as(usize, 1), Program.contract.outputs.len);
     try std.testing.expectEqualStrings("writer", Program.contract.outputs[0].label);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.outputs[0].codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, Program.contract.outputs[0].codec);
     try std.testing.expectEqual(@as(?u16, null), Program.contract.outputs[0].schema_index);
 }
 
-test "ability.program exposes nested-with target declaration metadata" {
+test "boundary.program exposes nested-with target declaration metadata" {
     const Body = struct {
         pub const compiled_plan = resolvedNestedWithPlan("contract-nested-plan");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const Program = ability.program("contract-nested", struct {}, Body);
+    const Program = boundary.program("contract-nested", struct {}, Body);
 
     try std.testing.expect(Program.contract.has_nested_with_targets);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.nested_with_targets.len);
@@ -4930,7 +4930,7 @@ test "ability.program exposes nested-with target declaration metadata" {
     try std.testing.expectEqual(@as(usize, 0), Program.contract.executable.blocker_count);
 }
 
-test "ability.program exposes transform choice and abort op metadata" {
+test "boundary.program exposes transform choice and abort op metadata" {
     const TransformBody = struct {
         pub const compiled_plan = matrixPlan(.transform, .string, .i32);
     };
@@ -4940,9 +4940,9 @@ test "ability.program exposes transform choice and abort op metadata" {
     const AbortBody = struct {
         pub const compiled_plan = matrixPlan(.abort, .unit, .unit);
     };
-    const TransformProgram = ability.program("contract-transform", struct {}, TransformBody);
-    const ChoiceProgram = ability.program("contract-choice", struct {}, ChoiceBody);
-    const AbortProgram = ability.program("contract-abort", struct {}, AbortBody);
+    const TransformProgram = boundary.program("contract-transform", struct {}, TransformBody);
+    const ChoiceProgram = boundary.program("contract-choice", struct {}, ChoiceBody);
+    const AbortProgram = boundary.program("contract-abort", struct {}, AbortBody);
 
     try std.testing.expectEqual(@as(usize, 1), TransformProgram.contract.requirements.len);
     try std.testing.expectEqualStrings("matrix", TransformProgram.contract.requirements[0].label);
@@ -4952,8 +4952,8 @@ test "ability.program exposes transform choice and abort op metadata" {
     try std.testing.expectEqualStrings("authored", TransformProgram.contract.ops[0].op_name);
     try std.testing.expectEqualStrings("matrix", TransformProgram.contract.ops[0].requirement_label);
     try std.testing.expectEqual(@as(@TypeOf(TransformProgram.contract.ops[0].mode), .transform), TransformProgram.contract.ops[0].mode);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, TransformProgram.contract.ops[0].payload_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, TransformProgram.contract.ops[0].resume_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, TransformProgram.contract.ops[0].payload_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, TransformProgram.contract.ops[0].resume_ref.codec);
     try std.testing.expect(TransformProgram.contract.ops[0].has_after);
     try std.testing.expect(TransformProgram.contract.session.supported);
     try std.testing.expect(TransformProgram.contract.session.parks_runtime);
@@ -4973,9 +4973,9 @@ test "ability.program exposes transform choice and abort op metadata" {
     try std.testing.expectEqualStrings("matrix", TransformProgram.contract.session.yield_sites[0].requirement_label);
     try std.testing.expectEqual(@as(u16, 0), TransformProgram.contract.session.yield_sites[0].op_index);
     try std.testing.expectEqualStrings("authored", TransformProgram.contract.session.yield_sites[0].op_name);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, TransformProgram.contract.session.yield_sites[0].payload_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, TransformProgram.contract.session.yield_sites[0].resume_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, TransformProgram.contract.session.yield_sites[0].result_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, TransformProgram.contract.session.yield_sites[0].payload_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, TransformProgram.contract.session.yield_sites[0].resume_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, TransformProgram.contract.session.yield_sites[0].result_ref.codec);
     try std.testing.expect(TransformProgram.contract.session.yield_sites[0].has_after);
     try std.testing.expect(TransformProgram.contract.session.yield_sites[0].host_may_resume);
     try std.testing.expect(!TransformProgram.contract.session.yield_sites[0].host_may_return_now);
@@ -4995,19 +4995,19 @@ test "ability.program exposes transform choice and abort op metadata" {
     try std.testing.expect(ChoiceProgram.contract.ops[0].has_after);
 
     try std.testing.expectEqual(@as(@TypeOf(AbortProgram.contract.ops[0].mode), .abort), AbortProgram.contract.ops[0].mode);
-    try std.testing.expectEqual(ability.ir.ValueCodec.unit, AbortProgram.contract.ops[0].resume_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.unit, AbortProgram.contract.ops[0].resume_ref.codec);
     try std.testing.expect(!AbortProgram.contract.ops[0].has_after);
     try std.testing.expect(AbortProgram.contract.session.supported);
 }
 
 test "Program.contract.session exposes transform operation yield site and request trace maps to it" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "session-site-transform");
     };
-    const Program = ability.program("session-site-transform", struct {}, Body);
+    const Program = boundary.program("session-site-transform", struct {}, Body);
 
     try std.testing.expectEqual(@as(u32, 2), Program.contract.session.fingerprint_version);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.session.yield_sites.len);
@@ -5024,9 +5024,9 @@ test "Program.contract.session exposes transform operation yield site and reques
     try std.testing.expectEqual(@as(u16, 0), site.op_index);
     try std.testing.expectEqualStrings("decide", site.op_name);
     try std.testing.expectEqual(@as(@TypeOf(site.op_mode), .transform), site.op_mode);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, site.payload_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, site.resume_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, site.result_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, site.payload_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, site.resume_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, site.result_ref.codec);
     try std.testing.expect(!site.has_after);
     try std.testing.expect(site.host_may_resume);
     try std.testing.expect(!site.host_may_return_now);
@@ -5050,13 +5050,13 @@ test "Program.contract.session exposes transform operation yield site and reques
 }
 
 test "Program.Session request fingerprint disambiguates same op from different call sites" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = repeatedCallSiteSameOpPlan("session-site-same-op", false);
     };
-    const Program = ability.program("session-site-same-op", struct {}, Body);
+    const Program = boundary.program("session-site-same-op", struct {}, Body);
     try std.testing.expectEqual(@as(usize, 2), Program.contract.session.yield_sites.len);
     try std.testing.expectEqual(@as(u16, 0), Program.contract.session.yield_sites[0].op_index);
     try std.testing.expectEqual(@as(u16, 0), Program.contract.session.yield_sites[1].op_index);
@@ -5105,7 +5105,7 @@ test "Program.Session request fingerprint disambiguates same op from different c
 }
 
 test "Program.Session request fingerprint changes for different sites at same turn" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const BranchHandlers = struct {
@@ -5118,7 +5118,7 @@ test "Program.Session request fingerprint changes for different sites at same tu
             return .{handlers.choose_right};
         }
     };
-    const Program = ability.program("session-site-same-turn", BranchHandlers, Body);
+    const Program = boundary.program("session-site-same-turn", BranchHandlers, Body);
     try std.testing.expectEqual(@as(usize, 2), Program.contract.session.yield_sites.len);
     try std.testing.expectEqual(@as(u16, 0), Program.contract.session.yield_sites[0].op_index);
     try std.testing.expectEqual(@as(u16, 0), Program.contract.session.yield_sites[1].op_index);
@@ -5150,13 +5150,13 @@ test "Program.Session request fingerprint changes for different sites at same tu
 }
 
 test "Program.Session looped operation reuses static site and advances turns" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = loopedOperationSitePlan("session-site-loop");
     };
-    const Program = ability.program("session-site-loop", struct {}, Body);
+    const Program = boundary.program("session-site-loop", struct {}, Body);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.session.yield_sites.len);
     const site = Program.contract.session.yield_sites[0];
     try std.testing.expectEqual(@as(usize, 1), site.block_index);
@@ -5192,7 +5192,7 @@ test "Program.contract.session site catalog follows helper nested-with and omits
     const HelperBody = struct {
         pub const compiled_plan = sessionHelperYieldPlan("session-site-helper");
     };
-    const HelperProgram = ability.program("session-site-helper", struct {}, HelperBody);
+    const HelperProgram = boundary.program("session-site-helper", struct {}, HelperBody);
     try std.testing.expectEqual(@as(usize, 1), HelperProgram.contract.session.yield_sites.len);
     try std.testing.expectEqual(@as(usize, 1), HelperProgram.contract.session.yield_sites[0].function_index);
     try std.testing.expectEqualStrings("helper", HelperProgram.contract.session.yield_sites[0].function_symbol_name);
@@ -5201,12 +5201,12 @@ test "Program.contract.session site catalog follows helper nested-with and omits
 
     const NestedBody = struct {
         pub const compiled_plan = resolvedNestedWithStringListPlan("session-site-nested");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const NestedProgram = ability.program("session-site-nested", struct {}, NestedBody);
+    const NestedProgram = boundary.program("session-site-nested", struct {}, NestedBody);
     try std.testing.expectEqual(@as(usize, 1), NestedProgram.contract.session.yield_sites.len);
     try std.testing.expectEqual(@as(usize, 1), NestedProgram.contract.session.yield_sites[0].function_index);
     try std.testing.expectEqualStrings("nested", NestedProgram.contract.session.yield_sites[0].function_symbol_name);
@@ -5216,20 +5216,20 @@ test "Program.contract.session site catalog follows helper nested-with and omits
     const DeadBody = struct {
         pub const compiled_plan = unreachableCallOpPlan("session-site-unreachable");
     };
-    const DeadProgram = ability.program("session-site-unreachable", struct {}, DeadBody);
+    const DeadProgram = boundary.program("session-site-unreachable", struct {}, DeadBody);
     try std.testing.expectEqual(@as(usize, 1), DeadProgram.contract.ops.len);
     try std.testing.expectEqual(@as(usize, 0), DeadProgram.contract.session.yield_sites.len);
     try std.testing.expectEqual(@as(usize, 0), DeadProgram.contract.session.after_sites.len);
 }
 
 test "Program.contract.session after sites map dynamic after traces to source operation sites" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = compiledTransformPlan("session-site-after");
     };
-    const Program = ability.program("session-site-after", struct {}, Body);
+    const Program = boundary.program("session-site-after", struct {}, Body);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.session.yield_sites.len);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.session.after_sites.len);
     const operation_site = Program.contract.session.yield_sites[0];
@@ -5242,7 +5242,7 @@ test "Program.contract.session after sites map dynamic after traces to source op
     try std.testing.expectEqual(operation_site.instruction_index, after_site.source_instruction_index);
     try std.testing.expectEqual(operation_site.requirement_index, after_site.original_requirement_index);
     try std.testing.expectEqual(operation_site.op_index, after_site.original_op_index);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, after_site.result_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, after_site.result_ref.codec);
 
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -5269,7 +5269,7 @@ test "Program.contract.session after sites map dynamic after traces to source op
     const RepeatedAfterBody = struct {
         pub const compiled_plan = repeatedCallSiteSameOpPlan("session-site-after-same-op", true);
     };
-    const RepeatedAfterProgram = ability.program("session-site-after-same-op", struct {}, RepeatedAfterBody);
+    const RepeatedAfterProgram = boundary.program("session-site-after-same-op", struct {}, RepeatedAfterBody);
     try std.testing.expectEqual(@as(usize, 2), RepeatedAfterProgram.contract.session.yield_sites.len);
     try std.testing.expectEqual(@as(usize, 2), RepeatedAfterProgram.contract.session.after_sites.len);
     try std.testing.expectEqual(@as(u16, 0), RepeatedAfterProgram.contract.session.after_sites[0].original_op_index);
@@ -5283,7 +5283,7 @@ test "Program.protocol exposes typed operation site descriptors" {
     const TransformBody = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "protocol-transform-descriptor");
     };
-    const TransformProgram = ability.program("protocol-transform-descriptor", struct {}, TransformBody);
+    const TransformProgram = boundary.program("protocol-transform-descriptor", struct {}, TransformBody);
     const Transform = TransformProgram.protocol.operationSite("session", "decide", 0);
     const TransformByIndex = TransformProgram.protocol.siteByIndex(0);
 
@@ -5298,9 +5298,9 @@ test "Program.protocol exposes typed operation site descriptors" {
     try std.testing.expect(Transform.Payload == []const u8);
     try std.testing.expect(Transform.Resume == i32);
     try std.testing.expect(Transform.Result == i32);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, Transform.payload_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Transform.resume_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Transform.result_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, Transform.payload_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, Transform.resume_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, Transform.result_ref.codec);
     try std.testing.expect(Transform.may_resume);
     try std.testing.expect(!Transform.may_return_now);
     try std.testing.expect(!Transform.has_after);
@@ -5308,7 +5308,7 @@ test "Program.protocol exposes typed operation site descriptors" {
     const ChoiceBody = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "protocol-choice-descriptor");
     };
-    const ChoiceProgram = ability.program("protocol-choice-descriptor", struct {}, ChoiceBody);
+    const ChoiceProgram = boundary.program("protocol-choice-descriptor", struct {}, ChoiceBody);
     const Choice = ChoiceProgram.protocol.operationSite("session", "decide", 0);
     try std.testing.expect(Choice.Payload == []const u8);
     try std.testing.expect(Choice.Resume == i32);
@@ -5320,7 +5320,7 @@ test "Program.protocol exposes typed operation site descriptors" {
     const AbortBody = struct {
         pub const compiled_plan = abortPlan("protocol-abort-descriptor");
     };
-    const AbortProgram = ability.program("protocol-abort-descriptor", struct {}, AbortBody);
+    const AbortProgram = boundary.program("protocol-abort-descriptor", struct {}, AbortBody);
     const Abort = AbortProgram.protocol.operationSite("authored", "abort", 0);
     try std.testing.expect(Abort.Payload == void);
     try std.testing.expect(Abort.Resume == void);
@@ -5354,7 +5354,7 @@ test "Program.protocol exposes handler-derived after site descriptors" {
     const Body = struct {
         pub const compiled_plan = stackedAfterPlan("protocol-stacked-after-descriptor");
     };
-    const Program = ability.program("protocol-stacked-after-descriptor", StackedHandlers, Body);
+    const Program = boundary.program("protocol-stacked-after-descriptor", StackedHandlers, Body);
     const Outer = Program.protocol.afterSite("outer", "outer", 0);
     const Inner = Program.protocol.afterSite("inner", "inner", 0);
 
@@ -5365,9 +5365,9 @@ test "Program.protocol exposes handler-derived after site descriptors" {
     try std.testing.expect(Outer.Output == []const u8);
     try std.testing.expect(Outer.Result == []const u8);
     try std.testing.expect(Outer.has_static_input_ref);
-    try std.testing.expectEqual(ability.ir.ValueCodec.bool, Outer.input_ref.?.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, Outer.output_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, Outer.result_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.bool, Outer.input_ref.?.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, Outer.output_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, Outer.result_ref.codec);
     try std.testing.expectEqualStrings("outer", Outer.original_requirement_label);
     try std.testing.expectEqualStrings("outer", Outer.original_op_name);
 
@@ -5375,21 +5375,21 @@ test "Program.protocol exposes handler-derived after site descriptors" {
     try std.testing.expect(Inner.Output == bool);
     try std.testing.expect(Inner.Result == []const u8);
     try std.testing.expect(Inner.has_static_input_ref);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Inner.input_ref.?.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.bool, Inner.output_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, Inner.result_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, Inner.input_ref.?.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.bool, Inner.output_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, Inner.result_ref.codec);
     try std.testing.expectEqualStrings("inner", Inner.original_requirement_label);
     try std.testing.expectEqualStrings("inner", Inner.original_op_name);
 }
 
 test "Program.protocol binds dynamic operation requests to matching static sites" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = repeatedCallSiteSameOpPlan("protocol-operation-binding", false);
     };
-    const Program = ability.program("protocol-operation-binding", struct {}, Body);
+    const Program = boundary.program("protocol-operation-binding", struct {}, Body);
     const First = Program.protocol.operationSite("session", "same_op", 0);
     const Second = Program.protocol.operationSite("session", "same_op", 1);
     try std.testing.expect(First.fingerprint != Second.fingerprint);
@@ -5430,13 +5430,13 @@ test "Program.protocol binds dynamic operation requests to matching static sites
 }
 
 test "Program.protocol site-aware returnNow accepts terminal sites and rejects transform" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const TransformBody = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "protocol-transform-return-now-reject");
     };
-    const TransformProgram = ability.program("protocol-transform-return-now-reject", struct {}, TransformBody);
+    const TransformProgram = boundary.program("protocol-transform-return-now-reject", struct {}, TransformBody);
     const Transform = TransformProgram.protocol.operationSite("session", "decide", 0);
     var transform_session = try TransformProgram.Session.start(&runtime, .{});
     defer transform_session.deinit();
@@ -5458,7 +5458,7 @@ test "Program.protocol site-aware returnNow accepts terminal sites and rejects t
     const ChoiceBody = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "protocol-choice-return-now");
     };
-    const ChoiceProgram = ability.program("protocol-choice-return-now", struct {}, ChoiceBody);
+    const ChoiceProgram = boundary.program("protocol-choice-return-now", struct {}, ChoiceBody);
     const Choice = ChoiceProgram.protocol.operationSite("session", "decide", 0);
     var choice_session = try ChoiceProgram.Session.start(&runtime, .{});
     defer choice_session.deinit();
@@ -5479,7 +5479,7 @@ test "Program.protocol site-aware returnNow accepts terminal sites and rejects t
     const AbortBody = struct {
         pub const compiled_plan = abortPlan("protocol-abort-return-now");
     };
-    const AbortProgram = ability.program("protocol-abort-return-now", struct {}, AbortBody);
+    const AbortProgram = boundary.program("protocol-abort-return-now", struct {}, AbortBody);
     const Abort = AbortProgram.protocol.operationSite("authored", "abort", 0);
     var abort_session = try AbortProgram.Session.start(&runtime, .{});
     defer abort_session.deinit();
@@ -5499,7 +5499,7 @@ test "Program.protocol site-aware returnNow accepts terminal sites and rejects t
 }
 
 test "Program.protocol binds dynamic after requests to matching static after sites" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const StackedHandlers = struct {
@@ -5525,7 +5525,7 @@ test "Program.protocol binds dynamic after requests to matching static after sit
     const Body = struct {
         pub const compiled_plan = stackedAfterPlan("protocol-after-binding");
     };
-    const Program = ability.program("protocol-after-binding", StackedHandlers, Body);
+    const Program = boundary.program("protocol-after-binding", StackedHandlers, Body);
     const Outer = Program.protocol.afterSite("outer", "outer", 0);
     const Inner = Program.protocol.afterSite("inner", "inner", 0);
     var session = try Program.Session.start(&runtime, .{ .outer = .{}, .inner = .{} });
@@ -5581,13 +5581,13 @@ test "Program.protocol binds dynamic after requests to matching static after sit
 }
 
 test "Program.Interpreter handles transform requests and records response traces" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "interpreter-transform");
     };
-    const Program = ability.program("interpreter-transform", struct {}, Body);
+    const Program = boundary.program("interpreter-transform", struct {}, Body);
     const Decide = Program.protocol.operationSite("session", "decide", 0);
     const Interpreter = Program.Interpreter(.{Program.Handler.operation(Decide, ResumeI32OperationHandler(Program, Decide, 41).handle)});
     Interpreter.assertCoversAll();
@@ -5746,7 +5746,7 @@ test "Program.Interpreter handles transform requests and records response traces
     const ChoiceBody = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "journal-choice-return-now");
     };
-    const ChoiceProgram = ability.program("journal-choice-return-now", struct {}, ChoiceBody);
+    const ChoiceProgram = boundary.program("journal-choice-return-now", struct {}, ChoiceBody);
     const Choice = ChoiceProgram.protocol.operationSite("session", "decide", 0);
     var choice_session = try ChoiceProgram.Session.start(&runtime, .{});
     defer choice_session.deinit();
@@ -5923,7 +5923,7 @@ test "Program.Interpreter handles transform requests and records response traces
 }
 
 test "Program.Session journal replays structured response values" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ProductPayload = struct {
@@ -5938,7 +5938,7 @@ test "Program.Session journal replays structured response values" {
             return .{ProductPayload{ .amount = 11 }};
         }
     };
-    const ProductProgram = ability.program("session-journal-product", EmptyHandlers, ProductBody);
+    const ProductProgram = boundary.program("session-journal-product", EmptyHandlers, ProductBody);
     const ProductSite = ProductProgram.protocol.operationSite("structured", "round_trip", 0);
     var product_session = try ProductProgram.Session.start(&runtime, .{});
     defer product_session.deinit();
@@ -5976,7 +5976,7 @@ test "Program.Session journal replays structured response values" {
             return .{@as(SumPayload, 21)};
         }
     };
-    const SumProgram = ability.program("session-journal-sum", EmptyHandlers, SumBody);
+    const SumProgram = boundary.program("session-journal-sum", EmptyHandlers, SumBody);
     const SumSite = SumProgram.protocol.operationSite("structured", "round_trip", 0);
     var sum_session = try SumProgram.Session.start(&runtime, .{});
     defer sum_session.deinit();
@@ -6007,7 +6007,7 @@ test "Program.Session journal replays structured response values" {
 }
 
 test "Program.Session journal replays structured response aliases" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const AliasPair = struct {
@@ -6025,7 +6025,7 @@ test "Program.Session journal replays structured response aliases" {
             return .{handlers.payload};
         }
     };
-    const Program = ability.program("session-journal-structured-alias", AliasHandlers, Body);
+    const Program = boundary.program("session-journal-structured-alias", AliasHandlers, Body);
     const Site = Program.protocol.operationSite("structured", "round_trip", 0);
 
     var seed_items = [_][]const u8{ "seed", "right" };
@@ -6062,7 +6062,7 @@ test "Program.Session journal replays structured response aliases" {
 }
 
 test "Program.Session journal preserves duplicate schema response refs" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -6077,7 +6077,7 @@ test "Program.Session journal preserves duplicate schema response refs" {
             return .{.{ .amount = 1 }};
         }
     };
-    const Program = ability.program("session-journal-duplicate-schema-response", EmptyHandlers, Body);
+    const Program = boundary.program("session-journal-duplicate-schema-response", EmptyHandlers, Body);
     const Site = Program.protocol.operationSite("structured", "round_trip", 0);
 
     var session = try Program.Session.start(&runtime, .{});
@@ -6111,17 +6111,17 @@ test "Program.Session journal preserves duplicate schema response refs" {
 }
 
 test "Program.Session journal replays string-list response values" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = resolvedNestedWithStringListPlan("session-journal-string-list");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const Program = ability.program("session-journal-string-list", struct {}, Body);
+    const Program = boundary.program("session-journal-string-list", struct {}, Body);
     const Operation = Program.protocol.operationSite("authored", "dispatch", 0);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -6216,13 +6216,13 @@ test "Program.Session journal replays string-list response values" {
 }
 
 test "Program.Session journal keeps identity-based string-list value image compatibility" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringListResponsePlan("session-journal-string-list-identity");
     };
-    const Program = ability.program("session-journal-string-list-identity", struct {}, Body);
+    const Program = boundary.program("session-journal-string-list-identity", struct {}, Body);
     const Operation = Program.protocol.operationSite("session", "string_list_response", 0);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -6261,7 +6261,7 @@ test "Program.Session journal keeps identity-based string-list value image compa
 }
 
 test "Program.Interpreter journal records after response values" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const FinalAfterHandlers = struct {
@@ -6274,7 +6274,7 @@ test "Program.Interpreter journal records after response values" {
     const Body = struct {
         pub const compiled_plan = finalAfterOutputMismatchPlan("interpreter-journal-after-values");
     };
-    const Program = ability.program("interpreter-journal-after-values", FinalAfterHandlers, Body);
+    const Program = boundary.program("interpreter-journal-after-values", FinalAfterHandlers, Body);
     const Operation = Program.protocol.operationSite("step", "step", 0);
     const After = Program.protocol.afterSite("step", "step", 0);
     const DynamicAfterHandler = struct {
@@ -6342,18 +6342,18 @@ test "Program.Interpreter journal records after response values" {
 }
 
 test "Program.Morphism and ProtocolRequest preserve source capsule metadata" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "morphism-protocol-request");
     };
-    const Program = ability.program("morphism-protocol-request", struct {}, Body);
+    const Program = boundary.program("morphism-protocol-request", struct {}, Body);
     const Source = Program.protocol.operationSite("session", "decide", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", []const u8, bool),
+            boundary.ir.schema.transform("check", []const u8, bool),
         },
     });
     const Check = Policy.operation("check", .{});
@@ -6445,18 +6445,18 @@ test "Program.Morphism and ProtocolRequest preserve source capsule metadata" {
 }
 
 test "Program.ResidualMorphism report and residualize compile identity morphism into ProgramPlan" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "residualize-identity-source");
     };
-    const Program = ability.program("residualize-identity-source", struct {}, Body);
+    const Program = boundary.program("residualize-identity-source", struct {}, Body);
     const Source = Program.protocol.operationSite("session", "decide", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", []const u8, i32),
+            boundary.ir.schema.transform("check", []const u8, i32),
         },
     });
     const Check = Policy.operation("check", .{});
@@ -6473,7 +6473,7 @@ test "Program.ResidualMorphism report and residualize compile identity morphism 
     const StaticMorphism = Program.ResidualMorphism(.{
         .source = Source,
         .target = Check,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = Program.ResidualResponse.resumeIdentity(),
         .label = "session.decide-as-policy.check",
     });
@@ -6602,25 +6602,25 @@ test "Program.ResidualMorphism report and residualize compile identity morphism 
 }
 
 test "Program.Pipeline report, certificate, residual interpreter, and trace mapping" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "pipeline-identity-source");
     };
-    const Program = ability.program("pipeline-identity-source", struct {}, Body);
+    const Program = boundary.program("pipeline-identity-source", struct {}, Body);
     const Source = Program.protocol.operationSite("session", "decide", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", []const u8, i32),
+            boundary.ir.schema.transform("check", []const u8, i32),
         },
     });
     const Check = Policy.operation("check", .{});
     const Morphism = Program.ResidualMorphism(.{
         .source = Source,
         .target = Check,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = Program.ResidualResponse.resumeIdentity(),
         .label = "session.decide-as-policy.check",
     });
@@ -6752,25 +6752,25 @@ test "Program.Pipeline reports blockers and fingerprint changes" {
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "pipeline-blockers-source");
     };
-    const Program = ability.program("pipeline-blockers-source", struct {}, Body);
+    const Program = boundary.program("pipeline-blockers-source", struct {}, Body);
     const Source = Program.protocol.operationSite("session", "decide", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", []const u8, i32),
+            boundary.ir.schema.transform("check", []const u8, i32),
         },
     });
     const Check = Policy.operation("check", .{});
     const Supported = Program.ResidualMorphism(.{
         .source = Source,
         .target = Check,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = Program.ResidualResponse.resumeIdentity(),
     });
     const Unsupported = Program.ResidualMorphism(.{
         .source = Source,
         .target = Check,
-        .payload = ability.ir.expr.field("reason"),
+        .payload = boundary.ir.expr.field("reason"),
         .response = Program.ResidualResponse.resumeIdentity(),
     });
 
@@ -6886,26 +6886,26 @@ test "Program.Pipeline reports blockers and fingerprint changes" {
     const MixedBody = struct {
         pub const compiled_plan = duplicateOperationNamesPlan("pipeline-mixed-supported-unsupported-source");
     };
-    const MixedProgram = ability.program("pipeline-mixed-supported-unsupported-source", struct {}, MixedBody);
+    const MixedProgram = boundary.program("pipeline-mixed-supported-unsupported-source", struct {}, MixedBody);
     const MixedLeft = MixedProgram.protocol.operationSite("left", "get", 0);
     const MixedRight = MixedProgram.protocol.operationSite("right", "get", 0);
-    const MixedPolicy = ability.ir.schema.Protocol(.{
+    const MixedPolicy = boundary.ir.schema.Protocol(.{
         .label = "mixed-policy",
         .ops = .{
-            ability.ir.schema.transform("check", void, i32),
+            boundary.ir.schema.transform("check", void, i32),
         },
     });
     const MixedCheck = MixedPolicy.operation("check", .{});
     const MixedSupported = MixedProgram.ResidualMorphism(.{
         .source = MixedLeft,
         .target = MixedCheck,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = MixedProgram.ResidualResponse.resumeIdentity(),
     });
     const MixedUnsupported = MixedProgram.ResidualMorphism(.{
         .source = MixedRight,
         .target = MixedCheck,
-        .payload = ability.ir.expr.field("reason"),
+        .payload = boundary.ir.expr.field("reason"),
         .response = MixedProgram.ResidualResponse.resumeIdentity(),
     });
     const MixedReport = MixedProgram.pipelineReport(.{
@@ -6940,25 +6940,25 @@ test "Program.Pipeline reports blockers and fingerprint changes" {
 }
 
 test "Program.Pipeline maps dynamic target protocol requests to source routes" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "pipeline-target-map-source");
     };
-    const Program = ability.program("pipeline-target-map-source", struct {}, Body);
+    const Program = boundary.program("pipeline-target-map-source", struct {}, Body);
     const Source = Program.protocol.operationSite("session", "decide", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", []const u8, i32),
+            boundary.ir.schema.transform("check", []const u8, i32),
         },
     });
     const Check = Policy.operation("check", .{});
     const Residual = Program.ResidualMorphism(.{
         .source = Source,
         .target = Check,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = Program.ResidualResponse.resumeIdentity(),
     });
     const Mapper = struct {
@@ -6976,10 +6976,10 @@ test "Program.Pipeline maps dynamic target protocol requests to source routes" {
         .residualize = .{Residual},
         .goal = Program.pipeline.Goal.allowResiduals(),
     });
-    const Rules = ability.ir.schema.Protocol(.{
+    const Rules = boundary.ir.schema.Protocol(.{
         .label = "rules",
         .ops = .{
-            ability.ir.schema.transform("lookup", []const u8, i32),
+            boundary.ir.schema.transform("lookup", []const u8, i32),
         },
     });
     const Lookup = Rules.operation("lookup", .{});
@@ -7095,20 +7095,20 @@ test "Program.Pipeline maps dynamic target protocol requests to source routes" {
     const ForwardBody = struct {
         pub const compiled_plan = duplicateOperationNamesPlan("pipeline-forwarded-residual-target-map");
     };
-    const ForwardProgram = ability.program("pipeline-forwarded-residual-target-map", struct {}, ForwardBody);
+    const ForwardProgram = boundary.program("pipeline-forwarded-residual-target-map", struct {}, ForwardBody);
     const ForwardLeft = ForwardProgram.protocol.operationSite("left", "get", 0);
     const ForwardRight = ForwardProgram.protocol.operationSite("right", "get", 0);
-    const ForwardPolicy = ability.ir.schema.Protocol(.{
+    const ForwardPolicy = boundary.ir.schema.Protocol(.{
         .label = "forward-policy",
         .ops = .{
-            ability.ir.schema.transform("check", void, i32),
+            boundary.ir.schema.transform("check", void, i32),
         },
     });
     const ForwardCheck = ForwardPolicy.operation("check", .{});
     const ForwardResidualized = ForwardProgram.ResidualMorphism(.{
         .source = ForwardLeft,
         .target = ForwardCheck,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = ForwardProgram.ResidualResponse.resumeIdentity(),
     });
     const ForwardPipeline = ForwardProgram.Pipeline(.{
@@ -7116,10 +7116,10 @@ test "Program.Pipeline maps dynamic target protocol requests to source routes" {
         .residualize = .{ForwardResidualized},
         .goal = ForwardProgram.pipeline.Goal.allowResiduals(),
     });
-    const ForwardRules = ability.ir.schema.Protocol(.{
+    const ForwardRules = boundary.ir.schema.Protocol(.{
         .label = "forward-rules",
         .ops = .{
-            ability.ir.schema.transform("lookup", void, i32),
+            boundary.ir.schema.transform("lookup", void, i32),
         },
     });
     const ForwardLookup = ForwardRules.operation("lookup", .{});
@@ -7153,33 +7153,33 @@ test "Program.Pipeline maps dynamic target protocol requests to source routes" {
 }
 
 test "Program.Pipeline maps duplicate target protocol requests by source route" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = duplicateOperationNamesPlan("pipeline-target-map-duplicate-target");
     };
-    const Program = ability.program("pipeline-target-map-duplicate-target", struct {}, Body);
+    const Program = boundary.program("pipeline-target-map-duplicate-target", struct {}, Body);
     const Left = Program.protocol.operationSite("left", "get", 0);
     const Right = Program.protocol.operationSite("right", "get", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", void, i32),
+            boundary.ir.schema.transform("check", void, i32),
         },
     });
     const Check = Policy.operation("check", .{});
     const LeftMorphism = Program.ResidualMorphism(.{
         .source = Left,
         .target = Check,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = Program.ResidualResponse.resumeIdentity(),
         .label = "left.get-as-policy.check",
     });
     const RightMorphism = Program.ResidualMorphism(.{
         .source = Right,
         .target = Check,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = Program.ResidualResponse.resumeIdentity(),
         .label = "right.get-as-policy.check",
     });
@@ -7252,9 +7252,9 @@ test "Program.Pipeline maps duplicate target protocol requests by source route" 
     try std.testing.expect(Pipeline.sourceForTargetProtocolRequest(ownerless_source_request) == null);
     try std.testing.expect(Pipeline.mapTargetTrace(ownerless_source_request) == null);
 
-    var foreign_runtime = ability.Runtime.init(std.testing.allocator);
+    var foreign_runtime = boundary.Runtime.init(std.testing.allocator);
     defer foreign_runtime.deinit();
-    const ForeignProgram = ability.program("pipeline-target-map-duplicate-target-foreign", struct {}, Body);
+    const ForeignProgram = boundary.program("pipeline-target-map-duplicate-target-foreign", struct {}, Body);
     const ForeignRight = ForeignProgram.protocol.operationSite("right", "get", 0);
     var foreign_session = try ForeignProgram.Session.start(&foreign_runtime, .{});
     defer foreign_session.deinit();
@@ -7296,13 +7296,13 @@ test "Program.Pipeline maps duplicate target protocol requests by source route" 
 }
 
 test "Program.Pipeline without residual morphisms exposes identity residual program" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "pipeline-identity-residual-source");
     };
-    const Program = ability.program("pipeline-identity-residual-source", struct {}, Body);
+    const Program = boundary.program("pipeline-identity-residual-source", struct {}, Body);
     const Source = Program.protocol.operationSite("session", "decide", 0);
     const Report = Program.pipelineReport(.{
         .label = "pipeline-identity-residual",
@@ -7312,11 +7312,11 @@ test "Program.Pipeline without residual morphisms exposes identity residual prog
         .label = "pipeline-identity-residual",
         .goal = Program.pipeline.Goal.allowResiduals(),
     });
-    const ExtraProtocol = ability.ir.schema.Protocol(.{
+    const ExtraProtocol = boundary.ir.schema.Protocol(.{
         .label = "extra",
         .ops = .{
-            ability.ir.schema.transform("left", void, i32),
-            ability.ir.schema.transform("right", void, i32),
+            boundary.ir.schema.transform("left", void, i32),
+            boundary.ir.schema.transform("right", void, i32),
         },
     });
     const ExtraLeft = ExtraProtocol.operation("left", .{});
@@ -7365,12 +7365,12 @@ test "Program.Pipeline without residual morphisms exposes identity residual prog
     try std.testing.expectEqual(Source.fingerprint, identity_map.source_site_fingerprint);
     try std.testing.expectEqual(ResidualSite.fingerprint, identity_map.residual_site_fingerprint.?);
 
-    var foreign_runtime = ability.Runtime.init(std.testing.allocator);
+    var foreign_runtime = boundary.Runtime.init(std.testing.allocator);
     defer foreign_runtime.deinit();
     const ForeignBody = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "pipeline-identity-foreign-source");
     };
-    const ForeignProgram = ability.program("pipeline-identity-foreign-source", struct {}, ForeignBody);
+    const ForeignProgram = boundary.program("pipeline-identity-foreign-source", struct {}, ForeignBody);
     var foreign_session = try ForeignProgram.Session.start(&foreign_runtime, .{});
     defer foreign_session.deinit();
     const foreign_request = switch (try foreign_session.next()) {
@@ -7411,7 +7411,7 @@ test "Program.Pipeline without residual morphisms exposes identity residual prog
 }
 
 test "Program.Pipeline identity path preserves output programs" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const OutputHandlers = struct {};
@@ -7423,7 +7423,7 @@ test "Program.Pipeline identity path preserves output programs" {
             return &[_]i32{ 1, 2, 3 };
         }
     };
-    const Program = ability.program("pipeline-identity-output", OutputHandlers, Body);
+    const Program = boundary.program("pipeline-identity-output", OutputHandlers, Body);
     const Pipeline = Program.Pipeline(.{
         .label = "pipeline-identity-output",
         .goal = Program.pipeline.Goal.allowResiduals(),
@@ -7440,7 +7440,7 @@ test "Program.Pipeline identity path preserves output programs" {
 }
 
 test "Program.residualize forwards source Body encodeArgs" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ArgHandlers = struct {
@@ -7453,19 +7453,19 @@ test "Program.residualize forwards source Body encodeArgs" {
             return .{handlers.payload};
         }
     };
-    const Program = ability.program("residualize-encode-args-source", ArgHandlers, Body);
+    const Program = boundary.program("residualize-encode-args-source", ArgHandlers, Body);
     const Source = Program.protocol.operationSite("session", "decide", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", []const u8, i32),
+            boundary.ir.schema.transform("check", []const u8, i32),
         },
     });
     const Check = Policy.operation("check", .{});
     const Morphism = Program.ResidualMorphism(.{
         .source = Source,
         .target = Check,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = Program.ResidualResponse.resumeIdentity(),
     });
     const Residual = Program.residualize(.{
@@ -7512,7 +7512,7 @@ test "Program.residualize forwards source Body encodeArgs" {
 }
 
 test "Program.residualize preserves source Body result cleanup" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -7538,19 +7538,19 @@ test "Program.residualize preserves source Body result cleanup" {
             allocator.free(value.items);
         }
     };
-    const Program = ability.program("residualize-result-cleanup-source", ArgHandlers, Body);
+    const Program = boundary.program("residualize-result-cleanup-source", ArgHandlers, Body);
     const Source = Program.protocol.operationSite("last_return", "park", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", void, i32),
+            boundary.ir.schema.transform("check", void, i32),
         },
     });
     const Check = Policy.operation("check", .{});
     const Morphism = Program.ResidualMorphism(.{
         .source = Source,
         .target = Check,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = Program.ResidualResponse.resumeIdentity(),
     });
     const Residual = Program.residualize(.{
@@ -7587,13 +7587,13 @@ test "Program.residualize preserves source Body result cleanup" {
 }
 
 test "Program.residualize rewrites choice source sites and rejects abort source sites" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", []const u8, i32),
+            boundary.ir.schema.transform("check", []const u8, i32),
         },
     });
     const Check = Policy.operation("check", .{});
@@ -7601,12 +7601,12 @@ test "Program.residualize rewrites choice source sites and rejects abort source 
     const ChoiceBody = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "residualize-choice-source");
     };
-    const ChoiceProgram = ability.program("residualize-choice-source", struct {}, ChoiceBody);
+    const ChoiceProgram = boundary.program("residualize-choice-source", struct {}, ChoiceBody);
     const ChoiceSource = ChoiceProgram.protocol.operationSite("session", "decide", 0);
     const ChoiceMorphism = ChoiceProgram.ResidualMorphism(.{
         .source = ChoiceSource,
         .target = Check,
-        .payload = ability.ir.expr.payload(),
+        .payload = boundary.ir.expr.payload(),
         .response = ChoiceProgram.ResidualResponse.resumeIdentity(),
         .label = "choice-as-policy",
     });
@@ -7616,7 +7616,7 @@ test "Program.residualize rewrites choice source sites and rejects abort source 
     });
     try ChoiceResidual.compiled_plan.validate();
     const ChoiceResidualSite = ChoiceResidual.protocol.operationSite("policy", "check", 0);
-    try std.testing.expectEqual(ability.ir.PlanControlMode.transform, ChoiceResidualSite.op_mode);
+    try std.testing.expectEqual(boundary.ir.PlanControlMode.transform, ChoiceResidualSite.op_mode);
     try std.testing.expectEqual(ChoiceSource.fingerprint, (ChoiceResidual.sourceForResidualSite(ChoiceResidualSite) orelse return error.ExpectedResidualSourceMap).source_site_fingerprint);
 
     const ChoiceHandler = struct {
@@ -7643,12 +7643,12 @@ test "Program.residualize rewrites choice source sites and rejects abort source 
     const AbortBody = struct {
         pub const compiled_plan = sessionStringOpPlan(.abort, "residualize-abort-source");
     };
-    const AbortProgram = ability.program("residualize-abort-source", struct {}, AbortBody);
+    const AbortProgram = boundary.program("residualize-abort-source", struct {}, AbortBody);
     const AbortSource = AbortProgram.protocol.operationSite("session", "decide", 0);
     const AbortMorphism = AbortProgram.ResidualMorphism(.{
         .source = AbortSource,
         .target = Check,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = AbortProgram.ResidualResponse.resumeIdentity(),
         .label = "abort-as-policy",
     });
@@ -7662,19 +7662,19 @@ test "Program.residualizationReport rejects unsupported mapping expressions" {
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "residualize-unsupported-mapping");
     };
-    const Program = ability.program("residualize-unsupported-mapping", struct {}, Body);
+    const Program = boundary.program("residualize-unsupported-mapping", struct {}, Body);
     const Source = Program.protocol.operationSite("session", "decide", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", []const u8, i32),
+            boundary.ir.schema.transform("check", []const u8, i32),
         },
     });
     const Check = Policy.operation("check", .{});
     const Unsupported = Program.ResidualMorphism(.{
         .source = Source,
         .target = Check,
-        .payload = ability.ir.expr.field("reason"),
+        .payload = boundary.ir.expr.field("reason"),
         .response = Program.ResidualResponse.resumeIdentity(),
     });
     const Report = Program.residualizationReport(.{ .morphisms = .{Unsupported} });
@@ -7685,7 +7685,7 @@ test "Program.residualizationReport rejects unsupported mapping expressions" {
     const ConstPayload = Program.ResidualMorphism(.{
         .source = Source,
         .target = Check,
-        .payload = ability.ir.expr.constString("fixed"),
+        .payload = boundary.ir.expr.constString("fixed"),
         .response = Program.ResidualResponse.resumeIdentity(),
     });
     const ConstReport = Program.residualizationReport(.{ .morphisms = .{ConstPayload} });
@@ -7697,19 +7697,19 @@ test "Program.residualizationReport rejects shared op-row rewrites" {
     const Body = struct {
         pub const compiled_plan = repeatedCallSiteSameOpPlan("residualize-shared-op-row", false);
     };
-    const Program = ability.program("residualize-shared-op-row", struct {}, Body);
+    const Program = boundary.program("residualize-shared-op-row", struct {}, Body);
     const First = Program.protocol.operationSite("session", "same_op", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", []const u8, i32),
+            boundary.ir.schema.transform("check", []const u8, i32),
         },
     });
     const Check = Policy.operation("check", .{});
     const Morphism = Program.ResidualMorphism(.{
         .source = First,
         .target = Check,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = Program.ResidualResponse.resumeIdentity(),
     });
     const Report = Program.residualizationReport(.{ .morphisms = .{Morphism} });
@@ -7723,19 +7723,19 @@ test "Program.residualizationReport reports duplicate source morphisms" {
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "residualize-duplicate-source");
     };
-    const Program = ability.program("residualize-duplicate-source", struct {}, Body);
+    const Program = boundary.program("residualize-duplicate-source", struct {}, Body);
     const Source = Program.protocol.operationSite("session", "decide", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", []const u8, i32),
+            boundary.ir.schema.transform("check", []const u8, i32),
         },
     });
     const Check = Policy.operation("check", .{});
     const Morphism = Program.ResidualMorphism(.{
         .source = Source,
         .target = Check,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = Program.ResidualResponse.resumeIdentity(),
     });
     const Report = Program.residualizationReport(.{ .morphisms = .{ Morphism, Morphism, Morphism } });
@@ -7761,15 +7761,15 @@ test "Program.residualizationReport rejects structured target schema mismatches"
         pub const compiled_plan = structuredPayloadOpPlan(SourcePayload, "residualize-structured-schema-mismatch");
         pub const value_schema_types = .{SourcePayload};
     };
-    const Program = ability.program("residualize-structured-schema-mismatch", struct {}, Body);
+    const Program = boundary.program("residualize-structured-schema-mismatch", struct {}, Body);
     const Source = Program.protocol.operationSite("structured", "structured", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", TargetPayload, void),
+            boundary.ir.schema.transform("check", TargetPayload, void),
         },
     });
-    const Schemas = ability.ir.schema.Registry(.{TargetPayload});
+    const Schemas = boundary.ir.schema.Registry(.{TargetPayload});
     const Check = Policy.operation("check", .{ .schema_refs = Schemas.schema_refs });
     try std.testing.expectEqual(Source.payload_ref, Check.payload_ref);
     try std.testing.expect(Source.Payload != Check.Payload);
@@ -7777,7 +7777,7 @@ test "Program.residualizationReport rejects structured target schema mismatches"
     const Morphism = Program.ResidualMorphism(.{
         .source = Source,
         .target = Check,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = Program.ResidualResponse.resumeIdentity(),
     });
     const Report = Program.residualizationReport(.{ .morphisms = .{Morphism} });
@@ -7797,15 +7797,15 @@ test "Program.residualize remaps structured target schema ordinals" {
         pub const compiled_plan = structuredPayloadOpPlan(SourcePayload, "residualize-structured-schema-remap");
         pub const value_schema_types = .{SourcePayload};
     };
-    const Program = ability.program("residualize-structured-schema-remap", struct {}, Body);
+    const Program = boundary.program("residualize-structured-schema-remap", struct {}, Body);
     const Source = Program.protocol.operationSite("structured", "structured", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", SourcePayload, void),
+            boundary.ir.schema.transform("check", SourcePayload, void),
         },
     });
-    const Schemas = ability.ir.schema.Registry(.{ OtherPayload, SourcePayload });
+    const Schemas = boundary.ir.schema.Registry(.{ OtherPayload, SourcePayload });
     const Check = Policy.operation("check", .{ .schema_refs = Schemas.schema_refs });
     try std.testing.expectEqual(@as(?u16, 0), Source.payload_ref.schema_index);
     try std.testing.expectEqual(@as(?u16, 1), Check.payload_ref.schema_index);
@@ -7814,7 +7814,7 @@ test "Program.residualize remaps structured target schema ordinals" {
     const Morphism = Program.ResidualMorphism(.{
         .source = Source,
         .target = Check,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = Program.ResidualResponse.resumeIdentity(),
     });
     const Report = Program.residualizationReport(.{ .morphisms = .{Morphism} });
@@ -7834,19 +7834,19 @@ test "Program.residualizationReport rejects non-transform target modes" {
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "residualize-target-mode-mismatch");
     };
-    const Program = ability.program("residualize-target-mode-mismatch", struct {}, Body);
+    const Program = boundary.program("residualize-target-mode-mismatch", struct {}, Body);
     const Source = Program.protocol.operationSite("session", "decide", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.choice("choose", []const u8, i32),
+            boundary.ir.schema.choice("choose", []const u8, i32),
         },
     });
     const Choose = Policy.operation("choose", .{ .Result = i32 });
     const Morphism = Program.ResidualMorphism(.{
         .source = Source,
         .target = Choose,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = Program.ResidualResponse.resumeIdentity(),
     });
     const Report = Program.residualizationReport(.{ .morphisms = .{Morphism} });
@@ -7854,19 +7854,19 @@ test "Program.residualizationReport rejects non-transform target modes" {
     try std.testing.expectEqual(@as(usize, 1), Report.unsupported.len);
     try std.testing.expectEqual(Program.ResidualBlockerTag.unsupported_target_mode, Report.unsupported[0].tag);
 
-    const OutputPolicy = ability.ir.schema.Protocol(.{
+    const OutputPolicy = boundary.ir.schema.Protocol(.{
         .label = "output_policy",
         .output_tag = .final_state,
         .output_type = i32,
         .ops = .{
-            ability.ir.schema.transform("check", []const u8, i32),
+            boundary.ir.schema.transform("check", []const u8, i32),
         },
     });
     const OutputCheck = OutputPolicy.operation("check", .{});
     const OutputMorphism = Program.ResidualMorphism(.{
         .source = Source,
         .target = OutputCheck,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = Program.ResidualResponse.resumeIdentity(),
     });
     const OutputReport = Program.residualizationReport(.{ .morphisms = .{OutputMorphism} });
@@ -7881,23 +7881,23 @@ test "Program.residualizationReport rejects late residualize blockers" {
     };
     const NestedBody = struct {
         pub const compiled_plan = nestedWithOutputCollectionPlan("residualize-nested-output-blocker");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const Program = ability.program("residualize-nested-output-blocker", NestedHandlers, NestedBody);
+    const Program = boundary.program("residualize-nested-output-blocker", NestedHandlers, NestedBody);
     const Source = Program.protocol.operationSite("observe", "dispatch", 0);
-    const Target = ability.ir.schema.Protocol(.{
+    const Target = boundary.ir.schema.Protocol(.{
         .label = "target",
         .ops = .{
-            ability.ir.schema.transform("dispatch", void, void),
+            boundary.ir.schema.transform("dispatch", void, void),
         },
     }).operation("dispatch", .{});
     const Morphism = Program.ResidualMorphism(.{
         .source = Source,
         .target = Target,
-        .payload = ability.ir.expr.identity(),
+        .payload = boundary.ir.expr.identity(),
         .response = Program.ResidualResponse.resumeIdentity(),
     });
     const Report = Program.residualizationReport(.{ .morphisms = .{Morphism} });
@@ -7916,7 +7916,7 @@ test "Program.residualizationReport rejects global blockers without morphisms" {
     const NestedBody = struct {
         pub const Outputs = []i32;
         pub const compiled_plan = nestedWithOutputCollectionPlan("residualize-empty-global-blockers");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
@@ -7931,7 +7931,7 @@ test "Program.residualizationReport rejects global blockers without morphisms" {
             allocator.free(outputs);
         }
     };
-    const NestedProgram = ability.program("residualize-empty-global-blockers", NestedHandlers, NestedBody);
+    const NestedProgram = boundary.program("residualize-empty-global-blockers", NestedHandlers, NestedBody);
     const NestedReport = NestedProgram.residualizationReport(.{ .morphisms = .{} });
     try std.testing.expect(!NestedReport.supported);
     try std.testing.expectEqual(@as(usize, 2), NestedReport.unsupported.len);
@@ -7955,7 +7955,7 @@ test "Program.residualizationReport rejects global blockers without morphisms" {
             allocator.free(outputs);
         }
     };
-    const OutputProgram = ability.program("residualize-empty-output-blocker", EmptyHandlers, OutputBody);
+    const OutputProgram = boundary.program("residualize-empty-output-blocker", EmptyHandlers, OutputBody);
     const OutputReport = OutputProgram.residualizationReport(.{ .morphisms = .{} });
     try std.testing.expect(!OutputReport.supported);
     try std.testing.expectEqual(@as(usize, 1), OutputReport.unsupported.len);
@@ -7978,7 +7978,7 @@ test "Program.residualizationReport rejects global blockers without morphisms" {
             allocator.free(outputs);
         }
     };
-    const HostOutputProgram = ability.program("residualize-empty-host-output-blocker", EmptyHandlers, HostOutputBody);
+    const HostOutputProgram = boundary.program("residualize-empty-host-output-blocker", EmptyHandlers, HostOutputBody);
     const HostOutputReport = HostOutputProgram.residualizationReport(.{ .morphisms = .{} });
     try std.testing.expect(!HostOutputReport.supported);
     try std.testing.expectEqual(@as(usize, 1), HostOutputReport.unsupported.len);
@@ -7987,25 +7987,25 @@ test "Program.residualizationReport rejects global blockers without morphisms" {
 }
 
 test "Program.ProtocolRequest frees earlier structured payload fields after clone failure" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "morphism-protocol-request-oom");
     };
-    const Program = ability.program("morphism-protocol-request-oom", struct {}, Body);
+    const Program = boundary.program("morphism-protocol-request-oom", struct {}, Body);
     const Source = Program.protocol.operationSite("session", "decide", 0);
     const Payload = struct {
         first: []const u8,
         second: []const u8,
     };
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", Payload, bool),
+            boundary.ir.schema.transform("check", Payload, bool),
         },
     });
-    const Schemas = ability.ir.schema.Registry(.{Payload});
+    const Schemas = boundary.ir.schema.Registry(.{Payload});
     const Check = Policy.operation("check", .{ .schema_refs = Schemas.schema_refs });
 
     var session = try Program.Session.start(&runtime, .{});
@@ -8033,19 +8033,19 @@ test "Program.ProtocolRequest frees earlier structured payload fields after clon
 }
 
 test "Program.ProtocolRequest validates source capsule metadata" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = duplicateOperationNamesPlan("morphism-protocol-request-metadata");
     };
-    const Program = ability.program("morphism-protocol-request-metadata", struct {}, Body);
+    const Program = boundary.program("morphism-protocol-request-metadata", struct {}, Body);
     const Left = Program.protocol.operationSite("left", "get", 0);
     const Right = Program.protocol.operationSite("right", "get", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", void, bool),
+            boundary.ir.schema.transform("check", void, bool),
         },
     });
     const Check = Policy.operation("check", .{});
@@ -8107,20 +8107,20 @@ test "Program.ProtocolRequest validates source capsule metadata" {
 }
 
 test "Program.Interpreter returns and handles reinterpreted protocol requests" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "interpreter-reinterpret");
     };
-    const Program = ability.program("interpreter-reinterpret", struct {}, Body);
+    const Program = boundary.program("interpreter-reinterpret", struct {}, Body);
     try std.testing.expectEqual(@as(u32, 2), Program.Session.Trace.fingerprint_version);
     try std.testing.expectEqual(@as(u32, 2), Program.reinterpret_fingerprint_version);
     const Source = Program.protocol.operationSite("session", "decide", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", []const u8, bool),
+            boundary.ir.schema.transform("check", []const u8, bool),
         },
     });
     const Check = Policy.operation("check", .{});
@@ -8240,13 +8240,13 @@ test "Program.Interpreter returns and handles reinterpreted protocol requests" {
 }
 
 test "Program.Interpreter supports structured target payload and response schemas outside source Program" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "interpreter-structured-target-reinterpret");
     };
-    const Program = ability.program("interpreter-structured-target-reinterpret", struct {}, Body);
+    const Program = boundary.program("interpreter-structured-target-reinterpret", struct {}, Body);
     const Source = Program.protocol.operationSite("session", "decide", 0);
     const PolicyPayload = struct {
         subject: []const u8,
@@ -8257,13 +8257,13 @@ test "Program.Interpreter supports structured target payload and response schema
         audit_actor: []const u8,
         audit_reason: []const u8,
     };
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", PolicyPayload, PolicyDecision),
+            boundary.ir.schema.transform("check", PolicyPayload, PolicyDecision),
         },
     });
-    const Schemas = ability.ir.schema.Registry(.{ PolicyPayload, PolicyDecision });
+    const Schemas = boundary.ir.schema.Registry(.{ PolicyPayload, PolicyDecision });
     const Check = Policy.operation("check", .{ .schema_refs = Schemas.schema_refs });
     const Mapper = struct {
         pub fn @"resume"(decision: PolicyDecision) Program.Handler.SourceOutcome(Source) {
@@ -8307,7 +8307,7 @@ test "Program.Interpreter supports structured target payload and response schema
             const payload = try request.payload(PolicyPayload);
             try std.testing.expectEqualStrings("payload", payload.subject);
             try std.testing.expectEqual(Check.payload_ref, request.target_payload_ref);
-            try std.testing.expectEqual(Check.resume_ref, (ability.ir.ValueRef{ .codec = .product, .schema_index = 1 }));
+            try std.testing.expectEqual(Check.resume_ref, (boundary.ir.ValueRef{ .codec = .product, .schema_index = 1 }));
             try std.testing.expect(request.matches(Check));
         },
         else => return error.ExpectedReinterpreted,
@@ -8324,18 +8324,18 @@ test "Program.Interpreter supports structured target payload and response schema
 }
 
 test "Program.Interpreter preserves mutable string-list target protocol payloads" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "interpreter-string-list-target-reinterpret");
     };
-    const Program = ability.program("interpreter-string-list-target-reinterpret", struct {}, Body);
+    const Program = boundary.program("interpreter-string-list-target-reinterpret", struct {}, Body);
     const Source = Program.protocol.operationSite("session", "decide", 0);
-    const Policy = ability.ir.schema.Protocol(.{
+    const Policy = boundary.ir.schema.Protocol(.{
         .label = "policy",
         .ops = .{
-            ability.ir.schema.transform("check", [][]const u8, bool),
+            boundary.ir.schema.transform("check", [][]const u8, bool),
         },
     });
     const Check = Policy.operation("check", .{});
@@ -8413,13 +8413,13 @@ test "Program.Interpreter preserves mutable string-list target protocol payloads
 }
 
 test "Program.Interpreter handles choice resume returnNow and abort returnNow" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ResumeBody = struct {
         pub const compiled_plan = sessionChoicePlan("interpreter-choice-resume");
     };
-    const ResumeProgram = ability.program("interpreter-choice-resume", struct {}, ResumeBody);
+    const ResumeProgram = boundary.program("interpreter-choice-resume", struct {}, ResumeBody);
     const ResumeSite = ResumeProgram.protocol.operationSite("authored", "choose", 0);
     const ResumeInterpreter = ResumeProgram.Interpreter(.{ResumeProgram.Handler.operation(ResumeSite, ResumeI32OperationHandler(ResumeProgram, ResumeSite, 12).handle)});
     ResumeInterpreter.assertCoversAll();
@@ -8440,7 +8440,7 @@ test "Program.Interpreter handles choice resume returnNow and abort returnNow" {
     const ReturnBody = struct {
         pub const compiled_plan = sessionChoicePlan("interpreter-choice-return-now");
     };
-    const ReturnProgram = ability.program("interpreter-choice-return-now", struct {}, ReturnBody);
+    const ReturnProgram = boundary.program("interpreter-choice-return-now", struct {}, ReturnBody);
     const ReturnSite = ReturnProgram.protocol.operationSite("authored", "choose", 0);
     const ReturnInterpreter = ReturnProgram.Interpreter(.{ReturnProgram.Handler.operation(ReturnSite, ReturnNowI32OperationHandler(ReturnProgram, ReturnSite, 99).handle)});
     ReturnInterpreter.assertCoversAll();
@@ -8458,7 +8458,7 @@ test "Program.Interpreter handles choice resume returnNow and abort returnNow" {
     const AbortBody = struct {
         pub const compiled_plan = exceptionScalarThrowPlan("interpreter-abort-return-now");
     };
-    const AbortProgram = ability.program("interpreter-abort-return-now", struct {}, AbortBody);
+    const AbortProgram = boundary.program("interpreter-abort-return-now", struct {}, AbortBody);
     const AbortSite = AbortProgram.protocol.operationSite("exception", "throw", 0);
     const AbortInterpreter = AbortProgram.Interpreter(.{AbortProgram.Handler.operation(AbortSite, AbortReturnI32OperationHandler(AbortProgram, AbortSite, 40, 55).handle)});
     AbortInterpreter.assertCoversAll();
@@ -8475,7 +8475,7 @@ test "Program.Interpreter handles choice resume returnNow and abort returnNow" {
 }
 
 test "Program.Interpreter handles after continuations in reverse order" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const StackedHandlers = struct {
@@ -8493,7 +8493,7 @@ test "Program.Interpreter handles after continuations in reverse order" {
     const Body = struct {
         pub const compiled_plan = stackedAfterPlan("interpreter-stacked-after");
     };
-    const Program = ability.program("interpreter-stacked-after", StackedHandlers, Body);
+    const Program = boundary.program("interpreter-stacked-after", StackedHandlers, Body);
     const OuterOp = Program.protocol.operationSite("outer", "outer", 0);
     const InnerOp = Program.protocol.operationSite("inner", "inner", 0);
     const OuterAfter = Program.protocol.afterSite("outer", "outer", 0);
@@ -8524,13 +8524,13 @@ test "Program.Interpreter handles after continuations in reverse order" {
 }
 
 test "Program.Interpreter returns unhandled capsules and restores them with another interpreter" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "interpreter-unhandled-restore");
     };
-    const Program = ability.program("interpreter-unhandled-restore", struct {}, Body);
+    const Program = boundary.program("interpreter-unhandled-restore", struct {}, Body);
     const Decide = Program.protocol.operationSite("session", "decide", 0);
     const Partial = Program.Interpreter(.{});
 
@@ -8570,13 +8570,13 @@ test "Program.Interpreter returns unhandled capsules and restores them with anot
 }
 
 test "Program.Interpreter forwards capsules to another interpreter" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "interpreter-forward-restore");
     };
-    const Program = ability.program("interpreter-forward-restore", struct {}, Body);
+    const Program = boundary.program("interpreter-forward-restore", struct {}, Body);
     const Decide = Program.protocol.operationSite("session", "decide", 0);
     const Forwarding = Program.Interpreter(.{Program.Handler.operation(Decide, ForwardOperationHandler(Program, Decide).handle)});
     const Handling = Program.Interpreter(.{Program.Handler.operation(Decide, ResumeI32OperationHandler(Program, Decide, 44).handle)});
@@ -8607,13 +8607,13 @@ test "Program.Interpreter forwards capsules to another interpreter" {
 }
 
 test "Program.Interpreter control captures reusable continuation inside handler" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "interpreter-control-capture");
     };
-    const Program = ability.program("interpreter-control-capture", struct {}, Body);
+    const Program = boundary.program("interpreter-control-capture", struct {}, Body);
     const Decide = Program.protocol.operationSite("session", "decide", 0);
     const Capture = Program.Interpreter(.{Program.Handler.operation(Decide, CaptureAndSuspendHandler(Program, Decide).handle)});
 
@@ -8655,20 +8655,20 @@ test "Program.Interpreter control captures reusable continuation inside handler"
 }
 
 test "Program.protocol binds handlerless after sites to unwound value refs" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = handlerlessAfterReturnBoolPlan("protocol-handlerless-after-current-ref");
     };
-    const Program = ability.program("protocol-handlerless-after-current-ref", struct {}, Body);
+    const Program = boundary.program("protocol-handlerless-after-current-ref", struct {}, Body);
     const Operation = Program.protocol.operationSite("handlerless", "step", 0);
     const After = Program.protocol.afterSite("handlerless", "step", 0);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Operation.resume_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, Operation.resume_ref.codec);
     try std.testing.expect(!After.has_static_input_ref);
     try std.testing.expect(After.input_ref == null);
     try std.testing.expect(After.Output == bool);
-    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.bool, After.output_ref.codec);
 
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -8684,7 +8684,7 @@ test "Program.protocol binds handlerless after sites to unwound value refs" {
         .request => return error.ExpectedAfter,
         .done => return error.ExpectedAfter,
     };
-    try std.testing.expectEqual(ability.ir.ValueCodec.bool, after.value_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.bool, after.value_ref.codec);
     try std.testing.expect(after.matches(After));
     const typed_after = try after.as(After);
     try std.testing.expect(try typed_after.value(bool));
@@ -8700,7 +8700,7 @@ test "Program.protocol binds handlerless after sites to unwound value refs" {
 }
 
 test "Program.protocol direct handler after metadata matches runtime fallback" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const DirectHandlers = struct {
@@ -8720,7 +8720,7 @@ test "Program.protocol direct handler after metadata matches runtime fallback" {
     const Body = struct {
         pub const compiled_plan = handlerlessAfterReturnBoolPlan("protocol-direct-handler-after");
     };
-    const Program = ability.program("protocol-direct-handler-after", DirectHandlers, Body);
+    const Program = boundary.program("protocol-direct-handler-after", DirectHandlers, Body);
     const Operation = Program.protocol.operationSite("handlerless", "step", 0);
     const After = Program.protocol.afterSite("handlerless", "step", 0);
 
@@ -8728,8 +8728,8 @@ test "Program.protocol direct handler after metadata matches runtime fallback" {
     try std.testing.expect(After.has_static_input_ref);
     try std.testing.expect(After.Input == bool);
     try std.testing.expect(After.Output == bool);
-    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.input_ref.?.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.bool, After.input_ref.?.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.bool, After.output_ref.codec);
 
     const run_report = Program.runHandlerSetDefunctionalizationReport();
     try std.testing.expectEqual(@as(usize, 2), run_report.host_intrinsic_count);
@@ -8771,14 +8771,14 @@ test "Program.protocol does not publish static refs for invalid afterDispatch ar
     const Body = struct {
         pub const compiled_plan = handlerlessAfterReturnBoolPlan("protocol-invalid-after-dispatch-arity");
     };
-    const Program = ability.program("protocol-invalid-after-dispatch-arity", InvalidAfterHandlers, Body);
+    const Program = boundary.program("protocol-invalid-after-dispatch-arity", InvalidAfterHandlers, Body);
     const After = Program.protocol.afterSite("handlerless", "step", 0);
 
     try std.testing.expect(!After.has_static_input_ref);
     try std.testing.expect(!@hasDecl(After, "Input"));
     try std.testing.expect(After.input_ref == null);
     try std.testing.expect(After.Output == bool);
-    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.bool, After.output_ref.codec);
 }
 
 test "Program.protocol does not publish static refs for non-method afterDispatch" {
@@ -8798,18 +8798,18 @@ test "Program.protocol does not publish static refs for non-method afterDispatch
     const Body = struct {
         pub const compiled_plan = handlerlessAfterReturnBoolPlan("protocol-invalid-after-dispatch-receiver");
     };
-    const Program = ability.program("protocol-invalid-after-dispatch-receiver", InvalidAfterHandlers, Body);
+    const Program = boundary.program("protocol-invalid-after-dispatch-receiver", InvalidAfterHandlers, Body);
     const After = Program.protocol.afterSite("handlerless", "step", 0);
 
     try std.testing.expect(!After.has_static_input_ref);
     try std.testing.expect(!@hasDecl(After, "Input"));
     try std.testing.expect(After.input_ref == null);
     try std.testing.expect(After.Output == bool);
-    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.bool, After.output_ref.codec);
 }
 
 test "Program.protocol accepts generic receiver afterDispatch" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const GenericAfterHandlers = struct {
@@ -8826,14 +8826,14 @@ test "Program.protocol accepts generic receiver afterDispatch" {
     const Body = struct {
         pub const compiled_plan = handlerlessAfterReturnBoolPlan("protocol-generic-after-dispatch-receiver");
     };
-    const Program = ability.program("protocol-generic-after-dispatch-receiver", GenericAfterHandlers, Body);
+    const Program = boundary.program("protocol-generic-after-dispatch-receiver", GenericAfterHandlers, Body);
     const After = Program.protocol.afterSite("handlerless", "step", 0);
 
     try std.testing.expect(After.has_static_input_ref);
     try std.testing.expect(After.Input == bool);
     try std.testing.expect(After.Output == bool);
-    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.input_ref.?.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.bool, After.output_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.bool, After.input_ref.?.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.bool, After.output_ref.codec);
 
     var result = try Program.run(&runtime, .{ .handlerless = .{} });
     defer result.deinit();
@@ -8841,7 +8841,7 @@ test "Program.protocol accepts generic receiver afterDispatch" {
 }
 
 test "Program.protocol derives handlerless outer after input from inner output" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const HandlerlessOuterHandlers = struct {
@@ -8855,7 +8855,7 @@ test "Program.protocol derives handlerless outer after input from inner output" 
     const Body = struct {
         pub const compiled_plan = stackedAfterPlan("protocol-handlerless-outer-after");
     };
-    const Program = ability.program("protocol-handlerless-outer-after", HandlerlessOuterHandlers, Body);
+    const Program = boundary.program("protocol-handlerless-outer-after", HandlerlessOuterHandlers, Body);
     const OuterOperation = Program.protocol.operationSite("outer", "outer", 0);
     const InnerOperation = Program.protocol.operationSite("inner", "inner", 0);
     const Outer = Program.protocol.afterSite("outer", "outer", 0);
@@ -8894,7 +8894,7 @@ test "Program.protocol derives handlerless outer after input from inner output" 
         .request => return error.ExpectedAfter,
         .done => return error.ExpectedAfter,
     };
-    try std.testing.expectEqual(ability.ir.ValueCodec.bool, outer_after.value_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.bool, outer_after.value_ref.codec);
     try std.testing.expect(outer_after.matches(Outer));
     const typed_outer = try outer_after.as(Outer);
     try std.testing.expect(try typed_outer.value(bool));
@@ -8910,7 +8910,7 @@ test "Program.protocol derives handlerless outer after input from inner output" 
 }
 
 test "Program.protocol matches branched handlerless after sites with dynamic inputs" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const BranchedHandlers = struct {
@@ -8929,7 +8929,7 @@ test "Program.protocol matches branched handlerless after sites with dynamic inp
             return .{handlers.skip_inner};
         }
     };
-    const Program = ability.program("protocol-branched-handlerless-after", BranchedHandlers, Body);
+    const Program = boundary.program("protocol-branched-handlerless-after", BranchedHandlers, Body);
     const OuterOperation = Program.protocol.operationSite("outer", "outer", 0);
     const InnerOperation = Program.protocol.operationSite("inner", "inner", 0);
     const Outer = Program.protocol.afterSite("outer", "outer", 0);
@@ -8966,7 +8966,7 @@ test "Program.protocol matches branched handlerless after sites with dynamic inp
         .request => return error.ExpectedAfter,
         .done => return error.ExpectedAfter,
     };
-    try std.testing.expectEqual(ability.ir.ValueCodec.bool, outer_after_with_inner.value_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.bool, outer_after_with_inner.value_ref.codec);
     try std.testing.expect(outer_after_with_inner.matches(Outer));
     const typed_outer_with_inner = try outer_after_with_inner.as(Outer);
     try std.testing.expect(try typed_outer_with_inner.value(bool));
@@ -8992,7 +8992,7 @@ test "Program.protocol matches branched handlerless after sites with dynamic inp
         .request => return error.ExpectedAfter,
         .done => return error.ExpectedAfter,
     };
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, outer_after_without_inner.value_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, outer_after_without_inner.value_ref.codec);
     try std.testing.expect(outer_after_without_inner.matches(Outer));
     const typed_outer_without_inner = try outer_after_without_inner.as(Outer);
     try std.testing.expectEqual(@as(i32, 1), try typed_outer_without_inner.value(i32));
@@ -9008,7 +9008,7 @@ test "Program.protocol matches branched handlerless after sites with dynamic inp
 }
 
 test "Program.protocol matches final after sites with dynamic output refs" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const FinalAfterHandlers = struct {
@@ -9021,7 +9021,7 @@ test "Program.protocol matches final after sites with dynamic output refs" {
     const Body = struct {
         pub const compiled_plan = finalAfterOutputMismatchPlan("protocol-final-after-dynamic-output");
     };
-    const Program = ability.program("protocol-final-after-dynamic-output", FinalAfterHandlers, Body);
+    const Program = boundary.program("protocol-final-after-dynamic-output", FinalAfterHandlers, Body);
     const Operation = Program.protocol.operationSite("step", "step", 0);
     const After = Program.protocol.afterSite("step", "step", 0);
     try std.testing.expect(After.has_static_input_ref);
@@ -9046,7 +9046,7 @@ test "Program.protocol matches final after sites with dynamic output refs" {
     try std.testing.expect(after.matches(After));
     try std.testing.expect(after.value_ref.eql(After.input_ref.?));
     try std.testing.expect(!after.output_ref.eql(After.output_ref));
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, after.output_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, after.output_ref.codec);
     var mismatched_input = after;
     mismatched_input.value_ref = .{ .codec = .bool };
     try std.testing.expect(!mismatched_input.matches(After));
@@ -9069,7 +9069,7 @@ test "Program.protocol matches final after sites with dynamic output refs" {
 }
 
 test "Program.Interpreter resumes after sites with dynamic output refs" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const FinalAfterHandlers = struct {
@@ -9082,7 +9082,7 @@ test "Program.Interpreter resumes after sites with dynamic output refs" {
     const Body = struct {
         pub const compiled_plan = finalAfterOutputMismatchPlan("interpreter-final-after-dynamic-output");
     };
-    const Program = ability.program("interpreter-final-after-dynamic-output", FinalAfterHandlers, Body);
+    const Program = boundary.program("interpreter-final-after-dynamic-output", FinalAfterHandlers, Body);
     const Operation = Program.protocol.operationSite("step", "step", 0);
     const After = Program.protocol.afterSite("step", "step", 0);
     try std.testing.expect(After.Output == bool);
@@ -9092,7 +9092,7 @@ test "Program.Interpreter resumes after sites with dynamic output refs" {
         fn handle(ctx: anytype, request: anytype, control: Program.Handler.Control) !Program.Handler.Outcome(After) {
             ctx.after_count += 1;
             try std.testing.expectEqual(@as(i32, 1), try request.value());
-            try std.testing.expectEqual(ability.ir.ValueCodec.string, request.request.output_ref.codec);
+            try std.testing.expectEqual(boundary.ir.ValueCodec.string, request.request.output_ref.codec);
             try std.testing.expectEqual(Program.Session.ParkedKind.after, try control.parkedKind());
             return Program.Handler.resumeAfter(After, @as([]const u8, "ok"));
         }
@@ -9121,7 +9121,7 @@ test "Program.Interpreter resumes after sites with dynamic output refs" {
 }
 
 test "Program.Interpreter preserves mutable string-list after resume carriers" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const FinalAfterHandlers = struct {
@@ -9134,7 +9134,7 @@ test "Program.Interpreter preserves mutable string-list after resume carriers" {
     const Body = struct {
         pub const compiled_plan = finalAfterStringListOutputPlan("interpreter-after-mutable-string-list");
     };
-    const Program = ability.program("interpreter-after-mutable-string-list", FinalAfterHandlers, Body);
+    const Program = boundary.program("interpreter-after-mutable-string-list", FinalAfterHandlers, Body);
     const Operation = Program.protocol.operationSite("step", "step", 0);
     const After = Program.protocol.afterSite("step", "step", 0);
 
@@ -9174,7 +9174,7 @@ test "Program.protocol coverage helpers accept complete site sets" {
     const Body = struct {
         pub const compiled_plan = repeatedCallSiteSameOpPlan("protocol-coverage-complete", true);
     };
-    const Program = ability.program("protocol-coverage-complete", struct {}, Body);
+    const Program = boundary.program("protocol-coverage-complete", struct {}, Body);
     const First = Program.protocol.operationSite("session", "same_op", 0);
     const Second = Program.protocol.operationSite("session", "same_op", 1);
     const FirstAfter = Program.protocol.afterSite("session", "same_op", 0);
@@ -9196,20 +9196,20 @@ test "custom approval protocol family appears in contract and Program.protocol" 
     try std.testing.expectEqualStrings("exists", Program.contract.ops[0].op_name);
     try std.testing.expectEqualStrings("workflow", Program.contract.ops[0].requirement_label);
     try std.testing.expectEqual(@as(@TypeOf(Program.contract.ops[0].mode), .transform), Program.contract.ops[0].mode);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, Program.contract.ops[0].payload_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.ops[0].resume_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, Program.contract.ops[0].payload_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, Program.contract.ops[0].resume_ref.codec);
     try std.testing.expect(!Program.contract.ops[0].has_after);
 
     try std.testing.expectEqualStrings("request", Program.contract.ops[1].op_name);
     try std.testing.expectEqual(@as(@TypeOf(Program.contract.ops[1].mode), .choice), Program.contract.ops[1].mode);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, Program.contract.ops[1].payload_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, Program.contract.ops[1].resume_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, Program.contract.ops[1].payload_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, Program.contract.ops[1].resume_ref.codec);
     try std.testing.expect(Program.contract.ops[1].has_after);
 
     try std.testing.expectEqualStrings("invalid", Program.contract.ops[2].op_name);
     try std.testing.expectEqual(@as(@TypeOf(Program.contract.ops[2].mode), .abort), Program.contract.ops[2].mode);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, Program.contract.ops[2].payload_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.unit, Program.contract.ops[2].resume_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, Program.contract.ops[2].payload_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.unit, Program.contract.ops[2].resume_ref.codec);
     try std.testing.expect(!Program.contract.ops[2].has_after);
 
     try std.testing.expectEqual(@as(usize, 4), Program.contract.session.yield_sites.len);
@@ -9245,7 +9245,7 @@ test "custom approval protocol family appears in contract and Program.protocol" 
 }
 
 test "custom approval dynamic requests bind to matching protocol descriptors" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Program = custom_approval.WorkflowProgram;
@@ -9294,7 +9294,7 @@ test "custom approval dynamic requests bind to matching protocol descriptors" {
 }
 
 test "custom approval workflow keeps synchronous and session behavior" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const approved = try custom_approval.runApprove(&runtime);
@@ -9343,7 +9343,7 @@ test "Program.protocol descriptor lookup distinguishes duplicate, helper, and ne
     const RepeatedBody = struct {
         pub const compiled_plan = repeatedCallSiteSameOpPlan("protocol-duplicate-sites", false);
     };
-    const RepeatedProgram = ability.program("protocol-duplicate-sites", struct {}, RepeatedBody);
+    const RepeatedProgram = boundary.program("protocol-duplicate-sites", struct {}, RepeatedBody);
     const First = RepeatedProgram.protocol.operationSite("session", "same_op", 0);
     const Second = RepeatedProgram.protocol.operationSite("session", "same_op", 1);
     try std.testing.expectEqual(@as(usize, 0), First.index);
@@ -9353,7 +9353,7 @@ test "Program.protocol descriptor lookup distinguishes duplicate, helper, and ne
     const HelperBody = struct {
         pub const compiled_plan = sessionHelperYieldPlan("protocol-helper-site");
     };
-    const HelperProgram = ability.program("protocol-helper-site", struct {}, HelperBody);
+    const HelperProgram = boundary.program("protocol-helper-site", struct {}, HelperBody);
     const Helper = HelperProgram.protocol.operationSite("helper", "yield", 0);
     try std.testing.expectEqualStrings("helper", Helper.function_symbol_name);
     try std.testing.expectEqual(@as(usize, 1), Helper.function_index);
@@ -9361,12 +9361,12 @@ test "Program.protocol descriptor lookup distinguishes duplicate, helper, and ne
 
     const NestedBody = struct {
         pub const compiled_plan = resolvedNestedWithStringListPlan("protocol-nested-site");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const NestedProgram = ability.program("protocol-nested-site", struct {}, NestedBody);
+    const NestedProgram = boundary.program("protocol-nested-site", struct {}, NestedBody);
     const Nested = NestedProgram.protocol.operationSite("authored", "dispatch", 0);
     try std.testing.expectEqualStrings("nested", Nested.function_symbol_name);
     try std.testing.expectEqual(@as(usize, 1), Nested.function_index);
@@ -9374,13 +9374,13 @@ test "Program.protocol descriptor lookup distinguishes duplicate, helper, and ne
 }
 
 test "Program.Session yields transform request data and resumes to completion" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "session-transform-request");
     };
-    const Program = ability.program("session-transform-request", struct {}, Body);
+    const Program = boundary.program("session-transform-request", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
     try expectRuntimeParked(&runtime);
@@ -9398,9 +9398,9 @@ test "Program.Session yields transform request data and resumes to completion" {
     try std.testing.expectEqual(@as(u16, 0), request.op_index);
     try std.testing.expectEqualStrings("decide", request.op_name);
     try std.testing.expectEqual(@as(@TypeOf(request.mode), .transform), request.mode);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, request.payload_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, request.payload_ref.codec);
     try std.testing.expectEqualStrings("payload", try request.payload([]const u8));
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, request.resume_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, request.resume_ref.codec);
     try std.testing.expect(!request.has_after);
 
     try session.@"resume"(request, @as(i32, 41));
@@ -9418,7 +9418,7 @@ test "Program.Session yields transform request data and resumes to completion" {
 }
 
 test "Program.Session decodes string-list payloads as immutable views only" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const StringListPayloadHandlers = struct {
@@ -9432,7 +9432,7 @@ test "Program.Session decodes string-list payloads as immutable views only" {
             return .{handlers.items};
         }
     };
-    const Program = ability.program("session-string-list-payload", StringListPayloadHandlers, Body);
+    const Program = boundary.program("session-string-list-payload", StringListPayloadHandlers, Body);
     var strings = [_][]const u8{ "left", "right" };
     var session = try Program.Session.start(&runtime, .{ .items = strings[0..] });
     defer session.deinit();
@@ -9459,13 +9459,13 @@ test "Program.Session decodes string-list payloads as immutable views only" {
 }
 
 test "Program.Session capsule captures current request and restores reusable branches" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "session-capsule-request-branching");
     };
-    const Program = ability.program("session-capsule-request-branching", struct {}, Body);
+    const Program = boundary.program("session-capsule-request-branching", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -9550,13 +9550,13 @@ test "Program.Session capsule captures current request and restores reusable bra
 }
 
 test "Program.Session capsule image round trips deterministic bytes and restores fresh tokens" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "session-capsule-image-roundtrip");
     };
-    const Program = ability.program("session-capsule-image-roundtrip", struct {}, Body);
+    const Program = boundary.program("session-capsule-image-roundtrip", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -9579,7 +9579,7 @@ test "Program.Session capsule image round trips deterministic bytes and restores
     try std.testing.expectEqual(first_image.image_fingerprint, second_image.image_fingerprint);
     try std.testing.expectEqualSlices(u8, first_image.bytes, second_image.bytes);
 
-    var other_runtime = ability.Runtime.init(std.testing.allocator);
+    var other_runtime = boundary.Runtime.init(std.testing.allocator);
     defer other_runtime.deinit();
     var other_session = try Program.Session.start(&other_runtime, .{});
     defer other_session.deinit();
@@ -9668,18 +9668,18 @@ test "Program.Session capsule image round trips deterministic bytes and restores
     rewriteCapsuleImageChecksum(Program, impossible_frame_depth);
     try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, impossible_frame_depth));
 
-    const OtherProgram = ability.program("session-capsule-image-foreign", struct {}, Body);
+    const OtherProgram = boundary.program("session-capsule-image-foreign", struct {}, Body);
     try std.testing.expectError(error.ProgramContractViolation, OtherProgram.Session.Capsule.decode(std.testing.allocator, first_image.bytes));
 }
 
 test "Program.Session capsule image rejects unreachable helper frame chains" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = helperTransformPlan("session-capsule-helper-frame-chain");
     };
-    const Program = ability.program("session-capsule-helper-frame-chain", struct {}, Body);
+    const Program = boundary.program("session-capsule-helper-frame-chain", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -9701,7 +9701,7 @@ test "Program.Session capsule image rejects unreachable helper frame chains" {
 }
 
 test "Program.Session capsule image rejects forged helper argument values" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const EmptyHandlers = struct {};
@@ -9712,7 +9712,7 @@ test "Program.Session capsule image rejects forged helper argument values" {
             return .{@as(i32, 12)};
         }
     };
-    const Program = ability.program("session-capsule-helper-arg-bind", EmptyHandlers, Body);
+    const Program = boundary.program("session-capsule-helper-arg-bind", EmptyHandlers, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -9737,13 +9737,13 @@ test "Program.Session capsule image rejects forged helper argument values" {
 }
 
 test "Program.Session capsule image encode uses caller allocator for scratch" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "session-capsule-image-encode-allocator");
     };
-    const Program = ability.program("session-capsule-image-encode-allocator", struct {}, Body);
+    const Program = boundary.program("session-capsule-image-encode-allocator", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -9764,13 +9764,13 @@ test "Program.Session capsule image encode uses caller allocator for scratch" {
 }
 
 test "Program.Session capsule rejects invalid pending after remaining counts" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = compiledTransformPlan("session-capsule-after-remaining");
     };
-    const Program = ability.program("session-capsule-after-remaining", struct {}, Body);
+    const Program = boundary.program("session-capsule-after-remaining", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -9814,19 +9814,19 @@ test "Program.Session capsule rejects invalid pending after remaining counts" {
     var wrong_output_ref = try std.testing.allocator.dupe(u8, image.bytes);
     defer std.testing.allocator.free(wrong_output_ref);
     const output_ref_offset = try pendingAfterOutputRefOffset(wrong_output_ref);
-    wrong_output_ref[output_ref_offset] = @intFromEnum(ability.ir.ValueCodec.unit);
+    wrong_output_ref[output_ref_offset] = @intFromEnum(boundary.ir.ValueCodec.unit);
     rewriteCapsuleImageChecksum(Program, wrong_output_ref);
     try std.testing.expectError(error.ProgramContractViolation, Program.Session.Capsule.decode(std.testing.allocator, wrong_output_ref));
 }
 
 test "Program.Session capsule image binds pending after entry to operation site" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = repeatedCallSiteSameOpPlan("session-capsule-pending-after-site-bind", true);
     };
-    const Program = ability.program("session-capsule-pending-after-site-bind", struct {}, Body);
+    const Program = boundary.program("session-capsule-pending-after-site-bind", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -9850,13 +9850,13 @@ test "Program.Session capsule image binds pending after entry to operation site"
 }
 
 test "Program.Session capsule rejects invalid lifecycle and destroyed runtime restore" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "session-capsule-lifecycle-rejects");
     };
-    const Program = ability.program("session-capsule-lifecycle-rejects", struct {}, Body);
+    const Program = boundary.program("session-capsule-lifecycle-rejects", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -9891,19 +9891,19 @@ test "Program.Session capsule rejects invalid lifecycle and destroyed runtime re
     var live_capsule = try second.capture(std.testing.allocator);
     defer live_capsule.deinit();
 
-    var destroyed_runtime = ability.Runtime.init(std.testing.allocator);
+    var destroyed_runtime = boundary.Runtime.init(std.testing.allocator);
     try destroyed_runtime.deinitChecked();
     try std.testing.expectError(error.RuntimeDestroyed, Program.Session.restore(&destroyed_runtime, .{}, &live_capsule));
 }
 
 test "Program.Session yields choice request and resumes branch" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "session-choice-resume");
     };
-    const Program = ability.program("session-choice-resume", struct {}, Body);
+    const Program = boundary.program("session-choice-resume", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -9925,13 +9925,13 @@ test "Program.Session yields choice request and resumes branch" {
 }
 
 test "Program.Session yields choice request and return-now branch" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "session-choice-return-now");
     };
-    const Program = ability.program("session-choice-return-now", struct {}, Body);
+    const Program = boundary.program("session-choice-return-now", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -9951,13 +9951,13 @@ test "Program.Session yields choice request and return-now branch" {
 }
 
 test "Program.Session yields abort request and completes terminally" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = abortPlan("session-abort-terminal");
     };
-    const Program = ability.program("session-abort-terminal", struct {}, Body);
+    const Program = boundary.program("session-abort-terminal", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -9978,13 +9978,13 @@ test "Program.Session yields abort request and completes terminally" {
 }
 
 test "Program.Session yields from inside helper call and resumes caller frame" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionHelperYieldPlan("session-helper-yield");
     };
-    const Program = ability.program("session-helper-yield", struct {}, Body);
+    const Program = boundary.program("session-helper-yield", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -10006,17 +10006,17 @@ test "Program.Session yields from inside helper call and resumes caller frame" {
 }
 
 test "Program.Session yields from nested-with target and resumes enclosing frame" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = resolvedNestedWithStringListPlan("session-nested-with-yield");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const Program = ability.program("session-nested-with-yield", struct {}, Body);
+    const Program = boundary.program("session-nested-with-yield", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -10040,13 +10040,13 @@ test "Program.Session yields from nested-with target and resumes enclosing frame
 }
 
 test "Program.Session rejects wrong resume type without consuming request" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "session-wrong-resume-type");
     };
-    const Program = ability.program("session-wrong-resume-type", struct {}, Body);
+    const Program = boundary.program("session-wrong-resume-type", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -10074,7 +10074,7 @@ test "Program.Session rejects wrong resume type without consuming request" {
 }
 
 test "Program.Session supports typed product payload and resume values" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -10089,7 +10089,7 @@ test "Program.Session supports typed product payload and resume values" {
             return .{Payload{ .amount = 3 }};
         }
     };
-    const Program = ability.program("session-product-round-trip", ProductHandlers, Body);
+    const Program = boundary.program("session-product-round-trip", ProductHandlers, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -10110,7 +10110,7 @@ test "Program.Session supports typed product payload and resume values" {
 }
 
 test "Program.Session supports typed sum payload and resume values" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = ?i32;
@@ -10123,7 +10123,7 @@ test "Program.Session supports typed sum payload and resume values" {
             return .{@as(Payload, 4)};
         }
     };
-    const Program = ability.program("session-sum-round-trip", SumHandlers, Body);
+    const Program = boundary.program("session-sum-round-trip", SumHandlers, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -10144,7 +10144,7 @@ test "Program.Session supports typed sum payload and resume values" {
 }
 
 test "Program.Session capsule restores typed product and sum payloads" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ProductPayload = struct {
@@ -10159,7 +10159,7 @@ test "Program.Session capsule restores typed product and sum payloads" {
             return .{ProductPayload{ .amount = 13 }};
         }
     };
-    const ProductProgram = ability.program("session-capsule-product-owned", EmptyHandlers, ProductBody);
+    const ProductProgram = boundary.program("session-capsule-product-owned", EmptyHandlers, ProductBody);
     var product_session = try ProductProgram.Session.start(&runtime, .{});
     var product_session_live = true;
     defer if (product_session_live) product_session.deinit();
@@ -10200,7 +10200,7 @@ test "Program.Session capsule restores typed product and sum payloads" {
             return .{@as(SumPayload, 21)};
         }
     };
-    const SumProgram = ability.program("session-capsule-sum-owned", EmptyHandlers, SumBody);
+    const SumProgram = boundary.program("session-capsule-sum-owned", EmptyHandlers, SumBody);
     var sum_session = try SumProgram.Session.start(&runtime, .{});
     var sum_session_live = true;
     defer if (sum_session_live) sum_session.deinit();
@@ -10234,7 +10234,7 @@ test "Program.Session capsule restores typed product and sum payloads" {
 }
 
 test "Program.Session capsule deep copies nested sum product string payloads" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Details = struct {
@@ -10247,11 +10247,11 @@ test "Program.Session capsule deep copies nested sum product string payloads" {
     const NestedHandlers = struct {
         decision: Decision,
     };
-    const Schemas = ability.ir.schema.Registry(.{ Details, Decision });
-    const NestedProtocol = ability.ir.schema.Protocol(.{
+    const Schemas = boundary.ir.schema.Registry(.{ Details, Decision });
+    const NestedProtocol = boundary.ir.schema.Protocol(.{
         .label = "nested",
         .ops = .{
-            ability.ir.schema.transform("round_trip", Decision, Decision),
+            boundary.ir.schema.transform("round_trip", Decision, Decision),
         },
     });
     const NestedRows = NestedProtocol.Rows(NestedHandlers, .{
@@ -10267,7 +10267,7 @@ test "Program.Session capsule deep copies nested sum product string payloads" {
             return .{handlers.decision};
         }
     };
-    const Program = ability.program("session-capsule-nested-owned", NestedHandlers, Body);
+    const Program = boundary.program("session-capsule-nested-owned", NestedHandlers, Body);
 
     var name = [_]u8{ 'a', 'l', 'p', 'h', 'a' };
     var session = try Program.Session.start(&runtime, .{ .decision = .{ .details = .{ .name = name[0..] } } });
@@ -10309,7 +10309,7 @@ test "Program.Session capsule deep copies nested sum product string payloads" {
 }
 
 test "Program.Session capsule deep copies frame last_return values" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const LastReturnHandlers = struct {
@@ -10322,7 +10322,7 @@ test "Program.Session capsule deep copies frame last_return values" {
             return .{handlers.items};
         }
     };
-    const Program = ability.program("session-capsule-last-return-owned", LastReturnHandlers, Body);
+    const Program = boundary.program("session-capsule-last-return-owned", LastReturnHandlers, Body);
 
     var left = [_]u8{ 'l', 'e', 'f', 't' };
     var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
@@ -10356,7 +10356,7 @@ test "Program.Session capsule deep copies frame last_return values" {
 
 test "Program.Session restored string-list results outlive closed session scratch" {
     var counting_allocator = CountingAllocator.init(std.testing.allocator);
-    var runtime = ability.Runtime.init(counting_allocator.allocator());
+    var runtime = boundary.Runtime.init(counting_allocator.allocator());
     defer runtime.deinit();
 
     const LastReturnHandlers = struct {
@@ -10369,7 +10369,7 @@ test "Program.Session restored string-list results outlive closed session scratc
             return .{handlers.items};
         }
     };
-    const Program = ability.program("session-capsule-result-owned", LastReturnHandlers, Body);
+    const Program = boundary.program("session-capsule-result-owned", LastReturnHandlers, Body);
 
     var left = [_]u8{ 'l', 'e', 'f', 't' };
     var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
@@ -10414,7 +10414,7 @@ test "Program.Session restored string-list results outlive closed session scratc
 }
 
 test "Program.Session delegates borrowed result cleanup to Body.deinitResult" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -10440,7 +10440,7 @@ test "Program.Session delegates borrowed result cleanup to Body.deinitResult" {
             allocator.free(value.items);
         }
     };
-    const Program = ability.program("session-body-result-cleanup-owned", LastReturnHandlers, Body);
+    const Program = boundary.program("session-body-result-cleanup-owned", LastReturnHandlers, Body);
 
     var left = [_]u8{ 'l', 'e', 'f', 't' };
     var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
@@ -10471,7 +10471,7 @@ test "Program.Session delegates borrowed result cleanup to Body.deinitResult" {
 }
 
 test "Program.Session result storage frees fields skipped by Body.deinitResult" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -10496,7 +10496,7 @@ test "Program.Session result storage frees fields skipped by Body.deinitResult" 
             allocator.free(value.items[0]);
         }
     };
-    const Program = ability.program("session-body-result-cleanup-partial-owned", LastReturnHandlers, Body);
+    const Program = boundary.program("session-body-result-cleanup-partial-owned", LastReturnHandlers, Body);
 
     var left = [_]u8{ 'l', 'e', 'f', 't' };
     var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
@@ -10521,7 +10521,7 @@ test "Program.Session result storage frees fields skipped by Body.deinitResult" 
 }
 
 test "Program.Session output failure delegates borrowed result cleanup to Body.deinitResult" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -10553,7 +10553,7 @@ test "Program.Session output failure delegates borrowed result cleanup to Body.d
             allocator.free(value.items);
         }
     };
-    const Program = ability.program("session-output-failure-result-cleanup-owned", LastReturnHandlers, Body);
+    const Program = boundary.program("session-output-failure-result-cleanup-owned", LastReturnHandlers, Body);
 
     var left = [_]u8{ 'l', 'e', 'f', 't' };
     var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
@@ -10572,7 +10572,7 @@ test "Program.Session output failure delegates borrowed result cleanup to Body.d
 }
 
 test "Program.Session output failure result storage frees fields skipped by Body.deinitResult" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -10603,7 +10603,7 @@ test "Program.Session output failure result storage frees fields skipped by Body
             allocator.free(value.items[0]);
         }
     };
-    const Program = ability.program("session-output-failure-result-cleanup-partial-owned", LastReturnHandlers, Body);
+    const Program = boundary.program("session-output-failure-result-cleanup-partial-owned", LastReturnHandlers, Body);
 
     var left = [_]u8{ 'l', 'e', 'f', 't' };
     var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
@@ -10623,13 +10623,13 @@ test "Program.Session output failure result storage frees fields skipped by Body
 
 test "Program.Session scalar results avoid detached storage allocation" {
     var counting_allocator = CountingAllocator.init(std.testing.allocator);
-    var runtime = ability.Runtime.init(counting_allocator.allocator());
+    var runtime = boundary.Runtime.init(counting_allocator.allocator());
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "session-scalar-result-no-storage");
     };
-    const Program = ability.program("session-scalar-result-no-storage", struct {}, Body);
+    const Program = boundary.program("session-scalar-result-no-storage", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -10653,7 +10653,7 @@ test "Program.Session scalar results avoid detached storage allocation" {
 
 test "Program.Session by-value structured results avoid detached storage allocation" {
     var counting_allocator = CountingAllocator.init(std.testing.allocator);
-    var runtime = ability.Runtime.init(counting_allocator.allocator());
+    var runtime = boundary.Runtime.init(counting_allocator.allocator());
     defer runtime.deinit();
 
     const ProductPayload = struct {
@@ -10668,7 +10668,7 @@ test "Program.Session by-value structured results avoid detached storage allocat
             return .{ProductPayload{ .amount = 44 }};
         }
     };
-    const ProductProgram = ability.program("session-product-result-no-storage", ProductHandlers, ProductBody);
+    const ProductProgram = boundary.program("session-product-result-no-storage", ProductHandlers, ProductBody);
     var product_session = try ProductProgram.Session.start(&runtime, .{});
     defer product_session.deinit();
 
@@ -10693,7 +10693,7 @@ test "Program.Session by-value structured results avoid detached storage allocat
             return .{@as(SumPayload, 55)};
         }
     };
-    const SumProgram = ability.program("session-sum-result-no-storage", SumHandlers, SumBody);
+    const SumProgram = boundary.program("session-sum-result-no-storage", SumHandlers, SumBody);
     var sum_session = try SumProgram.Session.start(&runtime, .{});
     defer sum_session.deinit();
 
@@ -10718,7 +10718,7 @@ test "Program.Session by-value structured results avoid detached storage allocat
             return .{@as(OptionalStringPayload, null)};
         }
     };
-    const OptionalStringProgram = ability.program(
+    const OptionalStringProgram = boundary.program(
         "session-optional-string-null-result-no-storage",
         OptionalStringHandlers,
         OptionalStringBody,
@@ -10739,7 +10739,7 @@ test "Program.Session by-value structured results avoid detached storage allocat
 }
 
 test "Program.Session capsule clones mutable string-list product fields" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -10756,7 +10756,7 @@ test "Program.Session capsule clones mutable string-list product fields" {
             return .{handlers.payload};
         }
     };
-    const Program = ability.program("session-capsule-mutable-string-list", MutableListHandlers, Body);
+    const Program = boundary.program("session-capsule-mutable-string-list", MutableListHandlers, Body);
 
     var left = [_]u8{ 'l', 'e', 'f', 't' };
     var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
@@ -10789,7 +10789,7 @@ test "Program.Session capsule clones mutable string-list product fields" {
 }
 
 test "Program.Session capsule fingerprint rehashes mutable current payload views" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -10806,7 +10806,7 @@ test "Program.Session capsule fingerprint rehashes mutable current payload views
             return .{handlers.payload};
         }
     };
-    const Program = ability.program("session-capsule-fingerprint-live-payload", MutableListHandlers, Body);
+    const Program = boundary.program("session-capsule-fingerprint-live-payload", MutableListHandlers, Body);
 
     var items = [_][]const u8{ "left", "right" };
     var session = try Program.Session.start(&runtime, .{ .payload = .{ .items = items[0..] } });
@@ -10864,7 +10864,7 @@ test "Program.Session capsule fingerprint rehashes mutable current payload views
 }
 
 test "Program.Session capsule preserves helper payload alias groups" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -10881,7 +10881,7 @@ test "Program.Session capsule preserves helper payload alias groups" {
             return .{handlers.payload};
         }
     };
-    const Program = ability.program("session-capsule-helper-payload-alias", AliasHandlers, Body);
+    const Program = boundary.program("session-capsule-helper-payload-alias", AliasHandlers, Body);
 
     var left = [_]u8{ 'l', 'e', 'f', 't' };
     var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
@@ -10925,7 +10925,7 @@ test "Program.Session capsule preserves helper payload alias groups" {
 }
 
 test "Program.Session capsule image preserves structured string-list aliases" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const AliasPair = struct {
@@ -10943,7 +10943,7 @@ test "Program.Session capsule image preserves structured string-list aliases" {
             return .{handlers.payload};
         }
     };
-    const Program = ability.program("session-capsule-image-structured-alias", AliasHandlers, Body);
+    const Program = boundary.program("session-capsule-image-structured-alias", AliasHandlers, Body);
 
     var items = [_][]const u8{ "left", "right" };
     var session = try Program.Session.start(&runtime, .{ .payload = .{ .first = items[0..], .second = items[0..] } });
@@ -10973,7 +10973,7 @@ test "Program.Session capsule image preserves structured string-list aliases" {
 }
 
 test "Program.Session capsule preserves nested string-list aliases across schema clones" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -10993,7 +10993,7 @@ test "Program.Session capsule preserves nested string-list aliases across schema
             return .{handlers.payload};
         }
     };
-    const Program = ability.program("session-capsule-nested-payload-alias", AliasHandlers, Body);
+    const Program = boundary.program("session-capsule-nested-payload-alias", AliasHandlers, Body);
 
     var left = [_]u8{ 'l', 'e', 'f', 't' };
     var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
@@ -11032,7 +11032,7 @@ test "Program.Session capsule preserves nested string-list aliases across schema
 }
 
 test "Program.Session capsule image decodes mutable string-list sum payloads" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const SumPayload = ?[][]const u8;
@@ -11047,7 +11047,7 @@ test "Program.Session capsule image decodes mutable string-list sum payloads" {
             return .{handlers.items};
         }
     };
-    const Program = ability.program("session-capsule-mutable-sum-list", SumListHandlers, Body);
+    const Program = boundary.program("session-capsule-mutable-sum-list", SumListHandlers, Body);
 
     var left = [_]u8{ 'l', 'e', 'f', 't' };
     var right = [_]u8{ 'r', 'i', 'g', 'h', 't' };
@@ -11090,7 +11090,7 @@ test "Program.Session capsule image decodes mutable string-list sum payloads" {
 }
 
 test "Program.Session structured request payloads survive session deinit" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ProductPayload = struct {
@@ -11105,7 +11105,7 @@ test "Program.Session structured request payloads survive session deinit" {
             return .{ProductPayload{ .amount = 13 }};
         }
     };
-    const ProductProgram = ability.program("session-stale-product-payload", ProductHandlers, ProductBody);
+    const ProductProgram = boundary.program("session-stale-product-payload", ProductHandlers, ProductBody);
     var product_session = try ProductProgram.Session.start(&runtime, .{});
     var product_session_active = true;
     defer if (product_session_active) product_session.deinit();
@@ -11129,7 +11129,7 @@ test "Program.Session structured request payloads survive session deinit" {
             return .{@as(SumPayload, 21)};
         }
     };
-    const SumProgram = ability.program("session-stale-sum-payload", SumHandlers, SumBody);
+    const SumProgram = boundary.program("session-stale-sum-payload", SumHandlers, SumBody);
     var sum_session = try SumProgram.Session.start(&runtime, .{});
     var sum_session_active = true;
     defer if (sum_session_active) sum_session.deinit();
@@ -11145,7 +11145,7 @@ test "Program.Session structured request payloads survive session deinit" {
 }
 
 test "Program.Session captures operation capsules as reusable copied branches" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const StringListPayloadHandlers = struct {
@@ -11159,7 +11159,7 @@ test "Program.Session captures operation capsules as reusable copied branches" {
             return .{handlers.items};
         }
     };
-    const Program = ability.program("session-capsule-operation", StringListPayloadHandlers, Body);
+    const Program = boundary.program("session-capsule-operation", StringListPayloadHandlers, Body);
     const Operation = Program.protocol.operationSite("session", "string_list_payload", 0);
 
     var left = [_]u8{ 'l', 'e', 'f', 't' };
@@ -11254,13 +11254,13 @@ test "Program.Session captures operation capsules as reusable copied branches" {
 }
 
 test "Program.Session captures after-continuation capsules with typed current views" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = compiledTransformPlan("session-capsule-after");
     };
-    const Program = ability.program("session-capsule-after", struct {}, Body);
+    const Program = boundary.program("session-capsule-after", struct {}, Body);
     const Operation = Program.protocol.operationSite("authored", "dispatch", 0);
     const After = Program.protocol.afterSite("authored", "dispatch", 0);
 
@@ -11333,8 +11333,8 @@ fn nestedCapsuleSemanticPlan(
     comptime Decision: type,
     comptime Schemas: type,
     comptime NestedRows: type,
-) ability.ir.ProgramPlan {
-    const semantic = ability.ir.builder.semantic;
+) boundary.ir.ProgramPlan {
+    const semantic = boundary.ir.builder.semantic;
     const RoundTrip = NestedRows.op("round_trip");
     return (semantic.finish(.{
         .label = "session-capsule-nested-owned",
@@ -11368,19 +11368,19 @@ fn nestedCapsuleSemanticPlan(
     }) catch unreachable).plan;
 }
 
-fn pureArithmeticPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const rhs = ability.ir.builder.local(root, 1);
-    const sum = ability.ir.builder.local(root, 2);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn pureArithmeticPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const rhs = boundary.ir.builder.local(root, 1);
+    const sum = boundary.ir.builder.local(root, 2);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_i32, .dst = value.index, .operand = 4 },
         .{ .kind = .add_const_i32, .dst = value.index, .operand = value.index, .aux = 1 },
         .{ .kind = .const_i32, .dst = rhs.index, .operand = 2 },
         .{ .kind = .add_i32, .dst = sum.index, .operand = value.index, .aux = rhs.index },
-        ability.ir.builder.returnValue(root, sum) catch unreachable,
+        boundary.ir.builder.returnValue(root, sum) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 0,
@@ -11396,14 +11396,14 @@ fn pureArithmeticPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 2,
         .entry = root,
@@ -11418,21 +11418,21 @@ fn pureArithmeticPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn budgetSizedStraightLinePlan(comptime label: []const u8) ability.ir.ProgramPlan {
+fn budgetSizedStraightLinePlan(comptime label: []const u8) boundary.ir.ProgramPlan {
     @setEvalBranchQuota(80_000);
     const instruction_count = interpreter_step_budget / 2 + 100;
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
     const instructions = comptime blk: {
-        var buf = [_]ability.ir.plan.Instruction{.{ .kind = .return_value }} ** instruction_count;
+        var buf = [_]boundary.ir.plan.Instruction{.{ .kind = .return_value }} ** instruction_count;
         buf[0] = .{ .kind = .const_i32, .dst = value.index, .operand = 7 };
         for (1..instruction_count - 1) |index| {
             buf[index] = .{ .kind = .add_const_i32, .dst = value.index, .operand = value.index, .aux = 0 };
         }
-        buf[instruction_count - 1] = ability.ir.builder.returnValue(root, value) catch unreachable;
+        buf[instruction_count - 1] = boundary.ir.builder.returnValue(root, value) catch unreachable;
         break :blk buf;
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 0,
@@ -11448,14 +11448,14 @@ fn budgetSizedStraightLinePlan(comptime label: []const u8) ability.ir.ProgramPla
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 84,
         .entry = root,
@@ -11470,14 +11470,14 @@ fn budgetSizedStraightLinePlan(comptime label: []const u8) ability.ir.ProgramPla
     }) catch unreachable;
 }
 
-fn usizeLiteralPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn usizeLiteralPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_usize, .dst = value.index, .string_literal = "0xff" },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .usize,
         .parameter_count = 0,
@@ -11493,14 +11493,14 @@ fn usizeLiteralPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 13,
         .entry = root,
@@ -11515,16 +11515,16 @@ fn usizeLiteralPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn boolComparePlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const flag = ability.ir.builder.local(root, 0);
-    const result = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, flag, ability.ir.builder.op(root, 0), null) catch unreachable,
+fn boolComparePlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const flag = boundary.ir.builder.local(root, 0);
+    const result = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, flag, boundary.ir.builder.op(root, 0), null) catch unreachable,
         .{ .kind = .compare_eq_zero, .dst = result.index, .operand = flag.index },
-        ability.ir.builder.returnValue(root, result) catch unreachable,
+        boundary.ir.builder.returnValue(root, result) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .bool,
         .parameter_count = 0,
@@ -11540,22 +11540,22 @@ fn boolComparePlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "bool", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "bool", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "probe",
         .mode = .transform,
         .payload_codec = .unit,
         .resume_codec = .bool,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 14,
         .entry = root,
@@ -11570,16 +11570,16 @@ fn boolComparePlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn handlerlessAfterReturnBoolPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const resumed = ability.ir.builder.local(root, 0);
-    const result = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null) catch unreachable,
+fn handlerlessAfterReturnBoolPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const resumed = boundary.ir.builder.local(root, 0);
+    const result = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), null) catch unreachable,
         .{ .kind = .compare_eq_zero, .dst = result.index, .operand = resumed.index },
-        ability.ir.builder.returnValue(root, result) catch unreachable,
+        boundary.ir.builder.returnValue(root, result) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .bool,
         .parameter_count = 0,
@@ -11595,8 +11595,8 @@ fn handlerlessAfterReturnBoolPlan(comptime label: []const u8) ability.ir.Program
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "handlerless", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "handlerless", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "step",
         .mode = .transform,
@@ -11604,14 +11604,14 @@ fn handlerlessAfterReturnBoolPlan(comptime label: []const u8) ability.ir.Program
         .resume_codec = .i32,
         .has_after = true,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 126,
         .entry = root,
@@ -11626,14 +11626,14 @@ fn handlerlessAfterReturnBoolPlan(comptime label: []const u8) ability.ir.Program
     }) catch unreachable;
 }
 
-fn finalAfterOutputMismatchPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const resumed = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+fn finalAfterOutputMismatchPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const resumed = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .string,
@@ -11650,8 +11650,8 @@ fn finalAfterOutputMismatchPlan(comptime label: []const u8) ability.ir.ProgramPl
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "step", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "step", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "step",
         .mode = .transform,
@@ -11659,14 +11659,14 @@ fn finalAfterOutputMismatchPlan(comptime label: []const u8) ability.ir.ProgramPl
         .resume_codec = .i32,
         .has_after = true,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 127,
         .entry = root,
@@ -11681,14 +11681,14 @@ fn finalAfterOutputMismatchPlan(comptime label: []const u8) ability.ir.ProgramPl
     }) catch unreachable;
 }
 
-fn finalAfterStringListOutputPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const resumed = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+fn finalAfterStringListOutputPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const resumed = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .string_list,
@@ -11705,8 +11705,8 @@ fn finalAfterStringListOutputPlan(comptime label: []const u8) ability.ir.Program
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "step", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "step", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "step",
         .mode = .transform,
@@ -11714,14 +11714,14 @@ fn finalAfterStringListOutputPlan(comptime label: []const u8) ability.ir.Program
         .resume_codec = .i32,
         .has_after = true,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 128,
         .entry = root,
@@ -11736,15 +11736,15 @@ fn finalAfterStringListOutputPlan(comptime label: []const u8) ability.ir.Program
     }) catch unreachable;
 }
 
-fn usizeSubOnePlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn usizeSubOnePlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_usize, .dst = value.index, .string_literal = "3" },
         .{ .kind = .sub_one, .dst = value.index, .operand = value.index },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .usize,
         .parameter_count = 0,
@@ -11760,14 +11760,14 @@ fn usizeSubOnePlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 15,
         .entry = root,
@@ -11782,19 +11782,19 @@ fn usizeSubOnePlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn helperUsizeLocalOffsetPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const root_result = ability.ir.builder.local(root, 1);
-    const helper_value = ability.ir.builder.local(helper, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelper(root, root_result, helper, null) catch unreachable,
-        ability.ir.builder.returnValue(root, root_result) catch unreachable,
+fn helperUsizeLocalOffsetPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const root_result = boundary.ir.builder.local(root, 1);
+    const helper_value = boundary.ir.builder.local(helper, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelper(root, root_result, helper, null) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_result) catch unreachable,
         .{ .kind = .const_usize, .dst = helper_value.index, .string_literal = "2" },
         .{ .kind = .sub_one, .dst = helper_value.index, .operand = helper_value.index },
-        ability.ir.builder.returnValue(helper, helper_value) catch unreachable,
+        boundary.ir.builder.returnValue(helper, helper_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .usize,
@@ -11828,16 +11828,16 @@ fn helperUsizeLocalOffsetPlan(comptime label: []const u8) ability.ir.ProgramPlan
             .instruction_count = 3,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 3, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 16,
         .entry = root,
@@ -11852,18 +11852,18 @@ fn helperUsizeLocalOffsetPlan(comptime label: []const u8) ability.ir.ProgramPlan
     }) catch unreachable;
 }
 
-fn zeroArgHelperLegacyAuxPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const root_value = ability.ir.builder.local(root, 0);
-    const helper_value = ability.ir.builder.local(helper, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn zeroArgHelperLegacyAuxPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const root_value = boundary.ir.builder.local(root, 0);
+    const helper_value = boundary.ir.builder.local(helper, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .call_helper, .dst = root_value.index, .operand = helper.index, .aux = 0 },
-        ability.ir.builder.returnValue(root, root_value) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_value) catch unreachable,
         .{ .kind = .const_i32, .dst = helper_value.index, .operand = 12 },
-        ability.ir.builder.returnValue(helper, helper_value) catch unreachable,
+        boundary.ir.builder.returnValue(helper, helper_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -11897,16 +11897,16 @@ fn zeroArgHelperLegacyAuxPlan(comptime label: []const u8) ability.ir.ProgramPlan
             .instruction_count = 2,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 17,
         .entry = root,
@@ -11921,15 +11921,15 @@ fn zeroArgHelperLegacyAuxPlan(comptime label: []const u8) ability.ir.ProgramPlan
     }) catch unreachable;
 }
 
-fn unitResumeKeepsLocalPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn unitResumeKeepsLocalPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_i32, .dst = value.index, .operand = 7 },
         .{ .kind = .call_op, .dst = value.index, .operand = 0, .aux = value.index },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 0,
@@ -11945,18 +11945,18 @@ fn unitResumeKeepsLocalPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "unit", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "unit", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "touch",
         .mode = .transform,
         .payload_codec = .i32,
         .resume_codec = .unit,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 18,
         .entry = root,
@@ -11971,18 +11971,18 @@ fn unitResumeKeepsLocalPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn helperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const root_value = ability.ir.builder.local(root, 0);
-    const helper_value = ability.ir.builder.local(helper, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
-        ability.ir.builder.returnValue(root, root_value) catch unreachable,
+fn helperPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const root_value = boundary.ir.builder.local(root, 0);
+    const helper_value = boundary.ir.builder.local(helper, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_value) catch unreachable,
         .{ .kind = .const_i32, .dst = helper_value.index, .operand = 9 },
-        ability.ir.builder.returnValue(helper, helper_value) catch unreachable,
+        boundary.ir.builder.returnValue(helper, helper_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -12016,16 +12016,16 @@ fn helperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .instruction_count = 2,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 3,
         .entry = root,
@@ -12040,15 +12040,15 @@ fn helperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn abortPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), null) catch unreachable,
+fn abortPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), null) catch unreachable,
         .{ .kind = .const_i32, .dst = value.index, .operand = 999 },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 0,
@@ -12064,8 +12064,8 @@ fn abortPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "authored", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "authored", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "abort",
         .mode = .abort,
@@ -12073,10 +12073,10 @@ fn abortPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .resume_codec = .unit,
         .has_after = false,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 4,
         .entry = root,
@@ -12091,18 +12091,18 @@ fn abortPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn sessionStringOpPlan(comptime mode: ability.ir.PlanControlMode, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const resumed = ability.ir.builder.local(root, 1);
-    const tail = ability.ir.builder.local(root, 2);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn sessionStringOpPlan(comptime mode: boundary.ir.PlanControlMode, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const resumed = boundary.ir.builder.local(root, 1);
+    const tail = boundary.ir.builder.local(root, 2);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_string, .dst = payload.index, .string_literal = "payload" },
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), payload) catch unreachable,
         .{ .kind = .const_i32, .dst = tail.index, .operand = 999 },
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -12119,8 +12119,8 @@ fn sessionStringOpPlan(comptime mode: ability.ir.PlanControlMode, comptime label
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "decide",
         .mode = mode,
@@ -12128,10 +12128,10 @@ fn sessionStringOpPlan(comptime mode: ability.ir.PlanControlMode, comptime label
         .resume_codec = .i32,
         .has_after = false,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 101,
         .entry = root,
@@ -12146,14 +12146,14 @@ fn sessionStringOpPlan(comptime mode: ability.ir.PlanControlMode, comptime label
     }) catch unreachable;
 }
 
-fn sessionUnitStringOpPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const resumed = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+fn sessionUnitStringOpPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const resumed = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .string,
         .result_codec = .string,
@@ -12170,8 +12170,8 @@ fn sessionUnitStringOpPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "decide",
         .mode = .transform,
@@ -12179,10 +12179,10 @@ fn sessionUnitStringOpPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .resume_codec = .string,
         .has_after = false,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 102,
         .entry = root,
@@ -12197,15 +12197,15 @@ fn sessionUnitStringOpPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn parameterizedSessionStringOpPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const resumed = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+fn parameterizedSessionStringOpPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const resumed = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), payload) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -12222,18 +12222,18 @@ fn parameterizedSessionStringOpPlan(comptime label: []const u8) ability.ir.Progr
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "decide",
         .mode = .transform,
         .payload_codec = .string,
         .resume_codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 102,
         .entry = root,
@@ -12248,17 +12248,17 @@ fn parameterizedSessionStringOpPlan(comptime label: []const u8) ability.ir.Progr
     }) catch unreachable;
 }
 
-fn repeatedCallSiteSameOpPlan(comptime label: []const u8, comptime has_after: bool) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const resumed = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn repeatedCallSiteSameOpPlan(comptime label: []const u8, comptime has_after: bool) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const resumed = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_string, .dst = payload.index, .string_literal = "same" },
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), payload) catch unreachable,
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), payload) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -12275,8 +12275,8 @@ fn repeatedCallSiteSameOpPlan(comptime label: []const u8, comptime has_after: bo
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "same_op",
         .mode = .transform,
@@ -12284,10 +12284,10 @@ fn repeatedCallSiteSameOpPlan(comptime label: []const u8, comptime has_after: bo
         .resume_codec = .i32,
         .has_after = has_after,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = if (has_after) 121 else 120,
         .entry = root,
@@ -12302,23 +12302,23 @@ fn repeatedCallSiteSameOpPlan(comptime label: []const u8, comptime has_after: bo
     }) catch unreachable;
 }
 
-fn branchedSameOpCallSitePlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const choose_right = ability.ir.builder.local(root, 0);
-    const left_payload = ability.ir.builder.local(root, 1);
-    const right_payload = ability.ir.builder.local(root, 2);
-    const resumed = ability.ir.builder.local(root, 3);
-    const choose_left = ability.ir.builder.local(root, 4);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn branchedSameOpCallSitePlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const choose_right = boundary.ir.builder.local(root, 0);
+    const left_payload = boundary.ir.builder.local(root, 1);
+    const right_payload = boundary.ir.builder.local(root, 2);
+    const resumed = boundary.ir.builder.local(root, 3);
+    const choose_left = boundary.ir.builder.local(root, 4);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .compare_eq_zero, .dst = choose_left.index, .operand = choose_right.index },
         .{ .kind = .const_string, .dst = left_payload.index, .string_literal = "same" },
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), left_payload) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), left_payload) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
         .{ .kind = .const_string, .dst = right_payload.index, .string_literal = "same" },
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), right_payload) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), right_payload) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -12335,26 +12335,26 @@ fn branchedSameOpCallSitePlan(comptime label: []const u8) ability.ir.ProgramPlan
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "same_op",
         .mode = .transform,
         .payload_codec = .string,
         .resume_codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
         .{ .first_instruction = 1, .instruction_count = 3, .terminator_index = 1 },
         .{ .first_instruction = 4, .instruction_count = 3, .terminator_index = 2 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 124,
         .entry = root,
@@ -12369,21 +12369,21 @@ fn branchedSameOpCallSitePlan(comptime label: []const u8) ability.ir.ProgramPlan
     }) catch unreachable;
 }
 
-fn loopedOperationSitePlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const counter = ability.ir.builder.local(root, 0);
-    const payload = ability.ir.builder.local(root, 1);
-    const resumed = ability.ir.builder.local(root, 2);
-    const done = ability.ir.builder.local(root, 3);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn loopedOperationSitePlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const counter = boundary.ir.builder.local(root, 0);
+    const payload = boundary.ir.builder.local(root, 1);
+    const resumed = boundary.ir.builder.local(root, 2);
+    const done = boundary.ir.builder.local(root, 3);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_usize, .dst = counter.index, .string_literal = "3" },
         .{ .kind = .const_string, .dst = payload.index, .string_literal = "loop" },
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), payload) catch unreachable,
         .{ .kind = .sub_one, .dst = counter.index, .operand = counter.index },
         .{ .kind = .compare_eq_zero, .dst = done.index, .operand = counter.index },
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -12400,26 +12400,26 @@ fn loopedOperationSitePlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "loop_op",
         .mode = .transform,
         .payload_codec = .string,
         .resume_codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 3, .terminator_index = 1 },
         .{ .first_instruction = 5, .instruction_count = 1, .terminator_index = 2 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .jump, .primary = 1 },
         .{ .kind = .branch_if, .primary = 2, .secondary = 1 },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 122,
         .entry = root,
@@ -12434,18 +12434,18 @@ fn loopedOperationSitePlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn unreachableCallOpPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const root_value = ability.ir.builder.local(root, 0);
-    const helper_value = ability.ir.builder.local(helper, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn unreachableCallOpPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const root_value = boundary.ir.builder.local(root, 0);
+    const helper_value = boundary.ir.builder.local(helper, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_i32, .dst = root_value.index, .operand = 7 },
-        ability.ir.builder.returnValue(root, root_value) catch unreachable,
-        ability.ir.builder.callOp(helper, helper_value, ability.ir.builder.op(helper, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(helper, helper_value) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_value) catch unreachable,
+        boundary.ir.builder.callOp(helper, helper_value, boundary.ir.builder.op(helper, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(helper, helper_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -12481,24 +12481,24 @@ fn unreachableCallOpPlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .instruction_count = 2,
         },
     };
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "dead", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "dead", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "dead_op",
         .mode = .transform,
         .payload_codec = .unit,
         .resume_codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 123,
         .entry = root,
@@ -12513,15 +12513,15 @@ fn unreachableCallOpPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn sessionMutableStringListPayloadPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const resumed = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
-        ability.ir.builder.returnValue(root, payload) catch unreachable,
+fn sessionMutableStringListPayloadPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const resumed = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), payload) catch unreachable,
+        boundary.ir.builder.returnValue(root, payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .product,
         .value_schema_index = 0,
@@ -12538,8 +12538,8 @@ fn sessionMutableStringListPayloadPlan(comptime Payload: type, comptime label: [
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "mutable", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "mutable", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "payload",
         .mode = .transform,
@@ -12547,17 +12547,17 @@ fn sessionMutableStringListPayloadPlan(comptime Payload: type, comptime label: [
         .payload_schema_index = 0,
         .resume_codec = .i32,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .product,
         .first_field = 0,
         .field_count = 1,
     }};
-    const value_fields = [_]ability.ir.ValueFieldPlan{.{ .name = "items", .codec = .string_list }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const value_fields = [_]boundary.ir.ValueFieldPlan{.{ .name = "items", .codec = .string_list }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 119,
         .entry = root,
@@ -12575,20 +12575,20 @@ fn sessionMutableStringListPayloadPlan(comptime Payload: type, comptime label: [
     }) catch unreachable;
 }
 
-fn sessionHelperPayloadAliasPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const root_payload = ability.ir.builder.local(root, 0);
-    const root_ignored = ability.ir.builder.local(root, 1);
-    const helper_payload = ability.ir.builder.local(helper, 0);
-    const helper_ignored = ability.ir.builder.local(helper, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelper(root, root_ignored, helper, 0) catch unreachable,
-        ability.ir.builder.returnValue(root, root_payload) catch unreachable,
-        ability.ir.builder.callOp(helper, helper_ignored, ability.ir.builder.op(helper, 0), helper_payload) catch unreachable,
-        ability.ir.builder.returnValue(helper, helper_payload) catch unreachable,
+fn sessionHelperPayloadAliasPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const root_payload = boundary.ir.builder.local(root, 0);
+    const root_ignored = boundary.ir.builder.local(root, 1);
+    const helper_payload = boundary.ir.builder.local(helper, 0);
+    const helper_ignored = boundary.ir.builder.local(helper, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelper(root, root_ignored, helper, 0) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_payload) catch unreachable,
+        boundary.ir.builder.callOp(helper, helper_ignored, boundary.ir.builder.op(helper, 0), helper_payload) catch unreachable,
+        boundary.ir.builder.returnValue(helper, helper_payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .product,
@@ -12624,8 +12624,8 @@ fn sessionHelperPayloadAliasPlan(comptime Payload: type, comptime label: []const
             .instruction_count = 2,
         },
     };
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "helper_alias", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "helper_alias", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "payload",
         .mode = .transform,
@@ -12633,23 +12633,23 @@ fn sessionHelperPayloadAliasPlan(comptime Payload: type, comptime label: []const
         .payload_schema_index = 0,
         .resume_codec = .i32,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .product,
         .first_field = 0,
         .field_count = 1,
     }};
-    const value_fields = [_]ability.ir.ValueFieldPlan{.{ .name = "items", .codec = .string_list }};
-    const blocks = [_]ability.ir.plan.Block{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{.{ .name = "items", .codec = .string_list }};
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 123,
         .entry = root,
@@ -12673,17 +12673,17 @@ fn sessionHelperPayloadAliasPlan(comptime Payload: type, comptime label: []const
     }) catch unreachable;
 }
 
-fn sessionSumPayloadAliasPlan(comptime Payload: type, comptime SumPayload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const sum = ability.ir.builder.local(root, 0);
-    const extracted = ability.ir.builder.local(root, 1);
-    const ignored = ability.ir.builder.local(root, 2);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.sumExtractPayload(root, extracted, sum, 0) catch unreachable,
-        ability.ir.builder.callOp(root, ignored, ability.ir.builder.op(root, 0), extracted) catch unreachable,
-        ability.ir.builder.returnValue(root, sum) catch unreachable,
+fn sessionSumPayloadAliasPlan(comptime Payload: type, comptime SumPayload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const sum = boundary.ir.builder.local(root, 0);
+    const extracted = boundary.ir.builder.local(root, 1);
+    const ignored = boundary.ir.builder.local(root, 2);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.sumExtractPayload(root, extracted, sum, 0) catch unreachable,
+        boundary.ir.builder.callOp(root, ignored, boundary.ir.builder.op(root, 0), extracted) catch unreachable,
+        boundary.ir.builder.returnValue(root, sum) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .sum,
         .value_schema_index = 1,
@@ -12702,8 +12702,8 @@ fn sessionSumPayloadAliasPlan(comptime Payload: type, comptime SumPayload: type,
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "sum_alias", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "sum_alias", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "payload",
         .mode = .transform,
@@ -12711,7 +12711,7 @@ fn sessionSumPayloadAliasPlan(comptime Payload: type, comptime SumPayload: type,
         .payload_schema_index = 0,
         .resume_codec = .i32,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{
         .{
             .label = @typeName(Payload),
             .codec = .product,
@@ -12727,12 +12727,12 @@ fn sessionSumPayloadAliasPlan(comptime Payload: type, comptime SumPayload: type,
             .variant_count = 1,
         },
     };
-    const value_fields = [_]ability.ir.ValueFieldPlan{.{ .name = "items", .codec = .string_list }};
-    const value_variants = [_]ability.ir.ValueVariantPlan{.{ .name = "payload", .codec = .product, .schema_index = 0 }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const value_fields = [_]boundary.ir.ValueFieldPlan{.{ .name = "items", .codec = .string_list }};
+    const value_variants = [_]boundary.ir.ValueVariantPlan{.{ .name = "payload", .codec = .product, .schema_index = 0 }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 124,
         .entry = root,
@@ -12754,14 +12754,14 @@ fn sessionSumPayloadAliasPlan(comptime Payload: type, comptime SumPayload: type,
     }) catch unreachable;
 }
 
-fn optionalStringIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+fn optionalStringIdentityPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
     const Payload = ?[]const u8;
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.returnValue(root, payload) catch unreachable,
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.returnValue(root, payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .sum,
         .value_schema_index = 0,
@@ -12778,24 +12778,24 @@ fn optionalStringIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .sum,
         .first_variant = 0,
         .variant_count = 2,
     }};
-    const value_variants = [_]ability.ir.ValueVariantPlan{
+    const value_variants = [_]boundary.ir.ValueVariantPlan{
         .{ .name = "none", .codec = .unit },
         .{ .name = "some", .codec = .string },
     };
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 120,
         .entry = root,
@@ -12813,15 +12813,15 @@ fn optionalStringIdentityPlan(comptime label: []const u8) ability.ir.ProgramPlan
     }) catch unreachable;
 }
 
-fn sessionStringPayloadPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const resumed = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+fn sessionStringPayloadPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const resumed = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), payload) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -12838,18 +12838,18 @@ fn sessionStringPayloadPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "string_payload",
         .mode = .transform,
         .payload_codec = .string,
         .resume_codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 113,
         .entry = root,
@@ -12864,15 +12864,15 @@ fn sessionStringPayloadPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn sessionStringListPayloadPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const resumed = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+fn sessionStringListPayloadPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const resumed = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), payload) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -12889,8 +12889,8 @@ fn sessionStringListPayloadPlan(comptime label: []const u8) ability.ir.ProgramPl
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "session", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "string_list_payload",
         .mode = .transform,
@@ -12898,10 +12898,10 @@ fn sessionStringListPayloadPlan(comptime label: []const u8) ability.ir.ProgramPl
         .resume_codec = .i32,
         .has_after = false,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 112,
         .entry = root,
@@ -12916,16 +12916,16 @@ fn sessionStringListPayloadPlan(comptime label: []const u8) ability.ir.ProgramPl
     }) catch unreachable;
 }
 
-fn sessionLastReturnThenYieldStringListPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const ignored = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.returnValue(root, payload) catch unreachable,
-        ability.ir.builder.callOp(root, ignored, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(root, payload) catch unreachable,
+fn sessionLastReturnThenYieldStringListPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const ignored = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.returnValue(root, payload) catch unreachable,
+        boundary.ir.builder.callOp(root, ignored, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .string_list,
         .result_codec = .string_list,
@@ -12942,24 +12942,24 @@ fn sessionLastReturnThenYieldStringListPlan(comptime label: []const u8) ability.
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "last_return", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "last_return", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "park",
         .mode = .transform,
         .payload_codec = .unit,
         .resume_codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
         .{ .first_instruction = 1, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .jump, .primary = 1 },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 118,
         .entry = root,
@@ -12974,16 +12974,16 @@ fn sessionLastReturnThenYieldStringListPlan(comptime label: []const u8) ability.
     }) catch unreachable;
 }
 
-fn sessionLastReturnThenYieldProductPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const ignored = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.returnValue(root, payload) catch unreachable,
-        ability.ir.builder.callOp(root, ignored, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(root, payload) catch unreachable,
+fn sessionLastReturnThenYieldProductPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const ignored = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.returnValue(root, payload) catch unreachable,
+        boundary.ir.builder.callOp(root, ignored, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, payload) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .product,
         .value_schema_index = 0,
@@ -13002,31 +13002,31 @@ fn sessionLastReturnThenYieldProductPlan(comptime Payload: type, comptime label:
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "last_return", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "last_return", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "park",
         .mode = .transform,
         .payload_codec = .unit,
         .resume_codec = .i32,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .product,
         .first_field = 0,
         .field_count = 1,
     }};
-    const value_fields = [_]ability.ir.ValueFieldPlan{.{ .name = "items", .codec = .string_list }};
-    const blocks = [_]ability.ir.plan.Block{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{.{ .name = "items", .codec = .string_list }};
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
         .{ .first_instruction = 1, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .jump, .primary = 1 },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 117,
         .entry = root,
@@ -13044,19 +13044,19 @@ fn sessionLastReturnThenYieldProductPlan(comptime Payload: type, comptime label:
     }) catch unreachable;
 }
 
-fn sessionHelperYieldPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const root_value = ability.ir.builder.local(root, 0);
-    const helper_value = ability.ir.builder.local(helper, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
+fn sessionHelperYieldPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const root_value = boundary.ir.builder.local(root, 0);
+    const helper_value = boundary.ir.builder.local(helper, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
         .{ .kind = .add_const_i32, .dst = root_value.index, .operand = root_value.index, .aux = 1 },
-        ability.ir.builder.returnValue(root, root_value) catch unreachable,
-        ability.ir.builder.callOp(helper, helper_value, ability.ir.builder.op(helper, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(helper, helper_value) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_value) catch unreachable,
+        boundary.ir.builder.callOp(helper, helper_value, boundary.ir.builder.op(helper, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(helper, helper_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -13090,24 +13090,24 @@ fn sessionHelperYieldPlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .instruction_count = 2,
         },
     };
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "helper", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "helper", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "yield",
         .mode = .transform,
         .payload_codec = .unit,
         .resume_codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 },
         .{ .first_instruction = 3, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 102,
         .entry = root,
@@ -13122,20 +13122,20 @@ fn sessionHelperYieldPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn sessionParameterizedHelperYieldPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const root_arg = ability.ir.builder.local(root, 0);
-    const root_result = ability.ir.builder.local(root, 1);
-    const helper_arg = ability.ir.builder.local(helper, 0);
-    const helper_result = ability.ir.builder.local(helper, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelper(root, root_result, helper, 0) catch unreachable,
-        ability.ir.builder.returnValue(root, root_result) catch unreachable,
-        ability.ir.builder.callOp(helper, helper_result, ability.ir.builder.op(helper, 0), helper_arg) catch unreachable,
-        ability.ir.builder.returnValue(helper, helper_result) catch unreachable,
+fn sessionParameterizedHelperYieldPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const root_arg = boundary.ir.builder.local(root, 0);
+    const root_result = boundary.ir.builder.local(root, 1);
+    const helper_arg = boundary.ir.builder.local(helper, 0);
+    const helper_result = boundary.ir.builder.local(helper, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelper(root, root_result, helper, 0) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_result) catch unreachable,
+        boundary.ir.builder.callOp(helper, helper_result, boundary.ir.builder.op(helper, 0), helper_arg) catch unreachable,
+        boundary.ir.builder.returnValue(helper, helper_result) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -13169,24 +13169,24 @@ fn sessionParameterizedHelperYieldPlan(comptime label: []const u8) ability.ir.Pr
             .instruction_count = 2,
         },
     };
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "helper", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "helper", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "yield_arg",
         .mode = .transform,
         .payload_codec = .i32,
         .resume_codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 124,
         .entry = root,
@@ -13207,16 +13207,16 @@ fn sessionParameterizedHelperYieldPlan(comptime label: []const u8) ability.ir.Pr
     }) catch unreachable;
 }
 
-fn sameOpTwoSiteAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const first = ability.ir.builder.local(root, 0);
-    const second = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, first, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.callOp(root, second, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(root, second) catch unreachable,
+fn sameOpTwoSiteAfterPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const first = boundary.ir.builder.local(root, 0);
+    const second = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, first, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.callOp(root, second, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, second) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -13232,8 +13232,8 @@ fn sameOpTwoSiteAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "same", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "same", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "dispatch",
         .mode = .transform,
@@ -13241,10 +13241,10 @@ fn sameOpTwoSiteAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .resume_codec = .i32,
         .has_after = true,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 114,
         .entry = root,
@@ -13259,16 +13259,16 @@ fn sameOpTwoSiteAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn unreachableSessionSitePlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn unreachableSessionSitePlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_i32, .dst = value.index, .operand = 7 },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
-        ability.ir.builder.callOp(root, value, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.callOp(root, value, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -13284,24 +13284,24 @@ fn unreachableSessionSitePlan(comptime label: []const u8) ability.ir.ProgramPlan
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "dead", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "dead", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "unreachable",
         .mode = .transform,
         .payload_codec = .unit,
         .resume_codec = .i32,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 115,
         .entry = root,
@@ -13316,15 +13316,15 @@ fn unreachableSessionSitePlan(comptime label: []const u8) ability.ir.ProgramPlan
     }) catch unreachable;
 }
 
-fn sessionProductTransformPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const resumed = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+fn sessionProductTransformPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const resumed = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), payload) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .product,
         .value_schema_index = 0,
@@ -13343,8 +13343,8 @@ fn sessionProductTransformPlan(comptime Payload: type, comptime label: []const u
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "round_trip",
         .mode = .transform,
@@ -13353,17 +13353,17 @@ fn sessionProductTransformPlan(comptime Payload: type, comptime label: []const u
         .resume_codec = .product,
         .resume_schema_index = 0,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .product,
         .first_field = 0,
         .field_count = 1,
     }};
-    const value_fields = [_]ability.ir.ValueFieldPlan{.{ .name = "amount", .codec = .i32 }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const value_fields = [_]boundary.ir.ValueFieldPlan{.{ .name = "amount", .codec = .i32 }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 103,
         .entry = root,
@@ -13381,15 +13381,15 @@ fn sessionProductTransformPlan(comptime Payload: type, comptime label: []const u
     }) catch unreachable;
 }
 
-fn sessionStringListPairTransformPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const resumed = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+fn sessionStringListPairTransformPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const resumed = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), payload) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .product,
         .value_schema_index = 0,
@@ -13408,8 +13408,8 @@ fn sessionStringListPairTransformPlan(comptime Payload: type, comptime label: []
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "round_trip",
         .mode = .transform,
@@ -13418,20 +13418,20 @@ fn sessionStringListPairTransformPlan(comptime Payload: type, comptime label: []
         .resume_codec = .product,
         .resume_schema_index = 0,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .product,
         .first_field = 0,
         .field_count = 2,
     }};
-    const value_fields = [_]ability.ir.ValueFieldPlan{
+    const value_fields = [_]boundary.ir.ValueFieldPlan{
         .{ .name = "first", .codec = .string_list },
         .{ .name = "second", .codec = .string_list },
     };
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 125,
         .entry = root,
@@ -13449,15 +13449,15 @@ fn sessionStringListPairTransformPlan(comptime Payload: type, comptime label: []
     }) catch unreachable;
 }
 
-fn sessionSumTransformPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const resumed = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+fn sessionSumTransformPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const resumed = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), payload) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .sum,
         .value_schema_index = 0,
@@ -13476,8 +13476,8 @@ fn sessionSumTransformPlan(comptime Payload: type, comptime label: []const u8) a
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "round_trip",
         .mode = .transform,
@@ -13486,20 +13486,20 @@ fn sessionSumTransformPlan(comptime Payload: type, comptime label: []const u8) a
         .resume_codec = .sum,
         .resume_schema_index = 0,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .sum,
         .first_variant = 0,
         .variant_count = 2,
     }};
-    const value_variants = [_]ability.ir.ValueVariantPlan{
+    const value_variants = [_]boundary.ir.ValueVariantPlan{
         .{ .name = "none", .codec = .unit },
         .{ .name = "some", .codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 104,
         .entry = root,
@@ -13517,15 +13517,15 @@ fn sessionSumTransformPlan(comptime Payload: type, comptime label: []const u8) a
     }) catch unreachable;
 }
 
-fn sessionMutableStringListSumTransformPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const resumed = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), payload) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+fn sessionMutableStringListSumTransformPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const resumed = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), payload) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .sum,
         .value_schema_index = 0,
@@ -13544,8 +13544,8 @@ fn sessionMutableStringListSumTransformPlan(comptime Payload: type, comptime lab
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "round_trip",
         .mode = .transform,
@@ -13554,20 +13554,20 @@ fn sessionMutableStringListSumTransformPlan(comptime Payload: type, comptime lab
         .resume_codec = .sum,
         .resume_schema_index = 0,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .sum,
         .first_variant = 0,
         .variant_count = 2,
     }};
-    const value_variants = [_]ability.ir.ValueVariantPlan{
+    const value_variants = [_]boundary.ir.ValueVariantPlan{
         .{ .name = "none", .codec = .unit },
         .{ .name = "some", .codec = .string_list },
     };
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 144,
         .entry = root,
@@ -13585,14 +13585,14 @@ fn sessionMutableStringListSumTransformPlan(comptime Payload: type, comptime lab
     }) catch unreachable;
 }
 
-fn sumAfterResultPlan(comptime Payload: type, comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const resumed = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callOp(root, resumed, ability.ir.builder.op(root, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(root, resumed) catch unreachable,
+fn sumAfterResultPlan(comptime Payload: type, comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const resumed = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callOp(root, resumed, boundary.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, resumed) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .sum,
         .value_schema_index = 0,
@@ -13611,8 +13611,8 @@ fn sumAfterResultPlan(comptime Payload: type, comptime label: []const u8) abilit
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "structured", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "structured",
         .mode = .transform,
@@ -13621,20 +13621,20 @@ fn sumAfterResultPlan(comptime Payload: type, comptime label: []const u8) abilit
         .resume_schema_index = 0,
         .has_after = true,
     }};
-    const value_schemas = [_]ability.ir.ValueSchemaPlan{.{
+    const value_schemas = [_]boundary.ir.ValueSchemaPlan{.{
         .label = @typeName(Payload),
         .codec = .sum,
         .first_variant = 0,
         .variant_count = 2,
     }};
-    const value_variants = [_]ability.ir.ValueVariantPlan{
+    const value_variants = [_]boundary.ir.ValueVariantPlan{
         .{ .name = "none", .codec = .unit },
         .{ .name = "some", .codec = .i32 },
     };
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 105,
         .entry = root,
@@ -13652,17 +13652,17 @@ fn sumAfterResultPlan(comptime Payload: type, comptime label: []const u8) abilit
     }) catch unreachable;
 }
 
-fn helperAbortPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const root_value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
+fn helperAbortPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const root_value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
         .{ .kind = .const_i32, .dst = root_value.index, .operand = 999 },
-        ability.ir.builder.returnValue(root, root_value) catch unreachable,
-        ability.ir.builder.callOp(helper, null, ability.ir.builder.op(helper, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_value) catch unreachable,
+        boundary.ir.builder.callOp(helper, null, boundary.ir.builder.op(helper, 0), null) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -13698,8 +13698,8 @@ fn helperAbortPlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .instruction_count = 1,
         },
     };
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "authored", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "authored", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "abort",
         .mode = .abort,
@@ -13707,16 +13707,16 @@ fn helperAbortPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .resume_codec = .unit,
         .has_after = false,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 },
         .{ .first_instruction = 3, .instruction_count = 1, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_unit },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 14,
         .entry = root,
@@ -13731,18 +13731,18 @@ fn helperAbortPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn helperTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const root_value = ability.ir.builder.local(root, 0);
-    const helper_value = ability.ir.builder.local(helper, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
-        ability.ir.builder.returnValue(root, root_value) catch unreachable,
-        ability.ir.builder.callOp(helper, helper_value, ability.ir.builder.op(helper, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(helper, helper_value) catch unreachable,
+fn helperTransformPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const root_value = boundary.ir.builder.local(root, 0);
+    const helper_value = boundary.ir.builder.local(helper, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_value) catch unreachable,
+        boundary.ir.builder.callOp(helper, helper_value, boundary.ir.builder.op(helper, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(helper, helper_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -13778,8 +13778,8 @@ fn helperTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .instruction_count = 2,
         },
     };
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "authored", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "authored", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "helper_value",
         .mode = .transform,
@@ -13787,16 +13787,16 @@ fn helperTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .resume_codec = .i32,
         .has_after = false,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 15,
         .entry = root,
@@ -13811,18 +13811,18 @@ fn helperTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn helperAfterTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const root_value = ability.ir.builder.local(root, 0);
-    const helper_value = ability.ir.builder.local(helper, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
-        ability.ir.builder.returnValue(root, root_value) catch unreachable,
-        ability.ir.builder.callOp(helper, helper_value, ability.ir.builder.op(helper, 0), null) catch unreachable,
-        ability.ir.builder.returnValue(helper, helper_value) catch unreachable,
+fn helperAfterTransformPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const root_value = boundary.ir.builder.local(root, 0);
+    const helper_value = boundary.ir.builder.local(helper, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_value) catch unreachable,
+        boundary.ir.builder.callOp(helper, helper_value, boundary.ir.builder.op(helper, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(helper, helper_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -13856,8 +13856,8 @@ fn helperAfterTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .instruction_count = 2,
         },
     };
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "authored", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "authored", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "helper_value",
         .mode = .transform,
@@ -13865,16 +13865,16 @@ fn helperAfterTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .resume_codec = .i32,
         .has_after = true,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 16,
         .entry = root,
@@ -13889,18 +13889,18 @@ fn helperAfterTransformPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn helperNormalValueWithTerminalResultCodecPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const root_value = ability.ir.builder.local(root, 0);
-    const helper_value = ability.ir.builder.local(helper, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
-        ability.ir.builder.returnValue(root, root_value) catch unreachable,
+fn helperNormalValueWithTerminalResultCodecPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const root_value = boundary.ir.builder.local(root, 0);
+    const helper_value = boundary.ir.builder.local(helper, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelper(root, root_value, helper, null) catch unreachable,
+        boundary.ir.builder.returnValue(root, root_value) catch unreachable,
         .{ .kind = .const_i32, .dst = helper_value.index, .operand = 5 },
-        ability.ir.builder.returnValue(helper, helper_value) catch unreachable,
+        boundary.ir.builder.returnValue(helper, helper_value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -13935,16 +13935,16 @@ fn helperNormalValueWithTerminalResultCodecPlan(comptime label: []const u8) abil
             .instruction_count = 2,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 20,
         .entry = root,
@@ -13959,14 +13959,14 @@ fn helperNormalValueWithTerminalResultCodecPlan(comptime label: []const u8) abil
     }) catch unreachable;
 }
 
-fn entryNormalValueWithDistinctResultCodecPlan(comptime label: []const u8) !ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn entryNormalValueWithDistinctResultCodecPlan(comptime label: []const u8) !boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_i32, .dst = value.index, .operand = 5 },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .string,
@@ -13983,14 +13983,14 @@ fn entryNormalValueWithDistinctResultCodecPlan(comptime label: []const u8) !abil
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 33,
         .entry = root,
@@ -14005,13 +14005,13 @@ fn entryNormalValueWithDistinctResultCodecPlan(comptime label: []const u8) !abil
     });
 }
 
-fn returnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const instructions = [_]ability.ir.plan.Instruction{.{
+fn returnErrorPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const instructions = [_]boundary.ir.plan.Instruction{.{
         .kind = .return_error,
         .string_literal = "Rejected",
     }};
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
         .parameter_count = 0,
@@ -14027,14 +14027,14 @@ fn returnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_unit }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 31,
         .entry = root,
@@ -14049,17 +14049,17 @@ fn returnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn errorOnlyHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const helper = ability.ir.builder.function(1);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
-        ability.ir.builder.callHelperDiscardingResult(root, std.math.maxInt(u16), helper, null),
+fn errorOnlyHelperPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const helper = boundary.ir.builder.function(1);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        boundary.ir.builder.callHelperDiscardingResult(root, std.math.maxInt(u16), helper, null),
         .{ .kind = .const_i32, .dst = value.index, .operand = 5 },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
         .{ .kind = .return_error, .string_literal = "Rejected" },
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -14093,16 +14093,16 @@ fn errorOnlyHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .instruction_count = 1,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 },
         .{ .first_instruction = 3, .instruction_count = 1, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_unit },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 35,
         .entry = root,
@@ -14117,15 +14117,15 @@ fn errorOnlyHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn unreachableHelperReturnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn unreachableHelperReturnErrorPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_i32, .dst = value.index, .operand = 5 },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
         .{ .kind = .return_error, .string_literal = "Rejected" },
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .i32,
@@ -14159,16 +14159,16 @@ fn unreachableHelperReturnErrorPlan(comptime label: []const u8) ability.ir.Progr
             .instruction_count = 1,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_unit },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 52,
         .entry = root,
@@ -14183,15 +14183,15 @@ fn unreachableHelperReturnErrorPlan(comptime label: []const u8) ability.ir.Progr
     }) catch unreachable;
 }
 
-fn postTerminalReturnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn postTerminalReturnErrorPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_i32, .dst = value.index, .operand = 6 },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
         .{ .kind = .return_error, .string_literal = "Rejected" },
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 0,
@@ -14207,16 +14207,16 @@ fn postTerminalReturnErrorPlan(comptime label: []const u8) ability.ir.ProgramPla
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_value },
         .{ .kind = .return_unit },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 53,
         .entry = root,
@@ -14231,17 +14231,17 @@ fn postTerminalReturnErrorPlan(comptime label: []const u8) ability.ir.ProgramPla
     }) catch unreachable;
 }
 
-fn duplicateReachableReturnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const condition = ability.ir.builder.local(root, 0);
-    const value = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn duplicateReachableReturnErrorPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const condition = boundary.ir.builder.local(root, 0);
+    const value = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_i32, .dst = value.index, .operand = 0 },
         .{ .kind = .compare_eq_zero, .dst = condition.index, .operand = value.index },
         .{ .kind = .return_error, .string_literal = "Rejected" },
         .{ .kind = .return_error, .string_literal = "Rejected" },
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .unit,
         .parameter_count = 0,
@@ -14257,18 +14257,18 @@ fn duplicateReachableReturnErrorPlan(comptime label: []const u8) ability.ir.Prog
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 1 },
         .{ .first_instruction = 3, .instruction_count = 1, .terminator_index = 2 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
         .{ .kind = .return_unit },
         .{ .kind = .return_unit },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 54,
         .entry = root,
@@ -14283,18 +14283,18 @@ fn duplicateReachableReturnErrorPlan(comptime label: []const u8) ability.ir.Prog
     }) catch unreachable;
 }
 
-fn nestedReturnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const nested = ability.ir.builder.function(1);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn nestedReturnErrorPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const nested = boundary.ir.builder.function(1);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{
             .kind = .call_nested_with,
-            .aux = @intFromEnum(ability.ir.ValueCodec.unit),
+            .aux = @intFromEnum(boundary.ir.ValueCodec.unit),
             .string_literal = nested_with_metadata,
         },
         .{ .kind = .return_error, .string_literal = "Rejected" },
     };
-    const functions = [_]ability.ir.plan.Function{
+    const functions = [_]boundary.ir.plan.Function{
         .{
             .symbol_name = "run",
             .value_codec = .unit,
@@ -14328,20 +14328,20 @@ fn nestedReturnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .instruction_count = 1,
         },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
         .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .return_unit },
         .{ .kind = .return_unit },
     };
-    const targets = .{ability.ir.NestedWithTarget{
+    const targets = .{boundary.ir.NestedWithTarget{
         .metadata = nested_with_metadata,
         .function_index = nested.index,
     }};
 
-    return ability.ir.builder.finishWithNestedTargets(.{
+    return boundary.ir.builder.finishWithNestedTargets(.{
         .label = label,
         .ir_hash = 55,
         .entry = root,
@@ -14356,18 +14356,18 @@ fn nestedReturnErrorPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }, targets) catch unreachable;
 }
 
-fn entryMixedNormalAndTerminalResultCodecPlan(comptime label: []const u8) !ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const condition = ability.ir.builder.local(root, 0);
-    const value = ability.ir.builder.local(root, 1);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn entryMixedNormalAndTerminalResultCodecPlan(comptime label: []const u8) !boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const condition = boundary.ir.builder.local(root, 0);
+    const value = boundary.ir.builder.local(root, 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_i32, .dst = value.index, .operand = 0 },
         .{ .kind = .compare_eq_zero, .dst = condition.index, .operand = value.index },
         .{ .kind = .const_i32, .dst = value.index, .operand = 5 },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
-        ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), null) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .string,
@@ -14384,8 +14384,8 @@ fn entryMixedNormalAndTerminalResultCodecPlan(comptime label: []const u8) !abili
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "abort", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "abort", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "abort",
         .mode = .abort,
@@ -14393,18 +14393,18 @@ fn entryMixedNormalAndTerminalResultCodecPlan(comptime label: []const u8) !abili
         .resume_codec = .unit,
         .has_after = false,
     }};
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
         .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
         .{ .first_instruction = 4, .instruction_count = 1, .terminator_index = 2 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
         .{ .kind = .return_value },
         .{ .kind = .return_unit },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 32,
         .entry = root,
@@ -14420,35 +14420,35 @@ fn entryMixedNormalAndTerminalResultCodecPlan(comptime label: []const u8) !abili
 }
 
 fn matrixPlan(
-    comptime mode: ability.ir.PlanControlMode,
-    comptime payload_codec: ability.ir.ValueCodec,
-    comptime resume_codec: ability.ir.ValueCodec,
-) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const payload = ability.ir.builder.local(root, 0);
-    const resume_value = ability.ir.builder.local(root, 1);
+    comptime mode: boundary.ir.PlanControlMode,
+    comptime payload_codec: boundary.ir.ValueCodec,
+    comptime resume_codec: boundary.ir.ValueCodec,
+) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const payload = boundary.ir.builder.local(root, 0);
+    const resume_value = boundary.ir.builder.local(root, 1);
     const payload_ref = if (payload_codec == .unit) null else payload;
     const dst_ref = if (resume_codec == .unit) null else resume_value;
     const instructions = comptime blk: {
-        if (payload_codec == .unit and resume_codec == .unit) break :blk [_]ability.ir.plan.Instruction{
-            ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), null) catch unreachable,
+        if (payload_codec == .unit and resume_codec == .unit) break :blk [_]boundary.ir.plan.Instruction{
+            boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), null) catch unreachable,
         };
-        if (payload_codec == .unit) break :blk [_]ability.ir.plan.Instruction{
-            ability.ir.builder.callOp(root, dst_ref, ability.ir.builder.op(root, 0), null) catch unreachable,
-            ability.ir.builder.returnValue(root, resume_value) catch unreachable,
+        if (payload_codec == .unit) break :blk [_]boundary.ir.plan.Instruction{
+            boundary.ir.builder.callOp(root, dst_ref, boundary.ir.builder.op(root, 0), null) catch unreachable,
+            boundary.ir.builder.returnValue(root, resume_value) catch unreachable,
         };
-        if (resume_codec == .unit) break :blk [_]ability.ir.plan.Instruction{
+        if (resume_codec == .unit) break :blk [_]boundary.ir.plan.Instruction{
             .{ .kind = .const_string, .dst = payload.index, .string_literal = "payload" },
-            ability.ir.builder.callOp(root, null, ability.ir.builder.op(root, 0), payload_ref) catch unreachable,
+            boundary.ir.builder.callOp(root, null, boundary.ir.builder.op(root, 0), payload_ref) catch unreachable,
         };
-        break :blk [_]ability.ir.plan.Instruction{
+        break :blk [_]boundary.ir.plan.Instruction{
             .{ .kind = .const_string, .dst = payload.index, .string_literal = "payload" },
-            ability.ir.builder.callOp(root, dst_ref, ability.ir.builder.op(root, 0), payload_ref) catch unreachable,
-            ability.ir.builder.returnValue(root, resume_value) catch unreachable,
+            boundary.ir.builder.callOp(root, dst_ref, boundary.ir.builder.op(root, 0), payload_ref) catch unreachable,
+            boundary.ir.builder.returnValue(root, resume_value) catch unreachable,
         };
     };
-    const function_value_codec = if (resume_codec == .unit) ability.ir.ValueCodec.unit else resume_codec;
-    const functions = [_]ability.ir.plan.Function{.{
+    const function_value_codec = if (resume_codec == .unit) boundary.ir.ValueCodec.unit else resume_codec;
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = function_value_codec,
         .result_codec = if (mode == .abort) null else function_value_codec,
@@ -14465,8 +14465,8 @@ fn matrixPlan(
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{ .label = "matrix", .first_op = 0, .op_count = 1 }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "matrix", .first_op = 0, .op_count = 1 }};
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "authored",
         .mode = mode,
@@ -14474,10 +14474,10 @@ fn matrixPlan(
         .resume_codec = if (mode == .abort) .unit else resume_codec,
         .has_after = mode != .abort,
     }};
-    const blocks = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = if (resume_codec == .unit) .return_unit else .return_value }};
+    const blocks = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = if (resume_codec == .unit) .return_unit else .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = "matrix",
         .ir_hash = 12,
         .entry = root,
@@ -14492,20 +14492,20 @@ fn matrixPlan(
     }) catch unreachable;
 }
 
-fn repeatedI32Locals(comptime count: usize) [count]ability.ir.plan.Local {
-    return [_]ability.ir.plan.Local{.{ .codec = .i32 }} ** count;
+fn repeatedI32Locals(comptime count: usize) [count]boundary.ir.plan.Local {
+    return [_]boundary.ir.plan.Local{.{ .codec = .i32 }} ** count;
 }
 
-fn wideLocalPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+fn wideLocalPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
     @setEvalBranchQuota(200_000);
     const local_count = 257;
-    const root = ability.ir.builder.function(0);
-    const target = ability.ir.builder.local(root, local_count - 1);
-    const instructions = [_]ability.ir.plan.Instruction{
+    const root = boundary.ir.builder.function(0);
+    const target = boundary.ir.builder.local(root, local_count - 1);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{ .kind = .const_i32, .dst = target.index, .operand = 123 },
-        ability.ir.builder.returnValue(root, target) catch unreachable,
+        boundary.ir.builder.returnValue(root, target) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 0,
@@ -14521,15 +14521,15 @@ fn wideLocalPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
     const locals = repeatedI32Locals(local_count);
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 79,
         .entry = root,
@@ -14544,13 +14544,13 @@ fn wideLocalPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn manyAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+fn manyAfterPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
     @setEvalBranchQuota(200_000);
     const after_count = 65;
-    const root = ability.ir.builder.function(0);
-    const resume_local = ability.ir.builder.local(root, 0);
+    const root = boundary.ir.builder.function(0);
+    const resume_local = boundary.ir.builder.local(root, 0);
     const requirements = comptime blk: {
-        var buf = [_]ability.ir.plan.Requirement{.{ .label = "authored", .first_op = 0, .op_count = 0 }} ** after_count;
+        var buf = [_]boundary.ir.plan.Requirement{.{ .label = "authored", .first_op = 0, .op_count = 0 }} ** after_count;
         for (0..after_count) |index| {
             buf[index] = .{
                 .label = "authored",
@@ -14561,7 +14561,7 @@ fn manyAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         break :blk buf;
     };
     const ops = comptime blk: {
-        var buf = [_]ability.ir.plan.Op{.{
+        var buf = [_]boundary.ir.plan.Op{.{
             .requirement_index = 0,
             .op_name = "dispatch",
             .mode = .transform,
@@ -14582,19 +14582,19 @@ fn manyAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         break :blk buf;
     };
     const instructions = comptime blk: {
-        var buf = [_]ability.ir.plan.Instruction{.{ .kind = .return_value }} ** (after_count + 1);
+        var buf = [_]boundary.ir.plan.Instruction{.{ .kind = .return_value }} ** (after_count + 1);
         for (0..after_count) |index| {
-            buf[index] = ability.ir.builder.callOp(
+            buf[index] = boundary.ir.builder.callOp(
                 root,
                 resume_local,
-                ability.ir.builder.op(root, @intCast(index)),
+                boundary.ir.builder.op(root, @intCast(index)),
                 null,
             ) catch unreachable;
         }
-        buf[after_count] = ability.ir.builder.returnValue(root, resume_local) catch unreachable;
+        buf[after_count] = boundary.ir.builder.returnValue(root, resume_local) catch unreachable;
         break :blk buf;
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .parameter_count = 0,
@@ -14610,14 +14610,14 @@ fn manyAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 80,
         .entry = root,
@@ -14632,18 +14632,18 @@ fn manyAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn loopedAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const counter = ability.ir.builder.local(root, 0);
-    const resume_local = ability.ir.builder.local(root, 1);
-    const done = ability.ir.builder.local(root, 2);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn loopedAfterPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const counter = boundary.ir.builder.local(root, 0);
+    const resume_local = boundary.ir.builder.local(root, 1);
+    const done = boundary.ir.builder.local(root, 2);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{
             .kind = .const_usize,
             .dst = counter.index,
             .string_literal = "8",
         },
-        ability.ir.builder.callOp(root, resume_local, ability.ir.builder.op(root, 0), null) catch unreachable,
+        boundary.ir.builder.callOp(root, resume_local, boundary.ir.builder.op(root, 0), null) catch unreachable,
         .{
             .kind = .sub_one,
             .dst = counter.index,
@@ -14654,9 +14654,9 @@ fn loopedAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
             .dst = done.index,
             .operand = counter.index,
         },
-        ability.ir.builder.returnValue(root, resume_local) catch unreachable,
+        boundary.ir.builder.returnValue(root, resume_local) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .result_codec = .i32,
@@ -14673,12 +14673,12 @@ fn loopedAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const requirements = [_]ability.ir.plan.Requirement{.{
+    const requirements = [_]boundary.ir.plan.Requirement{.{
         .label = "authored",
         .first_op = 0,
         .op_count = 1,
     }};
-    const ops = [_]ability.ir.plan.Op{.{
+    const ops = [_]boundary.ir.plan.Op{.{
         .requirement_index = 0,
         .op_name = "dispatch",
         .mode = .transform,
@@ -14686,23 +14686,23 @@ fn loopedAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         .resume_codec = .i32,
         .has_after = true,
     }};
-    const locals = [_]ability.ir.plan.Local{
+    const locals = [_]boundary.ir.plan.Local{
         .{ .codec = .usize },
         .{ .codec = .i32 },
         .{ .codec = .bool },
     };
-    const blocks = [_]ability.ir.plan.Block{
+    const blocks = [_]boundary.ir.plan.Block{
         .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
         .{ .first_instruction = 1, .instruction_count = 3, .terminator_index = 1 },
         .{ .first_instruction = 4, .instruction_count = 1, .terminator_index = 2 },
     };
-    const terminators = [_]ability.ir.plan.Terminator{
+    const terminators = [_]boundary.ir.plan.Terminator{
         .{ .kind = .jump, .primary = 1 },
         .{ .kind = .branch_if, .primary = 2, .secondary = 1 },
         .{ .kind = .return_value },
     };
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 83,
         .entry = root,
@@ -14717,12 +14717,12 @@ fn loopedAfterPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-fn deepHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
+fn deepHelperPlan(comptime label: []const u8) boundary.ir.ProgramPlan {
     @setEvalBranchQuota(200_000);
     const function_count = 66;
-    const entry = ability.ir.builder.function(0);
+    const entry = boundary.ir.builder.function(0);
     const functions = comptime blk: {
-        var buf = [_]ability.ir.plan.Function{.{
+        var buf = [_]boundary.ir.plan.Function{.{
             .symbol_name = "helper",
             .value_codec = .i32,
             .parameter_count = 0,
@@ -14759,7 +14759,7 @@ fn deepHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         break :blk buf;
     };
     const blocks = comptime blk: {
-        var buf = [_]ability.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }} ** function_count;
+        var buf = [_]boundary.ir.plan.Block{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }} ** function_count;
         for (0..function_count) |index| {
             buf[index] = .{
                 .first_instruction = @intCast(index * 2),
@@ -14770,33 +14770,33 @@ fn deepHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
         break :blk buf;
     };
     const terminators = comptime blk: {
-        var buf = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }} ** function_count;
+        var buf = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }} ** function_count;
         for (0..function_count) |index| {
             buf[index] = .{ .kind = .return_value };
         }
         break :blk buf;
     };
     const instructions = comptime blk: {
-        var buf = [_]ability.ir.plan.Instruction{.{ .kind = .return_value }} ** (function_count * 2);
+        var buf = [_]boundary.ir.plan.Instruction{.{ .kind = .return_value }} ** (function_count * 2);
         for (0..function_count) |index| {
-            const function_ref = ability.ir.builder.function(@intCast(index));
-            const local = ability.ir.builder.local(function_ref, 0);
+            const function_ref = boundary.ir.builder.function(@intCast(index));
+            const local = boundary.ir.builder.local(function_ref, 0);
             buf[index * 2] = if (index + 1 == function_count)
                 .{ .kind = .const_i32, .dst = local.index, .operand = 7 }
             else
-                ability.ir.builder.callHelper(
+                boundary.ir.builder.callHelper(
                     function_ref,
                     local,
-                    ability.ir.builder.function(@intCast(index + 1)),
+                    boundary.ir.builder.function(@intCast(index + 1)),
                     null,
                 ) catch unreachable;
-            buf[index * 2 + 1] = ability.ir.builder.returnValue(function_ref, local) catch unreachable;
+            buf[index * 2 + 1] = boundary.ir.builder.returnValue(function_ref, local) catch unreachable;
         }
         break :blk buf;
     };
     const locals = repeatedI32Locals(function_count);
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = label,
         .ir_hash = 81,
         .entry = entry,
@@ -14811,11 +14811,11 @@ fn deepHelperPlan(comptime label: []const u8) ability.ir.ProgramPlan {
     }) catch unreachable;
 }
 
-test "ability.program executes a builder-backed ProgramPlan" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program executes a builder-backed ProgramPlan" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const Program = ability.program("compiled", Handlers, CompiledBody);
+    const Program = boundary.program("compiled", Handlers, CompiledBody);
     var first = try Program.run(&runtime, .{ .authored = .{ .base = 30 } });
     defer first.deinit();
     try std.testing.expectEqual(@as(i32, 41), first.value);
@@ -14827,13 +14827,13 @@ test "ability.program executes a builder-backed ProgramPlan" {
 }
 
 test "Program.Session yields transform requests and parks runtime while live" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = overflowArithmeticPlan("session-transform", false);
     };
-    const Program = ability.program("session-transform", struct {}, Body);
+    const Program = boundary.program("session-transform", struct {}, Body);
     try std.testing.expect(Program.contract.session.supported);
 
     var session = try Program.Session.start(&runtime, .{});
@@ -14870,13 +14870,13 @@ test "Program.Session yields transform requests and parks runtime while live" {
 }
 
 test "Program.Session parked request interleaves Program.run on same runtime" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ParkedBody = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "session-parked-interleave-run");
     };
-    const ParkedProgram = ability.program("session-parked-interleave-run", struct {}, ParkedBody);
+    const ParkedProgram = boundary.program("session-parked-interleave-run", struct {}, ParkedBody);
     var session = try ParkedProgram.Session.start(&runtime, .{});
     defer session.deinit();
     const request = switch (try session.next()) {
@@ -14890,7 +14890,7 @@ test "Program.Session parked request interleaves Program.run on same runtime" {
     const PureBody = struct {
         pub const compiled_plan = pureArithmeticPlan("session-parked-interleave-run-pure");
     };
-    const PureProgram = ability.program("session-parked-interleave-run-pure", struct {}, PureBody);
+    const PureProgram = boundary.program("session-parked-interleave-run-pure", struct {}, PureBody);
     var other = try PureProgram.run(&runtime, .{});
     defer other.deinit();
     try std.testing.expectEqual(@as(i32, 7), other.value);
@@ -14910,7 +14910,7 @@ test "Program.Session parked request interleaves Program.run on same runtime" {
 }
 
 test "Program.Session parked request interleaves another session on same runtime" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const FirstBody = struct {
@@ -14919,8 +14919,8 @@ test "Program.Session parked request interleaves another session on same runtime
     const SecondBody = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "session-parked-interleave-second");
     };
-    const FirstProgram = ability.program("session-parked-interleave-first", struct {}, FirstBody);
-    const SecondProgram = ability.program("session-parked-interleave-second", struct {}, SecondBody);
+    const FirstProgram = boundary.program("session-parked-interleave-first", struct {}, FirstBody);
+    const SecondProgram = boundary.program("session-parked-interleave-second", struct {}, SecondBody);
 
     var first_session = try FirstProgram.Session.start(&runtime, .{});
     defer first_session.deinit();
@@ -14966,24 +14966,24 @@ test "Program.Session parked request interleaves another session on same runtime
 }
 
 test "Program.Session rejects destroyed runtime before parking lifecycle starts" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     try runtime.deinitChecked();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "session-destroyed-runtime");
     };
-    const Program = ability.program("session-destroyed-runtime", struct {}, Body);
+    const Program = boundary.program("session-destroyed-runtime", struct {}, Body);
     try std.testing.expectError(error.RuntimeDestroyed, Program.Session.start(&runtime, .{}));
 }
 
 test "Program.Session rejects cross-thread and out-of-order close before mutating core" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionChoicePlan("session-cross-thread-affinity");
     };
-    const Program = ability.program("session-cross-thread-affinity", struct {}, Body);
+    const Program = boundary.program("session-cross-thread-affinity", struct {}, Body);
     const Workers = struct {
         fn next(session: *Program.Session, err: *?anyerror) void {
             _ = session.next() catch |caught| {
@@ -15166,9 +15166,9 @@ test "Program.Session rejects cross-thread and out-of-order close before mutatin
     try expectRuntimeParked(&runtime);
     try expectLiveSessions(&runtime, 0);
 
-    var outer_runtime = ability.Runtime.init(std.testing.allocator);
+    var outer_runtime = boundary.Runtime.init(std.testing.allocator);
     defer outer_runtime.deinit();
-    var inner_runtime = ability.Runtime.init(std.testing.allocator);
+    var inner_runtime = boundary.Runtime.init(std.testing.allocator);
     defer inner_runtime.deinit();
 
     var outer_session = try Program.Session.start(&outer_runtime, .{});
@@ -15248,7 +15248,7 @@ test "Program.contract treats reachable after hooks as session-supported" {
     const Body = struct {
         pub const compiled_plan = compiledTransformPlan("session-after-hook-supported");
     };
-    const Program = ability.program("session-after-hook-supported", struct {}, Body);
+    const Program = boundary.program("session-after-hook-supported", struct {}, Body);
 
     try std.testing.expect(Program.contract.session.supported);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.session.blocker_count);
@@ -15257,13 +15257,13 @@ test "Program.contract treats reachable after hooks as session-supported" {
 }
 
 test "Program.Session parks runtime on transform after hook" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = compiledTransformPlan("session-transform-after");
     };
-    const Program = ability.program("session-transform-after", struct {}, Body);
+    const Program = boundary.program("session-transform-after", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -15290,8 +15290,8 @@ test "Program.Session parks runtime on transform after hook" {
     try std.testing.expectEqualStrings("authored", after.requirement_label);
     try std.testing.expectEqual(@as(u16, 0), after.op_index);
     try std.testing.expectEqualStrings("dispatch", after.op_name);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, after.value_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, after.output_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, after.value_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, after.output_ref.codec);
     try std.testing.expectEqual(@as(i32, 10), try after.value(i32));
     try session.resumeAfter(after, @as(i32, 15));
     try expectRuntimeParked(&runtime);
@@ -15309,13 +15309,13 @@ test "Program.Session parks runtime on transform after hook" {
 }
 
 test "Program.Session supports choice after hook on resumed path and skips return-now path" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = choiceReturnNowPlan("session-choice-after");
     };
-    const Program = ability.program("session-choice-after", struct {}, Body);
+    const Program = boundary.program("session-choice-after", struct {}, Body);
 
     var resume_session = try Program.Session.start(&runtime, .{});
     defer resume_session.deinit();
@@ -15359,13 +15359,13 @@ test "Program.Session supports choice after hook on resumed path and skips retur
 }
 
 test "Program.Session yields multiple after hooks in reverse order" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = twoAfterPlan("session-two-after");
     };
-    const Program = ability.program("session-two-after", struct {}, Body);
+    const Program = boundary.program("session-two-after", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -15411,7 +15411,7 @@ test "Program.Session yields multiple after hooks in reverse order" {
 }
 
 test "Program.Session yields heterogeneous stacked after output refs" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const StackedHandlers = struct {
@@ -15439,7 +15439,7 @@ test "Program.Session yields heterogeneous stacked after output refs" {
     const Body = struct {
         pub const compiled_plan = stackedAfterPlan("session-stacked-after-heterogeneous");
     };
-    const Program = ability.program("session-stacked-after-heterogeneous", StackedHandlers, Body);
+    const Program = boundary.program("session-stacked-after-heterogeneous", StackedHandlers, Body);
     const StaticAfterSite = @TypeOf(Program.contract.session.after_sites[0]);
     try std.testing.expectEqual(@as(usize, 2), Program.contract.session.yield_sites.len);
     try std.testing.expectEqual(@as(usize, 2), Program.contract.session.after_sites.len);
@@ -15447,8 +15447,8 @@ test "Program.Session yields heterogeneous stacked after output refs" {
     try std.testing.expect(!@hasField(StaticAfterSite, "expected_output_ref"));
     try std.testing.expectEqual(@as(usize, 0), Program.contract.session.after_sites[0].source_operation_site_index);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.session.after_sites[1].source_operation_site_index);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, Program.contract.session.after_sites[0].result_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, Program.contract.session.after_sites[1].result_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, Program.contract.session.after_sites[0].result_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, Program.contract.session.after_sites[1].result_ref.codec);
     var session = try Program.Session.start(&runtime, .{ .outer = .{}, .inner = .{} });
     defer session.deinit();
 
@@ -15477,8 +15477,8 @@ test "Program.Session yields heterogeneous stacked after output refs" {
     try std.testing.expectEqual(Program.contract.session.after_sites[1].fingerprint, inner_after.trace().after_site_fingerprint);
     try std.testing.expectEqual(@as(@TypeOf(inner_after.value_ref.codec), .i32), inner_after.value_ref.codec);
     try std.testing.expectEqual(@as(@TypeOf(inner_after.output_ref.codec), .bool), inner_after.output_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, inner_after.trace().current_value_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.bool, inner_after.trace().expected_output_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, inner_after.trace().current_value_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.bool, inner_after.trace().expected_output_ref.codec);
     try std.testing.expectEqual(@as(i32, 7), try inner_after.value(i32));
     try session.resumeAfter(inner_after, true);
 
@@ -15491,8 +15491,8 @@ test "Program.Session yields heterogeneous stacked after output refs" {
     try std.testing.expectEqual(Program.contract.session.after_sites[0].fingerprint, outer_after.trace().after_site_fingerprint);
     try std.testing.expectEqual(@as(@TypeOf(outer_after.value_ref.codec), .bool), outer_after.value_ref.codec);
     try std.testing.expectEqual(@as(@TypeOf(outer_after.output_ref.codec), .string), outer_after.output_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.bool, outer_after.trace().current_value_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, outer_after.trace().expected_output_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.bool, outer_after.trace().current_value_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, outer_after.trace().expected_output_ref.codec);
     try std.testing.expect(try outer_after.value(bool));
     try session.resumeAfter(outer_after, @as([]const u8, "outer:true"));
 
@@ -15506,13 +15506,13 @@ test "Program.Session yields heterogeneous stacked after output refs" {
 }
 
 test "Program.Session after hook inside helper resumes caller" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = helperAfterTransformPlan("session-helper-after");
     };
-    const Program = ability.program("session-helper-after", struct {}, Body);
+    const Program = boundary.program("session-helper-after", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -15540,17 +15540,17 @@ test "Program.Session after hook inside helper resumes caller" {
 }
 
 test "Program.Session supports nested-with after completion" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = resolvedNestedWithAfterCompletionPlan("session-nested-with-after-completion");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const Program = ability.program("session-nested-with-after-completion", struct {}, Body);
+    const Program = boundary.program("session-nested-with-after-completion", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -15565,8 +15565,8 @@ test "Program.Session supports nested-with after completion" {
         .request => return error.ExpectedAfter,
         .done => return error.ExpectedAfter,
     };
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, after.value_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, after.output_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, after.value_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, after.output_ref.codec);
     try std.testing.expectEqual(@as(i32, 7), try after.value(i32));
     try session.resumeAfter(after, @as([]const u8, "nested=7"));
     var result = switch (try session.next()) {
@@ -15579,7 +15579,7 @@ test "Program.Session supports nested-with after completion" {
 }
 
 test "Program.Session after hook supports product and sum values" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -15589,7 +15589,7 @@ test "Program.Session after hook supports product and sum values" {
         pub const value_schema_types = .{ Payload, Payload };
         pub const compiled_plan = duplicateSchemaAfterResultPlan(Payload, "session-product-after");
     };
-    const ProductProgram = ability.program("session-product-after", struct {}, ProductBody);
+    const ProductProgram = boundary.program("session-product-after", struct {}, ProductBody);
     var product_session = try ProductProgram.Session.start(&runtime, .{});
     defer product_session.deinit();
     const product_request = switch (try product_session.next()) {
@@ -15618,7 +15618,7 @@ test "Program.Session after hook supports product and sum values" {
         pub const value_schema_types = .{SumPayload};
         pub const compiled_plan = sumAfterResultPlan(SumPayload, "session-sum-after");
     };
-    const SumProgram = ability.program("session-sum-after", struct {}, SumBody);
+    const SumProgram = boundary.program("session-sum-after", struct {}, SumBody);
     var sum_session = try SumProgram.Session.start(&runtime, .{});
     defer sum_session.deinit();
     const sum_request = switch (try sum_session.next()) {
@@ -15644,13 +15644,13 @@ test "Program.Session after hook supports product and sum values" {
 }
 
 test "Program.Session rejects wrong typed and stale after resumes" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = compiledTransformPlan("session-after-misuse");
     };
-    const Program = ability.program("session-after-misuse", struct {}, Body);
+    const Program = boundary.program("session-after-misuse", struct {}, Body);
 
     var first_session = try Program.Session.start(&runtime, .{});
     defer first_session.deinit();
@@ -15713,13 +15713,13 @@ test "Program.Session rejects wrong typed and stale after resumes" {
 }
 
 test "Program.Session supports choice resume and returnNow" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionChoicePlan("session-choice");
     };
-    const Program = ability.program("session-choice", struct {}, Body);
+    const Program = boundary.program("session-choice", struct {}, Body);
 
     var resume_session = try Program.Session.start(&runtime, .{});
     defer resume_session.deinit();
@@ -15756,13 +15756,13 @@ test "Program.Session supports choice resume and returnNow" {
 }
 
 test "Program.Session yields abort payloads and rejects wrong typed resumes" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = exceptionScalarThrowPlan("session-abort-payload");
     };
-    const Program = ability.program("session-abort-payload", struct {}, Body);
+    const Program = boundary.program("session-abort-payload", struct {}, Body);
 
     var wrong_session = try Program.Session.start(&runtime, .{});
     defer wrong_session.deinit();
@@ -15792,7 +15792,7 @@ test "Program.Session yields abort payloads and rejects wrong typed resumes" {
 }
 
 test "Program.Session decodes duplicate schema payloads by request ref" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -15807,7 +15807,7 @@ test "Program.Session decodes duplicate schema payloads by request ref" {
             return .{.{ .amount = 123 }};
         }
     };
-    const Program = ability.program("session-duplicate-schema-payload", EmptyHandlers, Body);
+    const Program = boundary.program("session-duplicate-schema-payload", EmptyHandlers, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -15816,7 +15816,7 @@ test "Program.Session decodes duplicate schema payloads by request ref" {
         .done => return error.ExpectedRequest,
         .after => return error.UnexpectedAfter,
     };
-    try std.testing.expectEqual(ability.ir.ValueCodec.product, request.payload_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.product, request.payload_ref.codec);
     try std.testing.expectEqual(@as(?u16, 1), request.payload_ref.schema_index);
     const payload = try request.payload(Payload);
     try std.testing.expectEqual(@as(i32, 123), payload.amount);
@@ -15831,7 +15831,7 @@ test "Program.Session decodes duplicate schema payloads by request ref" {
 }
 
 test "Program.Session trace operation metadata and replay fingerprint helpers" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
@@ -15841,8 +15841,8 @@ test "Program.Session trace operation metadata and replay fingerprint helpers" {
             .label = "trace.operation.decide",
         }};
     };
-    const Program = ability.program("session-trace-operation", struct {}, Body);
-    const UnlabeledProgram = ability.program("session-trace-operation", struct {}, struct {
+    const Program = boundary.program("session-trace-operation", struct {}, Body);
+    const UnlabeledProgram = boundary.program("session-trace-operation", struct {}, struct {
         pub const compiled_plan = Body.compiled_plan;
     });
     const DecideSite = Program.protocol.operationSite("session", "decide", 0);
@@ -15875,11 +15875,11 @@ test "Program.Session trace operation metadata and replay fingerprint helpers" {
     try std.testing.expectEqualStrings("session", first_trace.requirement_label);
     try std.testing.expectEqual(@as(u16, 0), first_trace.op_index);
     try std.testing.expectEqualStrings("decide", first_trace.op_name);
-    try std.testing.expectEqual(ability.ir.PlanControlMode.transform, first_trace.mode);
-    try std.testing.expectEqual(ability.ir.ValueCodec.string, first_trace.payload_ref.codec);
+    try std.testing.expectEqual(boundary.ir.PlanControlMode.transform, first_trace.mode);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.string, first_trace.payload_ref.codec);
     try std.testing.expect(first_trace.has_payload);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, first_trace.resume_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, first_trace.result_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, first_trace.resume_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, first_trace.result_ref.codec);
     try std.testing.expect(!first_trace.has_after);
     try std.testing.expectEqual(first_request.fingerprint(), first_trace.fingerprint);
     try std.testing.expect(first_trace.eql(first_request.fingerprint()));
@@ -15913,7 +15913,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "exchange-version-domains");
     };
-    const Program = ability.program("exchange-version-domains", struct {}, Body);
+    const Program = boundary.program("exchange-version-domains", struct {}, Body);
 
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_manifest_format_version);
     try std.testing.expectEqual(@as(u32, 1), Program.exchange_manifest_fingerprint_version);
@@ -15995,10 +15995,10 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     try std.testing.expectEqual(Program.Session.journal_format_version, std.mem.readInt(u32, manifest.bytes[manifest_journal_format_offset..][0..4], .little));
     std.mem.writeInt(u32, legacy_manifest[legacy_manifest_index..][0..4], legacy_manifest_request_version, .little);
     const legacy_manifest_payload = legacy_manifest[0 .. legacy_manifest.len - 8];
-    std.mem.writeInt(u64, legacy_manifest[legacy_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_manifest_payload), .little);
+    std.mem.writeInt(u64, legacy_manifest[legacy_manifest.len - 8 ..][0..8], testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_manifest_payload), .little);
     var decoded_legacy_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, legacy_manifest);
     defer decoded_legacy_manifest.deinit();
-    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_manifest_payload), decoded_legacy_manifest.fingerprint);
+    try std.testing.expectEqual(testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_manifest_payload), decoded_legacy_manifest.fingerprint);
 
     var v2_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
     defer std.testing.allocator.free(v2_manifest);
@@ -16007,10 +16007,10 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     std.mem.writeInt(u32, v2_manifest[manifest_request_fingerprint_offset..][0..4], v2_request_version, .little);
     std.mem.writeInt(u32, v2_manifest[manifest_journal_format_offset..][0..4], v2_request_version, .little);
     const v2_manifest_payload = v2_manifest[0 .. v2_manifest.len - 8];
-    std.mem.writeInt(u64, v2_manifest[v2_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v2_manifest_payload), .little);
+    std.mem.writeInt(u64, v2_manifest[v2_manifest.len - 8 ..][0..8], testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v2_manifest_payload), .little);
     var decoded_v2_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, v2_manifest);
     defer decoded_v2_manifest.deinit();
-    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v2_manifest_payload), decoded_v2_manifest.fingerprint);
+    try std.testing.expectEqual(testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v2_manifest_payload), decoded_v2_manifest.fingerprint);
 
     var v2_journal1_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
     defer std.testing.allocator.free(v2_journal1_manifest);
@@ -16018,46 +16018,46 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     std.mem.writeInt(u32, v2_journal1_manifest[manifest_request_fingerprint_offset..][0..4], v2_request_version, .little);
     std.mem.writeInt(u32, v2_journal1_manifest[manifest_journal_format_offset..][0..4], legacy_manifest_request_version, .little);
     const v2_journal1_manifest_payload = v2_journal1_manifest[0 .. v2_journal1_manifest.len - 8];
-    std.mem.writeInt(u64, v2_journal1_manifest[v2_journal1_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v2_journal1_manifest_payload), .little);
+    std.mem.writeInt(u64, v2_journal1_manifest[v2_journal1_manifest.len - 8 ..][0..8], testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v2_journal1_manifest_payload), .little);
     var decoded_v2_journal1_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, v2_journal1_manifest);
     defer decoded_v2_journal1_manifest.deinit();
-    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v2_journal1_manifest_payload), decoded_v2_journal1_manifest.fingerprint);
+    try std.testing.expectEqual(testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v2_journal1_manifest_payload), decoded_v2_journal1_manifest.fingerprint);
 
     var v3_journal3_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
     defer std.testing.allocator.free(v3_journal3_manifest);
     const v3_journal_format: u32 = 3;
     std.mem.writeInt(u32, v3_journal3_manifest[manifest_journal_format_offset..][0..4], v3_journal_format, .little);
     const v3_journal3_manifest_payload = v3_journal3_manifest[0 .. v3_journal3_manifest.len - 8];
-    std.mem.writeInt(u64, v3_journal3_manifest[v3_journal3_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal3_manifest_payload), .little);
+    std.mem.writeInt(u64, v3_journal3_manifest[v3_journal3_manifest.len - 8 ..][0..8], testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal3_manifest_payload), .little);
     var decoded_v3_journal3_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, v3_journal3_manifest);
     defer decoded_v3_journal3_manifest.deinit();
-    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal3_manifest_payload), decoded_v3_journal3_manifest.fingerprint);
+    try std.testing.expectEqual(testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal3_manifest_payload), decoded_v3_journal3_manifest.fingerprint);
 
     var v3_journal4_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
     defer std.testing.allocator.free(v3_journal4_manifest);
     const v4_journal_format: u32 = 4;
     std.mem.writeInt(u32, v3_journal4_manifest[manifest_journal_format_offset..][0..4], v4_journal_format, .little);
     const v3_journal4_manifest_payload = v3_journal4_manifest[0 .. v3_journal4_manifest.len - 8];
-    std.mem.writeInt(u64, v3_journal4_manifest[v3_journal4_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal4_manifest_payload), .little);
+    std.mem.writeInt(u64, v3_journal4_manifest[v3_journal4_manifest.len - 8 ..][0..8], testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal4_manifest_payload), .little);
     var decoded_v3_journal4_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, v3_journal4_manifest);
     defer decoded_v3_journal4_manifest.deinit();
-    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal4_manifest_payload), decoded_v3_journal4_manifest.fingerprint);
+    try std.testing.expectEqual(testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal4_manifest_payload), decoded_v3_journal4_manifest.fingerprint);
 
     var v3_journal5_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
     defer std.testing.allocator.free(v3_journal5_manifest);
     const v5_journal_format: u32 = 5;
     std.mem.writeInt(u32, v3_journal5_manifest[manifest_journal_format_offset..][0..4], v5_journal_format, .little);
     const v3_journal5_manifest_payload = v3_journal5_manifest[0 .. v3_journal5_manifest.len - 8];
-    std.mem.writeInt(u64, v3_journal5_manifest[v3_journal5_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal5_manifest_payload), .little);
+    std.mem.writeInt(u64, v3_journal5_manifest[v3_journal5_manifest.len - 8 ..][0..8], testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal5_manifest_payload), .little);
     var decoded_v3_journal5_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, v3_journal5_manifest);
     defer decoded_v3_journal5_manifest.deinit();
-    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal5_manifest_payload), decoded_v3_journal5_manifest.fingerprint);
+    try std.testing.expectEqual(testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, v3_journal5_manifest_payload), decoded_v3_journal5_manifest.fingerprint);
 
     var invalid_v3_journal2_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
     defer std.testing.allocator.free(invalid_v3_journal2_manifest);
     std.mem.writeInt(u32, invalid_v3_journal2_manifest[manifest_journal_format_offset..][0..4], v2_request_version, .little);
     const invalid_v3_journal2_manifest_payload = invalid_v3_journal2_manifest[0 .. invalid_v3_journal2_manifest.len - 8];
-    const invalid_v3_journal2_manifest_fingerprint = testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_v3_journal2_manifest_payload);
+    const invalid_v3_journal2_manifest_fingerprint = testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_v3_journal2_manifest_payload);
     std.mem.writeInt(u64, invalid_v3_journal2_manifest[invalid_v3_journal2_manifest.len - 8 ..][0..8], invalid_v3_journal2_manifest_fingerprint, .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Manifest.decode(std.testing.allocator, invalid_v3_journal2_manifest));
 
@@ -16067,7 +16067,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     std.mem.writeInt(u32, invalid_v2_journal3_manifest[manifest_request_fingerprint_offset..][0..4], v2_request_version, .little);
     std.mem.writeInt(u32, invalid_v2_journal3_manifest[manifest_journal_format_offset..][0..4], v3_journal_format, .little);
     const invalid_v2_journal3_manifest_payload = invalid_v2_journal3_manifest[0 .. invalid_v2_journal3_manifest.len - 8];
-    const invalid_v2_journal3_manifest_fingerprint = testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_v2_journal3_manifest_payload);
+    const invalid_v2_journal3_manifest_fingerprint = testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_v2_journal3_manifest_payload);
     std.mem.writeInt(u64, invalid_v2_journal3_manifest[invalid_v2_journal3_manifest.len - 8 ..][0..8], invalid_v2_journal3_manifest_fingerprint, .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Manifest.decode(std.testing.allocator, invalid_v2_journal3_manifest));
 
@@ -16077,7 +16077,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     std.mem.writeInt(u32, invalid_v2_journal4_manifest[manifest_request_fingerprint_offset..][0..4], v2_request_version, .little);
     std.mem.writeInt(u32, invalid_v2_journal4_manifest[manifest_journal_format_offset..][0..4], v4_journal_format, .little);
     const invalid_v2_journal4_manifest_payload = invalid_v2_journal4_manifest[0 .. invalid_v2_journal4_manifest.len - 8];
-    std.mem.writeInt(u64, invalid_v2_journal4_manifest[invalid_v2_journal4_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_v2_journal4_manifest_payload), .little);
+    std.mem.writeInt(u64, invalid_v2_journal4_manifest[invalid_v2_journal4_manifest.len - 8 ..][0..8], testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_v2_journal4_manifest_payload), .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Manifest.decode(std.testing.allocator, invalid_v2_journal4_manifest));
 
     var legacy_request_v2_journal_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
@@ -16086,10 +16086,10 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     std.mem.writeInt(u32, legacy_request_v2_journal_manifest[manifest_request_fingerprint_offset..][0..4], legacy_manifest_request_version, .little);
     std.mem.writeInt(u32, legacy_request_v2_journal_manifest[manifest_journal_format_offset..][0..4], v2_request_version, .little);
     const legacy_request_v2_journal_payload = legacy_request_v2_journal_manifest[0 .. legacy_request_v2_journal_manifest.len - 8];
-    std.mem.writeInt(u64, legacy_request_v2_journal_manifest[legacy_request_v2_journal_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_request_v2_journal_payload), .little);
+    std.mem.writeInt(u64, legacy_request_v2_journal_manifest[legacy_request_v2_journal_manifest.len - 8 ..][0..8], testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_request_v2_journal_payload), .little);
     var decoded_legacy_request_v2_journal_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, legacy_request_v2_journal_manifest);
     defer decoded_legacy_request_v2_journal_manifest.deinit();
-    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_request_v2_journal_payload), decoded_legacy_request_v2_journal_manifest.fingerprint);
+    try std.testing.expectEqual(testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_request_v2_journal_payload), decoded_legacy_request_v2_journal_manifest.fingerprint);
 
     var invalid_legacy_journal3_manifest = try std.testing.allocator.dupe(u8, manifest.bytes);
     defer std.testing.allocator.free(invalid_legacy_journal3_manifest);
@@ -16097,7 +16097,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     std.mem.writeInt(u32, invalid_legacy_journal3_manifest[manifest_request_fingerprint_offset..][0..4], legacy_manifest_request_version, .little);
     std.mem.writeInt(u32, invalid_legacy_journal3_manifest[manifest_journal_format_offset..][0..4], v3_journal_format, .little);
     const invalid_legacy_journal3_manifest_payload = invalid_legacy_journal3_manifest[0 .. invalid_legacy_journal3_manifest.len - 8];
-    const invalid_legacy_journal3_manifest_fingerprint = testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_legacy_journal3_manifest_payload);
+    const invalid_legacy_journal3_manifest_fingerprint = testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_legacy_journal3_manifest_payload);
     std.mem.writeInt(u64, invalid_legacy_journal3_manifest[invalid_legacy_journal3_manifest.len - 8 ..][0..8], invalid_legacy_journal3_manifest_fingerprint, .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Manifest.decode(std.testing.allocator, invalid_legacy_journal3_manifest));
 
@@ -16107,10 +16107,10 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     std.mem.writeInt(u32, invalid_legacy_journal4_manifest[manifest_request_fingerprint_offset..][0..4], legacy_manifest_request_version, .little);
     std.mem.writeInt(u32, invalid_legacy_journal4_manifest[manifest_journal_format_offset..][0..4], v4_journal_format, .little);
     const invalid_legacy_journal4_manifest_payload = invalid_legacy_journal4_manifest[0 .. invalid_legacy_journal4_manifest.len - 8];
-    std.mem.writeInt(u64, invalid_legacy_journal4_manifest[invalid_legacy_journal4_manifest.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_legacy_journal4_manifest_payload), .little);
+    std.mem.writeInt(u64, invalid_legacy_journal4_manifest[invalid_legacy_journal4_manifest.len - 8 ..][0..8], testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, invalid_legacy_journal4_manifest_payload), .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Manifest.decode(std.testing.allocator, invalid_legacy_journal4_manifest));
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -16128,21 +16128,21 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     defer std.testing.allocator.free(mismatched_manifest_request);
     const mismatched_payload_len = mismatched_manifest_request.len - 8;
     std.mem.writeInt(u64, mismatched_manifest_request[request_manifest_fingerprint_offset..][0..8], decoded_legacy_manifest.fingerprint, .little);
-    std.mem.writeInt(u64, mismatched_manifest_request[mismatched_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", Program.Exchange.request_fingerprint_version, mismatched_manifest_request[0..mismatched_payload_len]), .little);
+    std.mem.writeInt(u64, mismatched_manifest_request[mismatched_payload_len..][0..8], testExchangeFingerprint("boundary.exchange.request", Program.Exchange.request_fingerprint_version, mismatched_manifest_request[0..mismatched_payload_len]), .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decode(std.testing.allocator, mismatched_manifest_request));
 
     var invalid_v3_journal2_request = try std.testing.allocator.dupe(u8, request_envelope.bytes);
     defer std.testing.allocator.free(invalid_v3_journal2_request);
     const invalid_v3_journal2_payload_len = invalid_v3_journal2_request.len - 8;
     std.mem.writeInt(u64, invalid_v3_journal2_request[request_manifest_fingerprint_offset..][0..8], invalid_v3_journal2_manifest_fingerprint, .little);
-    std.mem.writeInt(u64, invalid_v3_journal2_request[invalid_v3_journal2_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", Program.Exchange.request_fingerprint_version, invalid_v3_journal2_request[0..invalid_v3_journal2_payload_len]), .little);
+    std.mem.writeInt(u64, invalid_v3_journal2_request[invalid_v3_journal2_payload_len..][0..8], testExchangeFingerprint("boundary.exchange.request", Program.Exchange.request_fingerprint_version, invalid_v3_journal2_request[0..invalid_v3_journal2_payload_len]), .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decode(std.testing.allocator, invalid_v3_journal2_request));
 
     var v3_journal3_request = try std.testing.allocator.dupe(u8, request_envelope.bytes);
     defer std.testing.allocator.free(v3_journal3_request);
     const v3_journal3_request_payload_len = v3_journal3_request.len - 8;
     std.mem.writeInt(u64, v3_journal3_request[request_manifest_fingerprint_offset..][0..8], decoded_v3_journal3_manifest.fingerprint, .little);
-    std.mem.writeInt(u64, v3_journal3_request[v3_journal3_request_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", Program.Exchange.request_fingerprint_version, v3_journal3_request[0..v3_journal3_request_payload_len]), .little);
+    std.mem.writeInt(u64, v3_journal3_request[v3_journal3_request_payload_len..][0..8], testExchangeFingerprint("boundary.exchange.request", Program.Exchange.request_fingerprint_version, v3_journal3_request[0..v3_journal3_request_payload_len]), .little);
     var decoded_v3_journal3_request = try Program.Exchange.RequestEnvelope.decode(std.testing.allocator, v3_journal3_request);
     defer decoded_v3_journal3_request.deinit();
     try std.testing.expectEqual(decoded_v3_journal3_manifest.fingerprint, decoded_v3_journal3_request.manifest_fingerprint);
@@ -16157,7 +16157,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     const response_manifest_fingerprint_offset = "ABL_EXR1".len + 2 * 4;
     const invalid_v3_journal2_response_payload_len = invalid_v3_journal2_response.len - 8;
     std.mem.writeInt(u64, invalid_v3_journal2_response[response_manifest_fingerprint_offset..][0..8], invalid_v3_journal2_manifest_fingerprint, .little);
-    std.mem.writeInt(u64, invalid_v3_journal2_response[invalid_v3_journal2_response_payload_len..][0..8], testExchangeFingerprint("ability.exchange.response", Program.Exchange.response_fingerprint_version, invalid_v3_journal2_response[0..invalid_v3_journal2_response_payload_len]), .little);
+    std.mem.writeInt(u64, invalid_v3_journal2_response[invalid_v3_journal2_response_payload_len..][0..8], testExchangeFingerprint("boundary.exchange.response", Program.Exchange.response_fingerprint_version, invalid_v3_journal2_response[0..invalid_v3_journal2_response_payload_len]), .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.ResponseEnvelope.decode(std.testing.allocator, invalid_v3_journal2_response));
 
     const v3_payload_len = request_envelope.bytes.len - 8;
@@ -16169,16 +16169,16 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     std.mem.writeInt(u32, legacy_request["ABL_EXQ1".len..][0..4], legacy_request_version, .little);
     std.mem.writeInt(u32, legacy_request["ABL_EXQ1".len + 4 ..][0..4], legacy_request_version, .little);
     std.mem.writeInt(u64, legacy_request[request_manifest_fingerprint_offset..][0..8], decoded_legacy_manifest.fingerprint, .little);
-    std.mem.writeInt(u64, legacy_request[legacy_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", legacy_request_version, legacy_request[0..legacy_payload_len]), .little);
+    std.mem.writeInt(u64, legacy_request[legacy_payload_len..][0..8], testExchangeFingerprint("boundary.exchange.request", legacy_request_version, legacy_request[0..legacy_payload_len]), .little);
     var decoded_legacy_request = try Program.Exchange.RequestEnvelope.decode(std.testing.allocator, legacy_request);
     defer decoded_legacy_request.deinit();
     try std.testing.expect(decoded_legacy_request.journal_branch_id == null);
-    try std.testing.expectEqual(testExchangeFingerprint("ability.exchange.request", legacy_request_version, legacy_request[0..legacy_payload_len]), decoded_legacy_request.fingerprint);
+    try std.testing.expectEqual(testExchangeFingerprint("boundary.exchange.request", legacy_request_version, legacy_request[0..legacy_payload_len]), decoded_legacy_request.fingerprint);
 
     var invalid_legacy_journal3_request = try std.testing.allocator.dupe(u8, legacy_request);
     defer std.testing.allocator.free(invalid_legacy_journal3_request);
     std.mem.writeInt(u64, invalid_legacy_journal3_request[request_manifest_fingerprint_offset..][0..8], invalid_legacy_journal3_manifest_fingerprint, .little);
-    std.mem.writeInt(u64, invalid_legacy_journal3_request[legacy_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", legacy_request_version, invalid_legacy_journal3_request[0..legacy_payload_len]), .little);
+    std.mem.writeInt(u64, invalid_legacy_journal3_request[legacy_payload_len..][0..8], testExchangeFingerprint("boundary.exchange.request", legacy_request_version, invalid_legacy_journal3_request[0..legacy_payload_len]), .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decode(std.testing.allocator, invalid_legacy_journal3_request));
 
     var legacy_request_v2_journal = try std.testing.allocator.alloc(u8, legacy_payload_len + 8);
@@ -16187,7 +16187,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     std.mem.writeInt(u32, legacy_request_v2_journal["ABL_EXQ1".len..][0..4], legacy_request_version, .little);
     std.mem.writeInt(u32, legacy_request_v2_journal["ABL_EXQ1".len + 4 ..][0..4], legacy_request_version, .little);
     std.mem.writeInt(u64, legacy_request_v2_journal[request_manifest_fingerprint_offset..][0..8], decoded_legacy_request_v2_journal_manifest.fingerprint, .little);
-    std.mem.writeInt(u64, legacy_request_v2_journal[legacy_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", legacy_request_version, legacy_request_v2_journal[0..legacy_payload_len]), .little);
+    std.mem.writeInt(u64, legacy_request_v2_journal[legacy_payload_len..][0..8], testExchangeFingerprint("boundary.exchange.request", legacy_request_version, legacy_request_v2_journal[0..legacy_payload_len]), .little);
     var decoded_legacy_request_v2_journal = try Program.Exchange.RequestEnvelope.decode(std.testing.allocator, legacy_request_v2_journal);
     defer decoded_legacy_request_v2_journal.deinit();
     try std.testing.expect(decoded_legacy_request_v2_journal.usage_metadata == null);
@@ -16200,7 +16200,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     std.mem.writeInt(u32, v2_request["ABL_EXQ1".len..][0..4], v2_request_version, .little);
     std.mem.writeInt(u32, v2_request["ABL_EXQ1".len + 4 ..][0..4], v2_request_version, .little);
     std.mem.writeInt(u64, v2_request[request_manifest_fingerprint_offset..][0..8], decoded_v2_manifest.fingerprint, .little);
-    std.mem.writeInt(u64, v2_request[v2_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", v2_request_version, v2_request[0..v2_payload_len]), .little);
+    std.mem.writeInt(u64, v2_request[v2_payload_len..][0..8], testExchangeFingerprint("boundary.exchange.request", v2_request_version, v2_request[0..v2_payload_len]), .little);
     var decoded_v2_request = try Program.Exchange.RequestEnvelope.decode(std.testing.allocator, v2_request);
     defer decoded_v2_request.deinit();
     try std.testing.expect(decoded_v2_request.usage_metadata == null);
@@ -16209,7 +16209,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     var v2_journal1_request = try std.testing.allocator.dupe(u8, v2_request);
     defer std.testing.allocator.free(v2_journal1_request);
     std.mem.writeInt(u64, v2_journal1_request[request_manifest_fingerprint_offset..][0..8], decoded_v2_journal1_manifest.fingerprint, .little);
-    std.mem.writeInt(u64, v2_journal1_request[v2_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", v2_request_version, v2_journal1_request[0..v2_payload_len]), .little);
+    std.mem.writeInt(u64, v2_journal1_request[v2_payload_len..][0..8], testExchangeFingerprint("boundary.exchange.request", v2_request_version, v2_journal1_request[0..v2_payload_len]), .little);
     var decoded_v2_journal1_request = try Program.Exchange.RequestEnvelope.decode(std.testing.allocator, v2_journal1_request);
     defer decoded_v2_journal1_request.deinit();
     try std.testing.expect(decoded_v2_journal1_request.usage_metadata == null);
@@ -16218,7 +16218,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     var invalid_v2_journal3_request = try std.testing.allocator.dupe(u8, v2_request);
     defer std.testing.allocator.free(invalid_v2_journal3_request);
     std.mem.writeInt(u64, invalid_v2_journal3_request[request_manifest_fingerprint_offset..][0..8], invalid_v2_journal3_manifest_fingerprint, .little);
-    std.mem.writeInt(u64, invalid_v2_journal3_request[v2_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", v2_request_version, invalid_v2_journal3_request[0..v2_payload_len]), .little);
+    std.mem.writeInt(u64, invalid_v2_journal3_request[v2_payload_len..][0..8], testExchangeFingerprint("boundary.exchange.request", v2_request_version, invalid_v2_journal3_request[0..v2_payload_len]), .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.RequestEnvelope.decode(std.testing.allocator, invalid_v2_journal3_request));
     var v2_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, decoded_v2_request, @as(i32, 11));
     defer v2_response.deinit();
@@ -16237,7 +16237,7 @@ test "Program.Exchange exposes stable exchange format and fingerprint domains" {
     std.mem.writeInt(u32, legacy_branch_request["ABL_EXQ1".len..][0..4], legacy_request_version, .little);
     std.mem.writeInt(u32, legacy_branch_request["ABL_EXQ1".len + 4 ..][0..4], legacy_request_version, .little);
     std.mem.writeInt(u64, legacy_branch_request[request_manifest_fingerprint_offset..][0..8], decoded_legacy_manifest.fingerprint, .little);
-    std.mem.writeInt(u64, legacy_branch_request[legacy_branch_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", legacy_request_version, legacy_branch_request[0..legacy_branch_payload_len]), .little);
+    std.mem.writeInt(u64, legacy_branch_request[legacy_branch_payload_len..][0..8], testExchangeFingerprint("boundary.exchange.request", legacy_request_version, legacy_branch_request[0..legacy_branch_payload_len]), .little);
     var decoded_legacy_branch_request = try Program.Exchange.RequestEnvelope.decode(std.testing.allocator, legacy_branch_request);
     defer decoded_legacy_branch_request.deinit();
     try std.testing.expectEqualStrings("legacy-left", decoded_legacy_branch_request.journal_branch_id.?);
@@ -16269,9 +16269,9 @@ test "Program.Exchange linear usage metadata round trips and ephemeral rejects c
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "linear-usage-metadata");
     };
-    const Program = ability.program("linear-usage-metadata", struct {}, Body);
+    const Program = boundary.program("linear-usage-metadata", struct {}, Body);
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -16315,9 +16315,9 @@ test "Program.Exchange capability instance obligation lifecycle rejects duplicat
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "linear-obligation-lifecycle");
     };
-    const Program = ability.program("linear-obligation-lifecycle", struct {}, Body);
+    const Program = boundary.program("linear-obligation-lifecycle", struct {}, Body);
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -16606,7 +16606,7 @@ test "Program.Exchange capability instance obligation lifecycle rejects duplicat
         .manifest_fingerprint = manifest.fingerprint,
         .allowed_program_labels = &.{Program.contract.label},
         .allowed_operation_sites = &.{trace.operation_site_index},
-        .allowed_response_refs = &[_]ability.ir.ValueRef{.{ .codec = .unit }},
+        .allowed_response_refs = &[_]boundary.ir.ValueRef{.{ .codec = .unit }},
     });
     defer wrong_response_ref_instance_capability.deinit();
     var wrong_response_ref_instance = try Program.Exchange.CapabilityInstance.create(wrong_response_ref_instance_capability, provider, spec, .{ .snapshot_allocator = std.heap.page_allocator, .branch_id = 1 });
@@ -17001,9 +17001,9 @@ test "Program.Exchange replayable affine and branch policy obligation rules" {
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "linear-branch-policy-rules");
     };
-    const Program = ability.program("linear-branch-policy-rules", struct {}, Body);
+    const Program = boundary.program("linear-branch-policy-rules", struct {}, Body);
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -17231,13 +17231,13 @@ test "Program.Exchange replayable affine and branch policy obligation rules" {
 }
 
 test "Program.Exchange mailbox runner consumes obligation and journals transition" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "linear-mailbox-obligation");
     };
-    const Program = ability.program("linear-mailbox-obligation", struct {}, Body);
+    const Program = boundary.program("linear-mailbox-obligation", struct {}, Body);
     const Outbox = struct {
         allocator: std.mem.Allocator,
         items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
@@ -17680,13 +17680,13 @@ test "Program.Exchange mailbox runner consumes obligation and journals transitio
 }
 
 test "Program.Exchange mailbox obligation journal failure preserves parked session" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "linear-mailbox-obligation-journal-failure");
     };
-    const Program = ability.program("linear-mailbox-obligation-journal-failure", struct {}, Body);
+    const Program = boundary.program("linear-mailbox-obligation-journal-failure", struct {}, Body);
     const Outbox = struct {
         allocator: std.mem.Allocator,
         items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
@@ -17813,13 +17813,13 @@ test "Program.Exchange mailbox obligation journal failure preserves parked sessi
 }
 
 test "Program.Exchange mailbox unrouted obligation preserves response kind policy" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "linear-mailbox-unrouted-response-policy");
     };
-    const Program = ability.program("linear-mailbox-unrouted-response-policy", struct {}, Body);
+    const Program = boundary.program("linear-mailbox-unrouted-response-policy", struct {}, Body);
     const Outbox = struct {
         allocator: std.mem.Allocator,
         items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
@@ -17898,13 +17898,13 @@ test "Program.Exchange mailbox unrouted obligation preserves response kind polic
 }
 
 test "Program.Exchange mailbox runner reopens reused obligation slot for next request" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = repeatedCallSiteSameOpPlan("mailbox-obligation-reopen", false);
     };
-    const Program = ability.program("mailbox-obligation-reopen", struct {}, Body);
+    const Program = boundary.program("mailbox-obligation-reopen", struct {}, Body);
     const Outbox = struct {
         allocator: std.mem.Allocator,
         items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
@@ -18017,13 +18017,13 @@ test "Program.Exchange mailbox runner reopens reused obligation slot for next re
 }
 
 test "Program.Exchange mailbox runner does not publish when obligation opening fails" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "linear-mailbox-open-failure");
     };
-    const Program = ability.program("linear-mailbox-open-failure", struct {}, Body);
+    const Program = boundary.program("linear-mailbox-open-failure", struct {}, Body);
     const Outbox = struct {
         allocator: std.mem.Allocator,
         items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
@@ -18120,7 +18120,7 @@ test "Program.Exchange mailbox runner does not publish when obligation opening f
 }
 
 test "Program.Session trace after metadata and current value fingerprint stability" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
@@ -18130,8 +18130,8 @@ test "Program.Session trace after metadata and current value fingerprint stabili
             .label = "trace.after.dispatch",
         }};
     };
-    const Program = ability.program("session-trace-after", struct {}, Body);
-    const UnlabeledProgram = ability.program("session-trace-after", struct {}, struct {
+    const Program = boundary.program("session-trace-after", struct {}, Body);
+    const UnlabeledProgram = boundary.program("session-trace-after", struct {}, struct {
         pub const compiled_plan = Body.compiled_plan;
     });
 
@@ -18166,16 +18166,16 @@ test "Program.Session trace after metadata and current value fingerprint stabili
     try std.testing.expectEqualStrings("authored", first_trace.original_requirement_label);
     try std.testing.expectEqual(@as(u16, 0), first_trace.original_op_index);
     try std.testing.expectEqualStrings("dispatch", first_trace.original_op_name);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, first_trace.current_value_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, first_trace.expected_output_ref.codec);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, first_trace.result_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, first_trace.current_value_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, first_trace.expected_output_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, first_trace.result_ref.codec);
     try std.testing.expectEqual(first_after.fingerprint(), first_trace.fingerprint);
     try first_after.expectFingerprint(first_after.fingerprint());
     try std.testing.expectError(error.TraceFingerprintMismatch, first_after.expectFingerprint(first_after.fingerprint() ^ 1));
     const after_response_trace = try first_after.responseTrace(.resume_after, @as(i32, 42));
     try std.testing.expectEqual(first_after.fingerprint(), after_response_trace.request_fingerprint);
     try std.testing.expectEqual(Program.Session.Trace.ResponseKind.resume_after, after_response_trace.kind);
-    try std.testing.expectEqual(ability.ir.ValueCodec.i32, after_response_trace.response_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.i32, after_response_trace.response_ref.codec);
     try std.testing.expectError(error.ProgramContractViolation, first_after.responseTrace(.@"resume", @as(i32, 42)));
 
     var second_session = try Program.Session.start(&runtime, .{});
@@ -18215,20 +18215,20 @@ test "Program.Session site catalog omits unreachable call sites" {
     const Body = struct {
         pub const compiled_plan = unreachableSessionSitePlan("session-unreachable-site");
     };
-    const Program = ability.program("session-unreachable-site", struct {}, Body);
+    const Program = boundary.program("session-unreachable-site", struct {}, Body);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.ops.len);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.session.yield_sites.len);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.session.after_sites.len);
 }
 
 test "Program.Session same op from different call sites has distinct site identity" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sameOpTwoSiteAfterPlan("session-same-op-two-sites");
     };
-    const Program = ability.program("session-same-op-two-sites", struct {}, Body);
+    const Program = boundary.program("session-same-op-two-sites", struct {}, Body);
     try std.testing.expectEqual(@as(usize, 2), Program.contract.session.yield_sites.len);
     try std.testing.expectEqual(@as(usize, 2), Program.contract.session.after_sites.len);
     try std.testing.expectEqual(@as(u16, 0), Program.contract.session.yield_sites[0].op_index);
@@ -18282,13 +18282,13 @@ test "Program.Session same op from different call sites has distinct site identi
 }
 
 test "Program.Session looped operation keeps static site and changes turn" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = loopedAfterPlan("session-loop-site-turn");
     };
-    const Program = ability.program("session-loop-site-turn", struct {}, Body);
+    const Program = boundary.program("session-loop-site-turn", struct {}, Body);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.session.yield_sites.len);
 
     var session = try Program.Session.start(&runtime, .{});
@@ -18312,13 +18312,13 @@ test "Program.Session looped operation keeps static site and changes turn" {
 }
 
 test "Program.Session site coordinates include helper and nested-with target functions" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const HelperBody = struct {
         pub const compiled_plan = sessionHelperYieldPlan("session-helper-site");
     };
-    const HelperProgram = ability.program("session-helper-site", struct {}, HelperBody);
+    const HelperProgram = boundary.program("session-helper-site", struct {}, HelperBody);
     try std.testing.expectEqual(@as(usize, 1), HelperProgram.contract.session.yield_sites.len);
     try std.testing.expectEqual(@as(usize, 1), HelperProgram.contract.session.yield_sites[0].function_index);
     try std.testing.expectEqualStrings("helper", HelperProgram.contract.session.yield_sites[0].function_symbol_name);
@@ -18336,12 +18336,12 @@ test "Program.Session site coordinates include helper and nested-with target fun
 
     const NestedBody = struct {
         pub const compiled_plan = resolvedNestedWithStringListPlan("session-nested-site");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const NestedProgram = ability.program("session-nested-site", struct {}, NestedBody);
+    const NestedProgram = boundary.program("session-nested-site", struct {}, NestedBody);
     try std.testing.expectEqual(@as(usize, 1), NestedProgram.contract.session.yield_sites.len);
     try std.testing.expectEqual(@as(usize, 1), NestedProgram.contract.session.yield_sites[0].function_index);
     try std.testing.expectEqualStrings("nested", NestedProgram.contract.session.yield_sites[0].function_symbol_name);
@@ -18359,13 +18359,13 @@ test "Program.Session site coordinates include helper and nested-with target fun
 }
 
 test "Program.Session response fingerprint changes with response value and kind" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionChoicePlan("session-response-fingerprint");
     };
-    const Program = ability.program("session-response-fingerprint", struct {}, Body);
+    const Program = boundary.program("session-response-fingerprint", struct {}, Body);
 
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -18384,7 +18384,7 @@ test "Program.Session response fingerprint changes with response value and kind"
 }
 
 test "Program.Session string fingerprint uses contents not pointer identity" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const TraceStringHandlers = struct {
@@ -18397,7 +18397,7 @@ test "Program.Session string fingerprint uses contents not pointer identity" {
             return .{handlers.payload};
         }
     };
-    const Program = ability.program("session-string-content-fingerprint", TraceStringHandlers, Body);
+    const Program = boundary.program("session-string-content-fingerprint", TraceStringHandlers, Body);
 
     var first_buffer = [_]u8{ 's', 'a', 'm', 'e' };
     var first_session = try Program.Session.start(&runtime, .{ .payload = first_buffer[0..] });
@@ -18433,7 +18433,7 @@ test "Program.Session string fingerprint uses contents not pointer identity" {
 }
 
 test "Program.Session product payload fingerprint is stable and field-sensitive" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -18450,7 +18450,7 @@ test "Program.Session product payload fingerprint is stable and field-sensitive"
             return .{.{ .amount = handlers.amount }};
         }
     };
-    const Program = ability.program("session-product-fingerprint", TraceProductHandlers, Body);
+    const Program = boundary.program("session-product-fingerprint", TraceProductHandlers, Body);
 
     var first_session = try Program.Session.start(&runtime, .{ .amount = 3 });
     defer first_session.deinit();
@@ -18481,7 +18481,7 @@ test "Program.Session product payload fingerprint is stable and field-sensitive"
 }
 
 test "Program.Session sum payload fingerprint is stable and variant-sensitive" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = ?i32;
@@ -18496,7 +18496,7 @@ test "Program.Session sum payload fingerprint is stable and variant-sensitive" {
             return .{handlers.payload};
         }
     };
-    const Program = ability.program("session-sum-fingerprint", TraceSumHandlers, Body);
+    const Program = boundary.program("session-sum-fingerprint", TraceSumHandlers, Body);
 
     var first_session = try Program.Session.start(&runtime, .{ .payload = @as(Payload, 5) });
     defer first_session.deinit();
@@ -18527,13 +18527,13 @@ test "Program.Session sum payload fingerprint is stable and variant-sensitive" {
 }
 
 test "Program.Session helper-yield request fingerprint is stable across runs" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionHelperYieldPlan("session-helper-fingerprint");
     };
-    const Program = ability.program("session-helper-fingerprint", struct {}, Body);
+    const Program = boundary.program("session-helper-fingerprint", struct {}, Body);
 
     var first_session = try Program.Session.start(&runtime, .{});
     defer first_session.deinit();
@@ -18555,7 +18555,7 @@ test "Program.Session helper-yield request fingerprint is stable across runs" {
 }
 
 test "Program.Session deinit cleans completed unconsumed result" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -18572,7 +18572,7 @@ test "Program.Session deinit cleans completed unconsumed result" {
             CleanupState.result_deinit_called = value.amount == 66;
         }
     };
-    const Program = ability.program("session-completed-result-cleanup", struct {}, Body);
+    const Program = boundary.program("session-completed-result-cleanup", struct {}, Body);
     CleanupState.result_deinit_called = false;
     var session = try Program.Session.start(&runtime, .{});
     var session_active = true;
@@ -18593,13 +18593,13 @@ test "Program.Session deinit cleans completed unconsumed result" {
 }
 
 test "Program.Session preserves helper and nested-with frames across yields" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const HelperBody = struct {
         pub const compiled_plan = helperTransformPlan("session-helper-transform");
     };
-    const HelperProgram = ability.program("session-helper-transform", struct {}, HelperBody);
+    const HelperProgram = boundary.program("session-helper-transform", struct {}, HelperBody);
     var helper_session = try HelperProgram.Session.start(&runtime, .{});
     defer helper_session.deinit();
     const helper_request = switch (try helper_session.next()) {
@@ -18619,12 +18619,12 @@ test "Program.Session preserves helper and nested-with frames across yields" {
 
     const NestedBody = struct {
         pub const compiled_plan = resolvedNestedWithStringListPlan("session-nested-with-string-list");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const NestedProgram = ability.program("session-nested-with-string-list", struct {}, NestedBody);
+    const NestedProgram = boundary.program("session-nested-with-string-list", struct {}, NestedBody);
     var nested_session = try NestedProgram.Session.start(&runtime, .{});
     defer nested_session.deinit();
     const nested_request = switch (try nested_session.next()) {
@@ -18646,7 +18646,7 @@ test "Program.Session preserves helper and nested-with frames across yields" {
 }
 
 test "Program.Session materializes outputs and cleans result when output collection fails" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const OutputHandlers = struct {
@@ -18666,7 +18666,7 @@ test "Program.Session materializes outputs and cleans result when output collect
             allocator.free(outputs);
         }
     };
-    const OutputProgram = ability.program("session-output-metadata", OutputHandlers, OutputBody);
+    const OutputProgram = boundary.program("session-output-metadata", OutputHandlers, OutputBody);
     var output_session = try OutputProgram.Session.start(&runtime, .{ .value = 91 });
     defer output_session.deinit();
     var output_result = switch (try output_session.next()) {
@@ -18702,7 +18702,7 @@ test "Program.Session materializes outputs and cleans result when output collect
             CleanupState.result_deinit_called = value.amount == 42;
         }
     };
-    const FailingProgram = ability.program("session-output-failure-cleans-result", SessionEmptyHandlers, FailingOutputBody);
+    const FailingProgram = boundary.program("session-output-failure-cleans-result", SessionEmptyHandlers, FailingOutputBody);
     CleanupState.result_deinit_called = false;
     var failing_session = try FailingProgram.Session.start(&runtime, .{});
     defer failing_session.deinit();
@@ -18710,50 +18710,50 @@ test "Program.Session materializes outputs and cleans result when output collect
     try std.testing.expect(CleanupState.result_deinit_called);
 }
 
-test "ability.program preserves pointer handler bundle dispatch" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program preserves pointer handler bundle dispatch" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var handlers: Handlers = .{ .authored = .{ .base = 30 } };
-    const Program = ability.program("compiled-pointer-handlers", *Handlers, CompiledBody);
+    const Program = boundary.program("compiled-pointer-handlers", *Handlers, CompiledBody);
     var result = try Program.run(&runtime, &handlers);
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 41), result.value);
 }
 
-test "ability.program preserves const pointer handler bundle dispatch" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program preserves const pointer handler bundle dispatch" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const handlers: Handlers = .{ .authored = .{ .base = 30 } };
-    const Program = ability.program("compiled-const-pointer-handlers", *const Handlers, CompiledBody);
+    const Program = boundary.program("compiled-const-pointer-handlers", *const Handlers, CompiledBody);
     var result = try Program.run(&runtime, &handlers);
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 41), result.value);
 }
 
-test "ability.program preserves pointer-valued handler field dispatch" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program preserves pointer-valued handler field dispatch" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var authored: AuthoredHandlers = .{ .base = 30 };
     const PointerFieldHandlers = struct {
         authored: *AuthoredHandlers,
     };
-    const Program = ability.program("compiled-pointer-handler-field", PointerFieldHandlers, CompiledBody);
+    const Program = boundary.program("compiled-pointer-handler-field", PointerFieldHandlers, CompiledBody);
     var result = try Program.run(&runtime, .{ .authored = &authored });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 41), result.value);
 }
 
-test "ability.program executes plans beyond legacy interpreter scratch caps" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program executes plans beyond legacy interpreter scratch caps" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const WideLocalBody = struct {
         pub const compiled_plan = wideLocalPlan("wide-local-plan");
     };
-    const WideLocalProgram = ability.program("wide-local-plan", struct {}, WideLocalBody);
+    const WideLocalProgram = boundary.program("wide-local-plan", struct {}, WideLocalBody);
     var wide_local_result = try WideLocalProgram.run(&runtime, .{});
     defer wide_local_result.deinit();
     try std.testing.expectEqual(@as(i32, 123), wide_local_result.value);
@@ -18761,21 +18761,21 @@ test "ability.program executes plans beyond legacy interpreter scratch caps" {
     const DeepHelperBody = struct {
         pub const compiled_plan = deepHelperPlan("deep-helper-plan");
     };
-    const DeepHelperProgram = ability.program("deep-helper-plan", struct {}, DeepHelperBody);
+    const DeepHelperProgram = boundary.program("deep-helper-plan", struct {}, DeepHelperBody);
     var deep_helper_result = try DeepHelperProgram.run(&runtime, .{});
     defer deep_helper_result.deinit();
     try std.testing.expectEqual(@as(i32, 7), deep_helper_result.value);
 }
 
-test "ability.program uses shared interpreter scratch for helper frames and after stack" {
+test "boundary.program uses shared interpreter scratch for helper frames and after stack" {
     var counting = CountingAllocator.init(std.testing.allocator);
-    var runtime = ability.Runtime.init(counting.allocator());
+    var runtime = boundary.Runtime.init(counting.allocator());
     defer runtime.deinit();
 
     const DeepHelperBody = struct {
         pub const compiled_plan = deepHelperPlan("deep-helper-shared-scratch");
     };
-    const DeepHelperProgram = ability.program("deep-helper-shared-scratch", struct {}, DeepHelperBody);
+    const DeepHelperProgram = boundary.program("deep-helper-shared-scratch", struct {}, DeepHelperBody);
     var deep_helper_result = try DeepHelperProgram.run(&runtime, .{});
     defer deep_helper_result.deinit();
     try std.testing.expectEqual(@as(i32, 7), deep_helper_result.value);
@@ -18797,7 +18797,7 @@ test "ability.program uses shared interpreter scratch for helper frames and afte
     const ManyAfterBody = struct {
         pub const compiled_plan = manyAfterPlan("many-after-shared-scratch");
     };
-    const ManyAfterProgram = ability.program("many-after-shared-scratch", ManyAfterHandlers, ManyAfterBody);
+    const ManyAfterProgram = boundary.program("many-after-shared-scratch", ManyAfterHandlers, ManyAfterBody);
     var many_after_result = try ManyAfterProgram.run(&runtime, .{ .authored = .{} });
     defer many_after_result.deinit();
     try std.testing.expectEqual(@as(i32, 65), many_after_result.value);
@@ -18807,23 +18807,23 @@ test "ability.program uses shared interpreter scratch for helper frames and afte
     const LoopedAfterBody = struct {
         pub const compiled_plan = loopedAfterPlan("looped-after-shared-scratch");
     };
-    const LoopedAfterProgram = ability.program("looped-after-shared-scratch", ManyAfterHandlers, LoopedAfterBody);
+    const LoopedAfterProgram = boundary.program("looped-after-shared-scratch", ManyAfterHandlers, LoopedAfterBody);
     var looped_after_result = try LoopedAfterProgram.run(&runtime, .{ .authored = .{} });
     defer looped_after_result.deinit();
     try std.testing.expectEqual(@as(i32, 8), looped_after_result.value);
     try std.testing.expect(counting.allocationEvents() - before_looped_after_events <= 3);
 }
 
-test "ability.program does not reserve after stack for plans without after hooks" {
+test "boundary.program does not reserve after stack for plans without after hooks" {
     var counting = CountingAllocator.init(std.testing.allocator);
-    var runtime = ability.Runtime.init(counting.allocator());
+    var runtime = boundary.Runtime.init(counting.allocator());
     defer runtime.deinit();
 
     const before_u16_allocs = counting.u16_aligned_alloc_calls;
     const NoAfterBody = struct {
         pub const compiled_plan = wideLocalPlan("no-after-allocation");
     };
-    const NoAfterProgram = ability.program("no-after-allocation", struct {}, NoAfterBody);
+    const NoAfterProgram = boundary.program("no-after-allocation", struct {}, NoAfterBody);
     var result = try NoAfterProgram.run(&runtime, .{});
     defer result.deinit();
 
@@ -18831,9 +18831,9 @@ test "ability.program does not reserve after stack for plans without after hooks
     try std.testing.expectEqual(before_u16_allocs, counting.u16_aligned_alloc_calls);
 }
 
-test "ability.program does not heap allocate after stack for one reachable after hook" {
+test "boundary.program does not heap allocate after stack for one reachable after hook" {
     var counting = CountingAllocator.init(std.testing.allocator);
-    var runtime = ability.Runtime.init(counting.allocator());
+    var runtime = boundary.Runtime.init(counting.allocator());
     defer runtime.deinit();
 
     const OneAfterHandlers = struct {
@@ -18850,7 +18850,7 @@ test "ability.program does not heap allocate after stack for one reachable after
     const OneAfterBody = struct {
         pub const compiled_plan = compiledTransformPlan("one-after-lazy-allocation");
     };
-    const OneAfterProgram = ability.program("one-after-lazy-allocation", OneAfterHandlers, OneAfterBody);
+    const OneAfterProgram = boundary.program("one-after-lazy-allocation", OneAfterHandlers, OneAfterBody);
     var result = try OneAfterProgram.run(&runtime, .{ .authored = .{} });
     defer result.deinit();
 
@@ -18860,9 +18860,9 @@ test "ability.program does not heap allocate after stack for one reachable after
     try std.testing.expect(counting.largest_u16_alloc_request < full_after_stack_reservation);
 }
 
-test "ability.program applies after stack without post-dispatch allocation failure" {
+test "boundary.program applies after stack without post-dispatch allocation failure" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
-    var runtime = ability.Runtime.init(failing.allocator());
+    var runtime = boundary.Runtime.init(failing.allocator());
     defer runtime.deinit();
 
     var dispatch_count: usize = 0;
@@ -18886,7 +18886,7 @@ test "ability.program applies after stack without post-dispatch allocation failu
     const SideEffectBody = struct {
         pub const compiled_plan = compiledTransformPlan("after-stack-oom-before-dispatch");
     };
-    const SideEffectProgram = ability.program("after-stack-oom-before-dispatch", SideEffectHandlers, SideEffectBody);
+    const SideEffectProgram = boundary.program("after-stack-oom-before-dispatch", SideEffectHandlers, SideEffectBody);
 
     var result = try SideEffectProgram.run(&runtime, .{
         .authored = .{
@@ -18902,9 +18902,9 @@ test "ability.program applies after stack without post-dispatch allocation failu
     try std.testing.expectEqual(@as(usize, 1), after_count);
 }
 
-test "ability.program return-now choice does not allocate unused after stack" {
+test "boundary.program return-now choice does not allocate unused after stack" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
-    var runtime = ability.Runtime.init(failing.allocator());
+    var runtime = boundary.Runtime.init(failing.allocator());
     defer runtime.deinit();
 
     var dispatch_count: usize = 0;
@@ -18914,9 +18914,9 @@ test "ability.program return-now choice does not allocate unused after stack" {
             dispatch_count: *usize,
             after_count: *usize,
 
-            pub fn dispatch(self: *const @This()) !ability.effect.choice.Decision(i32, i32) {
+            pub fn dispatch(self: *const @This()) !boundary.effect.choice.Decision(i32, i32) {
                 self.dispatch_count.* += 1;
-                return ability.effect.choice.Decision(i32, i32).returnNow(99);
+                return boundary.effect.choice.Decision(i32, i32).returnNow(99);
             }
 
             pub fn afterDispatch(self: *const @This(), value: i32) !i32 {
@@ -18928,7 +18928,7 @@ test "ability.program return-now choice does not allocate unused after stack" {
     const ReturnNowBody = struct {
         pub const compiled_plan = choiceReturnNowPlan("choice-return-now-no-after-allocation");
     };
-    const ReturnNowProgram = ability.program("choice-return-now-no-after-allocation", ReturnNowHandlers, ReturnNowBody);
+    const ReturnNowProgram = boundary.program("choice-return-now-no-after-allocation", ReturnNowHandlers, ReturnNowBody);
 
     var result = try ReturnNowProgram.run(&runtime, .{
         .authored = .{
@@ -18944,8 +18944,8 @@ test "ability.program return-now choice does not allocate unused after stack" {
     try std.testing.expectEqual(@as(usize, 0), after_count);
 }
 
-test "ability.program looped after pushes beyond static reachable after count" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program looped after pushes beyond static reachable after count" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const LoopedAfterHandlers = struct {
@@ -18962,61 +18962,61 @@ test "ability.program looped after pushes beyond static reachable after count" {
     const LoopedAfterBody = struct {
         pub const compiled_plan = loopedAfterPlan("looped-after-dynamic-depth");
     };
-    const LoopedAfterProgram = ability.program("looped-after-dynamic-depth", LoopedAfterHandlers, LoopedAfterBody);
+    const LoopedAfterProgram = boundary.program("looped-after-dynamic-depth", LoopedAfterHandlers, LoopedAfterBody);
     var result = try LoopedAfterProgram.run(&runtime, .{ .authored = .{} });
     defer result.deinit();
 
     try std.testing.expectEqual(@as(i32, 8), result.value);
 }
 
-test "ability.program accepts public ProgramValue entry args" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program accepts public ProgramValue entry args" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const EmptyHandlers = struct {};
     const ParameterizedBody = struct {
         pub const compiled_plan = parameterizedIdentityPlan("parameterized-identity");
 
-        pub fn encodeArgs(_: EmptyHandlers) []const ability.ir.ProgramValue {
+        pub fn encodeArgs(_: EmptyHandlers) []const boundary.ir.ProgramValue {
             return &.{.{ .i32 = 42 }};
         }
     };
-    const Program = ability.program("parameterized-identity", EmptyHandlers, ParameterizedBody);
+    const Program = boundary.program("parameterized-identity", EmptyHandlers, ParameterizedBody);
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 42), result.value);
 }
 
-test "ability.program accepts inferred public ProgramValue entry arg arrays" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program accepts inferred public ProgramValue entry arg arrays" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const EmptyHandlers = struct {};
     const ParameterizedBody = struct {
         pub const compiled_plan = parameterizedIdentityPlan("inferred-program-value-array-args");
 
-        pub fn encodeArgs(_: EmptyHandlers) *const [1]ability.ir.ProgramValue {
-            return &.{ability.ir.ProgramValue{ .i32 = 42 }};
+        pub fn encodeArgs(_: EmptyHandlers) *const [1]boundary.ir.ProgramValue {
+            return &.{boundary.ir.ProgramValue{ .i32 = 42 }};
         }
     };
-    const Program = ability.program("inferred-program-value-array-args", EmptyHandlers, ParameterizedBody);
+    const Program = boundary.program("inferred-program-value-array-args", EmptyHandlers, ParameterizedBody);
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 42), result.value);
 }
 
-test "ability.program session clones public string entry args" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program session clones public string entry args" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const EmptyHandlers = struct {};
     const Body = struct {
         pub const compiled_plan = stringIdentityPlan("session-public-string-args-cloned");
     };
-    const Program = ability.program("session-public-string-args-cloned", EmptyHandlers, Body);
+    const Program = boundary.program("session-public-string-args-cloned", EmptyHandlers, Body);
     const input = try std.testing.allocator.dupe(u8, "alpha");
     defer std.testing.allocator.free(input);
-    var args = [_]ability.ir.ProgramValue{.{ .string = input }};
+    var args = [_]boundary.ir.ProgramValue{.{ .string = input }};
     var session = try Program.Session.startWithArgs(&runtime, .{}, &args);
     defer session.deinit();
     @memcpy(input, "bravo");
@@ -19030,34 +19030,34 @@ test "ability.program session clones public string entry args" {
     try std.testing.expectEqualStrings("alpha", result.value);
 }
 
-test "ability.program rejects public ProgramValue entry arg length mismatches" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program rejects public ProgramValue entry arg length mismatches" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const EmptyHandlers = struct {};
     const TooManyArgsBody = struct {
         pub const compiled_plan = parameterizedIdentityPlan("too-many-parameterized-identity");
 
-        pub fn encodeArgs(_: EmptyHandlers) []const ability.ir.ProgramValue {
+        pub fn encodeArgs(_: EmptyHandlers) []const boundary.ir.ProgramValue {
             return &.{ .{ .i32 = 42 }, .{ .i32 = 43 } };
         }
     };
     const MissingArgsBody = struct {
         pub const compiled_plan = parameterizedIdentityPlan("missing-parameterized-identity");
 
-        pub fn encodeArgs(_: EmptyHandlers) []const ability.ir.ProgramValue {
+        pub fn encodeArgs(_: EmptyHandlers) []const boundary.ir.ProgramValue {
             return &.{};
         }
     };
-    const TooManyProgram = ability.program("too-many-parameterized-identity", EmptyHandlers, TooManyArgsBody);
-    const MissingProgram = ability.program("missing-parameterized-identity", EmptyHandlers, MissingArgsBody);
+    const TooManyProgram = boundary.program("too-many-parameterized-identity", EmptyHandlers, TooManyArgsBody);
+    const MissingProgram = boundary.program("missing-parameterized-identity", EmptyHandlers, MissingArgsBody);
 
     try std.testing.expectError(error.ProgramContractViolation, TooManyProgram.run(&runtime, .{}));
     try std.testing.expectError(error.ProgramContractViolation, MissingProgram.run(&runtime, .{}));
 }
 
-test "ability.program accepts typed product entry args and result" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program accepts typed product entry args and result" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -19072,14 +19072,14 @@ test "ability.program accepts typed product entry args and result" {
             return .{Payload{ .amount = 42 }};
         }
     };
-    const Program = ability.program("typed-product-identity", EmptyHandlers, ProductBody);
+    const Program = boundary.program("typed-product-identity", EmptyHandlers, ProductBody);
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 42), result.value.amount);
 }
 
-test "ability.program executes typed sum variant predicates" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program executes typed sum variant predicates" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = ?i32;
@@ -19100,8 +19100,8 @@ test "ability.program executes typed sum variant predicates" {
             return .{@as(Payload, null)};
         }
     };
-    const SomeProgram = ability.program("typed-sum-variant-some", EmptyHandlers, SomeBody);
-    const NoneProgram = ability.program("typed-sum-variant-none", EmptyHandlers, NoneBody);
+    const SomeProgram = boundary.program("typed-sum-variant-some", EmptyHandlers, SomeBody);
+    const NoneProgram = boundary.program("typed-sum-variant-none", EmptyHandlers, NoneBody);
 
     var some_result = try SomeProgram.run(&runtime, .{});
     defer some_result.deinit();
@@ -19112,8 +19112,8 @@ test "ability.program executes typed sum variant predicates" {
     try std.testing.expectEqual(@as(i32, 22), none_result.value);
 }
 
-test "ability.program executes typed enum variant predicates" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program executes typed enum variant predicates" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = enum { none, yes };
@@ -19134,8 +19134,8 @@ test "ability.program executes typed enum variant predicates" {
             return .{Payload.none};
         }
     };
-    const YesProgram = ability.program("typed-enum-variant-yes", EmptyHandlers, YesBody);
-    const NoProgram = ability.program("typed-enum-variant-no", EmptyHandlers, NoBody);
+    const YesProgram = boundary.program("typed-enum-variant-yes", EmptyHandlers, YesBody);
+    const NoProgram = boundary.program("typed-enum-variant-no", EmptyHandlers, NoBody);
 
     var yes_result = try YesProgram.run(&runtime, .{});
     defer yes_result.deinit();
@@ -19146,8 +19146,8 @@ test "ability.program executes typed enum variant predicates" {
     try std.testing.expectEqual(@as(i32, 22), no_result.value);
 }
 
-test "ability.program extracts typed sum payloads and rejects wrong variants" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program extracts typed sum payloads and rejects wrong variants" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = ?i32;
@@ -19168,8 +19168,8 @@ test "ability.program extracts typed sum payloads and rejects wrong variants" {
             return .{@as(Payload, null)};
         }
     };
-    const SomeProgram = ability.program("typed-sum-extract-some", EmptyHandlers, SomeBody);
-    const NoneProgram = ability.program("typed-sum-extract-none", EmptyHandlers, NoneBody);
+    const SomeProgram = boundary.program("typed-sum-extract-some", EmptyHandlers, SomeBody);
+    const NoneProgram = boundary.program("typed-sum-extract-none", EmptyHandlers, NoneBody);
 
     var some_result = try SomeProgram.run(&runtime, .{});
     defer some_result.deinit();
@@ -19178,8 +19178,8 @@ test "ability.program extracts typed sum payloads and rejects wrong variants" {
     try std.testing.expectError(error.ProgramContractViolation, NoneProgram.run(&runtime, .{}));
 }
 
-test "ability.program extracts tagged-union sum payloads" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program extracts tagged-union sum payloads" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = union(enum) {
@@ -19203,8 +19203,8 @@ test "ability.program extracts tagged-union sum payloads" {
             return .{Payload{ .none = {} }};
         }
     };
-    const YesProgram = ability.program("typed-union-extract-yes", EmptyHandlers, YesBody);
-    const NoProgram = ability.program("typed-union-extract-no", EmptyHandlers, NoBody);
+    const YesProgram = boundary.program("typed-union-extract-yes", EmptyHandlers, YesBody);
+    const NoProgram = boundary.program("typed-union-extract-no", EmptyHandlers, NoBody);
 
     var yes_result = try YesProgram.run(&runtime, .{});
     defer yes_result.deinit();
@@ -19214,7 +19214,7 @@ test "ability.program extracts tagged-union sum payloads" {
 }
 
 test "ProgramPlan validation enforces exact typed sum instruction refs" {
-    const valid_sum_locals = &[_]ability.ir.plan.Local{
+    const valid_sum_locals = &[_]boundary.ir.plan.Local{
         .{ .codec = .sum, .schema_index = 0 },
         .{ .codec = .bool },
         .{ .codec = .i32 },
@@ -19241,8 +19241,8 @@ test "ProgramPlan validation enforces exact typed sum instruction refs" {
     ));
 }
 
-test "ability.ir.builder.typed product identity matches raw contract metadata" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.ir.builder.typed product identity matches raw contract metadata" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -19258,11 +19258,11 @@ test "ability.ir.builder.typed product identity matches raw contract metadata" {
         }
     };
     const BuiltBody = struct {
-        const product_fields = [_]ability.ir.ValueFieldPlan{
-            ability.ir.value.field("amount", i32),
+        const product_fields = [_]boundary.ir.ValueFieldPlan{
+            boundary.ir.value.field("amount", i32),
         };
         pub const value_schema_types = .{Payload};
-        pub const compiled_plan = ability.ir.builder.typed.productIdentity(
+        pub const compiled_plan = boundary.ir.builder.typed.productIdentity(
             Payload,
             "typed-builder-product",
             &product_fields,
@@ -19272,8 +19272,8 @@ test "ability.ir.builder.typed product identity matches raw contract metadata" {
             return .{Payload{ .amount = 5 }};
         }
     };
-    const RawProgram = ability.program("raw-builder-product", EmptyHandlers, RawBody);
-    const BuiltProgram = ability.program("typed-builder-product", EmptyHandlers, BuiltBody);
+    const RawProgram = boundary.program("raw-builder-product", EmptyHandlers, RawBody);
+    const BuiltProgram = boundary.program("typed-builder-product", EmptyHandlers, BuiltBody);
 
     try std.testing.expectEqual(RawProgram.contract.result_ref.codec, BuiltProgram.contract.result_ref.codec);
     try std.testing.expectEqual(RawProgram.contract.result_ref.schema_index, BuiltProgram.contract.result_ref.schema_index);
@@ -19289,8 +19289,8 @@ test "ability.ir.builder.typed product identity matches raw contract metadata" {
     try std.testing.expectEqual(raw_result.value.amount, built_result.value.amount);
 }
 
-test "ability.ir.builder.typed sum branch and payload extraction match raw behavior" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.ir.builder.typed sum branch and payload extraction match raw behavior" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const OptionalPayload = ?i32;
@@ -19308,12 +19308,12 @@ test "ability.ir.builder.typed sum branch and payload extraction match raw behav
         }
     };
     const BuiltBranchBody = struct {
-        const optional_variants = [_]ability.ir.ValueVariantPlan{
-            ability.ir.value.unitVariant("none"),
-            ability.ir.value.variant("some", i32),
+        const optional_variants = [_]boundary.ir.ValueVariantPlan{
+            boundary.ir.value.unitVariant("none"),
+            boundary.ir.value.variant("some", i32),
         };
         pub const value_schema_types = .{OptionalPayload};
-        pub const compiled_plan = ability.ir.builder.typed.sumVariantI32Branch(
+        pub const compiled_plan = boundary.ir.builder.typed.sumVariantI32Branch(
             OptionalPayload,
             .{
                 .label = "typed-sum-branch",
@@ -19337,12 +19337,12 @@ test "ability.ir.builder.typed sum branch and payload extraction match raw behav
         }
     };
     const BuiltExtractBody = struct {
-        const tagged_variants = [_]ability.ir.ValueVariantPlan{
-            ability.ir.value.unitVariant("none"),
-            ability.ir.value.variant("yes", i32),
+        const tagged_variants = [_]boundary.ir.ValueVariantPlan{
+            boundary.ir.value.unitVariant("none"),
+            boundary.ir.value.variant("yes", i32),
         };
         pub const value_schema_types = .{TaggedPayload};
-        pub const compiled_plan = ability.ir.builder.typed.sumExtractI32Payload(
+        pub const compiled_plan = boundary.ir.builder.typed.sumExtractI32Payload(
             TaggedPayload,
             "typed-sum-extract",
             &tagged_variants,
@@ -19353,10 +19353,10 @@ test "ability.ir.builder.typed sum branch and payload extraction match raw behav
             return .{TaggedPayload{ .yes = 41 }};
         }
     };
-    const RawBranchProgram = ability.program("raw-sum-branch", EmptyHandlers, RawBranchBody);
-    const BuiltBranchProgram = ability.program("typed-sum-branch", EmptyHandlers, BuiltBranchBody);
-    const RawExtractProgram = ability.program("raw-sum-extract", EmptyHandlers, RawExtractBody);
-    const BuiltExtractProgram = ability.program("typed-sum-extract", EmptyHandlers, BuiltExtractBody);
+    const RawBranchProgram = boundary.program("raw-sum-branch", EmptyHandlers, RawBranchBody);
+    const BuiltBranchProgram = boundary.program("typed-sum-branch", EmptyHandlers, BuiltBranchBody);
+    const RawExtractProgram = boundary.program("raw-sum-extract", EmptyHandlers, RawExtractBody);
+    const BuiltExtractProgram = boundary.program("typed-sum-extract", EmptyHandlers, BuiltExtractBody);
 
     try std.testing.expectEqual(RawBranchProgram.contract.value_variants.len, BuiltBranchProgram.contract.value_variants.len);
     try std.testing.expectEqualStrings(RawBranchProgram.contract.value_variants[1].name, BuiltBranchProgram.contract.value_variants[1].name);
@@ -19376,15 +19376,15 @@ test "ability.ir.builder.typed sum branch and payload extraction match raw behav
     try std.testing.expectEqual(raw_extract.value, built_extract.value);
 }
 
-test "ability.ir.builder.typed preserves full i32 constant range" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.ir.builder.typed preserves full i32 constant range" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const EmptyHandlers = struct {};
     const NegativeBody = struct {
-        pub const compiled_plan = ability.ir.builder.typed.scalarConstI32("typed-negative-i32", -1);
+        pub const compiled_plan = boundary.ir.builder.typed.scalarConstI32("typed-negative-i32", -1);
     };
-    const NegativeProgram = ability.program("typed-negative-i32", EmptyHandlers, NegativeBody);
+    const NegativeProgram = boundary.program("typed-negative-i32", EmptyHandlers, NegativeBody);
 
     var negative = try NegativeProgram.run(&runtime, .{});
     defer negative.deinit();
@@ -19392,12 +19392,12 @@ test "ability.ir.builder.typed preserves full i32 constant range" {
 
     const OptionalPayload = ?i32;
     const MatchedBody = struct {
-        const optional_variants = [_]ability.ir.ValueVariantPlan{
-            ability.ir.value.unitVariant("none"),
-            ability.ir.value.variant("some", i32),
+        const optional_variants = [_]boundary.ir.ValueVariantPlan{
+            boundary.ir.value.unitVariant("none"),
+            boundary.ir.value.variant("some", i32),
         };
         pub const value_schema_types = .{OptionalPayload};
-        pub const compiled_plan = ability.ir.builder.typed.sumVariantI32Branch(
+        pub const compiled_plan = boundary.ir.builder.typed.sumVariantI32Branch(
             OptionalPayload,
             .{
                 .label = "typed-wide-i32-branch-matched",
@@ -19413,12 +19413,12 @@ test "ability.ir.builder.typed preserves full i32 constant range" {
         }
     };
     const FallbackBody = struct {
-        const optional_variants = [_]ability.ir.ValueVariantPlan{
-            ability.ir.value.unitVariant("none"),
-            ability.ir.value.variant("some", i32),
+        const optional_variants = [_]boundary.ir.ValueVariantPlan{
+            boundary.ir.value.unitVariant("none"),
+            boundary.ir.value.variant("some", i32),
         };
         pub const value_schema_types = .{OptionalPayload};
-        pub const compiled_plan = ability.ir.builder.typed.sumVariantI32Branch(
+        pub const compiled_plan = boundary.ir.builder.typed.sumVariantI32Branch(
             OptionalPayload,
             .{
                 .label = "typed-wide-i32-branch-fallback",
@@ -19433,8 +19433,8 @@ test "ability.ir.builder.typed preserves full i32 constant range" {
             return .{@as(OptionalPayload, null)};
         }
     };
-    const MatchedProgram = ability.program("typed-wide-i32-branch-matched", EmptyHandlers, MatchedBody);
-    const FallbackProgram = ability.program("typed-wide-i32-branch-fallback", EmptyHandlers, FallbackBody);
+    const MatchedProgram = boundary.program("typed-wide-i32-branch-matched", EmptyHandlers, MatchedBody);
+    const FallbackProgram = boundary.program("typed-wide-i32-branch-fallback", EmptyHandlers, FallbackBody);
 
     var matched = try MatchedProgram.run(&runtime, .{});
     defer matched.deinit();
@@ -19445,8 +19445,8 @@ test "ability.ir.builder.typed preserves full i32 constant range" {
     try std.testing.expectEqual(@as(i32, std.math.minInt(i32)), fallback.value);
 }
 
-test "ability.program preserves expected schema index for duplicate typed product entry args" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program preserves expected schema index for duplicate typed product entry args" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -19461,14 +19461,14 @@ test "ability.program preserves expected schema index for duplicate typed produc
             return .{Payload{ .amount = 43 }};
         }
     };
-    const Program = ability.program("duplicate-schema-typed-product-identity", EmptyHandlers, ProductBody);
+    const Program = boundary.program("duplicate-schema-typed-product-identity", EmptyHandlers, ProductBody);
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 43), result.value.amount);
 }
 
-test "ability.program preserves expected schema index for duplicate typed sum payload extraction" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program preserves expected schema index for duplicate typed sum payload extraction" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Item = struct {
@@ -19484,14 +19484,14 @@ test "ability.program preserves expected schema index for duplicate typed sum pa
             return .{@as(Payload, Item{ .amount = 57 })};
         }
     };
-    const Program = ability.program("duplicate-schema-typed-sum-payload", EmptyHandlers, ProductBody);
+    const Program = boundary.program("duplicate-schema-typed-sum-payload", EmptyHandlers, ProductBody);
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 57), result.value.amount);
 }
 
-test "ability.program preserves expected schema index for duplicate typed op results" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program preserves expected schema index for duplicate typed op results" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -19508,15 +19508,15 @@ test "ability.program preserves expected schema index for duplicate typed op res
         pub const value_schema_types = .{ Payload, Payload };
         pub const compiled_plan = duplicateSchemaAbortResultPlan(Payload, "duplicate-schema-typed-product-op-result");
     };
-    const Program = ability.program("duplicate-schema-typed-product-op-result", StructuredHandlers, ProductBody);
+    const Program = boundary.program("duplicate-schema-typed-product-op-result", StructuredHandlers, ProductBody);
     var result = try Program.run(&runtime, .{ .structured = .{} });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 64), result.value.amount);
 }
 
-test "ability.program preallocates typed product op result before handler dispatch" {
+test "boundary.program preallocates typed product op result before handler dispatch" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
-    var runtime = ability.Runtime.init(failing.allocator());
+    var runtime = boundary.Runtime.init(failing.allocator());
     defer runtime.deinit();
 
     const Payload = struct {
@@ -19536,7 +19536,7 @@ test "ability.program preallocates typed product op result before handler dispat
         pub const value_schema_types = .{ Payload, Payload };
         pub const compiled_plan = duplicateSchemaAbortResultPlan(Payload, "typed-product-op-result-prealloc");
     };
-    const Program = ability.program("typed-product-op-result-prealloc", StructuredHandlers, ProductBody);
+    const Program = boundary.program("typed-product-op-result-prealloc", StructuredHandlers, ProductBody);
     var dispatch_count: usize = 0;
 
     try std.testing.expectError(error.OutOfMemory, Program.run(&runtime, .{ .structured = .{ .dispatch_count = &dispatch_count } }));
@@ -19544,8 +19544,8 @@ test "ability.program preallocates typed product op result before handler dispat
     try std.testing.expectEqual(@as(usize, 0), dispatch_count);
 }
 
-test "ability.program preserves expected schema index for duplicate typed after results" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program preserves expected schema index for duplicate typed after results" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -19566,15 +19566,15 @@ test "ability.program preserves expected schema index for duplicate typed after 
         pub const value_schema_types = .{ Payload, Payload };
         pub const compiled_plan = duplicateSchemaAfterResultPlan(Payload, "duplicate-schema-typed-product-after-result");
     };
-    const Program = ability.program("duplicate-schema-typed-product-after-result", StructuredHandlers, ProductBody);
+    const Program = boundary.program("duplicate-schema-typed-product-after-result", StructuredHandlers, ProductBody);
     var result = try Program.run(&runtime, .{ .structured = .{} });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 71), result.value.amount);
 }
 
-test "ability.program preallocates typed product after result before afterDispatch" {
+test "boundary.program preallocates typed product after result before afterDispatch" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 3 });
-    var runtime = ability.Runtime.init(failing.allocator());
+    var runtime = boundary.Runtime.init(failing.allocator());
     defer runtime.deinit();
 
     const Payload = struct {
@@ -19600,7 +19600,7 @@ test "ability.program preallocates typed product after result before afterDispat
         pub const value_schema_types = .{ Payload, Payload };
         pub const compiled_plan = duplicateSchemaAfterResultPlan(Payload, "typed-product-after-result-prealloc");
     };
-    const Program = ability.program("typed-product-after-result-prealloc", StructuredHandlers, ProductBody);
+    const Program = boundary.program("typed-product-after-result-prealloc", StructuredHandlers, ProductBody);
     var dispatch_count: usize = 0;
     var after_count: usize = 0;
 
@@ -19615,9 +19615,9 @@ test "ability.program preallocates typed product after result before afterDispat
     try std.testing.expectEqual(@as(usize, 0), after_count);
 }
 
-test "ability.program preserves OOM while encoding typed product entry args" {
+test "boundary.program preserves OOM while encoding typed product entry args" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
-    var runtime = ability.Runtime.init(failing.allocator());
+    var runtime = boundary.Runtime.init(failing.allocator());
     defer runtime.deinit();
 
     const Payload = struct {
@@ -19632,13 +19632,13 @@ test "ability.program preserves OOM while encoding typed product entry args" {
             return .{Payload{ .amount = 42 }};
         }
     };
-    const Program = ability.program("typed-product-arg-oom", EmptyHandlers, ProductBody);
+    const Program = boundary.program("typed-product-arg-oom", EmptyHandlers, ProductBody);
     try std.testing.expectError(error.OutOfMemory, Program.run(&runtime, .{}));
     try std.testing.expect(failing.has_induced_failure);
 }
 
-test "ability.program passes typed product op payloads to handlers" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program passes typed product op payloads to handlers" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -19661,15 +19661,15 @@ test "ability.program passes typed product op payloads to handlers" {
             return .{Payload{ .amount = 77 }};
         }
     };
-    const Program = ability.program("typed-product-payload", StructuredHandlers, ProductBody);
+    const Program = boundary.program("typed-product-payload", StructuredHandlers, ProductBody);
     var seen: i32 = 0;
     var result = try Program.run(&runtime, .{ .structured = .{ .seen = &seen } });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 77), seen);
 }
 
-test "ability.program carries typed products through helper calls" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program carries typed products through helper calls" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -19684,14 +19684,14 @@ test "ability.program carries typed products through helper calls" {
             return .{Payload{ .amount = 88 }};
         }
     };
-    const Program = ability.program("typed-product-helper", EmptyHandlers, ProductBody);
+    const Program = boundary.program("typed-product-helper", EmptyHandlers, ProductBody);
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 88), result.value.amount);
 }
 
-test "ability.program executes recursive helpers through interpreter frame stack" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program executes recursive helpers through interpreter frame stack" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const EmptyHandlers = struct {};
@@ -19702,28 +19702,28 @@ test "ability.program executes recursive helpers through interpreter frame stack
             return .{@as(i32, 7)};
         }
     };
-    const Program = ability.program("recursive-countdown-helper", EmptyHandlers, RecursiveBody);
+    const Program = boundary.program("recursive-countdown-helper", EmptyHandlers, RecursiveBody);
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 0), result.value);
 }
 
-test "ability.program charges one budget unit per straight-line instruction" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program charges one budget unit per straight-line instruction" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const EmptyHandlers = struct {};
     const StraightLineBody = struct {
         pub const compiled_plan = budgetSizedStraightLinePlan("budget-sized-straight-line");
     };
-    const Program = ability.program("budget-sized-straight-line", EmptyHandlers, StraightLineBody);
+    const Program = boundary.program("budget-sized-straight-line", EmptyHandlers, StraightLineBody);
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 7), result.value);
 }
 
-test "ability.program bounds unbounded helper cycles by interpreter budget" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program bounds unbounded helper cycles by interpreter budget" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const EmptyHandlers = struct {};
@@ -19731,13 +19731,13 @@ test "ability.program bounds unbounded helper cycles by interpreter budget" {
         pub const Error = error{ExecutionBudgetExceeded};
         pub const compiled_plan = unboundedHelperCyclePlan("unbounded-helper-cycle");
     };
-    const Program = ability.program("unbounded-helper-cycle", EmptyHandlers, CycleBody);
+    const Program = boundary.program("unbounded-helper-cycle", EmptyHandlers, CycleBody);
     try std.testing.expectError(error.ExecutionBudgetExceeded, Program.run(&runtime, .{}));
 }
 
-test "ability.program reuses scratch storage for parameterized helper args" {
+test "boundary.program reuses scratch storage for parameterized helper args" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 2 });
-    var runtime = ability.Runtime.init(failing.allocator());
+    var runtime = boundary.Runtime.init(failing.allocator());
     defer runtime.deinit();
 
     const EmptyHandlers = struct {};
@@ -19748,33 +19748,33 @@ test "ability.program reuses scratch storage for parameterized helper args" {
             return .{@as(i32, 42)};
         }
     };
-    const Program = ability.program("parameterized-helper-no-arg-copy-alloc", EmptyHandlers, HelperBody);
+    const Program = boundary.program("parameterized-helper-no-arg-copy-alloc", EmptyHandlers, HelperBody);
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 42), result.value);
     try std.testing.expect(!failing.has_induced_failure);
 }
 
-test "ability.program executes resolver-backed nested-with rows" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program executes resolver-backed nested-with rows" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const EmptyHandlers = struct {};
     const NestedBody = struct {
         pub const compiled_plan = resolvedNestedWithPlan("resolved-nested-with");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const Program = ability.program("resolved-nested-with", EmptyHandlers, NestedBody);
+    const Program = boundary.program("resolved-nested-with", EmptyHandlers, NestedBody);
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 42), result.value);
 }
 
-test "ability.program executes resolver-backed nested-with string-list rows" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program executes resolver-backed nested-with string-list rows" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const NestedHandlers = struct {
@@ -19788,12 +19788,12 @@ test "ability.program executes resolver-backed nested-with string-list rows" {
     };
     const NestedBody = struct {
         pub const compiled_plan = resolvedNestedWithStringListPlan("resolved-nested-with-string-list");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const Program = ability.program("resolved-nested-with-string-list", NestedHandlers, NestedBody);
+    const Program = boundary.program("resolved-nested-with-string-list", NestedHandlers, NestedBody);
     var strings = [_][]const u8{ "alpha", "beta" };
     var result = try Program.run(&runtime, .{ .authored = .{ .items = strings[0..] } });
     defer result.deinit();
@@ -19802,8 +19802,8 @@ test "ability.program executes resolver-backed nested-with string-list rows" {
     try std.testing.expectEqualStrings("beta", result.value[1]);
 }
 
-test "ability.program accepts string-list typed args with mutable outer carrier" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program accepts string-list typed args with mutable outer carrier" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const StringListHandlers = struct {
@@ -19817,7 +19817,7 @@ test "ability.program accepts string-list typed args with mutable outer carrier"
             return .{handlers.items};
         }
     };
-    const Program = ability.program("string-list-typed-args", StringListHandlers, StringListBody);
+    const Program = boundary.program("string-list-typed-args", StringListHandlers, StringListBody);
     var strings = [_][]const u8{ "left", "right" };
     var result = try Program.run(&runtime, .{ .items = strings[0..] });
     defer result.deinit();
@@ -19826,26 +19826,26 @@ test "ability.program accepts string-list typed args with mutable outer carrier"
     try std.testing.expectEqualStrings("right", result.value[1]);
 }
 
-test "ability.program validates nested-with completion codec instead of terminal result codec" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program validates nested-with completion codec instead of terminal result codec" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const EmptyHandlers = struct {};
     const NestedBody = struct {
         pub const compiled_plan = resolvedNestedWithSplitCompletionPlan("resolved-nested-with-split-completion");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const Program = ability.program("resolved-nested-with-split-completion", EmptyHandlers, NestedBody);
+    const Program = boundary.program("resolved-nested-with-split-completion", EmptyHandlers, NestedBody);
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 42), result.value);
 }
 
-test "ability.program validates nested-with after completion codec" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program validates nested-with after completion codec" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const NestedAfterHandlers = struct {
@@ -19862,19 +19862,19 @@ test "ability.program validates nested-with after completion codec" {
     };
     const NestedBody = struct {
         pub const compiled_plan = resolvedNestedWithAfterCompletionPlan("resolved-nested-with-after-completion");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const Program = ability.program("resolved-nested-with-after-completion", NestedAfterHandlers, NestedBody);
+    const Program = boundary.program("resolved-nested-with-after-completion", NestedAfterHandlers, NestedBody);
     var result = try Program.run(&runtime, .{ .authored = .{} });
     defer result.deinit();
     try std.testing.expectEqualStrings("forty-two", result.value);
 }
 
-test "ability.program validates terminal nested-with targets before return_unit" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program validates terminal nested-with targets before return_unit" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const TerminalHandlers = struct {
@@ -19886,37 +19886,37 @@ test "ability.program validates terminal nested-with targets before return_unit"
     };
     const NestedBody = struct {
         pub const compiled_plan = terminalNestedWithSplitResultPlan("terminal-nested-with-split-result");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const Program = ability.program("terminal-nested-with-split-result", TerminalHandlers, NestedBody);
+    const Program = boundary.program("terminal-nested-with-split-result", TerminalHandlers, NestedBody);
     var result = try Program.run(&runtime, .{ .abort = .{} });
     defer result.deinit();
     try std.testing.expectEqualStrings("terminal", result.value);
 }
 
-test "ability.program executes nested-with inside helper frames" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program executes nested-with inside helper frames" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const EmptyHandlers = struct {};
     const NestedBody = struct {
         pub const compiled_plan = helperNestedWithPlan("nested-with-inside-helper");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 2,
         }};
     };
-    const Program = ability.program("nested-with-inside-helper", EmptyHandlers, NestedBody);
+    const Program = boundary.program("nested-with-inside-helper", EmptyHandlers, NestedBody);
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 64), result.value);
 }
 
-test "ability.program supports terminal nested-with product result targets" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program supports terminal nested-with product result targets" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -19932,19 +19932,19 @@ test "ability.program supports terminal nested-with product result targets" {
     const NestedBody = struct {
         pub const value_schema_types = .{Payload};
         pub const compiled_plan = terminalNestedWithProductResultPlan(Payload, "terminal-nested-with-product-result");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const Program = ability.program("terminal-nested-with-product-result", ProductHandlers, NestedBody);
+    const Program = boundary.program("terminal-nested-with-product-result", ProductHandlers, NestedBody);
     var result = try Program.run(&runtime, .{ .abort = .{} });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 81), result.value.amount);
 }
 
-test "ability.program supports terminal nested-with sum result targets" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program supports terminal nested-with sum result targets" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = ?i32;
@@ -19958,19 +19958,19 @@ test "ability.program supports terminal nested-with sum result targets" {
     const NestedBody = struct {
         pub const value_schema_types = .{Payload};
         pub const compiled_plan = terminalNestedWithSumResultPlan(Payload, "terminal-nested-with-sum-result");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const Program = ability.program("terminal-nested-with-sum-result", SumHandlers, NestedBody);
+    const Program = boundary.program("terminal-nested-with-sum-result", SumHandlers, NestedBody);
     var result = try Program.run(&runtime, .{ .abort = .{} });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 82), result.value.?);
 }
 
-test "ability.program collects outputs after nested-with execution" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program collects outputs after nested-with execution" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Observe = struct {
@@ -19986,7 +19986,7 @@ test "ability.program collects outputs after nested-with execution" {
     const NestedBody = struct {
         pub const Outputs = []i32;
         pub const compiled_plan = nestedWithOutputCollectionPlan("nested-with-output-collection");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
@@ -20002,15 +20002,15 @@ test "ability.program collects outputs after nested-with execution" {
             allocator.free(outputs);
         }
     };
-    const Program = ability.program("nested-with-output-collection", NestedHandlers, NestedBody);
+    const Program = boundary.program("nested-with-output-collection", NestedHandlers, NestedBody);
     var result = try Program.run(&runtime, .{ .observe = .{} });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 83), result.outputs[0]);
     try std.testing.expectEqualStrings("observed", Program.contract.outputs[0].label);
 }
 
-test "ability.program materializes outputs through body collector and deinit hook" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program materializes outputs through body collector and deinit hook" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Writer = struct {
@@ -20037,15 +20037,15 @@ test "ability.program materializes outputs through body collector and deinit hoo
             allocator.free(outputs);
         }
     };
-    const Program = ability.program("output-metadata", OutputHandlers, OutputBody);
+    const Program = boundary.program("output-metadata", OutputHandlers, OutputBody);
     var result = try Program.run(&runtime, .{ .writer = .{ .value = 91 } });
     defer result.deinit();
     try std.testing.expectEqual(@as(usize, 1), result.outputs.len);
     try std.testing.expectEqual(@as(i32, 91), result.outputs[0]);
 }
 
-test "ability.program deinitializes result value when output collection fails" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program deinitializes result value when output collection fails" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -20074,14 +20074,14 @@ test "ability.program deinitializes result value when output collection fails" {
             CleanupState.deinit_called = true;
         }
     };
-    const Program = ability.program("output-failure-cleans-result", EmptyHandlers, FailingOutputBody);
+    const Program = boundary.program("output-failure-cleans-result", EmptyHandlers, FailingOutputBody);
     CleanupState.deinit_called = false;
     try std.testing.expectError(error.OutputFailed, Program.run(&runtime, .{}));
     try std.testing.expect(CleanupState.deinit_called);
 }
 
-test "ability.program deinitializes outputs without result cleanup hook" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program deinitializes outputs without result cleanup hook" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const CleanupState = struct {
@@ -20103,7 +20103,7 @@ test "ability.program deinitializes outputs without result cleanup hook" {
             allocator.free(outputs);
         }
     };
-    const Program = ability.program("output-only-cleanup", EmptyHandlers, OutputBody);
+    const Program = boundary.program("output-only-cleanup", EmptyHandlers, OutputBody);
     CleanupState.outputs_deinit_called = false;
     var result = try Program.run(&runtime, .{});
     try std.testing.expectEqual(@as(i32, 7), result.outputs[0]);
@@ -20112,8 +20112,8 @@ test "ability.program deinitializes outputs without result cleanup hook" {
     try std.testing.expect(CleanupState.outputs_deinit_called);
 }
 
-test "ability.program deinitializes result and outputs independently" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program deinitializes result and outputs independently" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -20149,7 +20149,7 @@ test "ability.program deinitializes result and outputs independently" {
             allocator.free(outputs);
         }
     };
-    const Program = ability.program("result-and-output-cleanup", EmptyHandlers, CleanupBody);
+    const Program = boundary.program("result-and-output-cleanup", EmptyHandlers, CleanupBody);
     CleanupState.result_deinit_called = false;
     CleanupState.outputs_deinit_called = false;
     var result = try Program.run(&runtime, .{});
@@ -20159,8 +20159,8 @@ test "ability.program deinitializes result and outputs independently" {
     try std.testing.expect(CleanupState.outputs_deinit_called);
 }
 
-test "ability.program materializes plan-native writer accumulator outputs" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program materializes plan-native writer accumulator outputs" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const WriterHandlers = struct {
@@ -20225,9 +20225,9 @@ test "ability.program materializes plan-native writer accumulator outputs" {
             TestState.deinit(allocator, outputs);
         }
     };
-    const EmptyProgram = ability.program("writer-empty", WriterHandlers, EmptyBody);
-    const OneProgram = ability.program("writer-one", WriterHandlers, OneBody);
-    const ManyProgram = ability.program("writer-many", WriterHandlers, ManyBody);
+    const EmptyProgram = boundary.program("writer-empty", WriterHandlers, EmptyBody);
+    const OneProgram = boundary.program("writer-one", WriterHandlers, OneBody);
+    const ManyProgram = boundary.program("writer-many", WriterHandlers, ManyBody);
 
     var values = [_]i32{0} ** 8;
     var count: usize = 0;
@@ -20252,8 +20252,8 @@ test "ability.program materializes plan-native writer accumulator outputs" {
     try std.testing.expectEqual(@as(@TypeOf(ManyProgram.contract.requirements[0].lifecycle_tag), .writer_accumulator), ManyProgram.contract.requirements[0].lifecycle_tag);
 }
 
-test "ability.program preserves plan-native writer collection failure" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program preserves plan-native writer collection failure" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const WriterHandlers = struct {
@@ -20274,49 +20274,49 @@ test "ability.program preserves plan-native writer collection failure" {
             return error.OutputFailed;
         }
     };
-    const Program = ability.program("writer-collection-failure", WriterHandlers, FailingBody);
+    const Program = boundary.program("writer-collection-failure", WriterHandlers, FailingBody);
     var count: usize = 0;
     try std.testing.expectError(error.OutputFailed, Program.run(&runtime, .{ .tell = .{ .count = &count } }));
     try std.testing.expectEqual(@as(usize, 1), count);
 }
 
-test "ability.program enters runtime execution before encoding entry args" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program enters runtime execution before encoding entry args" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const EncodeGuardHandlers = struct {
-        runtime: *ability.Runtime,
+        runtime: *boundary.Runtime,
     };
     const ParameterizedBody = struct {
         pub const compiled_plan = parameterizedIdentityPlan("guarded-parameterized-identity");
 
-        pub fn encodeArgs(handlers: EncodeGuardHandlers) []const ability.ir.ProgramValue {
+        pub fn encodeArgs(handlers: EncodeGuardHandlers) []const boundary.ir.ProgramValue {
             std.testing.expectError(error.RuntimeBusy, handlers.runtime.deinitChecked()) catch unreachable;
             return &.{.{ .i32 = 42 }};
         }
     };
-    const Program = ability.program("guarded-parameterized-identity", EncodeGuardHandlers, ParameterizedBody);
+    const Program = boundary.program("guarded-parameterized-identity", EncodeGuardHandlers, ParameterizedBody);
     var result = try Program.run(&runtime, .{ .runtime = &runtime });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 42), result.value);
 }
 
 test "Program.Session.start enters runtime execution before encoding entry args" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const EncodeGuardHandlers = struct {
-        runtime: *ability.Runtime,
+        runtime: *boundary.Runtime,
     };
     const ParameterizedBody = struct {
         pub const compiled_plan = parameterizedIdentityPlan("session-guarded-parameterized-identity");
 
-        pub fn encodeArgs(handlers: EncodeGuardHandlers) []const ability.ir.ProgramValue {
+        pub fn encodeArgs(handlers: EncodeGuardHandlers) []const boundary.ir.ProgramValue {
             std.testing.expectError(error.RuntimeBusy, handlers.runtime.deinitChecked()) catch unreachable;
             return &.{.{ .i32 = 42 }};
         }
     };
-    const Program = ability.program("session-guarded-parameterized-identity", EncodeGuardHandlers, ParameterizedBody);
+    const Program = boundary.program("session-guarded-parameterized-identity", EncodeGuardHandlers, ParameterizedBody);
     var session = try Program.Session.start(&runtime, .{ .runtime = &runtime });
     defer session.deinit();
     var result = switch (try session.next()) {
@@ -20329,7 +20329,7 @@ test "Program.Session.start enters runtime execution before encoding entry args"
 }
 
 test "Program.Session.start rejects busy runtime before encoding entry args" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var inner_encode_calls: usize = 0;
@@ -20339,21 +20339,21 @@ test "Program.Session.start rejects busy runtime before encoding entry args" {
     const InnerBody = struct {
         pub const compiled_plan = parameterizedIdentityPlan("session-busy-inner-parameterized-identity");
 
-        pub fn encodeArgs(handlers: InnerHandlers) []const ability.ir.ProgramValue {
+        pub fn encodeArgs(handlers: InnerHandlers) []const boundary.ir.ProgramValue {
             handlers.calls.* += 1;
             return &.{.{ .i32 = 42 }};
         }
     };
-    const InnerProgram = ability.program("session-busy-inner-parameterized-identity", InnerHandlers, InnerBody);
+    const InnerProgram = boundary.program("session-busy-inner-parameterized-identity", InnerHandlers, InnerBody);
 
     const OuterHandlers = struct {
-        runtime: *ability.Runtime,
+        runtime: *boundary.Runtime,
         calls: *usize,
     };
     const OuterBody = struct {
         pub const compiled_plan = parameterizedIdentityPlan("session-busy-outer-parameterized-identity");
 
-        pub fn encodeArgs(handlers: OuterHandlers) []const ability.ir.ProgramValue {
+        pub fn encodeArgs(handlers: OuterHandlers) []const boundary.ir.ProgramValue {
             std.testing.expectError(
                 error.RuntimeBusy,
                 InnerProgram.Session.start(handlers.runtime, .{ .calls = handlers.calls }),
@@ -20361,15 +20361,15 @@ test "Program.Session.start rejects busy runtime before encoding entry args" {
             return &.{.{ .i32 = 7 }};
         }
     };
-    const OuterProgram = ability.program("session-busy-outer-parameterized-identity", OuterHandlers, OuterBody);
+    const OuterProgram = boundary.program("session-busy-outer-parameterized-identity", OuterHandlers, OuterBody);
     var result = try OuterProgram.run(&runtime, .{ .runtime = &runtime, .calls = &inner_encode_calls });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 7), result.value);
     try std.testing.expectEqual(@as(usize, 0), inner_encode_calls);
 }
 
-test "ability.program rejects destroyed runtime before encoding entry args" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program rejects destroyed runtime before encoding entry args" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     try runtime.deinitChecked();
 
     var encode_calls: usize = 0;
@@ -20379,19 +20379,19 @@ test "ability.program rejects destroyed runtime before encoding entry args" {
     const ParameterizedBody = struct {
         pub const compiled_plan = parameterizedIdentityPlan("destroyed-before-parameterized-identity");
 
-        pub fn encodeArgs(handlers: EncodeHandlers) []const ability.ir.ProgramValue {
+        pub fn encodeArgs(handlers: EncodeHandlers) []const boundary.ir.ProgramValue {
             handlers.calls.* += 1;
             return &.{.{ .i32 = 42 }};
         }
     };
-    const Program = ability.program("destroyed-before-parameterized-identity", EncodeHandlers, ParameterizedBody);
+    const Program = boundary.program("destroyed-before-parameterized-identity", EncodeHandlers, ParameterizedBody);
 
     try std.testing.expectError(error.RuntimeDestroyed, Program.run(&runtime, .{ .calls = &encode_calls }));
     try std.testing.expectEqual(@as(usize, 0), encode_calls);
 }
 
 test "Program.Session.start rejects destroyed runtime before encoding entry args" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     try runtime.deinitChecked();
 
     var encode_calls: usize = 0;
@@ -20401,24 +20401,24 @@ test "Program.Session.start rejects destroyed runtime before encoding entry args
     const ParameterizedBody = struct {
         pub const compiled_plan = parameterizedIdentityPlan("session-destroyed-before-parameterized-identity");
 
-        pub fn encodeArgs(handlers: EncodeHandlers) []const ability.ir.ProgramValue {
+        pub fn encodeArgs(handlers: EncodeHandlers) []const boundary.ir.ProgramValue {
             handlers.calls.* += 1;
             return &.{.{ .i32 = 42 }};
         }
     };
-    const Program = ability.program("session-destroyed-before-parameterized-identity", EncodeHandlers, ParameterizedBody);
+    const Program = boundary.program("session-destroyed-before-parameterized-identity", EncodeHandlers, ParameterizedBody);
 
     try std.testing.expectError(error.RuntimeDestroyed, Program.Session.start(&runtime, .{ .calls = &encode_calls }));
     try std.testing.expectEqual(@as(usize, 0), encode_calls);
 }
 
-test "ability.program enters runtime execution for compiled plans" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program enters runtime execution for compiled plans" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const GuardHandlers = struct {
         authored: struct {
-            runtime: *ability.Runtime,
+            runtime: *boundary.Runtime,
 
             pub fn dispatch(self: *const @This()) !i32 {
                 try std.testing.expectError(error.RuntimeBusy, self.runtime.deinitChecked());
@@ -20431,28 +20431,28 @@ test "ability.program enters runtime execution for compiled plans" {
         },
     };
 
-    const Program = ability.program("runtime-guard", GuardHandlers, CompiledBody);
+    const Program = boundary.program("runtime-guard", GuardHandlers, CompiledBody);
     var result = try Program.run(&runtime, .{ .authored = .{ .runtime = &runtime } });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 1), result.value);
 }
 
-test "ability.program rejects destroyed runtime before compiled execution" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program rejects destroyed runtime before compiled execution" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     try runtime.deinitChecked();
 
-    const Program = ability.program("destroyed-runtime", Handlers, CompiledBody);
+    const Program = boundary.program("destroyed-runtime", Handlers, CompiledBody);
     try std.testing.expectError(error.RuntimeDestroyed, Program.run(&runtime, .{ .authored = .{ .base = 1 } }));
 }
 
-test "ability.program interprets pure arithmetic and helper ProgramPlan instructions" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program interprets pure arithmetic and helper ProgramPlan instructions" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const PureBody = struct {
         pub const compiled_plan = pureArithmeticPlan("pure-arithmetic");
     };
-    const PureProgram = ability.program("pure", Handlers, PureBody);
+    const PureProgram = boundary.program("pure", Handlers, PureBody);
     var pure_result = try PureProgram.run(&runtime, .{ .authored = .{ .base = 0 } });
     defer pure_result.deinit();
     try std.testing.expectEqual(@as(i32, 7), pure_result.value);
@@ -20460,7 +20460,7 @@ test "ability.program interprets pure arithmetic and helper ProgramPlan instruct
     const HelperBody = struct {
         pub const compiled_plan = helperPlan("helper-plan");
     };
-    const HelperProgram = ability.program("helper", Handlers, HelperBody);
+    const HelperProgram = boundary.program("helper", Handlers, HelperBody);
     var helper_result = try HelperProgram.run(&runtime, .{ .authored = .{ .base = 0 } });
     defer helper_result.deinit();
     try std.testing.expectEqual(@as(i32, 9), helper_result.value);
@@ -20468,7 +20468,7 @@ test "ability.program interprets pure arithmetic and helper ProgramPlan instruct
     const UsizeBody = struct {
         pub const compiled_plan = usizeLiteralPlan("usize-literal");
     };
-    const UsizeProgram = ability.program("usize-literal", Handlers, UsizeBody);
+    const UsizeProgram = boundary.program("usize-literal", Handlers, UsizeBody);
     var usize_result = try UsizeProgram.run(&runtime, .{ .authored = .{ .base = 0 } });
     defer usize_result.deinit();
     try std.testing.expectEqual(@as(usize, 0xff), usize_result.value);
@@ -20476,7 +20476,7 @@ test "ability.program interprets pure arithmetic and helper ProgramPlan instruct
     const BoolCompareBody = struct {
         pub const compiled_plan = boolComparePlan("bool-compare");
     };
-    const BoolCompareProgram = ability.program("bool-compare", BoolHandlers, BoolCompareBody);
+    const BoolCompareProgram = boundary.program("bool-compare", BoolHandlers, BoolCompareBody);
     var bool_compare_result = try BoolCompareProgram.run(&runtime, .{ .probe = .{} });
     defer bool_compare_result.deinit();
     try std.testing.expectEqual(true, bool_compare_result.value);
@@ -20484,7 +20484,7 @@ test "ability.program interprets pure arithmetic and helper ProgramPlan instruct
     const UsizeSubOneBody = struct {
         pub const compiled_plan = usizeSubOnePlan("usize-sub-one");
     };
-    const UsizeSubOneProgram = ability.program("usize-sub-one", Handlers, UsizeSubOneBody);
+    const UsizeSubOneProgram = boundary.program("usize-sub-one", Handlers, UsizeSubOneBody);
     var usize_sub_one_result = try UsizeSubOneProgram.run(&runtime, .{ .authored = .{ .base = 0 } });
     defer usize_sub_one_result.deinit();
     try std.testing.expectEqual(@as(usize, 2), usize_sub_one_result.value);
@@ -20492,7 +20492,7 @@ test "ability.program interprets pure arithmetic and helper ProgramPlan instruct
     const HelperUsizeOffsetBody = struct {
         pub const compiled_plan = helperUsizeLocalOffsetPlan("helper-usize-local-offset");
     };
-    const HelperUsizeOffsetProgram = ability.program("helper-usize-local-offset", Handlers, HelperUsizeOffsetBody);
+    const HelperUsizeOffsetProgram = boundary.program("helper-usize-local-offset", Handlers, HelperUsizeOffsetBody);
     var helper_usize_offset_result = try HelperUsizeOffsetProgram.run(&runtime, .{ .authored = .{ .base = 0 } });
     defer helper_usize_offset_result.deinit();
     try std.testing.expectEqual(@as(usize, 1), helper_usize_offset_result.value);
@@ -20500,7 +20500,7 @@ test "ability.program interprets pure arithmetic and helper ProgramPlan instruct
     const ZeroArgLegacyAuxBody = struct {
         pub const compiled_plan = zeroArgHelperLegacyAuxPlan("zero-arg-helper-legacy-aux");
     };
-    const ZeroArgLegacyAuxProgram = ability.program("zero-arg-helper-legacy-aux", Handlers, ZeroArgLegacyAuxBody);
+    const ZeroArgLegacyAuxProgram = boundary.program("zero-arg-helper-legacy-aux", Handlers, ZeroArgLegacyAuxBody);
     var zero_arg_legacy_aux_result = try ZeroArgLegacyAuxProgram.run(&runtime, .{ .authored = .{ .base = 0 } });
     defer zero_arg_legacy_aux_result.deinit();
     try std.testing.expectEqual(@as(i32, 12), zero_arg_legacy_aux_result.value);
@@ -20509,21 +20509,21 @@ test "ability.program interprets pure arithmetic and helper ProgramPlan instruct
     const UnitResumeKeepsLocalBody = struct {
         pub const compiled_plan = unitResumeKeepsLocalPlan("unit-resume-keeps-local");
     };
-    const UnitResumeKeepsLocalProgram = ability.program("unit-resume-keeps-local", UnitHandlers, UnitResumeKeepsLocalBody);
+    const UnitResumeKeepsLocalProgram = boundary.program("unit-resume-keeps-local", UnitHandlers, UnitResumeKeepsLocalBody);
     var unit_resume_keeps_local_result = try UnitResumeKeepsLocalProgram.run(&runtime, .{ .touch = .{ .calls = &touch_calls } });
     defer unit_resume_keeps_local_result.deinit();
     try std.testing.expectEqual(@as(i32, 7), unit_resume_keeps_local_result.value);
     try std.testing.expectEqual(@as(usize, 1), touch_calls);
 }
 
-test "ability.program executes the public scalar ProgramPlan subset" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program executes the public scalar ProgramPlan subset" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const VoidBody = struct {
         pub const compiled_plan = voidReturnPlan("scalar-void");
     };
-    const VoidProgram = ability.program("scalar-void", struct {}, VoidBody);
+    const VoidProgram = boundary.program("scalar-void", struct {}, VoidBody);
     var void_result = try VoidProgram.run(&runtime, .{});
     defer void_result.deinit();
     try std.testing.expectEqual({}, void_result.value);
@@ -20531,7 +20531,7 @@ test "ability.program executes the public scalar ProgramPlan subset" {
     const BoolBody = struct {
         pub const compiled_plan = boolComparePlan("scalar-bool");
     };
-    const BoolProgram = ability.program("scalar-bool", BoolHandlers, BoolBody);
+    const BoolProgram = boundary.program("scalar-bool", BoolHandlers, BoolBody);
     var bool_result = try BoolProgram.run(&runtime, .{ .probe = .{} });
     defer bool_result.deinit();
     try std.testing.expectEqual(true, bool_result.value);
@@ -20539,7 +20539,7 @@ test "ability.program executes the public scalar ProgramPlan subset" {
     const I32Body = struct {
         pub const compiled_plan = pureArithmeticPlan("scalar-i32");
     };
-    const I32Program = ability.program("scalar-i32", struct {}, I32Body);
+    const I32Program = boundary.program("scalar-i32", struct {}, I32Body);
     var i32_result = try I32Program.run(&runtime, .{});
     defer i32_result.deinit();
     try std.testing.expectEqual(@as(i32, 7), i32_result.value);
@@ -20547,7 +20547,7 @@ test "ability.program executes the public scalar ProgramPlan subset" {
     const UsizeBody = struct {
         pub const compiled_plan = usizeLiteralPlan("scalar-usize");
     };
-    const UsizeProgram = ability.program("scalar-usize", struct {}, UsizeBody);
+    const UsizeProgram = boundary.program("scalar-usize", struct {}, UsizeBody);
     var usize_result = try UsizeProgram.run(&runtime, .{});
     defer usize_result.deinit();
     try std.testing.expectEqual(@as(usize, 0xff), usize_result.value);
@@ -20555,27 +20555,27 @@ test "ability.program executes the public scalar ProgramPlan subset" {
     const StringBody = struct {
         pub const compiled_plan = stringLiteralPlan("scalar-string");
     };
-    const StringProgram = ability.program("scalar-string", struct {}, StringBody);
+    const StringProgram = boundary.program("scalar-string", struct {}, StringBody);
     var string_result = try StringProgram.run(&runtime, .{});
     defer string_result.deinit();
     try std.testing.expectEqualStrings("scalar string", string_result.value);
 }
 
-test "ability.program allows scalar plans with unreachable structured schemas" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program allows scalar plans with unreachable structured schemas" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = scalarPlanWithUnreachableStructuredSchema("scalar-unreachable-schema");
     };
-    const Program = ability.program("scalar-unreachable-schema", struct {}, Body);
+    const Program = boundary.program("scalar-unreachable-schema", struct {}, Body);
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual({}, result.value);
 }
 
-test "ability.program applies after continuation exactly once" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program applies after continuation exactly once" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const CountingHandlers = struct {
@@ -20594,15 +20594,15 @@ test "ability.program applies after continuation exactly once" {
     };
 
     var count: usize = 0;
-    const Program = ability.program("one-shot-after", CountingHandlers, CompiledBody);
+    const Program = boundary.program("one-shot-after", CountingHandlers, CompiledBody);
     var result = try Program.run(&runtime, .{ .authored = .{ .count = &count } });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 6), result.value);
     try std.testing.expectEqual(@as(usize, 1), count);
 }
 
-test "ability.program unwinds more after continuations than helper call budget" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program unwinds more after continuations than helper call budget" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ManyAfterHandlers = struct {
@@ -20619,14 +20619,14 @@ test "ability.program unwinds more after continuations than helper call budget" 
     const ManyAfterBody = struct {
         pub const compiled_plan = manyAfterPlan("many-after-plan");
     };
-    const ManyAfterProgram = ability.program("many-after-plan", ManyAfterHandlers, ManyAfterBody);
+    const ManyAfterProgram = boundary.program("many-after-plan", ManyAfterHandlers, ManyAfterBody);
     var result = try ManyAfterProgram.run(&runtime, .{ .authored = .{} });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 65), result.value);
 }
 
-test "ability.program unwinds stacked after continuations with current answer codec" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program unwinds stacked after continuations with current answer codec" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const StackedHandlers = struct {
@@ -20663,7 +20663,7 @@ test "ability.program unwinds stacked after continuations with current answer co
 
     var outer_count: usize = 0;
     var inner_count: usize = 0;
-    const Program = ability.program("stacked-after", StackedHandlers, StackedBody);
+    const Program = boundary.program("stacked-after", StackedHandlers, StackedBody);
     var result = try Program.run(&runtime, .{
         .outer = .{ .count = &outer_count },
         .inner = .{ .count = &inner_count },
@@ -20674,8 +20674,8 @@ test "ability.program unwinds stacked after continuations with current answer co
     try std.testing.expectEqual(@as(usize, 1), inner_count);
 }
 
-test "ability.program skips after continuations for terminal escapes" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program skips after continuations for terminal escapes" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const TerminalHandlers = struct {
@@ -20703,7 +20703,7 @@ test "ability.program skips after continuations for terminal escapes" {
     };
 
     var after_count: usize = 0;
-    const Program = ability.program("terminal-bypasses-after", TerminalHandlers, TerminalBody);
+    const Program = boundary.program("terminal-bypasses-after", TerminalHandlers, TerminalBody);
     var result = try Program.run(&runtime, .{
         .outer = .{ .count = &after_count },
         .abort = .{},
@@ -20713,8 +20713,8 @@ test "ability.program skips after continuations for terminal escapes" {
     try std.testing.expectEqual(@as(usize, 0), after_count);
 }
 
-test "ability.program executes plan-native exception scalar throw catch" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program executes plan-native exception scalar throw catch" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ExceptionHandlers = struct {
@@ -20727,7 +20727,7 @@ test "ability.program executes plan-native exception scalar throw catch" {
     const ExceptionBody = struct {
         pub const compiled_plan = exceptionScalarThrowPlan("plan-native-exception-scalar-test");
     };
-    const Program = ability.program("plan-native-exception-scalar-test", ExceptionHandlers, ExceptionBody);
+    const Program = boundary.program("plan-native-exception-scalar-test", ExceptionHandlers, ExceptionBody);
     var result = try Program.run(&runtime, .{ .throw = .{} });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 41), result.value);
@@ -20735,8 +20735,8 @@ test "ability.program executes plan-native exception scalar throw catch" {
     try std.testing.expectEqual(@as(@TypeOf(Program.contract.requirements[0].lifecycle_tag), .abort_catch), Program.contract.requirements[0].lifecycle_tag);
 }
 
-test "ability.program executes plan-native exception product throw catch" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program executes plan-native exception product throw catch" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = struct {
@@ -20757,16 +20757,16 @@ test "ability.program executes plan-native exception product throw catch" {
             return .{Payload{ .amount = 50 }};
         }
     };
-    const Program = ability.program("plan-native-exception-product-test", ExceptionHandlers, ExceptionBody);
+    const Program = boundary.program("plan-native-exception-product-test", ExceptionHandlers, ExceptionBody);
     var result = try Program.run(&runtime, .{ .throw = .{} });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 51), result.value.amount);
-    try std.testing.expectEqual(ability.ir.ValueCodec.product, Program.contract.ops[0].payload_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.product, Program.contract.ops[0].payload_ref.codec);
     try std.testing.expectEqual(@as(?u16, 0), Program.contract.ops[0].payload_ref.schema_index);
 }
 
-test "ability.program executes plan-native exception sum throw catch" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program executes plan-native exception sum throw catch" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Payload = ?i32;
@@ -20785,16 +20785,16 @@ test "ability.program executes plan-native exception sum throw catch" {
             return .{@as(Payload, 60)};
         }
     };
-    const Program = ability.program("plan-native-exception-sum-test", ExceptionHandlers, ExceptionBody);
+    const Program = boundary.program("plan-native-exception-sum-test", ExceptionHandlers, ExceptionBody);
     var result = try Program.run(&runtime, .{ .throw = .{} });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 61), result.value);
-    try std.testing.expectEqual(ability.ir.ValueCodec.sum, Program.contract.ops[0].payload_ref.codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.sum, Program.contract.ops[0].payload_ref.codec);
     try std.testing.expectEqual(@as(usize, 2), Program.contract.value_variants.len);
 }
 
-test "ability.program executes nested plan-native exception terminal escape" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program executes nested plan-native exception terminal escape" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ExceptionHandlers = struct {
@@ -20807,14 +20807,14 @@ test "ability.program executes nested plan-native exception terminal escape" {
     const ExceptionBody = struct {
         pub const compiled_plan = nestedExceptionThrowPlan("plan-native-exception-nested-test");
     };
-    const Program = ability.program("plan-native-exception-nested-test", ExceptionHandlers, ExceptionBody);
+    const Program = boundary.program("plan-native-exception-nested-test", ExceptionHandlers, ExceptionBody);
     var result = try Program.run(&runtime, .{ .throw = .{} });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 71), result.value);
 }
 
-test "ability.program executes plan-native resource LIFO release" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program executes plan-native resource LIFO release" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const summary = try plan_native_resource.runNormal(&runtime);
@@ -20826,8 +20826,8 @@ test "ability.program executes plan-native resource LIFO release" {
     try std.testing.expectEqual(@as(i32, -1), summary.events[3]);
 }
 
-test "ability.program releases plan-native resources before exception terminal escape" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program releases plan-native resources before exception terminal escape" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const summary = try plan_native_resource.runExceptionEscape(&runtime);
@@ -20837,8 +20837,8 @@ test "ability.program releases plan-native resources before exception terminal e
     try std.testing.expectEqual(@as(i32, -1), summary.events[3]);
 }
 
-test "ability.program releases plan-native resources before optional return-now escape" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program releases plan-native resources before optional return-now escape" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const summary = try plan_native_resource.runOptionalEscape(&runtime);
@@ -20848,15 +20848,15 @@ test "ability.program releases plan-native resources before optional return-now 
     try std.testing.expectEqual(@as(i32, -1), summary.events[3]);
 }
 
-test "ability.program surfaces plan-native resource release failure" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program surfaces plan-native resource release failure" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     try std.testing.expectError(error.ReleaseFailed, plan_native_resource.runReleaseFailure(&runtime));
 }
 
-test "ability.program dispatches duplicate op names by requirement namespace" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program dispatches duplicate op names by requirement namespace" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const NamespacedHandlers = struct {
@@ -20879,14 +20879,14 @@ test "ability.program dispatches duplicate op names by requirement namespace" {
         pub const compiled_plan = duplicateOperationNamesPlan("duplicate-op-names");
     };
 
-    const Program = ability.program("duplicate-op-names", NamespacedHandlers, NamespacedBody);
+    const Program = boundary.program("duplicate-op-names", NamespacedHandlers, NamespacedBody);
     var result = try Program.run(&runtime, .{ .left = .{ .get = .{} }, .right = .{ .get = .{} } });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 42), result.value);
 }
 
-test "ability.program ignores unchecked unit operands" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program ignores unchecked unit operands" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const UnitPayloadBody = struct {
@@ -20899,7 +20899,7 @@ test "ability.program ignores unchecked unit operands" {
             }
         },
     };
-    const UnitPayloadProgram = ability.program("ignored-unit-payload-operand", UnitPayloadHandlers, UnitPayloadBody);
+    const UnitPayloadProgram = boundary.program("ignored-unit-payload-operand", UnitPayloadHandlers, UnitPayloadBody);
     var unit_payload_result = try UnitPayloadProgram.run(&runtime, .{ .source = .{} });
     defer unit_payload_result.deinit();
     try std.testing.expectEqual(@as(i32, 7), unit_payload_result.value);
@@ -20907,13 +20907,13 @@ test "ability.program ignores unchecked unit operands" {
     const UnitHelperBody = struct {
         pub const compiled_plan = invalidUnitHelperDestinationPlan("ignored-unit-helper-destination") catch unreachable;
     };
-    const UnitHelperProgram = ability.program("ignored-unit-helper-destination", struct {}, UnitHelperBody);
+    const UnitHelperProgram = boundary.program("ignored-unit-helper-destination", struct {}, UnitHelperBody);
     var unit_helper_result = try UnitHelperProgram.run(&runtime, .{});
     defer unit_helper_result.deinit();
 }
 
-test "ability.program abort op completes without running body tail" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program abort op completes without running body tail" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const AbortBody = struct {
@@ -20926,14 +20926,14 @@ test "ability.program abort op completes without running body tail" {
             }
         },
     };
-    const Program = ability.program("abort", AbortHandlers, AbortBody);
+    const Program = boundary.program("abort", AbortHandlers, AbortBody);
     var result = try Program.run(&runtime, .{ .authored = .{} });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 7), result.value);
 }
 
-test "ability.program propagates terminal helper results to the caller" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program propagates terminal helper results to the caller" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const HelperAbortBody = struct {
@@ -20946,47 +20946,47 @@ test "ability.program propagates terminal helper results to the caller" {
             }
         },
     };
-    const Program = ability.program("helper-abort", AbortHandlers, HelperAbortBody);
+    const Program = boundary.program("helper-abort", AbortHandlers, HelperAbortBody);
     var result = try Program.run(&runtime, .{ .abort = .{} });
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 7), result.value);
 }
 
-test "ability.program preserves normal helper value when result codec covers terminal escapes" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program preserves normal helper value when result codec covers terminal escapes" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const HelperBody = struct {
         pub const compiled_plan = helperNormalValueWithTerminalResultCodecPlan("helper-normal-terminal-result-codec");
     };
-    const Program = ability.program("helper-normal-terminal-result-codec", struct {}, HelperBody);
+    const Program = boundary.program("helper-normal-terminal-result-codec", struct {}, HelperBody);
     var result = try Program.run(&runtime, .{});
     defer result.deinit();
     try std.testing.expectEqual(@as(i32, 5), result.value);
 }
 
-test "ability.program surfaces declared ProgramPlan return_error values" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program surfaces declared ProgramPlan return_error values" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ErrorBody = struct {
         pub const Error = error{Rejected};
         pub const compiled_plan = returnErrorPlan("return-error");
     };
-    const Program = ability.program("return-error", struct {}, ErrorBody);
+    const Program = boundary.program("return-error", struct {}, ErrorBody);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.return_errors.len);
     try std.testing.expectEqualStrings("Rejected", Program.contract.return_errors[0]);
     try std.testing.expectError(error.Rejected, Program.run(&runtime, .{}));
 }
 
-test "ability.program omits unreachable helper return_error values" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program omits unreachable helper return_error values" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ErrorBody = struct {
         pub const compiled_plan = unreachableHelperReturnErrorPlan("unreachable-helper-return-error");
     };
-    const Program = ability.program("unreachable-helper-return-error", struct {}, ErrorBody);
+    const Program = boundary.program("unreachable-helper-return-error", struct {}, ErrorBody);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.return_errors.len);
 
     var result = try Program.run(&runtime, .{});
@@ -20994,14 +20994,14 @@ test "ability.program omits unreachable helper return_error values" {
     try std.testing.expectEqual(@as(i32, 5), result.value);
 }
 
-test "ability.program omits post-terminal return_error values" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program omits post-terminal return_error values" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ErrorBody = struct {
         pub const compiled_plan = postTerminalReturnErrorPlan("post-terminal-return-error");
     };
-    const Program = ability.program("post-terminal-return-error", struct {}, ErrorBody);
+    const Program = boundary.program("post-terminal-return-error", struct {}, ErrorBody);
     try std.testing.expectEqual(@as(usize, 0), Program.contract.return_errors.len);
 
     var result = try Program.run(&runtime, .{});
@@ -21009,66 +21009,66 @@ test "ability.program omits post-terminal return_error values" {
     try std.testing.expectEqual(@as(i32, 6), result.value);
 }
 
-test "ability.program exposes unique reachable return_error values" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program exposes unique reachable return_error values" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ErrorBody = struct {
         pub const Error = error{Rejected};
         pub const compiled_plan = duplicateReachableReturnErrorPlan("duplicate-reachable-return-error");
     };
-    const Program = ability.program("duplicate-reachable-return-error", struct {}, ErrorBody);
+    const Program = boundary.program("duplicate-reachable-return-error", struct {}, ErrorBody);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.return_errors.len);
     try std.testing.expectEqualStrings("Rejected", Program.contract.return_errors[0]);
     try std.testing.expectError(error.Rejected, Program.run(&runtime, .{}));
 }
 
-test "ability.program allows anyerror ProgramPlan return_error values" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program allows anyerror ProgramPlan return_error values" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ErrorBody = struct {
         pub const Error = anyerror;
         pub const compiled_plan = returnErrorPlan("anyerror-return-error");
     };
-    const Program = ability.program("anyerror-return-error", struct {}, ErrorBody);
+    const Program = boundary.program("anyerror-return-error", struct {}, ErrorBody);
     try std.testing.expectError(error.Rejected, Program.run(&runtime, .{}));
 }
 
-test "ability.program propagates error-only helper without result-codec match" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program propagates error-only helper without result-codec match" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ErrorBody = struct {
         pub const Error = error{Rejected};
         pub const compiled_plan = errorOnlyHelperPlan("error-only-helper");
     };
-    const Program = ability.program("error-only-helper", struct {}, ErrorBody);
+    const Program = boundary.program("error-only-helper", struct {}, ErrorBody);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.return_errors.len);
     try std.testing.expectEqualStrings("Rejected", Program.contract.return_errors[0]);
     try std.testing.expectError(error.Rejected, Program.run(&runtime, .{}));
 }
 
-test "ability.program propagates reachable nested-with return_error" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program propagates reachable nested-with return_error" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const ErrorBody = struct {
         pub const Error = error{Rejected};
         pub const compiled_plan = nestedReturnErrorPlan("nested-return-error");
-        pub const nested_with_targets = .{ability.ir.NestedWithTarget{
+        pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
             .metadata = nested_with_metadata,
             .function_index = 1,
         }};
     };
-    const Program = ability.program("nested-return-error", struct {}, ErrorBody);
+    const Program = boundary.program("nested-return-error", struct {}, ErrorBody);
     try std.testing.expectEqual(@as(usize, 1), Program.contract.return_errors.len);
     try std.testing.expectEqualStrings("Rejected", Program.contract.return_errors[0]);
     try std.testing.expectError(error.Rejected, Program.run(&runtime, .{}));
 }
 
-test "ability.program maps undeclared handler errors to ProgramContractViolation" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program maps undeclared handler errors to ProgramContractViolation" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const RejectingHandlers = struct {
@@ -21082,12 +21082,12 @@ test "ability.program maps undeclared handler errors to ProgramContractViolation
             }
         },
     };
-    const Program = ability.program("undeclared-handler-error", RejectingHandlers, CompiledBody);
+    const Program = boundary.program("undeclared-handler-error", RejectingHandlers, CompiledBody);
     try std.testing.expectError(error.ProgramContractViolation, Program.run(&runtime, .{ .authored = .{} }));
 }
 
-test "ability.program preserves declared handler errors" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program preserves declared handler errors" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const RejectingHandlers = struct {
@@ -21105,32 +21105,32 @@ test "ability.program preserves declared handler errors" {
         pub const Error = error{HandlerRejected};
         pub const compiled_plan = compiledTransformPlan("declared-handler-error");
     };
-    const Program = ability.program("declared-handler-error", RejectingHandlers, ErrorBody);
+    const Program = boundary.program("declared-handler-error", RejectingHandlers, ErrorBody);
     try std.testing.expectError(error.HandlerRejected, Program.run(&runtime, .{ .authored = .{} }));
 }
 
-test "ability.ir rejects entry plans that mix normal value and terminal result codecs" {
+test "boundary.ir rejects entry plans that mix normal value and terminal result codecs" {
     try std.testing.expectError(
         error.InvalidFunctionResultCodec,
         entryMixedNormalAndTerminalResultCodecPlan("entry-mixed-normal-terminal-result-codec"),
     );
 }
 
-test "ability.ir rejects entry plans with normal value completion and distinct result codec" {
+test "boundary.ir rejects entry plans with normal value completion and distinct result codec" {
     try std.testing.expectError(
         error.InvalidFunctionResultCodec,
         entryNormalValueWithDistinctResultCodecPlan("entry-normal-value-distinct-result-codec"),
     );
 }
 
-test "ability.ir can describe structured op payload metadata outside the executable subset" {
+test "boundary.ir can describe structured op payload metadata outside the executable subset" {
     const plan = unsupportedStructuredPayloadPlan("unsupported-structured-payload");
-    try std.testing.expectEqual(ability.ir.ValueCodec.product, plan.ops[0].payload_codec);
+    try std.testing.expectEqual(boundary.ir.ValueCodec.product, plan.ops[0].payload_codec);
     try std.testing.expectEqual(@as(?u16, 0), plan.ops[0].payload_schema_index);
 }
 
-test "ability.program rejects i32 arithmetic overflow without trapping" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program rejects i32 arithmetic overflow without trapping" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const OverflowHandlers = struct {
@@ -21143,18 +21143,18 @@ test "ability.program rejects i32 arithmetic overflow without trapping" {
     const AddConstOverflowBody = struct {
         pub const compiled_plan = overflowArithmeticPlan("add-const-overflow", false);
     };
-    const AddConstOverflowProgram = ability.program("add-const-overflow", OverflowHandlers, AddConstOverflowBody);
+    const AddConstOverflowProgram = boundary.program("add-const-overflow", OverflowHandlers, AddConstOverflowBody);
     try std.testing.expectError(error.ProgramContractViolation, AddConstOverflowProgram.run(&runtime, .{ .source = .{} }));
 
     const AddOverflowBody = struct {
         pub const compiled_plan = overflowArithmeticPlan("add-overflow", true);
     };
-    const AddOverflowProgram = ability.program("add-overflow", OverflowHandlers, AddOverflowBody);
+    const AddOverflowProgram = boundary.program("add-overflow", OverflowHandlers, AddOverflowBody);
     try std.testing.expectError(error.ProgramContractViolation, AddOverflowProgram.run(&runtime, .{ .source = .{} }));
 }
 
-test "ability.program rejects i32 sub_one underflow without trapping" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+test "boundary.program rejects i32 sub_one underflow without trapping" {
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const UnderflowHandlers = struct {
@@ -21167,13 +21167,13 @@ test "ability.program rejects i32 sub_one underflow without trapping" {
     const SubOneOverflowBody = struct {
         pub const compiled_plan = subOneOverflowPlan("sub-one-overflow");
     };
-    const SubOneOverflowProgram = ability.program("sub-one-overflow", UnderflowHandlers, SubOneOverflowBody);
+    const SubOneOverflowProgram = boundary.program("sub-one-overflow", UnderflowHandlers, SubOneOverflowBody);
     try std.testing.expectError(error.ProgramContractViolation, SubOneOverflowProgram.run(&runtime, .{ .source = .{} }));
 }
 
-test "ability.ir builder validates supported scalar GAE matrix" {
-    const payload_codecs = .{ ability.ir.ValueCodec.unit, ability.ir.ValueCodec.string };
-    const resume_codecs = .{ ability.ir.ValueCodec.unit, ability.ir.ValueCodec.i32 };
+test "boundary.ir builder validates supported scalar GAE matrix" {
+    const payload_codecs = .{ boundary.ir.ValueCodec.unit, boundary.ir.ValueCodec.string };
+    const resume_codecs = .{ boundary.ir.ValueCodec.unit, boundary.ir.ValueCodec.i32 };
     comptime {
         @setEvalBranchQuota(20_000);
         for (payload_codecs) |payload_codec| {
@@ -21187,13 +21187,13 @@ test "ability.ir builder validates supported scalar GAE matrix" {
 }
 
 test "Program.Exchange manifest and operation envelopes round trip" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "exchange-transform");
     };
-    const Program = ability.program("exchange-transform", struct {}, Body);
+    const Program = boundary.program("exchange-transform", struct {}, Body);
 
     var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
     defer manifest.deinit();
@@ -21210,7 +21210,7 @@ test "Program.Exchange manifest and operation envelopes round trip" {
         pub const value_schema_types = .{ Payload, Payload };
         pub const compiled_plan = duplicateSchemaPayloadPlan(Payload, "exchange-structured-manifest");
     };
-    const StructuredProgram = ability.program("exchange-structured-manifest", struct {}, StructuredBody);
+    const StructuredProgram = boundary.program("exchange-structured-manifest", struct {}, StructuredBody);
     var structured_manifest = try StructuredProgram.Exchange.Manifest.encode(std.testing.allocator);
     defer structured_manifest.deinit();
     var decoded_structured_manifest = try StructuredProgram.Exchange.Manifest.decode(std.testing.allocator, structured_manifest.bytes);
@@ -21237,13 +21237,13 @@ test "Program.Exchange manifest and operation envelopes round trip" {
 }
 
 test "Program.Exchange provider manifest encodes supports and rejects malformed images" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "provider-manifest");
     };
-    const Program = ability.program("provider-manifest", struct {}, Body);
+    const Program = boundary.program("provider-manifest", struct {}, Body);
     var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
     defer manifest.deinit();
 
@@ -21316,7 +21316,7 @@ test "Program.Exchange provider manifest encodes supports and rejects malformed 
     std.mem.writeInt(u32, legacy_provider_bytes["ABL_EXP1".len..][0..4], 1, .little);
     std.mem.writeInt(u32, legacy_provider_bytes["ABL_EXP1".len + 4 ..][0..4], 1, .little);
     const legacy_provider_payload = legacy_provider_bytes[0 .. legacy_provider_bytes.len - 8];
-    std.mem.writeInt(u64, legacy_provider_bytes[legacy_provider_bytes.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.provider", 1, legacy_provider_payload), .little);
+    std.mem.writeInt(u64, legacy_provider_bytes[legacy_provider_bytes.len - 8 ..][0..8], testExchangeFingerprint("boundary.exchange.provider", 1, legacy_provider_payload), .little);
     var legacy_decoded = try Program.Exchange.ProviderManifest.decode(std.testing.allocator, legacy_provider_bytes);
     defer legacy_decoded.deinit();
     try std.testing.expectEqual(@as(u32, 1), legacy_decoded.format_version);
@@ -21374,7 +21374,7 @@ test "Program.Exchange provider manifest encodes supports and rejects malformed 
     const provider_first_list_count_offset = "ABL_EXP1".len + 4 + 4 + 8 + 8 + "policy-provider".len;
     std.mem.writeInt(u64, huge_list_count[provider_first_list_count_offset..][0..8], std.math.maxInt(u64), .little);
     const provider_huge_payload = huge_list_count[0 .. huge_list_count.len - 8];
-    std.mem.writeInt(u64, huge_list_count[huge_list_count.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.provider", Program.Exchange.provider_fingerprint_version, provider_huge_payload), .little);
+    std.mem.writeInt(u64, huge_list_count[huge_list_count.len - 8 ..][0..8], testExchangeFingerprint("boundary.exchange.provider", Program.Exchange.provider_fingerprint_version, provider_huge_payload), .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.ProviderManifest.decode(std.testing.allocator, huge_list_count));
 
     var provider_reached_success = false;
@@ -21404,13 +21404,13 @@ test "Program.Exchange provider manifest encodes supports and rejects malformed 
 }
 
 test "Program.Exchange capability validates matching requests and structured blockers" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "capability-request");
     };
-    const Program = ability.program("capability-request", struct {}, Body);
+    const Program = boundary.program("capability-request", struct {}, Body);
     var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
     defer manifest.deinit();
     var session = try Program.Session.start(&runtime, .{});
@@ -21478,7 +21478,7 @@ test "Program.Exchange capability validates matching requests and structured blo
     no_response_kind.allowed_response_kinds = .{ .@"resume" = false, .return_now = false, .resume_after = false };
     try std.testing.expect(no_response_kind.allowsRequest(envelope, provider).has(.response_kind));
     var wrong_response_ref = decoded;
-    var wrong_response_refs = [_]ability.ir.ValueRef{.{ .codec = .unit }};
+    var wrong_response_refs = [_]boundary.ir.ValueRef{.{ .codec = .unit }};
     wrong_response_ref.allowed_response_refs = wrong_response_refs[0..];
     try std.testing.expect(wrong_response_ref.allowsRequest(envelope, provider).has(.response_ref));
 
@@ -21513,7 +21513,7 @@ test "Program.Exchange capability validates matching requests and structured blo
     const capability_version_offset = "ABL_EXC1".len + 4 + 4;
     std.mem.writeInt(u32, future_version[capability_version_offset..][0..4], 2, .little);
     const future_payload = future_version[0 .. future_version.len - 8];
-    const future_fingerprint = testExchangeFingerprint("ability.exchange.capability", Program.Exchange.capability_fingerprint_version, future_payload);
+    const future_fingerprint = testExchangeFingerprint("boundary.exchange.capability", Program.Exchange.capability_fingerprint_version, future_payload);
     std.mem.writeInt(u64, future_version[future_version.len - 8 ..][0..8], future_fingerprint, .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Capability.decode(std.testing.allocator, future_version));
     var future_direct = decoded;
@@ -21527,7 +21527,7 @@ test "Program.Exchange capability validates matching requests and structured blo
     const capability_first_list_count_offset = "ABL_EXC1".len + 4 + 4 + 4 + 8 + "host".len + 8 + 8 + 2;
     std.mem.writeInt(u64, huge_capability_list_count[capability_first_list_count_offset..][0..8], std.math.maxInt(u64), .little);
     const capability_huge_payload = huge_capability_list_count[0 .. huge_capability_list_count.len - 8];
-    std.mem.writeInt(u64, huge_capability_list_count[huge_capability_list_count.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.capability", Program.Exchange.capability_fingerprint_version, capability_huge_payload), .little);
+    std.mem.writeInt(u64, huge_capability_list_count[huge_capability_list_count.len - 8 ..][0..8], testExchangeFingerprint("boundary.exchange.capability", Program.Exchange.capability_fingerprint_version, capability_huge_payload), .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.Capability.decode(std.testing.allocator, huge_capability_list_count));
 
     var wrong_provider = provider;
@@ -21610,7 +21610,7 @@ test "Program.Exchange validation report records saturation" {
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "validation-report-saturation");
     };
-    const Program = ability.program("validation-report-saturation", struct {}, Body);
+    const Program = boundary.program("validation-report-saturation", struct {}, Body);
     var report: Program.Exchange.ValidationReport = .{};
     const soft_blockers = [_]Program.Exchange.BlockerTag{
         .wrong_provider,
@@ -21643,13 +21643,13 @@ test "Program.Exchange validation report records saturation" {
 }
 
 test "Program.Exchange capability allows after scope with operation fingerprint grant" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = compiledTransformPlan("capability-after-scope");
     };
-    const Program = ability.program("capability-after-scope", struct {}, Body);
+    const Program = boundary.program("capability-after-scope", struct {}, Body);
     var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
     defer manifest.deinit();
     var session = try Program.Session.start(&runtime, .{});
@@ -21760,13 +21760,13 @@ test "Program.Exchange capability allows after scope with operation fingerprint 
 }
 
 test "Program.Exchange capability attenuation narrows authority and rejects broadening" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "capability-attenuation");
     };
-    const Program = ability.program("capability-attenuation", struct {}, Body);
+    const Program = boundary.program("capability-attenuation", struct {}, Body);
     var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
     defer manifest.deinit();
     var session = try Program.Session.start(&runtime, .{});
@@ -21907,13 +21907,13 @@ test "Program.Exchange capability attenuation narrows authority and rejects broa
 }
 
 test "Program.Exchange response authorization validates capability route sidecar" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "authorization-response");
     };
-    const Program = ability.program("authorization-response", struct {}, Body);
+    const Program = boundary.program("authorization-response", struct {}, Body);
     var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
     defer manifest.deinit();
     var session = try Program.Session.start(&runtime, .{});
@@ -22048,13 +22048,13 @@ test "Program.Exchange response authorization validates capability route sidecar
 }
 
 test "Program.Exchange routed validation enforces policy payload limits" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionUnitStringOpPlan("route-payload-policy");
     };
-    const Program = ability.program("route-payload-policy", struct {}, Body);
+    const Program = boundary.program("route-payload-policy", struct {}, Body);
     var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
     defer manifest.deinit();
     var session = try Program.Session.start(&runtime, .{});
@@ -22106,13 +22106,13 @@ test "Program.Exchange routed validation enforces policy payload limits" {
 }
 
 test "Program.Exchange router reports single no route ambiguous and blockers deterministically" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "route-router");
     };
-    const Program = ability.program("route-router", struct {}, Body);
+    const Program = boundary.program("route-router", struct {}, Body);
     var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
     defer manifest.deinit();
     var session = try Program.Session.start(&runtime, .{});
@@ -22238,7 +22238,7 @@ test "Program.Exchange router reports single no route ambiguous and blockers det
         .manifest_fingerprint = manifest.fingerprint,
         .allowed_operation_sites = &[_]usize{envelope.site_index},
         .allowed_protocol_op_fingerprints = &[_]u64{envelope.site_fingerprint},
-        .allowed_response_refs = &[_]ability.ir.ValueRef{.{ .codec = .unit }},
+        .allowed_response_refs = &[_]boundary.ir.ValueRef{.{ .codec = .unit }},
     });
     defer wrong_response_ref_capability.deinit();
     const wrong_response_ref_route = Program.Exchange.Route.from(envelope, provider, wrong_response_ref_capability, .{});
@@ -22286,13 +22286,13 @@ test "Program.Exchange router reports single no route ambiguous and blockers det
 }
 
 test "Program.Exchange mailbox runner routes requests validates authorization and records journal events" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "mailbox-capability-route");
     };
-    const Program = ability.program("mailbox-capability-route", struct {}, Body);
+    const Program = boundary.program("mailbox-capability-route", struct {}, Body);
     const Outbox = struct {
         allocator: std.mem.Allocator,
         items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
@@ -22360,7 +22360,7 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
     std.mem.writeInt(u32, legacy_request_manifest[manifest_request_format_offset..][0..4], legacy_manifest_request_version, .little);
     std.mem.writeInt(u32, legacy_request_manifest[manifest_request_fingerprint_offset..][0..4], legacy_manifest_request_version, .little);
     const legacy_request_manifest_payload = legacy_request_manifest[0 .. legacy_request_manifest.len - 8];
-    const legacy_request_manifest_fingerprint = testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_request_manifest_payload);
+    const legacy_request_manifest_fingerprint = testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_request_manifest_payload);
     std.mem.writeInt(u64, legacy_request_manifest[legacy_request_manifest.len - 8 ..][0..8], legacy_request_manifest_fingerprint, .little);
     var provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
         .label = "mailbox-provider",
@@ -22662,7 +22662,7 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
     const response_manifest_fingerprint_offset = "ABL_EXR1".len + 2 * 4;
     std.mem.writeInt(u64, route_only_manifest_inbox.response.?.bytes[response_manifest_fingerprint_offset..][0..8], legacy_request_manifest_fingerprint, .little);
     const response_payload = route_only_manifest_inbox.response.?.bytes[0 .. route_only_manifest_inbox.response.?.bytes.len - 8];
-    const response_fingerprint = testExchangeFingerprint("ability.exchange.response", Program.Exchange.response_fingerprint_version, response_payload);
+    const response_fingerprint = testExchangeFingerprint("boundary.exchange.response", Program.Exchange.response_fingerprint_version, response_payload);
     std.mem.writeInt(u64, route_only_manifest_inbox.response.?.bytes[route_only_manifest_inbox.response.?.bytes.len - 8 ..][0..8], response_fingerprint, .little);
     route_only_manifest_inbox.response.?.manifest_fingerprint = legacy_request_manifest_fingerprint;
     route_only_manifest_inbox.response.?.fingerprint = response_fingerprint;
@@ -23542,13 +23542,13 @@ test "Program.Exchange mailbox runner routes requests validates authorization an
 }
 
 test "Program.Exchange mailbox preserves branch id while polling parked after request" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = compiledTransformPlan("exchange-mailbox-after-branch-repoll");
     };
-    const Program = ability.program("exchange-mailbox-after-branch-repoll", struct {}, Body);
+    const Program = boundary.program("exchange-mailbox-after-branch-repoll", struct {}, Body);
     const Outbox = struct {
         allocator: std.mem.Allocator,
         items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
@@ -23662,13 +23662,13 @@ test "Program.Exchange mailbox preserves branch id while polling parked after re
 }
 
 test "Program.Exchange journal events encode decode and replay skips exchange metadata" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "journal-capability-events");
     };
-    const Program = ability.program("journal-capability-events", struct {}, Body);
+    const Program = boundary.program("journal-capability-events", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
     var journal = Program.Session.Journal.init(std.testing.allocator);
@@ -23733,7 +23733,7 @@ test "Program.Exchange treaty journal events encode and decode sidecar fields" {
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "journal-treaty-events");
     };
-    const Program = ability.program("journal-treaty-events", struct {}, Body);
+    const Program = boundary.program("journal-treaty-events", struct {}, Body);
     var journal = Program.Session.Journal.init(std.testing.allocator);
     defer journal.deinit();
     try journal.appendExchangeEvent(.{
@@ -23799,9 +23799,9 @@ test "Program.Exchange provider offer fingerprints supports request and enforces
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "provider-offer-support");
     };
-    const Program = ability.program("provider-offer-support", struct {}, Body);
+    const Program = boundary.program("provider-offer-support", struct {}, Body);
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -23850,7 +23850,7 @@ test "Program.Exchange provider offer fingerprints supports request and enforces
     const provider_offer_max_response_offset = zero_response_cursor.index + 8;
     std.mem.writeInt(u64, zero_response_limit[provider_offer_max_response_offset..][0..8], 0, .little);
     const zero_response_payload = zero_response_limit[0 .. zero_response_limit.len - 8];
-    std.mem.writeInt(u64, zero_response_limit[zero_response_limit.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.provider_offer", Program.Exchange.provider_offer_fingerprint_version, zero_response_payload), .little);
+    std.mem.writeInt(u64, zero_response_limit[zero_response_limit.len - 8 ..][0..8], testExchangeFingerprint("boundary.exchange.provider_offer", Program.Exchange.provider_offer_fingerprint_version, zero_response_payload), .little);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.ProviderOffer.decode(std.testing.allocator, zero_response_limit));
 
     var too_small = try Program.Exchange.ProviderOffer.encode(std.testing.allocator, .{
@@ -23865,7 +23865,7 @@ test "Program.Exchange provider offer fingerprints supports request and enforces
     });
     defer too_small.deinit();
     try std.testing.expect(!too_small.supportsRequest(envelope));
-    const wrong_payload_refs = [_]ability.ir.ValueRef{.{ .codec = .unit }};
+    const wrong_payload_refs = [_]boundary.ir.ValueRef{.{ .codec = .unit }};
     var wrong_payload = try Program.Exchange.ProviderOffer.encode(std.testing.allocator, .{
         .label = "wrong-payload-offer",
         .provider_fingerprint = 0xabc,
@@ -23929,7 +23929,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     const Body = struct {
         pub const compiled_plan = compiledTransformPlan("provider-harness-catalog");
     };
-    const Program = ability.program("provider-harness-catalog", struct {}, Body);
+    const Program = boundary.program("provider-harness-catalog", struct {}, Body);
     const OperationSite = Program.protocol.operationSite("authored", "dispatch", 0);
     const AfterSite = Program.protocol.afterSite("authored", "dispatch", 0);
     const Harness = Program.Exchange.ProviderHarness(.{
@@ -23949,7 +23949,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expectEqual(@as(usize, 1), Harness.handled_after_site_count);
     try std.testing.expectEqual(@as(u64, 0x5150), Harness.metadata.provider_fingerprint);
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -23982,7 +23982,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     const function_report = Harness.defunctionalizationReport();
     try std.testing.expectEqual(@as(usize, 2), function_report.total_bodies);
     try std.testing.expectEqual(@as(usize, 2), function_report.host_intrinsic_count);
-    try std.testing.expectEqual(@as(usize, 0), function_report.ability_program_count);
+    try std.testing.expectEqual(@as(usize, 0), function_report.boundary_program_count);
     try std.testing.expectEqual(@as(usize, 2), function_report.intrinsic_refs.len);
     try std.testing.expectError(error.HostIntrinsicsPresent, function_report.assertNoHostIntrinsics());
     try std.testing.expectError(error.HostIntrinsicsPresent, Harness.assertDefunctionalized(Program.Evidence.DefunctionalizationPolicy.strict()));
@@ -24168,7 +24168,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     const HandlerBody = struct {
         pub const compiled_plan = pureArithmeticPlan("program-backed-provider-catalog-handler");
     };
-    const HandlerProgram = ability.program("program-backed-provider-catalog-handler", struct {}, HandlerBody);
+    const HandlerProgram = boundary.program("program-backed-provider-catalog-handler", struct {}, HandlerBody);
     const ProgramBackedDecl = Program.Exchange.ProviderHandler.program(.{
         .label = "program-backed-dispatch",
         .op = OperationSite,
@@ -24194,14 +24194,14 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     );
     try std.testing.expectEqual(@as(usize, 1), program_catalog.provider_manifest.supported_provider_program_mapping_fingerprints.len);
     try std.testing.expectEqual(ProgramBackedDecl.provider_program_mapping_fingerprint, program_catalog.provider_manifest.supported_provider_program_mapping_fingerprints[0]);
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, ProgramBackedHarness.declarationSemanticBody(0));
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, ProgramBackedHarness.declarationSemanticBody(0));
     try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, program_catalog.provider_offers[0].semanticBody());
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, program_catalog.provider_offers[0].semanticBodyWithProvider(program_catalog.provider_manifest));
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, program_catalog.provider_offers[0].semanticBodyWithProvider(program_catalog.provider_manifest));
     try std.testing.expect(program_catalog.provider_offers[0].hostIntrinsicRef() == null);
     try std.testing.expect(program_catalog.provider_offers[0].programBodyRef() != null);
     const program_report = ProgramBackedHarness.defunctionalizationReport();
     try std.testing.expectEqual(@as(usize, 1), program_report.total_bodies);
-    try std.testing.expectEqual(@as(usize, 1), program_report.ability_program_count);
+    try std.testing.expectEqual(@as(usize, 1), program_report.boundary_program_count);
     try std.testing.expectEqual(@as(usize, 0), program_report.host_intrinsic_count);
     try ProgramBackedHarness.assertDefunctionalized(Program.Evidence.DefunctionalizationPolicy.strict());
     try std.testing.expect(ProgramBackedDecl.provider_program_mapping_fingerprint != 0);
@@ -24298,7 +24298,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer preferred_mixed.deinit();
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, preferred_mixed.status);
     try std.testing.expectEqual(ProgramBackedHarness.provider_fingerprint, preferred_mixed.treaty.?.provider_fingerprint);
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, preferred_mixed.treaty.?.provider_semantic_body);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, preferred_mixed.treaty.?.provider_semantic_body);
     var explicit_preferred_mixed = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = request_envelope,
@@ -24317,7 +24317,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer explicit_preferred_mixed.deinit();
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, explicit_preferred_mixed.status);
     try std.testing.expectEqual(ProgramBackedHarness.provider_fingerprint, explicit_preferred_mixed.treaty.?.provider_fingerprint);
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, explicit_preferred_mixed.treaty.?.provider_semantic_body);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, explicit_preferred_mixed.treaty.?.provider_semantic_body);
     var morphism_preference_only_mixed = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = request_envelope,
@@ -24397,7 +24397,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer provider_required_dynamic_morphism.deinit();
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, provider_required_dynamic_morphism.status);
     try std.testing.expectEqual(Program.Exchange.Treaty.HandlingKind.dynamic_morphism, provider_required_dynamic_morphism.treaty.?.handling);
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, provider_required_dynamic_morphism.treaty.?.provider_semantic_body);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, provider_required_dynamic_morphism.treaty.?.provider_semantic_body);
     try std.testing.expectEqual(Program.Evidence.SemanticBody.host_intrinsic, provider_required_dynamic_morphism.treaty.?.morphism_semantic_body.?);
     try provider_required_dynamic_morphism.treaty.?.assertDefunctionalized(.{
         .label = "provider-program-required-dynamic-morphism-allowed",
@@ -24550,7 +24550,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     const ForeignHandlerBody = struct {
         pub const compiled_plan = pureArithmeticPlan("program-backed-provider-foreign-handler");
     };
-    const ForeignHandlerProgram = ability.program("program-backed-provider-foreign-handler", struct {}, ForeignHandlerBody);
+    const ForeignHandlerProgram = boundary.program("program-backed-provider-foreign-handler", struct {}, ForeignHandlerBody);
     const ForeignProgramBackedDecl = Program.Exchange.ProviderHandler.program(.{
         .label = "program-backed-dispatch",
         .op = OperationSite,
@@ -24697,7 +24697,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     const ForeignBody = struct {
         pub const compiled_plan = compiledTransformPlan("foreign-provider-harness-catalog");
     };
-    const ForeignProgram = ability.program("foreign-provider-harness-catalog", struct {}, ForeignBody);
+    const ForeignProgram = boundary.program("foreign-provider-harness-catalog", struct {}, ForeignBody);
     const ForeignOperationSite = ForeignProgram.protocol.operationSite("authored", "dispatch", 0);
     const ForeignAfterSite = ForeignProgram.protocol.afterSite("authored", "dispatch", 0);
     const ForeignHarness = ForeignProgram.Exchange.ProviderHarness(.{
@@ -24772,7 +24772,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     const ChoiceBody = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "provider-harness-narrow-response-refs");
     };
-    const ChoiceProgram = ability.program("provider-harness-narrow-response-refs", struct {}, ChoiceBody);
+    const ChoiceProgram = boundary.program("provider-harness-narrow-response-refs", struct {}, ChoiceBody);
     const ChoiceSite = ChoiceProgram.protocol.operationSite("session", "decide", 0);
     const NarrowDecl = ChoiceProgram.Exchange.ProviderHandler.operation(ChoiceSite, struct {}, .{
         .label = "return-only-choice",
@@ -24816,11 +24816,11 @@ test "Program.Exchange defunctionalization preference keeps provider body ahead 
     const Body = struct {
         pub const compiled_plan = duplicateOperationNamesPlan("program-backed-provider-preference-via-morphism");
     };
-    const Program = ability.program("program-backed-provider-preference-via-morphism", struct {}, Body);
+    const Program = boundary.program("program-backed-provider-preference-via-morphism", struct {}, Body);
     const SourceSite = Program.protocol.operationSite("left", "get", 0);
     const TargetSite = Program.protocol.operationSite("right", "get", 0);
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -24844,7 +24844,7 @@ test "Program.Exchange defunctionalization preference keeps provider body ahead 
     const HandlerBody = struct {
         pub const compiled_plan = pureArithmeticPlan("program-backed-provider-preference-handler");
     };
-    const HandlerProgram = ability.program("program-backed-provider-preference-handler", struct {}, HandlerBody);
+    const HandlerProgram = boundary.program("program-backed-provider-preference-handler", struct {}, HandlerBody);
     const ProgramBackedDecl = Program.Exchange.ProviderHandler.program(.{
         .label = "program-backed-right",
         .op = SourceSite,
@@ -24925,7 +24925,7 @@ test "Program.Exchange defunctionalization preference keeps provider body ahead 
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, preferred_result.status);
     try std.testing.expectEqual(ProgramBackedHarness.provider_fingerprint, preferred_result.treaty.?.provider_fingerprint);
     try std.testing.expectEqual(Program.Exchange.Treaty.HandlingKind.dynamic_morphism, preferred_result.treaty.?.handling);
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, preferred_result.treaty.?.provider_semantic_body);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, preferred_result.treaty.?.provider_semantic_body);
     try std.testing.expectEqual(Program.Evidence.SemanticBody.host_intrinsic, preferred_result.treaty.?.morphism_semantic_body.?);
 }
 
@@ -24933,12 +24933,12 @@ test "Program.Exchange program-backed provider mapping declarations validate arg
     const ScalarSourceBody = struct {
         pub const compiled_plan = sessionParameterizedHelperYieldPlan("program-provider-mapping-scalar-source");
     };
-    const ScalarSource = ability.program("program-provider-mapping-scalar-source", struct {}, ScalarSourceBody);
+    const ScalarSource = boundary.program("program-provider-mapping-scalar-source", struct {}, ScalarSourceBody);
     const ScalarSite = ScalarSource.protocol.operationSite("helper", "yield_arg", 0);
     const ScalarHandlerBody = struct {
         pub const compiled_plan = parameterizedIdentityPlan("program-provider-mapping-scalar-handler");
     };
-    const ScalarHandler = ability.program("program-provider-mapping-scalar-handler", struct {}, ScalarHandlerBody);
+    const ScalarHandler = boundary.program("program-provider-mapping-scalar-handler", struct {}, ScalarHandlerBody);
     const ScalarDecl = ScalarSource.Exchange.ProviderHandler.program(.{
         .label = "scalar-mapping",
         .op = ScalarSite,
@@ -24955,13 +24955,13 @@ test "Program.Exchange program-backed provider mapping declarations validate arg
         pub const value_schema_types = .{ProductPayload};
         pub const compiled_plan = sessionProductTransformPlan(ProductPayload, "program-provider-mapping-product-source");
     };
-    const ProductSource = ability.program("program-provider-mapping-product-source", struct {}, ProductSourceBody);
+    const ProductSource = boundary.program("program-provider-mapping-product-source", struct {}, ProductSourceBody);
     const ProductSite = ProductSource.protocol.operationSite("structured", "round_trip", 0);
     const ProductHandlerBody = struct {
         pub const value_schema_types = .{ProductPayload};
         pub const compiled_plan = productIdentityPlan(ProductPayload, "program-provider-mapping-product-handler");
     };
-    const ProductHandler = ability.program("program-provider-mapping-product-handler", struct {}, ProductHandlerBody);
+    const ProductHandler = boundary.program("program-provider-mapping-product-handler", struct {}, ProductHandlerBody);
     const ProductDecl = ProductSource.Exchange.ProviderHandler.program(.{
         .label = "product-mapping",
         .op = ProductSite,
@@ -24978,7 +24978,7 @@ test "Program.Exchange program-backed provider mapping declarations validate arg
         pub const value_schema_types = .{ PaddingPayload, ProductPayload };
         pub const compiled_plan = productIdentityPlanWithPayloadSchemaIndexOne(PaddingPayload, ProductPayload, "program-provider-mapping-product-shifted-handler");
     };
-    const ShiftedProductHandler = ability.program("program-provider-mapping-product-shifted-handler", struct {}, ShiftedProductHandlerBody);
+    const ShiftedProductHandler = boundary.program("program-provider-mapping-product-shifted-handler", struct {}, ShiftedProductHandlerBody);
     const ShiftedProductDecl = ProductSource.Exchange.ProviderHandler.program(.{
         .label = "product-mapping-shifted-schema-index",
         .op = ProductSite,
@@ -24996,13 +24996,13 @@ test "Program.Exchange program-backed provider mapping declarations validate arg
         pub const value_schema_types = .{SumPayload};
         pub const compiled_plan = sessionSumTransformPlan(SumPayload, "program-provider-mapping-sum-source");
     };
-    const SumSource = ability.program("program-provider-mapping-sum-source", struct {}, SumSourceBody);
+    const SumSource = boundary.program("program-provider-mapping-sum-source", struct {}, SumSourceBody);
     const SumSite = SumSource.protocol.operationSite("structured", "round_trip", 0);
     const SumHandlerBody = struct {
         pub const value_schema_types = .{SumPayload};
         pub const compiled_plan = sumIdentityPlan(SumPayload, "program-provider-mapping-sum-handler");
     };
-    const SumHandler = ability.program("program-provider-mapping-sum-handler", struct {}, SumHandlerBody);
+    const SumHandler = boundary.program("program-provider-mapping-sum-handler", struct {}, SumHandlerBody);
     const SumDecl = SumSource.Exchange.ProviderHandler.program(.{
         .label = "sum-mapping",
         .op = SumSite,
@@ -25016,12 +25016,12 @@ test "Program.Exchange program-backed provider mapping declarations validate arg
     const ChoiceBody = struct {
         pub const compiled_plan = choiceResumeI32ReturnBoolPlan("program-provider-mapping-choice-source");
     };
-    const ChoiceSource = ability.program("program-provider-mapping-choice-source", struct {}, ChoiceBody);
+    const ChoiceSource = boundary.program("program-provider-mapping-choice-source", struct {}, ChoiceBody);
     const ChoiceSite = ChoiceSource.protocol.operationSite("authored", "dispatch", 0);
     const ChoiceResumeHandlerBody = struct {
         pub const compiled_plan = pureArithmeticPlan("program-provider-mapping-choice-resume-handler");
     };
-    const ChoiceResumeHandler = ability.program("program-provider-mapping-choice-resume-handler", struct {}, ChoiceResumeHandlerBody);
+    const ChoiceResumeHandler = boundary.program("program-provider-mapping-choice-resume-handler", struct {}, ChoiceResumeHandlerBody);
     const ChoiceResumeDecl = ChoiceSource.Exchange.ProviderHandler.program(.{
         .label = "choice-resume",
         .op = ChoiceSite,
@@ -25046,7 +25046,7 @@ test "Program.Exchange program-backed provider mapping declarations validate arg
     const AbortBody = struct {
         pub const compiled_plan = exceptionScalarThrowPlan("program-provider-mapping-abort-source");
     };
-    const AbortSource = ability.program("program-provider-mapping-abort-source", struct {}, AbortBody);
+    const AbortSource = boundary.program("program-provider-mapping-abort-source", struct {}, AbortBody);
     const AbortSite = AbortSource.protocol.operationSite("exception", "throw", 0);
     const AbortDecl = AbortSource.Exchange.ProviderHandler.program(.{
         .label = "abort-return-now",
@@ -25061,7 +25061,7 @@ test "Program.Exchange program-backed provider mapping declarations validate arg
     const AfterSourceBody = struct {
         pub const compiled_plan = handlerlessAfterReturnBoolPlan("program-provider-mapping-after-source");
     };
-    const AfterSource = ability.program("program-provider-mapping-after-source", struct {}, AfterSourceBody);
+    const AfterSource = boundary.program("program-provider-mapping-after-source", struct {}, AfterSourceBody);
     const AfterSite = AfterSource.protocol.afterSite("handlerless", "step", 0);
     const AfterDecl = AfterSource.Exchange.ProviderHandler.program(.{
         .label = "after-resume-after",
@@ -25078,13 +25078,13 @@ test "Program.Exchange ProviderHarness runs synchronous program-backed provider 
     const Body = struct {
         pub const compiled_plan = compiledTransformPlan("program-provider-sync-source");
     };
-    const Program = ability.program("program-provider-sync-source", struct {}, Body);
+    const Program = boundary.program("program-provider-sync-source", struct {}, Body);
     const OperationSite = Program.protocol.operationSite("authored", "dispatch", 0);
     const HandlerBody = struct {
         pub const Error = error{Denied};
         pub const compiled_plan = pureArithmeticPlan("program-provider-sync-handler");
     };
-    const HandlerProgram = ability.program("program-provider-sync-handler", struct {}, HandlerBody);
+    const HandlerProgram = boundary.program("program-provider-sync-handler", struct {}, HandlerBody);
     const OperationDecl = Program.Exchange.ProviderHandler.program(.{
         .label = "sync-program-dispatch",
         .op = OperationSite,
@@ -25098,7 +25098,7 @@ test "Program.Exchange ProviderHarness runs synchronous program-backed provider 
         .entries = .{OperationDecl},
     });
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -25141,7 +25141,7 @@ test "Program.Exchange ProviderHarness runs synchronous program-backed provider 
         pub const Error = error{Denied};
         pub const compiled_plan = pureArithmeticPlan("program-provider-sync-foreign-handler");
     };
-    const ForeignHandlerProgram = ability.program("program-provider-sync-foreign-handler", struct {}, ForeignHandlerBody);
+    const ForeignHandlerProgram = boundary.program("program-provider-sync-foreign-handler", struct {}, ForeignHandlerBody);
     const ForeignDecl = Program.Exchange.ProviderHandler.program(.{
         .label = "sync-program-dispatch",
         .op = OperationSite,
@@ -25170,7 +25170,7 @@ test "Program.Exchange ProviderHarness runs synchronous program-backed provider 
     defer foreign_resolved.deinit();
     const foreign_treaty = foreign_resolved.treaty orelse return error.ExpectedTreaty;
 
-    var handler_runtime = ability.Runtime.init(std.testing.allocator);
+    var handler_runtime = boundary.Runtime.init(std.testing.allocator);
     defer handler_runtime.deinit();
     var provider_journal = Program.Session.Journal.init(std.testing.allocator);
     defer provider_journal.deinit();
@@ -25341,13 +25341,13 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     const Body = struct {
         pub const compiled_plan = compiledTransformPlan("program-provider-nested-source");
     };
-    const Program = ability.program("program-provider-nested-source", struct {}, Body);
+    const Program = boundary.program("program-provider-nested-source", struct {}, Body);
     const OperationSite = Program.protocol.operationSite("authored", "dispatch", 0);
     const HandlerBody = struct {
         pub const Error = error{Denied};
         pub const compiled_plan = sessionChoicePlan("program-provider-nested-handler");
     };
-    const HandlerProgram = ability.program("program-provider-nested-handler", struct {}, HandlerBody);
+    const HandlerProgram = boundary.program("program-provider-nested-handler", struct {}, HandlerBody);
     const OperationDecl = Program.Exchange.ProviderHandler.program(.{
         .label = "nested-program-dispatch",
         .op = OperationSite,
@@ -25361,7 +25361,7 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
         .entries = .{OperationDecl},
     });
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -25425,7 +25425,7 @@ test "Program.Exchange ProviderHarness suspends and resumes nested program-backe
     defer resolved.deinit();
     const treaty = resolved.treaty orelse return error.ExpectedTreaty;
 
-    var handler_runtime = ability.Runtime.init(std.testing.allocator);
+    var handler_runtime = boundary.Runtime.init(std.testing.allocator);
     defer handler_runtime.deinit();
     var provider_journal = Program.Session.Journal.init(std.testing.allocator);
     defer provider_journal.deinit();
@@ -25662,12 +25662,12 @@ test "Program.Exchange ProviderHarness increments nested turn indexes across rep
     const Body = struct {
         pub const compiled_plan = compiledTransformPlan("program-provider-nested-turn-source");
     };
-    const Program = ability.program("program-provider-nested-turn-source", struct {}, Body);
+    const Program = boundary.program("program-provider-nested-turn-source", struct {}, Body);
     const OperationSite = Program.protocol.operationSite("authored", "dispatch", 0);
     const HandlerBody = struct {
         pub const compiled_plan = sessionTwoChoicePlan("program-provider-nested-turn-handler");
     };
-    const HandlerProgram = ability.program("program-provider-nested-turn-handler", struct {}, HandlerBody);
+    const HandlerProgram = boundary.program("program-provider-nested-turn-handler", struct {}, HandlerBody);
     const OperationDecl = Program.Exchange.ProviderHandler.program(.{
         .label = "nested-turn-program-dispatch",
         .op = OperationSite,
@@ -25681,7 +25681,7 @@ test "Program.Exchange ProviderHarness increments nested turn indexes across rep
         .entries = .{OperationDecl},
     });
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -25720,7 +25720,7 @@ test "Program.Exchange ProviderHarness increments nested turn indexes across rep
     defer resolved.deinit();
     const treaty = resolved.treaty orelse return error.ExpectedTreaty;
 
-    var handler_runtime = ability.Runtime.init(std.testing.allocator);
+    var handler_runtime = boundary.Runtime.init(std.testing.allocator);
     defer handler_runtime.deinit();
     var started = try Harness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, std.testing.allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], .{ .treaty = treaty });
     var execution = switch (started) {
@@ -25766,7 +25766,7 @@ test "Program.Exchange ProviderHarness accepts handlerless after current values"
     const Body = struct {
         pub const compiled_plan = handlerlessAfterReturnBoolPlan("provider-harness-handlerless-after");
     };
-    const Program = ability.program("provider-harness-handlerless-after", struct {}, Body);
+    const Program = boundary.program("provider-harness-handlerless-after", struct {}, Body);
     const Operation = Program.protocol.operationSite("handlerless", "step", 0);
     const After = Program.protocol.afterSite("handlerless", "step", 0);
     try std.testing.expect(!After.has_static_input_ref);
@@ -25795,7 +25795,7 @@ test "Program.Exchange ProviderHarness accepts handlerless after current values"
         .entries = .{AfterDecl},
     });
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -25853,7 +25853,7 @@ test "Program.Exchange ProviderHarness validates morphism offers against target 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "provider-harness-morphism-target-usage");
     };
-    const Program = ability.program("provider-harness-morphism-target-usage", struct {}, Body);
+    const Program = boundary.program("provider-harness-morphism-target-usage", struct {}, Body);
     const OperationSite = Program.protocol.operationSite("session", "decide", 0);
     const target_protocol_op = @as(u64, 0xdecaf717);
     const OperationOutcome = union(enum) {
@@ -25886,7 +25886,7 @@ test "Program.Exchange ProviderHarness validates morphism offers against target 
         .entries = .{OperationDecl},
     });
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -25968,7 +25968,7 @@ test "Program.Exchange ProviderHarness decodes duplicate schema payload refs" {
             return .{.{ .amount = 123 }};
         }
     };
-    const Program = ability.program("provider-harness-duplicate-schema-payload", EmptyHandlers, Body);
+    const Program = boundary.program("provider-harness-duplicate-schema-payload", EmptyHandlers, Body);
     const Operation = Program.protocol.operationSite("structured", "payload", 0);
     const Outcome = union(enum) {
         forward,
@@ -25995,7 +25995,7 @@ test "Program.Exchange ProviderHarness decodes duplicate schema payload refs" {
         .entries = .{OperationDecl},
     });
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -26049,7 +26049,7 @@ test "Program.Exchange ProviderHarness handles treaty-bound request with typed p
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "provider-harness-handle-direct");
     };
-    const Program = ability.program("provider-harness-handle-direct", struct {}, Body);
+    const Program = boundary.program("provider-harness-handle-direct", struct {}, Body);
     const OperationSite = Program.protocol.operationSite("session", "decide", 0);
     const OperationOutcome = union(enum) {
         forward,
@@ -26097,7 +26097,7 @@ test "Program.Exchange ProviderHarness handles treaty-bound request with typed p
         .entries = .{OperationDecl},
     });
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -26828,7 +26828,7 @@ test "Program.Exchange ProviderHarness rejects responses outside selected certif
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "provider-harness-certificate-response-shape");
     };
-    const Program = ability.program("provider-harness-certificate-response-shape", struct {}, Body);
+    const Program = boundary.program("provider-harness-certificate-response-shape", struct {}, Body);
     const OperationSite = Program.protocol.operationSite("session", "decide", 0);
     const OperationOutcome = union(enum) {
         forward,
@@ -26857,7 +26857,7 @@ test "Program.Exchange ProviderHarness rejects responses outside selected certif
         .entries = .{OperationDecl},
     });
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -26911,9 +26911,9 @@ test "Program.Exchange treaty resolver selects direct provider and attenuates le
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "direct-treaty-resolver");
     };
-    const Program = ability.program("direct-treaty-resolver", struct {}, Body);
+    const Program = boundary.program("direct-treaty-resolver", struct {}, Body);
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -27237,9 +27237,9 @@ test "Program.Exchange treaty resolver reports direct blockers deterministically
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "direct-treaty-blockers");
     };
-    const Program = ability.program("direct-treaty-blockers", struct {}, Body);
+    const Program = boundary.program("direct-treaty-blockers", struct {}, Body);
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -27489,9 +27489,9 @@ test "Program.Exchange morphism offer selected when direct provider is unavailab
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "morphism-offer-resolver");
     };
-    const Program = ability.program("morphism-offer-resolver", struct {}, Body);
+    const Program = boundary.program("morphism-offer-resolver", struct {}, Body);
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -27763,7 +27763,7 @@ test "Program.Exchange morphism offer selected when direct provider is unavailab
     defer wrong_source_site_blocked.deinit();
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, wrong_source_site_blocked.status);
     try std.testing.expectEqual(Program.Exchange.Treaty.BlockerTag.provider_does_not_support_site, wrong_source_site_blocked.blockers.blockers[0].tag);
-    const wrong_payload_refs = [_]ability.ir.ValueRef{.{ .codec = .bool }};
+    const wrong_payload_refs = [_]boundary.ir.ValueRef{.{ .codec = .bool }};
     var wrong_source_ref_offer = try Program.Exchange.ProviderOffer.encode(std.testing.allocator, .{
         .label = "wrong-source-ref-offer",
         .provider_fingerprint = target_only_provider.provider_fingerprint,
@@ -28165,9 +28165,9 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "morphism-policy-resolver");
     };
-    const Program = ability.program("morphism-policy-resolver", struct {}, Body);
+    const Program = boundary.program("morphism-policy-resolver", struct {}, Body);
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -28686,7 +28686,7 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
     }
     try std.testing.expect(saw_label_only_capability_blocked);
 
-    const wrong_response_refs = [_]ability.ir.ValueRef{.{ .codec = .bool }};
+    const wrong_response_refs = [_]boundary.ir.ValueRef{.{ .codec = .bool }};
     var wrong_response_ref_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
         .issuer_label = "wrong-response-ref-issuer",
         .provider_fingerprint = provider.provider_fingerprint,
@@ -28755,7 +28755,7 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
     }
     try std.testing.expect(saw_wrong_response_ref_blocked);
 
-    const mixed_response_refs = [_]ability.ir.ValueRef{ trace.resume_ref, wrong_response_refs[0] };
+    const mixed_response_refs = [_]boundary.ir.ValueRef{ trace.resume_ref, wrong_response_refs[0] };
     var wildcard_target_broad_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
         .issuer_label = "wildcard-target-broad-issuer",
         .provider_fingerprint = provider.provider_fingerprint,
@@ -28791,7 +28791,7 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
     try std.testing.expectEqual(@as(usize, 1), wildcard_target_attenuated.treaty.?.attenuated_capability.?.allowed_response_refs.len);
     try std.testing.expect(wildcard_target_attenuated.treaty.?.attenuated_capability.?.allowed_response_refs[0].eql(trace.resume_ref));
 
-    const target_bool_refs = [_]ability.ir.ValueRef{.{ .codec = .bool }};
+    const target_bool_refs = [_]boundary.ir.ValueRef{.{ .codec = .bool }};
     var bool_target_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
         .issuer_label = "bool-target-issuer",
         .provider_fingerprint = provider.provider_fingerprint,
@@ -28844,7 +28844,7 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
     }
     try std.testing.expect(saw_wrong_source_ref_type_changing);
 
-    const source_payload_refs = [_]ability.ir.ValueRef{envelope.value_ref};
+    const source_payload_refs = [_]boundary.ir.ValueRef{envelope.value_ref};
     var bool_target_offer = try Program.Exchange.ProviderOffer.encode(std.testing.allocator, .{
         .label = "bool-target-offer",
         .provider_fingerprint = provider.provider_fingerprint,
@@ -29038,7 +29038,7 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
     wrong_residual_treaty.residualization_fingerprints = &.{};
     try std.testing.expectError(error.ProgramContractViolation, wrong_residual_treaty.checkCertificate());
     var wrong_semantic_body_treaty = static_result.treaty.?;
-    wrong_semantic_body_treaty.certificate.provider_semantic_body = .ability_program;
+    wrong_semantic_body_treaty.certificate.provider_semantic_body = .boundary_program;
     try std.testing.expectError(error.ProgramContractViolation, wrong_semantic_body_treaty.checkCertificate());
     const forged_intrinsic_ref = Program.Evidence.refFor(Program.Evidence.domains.host_intrinsic, 0x1234, .{
         .label = "forged-provider",
@@ -29064,9 +29064,9 @@ test "Program.Exchange treaty response shape follows offer and route narrowing" 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "treaty-response-narrowing");
     };
-    const Program = ability.program("treaty-response-narrowing", struct {}, Body);
+    const Program = boundary.program("treaty-response-narrowing", struct {}, Body);
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -29499,9 +29499,9 @@ test "Program.Exchange morphism target refs do not wildcard source response refs
     const Body = struct {
         pub const compiled_plan = choiceResumeI32ReturnBoolPlan("treaty-morphism-target-ref-no-wildcard");
     };
-    const Program = ability.program("treaty-morphism-target-ref-no-wildcard", struct {}, Body);
+    const Program = boundary.program("treaty-morphism-target-ref-no-wildcard", struct {}, Body);
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -29586,9 +29586,9 @@ test "Program.Exchange treaty-bound response authorization accepts and rejects s
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "treaty-response-authorization");
     };
-    const Program = ability.program("treaty-response-authorization", struct {}, Body);
+    const Program = boundary.program("treaty-response-authorization", struct {}, Body);
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -30161,7 +30161,7 @@ test "Program.Exchange treaty-bound response authorization accepts and rejects s
     manifest_index += 8 + 4 + 4 + 4;
     std.mem.writeInt(u32, legacy_v2_manifest_bytes[manifest_index..][0..4], legacy_v2_request_version, .little);
     const legacy_v2_manifest_payload = legacy_v2_manifest_bytes[0 .. legacy_v2_manifest_bytes.len - 8];
-    std.mem.writeInt(u64, legacy_v2_manifest_bytes[legacy_v2_manifest_bytes.len - 8 ..][0..8], testExchangeFingerprint("ability.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_v2_manifest_payload), .little);
+    std.mem.writeInt(u64, legacy_v2_manifest_bytes[legacy_v2_manifest_bytes.len - 8 ..][0..8], testExchangeFingerprint("boundary.exchange.manifest", Program.Exchange.manifest_fingerprint_version, legacy_v2_manifest_payload), .little);
     var legacy_v2_manifest = try Program.Exchange.Manifest.decode(std.testing.allocator, legacy_v2_manifest_bytes);
     defer legacy_v2_manifest.deinit();
 
@@ -30174,7 +30174,7 @@ test "Program.Exchange treaty-bound response authorization accepts and rejects s
     std.mem.writeInt(u32, legacy_v2_request_bytes["ABL_EXQ1".len..][0..4], legacy_v2_request_version, .little);
     std.mem.writeInt(u32, legacy_v2_request_bytes["ABL_EXQ1".len + 4 ..][0..4], legacy_v2_request_version, .little);
     std.mem.writeInt(u64, legacy_v2_request_bytes[request_manifest_fingerprint_offset..][0..8], legacy_v2_manifest.fingerprint, .little);
-    std.mem.writeInt(u64, legacy_v2_request_bytes[legacy_v2_request_payload_len..][0..8], testExchangeFingerprint("ability.exchange.request", legacy_v2_request_version, legacy_v2_request_bytes[0..legacy_v2_request_payload_len]), .little);
+    std.mem.writeInt(u64, legacy_v2_request_bytes[legacy_v2_request_payload_len..][0..8], testExchangeFingerprint("boundary.exchange.request", legacy_v2_request_version, legacy_v2_request_bytes[0..legacy_v2_request_payload_len]), .little);
     var legacy_v2_envelope = try Program.Exchange.RequestEnvelope.decode(std.testing.allocator, legacy_v2_request_bytes);
     defer legacy_v2_envelope.deinit();
     try std.testing.expectEqual(@as(u32, 2), legacy_v2_envelope.request_format_version);
@@ -30358,7 +30358,7 @@ test "Program.Exchange treaty-bound response authorization accepts and rejects s
     try request_capped_response.authorizeTreaty(request_capped_result.treaty.?, .fresh);
     try std.testing.expect(!Program.Exchange.validateTreatyResponse(request_capped_result.treaty.?, envelope, request_capped_response).allowed());
 
-    const wrong_response_refs = [_]ability.ir.ValueRef{.{ .codec = .unit }};
+    const wrong_response_refs = [_]boundary.ir.ValueRef{.{ .codec = .unit }};
     var response_ref_cap = Program.Exchange.TreatyRequest.fromRequest(envelope);
     response_ref_cap.desired_response_refs = wrong_response_refs[0..];
     var response_ref_blocked = try Program.Exchange.TreatyResolver.resolve(.{
@@ -30433,9 +30433,9 @@ test "Program.Exchange treaty resolver preserves offer response kind narrowing" 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "treaty-offer-response-kind");
     };
-    const Program = ability.program("treaty-offer-response-kind", struct {}, Body);
+    const Program = boundary.program("treaty-offer-response-kind", struct {}, Body);
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -30511,7 +30511,7 @@ test "Program.Exchange mailbox runner treaty mode sends certificate and validate
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "mailbox-treaty-mode");
     };
-    const Program = ability.program("mailbox-treaty-mode", struct {}, Body);
+    const Program = boundary.program("mailbox-treaty-mode", struct {}, Body);
     const Outbox = struct {
         allocator: std.mem.Allocator,
         items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
@@ -30574,7 +30574,7 @@ test "Program.Exchange mailbox runner treaty mode sends certificate and validate
         }
     };
 
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
@@ -31608,13 +31608,13 @@ test "Program.Exchange mailbox runner treaty mode sends certificate and validate
 }
 
 test "Program.Exchange capsule restore requires capability permission" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "capability-capsule-restore");
     };
-    const Program = ability.program("capability-capsule-restore", struct {}, Body);
+    const Program = boundary.program("capability-capsule-restore", struct {}, Body);
     var manifest = try Program.Exchange.Manifest.encode(std.testing.allocator);
     defer manifest.deinit();
     var session = try Program.Session.start(&runtime, .{});
@@ -31646,7 +31646,7 @@ test "Program.Exchange capsule restore requires capability permission" {
         .max_capsule_image_bytes = envelope.capsule_image.?.len,
     });
     defer denied.deinit();
-    var restore_runtime = ability.Runtime.init(std.testing.allocator);
+    var restore_runtime = boundary.Runtime.init(std.testing.allocator);
     defer restore_runtime.deinit();
     const denied_route = Program.Exchange.Route.from(envelope, provider, denied, .{});
     try std.testing.expect(!denied_route.capsule_restore_allowed);
@@ -31688,13 +31688,13 @@ test "Program.Exchange capsule restore requires capability permission" {
 }
 
 test "Program.Exchange response envelope applies to parked transform request" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "exchange-apply");
     };
-    const Program = ability.program("exchange-apply", struct {}, Body);
+    const Program = boundary.program("exchange-apply", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -31738,7 +31738,7 @@ test "Program.Exchange response envelope applies to parked transform request" {
 }
 
 test "Program.Exchange after envelope applies through resume_after" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const StackedHandlers = struct {
@@ -31764,7 +31764,7 @@ test "Program.Exchange after envelope applies through resume_after" {
     const Body = struct {
         pub const compiled_plan = stackedAfterPlan("exchange-after");
     };
-    const Program = ability.program("exchange-after", StackedHandlers, Body);
+    const Program = boundary.program("exchange-after", StackedHandlers, Body);
     var session = try Program.Session.start(&runtime, .{ .outer = .{}, .inner = .{} });
     defer session.deinit();
 
@@ -31808,13 +31808,13 @@ test "Program.Exchange after envelope applies through resume_after" {
 }
 
 test "Program.Exchange policy rejects capsules and disallowed response kinds" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-policy");
     };
-    const Program = ability.program("exchange-policy", struct {}, Body);
+    const Program = boundary.program("exchange-policy", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
     const request = switch (try session.next()) {
@@ -31883,13 +31883,13 @@ test "Program.Exchange policy rejects capsules and disallowed response kinds" {
 }
 
 test "Program.Exchange journals applied response value images for replay" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "exchange-journal-response-value");
     };
-    const Program = ability.program("exchange-journal-response-value", struct {}, Body);
+    const Program = boundary.program("exchange-journal-response-value", struct {}, Body);
     var journal = Program.Session.Journal.init(std.testing.allocator);
     defer journal.deinit();
 
@@ -31917,13 +31917,13 @@ test "Program.Exchange journals applied response value images for replay" {
 }
 
 test "Program.Exchange response journal failure preserves parked session" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.transform, "exchange-journal-failure-preserves-session");
     };
-    const Program = ability.program("exchange-journal-failure-preserves-session", struct {}, Body);
+    const Program = boundary.program("exchange-journal-failure-preserves-session", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -31959,13 +31959,13 @@ test "Program.Exchange response journal failure preserves parked session" {
 }
 
 test "Program.Exchange request envelope failures leave journal and allocator clean" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-request-failure-cleanup");
     };
-    const Program = ability.program("exchange-request-failure-cleanup", struct {}, Body);
+    const Program = boundary.program("exchange-request-failure-cleanup", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
     const request = switch (try session.next()) {
@@ -32013,13 +32013,13 @@ test "Program.Exchange request envelope failures leave journal and allocator cle
 }
 
 test "Program.Exchange request envelope validates decoded route fields" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-route-field-validation");
     };
-    const Program = ability.program("exchange-route-field-validation", struct {}, Body);
+    const Program = boundary.program("exchange-route-field-validation", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
     const request = switch (try session.next()) {
@@ -32068,13 +32068,13 @@ test "Program.Exchange request envelope validates decoded route fields" {
 }
 
 test "Program.Exchange applyResponse binds exact request envelope fingerprint" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-exact-envelope-binding");
     };
-    const Program = ability.program("exchange-exact-envelope-binding", struct {}, Body);
+    const Program = boundary.program("exchange-exact-envelope-binding", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
     const request = switch (try session.next()) {
@@ -32114,7 +32114,7 @@ test "Program.Exchange mailbox capsule encode failures clean captured sessions" 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-mailbox-capsule-failure-cleanup");
     };
-    const Program = ability.program("exchange-mailbox-capsule-failure-cleanup", struct {}, Body);
+    const Program = boundary.program("exchange-mailbox-capsule-failure-cleanup", struct {}, Body);
     const Outbox = struct {
         pub fn append(_: *@This(), envelope: Program.Exchange.RequestEnvelope) !void {
             var owned = envelope;
@@ -32129,7 +32129,7 @@ test "Program.Exchange mailbox capsule encode failures clean captured sessions" 
 
     var reached_success = false;
     for (0..256) |fail_index| {
-        var runtime = ability.Runtime.init(std.testing.allocator);
+        var runtime = boundary.Runtime.init(std.testing.allocator);
         defer runtime.deinit();
         var session = try Program.Session.start(&runtime, .{});
         defer session.deinit();
@@ -32157,13 +32157,13 @@ test "Program.Exchange mailbox capsule encode failures clean captured sessions" 
 }
 
 test "Program.Exchange mailbox deduplicates by envelope fingerprint" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-mailbox-envelope-dedup");
     };
-    const Program = ability.program("exchange-mailbox-envelope-dedup", struct {}, Body);
+    const Program = boundary.program("exchange-mailbox-envelope-dedup", struct {}, Body);
     const Outbox = struct {
         allocator: std.mem.Allocator,
         items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
@@ -32214,13 +32214,13 @@ test "Program.Exchange mailbox deduplicates by envelope fingerprint" {
 }
 
 test "Program.Exchange mailbox validates request policy before queued responses" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-mailbox-response-policy");
     };
-    const Program = ability.program("exchange-mailbox-response-policy", struct {}, Body);
+    const Program = boundary.program("exchange-mailbox-response-policy", struct {}, Body);
     const Outbox = struct {
         pub fn append(_: *@This(), envelope: Program.Exchange.RequestEnvelope) !void {
             var owned = envelope;
@@ -32267,13 +32267,13 @@ test "Program.Exchange mailbox validates request policy before queued responses"
 }
 
 test "Program.Exchange mailbox validates emitted request policy when options change" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-mailbox-emitted-request-policy");
     };
-    const Program = ability.program("exchange-mailbox-emitted-request-policy", struct {}, Body);
+    const Program = boundary.program("exchange-mailbox-emitted-request-policy", struct {}, Body);
     const Outbox = struct {
         allocator: std.mem.Allocator,
         items: std.ArrayList(Program.Exchange.RequestEnvelope) = .empty,
@@ -32339,13 +32339,13 @@ test "Program.Exchange mailbox validates emitted request policy when options cha
 }
 
 test "Program.Exchange request envelope with capsule restores and resumes" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-restart");
     };
-    const Program = ability.program("exchange-restart", struct {}, Body);
+    const Program = boundary.program("exchange-restart", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -32363,7 +32363,7 @@ test "Program.Exchange request envelope with capsule restores and resumes" {
     try std.testing.expect(envelope.capsule_image != null);
 
     session.deinit();
-    var restored_runtime = ability.Runtime.init(std.testing.allocator);
+    var restored_runtime = boundary.Runtime.init(std.testing.allocator);
     defer restored_runtime.deinit();
 
     var forged_envelope = envelope;
@@ -32386,13 +32386,13 @@ test "Program.Exchange request envelope with capsule restores and resumes" {
 }
 
 test "Program.Exchange response payload storage outlives response envelope" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringListResponsePlan("exchange-response-storage");
     };
-    const Program = ability.program("exchange-response-storage", struct {}, Body);
+    const Program = boundary.program("exchange-response-storage", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -32423,13 +32423,13 @@ test "Program.Exchange response payload storage outlives response envelope" {
 }
 
 test "Program.Exchange value images are canonical for equal string lists" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringListResponsePlan("exchange-canonical-string-list");
     };
-    const Program = ability.program("exchange-canonical-string-list", struct {}, Body);
+    const Program = boundary.program("exchange-canonical-string-list", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -32459,7 +32459,7 @@ test "Program.Exchange value images are canonical for equal string lists" {
 }
 
 test "Program.Exchange final response storage cooperates with result cleanup hook" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const CleanupState = struct {
@@ -32473,7 +32473,7 @@ test "Program.Exchange final response storage cooperates with result cleanup hoo
             if (value.len != 0) allocator.free(value[0]);
         }
     };
-    const Program = ability.program("exchange-response-cleanup", struct {}, Body);
+    const Program = boundary.program("exchange-response-cleanup", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -32505,7 +32505,7 @@ test "Program.Exchange final response storage cooperates with result cleanup hoo
 }
 
 test "Program.Exchange completed return_now storage cleans up with session" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const CleanupState = struct {
@@ -32519,7 +32519,7 @@ test "Program.Exchange completed return_now storage cleans up with session" {
             if (value.len != 0) allocator.free(value[0]);
         }
     };
-    const Program = ability.program("exchange-return-now-cleanup", struct {}, Body);
+    const Program = boundary.program("exchange-return-now-cleanup", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
 
     const request = switch (try session.next()) {
@@ -32540,7 +32540,7 @@ test "Program.Exchange completed return_now storage cleans up with session" {
 }
 
 test "Program.Exchange output failure cleans exchange result storage with tracked allocator" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const CleanupState = struct {
@@ -32561,7 +32561,7 @@ test "Program.Exchange output failure cleans exchange result storage with tracke
             if (value.len != 0) allocator.free(value[0]);
         }
     };
-    const Program = ability.program("exchange-output-failure-cleanup", EmptyHandlers, Body);
+    const Program = boundary.program("exchange-output-failure-cleanup", EmptyHandlers, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -32582,13 +32582,13 @@ test "Program.Exchange output failure cleans exchange result storage with tracke
 }
 
 test "Program.Exchange request envelope validates embedded capsule compatibility" {
-    var runtime = ability.Runtime.init(std.testing.allocator);
+    var runtime = boundary.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Body = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-capsule-compat");
     };
-    const Program = ability.program("exchange-capsule-compat", struct {}, Body);
+    const Program = boundary.program("exchange-capsule-compat", struct {}, Body);
     var session = try Program.Session.start(&runtime, .{});
     defer session.deinit();
 
@@ -32608,7 +32608,7 @@ test "Program.Exchange request envelope validates embedded capsule compatibility
     const OtherBody = struct {
         pub const compiled_plan = sessionStringOpPlan(.choice, "exchange-capsule-foreign");
     };
-    const OtherProgram = ability.program("exchange-capsule-foreign", struct {}, OtherBody);
+    const OtherProgram = boundary.program("exchange-capsule-foreign", struct {}, OtherBody);
     var other_session = try OtherProgram.Session.start(&runtime, .{});
     defer other_session.deinit();
     _ = try other_session.next();

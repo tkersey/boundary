@@ -1,21 +1,21 @@
 // zlinter-disable declaration_naming require_doc_comment no_swallow_error
-const ability = @import("ability");
+const boundary = @import("boundary");
 
 const nested_with_metadata = "a\x1fb\x1fc\x1fd\x1fe\x1ff\x1fg\x1fh\x1fi";
 
-fn nestedPlan() ability.ir.ProgramPlan {
-    const root = ability.ir.builder.function(0);
-    const value = ability.ir.builder.local(root, 0);
-    const instructions = [_]ability.ir.plan.Instruction{
+fn nestedPlan() boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const value = boundary.ir.builder.local(root, 0);
+    const instructions = [_]boundary.ir.plan.Instruction{
         .{
             .kind = .call_nested_with,
             .dst = value.index,
-            .aux = @intFromEnum(ability.ir.ValueCodec.i32),
+            .aux = @intFromEnum(boundary.ir.ValueCodec.i32),
             .string_literal = nested_with_metadata,
         },
-        ability.ir.builder.returnValue(root, value) catch unreachable,
+        boundary.ir.builder.returnValue(root, value) catch unreachable,
     };
-    const functions = [_]ability.ir.plan.Function{.{
+    const functions = [_]boundary.ir.plan.Function{.{
         .symbol_name = "run",
         .value_codec = .i32,
         .first_requirement = 0,
@@ -30,14 +30,14 @@ fn nestedPlan() ability.ir.ProgramPlan {
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
     }};
-    const blocks = [_]ability.ir.plan.Block{.{
+    const blocks = [_]boundary.ir.plan.Block{.{
         .first_instruction = 0,
         .instruction_count = @intCast(instructions.len),
         .terminator_index = 0,
     }};
-    const terminators = [_]ability.ir.plan.Terminator{.{ .kind = .return_value }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_value }};
 
-    return ability.ir.builder.finish(.{
+    return boundary.ir.builder.finish(.{
         .label = "missing-nested-with-target",
         .ir_hash = 1,
         .entry = root,
@@ -56,7 +56,7 @@ const Body = struct {
     pub const compiled_plan = nestedPlan();
 };
 
-const Program = ability.program("missing-nested-with-target", struct {}, Body);
+const Program = boundary.program("missing-nested-with-target", struct {}, Body);
 
 test "missing nested-with target fails closed" {
     _ = Program;

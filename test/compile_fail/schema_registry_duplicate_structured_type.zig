@@ -1,10 +1,10 @@
-const ability = @import("ability");
+const boundary = @import("boundary");
 
 const ProductPayload = struct {
     amount: i32,
 };
 
-const Schemas = ability.ir.schema.Registry(.{
+const Schemas = boundary.ir.schema.Registry(.{
     ProductPayload,
     ProductPayload,
 });

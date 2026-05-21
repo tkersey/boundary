@@ -1,13 +1,13 @@
 // zlinter-disable declaration_naming require_doc_comment no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const Handlers = struct {};
 
-const ApprovalProtocol = ability.ir.schema.Protocol(.{
+const ApprovalProtocol = boundary.ir.schema.Protocol(.{
     .label = "approval",
     .ops = .{
-        ability.ir.schema.transform("request", []const u8, i32),
+        boundary.ir.schema.transform("request", []const u8, i32),
     },
 });
 
@@ -17,7 +17,7 @@ const Rows = ApprovalProtocol.Rows(Handlers, .{
 });
 
 const semantic_spec = blk: {
-    const semantic = ability.ir.builder.semantic;
+    const semantic = boundary.ir.builder.semantic;
     const Request = Rows.op("request");
 
     break :blk .{
@@ -47,7 +47,7 @@ const semantic_spec = blk: {
     };
 };
 
-const compiled = ability.ir.builder.semantic.finish(semantic_spec) catch |err|
+const compiled = boundary.ir.builder.semantic.finish(semantic_spec) catch |err|
     @compileError("invalid treaty replayable example: " ++ @errorName(err));
 
 const Body = struct {
@@ -55,10 +55,10 @@ const Body = struct {
     pub const compiled_plan = compiled.plan;
 };
 
-const Program = ability.program("effect-treaty-replayable", Handlers, Body);
+const Program = boundary.program("effect-treaty-replayable", Handlers, Body);
 const ApprovalRequest = Program.protocol.operationSite("approval", "request", 0);
 
-fn nextEnvelope(allocator: std.mem.Allocator, runtime: *ability.Runtime) !struct {
+fn nextEnvelope(allocator: std.mem.Allocator, runtime: *boundary.Runtime) !struct {
     session: Program.Session,
     envelope: Program.Exchange.RequestEnvelope,
 } {
@@ -76,7 +76,7 @@ fn nextEnvelope(allocator: std.mem.Allocator, runtime: *ability.Runtime) !struct
 
 pub fn run(writer: anytype) !void {
     const allocator = std.heap.page_allocator;
-    var runtime = ability.Runtime.init(allocator);
+    var runtime = boundary.Runtime.init(allocator);
     defer runtime.deinit();
 
     var manifest = try Program.Exchange.Manifest.encode(allocator);

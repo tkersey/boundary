@@ -42,11 +42,11 @@ fn dummyValue(comptime T: type) T {
 
 fn ProgramPlanForBody(comptime Body: type) lowering_api.ProgramPlan {
     if (!hasDeclSafe(Body, "compiled_plan")) {
-        @compileError("ability.program bodies must declare pub const compiled_plan: ability.ir.ProgramPlan");
+        @compileError("boundary.program bodies must declare pub const compiled_plan: boundary.ir.ProgramPlan");
     }
     const plan = Body.compiled_plan;
     if (@TypeOf(plan) != lowering_api.ProgramPlan) {
-        @compileError("Body.compiled_plan must have type ability.ir.ProgramPlan");
+        @compileError("Body.compiled_plan must have type boundary.ir.ProgramPlan");
     }
     comptime {
         @setEvalBranchQuota(100_000);
@@ -57,7 +57,7 @@ fn ProgramPlanForBody(comptime Body: type) lowering_api.ProgramPlan {
         validateBodyValueSchemaTypes(plan, Body, nested_with_targets);
         const schema_types = BodyValueSchemaTypes(Body).values;
         lowering_api.validateTypedExecutablePlanSupportWithNestedTargets(plan, schema_types, nested_with_targets) catch |err| {
-            @compileError("Body.compiled_plan is not supported by ability.program: " ++ @errorName(err) ++ "\n" ++
+            @compileError("Body.compiled_plan is not supported by boundary.program: " ++ @errorName(err) ++ "\n" ++
                 lowering_api.executableCapabilitySummary(plan, schema_types, nested_with_targets));
         };
         validatePlanReturnErrors(plan, nested_with_targets, BodyErrorSet(Body));
@@ -555,7 +555,7 @@ fn ProgramContractFor(
     const first_session_blocker: ?lowering_api.SessionBlocker = if (SessionLedger.blockers.len == 0) null else SessionLedger.blockers[0];
 
     return struct {
-        /// Public program label passed to ability.program.
+        /// Public program label passed to boundary.program.
         pub const label = program_label;
         /// Result value reference declared by the entry ProgramPlan function.
         pub const result_ref = contract_result_ref;
@@ -1250,7 +1250,7 @@ pub fn program(
     comptime HandlersType: type,
     comptime Body: type,
 ) type {
-    if (label.len == 0) @compileError("ability.program label must be non-empty");
+    if (label.len == 0) @compileError("boundary.program label must be non-empty");
     const body_compiled_plan = ProgramPlanForBody(Body);
     const body_value_schema_types = BodyValueSchemaTypes(Body).values;
     const body_nested_with_targets = BodyNestedWithTargets(Body).values;
@@ -1780,7 +1780,7 @@ pub fn program(
 
             fn capsuleImageFingerprint(image_bytes: []const u8) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.program.capsule.image");
+                hashBytes(&hasher, "boundary.program.capsule.image");
                 hashU32(&hasher, Core.capsule_image_fingerprint_version);
                 hashBytes(&hasher, image_bytes);
                 return hasher.final();
@@ -2435,7 +2435,7 @@ pub fn program(
 
             fn journalFingerprintBytes(bytes: []const u8) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.program.session.journal");
+                hashBytes(&hasher, "boundary.program.session.journal");
                 hashU32(&hasher, session_journal_fingerprint_version);
                 hashBytes(&hasher, bytes);
                 return hasher.final();
@@ -2651,7 +2651,7 @@ pub fn program(
 
             fn fingerprintJournalResponseTrace(trace: Trace.Response) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.session.response");
+                hashBytes(&hasher, "boundary.session.response");
                 hashU32(&hasher, Trace.fingerprint_version);
                 hashU64(&hasher, trace.request_fingerprint);
                 hashBytes(&hasher, @tagName(trace.kind));
@@ -2661,7 +2661,7 @@ pub fn program(
             }
 
             fn hashJournalRequestPrefix(hasher: *std.hash.Wyhash, turn_index: usize, kind: Trace.RequestKind) void {
-                hashBytes(hasher, "ability.session.request");
+                hashBytes(hasher, "boundary.session.request");
                 hashU32(hasher, Trace.fingerprint_version);
                 hashBytes(hasher, label);
                 hashBytes(hasher, body_compiled_plan.label);
@@ -2726,7 +2726,7 @@ pub fn program(
                 const ValueType = @TypeOf(value);
                 if (comptime !ProgramValueRefMatchesType(body_value_schema_types, ref, ValueType)) return error.ProgramContractViolation;
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.session.value");
+                hashBytes(&hasher, "boundary.session.value");
                 hashU32(&hasher, Trace.fingerprint_version);
                 hashJournalTraceValueRef(&hasher, ref);
                 try hashTypedValueImagePayload(&hasher, ref, value);
@@ -5071,7 +5071,7 @@ pub fn program(
                     errdefer writer.deinit();
                     writeManifestPayload(&writer) catch |err| return mapProgramRunError(Error, err);
                     const payload = writer.bytes.items;
-                    const fingerprint = exchangeFingerprint("ability.exchange.manifest", exchange_manifest_fingerprint_version, payload);
+                    const fingerprint = exchangeFingerprint("boundary.exchange.manifest", exchange_manifest_fingerprint_version, payload);
                     try writer.writeU64(fingerprint);
                     return .{
                         .allocator = allocator,
@@ -5082,7 +5082,7 @@ pub fn program(
 
                 /// Decode and validate a Program exchange manifest image.
                 pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) Error!@This() {
-                    const payload = try checkedPayload(bytes, "ability.exchange.manifest", exchange_manifest_fingerprint_version);
+                    const payload = try checkedPayload(bytes, "boundary.exchange.manifest", exchange_manifest_fingerprint_version);
                     var reader = Reader.init(payload);
                     try reader.expectBytes(manifest_magic);
                     if (try reader.readU32() != exchange_manifest_format_version) return error.ProgramContractViolation;
@@ -5109,7 +5109,7 @@ pub fn program(
                     return .{
                         .allocator = allocator,
                         .bytes = owned,
-                        .fingerprint = try checkedBytesFingerprint(bytes, "ability.exchange.manifest", exchange_manifest_fingerprint_version),
+                        .fingerprint = try checkedBytesFingerprint(bytes, "boundary.exchange.manifest", exchange_manifest_fingerprint_version),
                     };
                 }
 
@@ -5133,7 +5133,7 @@ pub fn program(
                 writer.bytes.ensureTotalCapacityPrecise(fixed.allocator(), payload_len) catch unreachable;
                 writeManifestPayload(&writer) catch unreachable;
                 if (writer.bytes.items.len != payload_len) unreachable;
-                return exchangeFingerprint("ability.exchange.manifest", exchange_manifest_fingerprint_version, writer.bytes.items);
+                return exchangeFingerprint("boundary.exchange.manifest", exchange_manifest_fingerprint_version, writer.bytes.items);
             }
 
             fn currentExchangeManifestPayloadLen() usize {
@@ -5490,7 +5490,7 @@ pub fn program(
                     errdefer writer.deinit();
                     try writeProviderPayload(&writer, provider_fp, options);
                     const payload = writer.bytes.items;
-                    const fingerprint = exchangeFingerprint("ability.exchange.provider", exchange_provider_fingerprint_version, payload);
+                    const fingerprint = exchangeFingerprint("boundary.exchange.provider", exchange_provider_fingerprint_version, payload);
                     try writer.writeU64(fingerprint);
                     const owned_bytes = try writer.toOwnedSlice();
                     errdefer allocator.free(owned_bytes);
@@ -5731,7 +5731,7 @@ pub fn program(
                     errdefer writer.deinit();
                     try writeProviderOfferPayload(&writer, options);
                     const payload = writer.bytes.items;
-                    const fingerprint = exchangeFingerprint("ability.exchange.provider_offer", exchange_provider_offer_fingerprint_version, payload);
+                    const fingerprint = exchangeFingerprint("boundary.exchange.provider_offer", exchange_provider_offer_fingerprint_version, payload);
                     try writer.writeU64(fingerprint);
                     const attestation: ?ProviderProgramMappingAttestation = if (options.provider_program_mapping_fingerprint) |mapping_fingerprint|
                         ProviderProgramMappingAttestation.init(fingerprint, options.provider_fingerprint, mapping_fingerprint)
@@ -5748,7 +5748,7 @@ pub fn program(
 
                 /// Decode and validate a provider offer image.
                 pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) Error!@This() {
-                    const payload = try checkedPayload(bytes, "ability.exchange.provider_offer", exchange_provider_offer_fingerprint_version);
+                    const payload = try checkedPayload(bytes, "boundary.exchange.provider_offer", exchange_provider_offer_fingerprint_version);
                     var reader = Reader.init(payload);
                     try reader.expectBytes(provider_offer_magic);
                     const format_version = try reader.readU32();
@@ -5795,7 +5795,7 @@ pub fn program(
                         .allocator = allocator,
                         .bytes = owned,
                         .format_version = format_version,
-                        .fingerprint = try checkedBytesFingerprint(bytes, "ability.exchange.provider_offer", exchange_provider_offer_fingerprint_version),
+                        .fingerprint = try checkedBytesFingerprint(bytes, "boundary.exchange.provider_offer", exchange_provider_offer_fingerprint_version),
                         .label = label_value,
                         .provider_fingerprint = provider_fp,
                         .manifest_fingerprint = manifest_fp,
@@ -5900,7 +5900,7 @@ pub fn program(
                 /// Semantic body classification after checking provider-manifest mapping evidence.
                 pub fn semanticBodyWithProvider(self: @This(), provider: ProviderManifest) Evidence.SemanticBody {
                     if (self.provider_program_mapping_fingerprint) |fingerprint| {
-                        if (providerProgramMappingBackedByManifest(self, provider, fingerprint)) return .ability_program;
+                        if (providerProgramMappingBackedByManifest(self, provider, fingerprint)) return .boundary_program;
                         return .unknown;
                     }
                     return .host_intrinsic;
@@ -5923,7 +5923,7 @@ pub fn program(
                     return null;
                 }
 
-                /// Optional Ability-program body ref for program-backed offers.
+                /// Optional Boundary-program body ref for program-backed offers.
                 pub fn programBodyRef(self: @This()) ?Evidence.Ref {
                     if (self.provider_program_mapping_fingerprint) |fingerprint| {
                         return Evidence.refFor(Evidence.domains.provider_program_mapping, fingerprint, .{ .label = self.label });
@@ -6058,7 +6058,7 @@ pub fn program(
                     };
                 }
 
-                /// Declare a provider handler backed by another Ability Program.
+                /// Declare a provider handler backed by another Boundary Program.
                 pub fn program(comptime options: anytype) type {
                     const has_operation_site = comptime providerHarnessHasField(@TypeOf(options), "op");
                     const has_after_site = comptime providerHarnessHasField(@TypeOf(options), "after");
@@ -6072,7 +6072,7 @@ pub fn program(
                     const SiteType = if (has_operation_site) options.op else options.after;
                     const ProgramType = options.program;
                     if (!hasDeclSafe(ProgramType, "compiled_plan") or !hasDeclSafe(ProgramType, "contract")) {
-                        @compileError("Program.Exchange.ProviderHandler.program requires an Ability Program type");
+                        @compileError("Program.Exchange.ProviderHandler.program requires an Boundary Program type");
                     }
                     const request_mapping = providerHarnessField(options, "map_request", RequestToProgramArgs.payload_to_args);
                     const result_mapping = providerHarnessField(options, "map_result", if (has_after_site) ProgramResultToProviderOutcome.result_to_resume_after else ProgramResultToProviderOutcome.result_to_resume);
@@ -6126,8 +6126,8 @@ pub fn program(
                         pub const handler_program_result_ref = ProgramType.contract.result_ref;
                         /// Stable witness for the handler Program and mapping agreement.
                         pub const provider_program_mapping_fingerprint = mapping_fingerprint;
-                        /// Program-backed provider handlers are canonical Ability-native program bodies.
-                        pub const semantic_body = Evidence.SemanticBody.ability_program;
+                        /// Program-backed provider handlers are canonical Boundary-native program bodies.
+                        pub const semantic_body = Evidence.SemanticBody.boundary_program;
                         /// Provider-offer options for this handler declaration.
                         pub const offer_options = providerProgramOfferOptions(options);
                     };
@@ -8300,7 +8300,7 @@ pub fn program(
                 }
                 const HandlerProgram = Entry.handler_program;
                 if (!hasDeclSafe(HandlerProgram, "compiled_plan") or !hasDeclSafe(HandlerProgram, "contract")) {
-                    @compileError("Program.Exchange.ProviderHarness program-backed entries must use an Ability Program handler");
+                    @compileError("Program.Exchange.ProviderHarness program-backed entries must use an Boundary Program handler");
                 }
                 validateProviderProgramRequestMapping(Entry.kind, Entry.Site, HandlerProgram, Entry.request_to_program_args, null);
                 const expected = providerProgramMappingFingerprint(
@@ -8314,8 +8314,8 @@ pub fn program(
                 if (Entry.provider_program_mapping_fingerprint != expected) {
                     @compileError("Program.Exchange.ProviderHarness program-backed mapping fingerprint does not match handler Program");
                 }
-                if (comptime @hasDecl(Entry, "semantic_body") and Entry.semantic_body != .ability_program) {
-                    @compileError("Program.Exchange.ProviderHarness program-backed entries must declare ability_program semantic body");
+                if (comptime @hasDecl(Entry, "semantic_body") and Entry.semantic_body != .boundary_program) {
+                    @compileError("Program.Exchange.ProviderHarness program-backed entries must declare boundary_program semantic body");
                 }
             }
 
@@ -8430,7 +8430,7 @@ pub fn program(
 
             fn providerHarnessEntrySemanticBody(comptime Entry: type) Evidence.SemanticBody {
                 if (comptime providerHarnessEntryProgramBacked(Entry)) {
-                    return .ability_program;
+                    return .boundary_program;
                 }
                 if (comptime @hasDecl(Entry, "semantic_body") and Entry.semantic_body != .host_intrinsic) {
                     @compileError("Program.Exchange.ProviderHarness function-backed entries must declare host_intrinsic semantic body");
@@ -8452,7 +8452,7 @@ pub fn program(
                 inline for (entries) |Entry| {
                     const body = comptime providerHarnessEntrySemanticBody(Entry);
                     switch (body) {
-                        .ability_program => counts.ability_program += 1,
+                        .boundary_program => counts.boundary_program += 1,
                         .declarative => counts.declarative += 1,
                         .residualized_program => counts.residualized_program += 1,
                         .pipeline => counts.pipeline += 1,
@@ -8773,7 +8773,7 @@ pub fn program(
 
             fn providerOfferIntrinsicPolicyFingerprintFromOptions(options: ProviderOffer.Options) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.provider_offer.intrinsic_policy");
+                hashBytes(&hasher, "boundary.exchange.provider_offer.intrinsic_policy");
                 hashU32(&hasher, exchange_provider_offer_fingerprint_version);
                 hashBytes(&hasher, options.label);
                 hashU64(&hasher, options.provider_fingerprint);
@@ -8896,7 +8896,7 @@ pub fn program(
                         .associated_morphism_offer_ref = self.evidenceRef(),
                         .reason = "dynamic morphism mapper is opaque host code",
                         .stability = .host_owned,
-                        .metadata = "ability.exchange.morphism_offer.dynamic_mapper",
+                        .metadata = "boundary.exchange.morphism_offer.dynamic_mapper",
                     });
                 }
 
@@ -9015,7 +9015,7 @@ pub fn program(
                     var counts = Evidence.DefunctionalizationReport.Counts.fromBody(self.provider_semantic_body);
                     if (self.morphism_semantic_body) |body| {
                         const morphism_counts = Evidence.DefunctionalizationReport.Counts.fromBody(body);
-                        counts.ability_program += morphism_counts.ability_program;
+                        counts.boundary_program += morphism_counts.boundary_program;
                         counts.declarative += morphism_counts.declarative;
                         counts.residualized_program += morphism_counts.residualized_program;
                         counts.pipeline += morphism_counts.pipeline;
@@ -9037,7 +9037,7 @@ pub fn program(
                 pub fn assertDefunctionalized(self: @This(), policy: Evidence.DefunctionalizationPolicy) error{ ProgramContractViolation, HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
                     self.checkCertificate() catch return error.ProgramContractViolation;
                     try self.defunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
-                    if (policy.require_program_backed_providers and self.provider_semantic_body != .ability_program) return error.HostIntrinsicsPresent;
+                    if (policy.require_program_backed_providers and self.provider_semantic_body != .boundary_program) return error.HostIntrinsicsPresent;
                     if (policy.require_declarative_morphisms) {
                         if (self.morphism_semantic_body) |body| {
                             if (body != .declarative and body != .residualized_program and body != .pipeline) return error.HostIntrinsicsPresent;
@@ -9950,14 +9950,14 @@ pub fn program(
                     errdefer writer.deinit();
                     try writeCapabilityPayload(&writer, options, path);
                     const payload = writer.bytes.items;
-                    const fingerprint = exchangeFingerprint("ability.exchange.capability", exchange_capability_fingerprint_version, payload);
+                    const fingerprint = exchangeFingerprint("boundary.exchange.capability", exchange_capability_fingerprint_version, payload);
                     try writer.writeU64(fingerprint);
                     return capabilityFromOptions(allocator, try writer.toOwnedSlice(), fingerprint, options, path);
                 }
 
                 /// Decode and validate a capability grant image.
                 pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) Error!@This() {
-                    const payload = try checkedPayload(bytes, "ability.exchange.capability", exchange_capability_fingerprint_version);
+                    const payload = try checkedPayload(bytes, "boundary.exchange.capability", exchange_capability_fingerprint_version);
                     var reader = Reader.init(payload);
                     try reader.expectBytes(capability_magic);
                     const format = try reader.readU32();
@@ -10004,7 +10004,7 @@ pub fn program(
                         .allocator = allocator,
                         .bytes = owned,
                         .version = version,
-                        .fingerprint = try checkedBytesFingerprint(bytes, "ability.exchange.capability", exchange_capability_fingerprint_version),
+                        .fingerprint = try checkedBytesFingerprint(bytes, "boundary.exchange.capability", exchange_capability_fingerprint_version),
                         .issuer_label = issuer,
                         .provider_fingerprint = provider_fp,
                         .manifest_fingerprint = manifest_fp,
@@ -10819,7 +10819,7 @@ pub fn program(
                 /// Decode and validate response bytes after applying policy limits before payload copies.
                 pub fn decodeWithPolicy(allocator: std.mem.Allocator, bytes: []const u8, policy: Policy) Error!@This() {
                     if (bytes.len > policy.max_envelope_bytes) return error.ProgramContractViolation;
-                    const payload = try checkedPayload(bytes, "ability.exchange.response", exchange_response_fingerprint_version);
+                    const payload = try checkedPayload(bytes, "boundary.exchange.response", exchange_response_fingerprint_version);
                     var reader = Reader.init(payload);
                     try reader.expectBytes(response_magic);
                     if (try reader.readU32() != exchange_response_format_version) return error.ProgramContractViolation;
@@ -10847,7 +10847,7 @@ pub fn program(
                     return .{
                         .allocator = allocator,
                         .bytes = owned,
-                        .fingerprint = try checkedBytesFingerprint(bytes, "ability.exchange.response", exchange_response_fingerprint_version),
+                        .fingerprint = try checkedBytesFingerprint(bytes, "boundary.exchange.response", exchange_response_fingerprint_version),
                         .manifest_fingerprint = manifest_fingerprint,
                         .request_envelope_fingerprint = request_envelope_fingerprint,
                         .request_fingerprint = request_fingerprint,
@@ -12891,8 +12891,8 @@ pub fn program(
             }
 
             fn providerOfferFieldsBoundToBytes(offer: ProviderOffer) bool {
-                const payload = checkedPayload(offer.bytes, "ability.exchange.provider_offer", exchange_provider_offer_fingerprint_version) catch return false;
-                const fingerprint = checkedBytesFingerprint(offer.bytes, "ability.exchange.provider_offer", exchange_provider_offer_fingerprint_version) catch return false;
+                const payload = checkedPayload(offer.bytes, "boundary.exchange.provider_offer", exchange_provider_offer_fingerprint_version) catch return false;
+                const fingerprint = checkedBytesFingerprint(offer.bytes, "boundary.exchange.provider_offer", exchange_provider_offer_fingerprint_version) catch return false;
                 if (fingerprint != offer.fingerprint) return false;
                 var reader = Reader.init(payload);
                 reader.expectBytes(provider_offer_magic) catch return false;
@@ -12930,7 +12930,7 @@ pub fn program(
 
             fn providerProgramMappingAttestationToken(offer_fingerprint: u64, provider_fingerprint: u64, mapping_fingerprint: u64) u64 {
                 var hasher = std.hash.Wyhash.init(@intFromPtr(&provider_program_mapping_attestation_seed));
-                hashBytes(&hasher, "ability.exchange.provider_program.mapping.attestation");
+                hashBytes(&hasher, "boundary.exchange.provider_program.mapping.attestation");
                 hashU64(&hasher, offer_fingerprint);
                 hashU64(&hasher, provider_fingerprint);
                 hashU64(&hasher, mapping_fingerprint);
@@ -13090,7 +13090,7 @@ pub fn program(
                 var writer = Writer.init(allocator);
                 defer writer.deinit();
                 writeManifestPayloadWithVersions(&writer, encoded_request_format_version, encoded_request_fingerprint_version, encoded_journal_format_version) catch |err| return mapProgramRunError(Error, err);
-                return exchangeFingerprint("ability.exchange.manifest", exchange_manifest_fingerprint_version, writer.bytes.items);
+                return exchangeFingerprint("boundary.exchange.manifest", exchange_manifest_fingerprint_version, writer.bytes.items);
             }
 
             const ManifestVersionTuple = struct {
@@ -13168,7 +13168,7 @@ pub fn program(
                 try writeOptionalBytes(&writer, args.journal_branch_id);
                 try writeRequestUsageMetadata(&writer, args.usage_metadata);
                 const payload = writer.bytes.items;
-                const fingerprint = exchangeFingerprint("ability.exchange.request", exchange_request_fingerprint_version, payload);
+                const fingerprint = exchangeFingerprint("boundary.exchange.request", exchange_request_fingerprint_version, payload);
                 try writer.writeU64(fingerprint);
                 const owned = try writer.toOwnedSlice();
                 errdefer allocator.free(owned);
@@ -13240,7 +13240,7 @@ pub fn program(
                 try writer.writeU64(response_trace.fingerprint);
                 try writer.writeLenBytes(value_image);
                 const payload = writer.bytes.items;
-                const fingerprint = exchangeFingerprint("ability.exchange.response", exchange_response_fingerprint_version, payload);
+                const fingerprint = exchangeFingerprint("boundary.exchange.response", exchange_response_fingerprint_version, payload);
                 try writer.writeU64(fingerprint);
                 return .{
                     .allocator = allocator,
@@ -13614,7 +13614,7 @@ pub fn program(
 
             fn responseTraceFromEnvelope(request_fingerprint: u64, kind_value: ResponseKind, ref: lowering_api.ValueRef, value_fingerprint: u64) Session.Trace.Response {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.session.response");
+                hashBytes(&hasher, "boundary.session.response");
                 hashU32(&hasher, Session.Trace.fingerprint_version);
                 hashU64(&hasher, request_fingerprint);
                 hashBytes(&hasher, @tagName(kind_value));
@@ -13812,7 +13812,7 @@ pub fn program(
             }
 
             fn journalBranchPolicyFingerprint(journal_branch_id: []const u8) u64 {
-                return exchangeFingerprint("ability.exchange.journal.policy", exchange_capability_fingerprint_version, journal_branch_id);
+                return exchangeFingerprint("boundary.exchange.journal.policy", exchange_capability_fingerprint_version, journal_branch_id);
             }
 
             fn checkedPayload(bytes: []const u8, domain: []const u8, version: u32) Error![]const u8 {
@@ -13844,7 +13844,7 @@ pub fn program(
                 const format_version = try reader.readU32();
                 const fingerprint_version = try reader.readU32();
                 if (!supportedProviderManifestVersions(format_version, fingerprint_version)) return error.ProgramContractViolation;
-                const expected = exchangeFingerprint("ability.exchange.provider", fingerprint_version, payload);
+                const expected = exchangeFingerprint("boundary.exchange.provider", fingerprint_version, payload);
                 if (actual != expected) return error.ProgramContractViolation;
                 return .{
                     .payload = payload,
@@ -13874,7 +13874,7 @@ pub fn program(
                 const format_version = try reader.readU32();
                 const fingerprint_version = try reader.readU32();
                 if (!supportedRequestEnvelopeVersions(format_version, fingerprint_version)) return error.ProgramContractViolation;
-                if (actual != exchangeFingerprint("ability.exchange.request", fingerprint_version, payload)) return error.ProgramContractViolation;
+                if (actual != exchangeFingerprint("boundary.exchange.request", fingerprint_version, payload)) return error.ProgramContractViolation;
                 return payload;
             }
 
@@ -14461,7 +14461,7 @@ pub fn program(
 
             fn fingerprintMorphismOffer(offer: MorphismOffer) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.morphism_offer");
+                hashBytes(&hasher, "boundary.exchange.morphism_offer");
                 hashU32(&hasher, exchange_morphism_offer_fingerprint_version);
                 hashBytes(&hasher, offer.label);
                 hashOptionalExchangeU64(&hasher, offer.source_site_fingerprint);
@@ -14481,7 +14481,7 @@ pub fn program(
 
             fn fingerprintTreatyCertificate(certificate: Treaty.Certificate) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.treaty.certificate");
+                hashBytes(&hasher, "boundary.exchange.treaty.certificate");
                 hashU32(&hasher, exchange_treaty_certificate_fingerprint_version);
                 hashU64(&hasher, certificate.treaty_fingerprint);
                 hashU64(&hasher, certificate.request_envelope_fingerprint);
@@ -14529,7 +14529,7 @@ pub fn program(
 
             fn fingerprintTreatyCertificateV2(certificate: Treaty.Certificate) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.treaty.certificate");
+                hashBytes(&hasher, "boundary.exchange.treaty.certificate");
                 hashU32(&hasher, 2);
                 hashU64(&hasher, certificate.treaty_fingerprint);
                 hashU64(&hasher, certificate.request_envelope_fingerprint);
@@ -14571,7 +14571,7 @@ pub fn program(
 
             fn fingerprintTreatyCertificateV3(certificate: Treaty.Certificate) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.treaty.certificate");
+                hashBytes(&hasher, "boundary.exchange.treaty.certificate");
                 hashU32(&hasher, 3);
                 hashU64(&hasher, certificate.treaty_fingerprint);
                 hashU64(&hasher, certificate.request_envelope_fingerprint);
@@ -14614,7 +14614,7 @@ pub fn program(
 
             fn fingerprintTreatyAuthorization(authorization: Treaty.Authorization) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.treaty.authorization");
+                hashBytes(&hasher, "boundary.exchange.treaty.authorization");
                 hashU32(&hasher, exchange_treaty_authorization_fingerprint_version);
                 hashU64(&hasher, authorization.treaty_fingerprint);
                 hashU64(&hasher, authorization.treaty_certificate_fingerprint);
@@ -14641,7 +14641,7 @@ pub fn program(
 
             fn fingerprintTreatyAuthorizationV3(authorization: Treaty.Authorization) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.treaty.authorization");
+                hashBytes(&hasher, "boundary.exchange.treaty.authorization");
                 hashU32(&hasher, 3);
                 hashU64(&hasher, authorization.treaty_fingerprint);
                 hashU64(&hasher, authorization.treaty_certificate_fingerprint);
@@ -14667,7 +14667,7 @@ pub fn program(
 
             fn fingerprintTreatyAuthorizationV2(authorization: Treaty.Authorization) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.treaty.authorization");
+                hashBytes(&hasher, "boundary.exchange.treaty.authorization");
                 hashU32(&hasher, 2);
                 hashU64(&hasher, authorization.treaty_fingerprint);
                 hashU64(&hasher, authorization.treaty_certificate_fingerprint);
@@ -14725,7 +14725,7 @@ pub fn program(
 
             fn providerIdentityFingerprint(provider_label: []const u8, metadata: []const u8) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.provider.identity");
+                hashBytes(&hasher, "boundary.exchange.provider.identity");
                 hashU32(&hasher, exchange_provider_identity_fingerprint_version);
                 hashBytes(&hasher, provider_label);
                 hashBytes(&hasher, metadata);
@@ -14855,7 +14855,7 @@ pub fn program(
 
             fn capabilityGrantFingerprint(options: Capability.Options) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.capability.grant");
+                hashBytes(&hasher, "boundary.exchange.capability.grant");
                 hashU32(&hasher, exchange_capability_fingerprint_version);
                 hashBytes(&hasher, options.issuer_label);
                 hashU64(&hasher, options.provider_fingerprint);
@@ -14919,8 +14919,8 @@ pub fn program(
             }
 
             fn capabilityFieldsBoundToBytes(capability: Capability) bool {
-                const payload = checkedPayload(capability.bytes, "ability.exchange.capability", exchange_capability_fingerprint_version) catch return false;
-                const fingerprint = checkedBytesFingerprint(capability.bytes, "ability.exchange.capability", exchange_capability_fingerprint_version) catch return false;
+                const payload = checkedPayload(capability.bytes, "boundary.exchange.capability", exchange_capability_fingerprint_version) catch return false;
+                const fingerprint = checkedBytesFingerprint(capability.bytes, "boundary.exchange.capability", exchange_capability_fingerprint_version) catch return false;
                 if (fingerprint != capability.fingerprint) return false;
                 var reader = Reader.init(payload);
                 reader.expectBytes(capability_magic) catch return false;
@@ -14961,7 +14961,7 @@ pub fn program(
 
             fn capabilityPathFingerprint(parent: ?u64, provider_fp: u64, prior_path: u64, grant_fp: u64) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.capability.path");
+                hashBytes(&hasher, "boundary.exchange.capability.path");
                 hashU32(&hasher, exchange_capability_fingerprint_version);
                 hashBool(&hasher, parent != null);
                 if (parent) |value| hashU64(&hasher, value);
@@ -14996,7 +14996,7 @@ pub fn program(
 
             fn stateLabelFingerprint(state: []const u8) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.effect_session.state");
+                hashBytes(&hasher, "boundary.exchange.effect_session.state");
                 hashU32(&hasher, exchange_effect_session_fingerprint_version);
                 hashBytes(&hasher, state);
                 return hasher.final();
@@ -15004,7 +15004,7 @@ pub fn program(
 
             fn fingerprintEffectSessionSpec(spec: EffectSessionSpec) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.effect_session");
+                hashBytes(&hasher, "boundary.exchange.effect_session");
                 hashU32(&hasher, exchange_effect_session_fingerprint_version);
                 hashBytes(&hasher, spec.label);
                 hashBytes(&hasher, spec.initial_state);
@@ -15033,7 +15033,7 @@ pub fn program(
 
             fn fingerprintCapabilityInstance(instance: CapabilityInstance) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.capability_instance");
+                hashBytes(&hasher, "boundary.exchange.capability_instance");
                 hashU32(&hasher, exchange_capability_instance_fingerprint_version);
                 hashU32(&hasher, instance.instance_version);
                 hashU64(&hasher, instance.parent_capability_fingerprint);
@@ -15075,7 +15075,7 @@ pub fn program(
 
             fn capabilityInstancePathFingerprint(parent_instance_fingerprint: u64, prior_path_fingerprint: u64, branch_id: u64, policy: BranchPolicy) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.capability_instance.path");
+                hashBytes(&hasher, "boundary.exchange.capability_instance.path");
                 hashU32(&hasher, exchange_capability_instance_fingerprint_version);
                 hashU64(&hasher, parent_instance_fingerprint);
                 hashU64(&hasher, prior_path_fingerprint);
@@ -15086,7 +15086,7 @@ pub fn program(
 
             fn fingerprintObligation(obligation: Obligation) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.obligation");
+                hashBytes(&hasher, "boundary.exchange.obligation");
                 hashU32(&hasher, exchange_obligation_fingerprint_version);
                 hashU32(&hasher, obligation.obligation_version);
                 hashU64(&hasher, obligation.effect_session_instance_fingerprint);
@@ -15115,7 +15115,7 @@ pub fn program(
 
             fn fingerprintObligationTransition(transition: ObligationTransition) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.obligation.transition");
+                hashBytes(&hasher, "boundary.exchange.obligation.transition");
                 hashU32(&hasher, exchange_obligation_transition_fingerprint_version);
                 hashU64(&hasher, transition.obligation_fingerprint);
                 hashBytes(&hasher, @tagName(transition.previous_obligation_status));
@@ -15238,7 +15238,7 @@ pub fn program(
 
             fn fingerprintAuthorization(value: Authorization) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.authorization");
+                hashBytes(&hasher, "boundary.exchange.authorization");
                 hashU32(&hasher, exchange_authorization_fingerprint_version);
                 hashU64(&hasher, value.provider_fingerprint);
                 hashU64(&hasher, value.capability_fingerprint);
@@ -15251,7 +15251,7 @@ pub fn program(
 
             fn fingerprintAuthorizationResult(value: AuthorizationResult) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.authorization.result");
+                hashBytes(&hasher, "boundary.exchange.authorization.result");
                 hashU32(&hasher, exchange_authorization_result_fingerprint_version);
                 hashU64(&hasher, value.authorization_fingerprint);
                 hashU64(&hasher, value.obligation_transition_fingerprint);
@@ -15270,7 +15270,7 @@ pub fn program(
 
             fn fingerprintRoute(route: Route) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.route");
+                hashBytes(&hasher, "boundary.exchange.route");
                 hashU32(&hasher, exchange_route_fingerprint_version);
                 hashU64(&hasher, route.request_envelope_fingerprint);
                 hashU64(&hasher, route.provider_fingerprint);
@@ -16161,7 +16161,7 @@ pub fn program(
                     .reject_dynamic_mappers = policy.reject_intrinsic_morphism,
                     .require_program_backed_providers = policy.reject_intrinsic_provider,
                     .require_declarative_morphisms = policy.reject_intrinsic_morphism,
-                    .prefer_ability_program = policy.prefer_program_backed_provider,
+                    .prefer_boundary_program = policy.prefer_program_backed_provider,
                     .prefer_declarative = policy.reject_intrinsic_morphism,
                     .prefer_residualized = policy.reject_intrinsic_morphism,
                 };
@@ -16173,7 +16173,7 @@ pub fn program(
                 defunc.reject_dynamic_mappers = defunc.reject_dynamic_mappers or policy.reject_intrinsic_morphism;
                 defunc.require_program_backed_providers = defunc.require_program_backed_providers or policy.reject_intrinsic_provider;
                 defunc.require_declarative_morphisms = defunc.require_declarative_morphisms or policy.reject_intrinsic_morphism;
-                defunc.prefer_ability_program = defunc.prefer_ability_program or policy.prefer_program_backed_provider;
+                defunc.prefer_boundary_program = defunc.prefer_boundary_program or policy.prefer_program_backed_provider;
                 defunc.prefer_declarative = defunc.prefer_declarative or policy.reject_intrinsic_morphism;
                 defunc.prefer_residualized = defunc.prefer_residualized or policy.reject_intrinsic_morphism;
                 return defunc;
@@ -16189,7 +16189,7 @@ pub fn program(
                     if (!defunc.allowsIntrinsic(intrinsic)) return .unallowlisted_intrinsic;
                     if (!intrinsicRefAllowedByTreatyPolicy(intrinsic.evidenceRef(), policy)) return .unallowlisted_intrinsic;
                 }
-                if (defunc.require_program_backed_providers and body != .ability_program) return .non_defunctionalized_route;
+                if (defunc.require_program_backed_providers and body != .boundary_program) return .non_defunctionalized_route;
                 return null;
             }
 
@@ -16234,7 +16234,7 @@ pub fn program(
                     };
                 };
                 if (treatyHostIntrinsicPolicyBlocker(policy, defunc, treaty)) |tag| return tag;
-                if (defunc.require_program_backed_providers and treaty.provider_semantic_body != .ability_program) return .non_defunctionalized_route;
+                if (defunc.require_program_backed_providers and treaty.provider_semantic_body != .boundary_program) return .non_defunctionalized_route;
                 if (defunc.require_declarative_morphisms) {
                     if (treaty.morphism_semantic_body) |body| {
                         if (body != .declarative and body != .residualized_program and body != .pipeline) return .non_defunctionalized_route;
@@ -16292,7 +16292,7 @@ pub fn program(
 
             fn treatyDefunctionalizationProviderPreferenceEnabled(policy: Treaty.Policy) bool {
                 const defunc = treatyDefunctionalizationPolicy(policy) orelse return false;
-                return defunc.prefer_ability_program;
+                return defunc.prefer_boundary_program;
             }
 
             fn treatyDefunctionalizationMorphismPreferenceEnabled(policy: Treaty.Policy) bool {
@@ -16302,7 +16302,7 @@ pub fn program(
 
             fn providerSemanticBodyRank(body: Evidence.SemanticBody) u8 {
                 return switch (body) {
-                    .ability_program => 0,
+                    .boundary_program => 0,
                     .declarative, .residualized_program, .pipeline => 1,
                     .kernel_primitive => 2,
                     .host_intrinsic => 3,
@@ -16317,7 +16317,7 @@ pub fn program(
                         .declarative => 0,
                         .residualized_program => 1,
                         .pipeline => 2,
-                        .ability_program, .kernel_primitive => 3,
+                        .boundary_program, .kernel_primitive => 3,
                         .host_intrinsic => 4,
                         .unknown => 5,
                     };
@@ -16327,7 +16327,7 @@ pub fn program(
                         .residualized_program => 0,
                         .pipeline => 1,
                         .declarative => 2,
-                        .ability_program, .kernel_primitive => 3,
+                        .boundary_program, .kernel_primitive => 3,
                         .host_intrinsic => 4,
                         .unknown => 5,
                     };
@@ -16842,7 +16842,7 @@ pub fn program(
 
             fn fingerprintTreatyCore(treaty: Treaty) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.treaty");
+                hashBytes(&hasher, "boundary.exchange.treaty");
                 hashU32(&hasher, exchange_treaty_fingerprint_version);
                 hashU64(&hasher, treaty.request_envelope_fingerprint);
                 hashU32(&hasher, treaty.request_envelope_format_version);
@@ -16886,7 +16886,7 @@ pub fn program(
 
             fn fingerprintTreatyCoreV2(treaty: Treaty) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.treaty");
+                hashBytes(&hasher, "boundary.exchange.treaty");
                 hashU32(&hasher, 2);
                 hashU64(&hasher, treaty.request_envelope_fingerprint);
                 hashU64(&hasher, treaty.request_fingerprint);
@@ -16924,7 +16924,7 @@ pub fn program(
 
             fn fingerprintTreatyCoreV3(treaty: Treaty) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.exchange.treaty");
+                hashBytes(&hasher, "boundary.exchange.treaty");
                 hashU32(&hasher, 3);
                 hashU64(&hasher, treaty.request_envelope_fingerprint);
                 hashU32(&hasher, treaty.request_envelope_format_version);
@@ -17175,7 +17175,7 @@ pub fn program(
 
         fn fingerprintTypedProgramValue(comptime ref: lowering_api.ValueRef, value: anytype) Error!u64 {
             var hasher = std.hash.Wyhash.init(0);
-            hashBytes(&hasher, "ability.session.value");
+            hashBytes(&hasher, "boundary.session.value");
             hashU32(&hasher, Session.Trace.fingerprint_version);
             hashValueRef(&hasher, ref);
             try hashTypedPayload(&hasher, ref, value);
@@ -17237,7 +17237,7 @@ pub fn program(
 
         fn fingerprintTypedProtocolValue(comptime ref: lowering_api.ValueRef, value: anytype) Error!u64 {
             var hasher = std.hash.Wyhash.init(0);
-            hashBytes(&hasher, "ability.session.protocol_value");
+            hashBytes(&hasher, "boundary.session.protocol_value");
             hashU32(&hasher, reinterpret_fingerprint_version);
             hashValueRef(&hasher, ref);
             try hashTypedProtocolPayload(&hasher, ref, value);
@@ -17365,7 +17365,7 @@ pub fn program(
             target_payload_fingerprint: u64,
         ) u64 {
             var hasher = std.hash.Wyhash.init(0);
-            hashBytes(&hasher, "ability.session.reinterpret");
+            hashBytes(&hasher, "boundary.session.reinterpret");
             hashU32(&hasher, reinterpret_fingerprint_version);
             hashU64(&hasher, source_request_fingerprint);
             hashU64(&hasher, source_capsule_fingerprint);
@@ -17376,7 +17376,7 @@ pub fn program(
 
         fn mapperIdentityFingerprint(comptime Mapper: type) u64 {
             var hasher = std.hash.Wyhash.init(0);
-            hashBytes(&hasher, "ability.program.mapper");
+            hashBytes(&hasher, "boundary.program.mapper");
             hashU32(&hasher, reinterpret_fingerprint_version);
             hashBytes(&hasher, @typeName(Mapper));
             if (comptime hasDeclSafe(Mapper, "identity_fingerprint")) {
@@ -17389,7 +17389,7 @@ pub fn program(
 
         fn morphismFingerprint(comptime SourceSite: type, comptime TargetOp: type, comptime Mapper: type) u64 {
             var hasher = std.hash.Wyhash.init(0);
-            hashBytes(&hasher, "ability.program.morphism");
+            hashBytes(&hasher, "boundary.program.morphism");
             hashU32(&hasher, reinterpret_fingerprint_version);
             hashU64(&hasher, SourceSite.owner_plan_hash);
             hashU64(&hasher, SourceSite.fingerprint);
@@ -17566,7 +17566,7 @@ pub fn program(
 
         fn residualResponseFingerprint(comptime response: ResidualResponse) u64 {
             var hasher = std.hash.Wyhash.init(0);
-            hashBytes(&hasher, "ability.program.residual.response");
+            hashBytes(&hasher, "boundary.program.residual.response");
             hashU32(&hasher, residual_fingerprint_version);
             hashBytes(&hasher, @tagName(response.kind));
             hashI32(&hasher, response.i32_value);
@@ -17579,7 +17579,7 @@ pub fn program(
         fn residualExprFingerprint(comptime expression: anytype) u64 {
             if (comptime @hasDecl(@TypeOf(expression), "fingerprint")) return expression.fingerprint();
             var hasher = std.hash.Wyhash.init(0);
-            hashBytes(&hasher, "ability.ir.expr");
+            hashBytes(&hasher, "boundary.ir.expr");
             if (comptime @hasField(@TypeOf(expression), "kind")) hashBytes(&hasher, @tagName(expression.kind));
             residualExprHashOptionalValueRef(&hasher, comptime if (@hasField(@TypeOf(expression), "value_ref")) expression.value_ref else null);
             if (comptime @hasField(@TypeOf(expression), "name")) hashBytes(&hasher, expression.name);
@@ -17613,7 +17613,7 @@ pub fn program(
             comptime mapping_label: ?[]const u8,
         ) u64 {
             var hasher = std.hash.Wyhash.init(0);
-            hashBytes(&hasher, "ability.program.residual.morphism");
+            hashBytes(&hasher, "boundary.program.residual.morphism");
             hashU32(&hasher, residual_fingerprint_version);
             hashU64(&hasher, SourceSite.owner_plan_hash);
             hashU64(&hasher, SourceSite.fingerprint);
@@ -18000,7 +18000,7 @@ pub fn program(
 
         fn residualizationFingerprint(comptime config: anytype) u64 {
             var hasher = std.hash.Wyhash.init(0);
-            hashBytes(&hasher, "ability.program.residualization");
+            hashBytes(&hasher, "boundary.program.residualization");
             hashU32(&hasher, residual_fingerprint_version);
             hashU64(&hasher, body_compiled_plan_hash);
             if (comptime @hasField(@TypeOf(config), "label")) hashBytes(&hasher, config.label);
@@ -18810,7 +18810,7 @@ pub fn program(
 
             fn pipelineSourceMapFingerprint(source_to_residual: []const ResidualSourceMapEntry, residual_to_source: []const ResidualSourceMapEntry) u64 {
                 var hasher = std.hash.Wyhash.init(0);
-                hashBytes(&hasher, "ability.program.pipeline.source_map");
+                hashBytes(&hasher, "boundary.program.pipeline.source_map");
                 hashU32(&hasher, Evidence.domains.pipeline_source_map.fingerprint_version);
                 hashSourceMapEntries(&hasher, source_to_residual);
                 hashSourceMapEntries(&hasher, residual_to_source);
@@ -18890,7 +18890,7 @@ pub fn program(
             const residual_catalog = pipelineResidualCatalog(config);
             const interpret_catalog = pipelineInterpretCatalog(config);
             var hasher = std.hash.Wyhash.init(0);
-            hashBytes(&hasher, "ability.program.pipeline.catalog");
+            hashBytes(&hasher, "boundary.program.pipeline.catalog");
             hashU32(&hasher, pipeline_fingerprint_version);
             inline for (residual_catalog) |Descriptor| hashU64(&hasher, Descriptor.fingerprint);
             hashUsize(&hasher, interpret_catalog.len);
@@ -18915,7 +18915,7 @@ pub fn program(
         fn pipelineFingerprint(comptime config: anytype) u64 {
             @setEvalBranchQuota(10000);
             var hasher = std.hash.Wyhash.init(0);
-            hashBytes(&hasher, "ability.program.pipeline");
+            hashBytes(&hasher, "boundary.program.pipeline");
             hashU32(&hasher, pipeline_fingerprint_version);
             hashU64(&hasher, body_compiled_plan_hash);
             hashBytes(&hasher, pipelineLabel(config));
@@ -21102,7 +21102,7 @@ pub fn program(
             inline for (entries) |Entry| {
                 const body = comptime interpreterEntrySemanticBody(Entry);
                 switch (body) {
-                    .ability_program => counts.ability_program += 1,
+                    .boundary_program => counts.boundary_program += 1,
                     .declarative => counts.declarative += 1,
                     .residualized_program => counts.residualized_program += 1,
                     .pipeline => counts.pipeline += 1,
@@ -21207,7 +21207,7 @@ test "program rejects empty labels" {
     _ = program;
 }
 
-test "ability.program preserves bounded error set for bodies without user errors" {
+test "boundary.program preserves bounded error set for bodies without user errors" {
     const program_plan = @import("internal_program_plan");
     const functions = [_]program_plan.FunctionPlan{.{
         .symbol_name = "run",
@@ -21396,7 +21396,7 @@ test "Program.Exchange obligation transition application rejects branch mismatch
     try std.testing.expectError(error.ProgramContractViolation, obligation.applyTransition(wrong_branch));
 }
 
-test "ability.program executable support rejects nested-with plans" {
+test "boundary.program executable support rejects nested-with plans" {
     const program_plan = @import("internal_program_plan");
     const instructions = [_]program_plan.Instruction{.{
         .kind = .call_nested_with,

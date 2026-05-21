@@ -1,5 +1,5 @@
 // zlinter-disable declaration_naming require_doc_comment no_inferred_error_unions no_swallow_error
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const Action = union(enum) {
@@ -12,19 +12,19 @@ const AgentHandlers = struct {
     initial_observation: []const u8,
 };
 
-const AgentSchemas = ability.ir.schema.Registry(.{Action});
+const AgentSchemas = boundary.ir.schema.Registry(.{Action});
 
-const AgentProtocol = ability.ir.schema.Protocol(.{
+const AgentProtocol = boundary.ir.schema.Protocol(.{
     .label = "agent",
     .ops = .{
-        ability.ir.schema.transform("decide", []const u8, Action),
+        boundary.ir.schema.transform("decide", []const u8, Action),
     },
 });
 
-const ToolProtocol = ability.ir.schema.Protocol(.{
+const ToolProtocol = boundary.ir.schema.Protocol(.{
     .label = "tool",
     .ops = .{
-        ability.ir.schema.transform("call", []const u8, []const u8),
+        boundary.ir.schema.transform("call", []const u8, []const u8),
     },
 });
 
@@ -40,7 +40,7 @@ const ToolRows = ToolProtocol.Rows(AgentHandlers, .{
     .schema_refs = AgentSchemas.schema_refs,
 });
 
-const agent_requirements = [_]ability.ir.plan.Requirement{
+const agent_requirements = [_]boundary.ir.plan.Requirement{
     AgentRows.requirement,
     ToolRows.requirement,
 };
@@ -117,7 +117,7 @@ const TraceRecording = struct {
     }
 };
 
-const fixture_dir = "zig-cache/ability-agent-loop-fixtures";
+const fixture_dir = "zig-cache/boundary-agent-loop-fixtures";
 const fixture_input_path = fixture_dir ++ "/input.txt";
 const fixture_output_path = fixture_dir ++ "/output.txt";
 const fixture_input_contents = "rewrite this file through the agent loop\n";
@@ -232,7 +232,7 @@ fn callTool(allocator: std.mem.Allocator, scenario: Scenario, command: []const u
 }
 
 const agent_loop_semantic_spec = blk: {
-    const semantic = ability.ir.builder.semantic;
+    const semantic = boundary.ir.builder.semantic;
     const Decide = AgentRows.op("decide");
     const Tool = ToolRows.op("call");
 
@@ -302,7 +302,7 @@ const agent_loop_semantic_spec = blk: {
     };
 };
 
-const agent_loop_compiled = ability.ir.builder.semantic.finish(agent_loop_semantic_spec) catch |err|
+const agent_loop_compiled = boundary.ir.builder.semantic.finish(agent_loop_semantic_spec) catch |err|
     @compileError("invalid agent loop semantic plan: " ++ @errorName(err));
 
 const AgentBody = struct {
@@ -323,20 +323,20 @@ const host_between_turns_semantic_spec = .{
         .symbol_name = "host_check",
         .params = .{},
         .locals = .{
-            ability.ir.builder.semantic.local("value", []const u8),
+            boundary.ir.builder.semantic.local("value", []const u8),
         },
         .result = []const u8,
         .blocks = .{.{
             .name = "entry",
             .instructions = .{
-                ability.ir.builder.semantic.constString("value", "parked"),
+                boundary.ir.builder.semantic.constString("value", "parked"),
             },
-            .terminator = ability.ir.builder.semantic.returnValue("value"),
+            .terminator = boundary.ir.builder.semantic.returnValue("value"),
         }},
     }},
 };
 
-const host_between_turns_compiled = ability.ir.builder.semantic.finish(host_between_turns_semantic_spec) catch |err|
+const host_between_turns_compiled = boundary.ir.builder.semantic.finish(host_between_turns_semantic_spec) catch |err|
     @compileError("invalid host-between-turns semantic plan: " ++ @errorName(err));
 
 const HostBetweenTurnsBody = struct {
@@ -350,11 +350,11 @@ fn runSession(
     mode: TraceMode,
     recording: *TraceRecording,
 ) !InvokeOutcome {
-    var runtime = ability.Runtime.init(allocator);
+    var runtime = boundary.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const Program = ability.program("agent-loop-session", AgentHandlers, AgentBody);
-    const HostBetweenTurns = ability.program("agent-loop-host-between-turns", struct {}, HostBetweenTurnsBody);
+    const Program = boundary.program("agent-loop-session", AgentHandlers, AgentBody);
+    const HostBetweenTurns = boundary.program("agent-loop-host-between-turns", struct {}, HostBetweenTurnsBody);
     const Decide = Program.protocol.operationSite("agent", "decide", 0);
     const Tool = Program.protocol.operationSite("tool", "call", 0);
     comptime {

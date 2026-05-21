@@ -1,5 +1,5 @@
 .{
-    .name = .ability,
+    .name = .boundary,
     .version = "0.2.0",
     .dependencies = .{
         .zlinter = .{
@@ -25,5 +25,5 @@
         "src",
         "test",
     },
-    .fingerprint = 0x35cfee3c29e35cbe,
+    .fingerprint = 0x3e7e02526825577e,
 }

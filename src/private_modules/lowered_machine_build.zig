@@ -2,7 +2,7 @@ const kernel = @import("internal_kernel");
 const portable_core = @import("portable_core");
 const std = @import("std");
 
-/// Public runtime misuse and semantic-contract errors surfaced by `ability`.
+/// Public runtime misuse and semantic-contract errors surfaced by `boundary`.
 pub const RuntimeError = error{
     MissingPrompt,
     CrossThread,

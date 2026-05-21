@@ -1,14 +1,14 @@
 // zlinter-disable declaration_naming require_doc_comment no_hidden_allocations no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const SourceHandlers = struct {};
 const HandlerHandlers = struct {};
-const semantic = ability.ir.builder.semantic;
+const semantic = boundary.ir.builder.semantic;
 
-const ApprovalProtocol = ability.ir.schema.Protocol(.{
+const ApprovalProtocol = boundary.ir.schema.Protocol(.{
     .label = "approval",
-    .ops = .{ability.ir.schema.transform("request", []const u8, i32)},
+    .ops = .{boundary.ir.schema.transform("request", []const u8, i32)},
 });
 const ApprovalRows = ApprovalProtocol.Rows(SourceHandlers, .{ .requirement_index = 0, .first_op = 0 });
 const ApprovalRequestOp = ApprovalRows.op("request");
@@ -47,12 +47,12 @@ const SourceBody = struct {
     pub const site_metadata = source_compiled.site_metadata;
     pub const compiled_plan = source_compiled.plan;
 };
-const SourceProgram = ability.program("program-provider-resume-source", SourceHandlers, SourceBody);
+const SourceProgram = boundary.program("program-provider-resume-source", SourceHandlers, SourceBody);
 const ApprovalRequest = SourceProgram.protocol.operationSite("approval", "request", 0);
 
-const PolicyProtocol = ability.ir.schema.Protocol(.{
+const PolicyProtocol = boundary.ir.schema.Protocol(.{
     .label = "policy",
-    .ops = .{ability.ir.schema.transform("check", []const u8, i32)},
+    .ops = .{boundary.ir.schema.transform("check", []const u8, i32)},
 });
 const PolicyRows = PolicyProtocol.Rows(HandlerHandlers, .{ .requirement_index = 0, .first_op = 0 });
 const PolicyCheckOp = PolicyRows.op("check");
@@ -87,7 +87,7 @@ const HandlerBody = struct {
     pub const site_metadata = handler_compiled.site_metadata;
     pub const compiled_plan = handler_compiled.plan;
 };
-const HandlerProgram = ability.program("program-provider-resume-handler", HandlerHandlers, HandlerBody);
+const HandlerProgram = boundary.program("program-provider-resume-handler", HandlerHandlers, HandlerBody);
 
 const ApprovalDecl = SourceProgram.Exchange.ProviderHandler.program(.{
     .label = "approval-program-handler",
@@ -133,7 +133,7 @@ fn resolveApprovalTreaty(
 
 pub fn run(writer: anytype) !void {
     const allocator = std.heap.page_allocator;
-    var runtime = ability.Runtime.init(allocator);
+    var runtime = boundary.Runtime.init(allocator);
     defer runtime.deinit();
     var session = try SourceProgram.Session.start(&runtime, .{});
     defer session.deinit();
@@ -151,7 +151,7 @@ pub fn run(writer: anytype) !void {
     defer resolved.deinit();
     const treaty = resolved.treaty orelse return error.ExpectedTreaty;
 
-    var handler_runtime = ability.Runtime.init(allocator);
+    var handler_runtime = boundary.Runtime.init(allocator);
     defer handler_runtime.deinit();
     var started = try ApprovalHarness.startProgramExecution(0, &handler_runtime, HandlerProgram.Handlers{}, allocator, parent_envelope, treaty.certificate, catalog.provider_offers[0], .{ .treaty = treaty });
     var execution = switch (started) {

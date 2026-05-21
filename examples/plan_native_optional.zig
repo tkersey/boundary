@@ -1,16 +1,16 @@
 // zlinter-disable declaration_naming field_ordering require_doc_comment no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
-fn mustInstruction(result: anyerror!ability.ir.plan.Instruction) ability.ir.plan.Instruction {
+fn mustInstruction(result: anyerror!boundary.ir.plan.Instruction) boundary.ir.plan.Instruction {
     return result catch |err| std.debug.panic("invalid plan-native optional instruction: {s}", .{@errorName(err)});
 }
 
-fn mustPlan(result: anyerror!ability.ir.ProgramPlan) ability.ir.ProgramPlan {
+fn mustPlan(result: anyerror!boundary.ir.ProgramPlan) boundary.ir.ProgramPlan {
     return result catch |err| std.debug.panic("invalid plan-native optional plan: {s}", .{@errorName(err)});
 }
 
-const optional_plan = ability.effect.optional.plan;
+const optional_plan = boundary.effect.optional.plan;
 const OptionalOutcome = optional_plan.Outcome(i32);
 
 const OptionalMode = enum {
@@ -25,12 +25,12 @@ const OptionalHandlers = struct {
         dispatches: *usize,
         afters: *usize,
 
-        pub fn dispatch(self: *const @This()) !ability.effect.choice.Decision(OptionalOutcome, i32) {
+        pub fn dispatch(self: *const @This()) !boundary.effect.choice.Decision(OptionalOutcome, i32) {
             self.dispatches.* += 1;
             return switch (self.mode) {
-                .resume_some => ability.effect.choice.Decision(OptionalOutcome, i32).resumeWith(40),
-                .resume_none => ability.effect.choice.Decision(OptionalOutcome, i32).resumeWith(null),
-                .return_now => ability.effect.choice.Decision(OptionalOutcome, i32).returnNow(77),
+                .resume_some => boundary.effect.choice.Decision(OptionalOutcome, i32).resumeWith(40),
+                .resume_none => boundary.effect.choice.Decision(OptionalOutcome, i32).resumeWith(null),
+                .return_now => boundary.effect.choice.Decision(OptionalOutcome, i32).returnNow(77),
             };
         }
 
@@ -47,19 +47,19 @@ pub const RunResult = struct {
     afters: usize,
 };
 
-fn optionalPlan() ability.ir.ProgramPlan {
-    const layout = ability.ir.builder.layout;
-    const root = comptime ability.ir.builder.function(0);
-    const resumed = comptime ability.ir.builder.local(root, 0);
-    const is_some = comptime ability.ir.builder.local(root, 1);
-    const extracted = comptime ability.ir.builder.local(root, 2);
-    const fallback = comptime ability.ir.builder.local(root, 3);
-    const requirements = [_]ability.ir.plan.Requirement{optional_plan.requirement(0)};
-    const ops = [_]ability.ir.plan.Op{optional_plan.requestOp(0, 0, .present)};
+fn optionalPlan() boundary.ir.ProgramPlan {
+    const layout = boundary.ir.builder.layout;
+    const root = comptime boundary.ir.builder.function(0);
+    const resumed = comptime boundary.ir.builder.local(root, 0);
+    const is_some = comptime boundary.ir.builder.local(root, 1);
+    const extracted = comptime boundary.ir.builder.local(root, 2);
+    const fallback = comptime boundary.ir.builder.local(root, 3);
+    const requirements = [_]boundary.ir.plan.Requirement{optional_plan.requirement(0)};
+    const ops = [_]boundary.ir.plan.Op{optional_plan.requestOp(0, 0, .present)};
     const variants = optional_plan.variants(i32);
-    const schemas = [_]ability.ir.ValueSchemaPlan{optional_plan.schema(i32, 0, 0)};
+    const schemas = [_]boundary.ir.ValueSchemaPlan{optional_plan.schema(i32, 0, 0)};
 
-    return mustPlan(ability.ir.builder.layout.finish(.{
+    return mustPlan(boundary.ir.builder.layout.finish(.{
         .label = "plan-native-optional",
         .ir_hash = 40,
         .entry = root,
@@ -69,8 +69,8 @@ fn optionalPlan() ability.ir.ProgramPlan {
         .value_variants = &variants,
         .functions = .{.{
             .symbol_name = "run",
-            .value_ref = ability.ir.ValueRef{ .codec = .i32 },
-            .result_ref = ability.ir.ValueRef{ .codec = .i32 },
+            .value_ref = boundary.ir.ValueRef{ .codec = .i32 },
+            .result_ref = boundary.ir.ValueRef{ .codec = .i32 },
             .requirements = layout.span(0, 1),
             .locals = .{
                 optional_plan.local(0),
@@ -81,24 +81,24 @@ fn optionalPlan() ability.ir.ProgramPlan {
             .blocks = .{
                 .{
                     .instructions = .{
-                        mustInstruction(optional_plan.callRequest(root, resumed, ability.ir.builder.op(root, 0))),
+                        mustInstruction(optional_plan.callRequest(root, resumed, boundary.ir.builder.op(root, 0))),
                         mustInstruction(optional_plan.isSome(root, is_some, resumed)),
                     },
-                    .terminator = ability.ir.plan.Terminator{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                    .terminator = boundary.ir.plan.Terminator{ .kind = .branch_if, .primary = 1, .secondary = 2 },
                 },
                 .{
                     .instructions = .{
                         mustInstruction(optional_plan.extractSome(root, extracted, resumed)),
-                        mustInstruction(ability.ir.builder.returnValue(root, extracted)),
+                        mustInstruction(boundary.ir.builder.returnValue(root, extracted)),
                     },
-                    .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                    .terminator = boundary.ir.plan.Terminator{ .kind = .return_value },
                 },
                 .{
                     .instructions = .{
                         .{ .kind = .const_i32, .dst = fallback.index, .operand = 0 },
-                        mustInstruction(ability.ir.builder.returnValue(root, fallback)),
+                        mustInstruction(boundary.ir.builder.returnValue(root, fallback)),
                     },
-                    .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                    .terminator = boundary.ir.plan.Terminator{ .kind = .return_value },
                 },
             },
         }},
@@ -110,8 +110,8 @@ const OptionalBody = struct {
     pub const compiled_plan = optionalPlan();
 };
 
-pub fn runCase(runtime: *ability.Runtime, mode: OptionalMode) !RunResult {
-    const Program = ability.program("plan-native-optional", OptionalHandlers, OptionalBody);
+pub fn runCase(runtime: *boundary.Runtime, mode: OptionalMode) !RunResult {
+    const Program = boundary.program("plan-native-optional", OptionalHandlers, OptionalBody);
     var dispatches: usize = 0;
     var afters: usize = 0;
     var result = try Program.run(runtime, .{ .request = .{
@@ -127,12 +127,12 @@ pub fn runCase(runtime: *ability.Runtime, mode: OptionalMode) !RunResult {
     };
 }
 
-/// Run the plan-native optional prototype through `ability.program`.
+/// Run the plan-native optional prototype through `boundary.program`.
 pub fn run(writer: anytype) !void {
-    var runtime = ability.Runtime.init(std.heap.page_allocator);
+    var runtime = boundary.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const Program = ability.program("plan-native-optional", OptionalHandlers, OptionalBody);
+    const Program = boundary.program("plan-native-optional", OptionalHandlers, OptionalBody);
     try writer.print("contract.op={s} mode={s} resume={s} after={any} variants={d}\n", .{
         Program.contract.ops[0].op_name,
         @tagName(Program.contract.ops[0].mode),

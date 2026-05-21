@@ -41,7 +41,7 @@ examples/program_provider_resume.zig
 examples/residualized_approval_policy.zig
 examples/state_basic.zig
 examples/typed_program_plan.zig
-src/ability_shared.zig
+src/boundary_shared.zig
 src/algebraic.zig
 src/bench_support.zig
 src/decision_api.zig
@@ -72,7 +72,7 @@ src/internal/lexical_support.zig
 src/internal/program_plan.zig
 src/internal/prompt_support.zig
 src/internal/sealed_engine.zig
-src/internal/synthetic_ability_root.zig
+src/internal/synthetic_boundary_root.zig
 src/internal_kernel.zig
 src/internal_program_plan.zig
 src/interpreter.zig

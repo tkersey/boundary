@@ -1,14 +1,14 @@
 // zlinter-disable declaration_naming require_doc_comment no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const Handlers = struct {};
 
-const Protocol = ability.ir.schema.Protocol(.{
+const Protocol = boundary.ir.schema.Protocol(.{
     .label = "linear-demo",
     .ops = .{
-        ability.ir.schema.transform("lookup", []const u8, i32),
-        ability.ir.schema.transform("charge", []const u8, i32),
+        boundary.ir.schema.transform("lookup", []const u8, i32),
+        boundary.ir.schema.transform("charge", []const u8, i32),
     },
 });
 
@@ -18,7 +18,7 @@ const Rows = Protocol.Rows(Handlers, .{
 });
 
 const semantic_spec = blk: {
-    const semantic = ability.ir.builder.semantic;
+    const semantic = boundary.ir.builder.semantic;
     const LookupOp = Rows.op("lookup");
     const ChargeOp = Rows.op("charge");
 
@@ -61,7 +61,7 @@ const semantic_spec = blk: {
     };
 };
 
-const compiled = ability.ir.builder.semantic.finish(semantic_spec) catch |err|
+const compiled = boundary.ir.builder.semantic.finish(semantic_spec) catch |err|
     @compileError("invalid linear-effect-sessions semantic plan: " ++ @errorName(err));
 
 const Body = struct {
@@ -69,7 +69,7 @@ const Body = struct {
     pub const compiled_plan = compiled.plan;
 };
 
-const Program = ability.program("linear-effect-sessions", Handlers, Body);
+const Program = boundary.program("linear-effect-sessions", Handlers, Body);
 
 fn nextRequest(session: *Program.Session) !Program.Session.Request {
     return switch (try session.next()) {
@@ -91,7 +91,7 @@ fn doneValue(session: *Program.Session) !i32 {
 
 pub fn run(writer: anytype) !void {
     const allocator = std.heap.page_allocator;
-    var runtime = ability.Runtime.init(allocator);
+    var runtime = boundary.Runtime.init(allocator);
     defer runtime.deinit();
 
     var session = try Program.Session.start(&runtime, .{});

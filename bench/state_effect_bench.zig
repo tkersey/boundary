@@ -1,13 +1,13 @@
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
 const NoError = error{};
-const RawPrompt = ability.Prompt(.resume_then_transform, usize, usize, NoError);
-const StateInstance = ability.effect.state.Instance(usize, NoError);
+const RawPrompt = boundary.Prompt(.resume_then_transform, usize, usize, NoError);
+const StateInstance = boundary.effect.state.Instance(usize, NoError);
 const timed_iterations: usize = 50_000;
 const warmup_iterations: usize = 20_000;
 const samples_per_run: usize = 5;
-const preserveValue = ability.preserveValue;
+const preserveValue = boundary.preserveValue;
 
 const Sample = struct {
     checksum: usize,
@@ -18,14 +18,14 @@ fn elapsedNsSince(io: std.Io, start: std.Io.Timestamp) u64 {
     return @intCast(start.durationTo(std.Io.Timestamp.now(io, .boot)).toNanoseconds());
 }
 
-fn rawProgram(comptime PromptType: type, body: anytype) ability.frontend.Program(PromptType) {
-    return ability.frontend.computeProgram(PromptType, body);
+fn rawProgram(comptime PromptType: type, body: anytype) boundary.frontend.Program(PromptType) {
+    return boundary.frontend.computeProgram(PromptType, body);
 }
 
 const raw_reset_only = struct {
     var current: usize = 0;
 
-    fn body() ability.ResetError(NoError)!usize {
+    fn body() boundary.ResetError(NoError)!usize {
         return current;
     }
 };
@@ -59,16 +59,16 @@ const raw_state = struct {
         }
     };
 
-    fn get() ability.ResetError(NoError)!usize {
-        return try ability.frontend.transform(usize, prompt_ptr.?, get_handle);
+    fn get() boundary.ResetError(NoError)!usize {
+        return try boundary.frontend.transform(usize, prompt_ptr.?, get_handle);
     }
 
-    fn set(value: usize) ability.ResetError(NoError)!void {
+    fn set(value: usize) boundary.ResetError(NoError)!void {
         pending_state = value;
-        _ = try ability.frontend.transform(void, prompt_ptr.?, set_handle);
+        _ = try boundary.frontend.transform(void, prompt_ptr.?, set_handle);
     }
 
-    fn body() ability.ResetError(NoError)!usize {
+    fn body() boundary.ResetError(NoError)!usize {
         const before = try get();
         try set(before + 1);
         return try get();
@@ -77,16 +77,16 @@ const raw_state = struct {
 
 const effect_state = struct {
     /// Execute the state-effect benchmark body.
-    pub fn body(comptime Cap: type, ctx: anytype) ability.ResetError(NoError)!usize {
-        const before = try ability.effect.state.get(Cap, ctx);
-        try ability.effect.state.set(Cap, ctx, before + 1);
-        return try ability.effect.state.get(Cap, ctx);
+    pub fn body(comptime Cap: type, ctx: anytype) boundary.ResetError(NoError)!usize {
+        const before = try boundary.effect.state.get(Cap, ctx);
+        try boundary.effect.state.set(Cap, ctx, before + 1);
+        return try boundary.effect.state.get(Cap, ctx);
     }
 };
 
 const effect_passthrough = struct {
     /// Execute the passthrough state-effect benchmark body.
-    pub fn body(comptime Cap: type, _: anytype) ability.ResetError(NoError)!usize {
+    pub fn body(comptime Cap: type, _: anytype) boundary.ResetError(NoError)!usize {
         _ = Cap;
         return 1;
     }
@@ -104,19 +104,19 @@ fn sortAscending(values: []u64) void {
     }
 }
 
-fn runRawSample(io: std.Io, runtime: *ability.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
+fn runRawSample(io: std.Io, runtime: *boundary.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
     _ = prompt;
     return try runEffectSample(io, runtime, &StateInstance.init(), iterations);
 }
 
-fn runRawResetOnlySample(io: std.Io, runtime: *ability.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
+fn runRawResetOnlySample(io: std.Io, runtime: *boundary.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
 
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_reset_only.current = index;
-        checksum += preserveValue(try ability.reset(runtime, prompt, rawProgram(RawPrompt, raw_reset_only.body)));
+        checksum += preserveValue(try boundary.reset(runtime, prompt, rawProgram(RawPrompt, raw_reset_only.body)));
     }
 
     return .{
@@ -125,13 +125,13 @@ fn runRawResetOnlySample(io: std.Io, runtime: *ability.Runtime, prompt: *RawProm
     };
 }
 
-fn runEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
+fn runEffectSample(io: std.Io, runtime: *boundary.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
 
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
-        const result = preserveValue(try ability.effect.state.handle(usize, runtime, instance, index, effect_state));
+        const result = preserveValue(try boundary.effect.state.handle(usize, runtime, instance, index, effect_state));
         checksum += result.value + result.state;
     }
 
@@ -141,13 +141,13 @@ fn runEffectSample(io: std.Io, runtime: *ability.Runtime, instance: *const State
     };
 }
 
-fn runEffectPassthroughSample(io: std.Io, runtime: *ability.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
+fn runEffectPassthroughSample(io: std.Io, runtime: *boundary.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
     const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
 
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
-        const result = preserveValue(try ability.effect.state.handle(usize, runtime, instance, index, effect_passthrough));
+        const result = preserveValue(try boundary.effect.state.handle(usize, runtime, instance, index, effect_passthrough));
         checksum += result.value + result.state;
     }
 
@@ -169,12 +169,12 @@ fn summarizeSamples(values: *const [samples_per_run]u64) struct { min: u64, medi
 
 /// Compare raw prompt-based state handling against the additive effect wrapper.
 pub fn main(init: std.process.Init) anyerror!void {
-    var raw_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var raw_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer raw_runtime.deinit();
     var raw_prompt = RawPrompt.init();
     raw_state.prompt_ptr = &raw_prompt;
 
-    var effect_runtime = ability.Runtime.init(std.heap.smp_allocator);
+    var effect_runtime = boundary.Runtime.init(std.heap.smp_allocator);
     defer effect_runtime.deinit();
     var effect_instance = StateInstance.init();
 

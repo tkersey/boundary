@@ -1,15 +1,15 @@
 // zlinter-disable declaration_naming require_doc_comment no_inferred_error_unions
-const ability = @import("ability");
+const boundary = @import("boundary");
 const std = @import("std");
 
-const reader_plan = ability.effect.reader.plan;
-const state_plan = ability.effect.state.plan;
+const reader_plan = boundary.effect.reader.plan;
+const state_plan = boundary.effect.state.plan;
 
-fn mustInstruction(result: anyerror!ability.ir.plan.Instruction) ability.ir.plan.Instruction {
+fn mustInstruction(result: anyerror!boundary.ir.plan.Instruction) boundary.ir.plan.Instruction {
     return result catch |err| std.debug.panic("invalid state/reader instruction: {s}", .{@errorName(err)});
 }
 
-fn mustPlan(result: anyerror!ability.ir.ProgramPlan) ability.ir.ProgramPlan {
+fn mustPlan(result: anyerror!boundary.ir.ProgramPlan) boundary.ir.ProgramPlan {
     return result catch |err| std.debug.panic("invalid state/reader plan: {s}", .{@errorName(err)});
 }
 
@@ -37,12 +37,12 @@ const StateReaderHandlers = struct {
     },
 };
 
-fn stateReaderPlan() ability.ir.ProgramPlan {
-    const layout = ability.ir.builder.layout;
-    const root = comptime ability.ir.builder.function(0);
-    const env = comptime ability.ir.builder.local(root, 0);
-    const before = comptime ability.ir.builder.local(root, 1);
-    const next = comptime ability.ir.builder.local(root, 2);
+fn stateReaderPlan() boundary.ir.ProgramPlan {
+    const layout = boundary.ir.builder.layout;
+    const root = comptime boundary.ir.builder.function(0);
+    const env = comptime boundary.ir.builder.local(root, 0);
+    const before = comptime boundary.ir.builder.local(root, 1);
+    const next = comptime boundary.ir.builder.local(root, 2);
     const StateRows = state_plan.Rows("state", i32, error{}, .{
         .requirement_index = 0,
         .first_op = 0,
@@ -53,13 +53,13 @@ fn stateReaderPlan() ability.ir.ProgramPlan {
         .first_op = StateRows.op_count,
         .first_output = StateRows.output_count,
     });
-    const requirements = [_]ability.ir.plan.Requirement{
+    const requirements = [_]boundary.ir.plan.Requirement{
         StateRows.requirement,
         ReaderRows.requirement,
     };
     const ops = StateRows.ops ++ ReaderRows.ops;
     const outputs = StateRows.outputs ++ ReaderRows.outputs;
-    return mustPlan(ability.ir.builder.layout.finish(.{
+    return mustPlan(boundary.ir.builder.layout.finish(.{
         .label = "plan-native-state-reader",
         .ir_hash = 50,
         .entry = root,
@@ -68,8 +68,8 @@ fn stateReaderPlan() ability.ir.ProgramPlan {
         .outputs = &outputs,
         .functions = .{.{
             .symbol_name = "run",
-            .value_ref = ability.ir.ValueRef{ .codec = .i32 },
-            .result_ref = ability.ir.ValueRef{ .codec = .i32 },
+            .value_ref = boundary.ir.ValueRef{ .codec = .i32 },
+            .result_ref = boundary.ir.ValueRef{ .codec = .i32 },
             .requirements = layout.span(0, 2),
             .outputs = layout.span(0, 1),
             .locals = .{
@@ -83,9 +83,9 @@ fn stateReaderPlan() ability.ir.ProgramPlan {
                     mustInstruction(state_plan.callGet(root, before, state_plan.getOp(root, 0))),
                     .{ .kind = .add_i32, .dst = next.index, .operand = before.index, .aux = env.index },
                     mustInstruction(state_plan.callSet(root, next, state_plan.setOp(root, 0))),
-                    mustInstruction(ability.ir.builder.returnValue(root, next)),
+                    mustInstruction(boundary.ir.builder.returnValue(root, next)),
                 },
-                .terminator = ability.ir.plan.Terminator{ .kind = .return_value },
+                .terminator = boundary.ir.plan.Terminator{ .kind = .return_value },
             }},
         }},
     }));
@@ -107,12 +107,12 @@ const StateReaderBody = struct {
 };
 
 pub fn run(writer: anytype) !void {
-    var runtime = ability.Runtime.init(std.heap.page_allocator);
+    var runtime = boundary.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
     var state: i32 = 5;
     const environment: i32 = 7;
-    const Program = ability.program("plan-native-state-reader", StateReaderHandlers, StateReaderBody);
+    const Program = boundary.program("plan-native-state-reader", StateReaderHandlers, StateReaderBody);
     var result = try Program.run(&runtime, .{
         .get = .{ .state = &state },
         .set = .{ .state = &state },
