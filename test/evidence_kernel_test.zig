@@ -231,6 +231,13 @@ test "defunctionalization reports and policies enforce strict and allowlist mode
         .allowed_intrinsic_fingerprints = &.{intrinsic.fingerprint},
     });
     try std.testing.expectError(error.HostIntrinsicsPresent, report.assertOnlyAllowlistedIntrinsics(.{
+        .label = "program_backed_required",
+        .allow_host_intrinsics = true,
+        .reject_unknown = true,
+        .allowed_intrinsic_fingerprints = &.{intrinsic.fingerprint},
+        .require_program_backed_providers = true,
+    }));
+    try std.testing.expectError(error.HostIntrinsicsPresent, report.assertOnlyAllowlistedIntrinsics(.{
         .label = "no_kernel_primitives",
         .allow_host_intrinsics = true,
         .allow_kernel_primitives = false,

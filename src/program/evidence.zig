@@ -1436,6 +1436,7 @@ pub const DefunctionalizationReport = struct {
         if (policy.reject_unknown and self.unknown_count != 0) return error.UnknownSemanticBody;
         if (!policy.allow_host_intrinsics and self.host_intrinsic_count != 0) return error.HostIntrinsicsPresent;
         if (!policy.allow_kernel_primitives and self.kernel_primitive_count != 0) return error.HostIntrinsicsPresent;
+        if (policy.require_program_backed_providers and self.providerScopeRequiresProgramBodies()) return error.HostIntrinsicsPresent;
         if (self.host_intrinsic_count != 0 and policy.require_no_intrinsics_in_treaties) {
             return error.HostIntrinsicsPresent;
         }
@@ -1464,6 +1465,26 @@ pub const DefunctionalizationReport = struct {
         return self.intrinsic_refs.len +
             @as(usize, @intFromBool(self.primary_intrinsic_ref != null)) +
             @as(usize, @intFromBool(self.secondary_intrinsic_ref != null));
+    }
+
+    fn providerScopeRequiresProgramBodies(self: @This()) bool {
+        const provider_scoped = switch (self.scope_kind) {
+            .provider_harness,
+            .provider_offer,
+            .treaty_resolver_result,
+            => true,
+            .program,
+            .treaty,
+            .interpreter,
+            .run_handler_set,
+            .morphism_offer,
+            .pipeline,
+            .journal,
+            .catalog,
+            => false,
+        };
+        if (!provider_scoped) return false;
+        return self.host_intrinsic_count != 0 or self.unknown_count != 0;
     }
 };
 

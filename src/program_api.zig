@@ -6082,6 +6082,9 @@ pub fn program(
                     const request_mapping = providerHarnessField(options, "map_request", RequestToProgramArgs.payload_to_args);
                     const result_mapping = providerHarnessField(options, "map_result", if (has_after_site) ProgramResultToProviderOutcome.result_to_resume_after else ProgramResultToProviderOutcome.result_to_resume);
                     const custom_mapper_fingerprint = providerHarnessField(options, "mapper_fingerprint", @as(?u64, null));
+                    if (custom_mapper_fingerprint != null) {
+                        @compileError("provider Program mapper_fingerprint is reserved until provider-program custom mapper execution is implemented");
+                    }
                     switch (request_mapping) {
                         .payload_to_args, .unit_args => {},
                         .payload_and_metadata_to_args => @compileError("provider Program payload_and_metadata_to_args is reserved until provider-program metadata argument execution is implemented"),
@@ -10380,13 +10383,21 @@ pub fn program(
 
                     /// Assert that the resolver result satisfies a defunctionalization policy.
                     pub fn assertDefunctionalized(self: @This(), policy: Evidence.DefunctionalizationPolicy) error{ ProgramContractViolation, HostIntrinsicsPresent, UnknownSemanticBody, IntrinsicCountExceeded }!void {
+                        if (self.treaty) |treaty| {
+                            try treaty.assertDefunctionalized(policy);
+                            return;
+                        }
                         try self.defunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
                     }
 
                     fn defunctionalizationBlockerCounts(self: @This()) Evidence.DefunctionalizationReport.Counts {
                         var counts: Evidence.DefunctionalizationReport.Counts = .{};
                         for (self.blockers.blockers[0..self.blockers.count]) |blocker| {
-                            if (blocker.tag == .unknown_semantic_body) counts.unknown += 1;
+                            if (blocker.tag == .unknown_semantic_body or
+                                blocker.tag == .non_defunctionalized_route)
+                            {
+                                counts.unknown += 1;
+                            }
                             if (blocker.tag == .intrinsic_provider_rejected or
                                 blocker.tag == .intrinsic_morphism_rejected or
                                 blocker.tag == .unallowlisted_intrinsic)
@@ -12900,6 +12911,7 @@ pub fn program(
 
             fn providerProgramMappingBackedByManifest(offer: ProviderOffer, provider: ProviderManifest, mapping_fingerprint: u64) bool {
                 return offer.format_version == provider_offer_program_format_version and
+                    offer.providerProgramMappingAttested() and
                     provider.format_version >= exchange_provider_format_version and
                     provider.provider_fingerprint == offer.provider_fingerprint and
                     providerOfferFieldsBoundToBytes(offer) and
@@ -14658,9 +14670,15 @@ pub fn program(
                 if (authorization.treaty_certificate_fingerprint == certificate.certificate_fingerprint) return true;
                 return switch (authorization.format_version) {
                     2, 3 => authorization.treaty_certificate_fingerprint == fingerprintTreatyCertificateV2(certificate),
-                    exchange_treaty_authorization_fingerprint_version => authorization.treaty_certificate_fingerprint == fingerprintTreatyCertificateV3(certificate),
+                    exchange_treaty_authorization_fingerprint_version => authorization.treaty_certificate_fingerprint == fingerprintTreatyCertificateV3WithTreatyFingerprint(certificate, authorization.treaty_fingerprint),
                     else => false,
                 };
+            }
+
+            fn fingerprintTreatyCertificateV3WithTreatyFingerprint(certificate: Treaty.Certificate, treaty_fingerprint: u64) u64 {
+                var legacy_certificate = certificate;
+                legacy_certificate.treaty_fingerprint = treaty_fingerprint;
+                return fingerprintTreatyCertificateV3(legacy_certificate);
             }
 
             fn writeRequestKindSet(writer: *Writer, set: RequestKindSet) std.mem.Allocator.Error!void {
@@ -15947,7 +15965,8 @@ pub fn program(
                 if (treatyDefunctionalizationPreferenceEnabled(policy)) {
                     const candidate_rank = treatySemanticOpacityRank(candidate);
                     const selected_rank = treatySemanticOpacityRank(selected);
-                    if (candidate_rank != selected_rank) return candidate_rank < selected_rank;
+                    if (candidate_rank.provider != selected_rank.provider) return candidate_rank.provider < selected_rank.provider;
+                    if (candidate_rank.morphism != selected_rank.morphism) return candidate_rank.morphism < selected_rank.morphism;
                 }
                 return switch (treatyEffectiveAmbiguityPolicy(policy, request_value)) {
                     .reject_ambiguous => false,
@@ -16214,10 +16233,16 @@ pub fn program(
                 };
             }
 
-            fn treatySemanticOpacityRank(treaty: Treaty) u8 {
-                var rank = semanticBodyRank(treaty.provider_semantic_body);
-                if (treaty.morphism_semantic_body) |body| rank = @max(rank, semanticBodyRank(body));
-                return rank;
+            const TreatySemanticOpacityRank = struct {
+                provider: u8,
+                morphism: u8,
+            };
+
+            fn treatySemanticOpacityRank(treaty: Treaty) TreatySemanticOpacityRank {
+                return .{
+                    .provider = semanticBodyRank(treaty.provider_semantic_body),
+                    .morphism = if (treaty.morphism_semantic_body) |body| semanticBodyRank(body) else 0,
+                };
             }
 
             fn treatyObligationMatches(

@@ -565,6 +565,10 @@ pub fn build(b: *std.Build) void {
             .expected_error = "provider Program payload_to_args argument schema does not match request payload/current-value schema",
         },
         .{
+            .path = "test/compile_fail/provider_program_mapper_fingerprint_reserved.zig",
+            .expected_error = "provider Program mapper_fingerprint is reserved until provider-program custom mapper execution is implemented",
+        },
+        .{
             .path = "test/compile_fail/provider_program_structured_schema_mismatch.zig",
             .expected_error = "provider Program payload_to_args argument schema does not match request payload/current-value schema",
         },
