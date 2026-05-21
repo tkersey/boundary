@@ -1436,9 +1436,7 @@ pub const DefunctionalizationReport = struct {
         if (policy.reject_unknown and self.unknown_count != 0) return error.UnknownSemanticBody;
         if (!policy.allow_host_intrinsics and self.host_intrinsic_count != 0) return error.HostIntrinsicsPresent;
         if (!policy.allow_kernel_primitives and self.kernel_primitive_count != 0) return error.HostIntrinsicsPresent;
-        if (self.host_intrinsic_count != 0 and
-            (policy.require_program_backed_providers or policy.require_declarative_morphisms or policy.require_no_intrinsics_in_treaties))
-        {
+        if (self.host_intrinsic_count != 0 and policy.require_no_intrinsics_in_treaties) {
             return error.HostIntrinsicsPresent;
         }
         if (policy.maximum_intrinsic_count) |maximum| {

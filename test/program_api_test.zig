@@ -179,6 +179,45 @@ fn testTreatyCoreV2Fingerprint(comptime Program: type, treaty: Program.Exchange.
     return hasher.final();
 }
 
+fn testTreatyCoreV3Fingerprint(comptime Program: type, treaty: Program.Exchange.Treaty) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    testHashBytes(&hasher, "ability.exchange.treaty");
+    testHashU32(&hasher, 3);
+    testHashU64(&hasher, treaty.request_envelope_fingerprint);
+    testHashU32(&hasher, treaty.request_envelope_format_version);
+    testHashU64(&hasher, treaty.request_fingerprint);
+    testHashU64(&hasher, treaty.manifest_fingerprint);
+    testHashU64(&hasher, treaty.provider_fingerprint);
+    testHashU64(&hasher, treaty.provider_offer_fingerprint);
+    testHashStringList(&hasher, treaty.provider_offer_tags);
+    testHashU64(&hasher, treaty.capability_fingerprint);
+    testHashU64(&hasher, treaty.capability_path_fingerprint);
+    testHashOptionalU64(&hasher, treaty.capability_instance_fingerprint);
+    testHashOptionalU64(&hasher, treaty.obligation_fingerprint);
+    testHashU64(&hasher, treaty.route.fingerprint);
+    testHashBytes(&hasher, @tagName(treaty.handling));
+    testHashU64List(&hasher, treaty.morphism_offer_fingerprints);
+    testHashOptionalU64(&hasher, treaty.effect_session_spec_fingerprint);
+    testHashU64List(&hasher, treaty.dynamic_morphism_fingerprints);
+    testHashU64List(&hasher, treaty.residualization_fingerprints);
+    testHashOptionalU64(&hasher, treaty.pipeline_fingerprint);
+    testHashOptionalU64(&hasher, treaty.source_protocol_op_fingerprint);
+    testHashOptionalU64(&hasher, treaty.target_protocol_op_fingerprint);
+    testHashBytes(&hasher, @tagName(treaty.usage));
+    testHashBytes(&hasher, @tagName(treaty.provider_usage));
+    testHashBytes(&hasher, @tagName(treaty.response_use));
+    testHashBytes(&hasher, @tagName(treaty.replay_policy));
+    testHashBytes(&hasher, @tagName(treaty.branch_policy));
+    testHashBool(&hasher, treaty.expected_response_kinds.@"resume");
+    testHashBool(&hasher, treaty.expected_response_kinds.return_now);
+    testHashBool(&hasher, treaty.expected_response_kinds.resume_after);
+    testHashValueRefList(&hasher, treaty.expected_response_refs);
+    testHashValueRefList(&hasher, treaty.provider_response_refs);
+    testHashOptionalU64(&hasher, treaty.journal_policy_fingerprint);
+    testHashBool(&hasher, treaty.require_treaty_bound_response_authorization);
+    return hasher.final();
+}
+
 fn testTreatyCertificateV2Fingerprint(comptime Program: type, certificate: Program.Exchange.Treaty.Certificate) u64 {
     var hasher = std.hash.Wyhash.init(0);
     testHashBytes(&hasher, "ability.exchange.treaty.certificate");
@@ -218,6 +257,76 @@ fn testTreatyCertificateV2Fingerprint(comptime Program: type, certificate: Progr
     testHashBool(&hasher, certificate.require_treaty_bound_response_authorization);
     for (certificate.blockers.blockers[0..certificate.blockers.count]) |blocker| testHashBytes(&hasher, @tagName(blocker.tag));
     testHashBool(&hasher, certificate.blockers.saturated);
+    return hasher.final();
+}
+
+fn testTreatyCertificateV3Fingerprint(comptime Program: type, certificate: Program.Exchange.Treaty.Certificate) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    testHashBytes(&hasher, "ability.exchange.treaty.certificate");
+    testHashU32(&hasher, 3);
+    testHashU64(&hasher, certificate.treaty_fingerprint);
+    testHashU64(&hasher, certificate.request_envelope_fingerprint);
+    testHashU32(&hasher, certificate.request_envelope_format_version);
+    testHashU64(&hasher, certificate.request_fingerprint);
+    testHashU64(&hasher, certificate.manifest_fingerprint);
+    testHashU64(&hasher, certificate.provider_fingerprint);
+    testHashU64(&hasher, certificate.provider_offer_fingerprint);
+    testHashStringList(&hasher, certificate.provider_offer_tags);
+    testHashU64(&hasher, certificate.capability_fingerprint);
+    testHashOptionalU64(&hasher, certificate.attenuated_capability_fingerprint);
+    testHashU64(&hasher, certificate.capability_path_fingerprint);
+    testHashOptionalU64(&hasher, certificate.capability_instance_fingerprint);
+    testHashOptionalU64(&hasher, certificate.obligation_fingerprint);
+    testHashOptionalU64(&hasher, certificate.effect_session_spec_fingerprint);
+    testHashU64(&hasher, certificate.route_fingerprint);
+    testHashU64List(&hasher, certificate.morphism_offer_fingerprints);
+    testHashU64List(&hasher, certificate.dynamic_morphism_fingerprints);
+    testHashU64List(&hasher, certificate.residualization_fingerprints);
+    testHashOptionalU64(&hasher, certificate.pipeline_fingerprint);
+    testHashOptionalU64(&hasher, certificate.source_protocol_op_fingerprint);
+    testHashOptionalU64(&hasher, certificate.target_protocol_op_fingerprint);
+    testHashBytes(&hasher, @tagName(certificate.handling));
+    testHashBytes(&hasher, @tagName(certificate.usage));
+    testHashBytes(&hasher, @tagName(certificate.provider_usage));
+    testHashBytes(&hasher, @tagName(certificate.response_use));
+    testHashBytes(&hasher, @tagName(certificate.replay_policy));
+    testHashBytes(&hasher, @tagName(certificate.branch_policy));
+    testHashBool(&hasher, certificate.expected_response_kinds.@"resume");
+    testHashBool(&hasher, certificate.expected_response_kinds.return_now);
+    testHashBool(&hasher, certificate.expected_response_kinds.resume_after);
+    testHashValueRefList(&hasher, certificate.expected_response_refs);
+    testHashValueRefList(&hasher, certificate.provider_response_refs);
+    testHashOptionalU64(&hasher, certificate.journal_policy_fingerprint);
+    testHashBool(&hasher, certificate.require_treaty_bound_response_authorization);
+    for (certificate.blockers.blockers[0..certificate.blockers.count]) |blocker| testHashBytes(&hasher, @tagName(blocker.tag));
+    testHashBool(&hasher, certificate.blockers.saturated);
+    return hasher.final();
+}
+
+fn testTreatyAuthorizationV4Fingerprint(comptime Program: type, authorization: Program.Exchange.Treaty.Authorization) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    testHashBytes(&hasher, "ability.exchange.treaty.authorization");
+    testHashU32(&hasher, Program.exchange_treaty_authorization_fingerprint_version);
+    testHashU64(&hasher, authorization.treaty_fingerprint);
+    testHashU64(&hasher, authorization.treaty_certificate_fingerprint);
+    testHashU64(&hasher, authorization.provider_fingerprint);
+    testHashU64(&hasher, authorization.provider_offer_fingerprint);
+    testHashU64(&hasher, authorization.capability_fingerprint);
+    testHashOptionalU64(&hasher, authorization.attenuated_capability_fingerprint);
+    testHashU64(&hasher, authorization.capability_path_fingerprint);
+    testHashOptionalU64(&hasher, authorization.capability_instance_fingerprint);
+    testHashOptionalU64(&hasher, authorization.obligation_fingerprint);
+    testHashU64(&hasher, authorization.route_fingerprint);
+    testHashU64(&hasher, authorization.request_envelope_fingerprint);
+    testHashU32(&hasher, authorization.request_envelope_format_version);
+    testHashU64(&hasher, authorization.response_envelope_fingerprint);
+    testHashBytes(&hasher, @tagName(authorization.usage));
+    testHashBytes(&hasher, @tagName(authorization.response_use));
+    testHashBytes(&hasher, @tagName(authorization.replay_policy));
+    testHashBytes(&hasher, @tagName(authorization.branch_policy));
+    testHashOptionalU64(&hasher, authorization.replay_source_response_fingerprint);
+    testHashOptionalU64(&hasher, authorization.replay_source_response_value_fingerprint);
+    testHashOptionalU64(&hasher, authorization.expected_obligation_transition_fingerprint);
     return hasher.final();
 }
 
@@ -24031,6 +24140,27 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         .allowed_response_refs = program_catalog.provider_offers[0].produced_response_refs,
     });
     defer program_capability.deinit();
+    var tampered_program_provider = program_catalog.provider_manifest;
+    tampered_program_provider.max_response_envelope_bytes -= 1;
+    const tampered_program_providers = [_]Program.Exchange.ProviderManifest{tampered_program_provider};
+    const tampered_program_offers = [_]Program.Exchange.ProviderOffer{program_catalog.provider_offers[0]};
+    const tampered_program_capabilities = [_]Program.Exchange.Capability{program_capability};
+    var tampered_program_blocked = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = request_envelope,
+        .manifest = program_catalog.manifest,
+        .provider_manifests = tampered_program_providers[0..],
+        .provider_offers = tampered_program_offers[0..],
+        .capabilities = tampered_program_capabilities[0..],
+        .treaty_policy = .{ .defunctionalization_policy = Program.Evidence.DefunctionalizationPolicy.strict() },
+    });
+    defer tampered_program_blocked.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, tampered_program_blocked.status);
+    var saw_tampered_program_provider = false;
+    for (tampered_program_blocked.blockers.blockers[0..tampered_program_blocked.blockers.count]) |blocker| {
+        if (blocker.tag == .malformed_offer) saw_tampered_program_provider = true;
+    }
+    try std.testing.expect(saw_tampered_program_provider);
     const mixed_providers = [_]Program.Exchange.ProviderManifest{ catalog.provider_manifest, program_catalog.provider_manifest };
     const mixed_offers = [_]Program.Exchange.ProviderOffer{ catalog.provider_offers[0], program_catalog.provider_offers[0] };
     const mixed_capabilities = [_]Program.Exchange.Capability{ capability, program_capability };
@@ -24062,6 +24192,83 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer decoded_program_offer.deinit();
     try std.testing.expectEqual(program_catalog.provider_offers[0].fingerprint, decoded_program_offer.fingerprint);
     try std.testing.expectEqual(program_catalog.provider_offers[0].provider_program_mapping_fingerprint, decoded_program_offer.provider_program_mapping_fingerprint);
+    try std.testing.expect(program_catalog.provider_offers[0].providerProgramMappingAttested());
+    try std.testing.expect(!decoded_program_offer.providerProgramMappingAttested());
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, decoded_program_offer.semanticBodyWithProvider(program_catalog.provider_manifest));
+    var decoded_program_provider = try Program.Exchange.ProviderManifest.decode(std.testing.allocator, program_catalog.provider_manifest.bytes);
+    defer decoded_program_provider.deinit();
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, decoded_program_offer.semanticBodyWithProvider(decoded_program_provider));
+    var wildcard_program_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, ProgramBackedHarness.manifestOptions(&.{}));
+    defer wildcard_program_provider.deinit();
+    try std.testing.expect(wildcard_program_provider.supportsRequest(request_envelope));
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, decoded_program_offer.semanticBodyWithProvider(wildcard_program_provider));
+    const wildcard_program_providers = [_]Program.Exchange.ProviderManifest{wildcard_program_provider};
+    const wildcard_program_offers = [_]Program.Exchange.ProviderOffer{decoded_program_offer};
+    var wildcard_program_result = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = request_envelope,
+        .manifest = program_catalog.manifest,
+        .provider_manifests = wildcard_program_providers[0..],
+        .provider_offers = wildcard_program_offers[0..],
+        .capabilities = (&[_]Program.Exchange.Capability{program_capability})[0..],
+        .treaty_policy = .{ .defunctionalization_policy = Program.Evidence.DefunctionalizationPolicy.strict() },
+    });
+    defer wildcard_program_result.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, wildcard_program_result.status);
+    const decoded_program_providers = [_]Program.Exchange.ProviderManifest{decoded_program_provider};
+    const decoded_program_offers = [_]Program.Exchange.ProviderOffer{decoded_program_offer};
+    var program_morphism_request = Program.Exchange.TreatyRequest.fromRequest(request_envelope);
+    program_morphism_request.allow_provider_fallback = false;
+    const program_dynamic_morphisms = [_]Program.Exchange.MorphismOffer{.{
+        .label = "program-backed-dynamic-morphism",
+        .source_site_fingerprint = request_envelope.site_fingerprint,
+        .source_protocol_op_fingerprint = OperationSite.fingerprint,
+        .target_protocol_op_fingerprint = OperationSite.fingerprint,
+        .dynamic_morphism_fingerprint = 0x515801,
+        .source_response_refs = program_catalog.provider_offers[0].produced_response_refs,
+        .target_response_refs = program_catalog.provider_offers[0].produced_response_refs,
+    }};
+    var provider_required_dynamic_morphism = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = request_envelope,
+        .manifest = program_catalog.manifest,
+        .provider_manifests = decoded_program_providers[0..],
+        .provider_offers = decoded_program_offers[0..],
+        .capabilities = (&[_]Program.Exchange.Capability{program_capability})[0..],
+        .morphism_offers = program_dynamic_morphisms[0..],
+        .treaty_request = program_morphism_request,
+        .treaty_policy = .{ .defunctionalization_policy = .{
+            .label = "provider-program-required-dynamic-morphism-allowed",
+            .allow_host_intrinsics = true,
+            .require_program_backed_providers = true,
+        } },
+    });
+    defer provider_required_dynamic_morphism.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, provider_required_dynamic_morphism.status);
+    try std.testing.expectEqual(Program.Exchange.Treaty.HandlingKind.dynamic_morphism, provider_required_dynamic_morphism.treaty.?.handling);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, provider_required_dynamic_morphism.treaty.?.provider_semantic_body);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.host_intrinsic, provider_required_dynamic_morphism.treaty.?.morphism_semantic_body.?);
+    try provider_required_dynamic_morphism.treaty.?.assertDefunctionalized(.{
+        .label = "provider-program-required-dynamic-morphism-allowed",
+        .allow_host_intrinsics = true,
+        .require_program_backed_providers = true,
+    });
+    try std.testing.expectError(error.HostIntrinsicsPresent, provider_required_dynamic_morphism.treaty.?.assertDefunctionalized(.{
+        .label = "declarative-morphism-required",
+        .allow_host_intrinsics = true,
+        .require_declarative_morphisms = true,
+    }));
+    var decoded_program_result = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = request_envelope,
+        .manifest = program_catalog.manifest,
+        .provider_manifests = decoded_program_providers[0..],
+        .provider_offers = decoded_program_offers[0..],
+        .capabilities = (&[_]Program.Exchange.Capability{program_capability})[0..],
+        .treaty_policy = .{ .defunctionalization_policy = Program.Evidence.DefunctionalizationPolicy.strict() },
+    });
+    defer decoded_program_result.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, decoded_program_result.status);
     var wrong_format_program_offer = program_catalog.provider_offers[0];
     wrong_format_program_offer.format_version = Program.exchange_provider_offer_format_version;
     try std.testing.expectError(error.ProgramContractViolation, wrong_format_program_offer.validate());
@@ -24091,6 +24298,62 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer foreign_program_catalog.deinit();
     try std.testing.expect(ProgramBackedDecl.provider_program_mapping_fingerprint != ForeignProgramBackedDecl.provider_program_mapping_fingerprint);
     try std.testing.expect(program_catalog.provider_offers[0].fingerprint != foreign_program_catalog.provider_offers[0].fingerprint);
+    var decoded_foreign_program_provider = try Program.Exchange.ProviderManifest.decode(std.testing.allocator, foreign_program_catalog.provider_manifest.bytes);
+    defer decoded_foreign_program_provider.deinit();
+    var decoded_foreign_program_offer = try Program.Exchange.ProviderOffer.decode(std.testing.allocator, foreign_program_catalog.provider_offers[0].bytes);
+    defer decoded_foreign_program_offer.deinit();
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, decoded_foreign_program_offer.semanticBodyWithProvider(decoded_foreign_program_provider));
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, decoded_foreign_program_offer.semanticBodyWithProvider(program_catalog.provider_manifest));
+    const decoded_unknown_providers = [_]Program.Exchange.ProviderManifest{program_catalog.provider_manifest};
+    const decoded_unknown_offers = [_]Program.Exchange.ProviderOffer{decoded_foreign_program_offer};
+    const decoded_unknown_capabilities = [_]Program.Exchange.Capability{program_capability};
+    var decoded_unknown_blocked = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = request_envelope,
+        .manifest = program_catalog.manifest,
+        .provider_manifests = decoded_unknown_providers[0..],
+        .provider_offers = decoded_unknown_offers[0..],
+        .capabilities = decoded_unknown_capabilities[0..],
+        .treaty_policy = .{ .reject_intrinsic_provider = true },
+    });
+    defer decoded_unknown_blocked.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, decoded_unknown_blocked.status);
+    var saw_decoded_unknown_semantic_body = false;
+    for (decoded_unknown_blocked.blockers.blockers[0..decoded_unknown_blocked.blockers.count]) |blocker| {
+        if (blocker.tag == .unknown_semantic_body) saw_decoded_unknown_semantic_body = true;
+    }
+    try std.testing.expect(saw_decoded_unknown_semantic_body);
+    const unknown_mapping_providers = [_]Program.Exchange.ProviderManifest{program_catalog.provider_manifest};
+    const unknown_mapping_offers = [_]Program.Exchange.ProviderOffer{foreign_program_catalog.provider_offers[0]};
+    const unknown_mapping_capabilities = [_]Program.Exchange.Capability{program_capability};
+    var unknown_mapping_blocked = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = request_envelope,
+        .manifest = program_catalog.manifest,
+        .provider_manifests = unknown_mapping_providers[0..],
+        .provider_offers = unknown_mapping_offers[0..],
+        .capabilities = unknown_mapping_capabilities[0..],
+        .treaty_policy = .{ .allowed_intrinsic_fingerprints = &.{first_intrinsic.fingerprint} },
+    });
+    defer unknown_mapping_blocked.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, unknown_mapping_blocked.status);
+    var saw_unknown_semantic_body = false;
+    for (unknown_mapping_blocked.blockers.blockers[0..unknown_mapping_blocked.blockers.count]) |blocker| {
+        if (blocker.tag == .unknown_semantic_body) saw_unknown_semantic_body = true;
+    }
+    try std.testing.expect(saw_unknown_semantic_body);
+    var prefer_unknown_mapping = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = request_envelope,
+        .manifest = program_catalog.manifest,
+        .provider_manifests = unknown_mapping_providers[0..],
+        .provider_offers = unknown_mapping_offers[0..],
+        .capabilities = unknown_mapping_capabilities[0..],
+        .treaty_policy = .{ .prefer_program_backed_provider = true },
+    });
+    defer prefer_unknown_mapping.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, prefer_unknown_mapping.status);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, prefer_unknown_mapping.treaty.?.provider_semantic_body);
     try std.testing.expectError(
         error.ProgramContractViolation,
         ProgramBackedHarness.validateManualOffer(std.testing.allocator, 0, foreign_program_catalog.provider_offers[0]),
@@ -27631,6 +27894,8 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
         if (blocker.tag == .intrinsic_morphism_rejected) saw_intrinsic_morphism_rejected = true;
     }
     try std.testing.expect(saw_intrinsic_morphism_rejected);
+    try std.testing.expectEqual(@as(usize, 1), defunc_dynamic_blocked.defunctionalizationReport().host_intrinsic_count);
+    try std.testing.expectError(error.HostIntrinsicsPresent, defunc_dynamic_blocked.assertDefunctionalized(Program.Evidence.DefunctionalizationPolicy.strict()));
 
     const mixed_static_dynamic_morphisms = [_]Program.Exchange.MorphismOffer{mixed_static_dynamic};
     var mixed_static_dynamic_blocked = try Program.Exchange.TreatyResolver.resolve(.{
@@ -27667,6 +27932,68 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
         if (blocker.tag == .intrinsic_provider_rejected) saw_intrinsic_provider_rejected = true;
     }
     try std.testing.expect(saw_intrinsic_provider_rejected);
+    try std.testing.expectEqual(@as(usize, 1), strict_provider_blocked.defunctionalizationReport().host_intrinsic_count);
+    try std.testing.expectError(error.HostIntrinsicsPresent, strict_provider_blocked.assertDefunctionalized(Program.Evidence.DefunctionalizationPolicy.strict()));
+
+    var zero_direct_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "direct-policy-provider",
+        .provider_fingerprint = 0x225,
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
+        .supported_protocol_labels = &.{trace.requirement_label},
+        .supported_protocol_op_fingerprints = &.{trace.operation_site_fingerprint},
+    });
+    defer zero_direct_provider.deinit();
+    var zero_direct_offer = try Program.Exchange.ProviderOffer.encode(std.testing.allocator, .{
+        .label = "direct-policy-offer",
+        .provider_fingerprint = zero_direct_provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .supported_protocol_labels = &.{trace.requirement_label},
+        .supported_protocol_op_fingerprints = &.{trace.operation_site_fingerprint},
+        .produced_response_refs = response_refs[0..],
+    });
+    defer zero_direct_offer.deinit();
+    var zero_direct_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "direct-issuer",
+        .provider_fingerprint = zero_direct_provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true, .after = false },
+        .allowed_operation_sites = &.{trace.operation_site_index},
+        .allowed_protocol_op_fingerprints = &.{trace.operation_site_fingerprint},
+        .allowed_requirement_labels = &.{trace.requirement_label},
+        .allowed_op_names = &.{trace.op_name},
+        .allowed_response_refs = response_refs[0..],
+    });
+    defer zero_direct_capability.deinit();
+    const zero_direct_providers = [_]Program.Exchange.ProviderManifest{zero_direct_provider};
+    const zero_direct_offers = [_]Program.Exchange.ProviderOffer{zero_direct_offer};
+    const zero_direct_capabilities = [_]Program.Exchange.Capability{zero_direct_capability};
+
+    var zero_limited_direct_blocked = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = manifest,
+        .provider_manifests = zero_direct_providers[0..],
+        .provider_offers = zero_direct_offers[0..],
+        .capabilities = zero_direct_capabilities[0..],
+        .treaty_policy = .{ .defunctionalization_policy = .{
+            .label = "zero-intrinsic-direct",
+            .allow_host_intrinsics = true,
+            .maximum_intrinsic_count = 0,
+        } },
+    });
+    defer zero_limited_direct_blocked.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, zero_limited_direct_blocked.status);
+    var saw_direct_intrinsic_count_exceeded = false;
+    for (zero_limited_direct_blocked.blockers.blockers[0..zero_limited_direct_blocked.blockers.count]) |blocker| {
+        if (blocker.tag == .intrinsic_count_exceeded) saw_direct_intrinsic_count_exceeded = true;
+    }
+    try std.testing.expect(saw_direct_intrinsic_count_exceeded);
+    try std.testing.expectEqual(@as(usize, 1), zero_limited_direct_blocked.defunctionalizationReport().host_intrinsic_count);
+    try zero_limited_direct_blocked.assertDefunctionalized(.{
+        .label = "one-intrinsic-direct",
+        .allow_host_intrinsics = true,
+        .maximum_intrinsic_count = 1,
+    });
 
     var count_limited_blocked = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
@@ -27689,6 +28016,12 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
         if (blocker.tag == .intrinsic_count_exceeded) saw_intrinsic_count_exceeded = true;
     }
     try std.testing.expect(saw_intrinsic_count_exceeded);
+    try std.testing.expectEqual(@as(usize, 2), count_limited_blocked.defunctionalizationReport().host_intrinsic_count);
+    try std.testing.expectError(error.IntrinsicCountExceeded, count_limited_blocked.assertDefunctionalized(.{
+        .label = "one-intrinsic-route",
+        .allow_host_intrinsics = true,
+        .maximum_intrinsic_count = 1,
+    }));
 
     const offer_intrinsic = offer.hostIntrinsic() orelse return error.ExpectedHostIntrinsic;
     var count_limited_allowed = try Program.Exchange.TreatyResolver.resolve(.{
@@ -29316,6 +29649,16 @@ test "Program.Exchange treaty-bound response authorization accepts and rejects s
     var lossy_v3_authorization = decoded_legacy_format_authorization;
     lossy_v3_authorization.format_version = 3;
     try std.testing.expectError(error.ProgramContractViolation, lossy_v3_authorization.encode(std.testing.allocator));
+
+    var previous_v4_certificate_response = try Program.Exchange.ResponseEnvelope.@"resume"(std.testing.allocator, envelope, @as(i32, 7));
+    defer previous_v4_certificate_response.deinit();
+    try previous_v4_certificate_response.authorizeTreaty(result.treaty.?, .fresh);
+    var previous_v4_certificate_authorization = previous_v4_certificate_response.treaty_authorization.?;
+    previous_v4_certificate_authorization.treaty_fingerprint = testTreatyCoreV3Fingerprint(Program, result.treaty.?);
+    previous_v4_certificate_authorization.treaty_certificate_fingerprint = testTreatyCertificateV3Fingerprint(Program, result.treaty.?.certificate);
+    previous_v4_certificate_authorization.authorization_fingerprint = testTreatyAuthorizationV4Fingerprint(Program, previous_v4_certificate_authorization);
+    previous_v4_certificate_response.treaty_authorization = previous_v4_certificate_authorization;
+    try std.testing.expect(Program.Exchange.validateTreatyResponse(result.treaty.?, envelope, previous_v4_certificate_response).allowed());
 
     const legacy_treaty_fingerprint = testTreatyCoreV2Fingerprint(Program, result.treaty.?);
     const legacy_certificate_fingerprint = testTreatyCertificateV2Fingerprint(Program, result.treaty.?.certificate);
