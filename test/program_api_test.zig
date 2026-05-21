@@ -5596,6 +5596,7 @@ test "Program.Interpreter handles transform requests and records response traces
     try std.testing.expectEqual(@as(usize, 1), coverage.operation_sites);
     try std.testing.expectEqual(@as(usize, 0), coverage.after_sites);
     const interpreter_report = Interpreter.defunctionalizationReport();
+    try std.testing.expectEqual(Program.Evidence.domains.program_plan.id, interpreter_report.scope_ref.domain_id);
     try std.testing.expectEqual(@as(usize, 1), interpreter_report.host_intrinsic_count);
     try std.testing.expectEqual(@as(usize, 1), interpreter_report.intrinsic_refs.len);
     try Interpreter.assertDefunctionalized(.{
@@ -24365,7 +24366,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         if (blocker.tag == .non_defunctionalized_route) saw_non_defunctionalized_route = true;
     }
     try std.testing.expect(saw_non_defunctionalized_route);
-    try std.testing.expectEqual(@as(usize, 1), program_required_unknown_result.defunctionalizationReport().unknown_count);
+    try std.testing.expectEqual(@as(usize, 0), program_required_unknown_result.defunctionalizationReport().unknown_count);
     try std.testing.expectError(error.HostIntrinsicsPresent, program_required_unknown_result.assertDefunctionalized(.{
         .label = "program-backed-required",
         .allow_host_intrinsics = true,
@@ -28062,6 +28063,15 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
         .source_response_refs = response_refs[0..],
         .target_response_refs = response_refs[0..],
     };
+    const residual_only = Program.Exchange.MorphismOffer{
+        .label = "residual-only",
+        .source_site_fingerprint = trace.operation_site_fingerprint,
+        .source_protocol_op_fingerprint = trace.operation_site_fingerprint,
+        .target_protocol_op_fingerprint = target_op,
+        .residual_morphism_fingerprint = 0xe45,
+        .source_response_refs = response_refs[0..],
+        .target_response_refs = response_refs[0..],
+    };
     const mixed_static_dynamic = Program.Exchange.MorphismOffer{
         .label = "mixed-static-dynamic",
         .source_site_fingerprint = trace.operation_site_fingerprint,
@@ -28773,6 +28783,26 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
     defer request_prefers_residualized.deinit();
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, request_prefers_residualized.status);
     try std.testing.expectEqual(Program.Exchange.Treaty.HandlingKind.pipeline_adapted, request_prefers_residualized.treaty.?.handling);
+    const residual_preference_morphisms = [_]Program.Exchange.MorphismOffer{ residualized, residual_only };
+    var defunc_prefers_residualized = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = envelope,
+        .manifest = manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+        .morphism_offers = residual_preference_morphisms[0..],
+        .treaty_policy = .{ .defunctionalization_policy = .{
+            .label = "prefer-residualized-body",
+            .allow_host_intrinsics = true,
+            .prefer_residualized = true,
+        } },
+    });
+    defer defunc_prefers_residualized.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, defunc_prefers_residualized.status);
+    try std.testing.expectEqual(Program.Exchange.Treaty.HandlingKind.residualized, defunc_prefers_residualized.treaty.?.handling);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.residualized_program, defunc_prefers_residualized.treaty.?.morphism_semantic_body.?);
+    try std.testing.expectEqual(residual_only.residual_morphism_fingerprint.?, defunc_prefers_residualized.treaty.?.certificate.residualization_fingerprints[0]);
     var static_result = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = envelope,

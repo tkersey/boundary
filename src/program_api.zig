@@ -10388,16 +10388,13 @@ pub fn program(
                             return;
                         }
                         try self.defunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
+                        if (self.hasNonDefunctionalizedRouteBlocker()) return error.HostIntrinsicsPresent;
                     }
 
                     fn defunctionalizationBlockerCounts(self: @This()) Evidence.DefunctionalizationReport.Counts {
                         var counts: Evidence.DefunctionalizationReport.Counts = .{};
                         for (self.blockers.blockers[0..self.blockers.count]) |blocker| {
-                            if (blocker.tag == .unknown_semantic_body or
-                                blocker.tag == .non_defunctionalized_route)
-                            {
-                                counts.unknown += 1;
-                            }
+                            if (blocker.tag == .unknown_semantic_body) counts.unknown += 1;
                             if (blocker.tag == .intrinsic_provider_rejected or
                                 blocker.tag == .intrinsic_morphism_rejected or
                                 blocker.tag == .unallowlisted_intrinsic)
@@ -10407,6 +10404,13 @@ pub fn program(
                             if (blocker.tag == .intrinsic_count_exceeded) counts.host_intrinsic += blocker.host_intrinsic_count;
                         }
                         return counts;
+                    }
+
+                    fn hasNonDefunctionalizedRouteBlocker(self: @This()) bool {
+                        for (self.blockers.blockers[0..self.blockers.count]) |blocker| {
+                            if (blocker.tag == .non_defunctionalized_route) return true;
+                        }
+                        return false;
                     }
                 };
 
@@ -15974,8 +15978,8 @@ pub fn program(
 
             fn treatyCandidatePreferred(policy: Treaty.Policy, request_value: TreatyRequest, candidate: Treaty, selected: Treaty) bool {
                 if (treatyDefunctionalizationPreferenceEnabled(policy)) {
-                    const candidate_rank = treatySemanticOpacityRank(candidate);
-                    const selected_rank = treatySemanticOpacityRank(selected);
+                    const candidate_rank = treatySemanticOpacityRank(policy, candidate);
+                    const selected_rank = treatySemanticOpacityRank(policy, selected);
                     if (treatyDefunctionalizationProviderPreferenceEnabled(policy) and candidate_rank.provider != selected_rank.provider) {
                         return candidate_rank.provider < selected_rank.provider;
                     }
@@ -16210,30 +16214,7 @@ pub fn program(
             }
 
             fn intrinsicRefAllowedByDefunctionalizationPolicy(intrinsic_ref: Evidence.Ref, policy: Evidence.DefunctionalizationPolicy) bool {
-                if (intrinsic_ref.domain_id != Evidence.domains.host_intrinsic.id) return false;
-                if (policy.reject_dynamic_mappers) {
-                    if (intrinsic_ref.kind_tag) |kind_tag| {
-                        if (std.mem.eql(u8, kind_tag, @tagName(Evidence.HostIntrinsic.Kind.dynamic_morphism_mapper))) return false;
-                    } else {
-                        return false;
-                    }
-                }
-                for (policy.allowed_intrinsic_fingerprints) |allowed| {
-                    if (allowed == intrinsic_ref.fingerprint) return true;
-                }
-                if (intrinsic_ref.kind_tag) |kind_tag| {
-                    for (policy.allowed_intrinsic_kinds) |allowed| {
-                        if (std.mem.eql(u8, @tagName(allowed), kind_tag)) return true;
-                    }
-                }
-                if (intrinsic_ref.label) |label_value| {
-                    for (policy.allowed_intrinsic_labels) |allowed| {
-                        if (std.mem.eql(u8, allowed, label_value)) return true;
-                    }
-                }
-                return policy.allowed_intrinsic_fingerprints.len == 0 and
-                    policy.allowed_intrinsic_kinds.len == 0 and
-                    policy.allowed_intrinsic_labels.len == 0;
+                return policy.allowsIntrinsicRef(intrinsic_ref);
             }
 
             fn intrinsicRefAllowedByTreatyPolicy(intrinsic_ref: Evidence.Ref, policy: Treaty.Policy) bool {
@@ -16265,7 +16246,7 @@ pub fn program(
                 return defunc.prefer_declarative or defunc.prefer_residualized;
             }
 
-            fn semanticBodyRank(body: Evidence.SemanticBody) u8 {
+            fn providerSemanticBodyRank(body: Evidence.SemanticBody) u8 {
                 return switch (body) {
                     .ability_program => 0,
                     .declarative, .residualized_program, .pipeline => 1,
@@ -16275,15 +16256,40 @@ pub fn program(
                 };
             }
 
+            fn morphismSemanticBodyRank(policy: Treaty.Policy, body: Evidence.SemanticBody) u8 {
+                const defunc = treatyDefunctionalizationPolicy(policy) orelse return providerSemanticBodyRank(body);
+                if (defunc.prefer_declarative and !defunc.prefer_residualized) {
+                    return switch (body) {
+                        .declarative => 0,
+                        .residualized_program => 1,
+                        .pipeline => 2,
+                        .ability_program, .kernel_primitive => 3,
+                        .host_intrinsic => 4,
+                        .unknown => 5,
+                    };
+                }
+                if (defunc.prefer_residualized and !defunc.prefer_declarative) {
+                    return switch (body) {
+                        .residualized_program => 0,
+                        .pipeline => 1,
+                        .declarative => 2,
+                        .ability_program, .kernel_primitive => 3,
+                        .host_intrinsic => 4,
+                        .unknown => 5,
+                    };
+                }
+                return providerSemanticBodyRank(body);
+            }
+
             const TreatySemanticOpacityRank = struct {
                 provider: u8,
                 morphism: u8,
             };
 
-            fn treatySemanticOpacityRank(treaty: Treaty) TreatySemanticOpacityRank {
+            fn treatySemanticOpacityRank(policy: Treaty.Policy, treaty: Treaty) TreatySemanticOpacityRank {
                 return .{
-                    .provider = semanticBodyRank(treaty.provider_semantic_body),
-                    .morphism = if (treaty.morphism_semantic_body) |body| semanticBodyRank(body) else 0,
+                    .provider = providerSemanticBodyRank(treaty.provider_semantic_body),
+                    .morphism = if (treaty.morphism_semantic_body) |body| morphismSemanticBodyRank(policy, body) else 0,
                 };
             }
 
@@ -20343,7 +20349,7 @@ pub fn program(
                 pub fn defunctionalizationReport() Evidence.DefunctionalizationReport {
                     return Evidence.DefunctionalizationReport.init(.{
                         .scope_kind = .interpreter,
-                        .scope_ref = Evidence.refFor(Evidence.domains.semantic_body, body_compiled_plan_hash, .{ .label = label, .kind_tag = "interpreter" }),
+                        .scope_ref = Evidence.refFor(Evidence.domains.program_plan, body_compiled_plan_hash, .{ .label = label, .kind_tag = "interpreter" }),
                         .counts = interpreterSemanticCounts(entries),
                         .intrinsic_refs = &intrinsic_refs,
                         .summary = label,

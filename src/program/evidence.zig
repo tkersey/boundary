@@ -1251,6 +1251,10 @@ pub const DefunctionalizationPolicy = struct {
         }
         return self.allowed_intrinsic_fingerprints.len == 0 and self.allowed_intrinsic_kinds.len == 0 and self.allowed_intrinsic_labels.len == 0;
     }
+
+    pub fn allowsIntrinsicRef(self: @This(), intrinsic_ref: Ref) bool {
+        return intrinsicRefAllowedByPolicy(intrinsic_ref, self);
+    }
 };
 
 pub const DefunctionalizationReport = struct {
@@ -1368,9 +1372,9 @@ pub const DefunctionalizationReport = struct {
         builder.fieldUsize("kernel_primitive", self.kernel_primitive_count);
         builder.fieldUsize("host_intrinsic", self.host_intrinsic_count);
         builder.fieldUsize("unknown", self.unknown_count);
-        for (self.intrinsic_refs) |ref| builder.fieldRef("intrinsic", ref);
-        if (self.primary_intrinsic_ref) |ref| builder.fieldRef("intrinsic", ref);
-        if (self.secondary_intrinsic_ref) |ref| builder.fieldRef("intrinsic", ref);
+        for (self.intrinsic_refs) |ref| builder.fieldRef("intrinsic_ref", ref);
+        if (self.primary_intrinsic_ref) |ref| builder.fieldRef("primary_intrinsic_ref", ref);
+        if (self.secondary_intrinsic_ref) |ref| builder.fieldRef("secondary_intrinsic_ref", ref);
         for (self.unknown_refs) |ref| builder.fieldRef("unknown_ref", ref);
         for (self.dependencies) |dependency| {
             builder.fieldBytes("dependency.role", @tagName(dependency.role));
@@ -1513,11 +1517,17 @@ pub const DefunctionalizationReport = struct {
 
 fn intrinsicRefAllowedByPolicy(intrinsic_ref: Ref, policy: DefunctionalizationPolicy) bool {
     if (intrinsic_ref.domain_id != domains.host_intrinsic.id) return false;
+    if (!policy.allow_host_intrinsics) return false;
     if (policy.reject_dynamic_mappers) {
         if (intrinsic_ref.kind_tag) |kind_tag| {
             if (std.mem.eql(u8, kind_tag, @tagName(HostIntrinsic.Kind.dynamic_morphism_mapper))) return false;
         } else {
             return false;
+        }
+    }
+    if (policy.allow_test_fixtures) {
+        if (intrinsic_ref.kind_tag) |kind_tag| {
+            if (std.mem.eql(u8, kind_tag, @tagName(HostIntrinsic.Kind.test_fixture))) return true;
         }
     }
     for (policy.allowed_intrinsic_fingerprints) |allowed| {

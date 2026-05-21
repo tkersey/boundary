@@ -213,12 +213,35 @@ test "defunctionalization reports and policies enforce strict and allowlist mode
         .dependencies = &.{.{ .role = .host_intrinsic, .ref = intrinsic.evidenceRef() }},
         .summary = "provider harness defunctionalization",
     });
+    const alternate_intrinsic = Evidence.HostIntrinsic.init(.{
+        .label = "alternate-fixture-handler",
+        .kind = .host_tool,
+        .owner_subsystem = .provider_harness,
+        .reason = "alternate external handler",
+    });
+    const generic_intrinsic_refs = [_]Evidence.Ref{ intrinsic.evidenceRef(), alternate_intrinsic.evidenceRef() };
+    const split_role_intrinsic_report = Evidence.DefunctionalizationReport.init(.{
+        .scope_kind = .provider_harness,
+        .scope_ref = scope,
+        .counts = .{ .host_intrinsic = 2 },
+        .intrinsic_refs = &.{intrinsic.evidenceRef()},
+        .primary_intrinsic_ref = alternate_intrinsic.evidenceRef(),
+        .summary = "intrinsic role shape",
+    });
+    const generic_intrinsic_report = Evidence.DefunctionalizationReport.init(.{
+        .scope_kind = .provider_harness,
+        .scope_ref = scope,
+        .counts = .{ .host_intrinsic = 2 },
+        .intrinsic_refs = &generic_intrinsic_refs,
+        .summary = "intrinsic role shape",
+    });
 
     try std.testing.expectEqual(@as(usize, 3), report.total_bodies);
     try std.testing.expectEqual(@as(usize, 1), report.ability_program_count);
     try std.testing.expectEqual(@as(usize, 1), report.kernel_primitive_count);
     try std.testing.expectEqual(@as(usize, 1), report.host_intrinsic_count);
     try std.testing.expectEqual(Evidence.domains.defunctionalization_report.id, report.evidenceRef().domain_id);
+    try std.testing.expect(split_role_intrinsic_report.report_fingerprint != generic_intrinsic_report.report_fingerprint);
     try std.testing.expectError(error.HostIntrinsicsPresent, report.assertNoHostIntrinsics());
     try std.testing.expectError(error.HostIntrinsicsPresent, report.assertOnlyAllowlistedIntrinsics(Evidence.DefunctionalizationPolicy.strict()));
     const counted_intrinsic_evidence = report.toEvidenceReport();
@@ -267,6 +290,29 @@ test "defunctionalization reports and policies enforce strict and allowlist mode
         .allow_host_intrinsics = true,
         .allowed_intrinsic_fingerprints = &.{intrinsic.fingerprint + 1},
     }));
+    const fixture_intrinsic = Evidence.HostIntrinsic.init(.{
+        .label = "fixture-only-handler",
+        .kind = .test_fixture,
+        .owner_subsystem = .provider_harness,
+        .reason = "test fixture provider handler",
+        .stability = .test_only,
+    });
+    const fixture_report = Evidence.DefunctionalizationReport.init(.{
+        .scope_kind = .provider_harness,
+        .scope_ref = scope,
+        .counts = .{ .host_intrinsic = 1 },
+        .intrinsic_refs = &.{fixture_intrinsic.evidenceRef()},
+        .summary = "fixture intrinsic",
+    });
+    try fixture_report.assertOnlyAllowlistedIntrinsics(.{
+        .label = "fixture-with-constrained-policy",
+        .allow_host_intrinsics = true,
+        .allow_test_fixtures = true,
+        .reject_dynamic_mappers = true,
+        .allowed_intrinsic_fingerprints = &.{intrinsic.fingerprint + 1},
+    });
+    try std.testing.expect(!Evidence.DefunctionalizationPolicy.strict().allowsIntrinsicRef(fixture_intrinsic.evidenceRef()));
+    try std.testing.expect(Evidence.DefunctionalizationPolicy.testFixture().allowsIntrinsicRef(fixture_intrinsic.evidenceRef()));
 
     const unknown_report = Evidence.DefunctionalizationReport.init(.{
         .scope_kind = .provider_offer,
