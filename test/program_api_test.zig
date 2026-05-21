@@ -24276,6 +24276,25 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, preferred_mixed.status);
     try std.testing.expectEqual(ProgramBackedHarness.provider_fingerprint, preferred_mixed.treaty.?.provider_fingerprint);
     try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, preferred_mixed.treaty.?.provider_semantic_body);
+    var explicit_preferred_mixed = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = request_envelope,
+        .manifest = catalog.manifest,
+        .provider_manifests = mixed_providers[0..],
+        .provider_offers = mixed_offers[0..],
+        .capabilities = mixed_capabilities[0..],
+        .treaty_policy = .{
+            .prefer_program_backed_provider = true,
+            .defunctionalization_policy = .{
+                .label = "explicit-provider-preference",
+                .allow_host_intrinsics = true,
+            },
+        },
+    });
+    defer explicit_preferred_mixed.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, explicit_preferred_mixed.status);
+    try std.testing.expectEqual(ProgramBackedHarness.provider_fingerprint, explicit_preferred_mixed.treaty.?.provider_fingerprint);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.ability_program, explicit_preferred_mixed.treaty.?.provider_semantic_body);
     var morphism_preference_only_mixed = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = request_envelope,
@@ -24457,6 +24476,28 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         if (blocker.tag == .unknown_semantic_body) saw_decoded_unknown_semantic_body = true;
     }
     try std.testing.expect(saw_decoded_unknown_semantic_body);
+    var explicit_decoded_unknown_blocked = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = request_envelope,
+        .manifest = program_catalog.manifest,
+        .provider_manifests = decoded_unknown_providers[0..],
+        .provider_offers = decoded_unknown_offers[0..],
+        .capabilities = decoded_unknown_capabilities[0..],
+        .treaty_policy = .{
+            .reject_intrinsic_provider = true,
+            .defunctionalization_policy = .{
+                .label = "explicit-provider-rejection",
+                .allow_host_intrinsics = true,
+            },
+        },
+    });
+    defer explicit_decoded_unknown_blocked.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, explicit_decoded_unknown_blocked.status);
+    var saw_explicit_decoded_unknown_semantic_body = false;
+    for (explicit_decoded_unknown_blocked.blockers.blockers[0..explicit_decoded_unknown_blocked.blockers.count]) |blocker| {
+        if (blocker.tag == .unknown_semantic_body) saw_explicit_decoded_unknown_semantic_body = true;
+    }
+    try std.testing.expect(saw_explicit_decoded_unknown_semantic_body);
     const unknown_mapping_providers = [_]Program.Exchange.ProviderManifest{program_catalog.provider_manifest};
     const unknown_mapping_offers = [_]Program.Exchange.ProviderOffer{foreign_program_catalog.provider_offers[0]};
     const unknown_mapping_capabilities = [_]Program.Exchange.Capability{program_capability};

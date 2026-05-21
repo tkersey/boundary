@@ -16100,15 +16100,14 @@ pub fn program(
             }
 
             fn treatyDefunctionalizationPolicy(policy: Treaty.Policy) ?Evidence.DefunctionalizationPolicy {
-                if (policy.defunctionalization_policy) |value| return value;
                 const configured =
                     policy.reject_intrinsic_provider or
                     policy.reject_intrinsic_morphism or
                     policy.prefer_program_backed_provider or
                     policy.allowed_intrinsic_kinds.len != 0 or
                     policy.allowed_intrinsic_fingerprints.len != 0;
-                if (!configured) return null;
-                return .{
+                if (policy.defunctionalization_policy == null and !configured) return null;
+                var defunc = policy.defunctionalization_policy orelse Evidence.DefunctionalizationPolicy{
                     .label = "treaty",
                     .allow_host_intrinsics = true,
                     .allowed_intrinsic_kinds = policy.allowed_intrinsic_kinds,
@@ -16124,6 +16123,18 @@ pub fn program(
                     .prefer_declarative = policy.reject_intrinsic_morphism,
                     .prefer_residualized = policy.reject_intrinsic_morphism,
                 };
+                defunc.reject_unknown = defunc.reject_unknown or
+                    policy.reject_intrinsic_provider or
+                    policy.reject_intrinsic_morphism or
+                    policy.allowed_intrinsic_kinds.len != 0 or
+                    policy.allowed_intrinsic_fingerprints.len != 0;
+                defunc.reject_dynamic_mappers = defunc.reject_dynamic_mappers or policy.reject_intrinsic_morphism;
+                defunc.require_program_backed_providers = defunc.require_program_backed_providers or policy.reject_intrinsic_provider;
+                defunc.require_declarative_morphisms = defunc.require_declarative_morphisms or policy.reject_intrinsic_morphism;
+                defunc.prefer_ability_program = defunc.prefer_ability_program or policy.prefer_program_backed_provider;
+                defunc.prefer_declarative = defunc.prefer_declarative or policy.reject_intrinsic_morphism;
+                defunc.prefer_residualized = defunc.prefer_residualized or policy.reject_intrinsic_morphism;
+                return defunc;
             }
 
             fn treatyProviderBodyBlocker(policy: Treaty.Policy, provider: ProviderManifest, offer: ProviderOffer) ?Treaty.BlockerTag {
