@@ -24006,6 +24006,37 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer authority_changed_offer.deinit();
     const authority_changed_intrinsic = authority_changed_offer.hostIntrinsic() orelse return error.ExpectedHostIntrinsic;
     try std.testing.expect(authority_changed_intrinsic.fingerprint != first_intrinsic.fingerprint);
+    var operation_and_after_offer = try Program.Exchange.ProviderOffer.encode(std.testing.allocator, .{
+        .label = "dispatch-request",
+        .provider_fingerprint = Harness.provider_fingerprint,
+        .manifest_fingerprint = catalog.manifest.fingerprint,
+        .supported_operation_sites = &.{OperationSite.index},
+        .supported_after_sites = &.{AfterSite.index},
+        .supported_protocol_op_fingerprints = &.{OperationSite.fingerprint},
+        .supported_protocol_labels = &.{OperationSite.requirement_label},
+        .accepted_payload_refs = catalog.provider_offers[0].accepted_payload_refs,
+        .accepted_current_value_refs = catalog.provider_offers[1].accepted_current_value_refs,
+        .produced_response_refs = catalog.provider_offers[0].produced_response_refs,
+        .supported_response_uses = .{ .fresh = false },
+    });
+    defer operation_and_after_offer.deinit();
+    var operation_without_after_offer = try Program.Exchange.ProviderOffer.encode(std.testing.allocator, .{
+        .label = "dispatch-request",
+        .provider_fingerprint = Harness.provider_fingerprint,
+        .manifest_fingerprint = catalog.manifest.fingerprint,
+        .supported_operation_sites = &.{OperationSite.index},
+        .supported_protocol_op_fingerprints = &.{OperationSite.fingerprint},
+        .supported_protocol_labels = &.{OperationSite.requirement_label},
+        .accepted_payload_refs = catalog.provider_offers[0].accepted_payload_refs,
+        .produced_response_refs = catalog.provider_offers[0].produced_response_refs,
+        .supported_response_uses = .{ .fresh = false },
+    });
+    defer operation_without_after_offer.deinit();
+    const operation_and_after_intrinsic = operation_and_after_offer.hostIntrinsic() orelse return error.ExpectedHostIntrinsic;
+    const operation_without_after_intrinsic = operation_without_after_offer.hostIntrinsic() orelse return error.ExpectedHostIntrinsic;
+    try std.testing.expect(operation_and_after_intrinsic.fingerprint != operation_without_after_intrinsic.fingerprint);
+    try std.testing.expectEqual(@as(usize, 1), operation_and_after_intrinsic.allowed_site_indexes.len);
+    try std.testing.expectEqual(@as(usize, 1), operation_and_after_intrinsic.allowed_after_site_indexes.len);
     try function_report.assertOnlyAllowlistedIntrinsics(.{
         .label = "world_boundary",
         .allow_host_intrinsics = true,
@@ -28113,8 +28144,9 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
         .allow_host_intrinsics = true,
         .require_declarative_morphisms = true,
     });
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.pipeline, mixed_static_dynamic.semanticBody());
-    try std.testing.expect(mixed_static_dynamic.hostIntrinsicRef() == null);
+    try std.testing.expect(mixed_static_dynamic.hasMixedAdapterBody());
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.host_intrinsic, mixed_static_dynamic.semanticBody());
+    try std.testing.expect(mixed_static_dynamic.hostIntrinsicRef() != null);
 
     var defunc_dynamic_blocked = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
@@ -28145,12 +28177,14 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
         .provider_offers = offers[0..],
         .capabilities = capabilities[0..],
         .morphism_offers = mixed_static_dynamic_morphisms[0..],
-        .treaty_policy = .{ .reject_intrinsic_morphism = true },
     });
     defer mixed_static_dynamic_blocked.deinit();
-    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, mixed_static_dynamic_blocked.status);
-    try std.testing.expectEqual(Program.Exchange.Treaty.HandlingKind.pipeline_adapted, mixed_static_dynamic_blocked.treaty.?.handling);
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.pipeline, mixed_static_dynamic_blocked.treaty.?.morphism_semantic_body.?);
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, mixed_static_dynamic_blocked.status);
+    var saw_malformed_mixed_morphism = false;
+    for (mixed_static_dynamic_blocked.blockers.blockers[0..mixed_static_dynamic_blocked.blockers.count]) |blocker| {
+        if (blocker.tag == .malformed_offer) saw_malformed_mixed_morphism = true;
+    }
+    try std.testing.expect(saw_malformed_mixed_morphism);
 
     var strict_provider_blocked = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,

@@ -983,6 +983,7 @@ pub const HostIntrinsic = struct {
     owner_subsystem: SourceSubsystem,
     allowed_protocol_labels: []const []const u8 = &.{},
     allowed_site_indexes: []const usize = &.{},
+    allowed_after_site_indexes: []const usize = &.{},
     allowed_protocol_op_fingerprints: []const u64 = &.{},
     associated_provider_offer_ref: ?Ref = null,
     associated_provider_fingerprint: ?u64 = null,
@@ -1029,6 +1030,7 @@ pub const HostIntrinsic = struct {
         owner_subsystem: SourceSubsystem,
         allowed_protocol_labels: []const []const u8 = &.{},
         allowed_site_indexes: []const usize = &.{},
+        allowed_after_site_indexes: []const usize = &.{},
         allowed_protocol_op_fingerprints: []const u64 = &.{},
         associated_provider_offer_ref: ?Ref = null,
         associated_provider_fingerprint: ?u64 = null,
@@ -1055,6 +1057,7 @@ pub const HostIntrinsic = struct {
             .owner_subsystem = options.owner_subsystem,
             .allowed_protocol_labels = options.allowed_protocol_labels,
             .allowed_site_indexes = options.allowed_site_indexes,
+            .allowed_after_site_indexes = options.allowed_after_site_indexes,
             .allowed_protocol_op_fingerprints = options.allowed_protocol_op_fingerprints,
             .associated_provider_offer_ref = options.associated_provider_offer_ref,
             .associated_provider_fingerprint = options.associated_provider_fingerprint,
@@ -1085,6 +1088,7 @@ pub const HostIntrinsic = struct {
         builder.fieldBytes("owner", @tagName(self.owner_subsystem));
         for (self.allowed_protocol_labels) |protocol_label| builder.fieldBytes("allowed_protocol", protocol_label);
         for (self.allowed_site_indexes) |site| builder.fieldUsize("allowed_site", site);
+        for (self.allowed_after_site_indexes) |site| builder.fieldUsize("allowed_after_site", site);
         for (self.allowed_protocol_op_fingerprints) |op| builder.fieldU64("allowed_protocol_op", op);
         builder.fieldOptionalRef("provider_offer", self.associated_provider_offer_ref);
         builder.fieldOptionalU64("provider", self.associated_provider_fingerprint);
@@ -1442,7 +1446,7 @@ pub const DefunctionalizationReport = struct {
         if (!policy.allow_kernel_primitives and self.kernel_primitive_count != 0) return error.HostIntrinsicsPresent;
         if (policy.require_program_backed_providers and self.providerScopeRequiresProgramBodies()) return error.HostIntrinsicsPresent;
         if (policy.require_declarative_morphisms and self.morphismScopeRequiresDeclarativeBody()) return error.HostIntrinsicsPresent;
-        if (self.host_intrinsic_count != 0 and policy.require_no_intrinsics_in_treaties) {
+        if (self.host_intrinsic_count != 0 and policy.require_no_intrinsics_in_treaties and self.treatyScoped()) {
             return error.HostIntrinsicsPresent;
         }
         if (policy.maximum_intrinsic_count) |maximum| {
@@ -1490,6 +1494,24 @@ pub const DefunctionalizationReport = struct {
         };
         if (!provider_scoped) return false;
         return self.host_intrinsic_count != 0 or self.unknown_count != 0;
+    }
+
+    fn treatyScoped(self: @This()) bool {
+        return switch (self.scope_kind) {
+            .treaty,
+            .treaty_resolver_result,
+            => true,
+            .program,
+            .provider_harness,
+            .provider_offer,
+            .interpreter,
+            .run_handler_set,
+            .morphism_offer,
+            .pipeline,
+            .journal,
+            .catalog,
+            => false,
+        };
     }
 
     fn morphismScopeRequiresDeclarativeBody(self: @This()) bool {

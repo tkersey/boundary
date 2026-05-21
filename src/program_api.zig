@@ -1510,7 +1510,7 @@ pub fn program(
                 .kind = .run_handler_function,
                 .owner_subsystem = .semantic_boundary,
                 .allowed_protocol_labels = &.{site.original_requirement_label},
-                .allowed_site_indexes = &.{site.index},
+                .allowed_after_site_indexes = &.{site.index},
                 .allowed_protocol_op_fingerprints = &.{site.source_operation_site_fingerprint},
                 .associated_handler_descriptor = "Program.run after handler",
                 .reason = "function-backed Program.run after-continuation handler",
@@ -5931,11 +5931,6 @@ pub fn program(
                     return null;
                 }
 
-                fn providerOfferHostIntrinsicSites(self: @This()) []const usize {
-                    if (self.supported_operation_sites.len != 0) return self.supported_operation_sites;
-                    return self.supported_after_sites;
-                }
-
                 fn providerOfferHostIntrinsicDescriptor(self: @This()) []const u8 {
                     if (self.supported_operation_sites.len != 0 and self.supported_after_sites.len == 0) return "provider operation handler";
                     if (self.supported_after_sites.len != 0 and self.supported_operation_sites.len == 0) return "provider after handler";
@@ -8756,7 +8751,8 @@ pub fn program(
                     .kind = .provider_function,
                     .owner_subsystem = .provider_harness,
                     .allowed_protocol_labels = options.supported_protocol_labels,
-                    .allowed_site_indexes = providerOfferHostIntrinsicSitesFromOptions(options),
+                    .allowed_site_indexes = options.supported_operation_sites,
+                    .allowed_after_site_indexes = options.supported_after_sites,
                     .allowed_protocol_op_fingerprints = options.supported_protocol_op_fingerprints,
                     .associated_provider_fingerprint = options.provider_fingerprint,
                     .associated_manifest_fingerprint = options.manifest_fingerprint,
@@ -8767,11 +8763,6 @@ pub fn program(
                     .tags = options.tags,
                     .metadata = options.metadata,
                 });
-            }
-
-            fn providerOfferHostIntrinsicSitesFromOptions(options: ProviderOffer.Options) []const usize {
-                if (options.supported_operation_sites.len != 0) return options.supported_operation_sites;
-                return options.supported_after_sites;
             }
 
             fn providerOfferHostIntrinsicDescriptorFromOptions(options: ProviderOffer.Options) []const u8 {
@@ -8882,11 +8873,16 @@ pub fn program(
                     return self.residual_morphism_fingerprint != null or self.pipeline_fingerprint != null;
                 }
 
+                /// Return true when an offer tries to cite both opaque and static adapter bodies.
+                pub fn hasMixedAdapterBody(self: @This()) bool {
+                    return self.dynamic_morphism_fingerprint != null and self.hasStaticAdapter();
+                }
+
                 /// Classify the semantic body used by this morphism adapter.
                 pub fn semanticBody(self: @This()) Evidence.SemanticBody {
+                    if (self.dynamic_morphism_fingerprint != null) return .host_intrinsic;
                     if (self.pipeline_fingerprint != null) return .pipeline;
                     if (self.residual_morphism_fingerprint != null) return .residualized_program;
-                    if (self.dynamic_morphism_fingerprint != null) return .host_intrinsic;
                     return .unknown;
                 }
 
@@ -15781,6 +15777,11 @@ pub fn program(
                     return;
                 }
                 morphism_loop: for (inputs.morphism_offers) |morphism| {
+                    if (morphism.hasMixedAdapterBody()) {
+                        blocked_count.* += 1;
+                        blockers.add(.{ .tag = .malformed_offer, .request_fingerprint = inputs.request.fingerprint, .morphism_fingerprint = morphism.fingerprint(), .summary = "morphism offer mixes dynamic and static adapter evidence" });
+                        continue :morphism_loop;
+                    }
                     if (treatyMorphismBodyBlocker(inputs.treaty_policy, morphism)) |tag| {
                         blocked_count.* += 1;
                         blockers.add(.{ .tag = tag, .request_fingerprint = inputs.request.fingerprint, .morphism_fingerprint = morphism.fingerprint(), .summary = "morphism offer semantic body is rejected by defunctionalization policy" });
@@ -21075,7 +21076,11 @@ pub fn program(
                 .kind = if (comptime @hasDecl(Entry, "Morphism")) .dynamic_morphism_mapper else .interpreter_function,
                 .owner_subsystem = .semantic_boundary,
                 .allowed_site_indexes = switch (Entry.kind) {
-                    .operation, .after => &.{Entry.Site.index},
+                    .operation => &.{Entry.Site.index},
+                    else => &.{},
+                },
+                .allowed_after_site_indexes = switch (Entry.kind) {
+                    .after => &.{Entry.Site.index},
                     else => &.{},
                 },
                 .allowed_protocol_op_fingerprints = switch (Entry.kind) {

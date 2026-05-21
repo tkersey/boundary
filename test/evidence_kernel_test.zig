@@ -175,10 +175,23 @@ test "host intrinsic fingerprints use declared metadata not runtime identity" {
         .reason = "external tool call",
         .metadata = "declared-metadata",
     });
+    const after_scoped = Evidence.HostIntrinsic.init(.{
+        .label = "fixture-tool",
+        .kind = .host_tool,
+        .owner_subsystem = .provider_harness,
+        .associated_provider_offer_ref = offer_ref,
+        .allowed_after_site_indexes = &.{1},
+        .reason = "external tool call",
+        .replay_policy_summary = "host-owned",
+        .usage_mode_summary = "copyable",
+        .tags = &.{"world"},
+        .metadata = "declared-metadata",
+    });
 
     try std.testing.expectEqual(intrinsic.fingerprint, same.fingerprint);
     try std.testing.expect(intrinsic.fingerprint != relabeled.fingerprint);
     try std.testing.expect(intrinsic.fingerprint != rekind.fingerprint);
+    try std.testing.expect(intrinsic.fingerprint != after_scoped.fingerprint);
     try std.testing.expectEqual(Evidence.domains.host_intrinsic.id, intrinsic.evidenceRef().domain_id);
     try std.testing.expectEqual(Program.evidence_host_intrinsic_format_version, intrinsic.evidenceRef().format_version.?);
     try std.testing.expect(!@hasField(Evidence.HostIntrinsic, "function_pointer"));
@@ -253,6 +266,21 @@ test "defunctionalization reports and policies enforce strict and allowlist mode
         .reject_unknown = true,
         .allowed_intrinsic_fingerprints = &.{intrinsic.fingerprint},
     });
+    const treaty_only_policy = Evidence.DefunctionalizationPolicy{
+        .label = "ban-treaty-intrinsics",
+        .allow_host_intrinsics = true,
+        .allowed_intrinsic_fingerprints = &.{intrinsic.fingerprint},
+        .require_no_intrinsics_in_treaties = true,
+    };
+    try report.assertOnlyAllowlistedIntrinsics(treaty_only_policy);
+    const treaty_intrinsic_report = Evidence.DefunctionalizationReport.init(.{
+        .scope_kind = .treaty,
+        .scope_ref = Evidence.refFor(Evidence.domains.treaty, 0x101, .{}),
+        .counts = .{ .host_intrinsic = 1 },
+        .intrinsic_refs = &intrinsic_refs,
+        .summary = "treaty defunctionalization",
+    });
+    try std.testing.expectError(error.HostIntrinsicsPresent, treaty_intrinsic_report.assertOnlyAllowlistedIntrinsics(treaty_only_policy));
     const forged_non_intrinsic_ref = Evidence.refFor(Evidence.domains.provider_offer, intrinsic.fingerprint, .{
         .label = intrinsic.label,
         .kind_tag = @tagName(intrinsic.kind),
