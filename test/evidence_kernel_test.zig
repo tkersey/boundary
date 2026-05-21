@@ -96,6 +96,15 @@ test "evidence domain registry is unique and mirrors public version constants" {
     try std.testing.expectEqual(Program.evidence_semantic_body_fingerprint_version, Evidence.domains.semantic_body.fingerprint_version);
     try std.testing.expectEqual(Program.evidence_defunctionalization_policy_fingerprint_version, Evidence.domains.defunctionalization_policy.fingerprint_version);
     try std.testing.expectEqual(Program.evidence_defunctionalization_report_fingerprint_version, Evidence.domains.defunctionalization_report.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_effect_shape_fingerprint_version, Evidence.domains.boundary_effect_shape.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_static_treaty_plan_fingerprint_version, Evidence.domains.boundary_static_treaty_plan.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_closure_policy_fingerprint_version, Evidence.domains.boundary_closure_policy.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_closure_graph_fingerprint_version, Evidence.domains.boundary_closure_graph.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_closure_report_fingerprint_version, Evidence.domains.boundary_closure_report.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_closure_certificate_format_version, Evidence.domains.boundary_closure_certificate.format_version.?);
+    try std.testing.expectEqual(Program.boundary_closure_certificate_fingerprint_version, Evidence.domains.boundary_closure_certificate.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_world_port_format_version, Evidence.domains.boundary_world_port.format_version.?);
+    try std.testing.expectEqual(Program.boundary_world_port_fingerprint_version, Evidence.domains.boundary_world_port.fingerprint_version);
     try std.testing.expectEqual(@as(u32, 3), Evidence.domains.treaty_authorization_legacy_v3.format_version.?);
     try std.testing.expectEqual(@as(u32, 2), Evidence.domains.treaty_authorization_legacy_v2.format_version.?);
     try std.testing.expectEqual(Program.pipeline_fingerprint_version, Evidence.domains.pipeline.fingerprint_version);
@@ -109,6 +118,9 @@ test "evidence domain registry is unique and mirrors public version constants" {
     try std.testing.expectEqualStrings("boundary.session.reinterpret", Evidence.domains.reinterpretation.name);
     try std.testing.expectEqualStrings("boundary.evidence.semantic_body", Evidence.domains.semantic_body.name);
     try std.testing.expectEqualStrings("boundary.evidence.host_intrinsic", Evidence.domains.host_intrinsic.name);
+    try std.testing.expectEqualStrings("boundary.evidence.closure.effect_shape", Evidence.domains.boundary_effect_shape.name);
+    try std.testing.expectEqualStrings("boundary.evidence.closure.world_port", Evidence.domains.boundary_world_port.name);
+    try std.testing.expectEqualStrings("boundary.evidence.closure.policy", Evidence.domains.boundary_closure_policy.name);
 
     for (Evidence.all_domains) |domain| {
         try std.testing.expect(domain.request_tokens_excluded);
@@ -116,6 +128,361 @@ test "evidence domain registry is unique and mirrors public version constants" {
         if (domain.bytes_encoded) try std.testing.expect(domain.format_version != null);
         try std.testing.expect(domain.fingerprint_version != 0);
     }
+}
+
+test "boundary closure foundational refs use static shape metadata" {
+    const unit_ref = Evidence.BoundaryValueRef{ .codec = "unit" };
+    const bool_ref = Evidence.BoundaryValueRef{ .codec = "bool" };
+    const root_ref = Evidence.refFor(Evidence.domains.program_plan, 0x1111, .{ .label = "root" });
+    const treaty_plan_ref = Evidence.refFor(Evidence.domains.boundary_static_treaty_plan, 0x4444, .{ .label = "approval-plan" });
+    const operation_sites = [_]Evidence.EffectShape.OperationSite{.{
+        .index = 3,
+        .fingerprint = 0x2222,
+        .requirement_label = "approval",
+        .op_name = "ask",
+        .payload_ref = unit_ref,
+        .resume_ref = bool_ref,
+        .has_after = true,
+    }};
+    const same_operation_sites = [_]Evidence.EffectShape.OperationSite{operation_sites[0]};
+    const changed_operation_sites = [_]Evidence.EffectShape.OperationSite{.{
+        .index = 3,
+        .fingerprint = 0x2223,
+        .requirement_label = "approval",
+        .op_name = "ask",
+        .payload_ref = unit_ref,
+        .resume_ref = bool_ref,
+        .has_after = true,
+    }};
+    const shape = Evidence.EffectShape.init(.{
+        .label = "root-shape",
+        .root_program_ref = root_ref,
+        .program_plan_ref = root_ref,
+        .operation_sites = operation_sites[0..],
+        .static_treaty_plan_refs = &.{treaty_plan_ref},
+        .semantic_body_refs = &.{Evidence.SemanticBody.boundary_program.evidenceRef()},
+    });
+    const same_shape = Evidence.EffectShape.init(.{
+        .label = "root-shape",
+        .root_program_ref = root_ref,
+        .program_plan_ref = root_ref,
+        .operation_sites = same_operation_sites[0..],
+        .static_treaty_plan_refs = &.{treaty_plan_ref},
+        .semantic_body_refs = &.{Evidence.SemanticBody.boundary_program.evidenceRef()},
+    });
+    const changed_shape = Evidence.EffectShape.init(.{
+        .label = "root-shape",
+        .root_program_ref = root_ref,
+        .program_plan_ref = root_ref,
+        .operation_sites = changed_operation_sites[0..],
+        .static_treaty_plan_refs = &.{treaty_plan_ref},
+        .semantic_body_refs = &.{Evidence.SemanticBody.boundary_program.evidenceRef()},
+    });
+
+    try std.testing.expectEqual(shape.fingerprint, same_shape.fingerprint);
+    try std.testing.expect(shape.fingerprint != changed_shape.fingerprint);
+    try std.testing.expectEqual(Evidence.domains.boundary_effect_shape.id, shape.evidenceRef().domain_id);
+    try std.testing.expectEqualStrings("root-shape", shape.evidenceRef().label.?);
+
+    const strict = Evidence.BoundaryClosurePolicy.strictStatic();
+    const world_policy = Evidence.BoundaryClosurePolicy.worldBoundary();
+    try std.testing.expect(strict.fingerprint() != world_policy.fingerprint());
+    try std.testing.expectEqual(Evidence.domains.boundary_closure_policy.id, strict.evidenceRef().domain_id);
+
+    const port = Evidence.WorldPort.init(.{
+        .label = "approval-world",
+        .kind = .host_tool,
+        .associated_program_ref = root_ref,
+        .reason = "host approval boundary",
+        .tags = &.{"approval"},
+    });
+    try std.testing.expectEqual(Evidence.domains.boundary_world_port.id, port.evidenceRef().domain_id);
+    try std.testing.expectEqualStrings("host_tool", port.evidenceRef().kind_tag.?);
+
+    const blocker = Evidence.boundaryClosureBlocker(.{
+        .tag = .runtime_guard_required,
+        .subject = shape.evidenceRef(),
+        .primary = port.evidenceRef(),
+        .summary = "runtime guard is not a static closure proof",
+    });
+    try std.testing.expect(blocker.valid());
+    try std.testing.expectEqual(Evidence.domains.boundary_closure_report.id, blocker.domain);
+    try std.testing.expectEqual(shape.fingerprint, blocker.subject.?.fingerprint);
+}
+
+test "static treaty planner matches provider shape without request bytes" {
+    const allocator = std.testing.allocator;
+    var manifest = try Program.Exchange.Manifest.encode(allocator);
+    defer manifest.deinit();
+
+    const payload_ref = boundary.ir.ValueRef{ .codec = .unit };
+    const response_ref = boundary.ir.ValueRef{ .codec = .bool };
+    const site_index: usize = 4;
+    const protocol_op_fingerprint: u64 = 0xCAFE;
+
+    var provider = try Program.Exchange.ProviderManifest.encode(allocator, .{
+        .label = "approval-provider",
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
+        .supported_protocol_labels = &.{"approval"},
+        .supported_operation_sites = &.{site_index},
+        .supported_protocol_op_fingerprints = &.{protocol_op_fingerprint},
+    });
+    defer provider.deinit();
+    var offer = try Program.Exchange.ProviderOffer.encode(allocator, .{
+        .label = "approval-offer",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .supported_protocol_labels = &.{"approval"},
+        .supported_operation_sites = &.{site_index},
+        .supported_protocol_op_fingerprints = &.{protocol_op_fingerprint},
+        .accepted_payload_refs = &.{payload_ref},
+        .produced_response_refs = &.{response_ref},
+    });
+    defer offer.deinit();
+    var capability = try Program.Exchange.Capability.encode(allocator, .{
+        .issuer_label = "host",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_operation_sites = &.{site_index},
+        .allowed_protocol_op_fingerprints = &.{protocol_op_fingerprint},
+        .allowed_requirement_labels = &.{"approval"},
+        .allowed_op_names = &.{"approve"},
+        .allowed_response_refs = &.{response_ref},
+    });
+    defer capability.deinit();
+
+    const shape = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "evidence-test",
+        .plan_label = "evidence-test-plan",
+        .plan_hash = 1,
+        .kind = .operation,
+        .site_index = site_index,
+        .site_fingerprint = protocol_op_fingerprint,
+        .name = "approve",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(response_ref),
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = protocol_op_fingerprint,
+    });
+
+    const plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = allocator,
+        .shape = shape,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = Evidence.BoundaryClosurePolicy.worldBoundary(),
+    });
+    defer allocator.free(plan.blockers);
+    defer allocator.free(plan.dependencies);
+
+    try std.testing.expect(plan.closed());
+    try std.testing.expectEqual(@as(usize, 1), plan.direct_candidate_count);
+    try std.testing.expectEqual(Evidence.domains.boundary_static_treaty_plan.id, plan.evidenceRef().domain_id);
+    try std.testing.expectEqual(offer.evidenceRef().fingerprint, plan.selected_provider_offer_ref.?.fingerprint);
+    try std.testing.expectEqual(capability.evidenceRef().fingerprint, plan.selected_capability_ref.?.fingerprint);
+
+    const strict_plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = allocator,
+        .shape = shape,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = Evidence.BoundaryClosurePolicy.strict(),
+    });
+    defer allocator.free(strict_plan.blockers);
+    defer allocator.free(strict_plan.dependencies);
+    try std.testing.expect(!strict_plan.closed());
+    try std.testing.expect(strict_plan.blockers.len != 0);
+
+    var second_offer = try Program.Exchange.ProviderOffer.encode(allocator, .{
+        .label = "approval-offer-2",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .supported_protocol_labels = &.{"approval"},
+        .supported_operation_sites = &.{site_index},
+        .supported_protocol_op_fingerprints = &.{protocol_op_fingerprint},
+        .accepted_payload_refs = &.{payload_ref},
+        .produced_response_refs = &.{response_ref},
+    });
+    defer second_offer.deinit();
+    var ambiguity_policy = Evidence.BoundaryClosurePolicy.worldBoundary();
+    ambiguity_policy.prefer_boundary_native = false;
+    const ambiguous_plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = allocator,
+        .shape = shape,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{ offer, second_offer },
+        .capabilities = &.{capability},
+        .policy = ambiguity_policy,
+    });
+    defer allocator.free(ambiguous_plan.blockers);
+    defer allocator.free(ambiguous_plan.dependencies);
+    try std.testing.expect(!ambiguous_plan.closed());
+    try std.testing.expectEqual(Evidence.BoundaryClosureBlockerTag.ambiguous_static_treaty_plan, ambiguous_plan.blockers[0].tag);
+}
+
+test "boundary closure traversal closes a provider-backed shape" {
+    const allocator = std.testing.allocator;
+    var manifest = try Program.Exchange.Manifest.encode(allocator);
+    defer manifest.deinit();
+
+    const payload_ref = boundary.ir.ValueRef{ .codec = .unit };
+    const response_ref = boundary.ir.ValueRef{ .codec = .bool };
+    const site_index: usize = 6;
+    const protocol_op_fingerprint: u64 = 0xBEEF;
+
+    var provider = try Program.Exchange.ProviderManifest.encode(allocator, .{
+        .label = "closure-provider",
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
+        .supported_protocol_labels = &.{"approval"},
+        .supported_operation_sites = &.{site_index},
+        .supported_protocol_op_fingerprints = &.{protocol_op_fingerprint},
+    });
+    defer provider.deinit();
+    var offer = try Program.Exchange.ProviderOffer.encode(allocator, .{
+        .label = "closure-offer",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .supported_protocol_labels = &.{"approval"},
+        .supported_operation_sites = &.{site_index},
+        .supported_protocol_op_fingerprints = &.{protocol_op_fingerprint},
+        .accepted_payload_refs = &.{payload_ref},
+        .produced_response_refs = &.{response_ref},
+    });
+    defer offer.deinit();
+    var capability = try Program.Exchange.Capability.encode(allocator, .{
+        .issuer_label = "host",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_operation_sites = &.{site_index},
+        .allowed_protocol_op_fingerprints = &.{protocol_op_fingerprint},
+        .allowed_requirement_labels = &.{"approval"},
+        .allowed_op_names = &.{"approve"},
+        .allowed_response_refs = &.{response_ref},
+    });
+    defer capability.deinit();
+
+    const shape = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "evidence-test",
+        .plan_label = "evidence-test-plan",
+        .plan_hash = 1,
+        .kind = .operation,
+        .site_index = site_index,
+        .site_fingerprint = protocol_op_fingerprint,
+        .name = "approve",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(response_ref),
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = protocol_op_fingerprint,
+    });
+    const Closure = Evidence.BoundaryClosure(Program);
+    var result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape},
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = Evidence.BoundaryClosurePolicy.worldBoundary(),
+    });
+    defer result.deinit();
+
+    try result.assertClosed();
+    try std.testing.expectEqual(@as(usize, 1), result.report.effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 1), result.report.closed_effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 1), result.static_treaty_plans.len);
+    try std.testing.expectEqual(offer.evidenceRef().fingerprint, result.static_treaty_plans[0].selected_provider_offer_ref.?.fingerprint);
+    try result.certificate.check(result.graph, result.report, Evidence.BoundaryClosurePolicy.worldBoundary());
+
+    const report_view = result.report.toEvidenceReport();
+    try std.testing.expect(report_view.success);
+    try std.testing.expectEqual(Evidence.domains.boundary_closure_report.id, report_view.report_domain);
+
+    var summary_buffer: [192]u8 = undefined;
+    var summary_stream = std.Io.Writer.fixed(&summary_buffer);
+    try result.writeSummary(&summary_stream);
+    const summary = summary_stream.buffered();
+    try std.testing.expect(std.mem.find(u8, summary, "closure=closed") != null);
+    try std.testing.expect(std.mem.find(u8, summary, "certificate=") != null);
+
+    var same_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape},
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = Evidence.BoundaryClosurePolicy.worldBoundary(),
+    });
+    defer same_result.deinit();
+    try std.testing.expectEqual(result.graph.fingerprint, same_result.graph.fingerprint);
+    try std.testing.expectEqual(result.report.report_fingerprint, same_result.report.report_fingerprint);
+    try std.testing.expectEqual(result.certificate.certificate_fingerprint, same_result.certificate.certificate_fingerprint);
+    try std.testing.expectError(
+        error.BoundaryClosurePolicyMismatch,
+        result.certificate.check(result.graph, result.report, Evidence.BoundaryClosurePolicy.strict()),
+    );
+
+    const not_closed_report = Evidence.BoundaryClosureReport.init(.{
+        .graph_fingerprint = result.graph.fingerprint,
+        .effect_shape_count = 1,
+        .closed_effect_shape_count = 0,
+        .policy_summary = Evidence.BoundaryClosurePolicy.worldBoundary().policySummary(),
+    });
+    const not_closed_certificate = Evidence.BoundaryClosureCertificate.init(
+        not_closed_report,
+        result.graph,
+        Evidence.BoundaryClosurePolicy.worldBoundary(),
+        &.{},
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureNotClosed,
+        not_closed_certificate.check(result.graph, not_closed_report, Evidence.BoundaryClosurePolicy.worldBoundary()),
+    );
+
+    const provider_program_ref = Evidence.refFor(Evidence.domains.program_plan, 0xABCDEF, .{ .label = "provider-program" });
+    var provider_program_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape},
+        .provider_programs = &.{.{
+            .provider_ref = provider.evidenceRef(),
+            .program_ref = provider_program_ref,
+            .shapes = &.{shape},
+        }},
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = Evidence.BoundaryClosurePolicy.worldBoundary(),
+    });
+    defer provider_program_result.deinit();
+    try std.testing.expectEqual(@as(usize, 2), provider_program_result.report.effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 1), provider_program_result.report.provider_program_refs.len);
+    try std.testing.expectEqual(provider_program_ref.fingerprint, provider_program_result.report.provider_program_refs[0].fingerprint);
+    try std.testing.expectEqual(@as(usize, 1), provider_program_result.certificate.provider_program_refs.len);
+    try provider_program_result.certificate.check(provider_program_result.graph, provider_program_result.report, Evidence.BoundaryClosurePolicy.worldBoundary());
+
+    var depth_policy = Evidence.BoundaryClosurePolicy.worldBoundary();
+    depth_policy.max_nested_provider_depth = 0;
+    var depth_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape},
+        .provider_programs = &.{.{
+            .provider_ref = provider.evidenceRef(),
+            .program_ref = provider_program_ref,
+            .shapes = &.{shape},
+        }},
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = depth_policy,
+    });
+    defer depth_result.deinit();
+    try std.testing.expect(depth_result.report.blocker_count != 0);
+    try std.testing.expectError(
+        error.BoundaryClosureNotClosed,
+        depth_result.certificate.check(depth_result.graph, depth_result.report, depth_policy),
+    );
 }
 
 test "semantic body classifications expose stable evidence refs" {

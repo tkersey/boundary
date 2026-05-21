@@ -565,6 +565,25 @@ treaty-response validation.
 
 See [docs/defunctionalization_boundary.md](docs/defunctionalization_boundary.md).
 
+#### Boundary closure certificates
+
+`Program.BoundaryClosure` analyzes a configured root program/catalog/policy
+surface as evidence, not as runtime execution. It builds static effect shapes
+from reachable operation and after sites, dry-runs treaty planning by shape,
+records a deterministic closure graph, lowers blockers through
+`Program.Evidence.Blocker`, and emits a closure report and certificate. The
+certificate proves every configured Boundary effect shape is handled inside
+Boundary, or that the only open boundaries are explicit allowlisted world ports.
+
+Closure prepares a contract for an adjacent `world` interpreter. World can
+consume root refs, provider refs, static treaty plans, world-port declarations,
+policy summaries, evidence refs, and blockers without rediscovering Boundary's
+graph. Boundary still does not implement World: scheduling, storage, network,
+transport, provider lifecycle, host intrinsic execution, retries, identity,
+signing, encryption, and cancellation remain host-owned.
+
+See [docs/boundary_closure.md](docs/boundary_closure.md).
+
 ### Linear Effect Sessions
 
 Continuations can be copied; the world often cannot. Linear Effect Sessions are
@@ -669,6 +688,15 @@ authoring and public plan-native helpers:
   provider as an explicit host intrinsic: strict policy rejects it, a
   world-boundary allowlist admits it, and the treaty-authorized response
   completes.
+- `examples/boundary_closure_strict.zig` demonstrates a strict closure
+  certificate where a root approval effect is handled by a program-backed
+  provider with no world ports or host intrinsics.
+- `examples/boundary_closure_nested.zig` demonstrates closure planning for a
+  root approval effect whose program-backed provider yields a nested
+  `policy.check` effect handled by another Boundary-native provider.
+- `examples/boundary_closure_world_port.zig` demonstrates strict rejection of a
+  host intrinsic and world-boundary acceptance when the same intrinsic is
+  surfaced as an explicit world port.
 - `examples/durable_capsule_replay.zig` demonstrates v1 capsule image
   encode/decode, restored fresh request tokens, and reusable approve/deny
   branches.
@@ -706,6 +734,9 @@ zig build run-effect-pipeline
 zig build run-provider-harness-direct
 zig build run-provider-harness-morphism
 zig build run-provider-harness-replayable
+zig build run-boundary-closure-strict
+zig build run-boundary-closure-nested
+zig build run-boundary-closure-world-port
 zig build run-program-provider-direct
 zig build run-program-provider-nested
 zig build run-program-provider-resume

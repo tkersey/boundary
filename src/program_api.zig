@@ -1279,6 +1279,8 @@ pub fn program(
         pub const Error = ProgramErrorSet(Body);
         /// Canonical evidence, fingerprint, validation, and projection substrate.
         pub const Evidence = program_evidence;
+        /// Static closure and evidence certificates over configured Boundary effect graphs.
+        pub const BoundaryClosure = Evidence.BoundaryClosure(@This());
         /// Separate fingerprint domain for protocol reinterpretation metadata.
         pub const reinterpret_fingerprint_version: u32 = Evidence.domains.reinterpretation.fingerprint_version;
         /// Separate fingerprint domain for residual ProgramPlan transformation metadata.
@@ -1374,6 +1376,24 @@ pub fn program(
         pub const evidence_defunctionalization_policy_fingerprint_version: u32 = Evidence.domains.defunctionalization_policy.fingerprint_version;
         /// Stable fingerprint version for defunctionalization report metadata.
         pub const evidence_defunctionalization_report_fingerprint_version: u32 = Evidence.domains.defunctionalization_report.fingerprint_version;
+        /// Stable fingerprint version for static boundary-closure effect shapes.
+        pub const boundary_effect_shape_fingerprint_version: u32 = Evidence.domains.boundary_effect_shape.fingerprint_version;
+        /// Stable fingerprint version for static treaty planner reports.
+        pub const boundary_static_treaty_plan_fingerprint_version: u32 = Evidence.domains.boundary_static_treaty_plan.fingerprint_version;
+        /// Stable fingerprint version for boundary-closure policies.
+        pub const boundary_closure_policy_fingerprint_version: u32 = Evidence.domains.boundary_closure_policy.fingerprint_version;
+        /// Stable fingerprint version for deterministic boundary-closure graphs.
+        pub const boundary_closure_graph_fingerprint_version: u32 = Evidence.domains.boundary_closure_graph.fingerprint_version;
+        /// Stable fingerprint version for boundary-closure reports.
+        pub const boundary_closure_report_fingerprint_version: u32 = Evidence.domains.boundary_closure_report.fingerprint_version;
+        /// Stable format version for boundary-closure certificates.
+        pub const boundary_closure_certificate_format_version: u32 = Evidence.domains.boundary_closure_certificate.format_version.?;
+        /// Stable fingerprint version for boundary-closure certificates.
+        pub const boundary_closure_certificate_fingerprint_version: u32 = Evidence.domains.boundary_closure_certificate.fingerprint_version;
+        /// Stable format version for host/world boundary port descriptors.
+        pub const boundary_world_port_format_version: u32 = Evidence.domains.boundary_world_port.format_version.?;
+        /// Stable fingerprint version for host/world boundary port descriptors.
+        pub const boundary_world_port_fingerprint_version: u32 = Evidence.domains.boundary_world_port.fingerprint_version;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {
@@ -10429,6 +10449,103 @@ pub fn program(
                     }
                 };
 
+                /// Static treaty-planner inputs. Unlike `resolve`, these inputs carry
+                /// only effect-shape metadata and never require request envelope bytes.
+                pub const StaticInputs = struct {
+                    shape: Evidence.BoundaryEffectShape,
+                    manifest: Manifest,
+                    provider_manifests: []const ProviderManifest = &.{},
+                    provider_offers: []const ProviderOffer = &.{},
+                    capabilities: []const Capability = &.{},
+                    morphism_offers: []const MorphismOffer = &.{},
+                    treaty_policy: Treaty.Policy = .{},
+                    has_capsule: bool = false,
+                    label: []const u8 = "static treaty plan",
+                };
+
+                /// Static planner status.
+                pub const StaticStatus = enum {
+                    static_treaty,
+                    no_static_treaty,
+                    ambiguous_static_treaties,
+                    blocked,
+                };
+
+                /// Bounded closure blocker list for static treaty planning.
+                pub const StaticBlockerList = struct {
+                    blockers: [16]Evidence.Blocker = undefined,
+                    count: usize = 0,
+                    truncated: bool = false,
+
+                    /// Append a blocker until the bounded static-planner storage is full.
+                    pub fn add(self: *@This(), blocker: Evidence.Blocker) void {
+                        if (self.count == self.blockers.len) {
+                            self.truncated = true;
+                            return;
+                        }
+                        self.blockers[self.count] = blocker;
+                        self.count += 1;
+                    }
+
+                    /// Return the initialized blocker slice.
+                    pub fn slice(self: *const @This()) []const Evidence.Blocker {
+                        return self.blockers[0..self.count];
+                    }
+
+                    /// True when blockers were recorded or truncated.
+                    pub fn hasErrors(self: @This()) bool {
+                        return self.count != 0 or self.truncated;
+                    }
+                };
+
+                /// Static treaty plan evidence over a shape/catalog/policy tuple.
+                pub const StaticPlan = struct {
+                    label: []const u8,
+                    fingerprint: u64,
+                    status: StaticStatus,
+                    shape_ref: Evidence.Ref,
+                    provider_ref: ?Evidence.Ref = null,
+                    provider_offer_ref: ?Evidence.Ref = null,
+                    capability_ref: ?Evidence.Ref = null,
+                    morphism_offer_ref: ?Evidence.Ref = null,
+                    provider_semantic_body: Evidence.SemanticBody = .unknown,
+                    morphism_semantic_body: ?Evidence.SemanticBody = null,
+                    provider_intrinsic_ref: ?Evidence.Ref = null,
+                    morphism_intrinsic_ref: ?Evidence.Ref = null,
+                    candidate_count: usize = 0,
+                    blocked_count: usize = 0,
+                    blockers: StaticBlockerList = .{},
+
+                    /// Return the Evidence ref for this static treaty plan.
+                    pub fn evidenceRef(self: @This()) Evidence.Ref {
+                        return Evidence.refForBoundaryStaticTreatyPlan(self);
+                    }
+
+                    /// Lower the static treaty plan into a shared Evidence report.
+                    pub fn toEvidenceReport(self: *const @This(), dependencies: []const Evidence.Dependency) Evidence.Report {
+                        if (!self.blockers.hasErrors()) return Evidence.Report.ok(self.shape_ref, Evidence.domains.boundary_static_treaty_plan.id, dependencies);
+                        return Evidence.Report.withFailure(self.shape_ref, Evidence.domains.boundary_static_treaty_plan.id, dependencies, self.blockers.slice(), &.{}, null, "static treaty plan");
+                    }
+                };
+
+                /// Plan a treaty from static effect-shape metadata and host catalogs.
+                pub fn planStatic(inputs: StaticInputs) StaticPlan {
+                    var plan = StaticPlan{
+                        .label = inputs.label,
+                        .fingerprint = 0,
+                        .status = .no_static_treaty,
+                        .shape_ref = inputs.shape.evidenceRef(),
+                    };
+                    planStaticInto(inputs, &plan);
+                    plan.fingerprint = fingerprintStaticTreatyPlan(plan);
+                    return plan;
+                }
+
+                /// Plan a treaty from BoundaryClosure shape/catalog inputs.
+                pub fn planShape(inputs: BoundaryClosure.PlanInputs) !BoundaryClosure.StaticTreatyPlan {
+                    return BoundaryClosure.planTreatyForShape(inputs);
+                }
+
                 /// Resolve a treaty from request/catalog/policy inputs.
                 pub fn resolve(inputs: Inputs) Error!TreatyResolver.Result {
                     inputs.request.validate() catch |err| switch (err) {
@@ -16139,6 +16256,525 @@ pub fn program(
             fn stringListContains(list: []const []const u8, value: []const u8) bool {
                 for (list) |item| if (std.mem.eql(u8, item, value)) return true;
                 return false;
+            }
+
+            fn planStaticInto(inputs: TreatyResolver.StaticInputs, plan: *TreatyResolver.StaticPlan) void {
+                const request_kind = staticShapeRequestKind(inputs.shape) orelse {
+                    addStaticBlocker(plan, .unsupported_shape_planning, plan.shape_ref, null, "effect shape is not a request boundary");
+                    plan.status = .blocked;
+                    return;
+                };
+                const site_index = inputs.shape.site_index orelse {
+                    addStaticBlocker(plan, .unsupported_shape_planning, plan.shape_ref, null, "effect shape is missing site index");
+                    plan.status = .blocked;
+                    return;
+                };
+                const site_fingerprint = inputs.shape.site_fingerprint orelse {
+                    addStaticBlocker(plan, .unsupported_shape_planning, plan.shape_ref, null, "effect shape is missing site fingerprint");
+                    plan.status = .blocked;
+                    return;
+                };
+                const protocol_op_fingerprint = staticShapeProtocolOp(inputs.shape) orelse {
+                    addStaticBlocker(plan, .unsupported_shape_planning, plan.shape_ref, null, "effect shape is missing protocol operation fingerprint");
+                    plan.status = .blocked;
+                    return;
+                };
+                const requirement_label = staticShapeRequirementLabel(inputs.shape) orelse {
+                    addStaticBlocker(plan, .unsupported_shape_planning, plan.shape_ref, null, "effect shape is missing protocol label");
+                    plan.status = .blocked;
+                    return;
+                };
+                const value_ref = inputs.shape.value_ref orelse {
+                    addStaticBlocker(plan, .runtime_guard_required, plan.shape_ref, null, "effect shape is missing request value ref");
+                    plan.status = .blocked;
+                    return;
+                };
+                var response_refs_buffer: [3]Evidence.BoundaryValueRef = undefined;
+                const response_refs = staticShapeResponseRefs(inputs.shape, &response_refs_buffer);
+                if (response_refs.len == 0) {
+                    addStaticBlocker(plan, .unsupported_shape_planning, plan.shape_ref, null, "effect shape is missing response refs");
+                    plan.status = .blocked;
+                    return;
+                }
+
+                if (inputs.has_capsule and inputs.treaty_policy.disallow_capsule_export) {
+                    addStaticBlocker(plan, .treaty_policy_incompatible, plan.shape_ref, null, "treaty policy disallows capsule-bearing static shape");
+                    plan.status = .blocked;
+                    return;
+                }
+                if (!inputs.has_capsule and inputs.treaty_policy.require_capsule_embedding) {
+                    addStaticBlocker(plan, .world_port_missing, plan.shape_ref, null, "treaty policy requires runtime capsule embedding");
+                    plan.status = .blocked;
+                    return;
+                }
+
+                if (inputs.treaty_policy.allow_direct_handling) {
+                    direct_offers: for (inputs.provider_offers) |offer| {
+                        const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse {
+                            plan.blocked_count += 1;
+                            addStaticBlocker(plan, .no_provider_offer_for_shape, plan.shape_ref, offer.evidenceRef(), "provider offer is not backed by a provider manifest");
+                            continue :direct_offers;
+                        };
+                        if (staticProviderBodyBlocker(inputs.treaty_policy, provider.*, offer, plan.shape_ref, &plan.blockers)) {
+                            plan.blocked_count += 1;
+                            continue :direct_offers;
+                        }
+                        if (!staticProviderManifestSupportsShape(provider.*, inputs.manifest, request_kind, site_index, protocol_op_fingerprint, requirement_label, inputs.has_capsule) or
+                            !staticOfferSupportsShape(offer, inputs.manifest, request_kind, site_index, protocol_op_fingerprint, requirement_label, value_ref, response_refs, inputs.has_capsule) or
+                            !staticOfferUsageCompatible(offer, inputs.shape, inputs.treaty_policy) or
+                            !providerOfferTagsAllowPolicy(inputs.treaty_policy, offer.tags))
+                        {
+                            plan.blocked_count += 1;
+                            continue :direct_offers;
+                        }
+                        var matched_capability = false;
+                        direct_capabilities: for (inputs.capabilities) |capability| {
+                            if (!staticCapabilitySupportsShape(capability, inputs.manifest, provider.*, request_kind, site_index, protocol_op_fingerprint, requirement_label, inputs.shape, response_refs, inputs.has_capsule)) continue :direct_capabilities;
+                            matched_capability = true;
+                            selectStaticPlanCandidate(inputs.treaty_policy, plan, provider.*, offer, capability, null);
+                        }
+                        if (!matched_capability) {
+                            plan.blocked_count += 1;
+                            addStaticBlocker(plan, .no_capability_for_shape, plan.shape_ref, offer.evidenceRef(), "no capability authorizes the static provider offer");
+                        }
+                    }
+                }
+
+                if (inputs.treaty_policy.allow_morphism_adaptation and inputs.treaty_policy.max_morphism_hops != 0) {
+                    morphisms: for (inputs.morphism_offers) |morphism| {
+                        if (!staticMorphismSupportsShape(morphism, site_fingerprint, protocol_op_fingerprint, response_refs, inputs.shape)) continue :morphisms;
+                        if (morphism.hasMixedAdapterBody() or (!morphism.hasStaticAdapter() and !inputs.treaty_policy.allow_dynamic_interpretation)) {
+                            plan.blocked_count += 1;
+                            addStaticBlocker(plan, .world_port_missing, plan.shape_ref, morphism.evidenceRef(), "morphism offer requires a runtime adapter boundary");
+                            continue :morphisms;
+                        }
+                        if (staticMorphismBodyBlocker(inputs.treaty_policy, morphism, plan.shape_ref, &plan.blockers)) {
+                            plan.blocked_count += 1;
+                            continue :morphisms;
+                        }
+                        morphism_offers: for (inputs.provider_offers) |offer| {
+                            const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse continue :morphism_offers;
+                            if (!staticProviderManifestSupportsShape(provider.*, inputs.manifest, request_kind, site_index, morphism.target_protocol_op_fingerprint, requirement_label, inputs.has_capsule) or
+                                !staticOfferSupportsMorphismTarget(offer, inputs.manifest, request_kind, site_index, morphism.target_protocol_op_fingerprint, value_ref, response_refs, inputs.has_capsule))
+                            {
+                                plan.blocked_count += 1;
+                                continue :morphism_offers;
+                            }
+                            morphism_capabilities: for (inputs.capabilities) |capability| {
+                                if (!staticCapabilitySupportsShape(capability, inputs.manifest, provider.*, request_kind, site_index, morphism.target_protocol_op_fingerprint, requirement_label, inputs.shape, response_refs, inputs.has_capsule)) continue :morphism_capabilities;
+                                selectStaticPlanCandidate(inputs.treaty_policy, plan, provider.*, offer, capability, morphism);
+                            }
+                        }
+                    }
+                }
+
+                if (plan.candidate_count == 1) {
+                    plan.status = .static_treaty;
+                } else if (plan.candidate_count > 1) {
+                    plan.status = .ambiguous_static_treaties;
+                    addStaticBlocker(plan, .ambiguous_static_treaty_plan, plan.shape_ref, plan.provider_offer_ref, "multiple static treaty plans match the effect shape");
+                } else if (plan.blocked_count != 0 or plan.blockers.count != 0) {
+                    plan.status = .blocked;
+                } else {
+                    plan.status = .no_static_treaty;
+                    addStaticBlocker(plan, .no_static_treaty_plan, plan.shape_ref, null, "no provider offer supports the static effect shape");
+                }
+            }
+
+            fn selectStaticPlanCandidate(
+                policy: Treaty.Policy,
+                plan: *TreatyResolver.StaticPlan,
+                provider: ProviderManifest,
+                offer: ProviderOffer,
+                capability: Capability,
+                morphism: ?MorphismOffer,
+            ) void {
+                plan.candidate_count += 1;
+                if (plan.provider_offer_ref != null and !staticCandidatePreferred(policy, plan.*, provider, offer, morphism)) return;
+                plan.provider_ref = provider.evidenceRef();
+                plan.provider_offer_ref = offer.evidenceRef();
+                plan.capability_ref = capability.evidenceRef();
+                plan.morphism_offer_ref = if (morphism) |morphism_offer| morphism_offer.evidenceRef() else null;
+                plan.provider_semantic_body = offer.semanticBodyWithProvider(provider);
+                plan.morphism_semantic_body = if (morphism) |morphism_offer| morphism_offer.semanticBody() else null;
+                plan.provider_intrinsic_ref = offer.hostIntrinsicRef();
+                plan.morphism_intrinsic_ref = if (morphism) |morphism_offer| morphism_offer.hostIntrinsicRef() else null;
+            }
+
+            fn staticCandidatePreferred(policy: Treaty.Policy, selected: TreatyResolver.StaticPlan, provider: ProviderManifest, offer: ProviderOffer, morphism: ?MorphismOffer) bool {
+                const candidate_provider_rank = providerSemanticBodyRank(offer.semanticBodyWithProvider(provider));
+                const selected_provider_rank = providerSemanticBodyRank(selected.provider_semantic_body);
+                if (candidate_provider_rank != selected_provider_rank) return candidate_provider_rank < selected_provider_rank;
+                const candidate_morphism_rank = if (morphism) |morphism_offer| morphismSemanticBodyRank(policy, morphism_offer.semanticBody()) else 0;
+                const selected_morphism_rank = if (selected.morphism_semantic_body) |body| morphismSemanticBodyRank(policy, body) else 0;
+                if (candidate_morphism_rank != selected_morphism_rank) return candidate_morphism_rank < selected_morphism_rank;
+                return true;
+            }
+
+            fn staticShapeRequestKind(shape: Evidence.BoundaryEffectShape) ?RequestKind {
+                return switch (shape.kind) {
+                    .root_program => null,
+                    .provider_program => null,
+                    .operation => .operation,
+                    .after => .after,
+                    .intrinsic => null,
+                    .world_port => null,
+                    .unknown => null,
+                };
+            }
+
+            fn staticShapeProtocolOp(shape: Evidence.BoundaryEffectShape) ?u64 {
+                if (shape.protocol_op_fingerprint) |fingerprint| return fingerprint;
+                return switch (shape.kind) {
+                    .root_program => null,
+                    .provider_program => null,
+                    .operation => shape.site_fingerprint,
+                    .after => null,
+                    .intrinsic => null,
+                    .world_port => null,
+                    .unknown => null,
+                };
+            }
+
+            fn staticShapeRequirementLabel(shape: Evidence.BoundaryEffectShape) ?[]const u8 {
+                if (shape.protocol_label.len != 0) return shape.protocol_label;
+                return shape.semantic_label;
+            }
+
+            fn staticShapeResponseKinds(shape: Evidence.BoundaryEffectShape) Policy.ResponseKindSet {
+                const has_desired = shape.desired_response_refs.len != 0;
+                return .{
+                    .@"resume" = shape.expected_resume_ref != null or has_desired,
+                    .return_now = shape.result_ref != null,
+                    .resume_after = false,
+                };
+            }
+
+            fn staticShapeResponseRefs(shape: Evidence.BoundaryEffectShape, buffer: *[3]Evidence.BoundaryValueRef) []const Evidence.BoundaryValueRef {
+                if (shape.desired_response_refs.len != 0) return shape.desired_response_refs;
+                var count: usize = 0;
+                if (shape.expected_resume_ref) |ref| {
+                    buffer[count] = ref;
+                    count += 1;
+                }
+                if (shape.result_ref) |ref| {
+                    buffer[count] = ref;
+                    count += 1;
+                }
+                return buffer[0..count];
+            }
+
+            fn staticProviderManifestSupportsShape(
+                provider: ProviderManifest,
+                manifest: Manifest,
+                request_kind: RequestKind,
+                site_index: usize,
+                protocol_op_fingerprint: u64,
+                requirement_label: []const u8,
+                has_capsule: bool,
+            ) bool {
+                if (!providerFieldsBoundToBytes(provider)) return false;
+                if (!listAllowsU64(provider.supported_program_manifest_fingerprints, manifest.fingerprint)) return false;
+                if (!listAllowsString(provider.supported_protocol_labels, requirement_label)) return false;
+                if (provider.supported_protocol_op_fingerprints.len != 0 and !listAllowsU64(provider.supported_protocol_op_fingerprints, protocol_op_fingerprint)) return false;
+                if (has_capsule and !provider.accepts_embedded_capsules) return false;
+                const operation_sites_constrained = provider.supported_operation_sites.len != 0;
+                const after_sites_constrained = provider.supported_after_sites.len != 0;
+                return switch (request_kind) {
+                    .operation => !(!operation_sites_constrained and after_sites_constrained) and (!operation_sites_constrained or listAllowsUsize(provider.supported_operation_sites, site_index)),
+                    .after => !(!after_sites_constrained and operation_sites_constrained) and (!after_sites_constrained or listAllowsUsize(provider.supported_after_sites, site_index)),
+                };
+            }
+
+            fn staticOfferSupportsShape(
+                offer: ProviderOffer,
+                manifest: Manifest,
+                request_kind: RequestKind,
+                site_index: usize,
+                protocol_op_fingerprint: u64,
+                requirement_label: []const u8,
+                value_ref: Evidence.BoundaryValueRef,
+                response_refs: []const Evidence.BoundaryValueRef,
+                has_capsule: bool,
+            ) bool {
+                offer.validate() catch return false;
+                if (offer.manifest_fingerprint != manifest.fingerprint) return false;
+                if (!offer.capsule_policy.allows(has_capsule)) return false;
+                if (!listAllowsString(offer.supported_protocol_labels, requirement_label)) return false;
+                if (!listAllowsU64(offer.supported_protocol_op_fingerprints, protocol_op_fingerprint)) return false;
+                if (!staticOfferAllowsAnyResponseRef(offer, response_refs)) return false;
+                const operation_sites_constrained = offer.supported_operation_sites.len != 0;
+                const after_sites_constrained = offer.supported_after_sites.len != 0;
+                return switch (request_kind) {
+                    .operation => !(!operation_sites_constrained and after_sites_constrained) and
+                        listAllowsUsize(offer.supported_operation_sites, site_index) and
+                        staticValueRefListAllows(offer.accepted_payload_refs, value_ref),
+                    .after => !(!after_sites_constrained and operation_sites_constrained) and
+                        listAllowsUsize(offer.supported_after_sites, site_index) and
+                        staticValueRefListAllows(offer.accepted_current_value_refs, value_ref),
+                };
+            }
+
+            fn staticOfferSupportsMorphismTarget(
+                offer: ProviderOffer,
+                manifest: Manifest,
+                request_kind: RequestKind,
+                site_index: usize,
+                target_protocol_op_fingerprint: u64,
+                value_ref: Evidence.BoundaryValueRef,
+                response_refs: []const Evidence.BoundaryValueRef,
+                has_capsule: bool,
+            ) bool {
+                offer.validate() catch return false;
+                if (offer.manifest_fingerprint != manifest.fingerprint) return false;
+                if (!offer.capsule_policy.allows(has_capsule)) return false;
+                if (!listAllowsU64(offer.supported_protocol_op_fingerprints, target_protocol_op_fingerprint)) return false;
+                if (!staticOfferAllowsAnyResponseRef(offer, response_refs)) return false;
+                const operation_sites_constrained = offer.supported_operation_sites.len != 0;
+                const after_sites_constrained = offer.supported_after_sites.len != 0;
+                return switch (request_kind) {
+                    .operation => !(!operation_sites_constrained and after_sites_constrained) and
+                        listAllowsUsize(offer.supported_operation_sites, site_index) and
+                        staticValueRefListAllows(offer.accepted_payload_refs, value_ref),
+                    .after => !(!after_sites_constrained and operation_sites_constrained) and
+                        listAllowsUsize(offer.supported_after_sites, site_index) and
+                        staticValueRefListAllows(offer.accepted_current_value_refs, value_ref),
+                };
+            }
+
+            fn staticCapabilitySupportsShape(
+                capability: Capability,
+                manifest: Manifest,
+                provider: ProviderManifest,
+                request_kind: RequestKind,
+                site_index: usize,
+                protocol_op_fingerprint: u64,
+                requirement_label: []const u8,
+                shape: Evidence.BoundaryEffectShape,
+                response_refs: []const Evidence.BoundaryValueRef,
+                has_capsule: bool,
+            ) bool {
+                if (!capabilityFieldsBoundToBytes(capability)) return false;
+                if (capability.provider_fingerprint != provider.provider_fingerprint) return false;
+                if (capability.manifest_fingerprint != manifest.fingerprint) return false;
+                if (!capability.allowed_request_kinds.allows(request_kind)) return false;
+                if (!listAllowsString(capability.allowed_program_labels, shape.program_label)) return false;
+                if (shape.plan_hash == 0 and capability.allowed_plan_hashes.len != 0) return false;
+                if (shape.plan_hash != 0 and !listAllowsU64(capability.allowed_plan_hashes, shape.plan_hash)) return false;
+                switch (request_kind) {
+                    .operation => if (!listAllowsUsize(capability.allowed_operation_sites, site_index)) return false,
+                    .after => if (!listAllowsUsize(capability.allowed_after_sites, site_index)) return false,
+                }
+                if (!listAllowsU64(capability.allowed_protocol_op_fingerprints, protocol_op_fingerprint)) return false;
+                if (!listAllowsString(capability.allowed_requirement_labels, requirement_label)) return false;
+                if (shape.name.len != 0 and !listAllowsString(capability.allowed_op_names, shape.name)) return false;
+                if (shape.max_request_bytes != 0 and shape.max_request_bytes > capability.max_request_bytes) return false;
+                if (shape.max_payload_bytes != 0 and shape.max_payload_bytes > capability.max_payload_bytes) return false;
+                if (shape.max_response_bytes != 0 and shape.max_response_bytes > capability.max_response_bytes) return false;
+                if (has_capsule and !capability.allow_embedded_capsule_response_handling) return false;
+                if (has_capsule and shape.max_capsule_image_bytes != 0 and shape.max_capsule_image_bytes > capability.max_capsule_image_bytes) return false;
+                if (!responseKindSetIntersects(staticShapeResponseKinds(shape), capability.allowed_response_kinds)) return false;
+                return staticBoundaryRefsAllowedByCapability(capability.allowed_response_refs, response_refs);
+            }
+
+            fn staticOfferUsageCompatible(offer: ProviderOffer, shape: Evidence.BoundaryEffectShape, policy: Treaty.Policy) bool {
+                const usage = staticUsage(shape.usage_summary);
+                const response_use = staticResponseUse(shape.replay_policy_summary, if (policy.require_replay_only_response) .replayed else .fresh);
+                const replay_policy = staticResponseUse(shape.replay_policy_summary, .fresh);
+                const branch_policy = staticBranchPolicy(shape.branch_policy_summary);
+                return policy.allowed_usage_modes.allows(usage) and
+                    offer.supported_usage_modes.allows(usage) and
+                    policy.allowed_response_uses.allows(response_use) and
+                    offer.supported_response_uses.allows(response_use) and
+                    offer.supported_replay_policies.allows(replay_policy) and
+                    policy.allowed_branch_policies.allows(branch_policy) and
+                    offer.supported_branch_policies.allows(branch_policy);
+            }
+
+            fn staticMorphismSupportsShape(morphism: MorphismOffer, site_fingerprint: u64, protocol_op_fingerprint: u64, response_refs: []const Evidence.BoundaryValueRef, shape: Evidence.BoundaryEffectShape) bool {
+                if (morphism.blockers.len != 0) return false;
+                if (morphism.source_site_fingerprint) |site| if (site != site_fingerprint) return false;
+                if (morphism.source_protocol_op_fingerprint) |op| if (op != protocol_op_fingerprint) return false;
+                if (morphism.source_usage != staticUsage(shape.usage_summary)) return false;
+                if (morphism.target_response_refs.len != 0 and morphism.source_response_refs.len == 0) return false;
+                if (morphism.source_response_refs.len == 0) return true;
+                for (response_refs) |ref| {
+                    if (staticValueRefListAllows(morphism.source_response_refs, ref)) return true;
+                }
+                return false;
+            }
+
+            fn staticProviderBodyBlocker(policy: Treaty.Policy, provider: ProviderManifest, offer: ProviderOffer, shape_ref: Evidence.Ref, blockers: *TreatyResolver.StaticBlockerList) bool {
+                const tag = treatyProviderBodyBlocker(policy, provider, offer) orelse return false;
+                blockers.add(staticBlockerForTreatyTag(tag, shape_ref, offer.evidenceRef(), "provider semantic body is rejected by static treaty policy"));
+                return true;
+            }
+
+            fn staticMorphismBodyBlocker(policy: Treaty.Policy, morphism: MorphismOffer, shape_ref: Evidence.Ref, blockers: *TreatyResolver.StaticBlockerList) bool {
+                const tag = treatyMorphismBodyBlocker(policy, morphism) orelse return false;
+                blockers.add(staticBlockerForTreatyTag(tag, shape_ref, morphism.evidenceRef(), "morphism semantic body is rejected by static treaty policy"));
+                return true;
+            }
+
+            fn staticBlockerForTreatyTag(tag: Treaty.BlockerTag, subject: Evidence.Ref, primary: ?Evidence.Ref, summary: []const u8) Evidence.Blocker {
+                const closure_tag: Evidence.BoundaryClosureBlockerTag = switch (tag) {
+                    .no_provider_offer,
+                    .provider_does_not_support_site,
+                    .provider_does_not_support_protocol_op,
+                    .malformed_offer,
+                    .wrong_provider,
+                    => .no_provider_offer_for_shape,
+
+                    .no_capability,
+                    .capability_not_monotone,
+                    .capability_too_broad_when_attenuation_required,
+                    .wrong_capability,
+                    => .no_capability_for_shape,
+
+                    .morphism_missing,
+                    .morphism_type_mismatch,
+                    .morphism_usage_mode_mismatch,
+                    .wrong_morphism,
+                    .max_morphism_hops_exceeded,
+                    => .unsupported_shape_planning,
+
+                    .ambiguous_provider,
+                    .ambiguous_morphism_path,
+                    => .ambiguous_static_treaty_plan,
+
+                    .intrinsic_provider_rejected => .intrinsic_route_rejected,
+                    .intrinsic_morphism_rejected => .dynamic_mapper_rejected,
+                    .unallowlisted_intrinsic => .unallowlisted_intrinsic,
+                    .unknown_semantic_body => .unknown_semantic_body,
+                    .non_defunctionalized_route => .defunctionalization_policy_incompatible,
+
+                    .residualization_unsupported,
+                    .dynamic_morphism_disallowed,
+                    .capsule_export_disallowed,
+                    .replay_policy_incompatible,
+                    .branch_policy_incompatible,
+                    .response_use_incompatible,
+                    .usage_mode_not_allowed,
+                    .obligation_open_failed,
+                    .obligation_state_incompatible,
+                    .capability_instance_consumed,
+                    .capability_instance_wrong_branch,
+                    .envelope_too_large,
+                    .foreign_manifest,
+                    .malformed_request,
+                    .malformed_treaty_request,
+                    .wrong_treaty,
+                    .wrong_certificate,
+                    .wrong_route,
+                    .wrong_response_kind,
+                    .intrinsic_count_exceeded,
+                    => .treaty_policy_incompatible,
+                };
+                return Evidence.boundaryClosureBlocker(.{ .tag = closure_tag, .subject = subject, .primary = primary, .summary = summary });
+            }
+
+            fn addStaticBlocker(plan: *TreatyResolver.StaticPlan, tag: Evidence.BoundaryClosureBlockerTag, subject: Evidence.Ref, primary: ?Evidence.Ref, summary: []const u8) void {
+                plan.blockers.add(Evidence.boundaryClosureBlocker(.{
+                    .tag = tag,
+                    .subject = subject,
+                    .primary = primary,
+                    .summary = summary,
+                }));
+            }
+
+            fn staticOfferAllowsAnyResponseRef(offer: ProviderOffer, refs: []const Evidence.BoundaryValueRef) bool {
+                for (refs) |ref| {
+                    if (staticValueRefListAllows(offer.produced_response_refs, ref)) return true;
+                }
+                return false;
+            }
+
+            fn staticBoundaryRefsAllowedByCapability(allowed_refs: []const lowering_api.ValueRef, refs: []const Evidence.BoundaryValueRef) bool {
+                for (refs) |ref| {
+                    if (staticValueRefListAllows(allowed_refs, ref)) return true;
+                }
+                return false;
+            }
+
+            fn staticValueRefListAllows(list: []const lowering_api.ValueRef, value: Evidence.BoundaryValueRef) bool {
+                if (list.len == 0) return true;
+                for (list) |item| if (staticValueRefMatches(item, value)) return true;
+                return false;
+            }
+
+            fn staticValueRefMatches(actual: lowering_api.ValueRef, expected: Evidence.BoundaryValueRef) bool {
+                return std.mem.eql(u8, @tagName(actual.codec), expected.codec) and actual.schema_index == expected.schema_index;
+            }
+
+            fn responseKindSetIntersects(left: Policy.ResponseKindSet, right: Policy.ResponseKindSet) bool {
+                return (left.@"resume" and right.@"resume") or
+                    (left.return_now and right.return_now) or
+                    (left.resume_after and right.resume_after);
+            }
+
+            fn staticUsage(value: []const u8) Usage {
+                if (std.mem.eql(u8, value, "replayable")) return .replayable;
+                if (std.mem.eql(u8, value, "affine")) return .affine;
+                if (std.mem.eql(u8, value, "linear")) return .linear;
+                if (std.mem.eql(u8, value, "ephemeral")) return .ephemeral;
+                return .copyable;
+            }
+
+            fn staticResponseUse(value: []const u8, default_value: ResponseUse) ResponseUse {
+                if (std.mem.eql(u8, value, "replayed")) return .replayed;
+                if (std.mem.eql(u8, value, "deterministic_replay")) return .deterministic_replay;
+                if (std.mem.eql(u8, value, "override")) return .override;
+                if (std.mem.eql(u8, value, "fresh")) return .fresh;
+                return default_value;
+            }
+
+            fn staticBranchPolicy(value: []const u8) BranchPolicy {
+                if (std.mem.eql(u8, value, "replay_only")) return .replay_only;
+                if (std.mem.eql(u8, value, "single_live_branch")) return .single_live_branch;
+                if (std.mem.eql(u8, value, "split_required")) return .split_required;
+                if (std.mem.eql(u8, value, "no_branch")) return .no_branch;
+                if (std.mem.eql(u8, value, "host_owned")) return .host_owned;
+                return .unrestricted;
+            }
+
+            fn fingerprintStaticTreatyPlan(plan: TreatyResolver.StaticPlan) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                hashBytes(&hasher, "boundary.evidence.closure.static_treaty_plan");
+                hashU32(&hasher, Evidence.domains.boundary_static_treaty_plan.fingerprint_version);
+                hashBytes(&hasher, plan.label);
+                hashBytes(&hasher, @tagName(plan.status));
+                hashStaticEvidenceRef(&hasher, plan.shape_ref);
+                hashOptionalEvidenceRef(&hasher, plan.provider_ref);
+                hashOptionalEvidenceRef(&hasher, plan.provider_offer_ref);
+                hashOptionalEvidenceRef(&hasher, plan.capability_ref);
+                hashOptionalEvidenceRef(&hasher, plan.morphism_offer_ref);
+                hashBytes(&hasher, @tagName(plan.provider_semantic_body));
+                hashOptionalBytes(&hasher, if (plan.morphism_semantic_body) |body| @tagName(body) else null);
+                hashUsize(&hasher, plan.candidate_count);
+                hashUsize(&hasher, plan.blocked_count);
+                for (plan.blockers.blockers[0..plan.blockers.count]) |blocker| {
+                    hashBytes(&hasher, blocker.tag);
+                    hashBytes(&hasher, blocker.summary);
+                    if (blocker.primary) |ref| hashStaticEvidenceRef(&hasher, ref);
+                }
+                hashBool(&hasher, plan.blockers.truncated);
+                return hasher.final();
+            }
+
+            fn hashStaticEvidenceRef(hasher: *std.hash.Wyhash, ref: Evidence.Ref) void {
+                hashU32(hasher, @intFromEnum(ref.domain_id));
+                hashU64(hasher, ref.fingerprint);
+                hashBool(hasher, ref.format_version != null);
+                if (ref.format_version) |format_version| {
+                    hashU32(hasher, format_version);
+                }
+                hashOptionalBytes(hasher, ref.label);
+                hashOptionalU64(hasher, ref.branch_id);
+                hashBool(hasher, ref.site_index != null);
+                if (ref.site_index) |site_index| {
+                    hashUsize(hasher, site_index);
+                }
+                hashOptionalBytes(hasher, ref.kind_tag);
             }
 
             fn treatyDefunctionalizationPolicy(policy: Treaty.Policy) ?Evidence.DefunctionalizationPolicy {
