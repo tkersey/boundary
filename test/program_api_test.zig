@@ -24250,6 +24250,29 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         if (blocker.tag == .malformed_offer) saw_tampered_program_provider = true;
     }
     try std.testing.expect(saw_tampered_program_provider);
+    var tampered_program_offer = program_catalog.provider_offers[0];
+    tampered_program_offer.format_version = Program.exchange_provider_offer_format_version;
+    const tampered_offer_providers = [_]Program.Exchange.ProviderManifest{program_catalog.provider_manifest};
+    const tampered_offer_offers = [_]Program.Exchange.ProviderOffer{tampered_program_offer};
+    var tampered_offer_blocked = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = request_envelope,
+        .manifest = program_catalog.manifest,
+        .provider_manifests = tampered_offer_providers[0..],
+        .provider_offers = tampered_offer_offers[0..],
+        .capabilities = tampered_program_capabilities[0..],
+        .treaty_policy = .{ .defunctionalization_policy = Program.Evidence.DefunctionalizationPolicy.strict() },
+    });
+    defer tampered_offer_blocked.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, tampered_offer_blocked.status);
+    var saw_tampered_offer_malformed = false;
+    var saw_tampered_offer_unknown = false;
+    for (tampered_offer_blocked.blockers.blockers[0..tampered_offer_blocked.blockers.count]) |blocker| {
+        if (blocker.tag == .malformed_offer) saw_tampered_offer_malformed = true;
+        if (blocker.tag == .unknown_semantic_body) saw_tampered_offer_unknown = true;
+    }
+    try std.testing.expect(saw_tampered_offer_malformed);
+    try std.testing.expect(!saw_tampered_offer_unknown);
     const mixed_providers = [_]Program.Exchange.ProviderManifest{ catalog.provider_manifest, program_catalog.provider_manifest };
     const mixed_offers = [_]Program.Exchange.ProviderOffer{ catalog.provider_offers[0], program_catalog.provider_offers[0] };
     const mixed_capabilities = [_]Program.Exchange.Capability{ capability, program_capability };
@@ -24321,6 +24344,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     decoded_program_offer.provider_program_mapping_attestation = .{ .token = 0 };
     try std.testing.expect(!decoded_program_offer.providerProgramMappingAttested());
     try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, decoded_program_offer.semanticBodyWithProvider(program_catalog.provider_manifest));
+    decoded_program_offer.provider_program_mapping_attestation = null;
     var decoded_program_provider = try Program.Exchange.ProviderManifest.decode(std.testing.allocator, program_catalog.provider_manifest.bytes);
     defer decoded_program_provider.deinit();
     try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, decoded_program_offer.semanticBodyWithProvider(decoded_program_provider));
@@ -24385,6 +24409,66 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         .allow_host_intrinsics = true,
         .require_declarative_morphisms = true,
     }));
+    var declarative_required_program_provider = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = request_envelope,
+        .manifest = program_catalog.manifest,
+        .provider_manifests = decoded_program_providers[0..],
+        .provider_offers = attested_program_offers[0..],
+        .capabilities = (&[_]Program.Exchange.Capability{program_capability})[0..],
+        .morphism_offers = program_dynamic_morphisms[0..],
+        .treaty_request = program_morphism_request,
+        .treaty_policy = .{ .defunctionalization_policy = .{
+            .label = "program-provider-declarative-morphism-required",
+            .allow_host_intrinsics = true,
+            .require_declarative_morphisms = true,
+        } },
+    });
+    defer declarative_required_program_provider.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, declarative_required_program_provider.status);
+    var saw_program_provider_intrinsic_morphism = false;
+    for (declarative_required_program_provider.blockers.blockers[0..declarative_required_program_provider.blockers.count]) |blocker| {
+        if (blocker.tag == .intrinsic_morphism_rejected) saw_program_provider_intrinsic_morphism = true;
+    }
+    try std.testing.expect(saw_program_provider_intrinsic_morphism);
+    try declarative_required_program_provider.assertDefunctionalized(.{
+        .label = "provider-program-only-reassertion",
+        .allow_host_intrinsics = true,
+        .require_program_backed_providers = true,
+    });
+    try std.testing.expectError(error.HostIntrinsicsPresent, declarative_required_program_provider.assertDefunctionalized(.{
+        .label = "declarative-morphism-reassertion",
+        .allow_host_intrinsics = true,
+        .require_declarative_morphisms = true,
+    }));
+    var tampered_morphism_offer = program_catalog.provider_offers[0];
+    tampered_morphism_offer.format_version = Program.exchange_provider_offer_format_version;
+    const tampered_morphism_offers = [_]Program.Exchange.ProviderOffer{tampered_morphism_offer};
+    var tampered_morphism_offer_result = try Program.Exchange.TreatyResolver.resolve(.{
+        .allocator = std.testing.allocator,
+        .request = request_envelope,
+        .manifest = program_catalog.manifest,
+        .provider_manifests = decoded_program_providers[0..],
+        .provider_offers = tampered_morphism_offers[0..],
+        .capabilities = (&[_]Program.Exchange.Capability{program_capability})[0..],
+        .morphism_offers = program_dynamic_morphisms[0..],
+        .treaty_request = program_morphism_request,
+        .treaty_policy = .{ .defunctionalization_policy = .{
+            .label = "tampered-morphism-offer",
+            .allow_host_intrinsics = true,
+            .reject_unknown = true,
+        } },
+    });
+    defer tampered_morphism_offer_result.deinit();
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, tampered_morphism_offer_result.status);
+    var saw_tampered_morphism_offer_malformed = false;
+    var saw_tampered_morphism_offer_unknown = false;
+    for (tampered_morphism_offer_result.blockers.blockers[0..tampered_morphism_offer_result.blockers.count]) |blocker| {
+        if (blocker.tag == .malformed_offer) saw_tampered_morphism_offer_malformed = true;
+        if (blocker.tag == .unknown_semantic_body) saw_tampered_morphism_offer_unknown = true;
+    }
+    try std.testing.expect(saw_tampered_morphism_offer_malformed);
+    try std.testing.expect(!saw_tampered_morphism_offer_unknown);
     var tampered_morphism_provider = program_catalog.provider_manifest;
     tampered_morphism_provider.max_response_envelope_bytes -= 1;
     const tampered_morphism_providers = [_]Program.Exchange.ProviderManifest{tampered_morphism_provider};
@@ -28239,6 +28323,11 @@ test "Program.Exchange treaty resolver enforces morphism policy and static adapt
     }
     try std.testing.expect(saw_intrinsic_morphism_rejected);
     try std.testing.expectEqual(@as(usize, 1), defunc_dynamic_blocked.defunctionalizationReport().host_intrinsic_count);
+    try std.testing.expectError(error.HostIntrinsicsPresent, defunc_dynamic_blocked.assertDefunctionalized(.{
+        .label = "declarative-morphism-required",
+        .allow_host_intrinsics = true,
+        .require_declarative_morphisms = true,
+    }));
     try std.testing.expectError(error.HostIntrinsicsPresent, defunc_dynamic_blocked.assertDefunctionalized(Program.Evidence.DefunctionalizationPolicy.strict()));
 
     const mixed_static_dynamic_morphisms = [_]Program.Exchange.MorphismOffer{mixed_static_dynamic};

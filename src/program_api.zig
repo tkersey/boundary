@@ -10384,9 +10384,10 @@ pub fn program(
                             return;
                         }
                         try self.defunctionalizationReport().assertOnlyAllowlistedIntrinsics(policy);
-                        if (self.hasNonDefunctionalizedRouteBlocker() and
-                            (policy.require_program_backed_providers or policy.require_declarative_morphisms))
-                        {
+                        if (policy.require_program_backed_providers and self.hasProviderBodyPolicyBlocker()) {
+                            return error.HostIntrinsicsPresent;
+                        }
+                        if (policy.require_declarative_morphisms and self.hasMorphismBodyPolicyBlocker()) {
                             return error.HostIntrinsicsPresent;
                         }
                     }
@@ -10406,9 +10407,23 @@ pub fn program(
                         return counts;
                     }
 
-                    fn hasNonDefunctionalizedRouteBlocker(self: @This()) bool {
+                    fn hasProviderBodyPolicyBlocker(self: @This()) bool {
                         for (self.blockers.blockers[0..self.blockers.count]) |blocker| {
-                            if (blocker.tag == .non_defunctionalized_route) return true;
+                            if (blocker.tag == .intrinsic_provider_rejected) return true;
+                            if (blocker.tag == .non_defunctionalized_route and blocker.offer_fingerprint != null) return true;
+                        }
+                        return false;
+                    }
+
+                    fn hasMorphismBodyPolicyBlocker(self: @This()) bool {
+                        for (self.blockers.blockers[0..self.blockers.count]) |blocker| {
+                            if (blocker.tag == .intrinsic_morphism_rejected) return true;
+                            if (blocker.tag == .non_defunctionalized_route and
+                                blocker.morphism_fingerprint != null and
+                                blocker.offer_fingerprint == null)
+                            {
+                                return true;
+                            }
                         }
                         return false;
                     }
@@ -15691,6 +15706,17 @@ pub fn program(
                         });
                         continue :offer_loop;
                     }
+                    offer.validate() catch {
+                        blocked_count.* += 1;
+                        blockers.add(.{
+                            .tag = .malformed_offer,
+                            .request_fingerprint = inputs.request.fingerprint,
+                            .provider_fingerprint = offer.provider_fingerprint,
+                            .offer_fingerprint = offer.fingerprint,
+                            .summary = "provider offer fields are not bound to provider offer bytes",
+                        });
+                        continue :offer_loop;
+                    };
                     if (treatyProviderBodyBlocker(inputs.treaty_policy, provider.*, offer)) |tag| {
                         blocked_count.* += 1;
                         blockers.add(.{
@@ -15837,6 +15863,18 @@ pub fn program(
                             });
                             continue :offer_loop;
                         }
+                        offer.validate() catch {
+                            blocked_count.* += 1;
+                            blockers.add(.{
+                                .tag = .malformed_offer,
+                                .request_fingerprint = inputs.request.fingerprint,
+                                .provider_fingerprint = offer.provider_fingerprint,
+                                .offer_fingerprint = offer.fingerprint,
+                                .morphism_fingerprint = morphism.fingerprint(),
+                                .summary = "provider offer fields are not bound to provider offer bytes",
+                            });
+                            continue :offer_loop;
+                        };
                         if (treatyProviderBodyBlocker(inputs.treaty_policy, provider.*, offer)) |tag| {
                             blocked_count.* += 1;
                             blockers.add(.{

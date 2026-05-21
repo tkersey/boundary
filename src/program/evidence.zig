@@ -1480,10 +1480,10 @@ pub const DefunctionalizationReport = struct {
         const provider_scoped = switch (self.scope_kind) {
             .provider_harness,
             .provider_offer,
-            .treaty_resolver_result,
             => true,
             .program,
             .treaty,
+            .treaty_resolver_result,
             .interpreter,
             .run_handler_set,
             .morphism_offer,
