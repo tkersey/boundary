@@ -24681,7 +24681,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     var wildcard_program_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, ProgramBackedHarness.manifestOptions(&.{}));
     defer wildcard_program_provider.deinit();
     try std.testing.expect(wildcard_program_provider.supportsRequest(request_envelope));
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, decoded_program_offer.semanticBodyWithProvider(wildcard_program_provider));
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, decoded_program_offer.semanticBodyWithProvider(wildcard_program_provider));
     var mappingless_program_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
         .label = "program-backed-mappingless-provider",
         .provider_fingerprint = ProgramBackedHarness.provider_fingerprint,
@@ -24705,7 +24705,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         .treaty_policy = .{ .defunctionalization_policy = Program.Evidence.DefunctionalizationPolicy.strict() },
     });
     defer wildcard_program_result.deinit();
-    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, wildcard_program_result.status);
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, wildcard_program_result.status);
     const mappingless_program_providers = [_]Program.Exchange.ProviderManifest{mappingless_program_provider};
     const wildcard_attested_program_offers = [_]Program.Exchange.ProviderOffer{program_catalog.provider_offers[0]};
     const wildcard_attested_closure_plan = try Program.Exchange.TreatyResolver.planShape(.{

@@ -13250,7 +13250,7 @@ pub fn program(
                     provider.provider_fingerprint == offer.provider_fingerprint and
                     providerOfferFieldsBoundToBytes(offer) and
                     providerFieldsBoundToBytes(provider) and
-                    listContainsU64(provider.supported_program_manifest_fingerprints, offer.manifest_fingerprint) and
+                    listAllowsU64(provider.supported_program_manifest_fingerprints, offer.manifest_fingerprint) and
                     listContainsU64(provider.supported_provider_program_mapping_fingerprints, mapping_fingerprint);
             }
 
