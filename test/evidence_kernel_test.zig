@@ -2923,6 +2923,58 @@ test "boundary closure traversal closes a provider-backed shape" {
     try result.certificate.check(result.graph, result.report, closure_policy);
     try std.testing.expect(Evidence.refForBoundaryClosureCertificate(result.certificate).eql(result.certificate.evidenceRef()));
 
+    const shape_missing_op_selector = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "evidence-test",
+        .plan_label = "evidence-test-plan-missing-op",
+        .plan_hash = 11,
+        .manifest_fingerprint = manifest.fingerprint,
+        .kind = .operation,
+        .site_index = site_index,
+        .site_fingerprint = protocol_op_fingerprint,
+        .name = "approve",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(response_ref),
+        .protocol_label = "approval",
+    });
+    var missing_op_selector_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape_missing_op_selector},
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = closure_policy,
+    });
+    defer missing_op_selector_result.deinit();
+    try std.testing.expect(!missing_op_selector_result.report.closed());
+    try std.testing.expectEqual(@as(usize, 0), missing_op_selector_result.report.closed_effect_shape_count);
+
+    const shape_missing_site_selector = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "evidence-test",
+        .plan_label = "evidence-test-plan-missing-site",
+        .plan_hash = 12,
+        .manifest_fingerprint = manifest.fingerprint,
+        .kind = .operation,
+        .site_fingerprint = protocol_op_fingerprint,
+        .name = "approve",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(response_ref),
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = protocol_op_fingerprint,
+    });
+    var missing_site_selector_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape_missing_site_selector},
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = closure_policy,
+    });
+    defer missing_site_selector_result.deinit();
+    try std.testing.expect(!missing_site_selector_result.report.closed());
+    try std.testing.expectEqual(@as(usize, 0), missing_site_selector_result.report.closed_effect_shape_count);
+
     const treaty_only_intrinsics = [_]u64{offer_intrinsic_ref.fingerprint +% 1};
     var treaty_allowlist_result = try Closure.analyze(allocator, .{
         .allocator = allocator,
@@ -3174,6 +3226,67 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expect(!world_port_result.report.closed());
     try std.testing.expectEqual(@as(usize, 1), world_port_result.report.open_world_port_count);
     try world_port_result.certificate.check(world_port_result.graph, world_port_result.report, world_port_only_policy);
+
+    var selectorless_provider = try Program.Exchange.ProviderManifest.encode(allocator, .{
+        .label = "selectorless-closure-provider",
+        .supported_program_manifest_fingerprints = &.{manifest.fingerprint},
+        .supported_protocol_labels = &.{"approval"},
+    });
+    defer selectorless_provider.deinit();
+    var selectorless_offer = try Program.Exchange.ProviderOffer.encode(allocator, .{
+        .label = "selectorless-closure-offer",
+        .provider_fingerprint = selectorless_provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .supported_protocol_labels = &.{"approval"},
+        .accepted_payload_refs = &.{payload_ref},
+        .produced_response_refs = &.{response_ref},
+    });
+    defer selectorless_offer.deinit();
+    const selectorless_intrinsic_ref = selectorless_offer.hostIntrinsicRef() orelse return error.ExpectedIntrinsic;
+    var selectorless_capability = try Program.Exchange.Capability.encode(allocator, .{
+        .issuer_label = "selectorless-host",
+        .provider_fingerprint = selectorless_provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .allowed_response_refs = &.{response_ref},
+    });
+    defer selectorless_capability.deinit();
+    const constrained_unbound_port = Closure.WorldPort.init(.{
+        .label = "constrained-unbound-world-port",
+        .kind = .host_tool,
+        .exposed_intrinsic_ref = selectorless_intrinsic_ref,
+        .supported_protocol_labels = &.{"approval"},
+        .supported_site_indexes = &.{site_index},
+        .supported_protocol_op_fingerprints = &.{protocol_op_fingerprint},
+    });
+    const constrained_unbound_ports = [_]Closure.WorldPort{constrained_unbound_port};
+    var constrained_unbound_policy = Evidence.BoundaryClosurePolicy.worldBoundary();
+    const constrained_unbound_allowed = [_]u64{constrained_unbound_port.fingerprint};
+    constrained_unbound_policy.allowed_world_port_fingerprints = constrained_unbound_allowed[0..];
+    constrained_unbound_policy.reject_host_intrinsics = true;
+    const selectorless_shape = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "evidence-test",
+        .plan_label = "evidence-test-selectorless-world",
+        .plan_hash = 13,
+        .manifest_fingerprint = manifest.fingerprint,
+        .kind = .operation,
+        .name = "approve",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(response_ref),
+        .protocol_label = "approval",
+    });
+    var constrained_unbound_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{selectorless_shape},
+        .provider_manifests = &.{selectorless_provider},
+        .provider_offers = &.{selectorless_offer},
+        .capabilities = &.{selectorless_capability},
+        .policy = constrained_unbound_policy,
+        .world_ports = constrained_unbound_ports[0..],
+    });
+    defer constrained_unbound_result.deinit();
+    try std.testing.expect(!constrained_unbound_result.report.closedExceptWorldPorts());
+    try std.testing.expectEqual(@as(usize, 0), constrained_unbound_result.report.open_world_port_count);
 
     const second_shape = Evidence.BoundaryEffectShape.init(.{
         .program_label = "evidence-test",

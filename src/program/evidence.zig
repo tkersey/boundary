@@ -4330,9 +4330,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 if (!listAllowsU64Closure(provider.supported_program_manifest_fingerprints, manifest_fingerprint)) return false;
             }
             if (!listAllowsStringClosure(provider.supported_protocol_labels, shape.protocol_label)) return false;
-            if (shape.protocol_op_fingerprint) |protocol_op| {
-                if (provider.supported_protocol_op_fingerprints.len != 0 and !listAllowsU64Closure(provider.supported_protocol_op_fingerprints, protocol_op)) return false;
-            }
+            if (!constrainedOptionalU64AllowsClosure(provider.supported_protocol_op_fingerprints, shape.protocol_op_fingerprint, false)) return false;
             if (shape.max_request_bytes != 0 and shape.max_request_bytes > provider.max_request_envelope_bytes) return false;
             if (shape.max_response_bytes != 0 and shape.max_response_bytes > provider.max_response_envelope_bytes) return false;
             if (shape.max_capsule_image_bytes != 0 and !provider.accepts_embedded_capsules) return false;
@@ -4340,10 +4338,10 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             const after_sites_constrained = provider.supported_after_sites.len != 0;
             if (shape.kind == .after) {
                 if (!after_sites_constrained and operation_sites_constrained) return false;
-                if (shape.site_index) |site| if (!listAllowsUsizeClosure(provider.supported_after_sites, site)) return false;
+                if (!constrainedOptionalUsizeAllowsClosure(provider.supported_after_sites, shape.site_index, false)) return false;
             } else {
                 if (!operation_sites_constrained and after_sites_constrained) return false;
-                if (shape.site_index) |site| if (!listAllowsUsizeClosure(provider.supported_operation_sites, site)) return false;
+                if (!constrainedOptionalUsizeAllowsClosure(provider.supported_operation_sites, shape.site_index, false)) return false;
             }
             return true;
         }
@@ -4353,12 +4351,8 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             if (shape.manifest_fingerprint) |manifest_fingerprint| {
                 if (!listAllowsU64Closure(provider.supported_program_manifest_fingerprints, manifest_fingerprint)) return false;
             }
-            if (shape.protocol_op_fingerprint) |protocol_op| {
-                if (provider.supported_protocol_op_fingerprints.len == 0 and provider.supported_protocol_labels.len != 0) return false;
-                if (!listAllowsU64Closure(provider.supported_protocol_op_fingerprints, protocol_op)) return false;
-            } else if (provider.supported_protocol_labels.len != 0) {
-                return false;
-            }
+            if (!constrainedOptionalU64AllowsClosure(provider.supported_protocol_op_fingerprints, shape.protocol_op_fingerprint, false)) return false;
+            if (shape.protocol_op_fingerprint == null and provider.supported_protocol_labels.len != 0) return false;
             if (shape.max_request_bytes != 0 and shape.max_request_bytes > provider.max_request_envelope_bytes) return false;
             if (shape.max_response_bytes != 0 and shape.max_response_bytes > provider.max_response_envelope_bytes) return false;
             if (shape.max_capsule_image_bytes != 0 and !provider.accepts_embedded_capsules) return false;
@@ -4366,10 +4360,10 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             const after_sites_constrained = provider.supported_after_sites.len != 0;
             if (shape.kind == .after) {
                 if (!after_sites_constrained and operation_sites_constrained) return false;
-                if (shape.site_index) |site| if (!listAllowsUsizeClosure(provider.supported_after_sites, site)) return false;
+                if (!constrainedOptionalUsizeAllowsClosure(provider.supported_after_sites, shape.site_index, false)) return false;
             } else {
                 if (!operation_sites_constrained and after_sites_constrained) return false;
-                if (shape.site_index) |site| if (!listAllowsUsizeClosure(provider.supported_operation_sites, site)) return false;
+                if (!constrainedOptionalUsizeAllowsClosure(provider.supported_operation_sites, shape.site_index, false)) return false;
             }
             return true;
         }
@@ -4384,11 +4378,11 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             if (!listAllowsStringClosure(capability.allowed_program_labels, shape.program_label)) return false;
             if (!listAllowsU64Closure(capability.allowed_plan_hashes, shape.plan_hash)) return false;
             if (shape.kind == .after) {
-                if (shape.site_index) |site| if (!listAllowsUsizeClosure(capability.allowed_after_sites, site)) return false;
+                if (!constrainedOptionalUsizeAllowsClosure(capability.allowed_after_sites, shape.site_index, false)) return false;
             } else {
-                if (shape.site_index) |site| if (!listAllowsUsizeClosure(capability.allowed_operation_sites, site)) return false;
+                if (!constrainedOptionalUsizeAllowsClosure(capability.allowed_operation_sites, shape.site_index, false)) return false;
             }
-            if (shape.protocol_op_fingerprint) |protocol_op| if (!listAllowsU64Closure(capability.allowed_protocol_op_fingerprints, protocol_op)) return false;
+            if (!constrainedOptionalU64AllowsClosure(capability.allowed_protocol_op_fingerprints, shape.protocol_op_fingerprint, false)) return false;
             if (!listAllowsStringClosure(capability.allowed_requirement_labels, shape.protocol_label)) return false;
             if (!listAllowsStringClosure(capability.allowed_op_names, shape.name)) return false;
             if (!capabilityAllowsShapeRequestKind(capability, shape)) return false;
@@ -4419,13 +4413,11 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             if (!listAllowsStringClosure(capability.allowed_program_labels, shape.program_label)) return false;
             if (!listAllowsU64Closure(capability.allowed_plan_hashes, shape.plan_hash)) return false;
             if (shape.kind == .after) {
-                if (shape.site_index) |site| if (!listAllowsUsizeClosure(capability.allowed_after_sites, site)) return false;
+                if (!constrainedOptionalUsizeAllowsClosure(capability.allowed_after_sites, shape.site_index, false)) return false;
             } else {
-                if (shape.site_index) |site| if (!listAllowsUsizeClosure(capability.allowed_operation_sites, site)) return false;
+                if (!constrainedOptionalUsizeAllowsClosure(capability.allowed_operation_sites, shape.site_index, false)) return false;
             }
-            if (shape.protocol_op_fingerprint) |protocol_op| {
-                if (!listAllowsU64Closure(capability.allowed_protocol_op_fingerprints, protocol_op)) return false;
-            }
+            if (!constrainedOptionalU64AllowsClosure(capability.allowed_protocol_op_fingerprints, shape.protocol_op_fingerprint, false)) return false;
             if (capability.allowed_protocol_op_fingerprints.len == 0 and
                 (capability.allowed_requirement_labels.len != 0 or capability.allowed_op_names.len != 0))
             {
@@ -4482,7 +4474,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 if (offer.manifest_fingerprint != manifest_fingerprint) return false;
             }
             if (!listAllowsStringClosure(offer.supported_protocol_labels, shape.protocol_label)) return false;
-            if (shape.protocol_op_fingerprint) |protocol_op| if (!listAllowsU64Closure(offer.supported_protocol_op_fingerprints, protocol_op)) return false;
+            if (!constrainedOptionalU64AllowsClosure(offer.supported_protocol_op_fingerprints, shape.protocol_op_fingerprint, false)) return false;
             if (shape.max_request_bytes != 0 and shape.max_request_bytes > offer.max_request_bytes) return false;
             if (shape.max_response_bytes != 0 and shape.max_response_bytes > offer.max_response_bytes) return false;
             if (shape.max_capsule_image_bytes != 0 and shape.max_capsule_image_bytes > offer.max_capsule_bytes) return false;
@@ -4491,11 +4483,11 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             const after_sites_constrained = offer.supported_after_sites.len != 0;
             if (shape.kind == .after) {
                 if (!after_sites_constrained and operation_sites_constrained) return false;
-                if (shape.site_index) |site| if (!listAllowsUsizeClosure(offer.supported_after_sites, site)) return false;
+                if (!constrainedOptionalUsizeAllowsClosure(offer.supported_after_sites, shape.site_index, false)) return false;
                 if (shape.value_ref) |ref| if (!listAllowsBoundaryValueRef(offer.accepted_current_value_refs, ref)) return false;
             } else {
                 if (!operation_sites_constrained and after_sites_constrained) return false;
-                if (shape.site_index) |site| if (!listAllowsUsizeClosure(offer.supported_operation_sites, site)) return false;
+                if (!constrainedOptionalUsizeAllowsClosure(offer.supported_operation_sites, shape.site_index, false)) return false;
                 if (shape.value_ref) |ref| if (!listAllowsBoundaryValueRef(offer.accepted_payload_refs, ref)) return false;
             }
             return true;
@@ -4512,12 +4504,8 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             if (shape.manifest_fingerprint) |manifest_fingerprint| {
                 if (offer.manifest_fingerprint != manifest_fingerprint) return false;
             }
-            if (shape.protocol_op_fingerprint) |protocol_op| {
-                if (offer.supported_protocol_op_fingerprints.len == 0 and offer.supported_protocol_labels.len != 0) return false;
-                if (!listAllowsU64Closure(offer.supported_protocol_op_fingerprints, protocol_op)) return false;
-            } else if (offer.supported_protocol_labels.len != 0) {
-                return false;
-            }
+            if (!constrainedOptionalU64AllowsClosure(offer.supported_protocol_op_fingerprints, shape.protocol_op_fingerprint, false)) return false;
+            if (shape.protocol_op_fingerprint == null and offer.supported_protocol_labels.len != 0) return false;
             if (shape.max_request_bytes != 0 and shape.max_request_bytes > offer.max_request_bytes) return false;
             if (shape.max_response_bytes != 0 and shape.max_response_bytes > offer.max_response_bytes) return false;
             if (shape.max_capsule_image_bytes != 0 and shape.max_capsule_image_bytes > offer.max_capsule_bytes) return false;
@@ -4526,11 +4514,11 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             const after_sites_constrained = offer.supported_after_sites.len != 0;
             if (shape.kind == .after) {
                 if (!after_sites_constrained and operation_sites_constrained) return false;
-                if (shape.site_index) |site| if (!listAllowsUsizeClosure(offer.supported_after_sites, site)) return false;
+                if (!constrainedOptionalUsizeAllowsClosure(offer.supported_after_sites, shape.site_index, false)) return false;
                 if (shape.value_ref) |ref| if (!listAllowsBoundaryValueRef(offer.accepted_current_value_refs, ref)) return false;
             } else {
                 if (!operation_sites_constrained and after_sites_constrained) return false;
-                if (shape.site_index) |site| if (!listAllowsUsizeClosure(offer.supported_operation_sites, site)) return false;
+                if (!constrainedOptionalUsizeAllowsClosure(offer.supported_operation_sites, shape.site_index, false)) return false;
                 if (shape.value_ref) |ref| if (!listAllowsBoundaryValueRef(offer.accepted_payload_refs, ref)) return false;
             }
             return true;
@@ -4834,12 +4822,14 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
         }
 
         fn worldPortMatchesShape(port: Closure.WorldPort, shape: Closure.EffectShape) bool {
+            var exact_shape_ref = false;
             if (port.effect_shape_ref) |shape_ref| {
                 if (!shape_ref.eql(shape.evidenceRef())) return false;
+                exact_shape_ref = true;
             }
             if (!listAllowsStringClosure(port.supported_protocol_labels, shape.protocol_label)) return false;
-            if (shape.site_index) |site| if (!listAllowsUsizeClosure(port.supported_site_indexes, site)) return false;
-            if (shape.protocol_op_fingerprint) |protocol_op| if (!listAllowsU64Closure(port.supported_protocol_op_fingerprints, protocol_op)) return false;
+            if (!constrainedOptionalUsizeAllowsClosure(port.supported_site_indexes, shape.site_index, exact_shape_ref)) return false;
+            if (!constrainedOptionalU64AllowsClosure(port.supported_protocol_op_fingerprints, shape.protocol_op_fingerprint, exact_shape_ref)) return false;
             return true;
         }
     };
@@ -5109,6 +5099,18 @@ fn listAllowsUsizeClosure(list: []const usize, value: usize) bool {
     if (list.len == 0) return true;
     for (list) |candidate| if (candidate == value) return true;
     return false;
+}
+
+fn constrainedOptionalU64AllowsClosure(list: []const u64, value: ?u64, exact_ref_match: bool) bool {
+    if (list.len == 0) return true;
+    if (value) |present| return listAllowsU64Closure(list, present);
+    return exact_ref_match;
+}
+
+fn constrainedOptionalUsizeAllowsClosure(list: []const usize, value: ?usize, exact_ref_match: bool) bool {
+    if (list.len == 0) return true;
+    if (value) |present| return listAllowsUsizeClosure(list, present);
+    return exact_ref_match;
 }
 
 fn listAllowsStringClosure(list: []const []const u8, value: []const u8) bool {
