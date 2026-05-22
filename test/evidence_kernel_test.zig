@@ -451,6 +451,15 @@ test "static treaty planner matches provider shape without request bytes" {
         .capabilities = &.{capability},
     });
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.static_treaty, static_capsule_present_required_plan.status);
+    const static_no_fallback_plan = Program.Exchange.TreatyResolver.planStatic(.{
+        .shape = capsule_shape,
+        .manifest = manifest,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{capsule_required_offer},
+        .capabilities = &.{capability},
+        .allow_provider_fallback = false,
+    });
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.no_static_treaty, static_no_fallback_plan.status);
     const static_capsule_route_blocked_plan = Program.Exchange.TreatyResolver.planStatic(.{
         .shape = capsule_shape,
         .manifest = manifest,
@@ -1991,7 +2000,7 @@ test "static treaty planner matches provider shape without request bytes" {
         .capabilities = &.{multi_target_capability},
         .treaty_policy = .{ .allow_direct_handling = false },
     });
-    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.blocked, partial_offer_multi_target_static_plan.status);
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.no_static_treaty, partial_offer_multi_target_static_plan.status);
     try std.testing.expectEqual(@as(usize, 0), partial_offer_multi_target_static_plan.candidate_count);
     const partial_capability_multi_target_static_plan = Program.Exchange.TreatyResolver.planStatic(.{
         .shape = shape,
@@ -2002,7 +2011,7 @@ test "static treaty planner matches provider shape without request bytes" {
         .capabilities = &.{morphism_capability},
         .treaty_policy = .{ .allow_direct_handling = false },
     });
-    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.no_static_treaty, partial_capability_multi_target_static_plan.status);
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.blocked, partial_capability_multi_target_static_plan.status);
     try std.testing.expectEqual(@as(usize, 0), partial_capability_multi_target_static_plan.candidate_count);
     const extra_target_response_ref = boundary.ir.ValueRef{ .codec = .usize };
     const omitted_target_response_ref = boundary.ir.ValueRef{ .codec = .string };
@@ -2096,7 +2105,7 @@ test "static treaty planner matches provider shape without request bytes" {
         .capabilities = &.{label_scoped_target_capability},
         .treaty_policy = .{ .allow_direct_handling = false },
     });
-    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.no_static_treaty, label_scoped_target_static_plan.status);
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.blocked, label_scoped_target_static_plan.status);
     const dynamic_morphism_offer = Program.Exchange.MorphismOffer{
         .label = "approval-dynamic-morphism",
         .source_site_fingerprint = protocol_op_fingerprint,
@@ -2125,6 +2134,27 @@ test "static treaty planner matches provider shape without request bytes" {
     try std.testing.expectEqual(dynamic_morphism_offer.evidenceRef().fingerprint, dynamic_morphism_plan.selected_morphism_ref.?.fingerprint);
     try Evidence.expectDependencyContains(dynamic_morphism_plan.dependencies, .offer, morphism_target_offer.evidenceRef());
     try Evidence.expectDependencyContains(dynamic_morphism_plan.dependencies, .capability, morphism_capability.evidenceRef());
+    const static_dynamic_morphism_plan = Program.Exchange.TreatyResolver.planStatic(.{
+        .shape = shape,
+        .manifest = manifest,
+        .provider_manifests = &.{morphism_target_provider},
+        .provider_offers = &.{morphism_target_offer},
+        .morphism_offers = &.{dynamic_morphism_offer},
+        .capabilities = &.{morphism_capability},
+        .treaty_policy = .{ .allow_direct_handling = false },
+    });
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.static_treaty, static_dynamic_morphism_plan.status);
+    const static_dynamic_disabled_plan = Program.Exchange.TreatyResolver.planStatic(.{
+        .shape = shape,
+        .manifest = manifest,
+        .provider_manifests = &.{morphism_target_provider},
+        .provider_offers = &.{morphism_target_offer},
+        .morphism_offers = &.{dynamic_morphism_offer},
+        .capabilities = &.{morphism_capability},
+        .treaty_policy = .{ .allow_direct_handling = false },
+        .allow_dynamic_morphism = false,
+    });
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.blocked, static_dynamic_disabled_plan.status);
     const rejected_morphism_target_provider_static_plan = Program.Exchange.TreatyResolver.planStatic(.{
         .shape = shape,
         .manifest = manifest,
@@ -2782,7 +2812,7 @@ test "static treaty planner matches provider shape without request bytes" {
         .morphism_offers = &.{morphism_offer},
         .capabilities = &.{source_only_morphism_capability},
     });
-    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.no_static_treaty, static_source_capability_morphism_plan.status);
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.blocked, static_source_capability_morphism_plan.status);
     const blocked_static_report = static_source_capability_morphism_plan.toEvidenceReport(&.{});
     try std.testing.expect(!blocked_static_report.success);
     const static_morphism_plan = Program.Exchange.TreatyResolver.planStatic(.{

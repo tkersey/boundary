@@ -10526,6 +10526,8 @@ pub fn program(
                     treaty_policy: Treaty.Policy = .{},
                     route_policy: Policy = .{},
                     has_capsule: bool = false,
+                    allow_provider_fallback: bool = true,
+                    allow_dynamic_morphism: bool = true,
                     label: []const u8 = "static treaty plan",
                 };
 
@@ -13227,7 +13229,8 @@ pub fn program(
                     offer.provider_program_ref != null and
                     offer.provider_program_effect_shape_count != null and
                     offer.provider_program_effect_shape_fingerprint != null;
-                return current_program_offer and
+                const legacy_program_offer = offer.format_version == provider_offer_legacy_program_format_version;
+                return (current_program_offer or legacy_program_offer) and
                     provider.format_version >= exchange_provider_format_version and
                     provider.provider_fingerprint == offer.provider_fingerprint and
                     providerOfferFieldsBoundToBytes(offer) and
@@ -16485,8 +16488,13 @@ pub fn program(
                     return;
                 }
 
-                if (inputs.treaty_policy.allow_direct_handling) {
+                if (inputs.treaty_policy.allow_direct_handling and inputs.allow_provider_fallback) {
                     direct_offers: for (inputs.provider_offers) |offer| {
+                        offer.validate() catch {
+                            plan.blocked_count += 1;
+                            addStaticBlocker(plan, .no_provider_offer_for_shape, plan.shape_ref, offer.evidenceRef(), "provider offer fields are not bound to provider offer bytes");
+                            continue :direct_offers;
+                        };
                         if (!staticOfferSupportsShape(offer, inputs.manifest, request_kind, site_index, protocol_op_fingerprint, requirement_label, value_ref, inputs.shape, has_capsule)) continue :direct_offers;
                         const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse {
                             plan.blocked_count += 1;
@@ -16519,10 +16527,16 @@ pub fn program(
                     }
                 }
 
-                if (inputs.treaty_policy.allow_morphism_adaptation and inputs.treaty_policy.max_morphism_hops != 0) {
+                if (!inputs.treaty_policy.allow_morphism_adaptation or inputs.treaty_policy.max_morphism_hops == 0) {
+                    for (inputs.morphism_offers) |morphism| {
+                        if (!staticMorphismSupportsShape(morphism, site_fingerprint, protocol_op_fingerprint, response_refs, inputs.shape)) continue;
+                        plan.blocked_count += 1;
+                        addStaticBlocker(plan, .unsupported_shape_planning, plan.shape_ref, morphism.evidenceRef(), "static morphism adaptation is disabled by treaty policy");
+                    }
+                } else {
                     morphisms: for (inputs.morphism_offers) |morphism| {
                         if (!staticMorphismSupportsShape(morphism, site_fingerprint, protocol_op_fingerprint, response_refs, inputs.shape)) continue :morphisms;
-                        if (morphism.hasMixedAdapterBody() or (!morphism.hasStaticAdapter() and !inputs.treaty_policy.allow_dynamic_interpretation)) {
+                        if (morphism.hasMixedAdapterBody() or (!morphism.hasStaticAdapter() and (!inputs.treaty_policy.allow_dynamic_interpretation or !inputs.allow_dynamic_morphism))) {
                             plan.blocked_count += 1;
                             addStaticBlocker(plan, .world_port_missing, plan.shape_ref, morphism.evidenceRef(), "morphism offer requires a runtime adapter boundary");
                             continue :morphisms;
@@ -16542,9 +16556,18 @@ pub fn program(
                             continue :morphisms;
                         }
                         morphism_offers: for (inputs.provider_offers) |offer| {
-                            const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse continue :morphism_offers;
+                            offer.validate() catch {
+                                plan.blocked_count += 1;
+                                addStaticBlocker(plan, .no_provider_offer_for_shape, plan.shape_ref, offer.evidenceRef(), "morphism provider offer fields are not bound to provider offer bytes");
+                                continue :morphism_offers;
+                            };
+                            if (!staticOfferSupportsMorphismTarget(offer, inputs.manifest, request_kind, site_index, morphism.target_protocol_op_fingerprint, value_ref, inputs.shape, morphism, has_capsule)) continue :morphism_offers;
+                            const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse {
+                                plan.blocked_count += 1;
+                                addStaticBlocker(plan, .no_provider_offer_for_shape, plan.shape_ref, offer.evidenceRef(), "morphism provider offer is not backed by a provider manifest");
+                                continue :morphism_offers;
+                            };
                             if (!staticProviderManifestSupportsMorphismTarget(provider.*, inputs.manifest, request_kind, site_index, morphism.target_protocol_op_fingerprint, inputs.shape, has_capsule) or
-                                !staticOfferSupportsMorphismTarget(offer, inputs.manifest, request_kind, site_index, morphism.target_protocol_op_fingerprint, value_ref, inputs.shape, morphism, has_capsule) or
                                 !staticMorphismTargetUsageCompatible(offer, inputs.shape, morphism, inputs.treaty_policy) or
                                 !providerOfferTagsAllowPolicy(inputs.treaty_policy, offer.tags) or
                                 (inputs.treaty_policy.require_obligation_opening and !offer.opens_obligation))
@@ -16556,10 +16579,16 @@ pub fn program(
                                 plan.blocked_count += 1;
                                 continue :morphism_offers;
                             }
+                            var matched_capability = false;
                             morphism_capabilities: for (inputs.capabilities) |capability| {
                                 if (staticCapabilityBlockedByTreatyPolicy(capability, inputs.treaty_policy)) continue :morphism_capabilities;
                                 if (!staticCapabilitySupportsMorphismTarget(capability, inputs.manifest, provider.*, offer, inputs.route_policy, request_kind, site_index, morphism.target_protocol_op_fingerprint, inputs.shape, morphism, has_capsule)) continue :morphism_capabilities;
+                                matched_capability = true;
                                 selectStaticPlanCandidate(inputs.treaty_policy, inputs.route_policy, plan, inputs.shape, provider.*, offer, capability, morphism);
+                            }
+                            if (!matched_capability) {
+                                plan.blocked_count += 1;
+                                addStaticBlocker(plan, .no_capability_for_shape, plan.shape_ref, offer.evidenceRef(), "no capability authorizes the static morphism provider offer");
                             }
                         }
                     }

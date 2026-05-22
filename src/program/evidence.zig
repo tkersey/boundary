@@ -2872,6 +2872,20 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             effect_shape_fingerprint: u64,
         };
 
+        const SelectedProviderProgramKey = struct {
+            provider_ref: Ref,
+            program_ref: Ref,
+            mapping_fingerprint: ?u64,
+            effect_shape_fingerprint: u64,
+
+            fn eql(self: @This(), other: @This()) bool {
+                return self.provider_ref.eql(other.provider_ref) and
+                    self.program_ref.eql(other.program_ref) and
+                    self.mapping_fingerprint == other.mapping_fingerprint and
+                    self.effect_shape_fingerprint == other.effect_shape_fingerprint;
+            }
+        };
+
         pub const Input = struct {
             allocator: std.mem.Allocator,
             root_shapes: []const Closure.EffectShape = &.{},
@@ -3124,6 +3138,8 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             errdefer plan_refs.deinit(allocator);
             var provider_program_refs = std.ArrayList(Ref).empty;
             errdefer provider_program_refs.deinit(allocator);
+            var provider_program_keys = std.ArrayList(SelectedProviderProgramKey).empty;
+            defer provider_program_keys.deinit(allocator);
             var world_port_refs = std.ArrayList(Ref).empty;
             errdefer world_port_refs.deinit(allocator);
             var world_port_intrinsic_refs = std.ArrayList(Ref).empty;
@@ -3138,6 +3154,8 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             errdefer edges.deinit(allocator);
             var active_provider_program_refs = std.ArrayList(Ref).empty;
             defer active_provider_program_refs.deinit(allocator);
+            var active_provider_program_keys = std.ArrayList(SelectedProviderProgramKey).empty;
+            defer active_provider_program_keys.deinit(allocator);
 
             if (analysis_input.root_shapes.len == 0 and analysis_input.root_program_refs.len == 0) {
                 const evidence_blocker = boundaryClosureBlocker(.{
@@ -3191,7 +3209,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             var ambiguity_count: usize = 0;
 
             try analyzeShapes(allocator, analysis_input, analysis_input.root_shapes, &all_plans, &blockers, &plan_refs, &world_port_refs, &world_port_intrinsic_refs, &host_intrinsic_refs, &unknown_refs, &nodes, &edges, &closed_count, &world_port_shape_count, &boundary_native_count, &declarative_count, &residualized_pipeline_count, &intrinsic_count, &ambiguity_count, analysis_input.root_program_refs, null);
-            try analyzeSelectedProviderPrograms(allocator, analysis_input, &all_plans, &blockers, &plan_refs, &provider_program_refs, &active_provider_program_refs, &world_port_refs, &world_port_intrinsic_refs, &host_intrinsic_refs, &unknown_refs, &nodes, &edges, &closed_count, &world_port_shape_count, &boundary_native_count, &declarative_count, &residualized_pipeline_count, &intrinsic_count, &ambiguity_count, 0, all_plans.items.len, 0);
+            try analyzeSelectedProviderPrograms(allocator, analysis_input, &all_plans, &blockers, &plan_refs, &provider_program_refs, &provider_program_keys, &active_provider_program_refs, &active_provider_program_keys, &world_port_refs, &world_port_intrinsic_refs, &host_intrinsic_refs, &unknown_refs, &nodes, &edges, &closed_count, &world_port_shape_count, &boundary_native_count, &declarative_count, &residualized_pipeline_count, &intrinsic_count, &ambiguity_count, 0, all_plans.items.len, 0);
             for (all_plans.items) |plan| {
                 if (plan.selected_semantic_body != .boundary_program) continue;
                 const provider_ref = plan.selected_provider_ref orelse continue;
@@ -3242,6 +3260,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             }
             const owned_plan_refs = try plan_refs.toOwnedSlice(allocator);
             errdefer allocator.free(owned_plan_refs);
+            const selected_provider_shape_count = providerShapeCountForKeys(analysis_input.provider_programs, provider_program_keys.items);
             const owned_provider_program_refs = try provider_program_refs.toOwnedSlice(allocator);
             errdefer allocator.free(owned_provider_program_refs);
             const owned_world_port_refs = try world_port_refs.toOwnedSlice(allocator);
@@ -3264,7 +3283,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 .effect_free_root_refs = owned_effect_free_root_refs,
                 .provider_harness_refs = owned_provider_harness_refs,
                 .provider_program_refs = owned_provider_program_refs,
-                .effect_shape_count = analysis_input.root_shapes.len + providerShapeCountForRefs(analysis_input.provider_programs, owned_provider_program_refs),
+                .effect_shape_count = analysis_input.root_shapes.len + selected_provider_shape_count,
                 .closed_effect_shape_count = closed_count,
                 .open_world_port_count = world_port_shape_count,
                 .host_intrinsic_count = intrinsic_count,
@@ -3333,6 +3352,10 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             }
             if (inputs.treaty_policy.allow_direct_handling) {
                 for (inputs.provider_offers) |offer| {
+                    offer.validate() catch {
+                        try rejected_candidates.append(inputs.allocator, .{ .tag = .no_provider_offer_for_shape, .subject = inputs.shape.evidenceRef(), .primary = offer.evidenceRef(), .summary = "provider offer fields are not bound to provider offer bytes" });
+                        continue;
+                    };
                     if (!offerMatchesShape(offer, inputs.shape)) continue;
                     const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse {
                         try rejected_candidates.append(inputs.allocator, .{ .tag = .no_provider_offer_for_shape, .subject = inputs.shape.evidenceRef(), .primary = offer.evidenceRef(), .summary = "provider offer is not backed by a provider manifest" });
@@ -3404,6 +3427,10 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 }
                 const static_adapter = body == .residualized_program or body == .pipeline;
                 const dynamic_adapter = body == .host_intrinsic;
+                if (!static_adapter and !dynamic_adapter) {
+                    try rejected_candidates.append(inputs.allocator, .{ .tag = .dynamic_mapper_rejected, .subject = inputs.shape.evidenceRef(), .primary = morphism.evidenceRef(), .summary = "morphism offer lacks static or dynamic adapter evidence" });
+                    continue;
+                }
                 if (dynamic_adapter) {
                     if (!inputs.treaty_policy.allow_dynamic_interpretation) {
                         try rejected_candidates.append(inputs.allocator, .{ .tag = .dynamic_mapper_rejected, .subject = inputs.shape.evidenceRef(), .primary = morphism.evidenceRef(), .summary = "treaty policy disallows dynamic morphism adapters" });
@@ -3429,27 +3456,55 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                     var target_response_refs_buffer: [3]BoundaryValueRef = undefined;
                     const target_shape = morphismTargetShape(inputs.shape, morphism, &target_response_refs_buffer);
                     morphism_provider_offers: for (inputs.provider_offers) |offer| {
+                        offer.validate() catch {
+                            try rejected_candidates.append(inputs.allocator, .{ .tag = .no_provider_offer_for_shape, .subject = inputs.shape.evidenceRef(), .primary = offer.evidenceRef(), .summary = "morphism provider offer fields are not bound to provider offer bytes" });
+                            continue :morphism_provider_offers;
+                        };
                         if (!offerMatchesMorphismTarget(offer, inputs.shape, morphism, target_shape)) continue :morphism_provider_offers;
-                        const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse continue :morphism_provider_offers;
-                        if (!providerManifestSupportsMorphismTarget(provider, target_shape)) continue :morphism_provider_offers;
+                        const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse {
+                            try rejected_candidates.append(inputs.allocator, .{ .tag = .no_provider_offer_for_shape, .subject = inputs.shape.evidenceRef(), .primary = offer.evidenceRef(), .summary = "morphism provider offer is not backed by a provider manifest" });
+                            continue :morphism_provider_offers;
+                        };
+                        if (!providerManifestSupportsMorphismTarget(provider, target_shape)) {
+                            try rejected_candidates.append(inputs.allocator, .{ .tag = .no_provider_offer_for_shape, .subject = inputs.shape.evidenceRef(), .primary = provider.evidenceRef(), .summary = "provider manifest does not support the morphism target shape" });
+                            continue :morphism_provider_offers;
+                        }
                         const provider_body = offer.semanticBodyWithProvider(provider);
-                        if (providerBodyRejectedByPolicy(inputs.policy, inputs.treaty_policy, provider_body, offer.hostIntrinsicRef())) |_| continue :morphism_provider_offers;
+                        if (providerBodyRejectedByPolicy(inputs.policy, inputs.treaty_policy, provider_body, offer.hostIntrinsicRef())) |tag| {
+                            try rejected_candidates.append(inputs.allocator, .{ .tag = tag, .subject = inputs.shape.evidenceRef(), .primary = offer.evidenceRef(), .summary = "morphism provider semantic body is rejected by closure policy" });
+                            continue :morphism_provider_offers;
+                        }
                         if (provider_body == .host_intrinsic) {
                             if (offer.hostIntrinsicRef()) |ref| {
-                                if (!inputAllowsIntrinsicOrWorldPort(inputs, ref, target_shape)) continue :morphism_provider_offers;
+                                if (!inputAllowsIntrinsicOrWorldPort(inputs, ref, target_shape)) {
+                                    try rejected_candidates.append(inputs.allocator, .{ .tag = .unallowlisted_intrinsic, .subject = inputs.shape.evidenceRef(), .primary = ref, .summary = "morphism target provider intrinsic is not allowlisted or exposed as a world port" });
+                                    continue :morphism_provider_offers;
+                                }
                             } else if (inputs.policy.reject_host_intrinsics) {
+                                try rejected_candidates.append(inputs.allocator, .{ .tag = .intrinsic_route_rejected, .subject = inputs.shape.evidenceRef(), .primary = offer.evidenceRef(), .summary = "morphism target host-intrinsic provider lacks an intrinsic evidence ref" });
                                 continue :morphism_provider_offers;
                             }
                         }
-                        if (!providerOfferTagsAllowTreatyPolicy(inputs.treaty_policy, offer.tags)) continue :morphism_provider_offers;
-                        if (!treatyUsagePolicyAllowsMorphismTargetOffer(offer, inputs.shape, target_shape, inputs.treaty_policy)) continue :morphism_provider_offers;
+                        if (!providerOfferTagsAllowTreatyPolicy(inputs.treaty_policy, offer.tags)) {
+                            try rejected_candidates.append(inputs.allocator, .{ .tag = .treaty_policy_incompatible, .subject = inputs.shape.evidenceRef(), .primary = offer.evidenceRef(), .summary = "morphism provider offer tags are incompatible with treaty policy" });
+                            continue :morphism_provider_offers;
+                        }
+                        if (!treatyUsagePolicyAllowsMorphismTargetOffer(offer, inputs.shape, target_shape, inputs.treaty_policy)) {
+                            try rejected_candidates.append(inputs.allocator, .{ .tag = .treaty_policy_incompatible, .subject = inputs.shape.evidenceRef(), .primary = offer.evidenceRef(), .summary = "morphism provider offer usage or replay policy is incompatible with treaty policy" });
+                            continue :morphism_provider_offers;
+                        }
+                        var matched_capability = false;
                         morphism_capabilities: for (inputs.capabilities) |capability| {
                             if (!capabilityMatchesMorphismTarget(capability, offer, inputs.shape, morphism, target_shape)) continue :morphism_capabilities;
                             if (!targetCandidateResponseShapeAllowed(inputs.route_policy, provider, offer, capability, inputs.shape, morphism, target_shape)) continue :morphism_capabilities;
                             if (closureCapabilityBlockedByTreatyPolicy(capability, inputs.treaty_policy)) continue :morphism_capabilities;
+                            matched_capability = true;
                             try dependencies.append(inputs.allocator, .{ .role = .offer, .ref = offer.evidenceRef() });
                             try dependencies.append(inputs.allocator, .{ .role = .capability, .ref = capability.evidenceRef() });
                             selectCandidate(inputs.policy, inputs.treaty_policy, inputs.route_policy, &selection, target_shape, provider, offer, capability, morphism, provider_body, offer.hostIntrinsicRef());
+                        }
+                        if (!matched_capability) {
+                            try rejected_candidates.append(inputs.allocator, .{ .tag = .no_capability_for_shape, .subject = inputs.shape.evidenceRef(), .primary = offer.evidenceRef(), .summary = "morphism provider offer has no static capability grant for the target shape" });
                         }
                     }
                 }
@@ -3686,11 +3741,11 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             return false;
         }
 
-        fn providerShapeCountForRefs(programs: []const ProviderProgram, program_refs: []const Ref) usize {
+        fn providerShapeCountForKeys(programs: []const ProviderProgram, program_keys: []const SelectedProviderProgramKey) usize {
             var count: usize = 0;
-            for (program_refs) |program_ref| {
+            for (program_keys) |program_key| {
                 for (programs) |program| {
-                    if (program.program_ref.eql(program_ref)) {
+                    if (providerProgramKey(program).eql(program_key)) {
                         count += program.shapes.len;
                         break;
                     }
@@ -3706,7 +3761,9 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             blockers: *std.ArrayList(Blocker),
             plan_refs: *std.ArrayList(Ref),
             provider_program_refs: *std.ArrayList(Ref),
+            provider_program_keys: *std.ArrayList(SelectedProviderProgramKey),
             active_provider_program_refs: *std.ArrayList(Ref),
+            active_provider_program_keys: *std.ArrayList(SelectedProviderProgramKey),
             world_port_refs: *std.ArrayList(Ref),
             world_port_intrinsic_refs: *std.ArrayList(Ref),
             host_intrinsic_refs: *std.ArrayList(Ref),
@@ -3726,7 +3783,8 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
         ) !void {
             provider_programs: for (input.provider_programs) |provider_program| {
                 if (!providerProgramSelected(input, all_plans.items[selected_plan_start..selected_plan_end], provider_program)) continue :provider_programs;
-                if (refsContain(active_provider_program_refs.items, provider_program.program_ref)) {
+                const selected_key = providerProgramKey(provider_program);
+                if (providerProgramKeysContain(active_provider_program_keys.items, selected_key)) {
                     const evidence_blocker = boundaryClosureBlocker(.{
                         .tag = .cycle_detected,
                         .subject = provider_program.program_ref,
@@ -3737,7 +3795,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                     try appendBlockerGraph(allocator, nodes, edges, evidence_blocker);
                     continue :provider_programs;
                 }
-                if (refsContain(provider_program_refs.items, provider_program.program_ref)) continue :provider_programs;
+                if (providerProgramKeysContain(provider_program_keys.items, selected_key)) continue :provider_programs;
                 if (depth >= input.policy.max_nested_provider_depth or depth >= input.policy.max_depth) {
                     const evidence_blocker = boundaryClosureBlocker(.{
                         .tag = .depth_limit_exceeded,
@@ -3751,7 +3809,9 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 }
 
                 try provider_program_refs.append(allocator, provider_program.program_ref);
+                try provider_program_keys.append(allocator, selected_key);
                 try active_provider_program_refs.append(allocator, provider_program.program_ref);
+                try active_provider_program_keys.append(allocator, selected_key);
                 try nodes.append(allocator, .{ .kind = .provider_program, .ref = provider_program.program_ref, .label = "provider program" });
 
                 if (provider_program.shapes.len == 0 and !provider_program.effect_free) {
@@ -3764,14 +3824,32 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                     try blockers.append(allocator, evidence_blocker);
                     try appendBlockerGraph(allocator, nodes, edges, evidence_blocker);
                     _ = active_provider_program_refs.pop();
+                    _ = active_provider_program_keys.pop();
                     continue :provider_programs;
                 }
 
                 const nested_plan_start = all_plans.items.len;
                 try analyzeShapes(allocator, input, provider_program.shapes, all_plans, blockers, plan_refs, world_port_refs, world_port_intrinsic_refs, host_intrinsic_refs, unknown_refs, nodes, edges, closed_count, world_port_shape_count, boundary_native_count, declarative_count, residualized_pipeline_count, intrinsic_count, ambiguity_count, &.{}, provider_program.program_ref);
-                try analyzeSelectedProviderPrograms(allocator, input, all_plans, blockers, plan_refs, provider_program_refs, active_provider_program_refs, world_port_refs, world_port_intrinsic_refs, host_intrinsic_refs, unknown_refs, nodes, edges, closed_count, world_port_shape_count, boundary_native_count, declarative_count, residualized_pipeline_count, intrinsic_count, ambiguity_count, nested_plan_start, all_plans.items.len, depth + 1);
+                try analyzeSelectedProviderPrograms(allocator, input, all_plans, blockers, plan_refs, provider_program_refs, provider_program_keys, active_provider_program_refs, active_provider_program_keys, world_port_refs, world_port_intrinsic_refs, host_intrinsic_refs, unknown_refs, nodes, edges, closed_count, world_port_shape_count, boundary_native_count, declarative_count, residualized_pipeline_count, intrinsic_count, ambiguity_count, nested_plan_start, all_plans.items.len, depth + 1);
                 _ = active_provider_program_refs.pop();
+                _ = active_provider_program_keys.pop();
             }
+        }
+
+        fn providerProgramKey(provider_program: ProviderProgram) SelectedProviderProgramKey {
+            return .{
+                .provider_ref = provider_program.provider_ref,
+                .program_ref = provider_program.program_ref,
+                .mapping_fingerprint = provider_program.provider_program_mapping_fingerprint,
+                .effect_shape_fingerprint = fingerprintBoundaryEffectShapeSet(provider_program.shapes),
+            };
+        }
+
+        fn providerProgramKeysContain(keys: []const SelectedProviderProgramKey, needle: SelectedProviderProgramKey) bool {
+            for (keys) |key| {
+                if (key.eql(needle)) return true;
+            }
+            return false;
         }
 
         fn providerProgramSelected(input: Input, plans: []const StaticTreatyPlan, provider_program: ProviderProgram) bool {

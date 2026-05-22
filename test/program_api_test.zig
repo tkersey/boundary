@@ -24377,6 +24377,72 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer std.testing.allocator.free(preferred_static_plan.dependencies);
     try std.testing.expect(preferred_static_plan.closed());
     try std.testing.expectEqual(program_catalog.provider_offers[0].fingerprint, preferred_static_plan.selected_provider_offer_ref.?.fingerprint);
+    const closure_morphism = Program.Exchange.MorphismOffer{
+        .label = "closure-diagnostic-morphism",
+        .source_site_fingerprint = OperationSite.fingerprint,
+        .source_protocol_op_fingerprint = OperationSite.fingerprint,
+        .target_protocol_op_fingerprint = OperationSite.fingerprint,
+        .dynamic_morphism_fingerprint = 0x515804,
+    };
+    const closure_morphisms = [_]Program.Exchange.MorphismOffer{closure_morphism};
+    const closure_audit_policy = Program.Evidence.BoundaryClosurePolicy.auditOnly();
+    const closure_morphism_treaty_policy = Program.Exchange.Treaty.Policy{ .allow_direct_handling = false };
+    const morphism_missing_capability_plan = try Program.BoundaryClosure.planTreatyForShape(.{
+        .allocator = std.testing.allocator,
+        .shape = static_operation_shape,
+        .provider_manifests = &.{catalog.provider_manifest},
+        .provider_offers = &.{catalog.provider_offers[0]},
+        .morphism_offers = closure_morphisms[0..],
+        .capabilities = &.{},
+        .treaty_policy = closure_morphism_treaty_policy,
+        .policy = closure_audit_policy,
+    });
+    defer std.testing.allocator.free(morphism_missing_capability_plan.blockers);
+    defer std.testing.allocator.free(morphism_missing_capability_plan.dependencies);
+    var saw_morphism_missing_capability = false;
+    for (morphism_missing_capability_plan.blockers) |blocker| {
+        if (blocker.tag == .no_capability_for_shape) saw_morphism_missing_capability = true;
+    }
+    try std.testing.expect(saw_morphism_missing_capability);
+    const morphism_missing_manifest_plan = try Program.BoundaryClosure.planTreatyForShape(.{
+        .allocator = std.testing.allocator,
+        .shape = static_operation_shape,
+        .provider_manifests = &.{},
+        .provider_offers = &.{catalog.provider_offers[0]},
+        .morphism_offers = closure_morphisms[0..],
+        .capabilities = &.{},
+        .treaty_policy = closure_morphism_treaty_policy,
+        .policy = closure_audit_policy,
+    });
+    defer std.testing.allocator.free(morphism_missing_manifest_plan.blockers);
+    defer std.testing.allocator.free(morphism_missing_manifest_plan.dependencies);
+    var saw_morphism_missing_manifest = false;
+    for (morphism_missing_manifest_plan.blockers) |blocker| {
+        if (blocker.tag == .no_provider_offer_for_shape) saw_morphism_missing_manifest = true;
+    }
+    try std.testing.expect(saw_morphism_missing_manifest);
+    const unknown_body_morphism = Program.Exchange.MorphismOffer{
+        .label = "closure-unknown-body-morphism",
+        .source_site_fingerprint = OperationSite.fingerprint,
+        .source_protocol_op_fingerprint = OperationSite.fingerprint,
+        .target_protocol_op_fingerprint = OperationSite.fingerprint,
+    };
+    const unknown_body_morphisms = [_]Program.Exchange.MorphismOffer{unknown_body_morphism};
+    const unknown_body_morphism_plan = try Program.BoundaryClosure.planTreatyForShape(.{
+        .allocator = std.testing.allocator,
+        .shape = static_operation_shape,
+        .morphism_offers = unknown_body_morphisms[0..],
+        .capabilities = &.{},
+        .treaty_policy = closure_morphism_treaty_policy,
+        .policy = closure_audit_policy,
+    });
+    defer std.testing.allocator.free(unknown_body_morphism_plan.blockers);
+    defer std.testing.allocator.free(unknown_body_morphism_plan.dependencies);
+    var saw_unknown_morphism_body = false;
+    for (unknown_body_morphism_plan.blockers) |blocker| {
+        if (blocker.tag == .dynamic_mapper_rejected) saw_unknown_morphism_body = true;
+    }
+    try std.testing.expect(saw_unknown_morphism_body);
     const unrelated_provider_program_ref = Program.Evidence.refFor(Program.Evidence.domains.program_plan, HandlerProgram.compiled_plan.hash() +% 1, .{ .label = "unrelated-handler" });
     const provider_programs = [_]Program.BoundaryClosure.ProviderProgram{.{
         .provider_ref = program_catalog.provider_manifest.evidenceRef(),
@@ -24552,7 +24618,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer legacy_program_offer.deinit();
     try std.testing.expectEqual(@as(u32, 2), legacy_program_offer.format_version);
     try std.testing.expectEqual(program_catalog.provider_offers[0].provider_program_mapping_fingerprint, legacy_program_offer.provider_program_mapping_fingerprint);
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, legacy_program_offer.semanticBodyWithProvider(decoded_program_provider));
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, legacy_program_offer.semanticBodyWithProvider(decoded_program_provider));
     const legacy_program_offers = [_]Program.Exchange.ProviderOffer{legacy_program_offer};
     var legacy_program_required_policy = closure_policy;
     legacy_program_required_policy.require_program_backed_providers = true;
@@ -24566,8 +24632,8 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     });
     defer std.testing.allocator.free(legacy_program_required_plan.blockers);
     defer std.testing.allocator.free(legacy_program_required_plan.dependencies);
-    try std.testing.expect(!legacy_program_required_plan.closed());
-    try std.testing.expect(legacy_program_required_plan.selected_provider_offer_ref == null);
+    try std.testing.expect(legacy_program_required_plan.closed());
+    try std.testing.expectEqual(legacy_program_offer.evidenceRef().fingerprint, legacy_program_required_plan.selected_provider_offer_ref.?.fingerprint);
     var wildcard_program_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, ProgramBackedHarness.manifestOptions(&.{}));
     defer wildcard_program_provider.deinit();
     try std.testing.expect(wildcard_program_provider.supportsRequest(request_envelope));
