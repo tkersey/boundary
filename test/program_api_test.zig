@@ -24463,7 +24463,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expectEqual(@as(usize, 1), depth_limited_closure.report.blocker_count);
     try std.testing.expectEqualStrings("provider_program_contract_missing", depth_limited_closure.report.blockers[0].tag);
     try std.testing.expect(!depth_limited_closure.report.closed());
-    try depth_limited_closure.certificate.check(depth_limited_closure.graph, depth_limited_closure.report, depth_limited_policy);
+    try depth_limited_closure.certificate.check(depth_limited_closure.graph, depth_limited_closure.report, depth_limited_policy, depth_limited_closure.static_treaty_plans);
     const wrong_mapping_programs = [_]Program.BoundaryClosure.ProviderProgram{
         .{
             .provider_ref = program_catalog.provider_manifest.evidenceRef(),
@@ -24495,6 +24495,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         mapping_matched_closure.graph,
         mapping_matched_closure.report,
         Program.Evidence.BoundaryClosurePolicy.auditOnly(),
+        mapping_matched_closure.static_treaty_plans,
     );
     var explicit_preferred_mixed = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,

@@ -2427,7 +2427,7 @@ test "static treaty planner matches provider shape without request bytes" {
     try std.testing.expect(target_world_port_result.report.closedExceptWorldPorts());
     try std.testing.expectEqual(@as(usize, 1), target_world_port_result.report.open_world_port_count);
     try std.testing.expectEqual(morphism_target_world_port.evidenceRef().fingerprint, target_world_port_result.report.world_port_refs[0].fingerprint);
-    try target_world_port_result.certificate.check(target_world_port_result.graph, target_world_port_result.report, morphism_target_world_policy);
+    try target_world_port_result.certificate.check(target_world_port_result.graph, target_world_port_result.report, morphism_target_world_policy, target_world_port_result.static_treaty_plans);
     const dynamic_mapper_world_port = Program.BoundaryClosure.WorldPort.init(.{
         .label = "approval-dynamic-mapper-world-port",
         .kind = .host_tool,
@@ -2465,7 +2465,7 @@ test "static treaty planner matches provider shape without request bytes" {
     try std.testing.expect(!dynamic_multi_port_result.report.closed());
     try std.testing.expectEqual(@as(usize, 1), dynamic_multi_port_result.report.open_world_port_count);
     try std.testing.expectEqual(@as(usize, 2), dynamic_multi_port_result.report.world_port_refs.len);
-    try dynamic_multi_port_result.certificate.check(dynamic_multi_port_result.graph, dynamic_multi_port_result.report, dynamic_multi_port_policy);
+    try dynamic_multi_port_result.certificate.check(dynamic_multi_port_result.graph, dynamic_multi_port_result.report, dynamic_multi_port_policy, dynamic_multi_port_result.static_treaty_plans);
     const wrong_source_morphism_offer = Program.Exchange.MorphismOffer{
         .label = "approval-wrong-source-response-morphism",
         .source_site_fingerprint = protocol_op_fingerprint,
@@ -2929,7 +2929,7 @@ test "boundary closure optional static treaty plans do not close unplanned shape
     try std.testing.expectEqual(@as(usize, 1), strict_result.report.blocker_count);
     try std.testing.expectEqual(
         error.BoundaryClosureNotClosed,
-        strict_result.certificate.check(strict_result.graph, strict_result.report, Evidence.BoundaryClosurePolicy.strictStatic()),
+        strict_result.certificate.check(strict_result.graph, strict_result.report, Evidence.BoundaryClosurePolicy.strictStatic(), strict_result.static_treaty_plans),
     );
     var saw_no_provider = false;
     for (strict_result.report.blockers) |blocker| {
@@ -2964,7 +2964,7 @@ test "boundary closure optional static treaty plans do not close unplanned shape
     try std.testing.expectEqual(@as(usize, 0), shape_only_result.report.blocker_count);
     try std.testing.expectEqual(Evidence.domains.boundary_effect_shape.id, shape_only_result.report.world_port_intrinsic_refs[0].domain_id);
     try std.testing.expect(shape_only_result.report.world_port_intrinsic_refs[0].eql(shape.evidenceRef()));
-    try shape_only_result.certificate.check(shape_only_result.graph, shape_only_result.report, shape_only_policy);
+    try shape_only_result.certificate.check(shape_only_result.graph, shape_only_result.report, shape_only_policy, shape_only_result.static_treaty_plans);
 
     var optional_policy = Evidence.BoundaryClosurePolicy.strictStatic();
     optional_policy.label = "optional_static";
@@ -2988,7 +2988,7 @@ test "boundary closure optional static treaty plans do not close unplanned shape
     try std.testing.expectError(error.EvidenceReportHasErrors, optional_evidence_report.assertOk());
     try std.testing.expectEqual(
         error.BoundaryClosureNotClosed,
-        optional_result.certificate.check(optional_result.graph, optional_result.report, optional_policy),
+        optional_result.certificate.check(optional_result.graph, optional_result.report, optional_policy, optional_result.static_treaty_plans),
     );
 }
 
@@ -3068,7 +3068,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectEqual(@as(usize, 1), result.report.closed_effect_shape_count);
     try std.testing.expectEqual(@as(usize, 1), result.static_treaty_plans.len);
     try std.testing.expectEqual(offer.evidenceRef().fingerprint, result.static_treaty_plans[0].selected_provider_offer_ref.?.fingerprint);
-    try result.certificate.check(result.graph, result.report, closure_policy);
+    try result.certificate.check(result.graph, result.report, closure_policy, result.static_treaty_plans);
     try std.testing.expect(Evidence.refForBoundaryClosureCertificate(result.certificate).eql(result.certificate.evidenceRef()));
 
     const shape_missing_op_selector = Evidence.BoundaryEffectShape.init(.{
@@ -3218,7 +3218,7 @@ test "boundary closure traversal closes a provider-backed shape" {
         }
     }
     try std.testing.expect(saw_root_yields_edge);
-    try owned_ref_result.certificate.check(owned_ref_result.graph, owned_ref_result.report, closure_policy);
+    try owned_ref_result.certificate.check(owned_ref_result.graph, owned_ref_result.report, closure_policy, owned_ref_result.static_treaty_plans);
 
     const effect_free_root_ref = Evidence.refFor(Evidence.domains.program_plan, 0xEFFEC7F2EE, .{ .label = "effect-free-root" });
     var missing_root_shape_result = try Closure.analyze(allocator, .{
@@ -3230,7 +3230,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectEqual(@as(usize, 1), missing_root_shape_result.report.blocker_count);
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
-        missing_root_shape_result.certificate.check(missing_root_shape_result.graph, missing_root_shape_result.report, closure_policy),
+        missing_root_shape_result.certificate.check(missing_root_shape_result.graph, missing_root_shape_result.report, closure_policy, missing_root_shape_result.static_treaty_plans),
     );
 
     const unrooted_effect_free_ref = Evidence.refFor(Evidence.domains.program_plan, 0xEFFEC7F2EF, .{ .label = "unrooted-effect-free-root" });
@@ -3255,7 +3255,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectEqual(@as(usize, 0), effect_free_root_result.report.effect_shape_count);
     try std.testing.expectEqual(@as(usize, 0), effect_free_root_result.report.blocker_count);
     try std.testing.expectEqual(@as(usize, 1), effect_free_root_result.report.effect_free_root_refs.len);
-    try effect_free_root_result.certificate.check(effect_free_root_result.graph, effect_free_root_result.report, closure_policy);
+    try effect_free_root_result.certificate.check(effect_free_root_result.graph, effect_free_root_result.report, closure_policy, effect_free_root_result.static_treaty_plans);
 
     const unwitnessed_root_ref = Evidence.refFor(Evidence.domains.program_plan, 0xEFFEC7BAD, .{ .label = "unwitnessed-root" });
     var partial_root_result = try Closure.analyze(allocator, .{
@@ -3373,7 +3373,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     try world_port_result.assertClosedExceptWorldPorts();
     try std.testing.expect(!world_port_result.report.closed());
     try std.testing.expectEqual(@as(usize, 1), world_port_result.report.open_world_port_count);
-    try world_port_result.certificate.check(world_port_result.graph, world_port_result.report, world_port_only_policy);
+    try world_port_result.certificate.check(world_port_result.graph, world_port_result.report, world_port_only_policy, world_port_result.static_treaty_plans);
 
     var selectorless_provider = try Program.Exchange.ProviderManifest.encode(allocator, .{
         .label = "selectorless-closure-provider",
@@ -3468,7 +3468,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectEqual(@as(usize, 2), mixed_world_result.report.effect_shape_count);
     try std.testing.expectEqual(@as(usize, 1), mixed_world_result.report.closed_effect_shape_count);
     try std.testing.expectEqual(@as(usize, 1), mixed_world_result.report.open_world_port_count);
-    try mixed_world_result.certificate.check(mixed_world_result.graph, mixed_world_result.report, mixed_world_policy);
+    try mixed_world_result.certificate.check(mixed_world_result.graph, mixed_world_result.report, mixed_world_policy, mixed_world_result.static_treaty_plans);
 
     const stray_world_obligation_edges = try allocator.alloc(Closure.Graph.Edge, world_port_result.graph.edges.len + 1);
     defer allocator.free(stray_world_obligation_edges);
@@ -3496,7 +3496,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     );
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
-        stray_world_obligation_certificate.check(stray_world_obligation_graph, stray_world_obligation_report, world_port_only_policy),
+        stray_world_obligation_certificate.check(stray_world_obligation_graph, stray_world_obligation_report, world_port_only_policy, world_port_result.static_treaty_plans),
     );
 
     var overcounted_world_report = world_port_result.report;
@@ -3509,8 +3509,8 @@ test "boundary closure traversal closes a provider-backed shape" {
         world_port_result.plan_refs,
     );
     try std.testing.expectError(
-        error.BoundaryClosureNotClosed,
-        overcounted_world_cert.check(world_port_result.graph, overcounted_world_report, world_port_only_policy),
+        error.BoundaryClosureCertificateMismatch,
+        overcounted_world_cert.check(world_port_result.graph, overcounted_world_report, world_port_only_policy, world_port_result.static_treaty_plans),
     );
     var disallowed_world_policy = world_port_only_policy;
     const disallowed_world_ports = [_]u64{world_port.fingerprint +% 1};
@@ -3526,7 +3526,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     );
     try std.testing.expectError(
         error.BoundaryClosureWorldPortsRejected,
-        disallowed_world_certificate.check(world_port_result.graph, disallowed_world_report, disallowed_world_policy),
+        disallowed_world_certificate.check(world_port_result.graph, disallowed_world_report, disallowed_world_policy, world_port_result.static_treaty_plans),
     );
     const unallowlisted_world_policy = Evidence.BoundaryClosurePolicy.worldBoundary();
     var unallowlisted_world_result = try Closure.analyze(allocator, .{
@@ -3612,17 +3612,17 @@ test "boundary closure traversal closes a provider-backed shape" {
     stale_graph.label = "stale-graph";
     try std.testing.expectError(
         error.BoundaryClosureGraphMismatch,
-        result.certificate.check(stale_graph, result.report, closure_policy),
+        result.certificate.check(stale_graph, result.report, closure_policy, result.static_treaty_plans),
     );
     var stale_report = result.report;
     stale_report.closed_effect_shape_count = 0;
     try std.testing.expectError(
         error.BoundaryClosureReportMismatch,
-        result.certificate.check(result.graph, stale_report, closure_policy),
+        result.certificate.check(result.graph, stale_report, closure_policy, result.static_treaty_plans),
     );
     try std.testing.expectError(
         error.BoundaryClosurePolicyMismatch,
-        result.certificate.check(result.graph, result.report, Evidence.BoundaryClosurePolicy.strict()),
+        result.certificate.check(result.graph, result.report, Evidence.BoundaryClosurePolicy.strict(), result.static_treaty_plans),
     );
     var stale_policy_report = result.report;
     stale_policy_report.policy_summary = Evidence.BoundaryClosurePolicy.strict().policySummary();
@@ -3635,21 +3635,53 @@ test "boundary closure traversal closes a provider-backed shape" {
     );
     try std.testing.expectError(
         error.BoundaryClosurePolicyMismatch,
-        stale_policy_certificate.check(result.graph, stale_policy_report, closure_policy),
+        stale_policy_certificate.check(result.graph, stale_policy_report, closure_policy, result.static_treaty_plans),
     );
     var missing_plan_ref_certificate = result.certificate;
     missing_plan_ref_certificate.selected_static_treaty_plan_refs = &.{};
     missing_plan_ref_certificate.certificate_fingerprint = missing_plan_ref_certificate.computeFingerprint();
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
-        missing_plan_ref_certificate.check(result.graph, result.report, closure_policy),
+        missing_plan_ref_certificate.check(result.graph, result.report, closure_policy, result.static_treaty_plans),
     );
+    const forged_static_plan_ref = Evidence.refFor(Evidence.domains.boundary_static_treaty_plan, 0xDEADBEEF, .{ .label = "forged-plan" });
     var forged_plan_ref_certificate = result.certificate;
-    forged_plan_ref_certificate.selected_static_treaty_plan_refs = &.{Evidence.refFor(Evidence.domains.boundary_static_treaty_plan, 0xDEADBEEF, .{ .label = "forged-plan" })};
+    forged_plan_ref_certificate.selected_static_treaty_plan_refs = &.{forged_static_plan_ref};
     forged_plan_ref_certificate.certificate_fingerprint = forged_plan_ref_certificate.computeFingerprint();
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
-        forged_plan_ref_certificate.check(result.graph, result.report, closure_policy),
+        forged_plan_ref_certificate.check(result.graph, result.report, closure_policy, result.static_treaty_plans),
+    );
+    const forged_plan_nodes = try allocator.dupe(Closure.Graph.Node, result.graph.nodes);
+    defer allocator.free(forged_plan_nodes);
+    for (forged_plan_nodes) |*node| {
+        if (node.kind == .treaty_shape_plan) {
+            node.ref = forged_static_plan_ref;
+            node.label = "forged-plan";
+            break;
+        }
+    }
+    const forged_plan_graph_edges = try allocator.dupe(Closure.Graph.Edge, result.graph.edges);
+    defer allocator.free(forged_plan_graph_edges);
+    for (forged_plan_graph_edges) |*edge| {
+        if (edge.kind == .treaty_planned) {
+            edge.to = forged_static_plan_ref;
+            break;
+        }
+    }
+    const forged_plan_graph = Closure.Graph.init(result.graph.label, forged_plan_nodes, forged_plan_graph_edges, result.graph.dependencies);
+    var forged_plan_report = result.report;
+    forged_plan_report.graph_fingerprint = forged_plan_graph.fingerprint;
+    forged_plan_report.report_fingerprint = forged_plan_report.computeFingerprint();
+    const forged_plan_certificate = Evidence.BoundaryClosureCertificate.init(
+        forged_plan_report,
+        forged_plan_graph,
+        closure_policy,
+        &.{forged_static_plan_ref},
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        forged_plan_certificate.check(forged_plan_graph, forged_plan_report, closure_policy, result.static_treaty_plans),
     );
     const forged_plan_edges = try allocator.dupe(Closure.Graph.Edge, result.graph.edges);
     defer allocator.free(forged_plan_edges);
@@ -3671,14 +3703,14 @@ test "boundary closure traversal closes a provider-backed shape" {
     );
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
-        forged_plan_edge_certificate.check(forged_plan_edge_graph, forged_plan_edge_report, closure_policy),
+        forged_plan_edge_certificate.check(forged_plan_edge_graph, forged_plan_edge_report, closure_policy, result.static_treaty_plans),
     );
     var stale_count_certificate = result.certificate;
     stale_count_certificate.closed_effect_shape_count = 0;
     stale_count_certificate.certificate_fingerprint = stale_count_certificate.computeFingerprint();
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
-        stale_count_certificate.check(result.graph, result.report, closure_policy),
+        stale_count_certificate.check(result.graph, result.report, closure_policy, result.static_treaty_plans),
     );
     const forged_plan_refs = [_]Evidence.Ref{result.static_treaty_plans[0].evidenceRef()};
     const forged_world_port_ref = Evidence.refFor(Evidence.domains.boundary_world_port, 0xBEEF, .{
@@ -3713,7 +3745,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     );
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
-        forged_world_certificate.check(result.graph, forged_world_report, restricted_world_policy),
+        forged_world_certificate.check(result.graph, forged_world_report, restricted_world_policy, result.static_treaty_plans),
     );
     const forged_program_ref = Evidence.refFor(Evidence.domains.program_plan, 0xF00D, .{ .label = "forged-provider-program" });
     const forged_provider_program_refs = [_]Evidence.Ref{forged_program_ref};
@@ -3732,7 +3764,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     );
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
-        forged_program_cert.check(result.graph, forged_provider_program_report, closure_policy),
+        forged_program_cert.check(result.graph, forged_provider_program_report, closure_policy, result.static_treaty_plans),
     );
     const mispaired_world_report = Evidence.BoundaryClosureReport.init(.{
         .graph_fingerprint = world_port_result.graph.fingerprint,
@@ -3753,7 +3785,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     );
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
-        mispaired_world_certificate.check(world_port_result.graph, mispaired_world_report, world_port_only_policy),
+        mispaired_world_certificate.check(world_port_result.graph, mispaired_world_report, world_port_only_policy, world_port_result.static_treaty_plans),
     );
     const omitted_intrinsic_report = Evidence.BoundaryClosureReport.init(.{
         .graph_fingerprint = world_port_result.graph.fingerprint,
@@ -3769,7 +3801,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     );
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
-        omitted_intrinsic_certificate.check(world_port_result.graph, omitted_intrinsic_report, world_port_only_policy),
+        omitted_intrinsic_certificate.check(world_port_result.graph, omitted_intrinsic_report, world_port_only_policy, world_port_result.static_treaty_plans),
     );
     const forged_intrinsic_report = Evidence.BoundaryClosureReport.init(.{
         .graph_fingerprint = result.graph.fingerprint,
@@ -3787,7 +3819,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     );
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
-        forged_intrinsic_certificate.check(result.graph, forged_intrinsic_report, closure_policy),
+        forged_intrinsic_certificate.check(result.graph, forged_intrinsic_report, closure_policy, result.static_treaty_plans),
     );
     const forged_unknown_refs = [_]Evidence.Ref{result.static_treaty_plans[0].source_shape.evidenceRef()};
     const undercounted_unknown_report = Evidence.BoundaryClosureReport.init(.{
@@ -3806,7 +3838,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     );
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
-        undercounted_unknown_certificate.check(result.graph, undercounted_unknown_report, closure_policy),
+        undercounted_unknown_certificate.check(result.graph, undercounted_unknown_report, closure_policy, result.static_treaty_plans),
     );
 
     var not_closed_report = result.report;
@@ -3819,8 +3851,8 @@ test "boundary closure traversal closes a provider-backed shape" {
         forged_plan_refs[0..],
     );
     try std.testing.expectError(
-        error.BoundaryClosureNotClosed,
-        not_closed_certificate.check(result.graph, not_closed_report, closure_policy),
+        error.BoundaryClosureCertificateMismatch,
+        not_closed_certificate.check(result.graph, not_closed_report, closure_policy, result.static_treaty_plans),
     );
 
     const forged_blocker = Evidence.boundaryClosureBlocker(.{
@@ -3842,7 +3874,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     );
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
-        missing_blocker_ref_certificate.check(result.graph, blocked_but_count_default_report, closure_policy),
+        missing_blocker_ref_certificate.check(result.graph, blocked_but_count_default_report, closure_policy, result.static_treaty_plans),
     );
     const forged_blocker_refs = [_]Evidence.Ref{Evidence.refForBoundaryClosureBlocker(forged_blocker)};
     const blocked_but_count_default_certificate = Evidence.BoundaryClosureCertificate.initWithBlockerRefs(
@@ -3854,7 +3886,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     );
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
-        blocked_but_count_default_certificate.check(result.graph, blocked_but_count_default_report, closure_policy),
+        blocked_but_count_default_certificate.check(result.graph, blocked_but_count_default_report, closure_policy, result.static_treaty_plans),
     );
 
     var empty_audit_result = try Closure.analyze(allocator, .{
@@ -3875,6 +3907,7 @@ test "boundary closure traversal closes a provider-backed shape" {
         empty_audit_result.graph,
         empty_audit_result.report,
         Evidence.BoundaryClosurePolicy.auditOnly(),
+        empty_audit_result.static_treaty_plans,
     );
     var mixed_allocator_buffer: [32768]u8 = undefined;
     var mixed_allocator_fba = std.heap.FixedBufferAllocator.init(&mixed_allocator_buffer);
@@ -3906,7 +3939,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     defer omitted_provider_shapes_result.deinit();
     try std.testing.expectEqual(@as(usize, 0), omitted_provider_shapes_result.report.provider_program_refs.len);
     try std.testing.expectEqual(@as(usize, 0), omitted_provider_shapes_result.report.blocker_count);
-    try omitted_provider_shapes_result.certificate.check(omitted_provider_shapes_result.graph, omitted_provider_shapes_result.report, closure_policy);
+    try omitted_provider_shapes_result.certificate.check(omitted_provider_shapes_result.graph, omitted_provider_shapes_result.report, closure_policy, omitted_provider_shapes_result.static_treaty_plans);
 
     var provider_program_result = try Closure.analyze(allocator, .{
         .allocator = allocator,
@@ -3933,7 +3966,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectEqual(@as(usize, 1), provider_program_result.report.effect_shape_count);
     try std.testing.expectEqual(@as(usize, 0), provider_program_result.report.provider_program_refs.len);
     try std.testing.expectEqual(@as(usize, 0), provider_program_result.certificate.provider_program_refs.len);
-    try provider_program_result.certificate.check(provider_program_result.graph, provider_program_result.report, closure_policy);
+    try provider_program_result.certificate.check(provider_program_result.graph, provider_program_result.report, closure_policy, provider_program_result.static_treaty_plans);
 
     var recursive_provider_program_result = try Closure.analyze(allocator, .{
         .allocator = allocator,
@@ -3953,7 +3986,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectEqual(@as(usize, 0), recursive_provider_program_result.report.provider_program_refs.len);
     try std.testing.expectEqual(@as(usize, 0), recursive_provider_program_result.report.blocker_count);
     try std.testing.expectEqual(recursive_provider_program_result.report.blockers.len, recursive_provider_program_result.certificate.blocker_refs.len);
-    try recursive_provider_program_result.certificate.check(recursive_provider_program_result.graph, recursive_provider_program_result.report, closure_policy);
+    try recursive_provider_program_result.certificate.check(recursive_provider_program_result.graph, recursive_provider_program_result.report, closure_policy, recursive_provider_program_result.static_treaty_plans);
 
     var depth_policy = closure_policy;
     depth_policy.max_nested_provider_depth = 0;
@@ -3974,7 +4007,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectEqual(@as(usize, 0), depth_result.report.provider_program_refs.len);
     try std.testing.expectEqual(@as(usize, 0), depth_result.report.blocker_count);
     try std.testing.expectEqual(depth_result.report.blockers.len, depth_result.certificate.blocker_refs.len);
-    try depth_result.certificate.check(depth_result.graph, depth_result.report, depth_policy);
+    try depth_result.certificate.check(depth_result.graph, depth_result.report, depth_policy, depth_result.static_treaty_plans);
 
     var node_bound_policy = closure_policy;
     node_bound_policy.max_nodes = 0;
@@ -3991,7 +4024,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectEqual(node_bound_result.report.blockers.len, node_bound_result.certificate.blocker_refs.len);
     try std.testing.expectError(
         error.BoundaryClosureNotClosed,
-        node_bound_result.certificate.check(node_bound_result.graph, node_bound_result.report, node_bound_policy),
+        node_bound_result.certificate.check(node_bound_result.graph, node_bound_result.report, node_bound_policy, node_bound_result.static_treaty_plans),
     );
 }
 

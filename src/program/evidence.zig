@@ -2731,7 +2731,13 @@ pub const BoundaryClosureCertificate = struct {
         });
     }
 
-    pub fn check(self: @This(), graph: BoundaryGraph, report: BoundaryClosureReport, policy: BoundaryClosurePolicy) error{
+    pub fn check(
+        self: @This(),
+        graph: BoundaryGraph,
+        report: BoundaryClosureReport,
+        policy: BoundaryClosurePolicy,
+        static_treaty_plans: []const BoundaryStaticTreatyPlan,
+    ) error{
         BoundaryClosureGraphMismatch,
         BoundaryClosureReportMismatch,
         BoundaryClosureCertificateMismatch,
@@ -2787,6 +2793,13 @@ pub const BoundaryClosureCertificate = struct {
         }
         if (self.selected_static_treaty_plan_refs.len != report.effect_shape_count) return error.BoundaryClosureCertificateMismatch;
         if (!graphPlanRefsMatchCertificate(graph, self.selected_static_treaty_plan_refs)) return error.BoundaryClosureCertificateMismatch;
+        if (!staticTreatyPlansMatchCertificate(
+            graph,
+            report,
+            policy,
+            self.selected_static_treaty_plan_refs,
+            static_treaty_plans,
+        )) return error.BoundaryClosureCertificateMismatch;
         if (policy.require_all_effect_shapes_closed) {
             if (policy.allow_world_ports) {
                 if (!report.closedExceptWorldPorts()) return error.BoundaryClosureNotClosed;
@@ -4981,6 +4994,70 @@ fn graphPlanRefsMatchCertificate(graph: BoundaryGraph, plan_refs: []const Ref) b
         if (!graphHasIncomingTreatyPlanFromShape(graph, plan_ref)) return false;
     }
     return true;
+}
+
+fn staticTreatyPlansMatchCertificate(
+    graph: BoundaryGraph,
+    report: BoundaryClosureReport,
+    policy: BoundaryClosurePolicy,
+    plan_refs: []const Ref,
+    plans: []const BoundaryStaticTreatyPlan,
+) bool {
+    if (plans.len != plan_refs.len) return false;
+
+    var closed_shape_count: usize = 0;
+    var world_port_shape_count: usize = 0;
+    var unknown_body_count: usize = 0;
+    for (plan_refs) |plan_ref| {
+        if (plan_ref.domain_id != domains.boundary_static_treaty_plan.id) return false;
+        var match_count: usize = 0;
+        var matched_plan: ?BoundaryStaticTreatyPlan = null;
+        find_matching_plan: for (plans) |plan| {
+            if (!plan.evidenceRef().eql(plan_ref)) continue :find_matching_plan;
+            match_count += 1;
+            matched_plan = plan;
+        }
+        if (match_count != 1) return false;
+        const plan = matched_plan.?;
+        if (plan.fingerprint != plan.computeFingerprint()) return false;
+        if (!plan.evidenceRef().eql(plan_ref)) return false;
+
+        const shape_ref = plan.source_shape.evidenceRef();
+        if (!graphHasNode(graph, .operation_site, shape_ref) and !graphHasNode(graph, .after_site, shape_ref)) return false;
+        if (!graphHasEdge(graph, .treaty_planned, shape_ref, plan_ref)) return false;
+        if (plan.selected_provider_offer_ref) |offer_ref| {
+            if (!graphHasNode(graph, .provider_offer, offer_ref)) return false;
+            if (!graphHasEdge(graph, .handled_by_provider, shape_ref, offer_ref)) return false;
+        }
+        if (plan.selected_capability_ref) |capability_ref| {
+            if (!graphHasNode(graph, .capability_grant, capability_ref)) return false;
+            if (!graphHasEdge(graph, .authorized_by_capability, shape_ref, capability_ref)) return false;
+        }
+        if (plan.selected_morphism_ref) |morphism_ref| {
+            if (!graphHasNode(graph, .morphism_offer, morphism_ref)) return false;
+            if (!graphHasEdge(graph, .adapted_by_morphism, shape_ref, morphism_ref)) return false;
+        }
+        if (plan.selected_intrinsic_ref) |intrinsic_ref| {
+            if (!graphHasNode(graph, .host_intrinsic, intrinsic_ref)) return false;
+            if (!graphHasEdge(graph, .intrinsic_boundary, shape_ref, intrinsic_ref)) return false;
+        }
+        if (plan.selected_provider_offer_ref != null and plan.selected_semantic_body == .unknown) unknown_body_count += 1;
+
+        const has_world_port = graphShapeHasWorldPort(graph, report, shape_ref);
+        if (plan.closedUnderPolicy(policy)) {
+            if (has_world_port) {
+                world_port_shape_count += 1;
+            } else {
+                closed_shape_count += 1;
+            }
+        } else if (has_world_port) {
+            world_port_shape_count += 1;
+        }
+    }
+
+    return closed_shape_count == report.closed_effect_shape_count and
+        world_port_shape_count == report.open_world_port_count and
+        unknown_body_count == report.unknown_body_count;
 }
 
 fn graphBlockerRefsMatchCertificate(graph: BoundaryGraph, blocker_refs: []const Ref, blockers: []const Blocker) bool {
