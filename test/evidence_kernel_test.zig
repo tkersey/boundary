@@ -3062,6 +3062,22 @@ test "static treaty planner matches provider shape without request bytes" {
     defer allocator.free(ambiguous_plan.dependencies);
     try std.testing.expect(!ambiguous_plan.closed());
     try std.testing.expectEqual(Evidence.BoundaryClosureBlockerTag.ambiguous_static_treaty_plan, ambiguous_plan.blockers[0].tag);
+    var ambiguous_result = try Program.BoundaryClosure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape},
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{ offer, second_offer },
+        .capabilities = &.{capability},
+        .policy = ambiguity_policy,
+    });
+    defer ambiguous_result.deinit();
+    try std.testing.expect(!ambiguous_result.report.closed());
+    try std.testing.expectEqual(@as(usize, 0), ambiguous_result.report.intrinsic_route_count);
+    try std.testing.expect(ambiguous_result.report.host_intrinsic_count != 0);
+    try std.testing.expectEqual(
+        error.BoundaryClosureNotClosed,
+        ambiguous_result.certificate.check(ambiguous_result.graph, ambiguous_result.report, ambiguity_policy, ambiguous_result.static_treaty_plans),
+    );
 }
 
 test "boundary closure optional static treaty plans do not close unplanned shapes" {

@@ -3297,10 +3297,11 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             var declarative_count: usize = 0;
             var residualized_pipeline_count: usize = 0;
             var intrinsic_count: usize = 0;
+            var intrinsic_route_count: usize = 0;
             var ambiguity_count: usize = 0;
 
-            try analyzeShapes(allocator, analysis_input, analysis_input.root_shapes, &all_plans, &blockers, &plan_refs, &seen_shape_refs, &world_port_refs, &world_port_intrinsic_refs, &host_intrinsic_refs, &unknown_refs, &nodes, &edges, &closed_count, &world_port_shape_count, &boundary_native_count, &declarative_count, &residualized_pipeline_count, &intrinsic_count, &ambiguity_count, analysis_input.root_program_refs, null);
-            try analyzeSelectedProviderPrograms(allocator, analysis_input, &all_plans, &blockers, &plan_refs, &seen_shape_refs, &provider_program_refs, &provider_program_keys, &active_provider_program_refs, &active_provider_program_keys, &world_port_refs, &world_port_intrinsic_refs, &host_intrinsic_refs, &unknown_refs, &nodes, &edges, &closed_count, &world_port_shape_count, &boundary_native_count, &declarative_count, &residualized_pipeline_count, &intrinsic_count, &ambiguity_count, 0, all_plans.items.len, 0);
+            try analyzeShapes(allocator, analysis_input, analysis_input.root_shapes, &all_plans, &blockers, &plan_refs, &seen_shape_refs, &world_port_refs, &world_port_intrinsic_refs, &host_intrinsic_refs, &unknown_refs, &nodes, &edges, &closed_count, &world_port_shape_count, &boundary_native_count, &declarative_count, &residualized_pipeline_count, &intrinsic_count, &intrinsic_route_count, &ambiguity_count, analysis_input.root_program_refs, null);
+            try analyzeSelectedProviderPrograms(allocator, analysis_input, &all_plans, &blockers, &plan_refs, &seen_shape_refs, &provider_program_refs, &provider_program_keys, &active_provider_program_refs, &active_provider_program_keys, &world_port_refs, &world_port_intrinsic_refs, &host_intrinsic_refs, &unknown_refs, &nodes, &edges, &closed_count, &world_port_shape_count, &boundary_native_count, &declarative_count, &residualized_pipeline_count, &intrinsic_count, &intrinsic_route_count, &ambiguity_count, 0, all_plans.items.len, 0);
             for (all_plans.items) |plan| {
                 if (plan.selected_semantic_body != .boundary_program) continue;
                 const provider_ref = plan.selected_provider_ref orelse continue;
@@ -3393,7 +3394,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 .boundary_native_route_count = boundary_native_count,
                 .declarative_route_count = declarative_count,
                 .residualized_pipeline_route_count = residualized_pipeline_count,
-                .intrinsic_route_count = intrinsic_count,
+                .intrinsic_route_count = intrinsic_route_count,
                 .world_port_refs = owned_world_port_refs,
                 .world_port_intrinsic_refs = owned_world_port_intrinsic_refs,
                 .host_intrinsic_refs = owned_host_intrinsic_refs,
@@ -3654,6 +3655,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             declarative_count: *usize,
             residualized_pipeline_count: *usize,
             intrinsic_count: *usize,
+            intrinsic_route_count: *usize,
             ambiguity_count: *usize,
             root_program_refs: []const Ref,
             parent_provider_program_ref: ?Ref,
@@ -3776,6 +3778,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                         world_port_shape_count.* += 1;
                     }
                     if (plan.boundary_native) boundary_native_count.* += 1;
+                    if (plan.host_intrinsic) intrinsic_route_count.* += selectedPlanHostIntrinsicCount(plan);
                     switch (selected_morphism_body orelse plan.selected_semantic_body) {
                         .boundary_program, .kernel_primitive => {},
                         .declarative => declarative_count.* += 1,
@@ -3871,6 +3874,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             declarative_count: *usize,
             residualized_pipeline_count: *usize,
             intrinsic_count: *usize,
+            intrinsic_route_count: *usize,
             ambiguity_count: *usize,
             selected_plan_start: usize,
             selected_plan_end: usize,
@@ -3924,8 +3928,8 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 }
 
                 const nested_plan_start = all_plans.items.len;
-                try analyzeShapes(allocator, input, provider_program.shapes, all_plans, blockers, plan_refs, seen_shape_refs, world_port_refs, world_port_intrinsic_refs, host_intrinsic_refs, unknown_refs, nodes, edges, closed_count, world_port_shape_count, boundary_native_count, declarative_count, residualized_pipeline_count, intrinsic_count, ambiguity_count, &.{}, provider_program.program_ref);
-                try analyzeSelectedProviderPrograms(allocator, input, all_plans, blockers, plan_refs, seen_shape_refs, provider_program_refs, provider_program_keys, active_provider_program_refs, active_provider_program_keys, world_port_refs, world_port_intrinsic_refs, host_intrinsic_refs, unknown_refs, nodes, edges, closed_count, world_port_shape_count, boundary_native_count, declarative_count, residualized_pipeline_count, intrinsic_count, ambiguity_count, nested_plan_start, all_plans.items.len, depth + 1);
+                try analyzeShapes(allocator, input, provider_program.shapes, all_plans, blockers, plan_refs, seen_shape_refs, world_port_refs, world_port_intrinsic_refs, host_intrinsic_refs, unknown_refs, nodes, edges, closed_count, world_port_shape_count, boundary_native_count, declarative_count, residualized_pipeline_count, intrinsic_count, intrinsic_route_count, ambiguity_count, &.{}, provider_program.program_ref);
+                try analyzeSelectedProviderPrograms(allocator, input, all_plans, blockers, plan_refs, seen_shape_refs, provider_program_refs, provider_program_keys, active_provider_program_refs, active_provider_program_keys, world_port_refs, world_port_intrinsic_refs, host_intrinsic_refs, unknown_refs, nodes, edges, closed_count, world_port_shape_count, boundary_native_count, declarative_count, residualized_pipeline_count, intrinsic_count, intrinsic_route_count, ambiguity_count, nested_plan_start, all_plans.items.len, depth + 1);
                 _ = active_provider_program_refs.pop();
                 _ = active_provider_program_keys.pop();
             }
