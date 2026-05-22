@@ -3850,6 +3850,16 @@ test "boundary closure traversal closes a provider-backed shape" {
         empty_audit_result.report,
         Evidence.BoundaryClosurePolicy.auditOnly(),
     );
+    var mixed_allocator_buffer: [32768]u8 = undefined;
+    var mixed_allocator_fba = std.heap.FixedBufferAllocator.init(&mixed_allocator_buffer);
+    const mixed_owner_allocator = mixed_allocator_fba.allocator();
+    var mixed_allocator_result = try Closure.analyze(allocator, .{
+        .allocator = mixed_owner_allocator,
+        .policy = Evidence.BoundaryClosurePolicy.auditOnly(),
+    });
+    try std.testing.expect(mixed_allocator_result.allocator.ptr == mixed_owner_allocator.ptr);
+    try std.testing.expect(mixed_allocator_result.allocator.vtable == mixed_owner_allocator.vtable);
+    mixed_allocator_result.deinit();
 
     const provider_program_ref = Evidence.refFor(Evidence.domains.program_plan, 0xABCDEF, .{ .label = "provider-program" });
     const stale_provider_ref = Evidence.refFor(Evidence.domains.provider_identity, 0xBAD5EED, .{ .label = "stale-provider" });

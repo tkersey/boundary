@@ -3092,7 +3092,9 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             });
         }
 
-        pub fn analyze(allocator: std.mem.Allocator, input: Input) !Result {
+        pub fn analyze(result_allocator: std.mem.Allocator, input: Input) !Result {
+            _ = result_allocator;
+            const allocator = input.allocator;
             var all_plans = std.ArrayList(StaticTreatyPlan).empty;
             errdefer {
                 for (all_plans.items) |plan| {
