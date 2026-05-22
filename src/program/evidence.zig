@@ -2312,8 +2312,55 @@ pub fn refForBoundaryEffectShape(shape: anytype) Ref {
 pub fn fingerprintBoundaryEffectShapeSet(shapes: []const BoundaryEffectShape) u64 {
     var builder = FingerprintBuilder.init(domains.boundary_effect_shape);
     builder.fieldUsize("shape_count", shapes.len);
-    for (shapes) |shape| builder.fieldRef("shape", shape.evidenceRef());
+    var emitted_rank: usize = 0;
+    while (emitted_rank < shapes.len) : (emitted_rank += 1) {
+        var selected_index: ?usize = null;
+        for (shapes, 0..) |shape, index| {
+            const ref = shape.evidenceRef();
+            var rank: usize = 0;
+            for (shapes, 0..) |other_shape, other_index| {
+                const other_ref = other_shape.evidenceRef();
+                if (refLessForCanonicalSet(other_ref, ref) or (other_ref.eql(ref) and other_index < index)) rank += 1;
+            }
+            if (rank == emitted_rank) {
+                selected_index = index;
+                break;
+            }
+        }
+        builder.fieldRef("shape", shapes[selected_index.?].evidenceRef());
+    }
     return builder.finish();
+}
+
+fn refLessForCanonicalSet(lhs: Ref, rhs: Ref) bool {
+    if (@intFromEnum(lhs.domain_id) != @intFromEnum(rhs.domain_id)) return @intFromEnum(lhs.domain_id) < @intFromEnum(rhs.domain_id);
+    if (lhs.fingerprint != rhs.fingerprint) return lhs.fingerprint < rhs.fingerprint;
+    if (optionalIntLess(u32, lhs.format_version, rhs.format_version)) |less| return less;
+    if (optionalBytesLess(lhs.label, rhs.label)) |less| return less;
+    if (optionalIntLess(u64, lhs.branch_id, rhs.branch_id)) |less| return less;
+    if (optionalIntLess(usize, lhs.site_index, rhs.site_index)) |less| return less;
+    if (optionalBytesLess(lhs.kind_tag, rhs.kind_tag)) |less| return less;
+    return false;
+}
+
+fn optionalIntLess(comptime T: type, lhs: ?T, rhs: ?T) ?bool {
+    if (lhs) |left| {
+        const right = rhs orelse return false;
+        if (left != right) return left < right;
+        return null;
+    }
+    if (rhs != null) return true;
+    return null;
+}
+
+fn optionalBytesLess(lhs: ?[]const u8, rhs: ?[]const u8) ?bool {
+    if (lhs) |left| {
+        const right = rhs orelse return false;
+        if (!std.mem.eql(u8, left, right)) return std.mem.lessThan(u8, left, right);
+        return null;
+    }
+    if (rhs != null) return true;
+    return null;
 }
 
 pub fn refForBoundaryWorldPort(port: anytype) Ref {

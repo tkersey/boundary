@@ -193,6 +193,20 @@ test "boundary closure foundational refs use static shape metadata" {
         .protocol_op_fingerprint = 0x2222,
     });
     try std.testing.expect(Evidence.refForBoundaryEffectShape(closure_shape).eql(closure_shape.evidenceRef()));
+    const after_closure_shape = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "closure-root",
+        .kind = .after,
+        .site_index = 4,
+        .site_fingerprint = 0x3333,
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = 0x3333,
+    });
+    const ordered_shapes = [_]Evidence.BoundaryEffectShape{ closure_shape, after_closure_shape };
+    const reversed_shapes = [_]Evidence.BoundaryEffectShape{ after_closure_shape, closure_shape };
+    try std.testing.expectEqual(
+        Evidence.fingerprintBoundaryEffectShapeSet(ordered_shapes[0..]),
+        Evidence.fingerprintBoundaryEffectShapeSet(reversed_shapes[0..]),
+    );
 
     const strict = Evidence.BoundaryClosurePolicy.strictStatic();
     const world_policy = Evidence.BoundaryClosurePolicy.worldBoundary();
