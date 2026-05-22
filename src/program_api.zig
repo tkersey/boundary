@@ -16461,6 +16461,7 @@ pub fn program(
                 };
                 var response_refs_buffer: [3]Evidence.BoundaryValueRef = undefined;
                 const response_refs = staticShapeResponseRefs(inputs.shape, &response_refs_buffer);
+                const has_capsule = inputs.has_capsule or inputs.shape.max_capsule_image_bytes != 0;
                 if (response_refs.len == 0) {
                     addStaticBlocker(plan, .unsupported_shape_planning, plan.shape_ref, null, "effect shape is missing response refs");
                     plan.status = .blocked;
@@ -16474,12 +16475,12 @@ pub fn program(
                     }
                 }
 
-                if (inputs.has_capsule and inputs.treaty_policy.disallow_capsule_export) {
+                if (has_capsule and inputs.treaty_policy.disallow_capsule_export) {
                     addStaticBlocker(plan, .treaty_policy_incompatible, plan.shape_ref, null, "treaty policy disallows capsule-bearing static shape");
                     plan.status = .blocked;
                     return;
                 }
-                if (!inputs.has_capsule and inputs.treaty_policy.require_capsule_embedding) {
+                if (!has_capsule and inputs.treaty_policy.require_capsule_embedding) {
                     addStaticBlocker(plan, .world_port_missing, plan.shape_ref, null, "treaty policy requires runtime capsule embedding");
                     plan.status = .blocked;
                     return;
@@ -16487,13 +16488,13 @@ pub fn program(
 
                 if (inputs.treaty_policy.allow_direct_handling) {
                     direct_offers: for (inputs.provider_offers) |offer| {
-                        if (!staticOfferSupportsShape(offer, inputs.manifest, request_kind, site_index, protocol_op_fingerprint, requirement_label, value_ref, inputs.shape, inputs.has_capsule)) continue :direct_offers;
+                        if (!staticOfferSupportsShape(offer, inputs.manifest, request_kind, site_index, protocol_op_fingerprint, requirement_label, value_ref, inputs.shape, has_capsule)) continue :direct_offers;
                         const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse {
                             plan.blocked_count += 1;
                             addStaticBlocker(plan, .no_provider_offer_for_shape, plan.shape_ref, offer.evidenceRef(), "provider offer is not backed by a provider manifest");
                             continue :direct_offers;
                         };
-                        if (!staticProviderManifestSupportsShape(provider.*, inputs.manifest, request_kind, site_index, protocol_op_fingerprint, requirement_label, inputs.shape, inputs.has_capsule) or
+                        if (!staticProviderManifestSupportsShape(provider.*, inputs.manifest, request_kind, site_index, protocol_op_fingerprint, requirement_label, inputs.shape, has_capsule) or
                             !staticOfferUsageCompatible(offer, inputs.shape, inputs.treaty_policy) or
                             !providerOfferTagsAllowPolicy(inputs.treaty_policy, offer.tags) or
                             (inputs.treaty_policy.require_obligation_opening and !offer.opens_obligation))
@@ -16508,7 +16509,7 @@ pub fn program(
                         var matched_capability = false;
                         direct_capabilities: for (inputs.capabilities) |capability| {
                             if (staticCapabilityBlockedByTreatyPolicy(capability, inputs.treaty_policy)) continue :direct_capabilities;
-                            if (!staticCapabilitySupportsShape(capability, inputs.manifest, provider.*, offer, inputs.route_policy, request_kind, site_index, protocol_op_fingerprint, requirement_label, inputs.shape, response_refs, inputs.has_capsule)) continue :direct_capabilities;
+                            if (!staticCapabilitySupportsShape(capability, inputs.manifest, provider.*, offer, inputs.route_policy, request_kind, site_index, protocol_op_fingerprint, requirement_label, inputs.shape, response_refs, has_capsule)) continue :direct_capabilities;
                             matched_capability = true;
                             selectStaticPlanCandidate(inputs.treaty_policy, inputs.route_policy, plan, inputs.shape, provider.*, offer, capability, null);
                         }
@@ -16543,8 +16544,8 @@ pub fn program(
                         }
                         morphism_offers: for (inputs.provider_offers) |offer| {
                             const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse continue :morphism_offers;
-                            if (!staticProviderManifestSupportsMorphismTarget(provider.*, inputs.manifest, request_kind, site_index, morphism.target_protocol_op_fingerprint, inputs.shape, inputs.has_capsule) or
-                                !staticOfferSupportsMorphismTarget(offer, inputs.manifest, request_kind, site_index, morphism.target_protocol_op_fingerprint, value_ref, inputs.shape, morphism, inputs.has_capsule) or
+                            if (!staticProviderManifestSupportsMorphismTarget(provider.*, inputs.manifest, request_kind, site_index, morphism.target_protocol_op_fingerprint, inputs.shape, has_capsule) or
+                                !staticOfferSupportsMorphismTarget(offer, inputs.manifest, request_kind, site_index, morphism.target_protocol_op_fingerprint, value_ref, inputs.shape, morphism, has_capsule) or
                                 !staticMorphismTargetUsageCompatible(offer, inputs.shape, morphism, inputs.treaty_policy) or
                                 !providerOfferTagsAllowPolicy(inputs.treaty_policy, offer.tags) or
                                 (inputs.treaty_policy.require_obligation_opening and !offer.opens_obligation))
@@ -16558,7 +16559,7 @@ pub fn program(
                             }
                             morphism_capabilities: for (inputs.capabilities) |capability| {
                                 if (staticCapabilityBlockedByTreatyPolicy(capability, inputs.treaty_policy)) continue :morphism_capabilities;
-                                if (!staticCapabilitySupportsMorphismTarget(capability, inputs.manifest, provider.*, offer, inputs.route_policy, request_kind, site_index, morphism.target_protocol_op_fingerprint, inputs.shape, morphism, inputs.has_capsule)) continue :morphism_capabilities;
+                                if (!staticCapabilitySupportsMorphismTarget(capability, inputs.manifest, provider.*, offer, inputs.route_policy, request_kind, site_index, morphism.target_protocol_op_fingerprint, inputs.shape, morphism, has_capsule)) continue :morphism_capabilities;
                                 selectStaticPlanCandidate(inputs.treaty_policy, inputs.route_policy, plan, inputs.shape, provider.*, offer, capability, morphism);
                             }
                         }
@@ -17032,13 +17033,14 @@ pub fn program(
             }
 
             fn staticRoutePolicyAllowsShape(policy: Policy, shape: Evidence.BoundaryEffectShape, has_capsule: bool) bool {
+                const shape_has_capsule = has_capsule or shape.max_capsule_image_bytes != 0;
                 if (shape.max_request_bytes != 0 and shape.max_request_bytes > policy.max_envelope_bytes) return false;
                 if (shape.max_response_bytes != 0 and shape.max_response_bytes > policy.max_envelope_bytes) return false;
                 if (!staticRoutePolicyAllowsShapeSite(policy, shape)) return false;
                 if (!policy.allow_response_value_images and shape.max_payload_bytes != 0) return false;
                 if (shape.max_payload_bytes != 0 and shape.max_payload_bytes > policy.max_payload_bytes) return false;
-                if (has_capsule and !policy.allow_capsules) return false;
-                if (has_capsule and shape.max_capsule_image_bytes != 0) {
+                if (shape_has_capsule and !policy.allow_capsules) return false;
+                if (shape_has_capsule and shape.max_capsule_image_bytes != 0) {
                     const capsule_limit = policy.max_capsule_image_bytes orelse policy.max_payload_bytes;
                     if (shape.max_capsule_image_bytes > capsule_limit) return false;
                 }

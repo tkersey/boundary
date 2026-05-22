@@ -443,6 +443,23 @@ test "static treaty planner matches provider shape without request bytes" {
     defer allocator.free(capsule_present_required_plan.dependencies);
     try std.testing.expect(capsule_present_required_plan.closed());
     try std.testing.expectEqual(capsule_required_offer.evidenceRef().fingerprint, capsule_present_required_plan.selected_provider_offer_ref.?.fingerprint);
+    const static_capsule_present_required_plan = Program.Exchange.TreatyResolver.planStatic(.{
+        .shape = capsule_shape,
+        .manifest = manifest,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{capsule_required_offer},
+        .capabilities = &.{capability},
+    });
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.static_treaty, static_capsule_present_required_plan.status);
+    const static_capsule_route_blocked_plan = Program.Exchange.TreatyResolver.planStatic(.{
+        .shape = capsule_shape,
+        .manifest = manifest,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{capsule_required_offer},
+        .capabilities = &.{capability},
+        .route_policy = .{ .allow_capsules = false },
+    });
+    try std.testing.expect(static_capsule_route_blocked_plan.status != Program.Exchange.TreatyResolver.StaticStatus.static_treaty);
     var capsule_forbidden_offer = try Program.Exchange.ProviderOffer.encode(allocator, .{
         .label = "approval-capsule-forbidden-offer",
         .provider_fingerprint = provider.provider_fingerprint,
