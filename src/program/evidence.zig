@@ -2417,8 +2417,8 @@ pub const BoundaryStaticTreatyPlan = struct {
     }
 
     pub fn closedUnderPolicy(self: @This(), policy: BoundaryClosurePolicy) bool {
-        if (self.closed()) return true;
-        return !policy.require_static_treaty_plans and !hasErrorClosureBlockers(self.blockers);
+        _ = policy;
+        return self.closed();
     }
 };
 

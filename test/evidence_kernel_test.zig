@@ -2892,7 +2892,7 @@ test "static treaty planner matches provider shape without request bytes" {
     try std.testing.expectEqual(Evidence.BoundaryClosureBlockerTag.ambiguous_static_treaty_plan, ambiguous_plan.blockers[0].tag);
 }
 
-test "boundary closure optional static treaty plans do not block closure" {
+test "boundary closure optional static treaty plans do not close unplanned shapes" {
     const allocator = std.testing.allocator;
     var manifest = try Program.Exchange.Manifest.encode(allocator);
     defer manifest.deinit();
@@ -2975,14 +2975,18 @@ test "boundary closure optional static treaty plans do not block closure" {
         .policy = optional_policy,
     });
     defer optional_result.deinit();
-    try optional_result.assertClosed();
+    try std.testing.expectEqual(error.BoundaryClosureNotClosed, optional_result.assertClosed());
     try std.testing.expectEqual(@as(usize, 1), optional_result.report.effect_shape_count);
-    try std.testing.expectEqual(@as(usize, 1), optional_result.report.closed_effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 0), optional_result.report.closed_effect_shape_count);
     try std.testing.expectEqual(@as(usize, 0), optional_result.report.blocker_count);
     try std.testing.expectEqual(@as(usize, 0), optional_result.report.unknown_body_count);
     try std.testing.expectEqual(@as(usize, 1), optional_result.static_treaty_plans.len);
     try std.testing.expect(optional_result.static_treaty_plans[0].selected_provider_offer_ref == null);
-    try optional_result.certificate.check(optional_result.graph, optional_result.report, optional_policy);
+    try std.testing.expect(!optional_result.static_treaty_plans[0].closedUnderPolicy(optional_policy));
+    try std.testing.expectEqual(
+        error.BoundaryClosureNotClosed,
+        optional_result.certificate.check(optional_result.graph, optional_result.report, optional_policy),
+    );
 }
 
 test "boundary closure traversal closes a provider-backed shape" {
