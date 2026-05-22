@@ -4498,7 +4498,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
 
         fn offerMatchesShape(offer: ProgramType.Exchange.ProviderOffer, shape: Closure.EffectShape) bool {
             offer.validate() catch return false;
-            if (!offer.capsule_policy.allows(false)) return false;
+            if (!offer.capsule_policy.allows(shapeCarriesCapsule(shape))) return false;
             if (shape.manifest_fingerprint) |manifest_fingerprint| {
                 if (offer.manifest_fingerprint != manifest_fingerprint) return false;
             }
@@ -4529,7 +4529,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             shape: Closure.EffectShape,
         ) bool {
             offer.validate() catch return false;
-            if (!offer.capsule_policy.allows(false)) return false;
+            if (!offer.capsule_policy.allows(shapeCarriesCapsule(shape))) return false;
             if (shape.manifest_fingerprint) |manifest_fingerprint| {
                 if (offer.manifest_fingerprint != manifest_fingerprint) return false;
             }
@@ -4555,6 +4555,10 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 if (shape.value_ref) |ref| if (!listAllowsBoundaryValueRef(offer.accepted_payload_refs, ref)) return false;
             }
             return true;
+        }
+
+        fn shapeCarriesCapsule(shape: Closure.EffectShape) bool {
+            return shape.max_capsule_image_bytes != 0;
         }
 
         fn treatyUsagePolicyAllowsShapeOffer(offer: ProgramType.Exchange.ProviderOffer, shape: Closure.EffectShape, policy: ProgramType.Exchange.Treaty.Policy) bool {

@@ -416,6 +416,57 @@ test "static treaty planner matches provider shape without request bytes" {
     defer allocator.free(capsule_required_plan.dependencies);
     try std.testing.expect(!capsule_required_plan.closed());
     try std.testing.expect(capsule_required_plan.selected_provider_offer_ref == null);
+    const capsule_shape = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "evidence-test",
+        .plan_label = "evidence-test-plan",
+        .plan_hash = 1,
+        .kind = .operation,
+        .site_index = site_index,
+        .site_fingerprint = protocol_op_fingerprint,
+        .name = "approve",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(response_ref),
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = protocol_op_fingerprint,
+        .max_capsule_image_bytes = 8,
+    });
+    const capsule_present_required_plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = allocator,
+        .shape = capsule_shape,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{capsule_required_offer},
+        .capabilities = &.{capability},
+        .policy = capsule_required_policy,
+    });
+    defer allocator.free(capsule_present_required_plan.blockers);
+    defer allocator.free(capsule_present_required_plan.dependencies);
+    try std.testing.expect(capsule_present_required_plan.closed());
+    try std.testing.expectEqual(capsule_required_offer.evidenceRef().fingerprint, capsule_present_required_plan.selected_provider_offer_ref.?.fingerprint);
+    var capsule_forbidden_offer = try Program.Exchange.ProviderOffer.encode(allocator, .{
+        .label = "approval-capsule-forbidden-offer",
+        .provider_fingerprint = provider.provider_fingerprint,
+        .manifest_fingerprint = manifest.fingerprint,
+        .supported_protocol_labels = &.{"approval"},
+        .supported_operation_sites = &.{site_index},
+        .supported_protocol_op_fingerprints = &.{protocol_op_fingerprint},
+        .accepted_payload_refs = &.{payload_ref},
+        .produced_response_refs = &.{response_ref},
+        .capsule_policy = .forbidden,
+    });
+    defer capsule_forbidden_offer.deinit();
+    const capsule_present_forbidden_plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = allocator,
+        .shape = capsule_shape,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{capsule_forbidden_offer},
+        .capabilities = &.{capability},
+        .policy = world_plan_policy,
+    });
+    defer allocator.free(capsule_present_forbidden_plan.blockers);
+    defer allocator.free(capsule_present_forbidden_plan.dependencies);
+    try std.testing.expect(!capsule_present_forbidden_plan.closed());
+    try std.testing.expect(capsule_present_forbidden_plan.selected_provider_offer_ref == null);
 
     var capsule_treaty_policy = Evidence.BoundaryClosurePolicy.worldBoundary();
     capsule_treaty_policy.allowed_host_intrinsic_fingerprints = allowed_intrinsics[0..];
