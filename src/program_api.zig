@@ -13245,8 +13245,7 @@ pub fn program(
                     offer.provider_program_ref != null and
                     offer.provider_program_effect_shape_count != null and
                     offer.provider_program_effect_shape_fingerprint != null;
-                const legacy_program_offer = offer.format_version == provider_offer_legacy_program_format_version;
-                return (current_program_offer or legacy_program_offer) and
+                return current_program_offer and
                     provider.format_version >= exchange_provider_format_version and
                     provider.provider_fingerprint == offer.provider_fingerprint and
                     providerOfferFieldsBoundToBytes(offer) and

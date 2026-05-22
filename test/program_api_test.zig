@@ -24642,7 +24642,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer legacy_program_offer.deinit();
     try std.testing.expectEqual(@as(u32, 2), legacy_program_offer.format_version);
     try std.testing.expectEqual(program_catalog.provider_offers[0].provider_program_mapping_fingerprint, legacy_program_offer.provider_program_mapping_fingerprint);
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, legacy_program_offer.semanticBodyWithProvider(decoded_program_provider));
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, legacy_program_offer.semanticBodyWithProvider(decoded_program_provider));
     const legacy_program_offers = [_]Program.Exchange.ProviderOffer{legacy_program_offer};
     var legacy_program_required_policy = closure_policy;
     legacy_program_required_policy.require_program_backed_providers = true;
@@ -24656,20 +24656,27 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     });
     defer std.testing.allocator.free(legacy_program_required_plan.blockers);
     defer std.testing.allocator.free(legacy_program_required_plan.dependencies);
-    try std.testing.expect(legacy_program_required_plan.closed());
-    try std.testing.expectEqual(legacy_program_offer.evidenceRef().fingerprint, legacy_program_required_plan.selected_provider_offer_ref.?.fingerprint);
+    try std.testing.expect(!legacy_program_required_plan.closed());
+    var saw_legacy_program_metadata_required = false;
+    for (legacy_program_required_plan.blockers) |blocker| {
+        if (blocker.tag == .unknown_semantic_body) saw_legacy_program_metadata_required = true;
+    }
+    try std.testing.expect(saw_legacy_program_metadata_required);
     var legacy_program_closure = try Program.BoundaryClosure.analyze(std.testing.allocator, .{
         .allocator = std.testing.allocator,
         .root_shapes = &.{static_operation_shape},
         .provider_manifests = &.{decoded_program_provider},
         .provider_offers = legacy_program_offers[0..],
         .capabilities = (&[_]Program.Exchange.Capability{program_capability})[0..],
-        .policy = Program.Evidence.BoundaryClosurePolicy.auditOnly(),
+        .policy = legacy_program_required_policy,
     });
     defer legacy_program_closure.deinit();
     try std.testing.expectEqual(@as(usize, 0), legacy_program_closure.report.provider_program_refs.len);
-    try std.testing.expectEqual(@as(usize, 1), legacy_program_closure.report.blocker_count);
-    try std.testing.expectEqualStrings("provider_program_contract_missing", legacy_program_closure.report.blockers[0].tag);
+    var saw_legacy_closure_metadata_required = false;
+    for (legacy_program_closure.report.blockers) |blocker| {
+        if (std.mem.eql(u8, blocker.tag, "unknown_semantic_body")) saw_legacy_closure_metadata_required = true;
+    }
+    try std.testing.expect(saw_legacy_closure_metadata_required);
     try std.testing.expect(!legacy_program_closure.report.closed());
     var wildcard_program_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, ProgramBackedHarness.manifestOptions(&.{}));
     defer wildcard_program_provider.deinit();
