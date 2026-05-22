@@ -5005,8 +5005,8 @@ fn graphWorldPortEdgesMatchReport(graph: BoundaryGraph, report: BoundaryClosureR
         }
     }
     for (graph.edges) |edge| {
-        if (edge.kind != .world_port_exposes) continue;
-        if (!reportHasWorldPortPair(report, edge.from, edge.to)) return false;
+        if (edge.kind == .world_port_exposes and !reportHasWorldPortPair(report, edge.from, edge.to)) return false;
+        if (edge.kind == .opens_obligation and !reportHasWorldPortObligation(graph, report, edge.from, edge.to)) return false;
     }
     return true;
 }
@@ -5037,6 +5037,19 @@ fn graphShapeHasWorldPort(graph: BoundaryGraph, report: BoundaryClosureReport, s
 fn reportHasWorldPortPair(report: BoundaryClosureReport, intrinsic_ref: Ref, world_port_ref: Ref) bool {
     for (report.world_port_refs, report.world_port_intrinsic_refs) |report_world_port_ref, report_intrinsic_ref| {
         if (report_intrinsic_ref.eql(intrinsic_ref) and report_world_port_ref.eql(world_port_ref)) return true;
+    }
+    return false;
+}
+
+fn reportHasWorldPortObligation(graph: BoundaryGraph, report: BoundaryClosureReport, shape_ref: Ref, world_port_ref: Ref) bool {
+    for (report.world_port_refs, report.world_port_intrinsic_refs) |report_world_port_ref, paired_ref| {
+        if (!report_world_port_ref.eql(world_port_ref)) continue;
+        if (paired_ref.domain_id == domains.boundary_effect_shape.id) {
+            if (paired_ref.eql(shape_ref)) return true;
+        } else if (paired_ref.domain_id == domains.host_intrinsic.id) {
+            if (!graphHasEdge(graph, .intrinsic_boundary, shape_ref, paired_ref)) continue;
+            if (graphHasEdge(graph, .world_port_exposes, paired_ref, world_port_ref)) return true;
+        }
     }
     return false;
 }

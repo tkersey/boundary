@@ -3207,6 +3207,35 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectEqual(@as(usize, 1), mixed_world_result.report.open_world_port_count);
     try mixed_world_result.certificate.check(mixed_world_result.graph, mixed_world_result.report, mixed_world_policy);
 
+    const stray_world_obligation_edges = try allocator.alloc(Closure.Graph.Edge, world_port_result.graph.edges.len + 1);
+    defer allocator.free(stray_world_obligation_edges);
+    @memcpy(stray_world_obligation_edges[0..world_port_result.graph.edges.len], world_port_result.graph.edges);
+    stray_world_obligation_edges[world_port_result.graph.edges.len] = .{
+        .kind = .opens_obligation,
+        .from = second_shape.evidenceRef(),
+        .to = world_port_result.report.world_port_refs[0],
+        .label = "stray-world-port-obligation",
+    };
+    const stray_world_obligation_graph = Closure.Graph.init(
+        "forged-stray-world-port-obligation",
+        world_port_result.graph.nodes,
+        stray_world_obligation_edges,
+        world_port_result.graph.dependencies,
+    );
+    var stray_world_obligation_report = world_port_result.report;
+    stray_world_obligation_report.graph_fingerprint = stray_world_obligation_graph.fingerprint;
+    stray_world_obligation_report.report_fingerprint = stray_world_obligation_report.computeFingerprint();
+    const stray_world_obligation_certificate = Evidence.BoundaryClosureCertificate.init(
+        stray_world_obligation_report,
+        stray_world_obligation_graph,
+        world_port_only_policy,
+        world_port_result.plan_refs,
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        stray_world_obligation_certificate.check(stray_world_obligation_graph, stray_world_obligation_report, world_port_only_policy),
+    );
+
     var overcounted_world_report = world_port_result.report;
     overcounted_world_report.closed_effect_shape_count = 2;
     overcounted_world_report.report_fingerprint = overcounted_world_report.computeFingerprint();
