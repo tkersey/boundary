@@ -4351,8 +4351,12 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             if (shape.manifest_fingerprint) |manifest_fingerprint| {
                 if (!listAllowsU64Closure(provider.supported_program_manifest_fingerprints, manifest_fingerprint)) return false;
             }
-            if (!constrainedOptionalU64AllowsClosure(provider.supported_protocol_op_fingerprints, shape.protocol_op_fingerprint, false)) return false;
-            if (shape.protocol_op_fingerprint == null and provider.supported_protocol_labels.len != 0) return false;
+            if (shape.protocol_op_fingerprint) |protocol_op| {
+                if (provider.supported_protocol_op_fingerprints.len == 0 and provider.supported_protocol_labels.len != 0) return false;
+                if (!listAllowsU64Closure(provider.supported_protocol_op_fingerprints, protocol_op)) return false;
+            } else if (provider.supported_protocol_op_fingerprints.len != 0 or provider.supported_protocol_labels.len != 0) {
+                return false;
+            }
             if (shape.max_request_bytes != 0 and shape.max_request_bytes > provider.max_request_envelope_bytes) return false;
             if (shape.max_response_bytes != 0 and shape.max_response_bytes > provider.max_response_envelope_bytes) return false;
             if (shape.max_capsule_image_bytes != 0 and !provider.accepts_embedded_capsules) return false;
@@ -4504,8 +4508,12 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             if (shape.manifest_fingerprint) |manifest_fingerprint| {
                 if (offer.manifest_fingerprint != manifest_fingerprint) return false;
             }
-            if (!constrainedOptionalU64AllowsClosure(offer.supported_protocol_op_fingerprints, shape.protocol_op_fingerprint, false)) return false;
-            if (shape.protocol_op_fingerprint == null and offer.supported_protocol_labels.len != 0) return false;
+            if (shape.protocol_op_fingerprint) |protocol_op| {
+                if (offer.supported_protocol_op_fingerprints.len == 0 and offer.supported_protocol_labels.len != 0) return false;
+                if (!listAllowsU64Closure(offer.supported_protocol_op_fingerprints, protocol_op)) return false;
+            } else if (offer.supported_protocol_op_fingerprints.len != 0 or offer.supported_protocol_labels.len != 0) {
+                return false;
+            }
             if (shape.max_request_bytes != 0 and shape.max_request_bytes > offer.max_request_bytes) return false;
             if (shape.max_response_bytes != 0 and shape.max_response_bytes > offer.max_response_bytes) return false;
             if (shape.max_capsule_image_bytes != 0 and shape.max_capsule_image_bytes > offer.max_capsule_bytes) return false;
