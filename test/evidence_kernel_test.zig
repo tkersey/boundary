@@ -335,6 +335,21 @@ test "static treaty planner matches provider shape without request bytes" {
     var program_required_static_policy = world_plan_policy;
     program_required_static_policy.require_program_backed_providers = true;
     try std.testing.expect(!plan.closedUnderPolicy(program_required_static_policy));
+    const static_plan = Program.Exchange.TreatyResolver.planStatic(.{
+        .shape = shape,
+        .manifest = manifest,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+    });
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.static_treaty, static_plan.status);
+    try std.testing.expectEqual(offer_intrinsic_ref.fingerprint, static_plan.provider_intrinsic_ref.?.fingerprint);
+    var forged_provider_intrinsic_ref = static_plan.provider_intrinsic_ref.?;
+    forged_provider_intrinsic_ref.fingerprint +%= 1;
+    var forged_provider_intrinsic_plan = static_plan;
+    forged_provider_intrinsic_plan.provider_intrinsic_ref = forged_provider_intrinsic_ref;
+    forged_provider_intrinsic_plan.fingerprint = forged_provider_intrinsic_plan.computeFingerprint();
+    try std.testing.expect(static_plan.fingerprint != forged_provider_intrinsic_plan.fingerprint);
 
     var stale_direct_shape = shape;
     stale_direct_shape.site_fingerprint = protocol_op_fingerprint +% 1;
@@ -2253,6 +2268,13 @@ test "static treaty planner matches provider shape without request bytes" {
         .treaty_policy = .{ .allow_direct_handling = false },
     });
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.static_treaty, static_dynamic_morphism_plan.status);
+    try std.testing.expectEqual(dynamic_morphism_intrinsic_ref.fingerprint, static_dynamic_morphism_plan.morphism_intrinsic_ref.?.fingerprint);
+    var forged_morphism_intrinsic_ref = dynamic_morphism_intrinsic_ref;
+    forged_morphism_intrinsic_ref.fingerprint +%= 1;
+    var forged_morphism_intrinsic_plan = static_dynamic_morphism_plan;
+    forged_morphism_intrinsic_plan.morphism_intrinsic_ref = forged_morphism_intrinsic_ref;
+    forged_morphism_intrinsic_plan.fingerprint = forged_morphism_intrinsic_plan.computeFingerprint();
+    try std.testing.expect(static_dynamic_morphism_plan.fingerprint != forged_morphism_intrinsic_plan.fingerprint);
     const static_dynamic_disabled_plan = Program.Exchange.TreatyResolver.planStatic(.{
         .shape = shape,
         .manifest = manifest,
@@ -3270,8 +3292,28 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectEqual(offer.evidenceRef().fingerprint, result.static_treaty_plans[0].selected_provider_offer_ref.?.fingerprint);
     try result.certificate.check(result.graph, result.report, closure_policy, result.static_treaty_plans);
     try std.testing.expect(Evidence.refForBoundaryClosureCertificate(result.certificate).eql(result.certificate.evidenceRef()));
+    var stale_source_shape_plan = result.static_treaty_plans[0];
+    stale_source_shape_plan.source_shape.name = "forged-stale-source-shape";
+    try std.testing.expectEqual(result.static_treaty_plans[0].fingerprint, stale_source_shape_plan.fingerprint);
+    try std.testing.expect(stale_source_shape_plan.source_shape.fingerprint != stale_source_shape_plan.source_shape.computeFingerprint());
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        result.certificate.check(result.graph, result.report, closure_policy, &.{stale_source_shape_plan}),
+    );
 
     const audit_policy = Evidence.BoundaryClosurePolicy.auditOnly();
+    var renamed_audit_policy = audit_policy;
+    renamed_audit_policy.label = "custom-audit-label";
+    var renamed_audit_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape},
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = renamed_audit_policy,
+    });
+    defer renamed_audit_result.deinit();
+    try renamed_audit_result.certificate.check(renamed_audit_result.graph, renamed_audit_result.report, renamed_audit_policy, renamed_audit_result.static_treaty_plans);
     var duplicate_shape_result = try Closure.analyze(allocator, .{
         .allocator = allocator,
         .root_shapes = &.{ shape, shape },
@@ -3425,7 +3467,9 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expect(after_only_result.static_treaty_plans[0].selected_provider_offer_ref == null);
 
     var root_ref_inputs = [_]Evidence.Ref{Evidence.refFor(Evidence.domains.program_plan, shape.plan_hash, .{ .label = shape.program_label })};
-    var provider_harness_ref_inputs = [_]Evidence.Ref{provider.evidenceRef()};
+    var provider_harness_ref_inputs = [_]Evidence.Ref{
+        Evidence.refFor(Evidence.domains.provider_harness, provider.fingerprint, .{ .label = provider.label }),
+    };
     const original_root_ref = root_ref_inputs[0];
     const original_provider_harness_ref = provider_harness_ref_inputs[0];
     var owned_ref_result = try Closure.analyze(allocator, .{
@@ -3453,6 +3497,19 @@ test "boundary closure traversal closes a provider-backed shape" {
     }
     try std.testing.expect(saw_root_yields_edge);
     try owned_ref_result.certificate.check(owned_ref_result.graph, owned_ref_result.report, closure_policy, owned_ref_result.static_treaty_plans);
+    var effect_free_root_yield_report = owned_ref_result.report;
+    effect_free_root_yield_report.effect_free_root_refs = owned_ref_result.report.root_program_refs;
+    effect_free_root_yield_report.report_fingerprint = effect_free_root_yield_report.computeFingerprint();
+    const effect_free_root_yield_certificate = Evidence.BoundaryClosureCertificate.init(
+        effect_free_root_yield_report,
+        owned_ref_result.graph,
+        closure_policy,
+        owned_ref_result.plan_refs,
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        effect_free_root_yield_certificate.check(owned_ref_result.graph, effect_free_root_yield_report, closure_policy, owned_ref_result.static_treaty_plans),
+    );
 
     const effect_free_root_ref = Evidence.refFor(Evidence.domains.program_plan, 0xEFFEC7F2EE, .{ .label = "effect-free-root" });
     var missing_root_shape_result = try Closure.analyze(allocator, .{
@@ -3979,6 +4036,107 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
         forged_plan_edge_certificate.check(forged_plan_edge_graph, forged_plan_edge_report, closure_policy, result.static_treaty_plans),
+    );
+    const duplicate_plan_edges = try allocator.alloc(Closure.Graph.Edge, result.graph.edges.len + 1);
+    defer allocator.free(duplicate_plan_edges);
+    @memcpy(duplicate_plan_edges[0..result.graph.edges.len], result.graph.edges);
+    duplicate_plan_edges[result.graph.edges.len] = .{
+        .kind = .treaty_planned,
+        .from = shape.evidenceRef(),
+        .to = result.static_treaty_plans[0].evidenceRef(),
+    };
+    const duplicate_plan_edge_graph = Closure.Graph.init(result.graph.label, result.graph.nodes, duplicate_plan_edges, result.graph.dependencies);
+    var duplicate_plan_edge_report = result.report;
+    duplicate_plan_edge_report.graph_fingerprint = duplicate_plan_edge_graph.fingerprint;
+    duplicate_plan_edge_report.report_fingerprint = duplicate_plan_edge_report.computeFingerprint();
+    const duplicate_plan_edge_certificate = Evidence.BoundaryClosureCertificate.init(
+        duplicate_plan_edge_report,
+        duplicate_plan_edge_graph,
+        closure_policy,
+        result.plan_refs,
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        duplicate_plan_edge_certificate.check(duplicate_plan_edge_graph, duplicate_plan_edge_report, closure_policy, result.static_treaty_plans),
+    );
+    const forged_root_domain_ref = provider.evidenceRef();
+    const forged_root_domain_nodes = try allocator.alloc(Closure.Graph.Node, result.graph.nodes.len + 1);
+    defer allocator.free(forged_root_domain_nodes);
+    @memcpy(forged_root_domain_nodes[0..result.graph.nodes.len], result.graph.nodes);
+    forged_root_domain_nodes[result.graph.nodes.len] = .{
+        .kind = .root_program,
+        .ref = forged_root_domain_ref,
+        .label = "forged-root-domain",
+    };
+    const forged_root_domain_edges = try allocator.alloc(Closure.Graph.Edge, result.graph.edges.len + 1);
+    defer allocator.free(forged_root_domain_edges);
+    @memcpy(forged_root_domain_edges[0..result.graph.edges.len], result.graph.edges);
+    forged_root_domain_edges[result.graph.edges.len] = .{
+        .kind = .root_yields,
+        .from = forged_root_domain_ref,
+        .to = shape.evidenceRef(),
+        .label = "forged-root-domain",
+    };
+    const forged_root_domain_graph = Closure.Graph.init(
+        "forged-root-domain-graph",
+        forged_root_domain_nodes,
+        forged_root_domain_edges,
+        result.graph.dependencies,
+    );
+    var forged_root_domain_report = result.report;
+    forged_root_domain_report.graph_fingerprint = forged_root_domain_graph.fingerprint;
+    forged_root_domain_report.root_program_refs = &.{forged_root_domain_ref};
+    forged_root_domain_report.report_fingerprint = forged_root_domain_report.computeFingerprint();
+    const forged_root_domain_certificate = Evidence.BoundaryClosureCertificate.init(
+        forged_root_domain_report,
+        forged_root_domain_graph,
+        closure_policy,
+        result.plan_refs,
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        forged_root_domain_certificate.check(forged_root_domain_graph, forged_root_domain_report, closure_policy, result.static_treaty_plans),
+    );
+    var forged_provider_domain_plan = result.static_treaty_plans[0];
+    forged_provider_domain_plan.selected_provider_ref = Evidence.refFor(Evidence.domains.provider_identity, provider.provider_fingerprint, .{ .label = provider.label });
+    forged_provider_domain_plan.fingerprint = forged_provider_domain_plan.computeFingerprint();
+    const forged_provider_domain_plan_ref = forged_provider_domain_plan.evidenceRef();
+    const forged_provider_domain_nodes = try allocator.dupe(Closure.Graph.Node, result.graph.nodes);
+    defer allocator.free(forged_provider_domain_nodes);
+    for (forged_provider_domain_nodes) |*node| {
+        if (node.kind == .treaty_shape_plan) {
+            node.ref = forged_provider_domain_plan_ref;
+            node.label = forged_provider_domain_plan.label;
+            break;
+        }
+    }
+    const forged_provider_domain_edges = try allocator.dupe(Closure.Graph.Edge, result.graph.edges);
+    defer allocator.free(forged_provider_domain_edges);
+    for (forged_provider_domain_edges) |*edge| {
+        if (edge.kind == .treaty_planned) {
+            edge.to = forged_provider_domain_plan_ref;
+            break;
+        }
+    }
+    const forged_provider_domain_graph = Closure.Graph.init(
+        "forged-provider-domain-graph",
+        forged_provider_domain_nodes,
+        forged_provider_domain_edges,
+        result.graph.dependencies,
+    );
+    var forged_provider_domain_report = result.report;
+    forged_provider_domain_report.graph_fingerprint = forged_provider_domain_graph.fingerprint;
+    forged_provider_domain_report.report_fingerprint = forged_provider_domain_report.computeFingerprint();
+    const forged_provider_domain_certificate = Evidence.BoundaryClosureCertificate.init(
+        forged_provider_domain_report,
+        forged_provider_domain_graph,
+        closure_policy,
+        &.{forged_provider_domain_plan_ref},
+    );
+    const forged_provider_domain_plans = [_]Closure.StaticTreatyPlan{forged_provider_domain_plan};
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        forged_provider_domain_certificate.check(forged_provider_domain_graph, forged_provider_domain_report, closure_policy, forged_provider_domain_plans[0..]),
     );
     const hidden_blocker_plan = try Closure.planTreatyForShape(.{
         .allocator = allocator,

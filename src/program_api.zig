@@ -10600,6 +10600,11 @@ pub fn program(
                     selected_authority: StaticAuthority = .{},
                     blockers: StaticBlockerList = .{},
 
+                    /// Recompute the stable evidence fingerprint for this static treaty plan.
+                    pub fn computeFingerprint(self: @This()) u64 {
+                        return fingerprintStaticTreatyPlan(self);
+                    }
+
                     /// Return the Evidence ref for this static treaty plan.
                     pub fn evidenceRef(self: @This()) Evidence.Ref {
                         return Evidence.refForBoundaryStaticTreatyPlan(self);
@@ -10625,7 +10630,7 @@ pub fn program(
                         .shape_ref = inputs.shape.evidenceRef(),
                     };
                     planStaticInto(inputs, &plan);
-                    plan.fingerprint = fingerprintStaticTreatyPlan(plan);
+                    plan.fingerprint = plan.computeFingerprint();
                     return plan;
                 }
 
@@ -17442,6 +17447,8 @@ pub fn program(
                 hashOptionalEvidenceRef(&hasher, plan.morphism_offer_ref);
                 hashBytes(&hasher, @tagName(plan.provider_semantic_body));
                 hashOptionalBytes(&hasher, if (plan.morphism_semantic_body) |body| @tagName(body) else null);
+                hashOptionalEvidenceRef(&hasher, plan.provider_intrinsic_ref);
+                hashOptionalEvidenceRef(&hasher, plan.morphism_intrinsic_ref);
                 hashStaticAuthority(&hasher, plan.selected_authority);
                 hashUsize(&hasher, plan.candidate_count);
                 hashUsize(&hasher, plan.blocked_count);
