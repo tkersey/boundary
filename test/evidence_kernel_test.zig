@@ -2420,6 +2420,39 @@ test "static treaty planner matches provider shape without request bytes" {
     defer allocator.free(resume_only_target_plan.dependencies);
     try std.testing.expect(!resume_only_target_plan.closed());
     try std.testing.expect(resume_only_target_plan.selected_morphism_ref == null);
+    const return_source_only_morphism = Program.Exchange.MorphismOffer{
+        .label = "return-source-only-static-morphism",
+        .source_site_fingerprint = protocol_op_fingerprint,
+        .source_protocol_op_fingerprint = protocol_op_fingerprint,
+        .target_protocol_op_fingerprint = target_protocol_op_fingerprint,
+        .pipeline_fingerprint = 0x515157,
+        .source_response_refs = &.{morphism_target_response_ref},
+    };
+    const return_source_only_plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = allocator,
+        .shape = choice_shape,
+        .provider_manifests = &.{morphism_target_provider},
+        .provider_offers = &.{resume_only_target_offer},
+        .morphism_offers = &.{return_source_only_morphism},
+        .capabilities = &.{resume_only_target_capability},
+        .treaty_policy = .{ .allow_direct_handling = false },
+        .policy = return_kind_morphism_policy,
+    });
+    defer allocator.free(return_source_only_plan.blockers);
+    defer allocator.free(return_source_only_plan.dependencies);
+    try std.testing.expect(!return_source_only_plan.closed());
+    try std.testing.expect(return_source_only_plan.selected_morphism_ref == null);
+    const return_source_only_static_plan = Program.Exchange.TreatyResolver.planStatic(.{
+        .shape = choice_shape,
+        .manifest = manifest,
+        .provider_manifests = &.{morphism_target_provider},
+        .provider_offers = &.{resume_only_target_offer},
+        .morphism_offers = &.{return_source_only_morphism},
+        .capabilities = &.{resume_only_target_capability},
+        .treaty_policy = .{ .allow_direct_handling = false },
+    });
+    try std.testing.expect(return_source_only_static_plan.status != Program.Exchange.TreatyResolver.StaticStatus.static_treaty);
+    try std.testing.expect(return_source_only_static_plan.provider_offer_ref == null);
     const unallowlisted_morphism_plan = try Program.Exchange.TreatyResolver.planShape(.{
         .allocator = allocator,
         .shape = shape,

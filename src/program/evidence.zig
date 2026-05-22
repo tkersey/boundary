@@ -4834,14 +4834,15 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             morphism: ProgramType.Exchange.MorphismOffer,
             shape: Closure.EffectShape,
         ) bool {
+            const source_filtered_kinds = morphismSourceResponseKindsForTarget(kinds, source_shape, morphism);
             if (shape.desired_response_refs.len != 0) {
-                if (!closureResponseKindSetAny(morphismSourceResponseKindsForTarget(kinds, source_shape, morphism))) return false;
+                if (!closureResponseKindSetAny(source_filtered_kinds)) return false;
                 for (shape.desired_response_refs) |ref| {
                     if (!listAllowsBoundaryValueRef(refs, ref)) return false;
                 }
                 return true;
             }
-            return directResponseShapeAllowed(kinds, refs, shape);
+            return directResponseShapeAllowed(source_filtered_kinds, refs, shape);
         }
 
         fn targetResponseShapeAllowedByRefs(
@@ -4852,14 +4853,15 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             morphism: ProgramType.Exchange.MorphismOffer,
             shape: Closure.EffectShape,
         ) bool {
+            const source_filtered_kinds = morphismSourceResponseKindsForTarget(kinds, source_shape, morphism);
             if (shape.desired_response_refs.len != 0) {
-                if (!closureResponseKindSetAny(morphismSourceResponseKindsForTarget(kinds, source_shape, morphism))) return false;
+                if (!closureResponseKindSetAny(source_filtered_kinds)) return false;
                 for (shape.desired_response_refs) |ref| {
                     if (!responseRefAllowedByBoth(offer_refs, capability_refs, ref)) return false;
                 }
                 return true;
             }
-            return directResponseShapeAllowedByRefs(kinds, offer_refs, capability_refs, shape);
+            return directResponseShapeAllowedByRefs(source_filtered_kinds, offer_refs, capability_refs, shape);
         }
 
         fn morphismSourceResponseKindsForTarget(

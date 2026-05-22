@@ -17277,10 +17277,18 @@ pub fn program(
             }
 
             fn staticMorphismTargetResponseRefsForKinds(shape: Evidence.BoundaryEffectShape, morphism: MorphismOffer, kinds: Policy.ResponseKindSet, buffer: *[3]Evidence.BoundaryValueRef) []const Evidence.BoundaryValueRef {
-                if (morphism.target_response_refs.len == 0) return staticShapeResponseRefsForKinds(shape, kinds, buffer);
-                if (morphism.target_response_refs.len > buffer.len) return buffer[0..0];
                 var source_refs_buffer: [3]Evidence.BoundaryValueRef = undefined;
                 const source_refs = staticShapeResponseRefsForKinds(shape, kinds, &source_refs_buffer);
+                if (morphism.target_response_refs.len == 0) {
+                    var count: usize = 0;
+                    for (source_refs) |source_ref| {
+                        if (morphism.source_response_refs.len != 0 and !staticValueRefListAllows(morphism.source_response_refs, source_ref)) continue;
+                        buffer[count] = source_ref;
+                        count += 1;
+                    }
+                    return buffer[0..count];
+                }
+                if (morphism.target_response_refs.len > buffer.len) return buffer[0..0];
                 if (morphism.source_response_refs.len != 0) {
                     var source_ref_supported = false;
                     for (morphism.source_response_refs) |source_ref| {
