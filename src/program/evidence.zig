@@ -1610,6 +1610,8 @@ pub const BoundaryClosureBlockerTag = enum {
     no_static_treaty_plan,
     no_provider_offer_for_shape,
     no_capability_for_shape,
+    stale_effect_shape,
+    stale_world_port,
     duplicate_effect_shape,
     ambiguous_static_treaty_plan,
     intrinsic_route_rejected,
@@ -3207,6 +3209,16 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             for (analysis_input.provider_harness_refs) |provider_ref| {
                 try nodes.append(allocator, .{ .kind = .provider_harness, .ref = provider_ref, .label = provider_ref.label orelse "provider harness" });
             }
+            for (analysis_input.world_ports) |port| {
+                if (port.fingerprint == port.computeFingerprint()) continue;
+                const evidence_blocker = boundaryClosureBlocker(.{
+                    .tag = .stale_world_port,
+                    .subject = port.evidenceRef(),
+                    .summary = "world-port fields do not match its evidence fingerprint",
+                });
+                try blockers.append(allocator, evidence_blocker);
+                try appendBlockerGraph(allocator, &nodes, &edges, evidence_blocker);
+            }
 
             var closed_count: usize = 0;
             var world_port_shape_count: usize = 0;
@@ -3557,6 +3569,8 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 .provider_catalog_empty,
                 .effect_shape_unhandled,
                 .nested_provider_effect_unhandled,
+                .stale_effect_shape,
+                .stale_world_port,
                 .duplicate_effect_shape,
                 .ambiguous_static_treaty_plan,
                 .intrinsic_route_rejected,
@@ -3606,6 +3620,16 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
         ) !void {
             for (shapes) |shape| {
                 const shape_ref = shape.evidenceRef();
+                if (shape.fingerprint != shape.computeFingerprint()) {
+                    const evidence_blocker = boundaryClosureBlocker(.{
+                        .tag = .stale_effect_shape,
+                        .subject = shape_ref,
+                        .summary = "effect shape fields do not match its evidence fingerprint",
+                    });
+                    try blockers.append(allocator, evidence_blocker);
+                    try appendBlockerGraph(allocator, nodes, edges, evidence_blocker);
+                    continue;
+                }
                 if (refsContain(seen_shape_refs.items, shape_ref)) {
                     const evidence_blocker = boundaryClosureBlocker(.{
                         .tag = .duplicate_effect_shape,
@@ -4975,6 +4999,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
 
         fn worldPortForShape(policy: Policy, world_ports: []const Closure.WorldPort, shape: Closure.EffectShape, intrinsic_ref: Ref) ?Closure.WorldPort {
             for (world_ports) |port| {
+                if (port.fingerprint != port.computeFingerprint()) continue;
                 if (!policy.allowsWorldPortRef(port.evidenceRef())) continue;
                 if (!worldPortMatchesShape(port, shape)) continue;
                 if (port.exposed_intrinsic_ref) |exposed_ref| {
@@ -4987,6 +5012,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
 
         fn shapeOnlyWorldPortForShape(policy: Policy, world_ports: []const Closure.WorldPort, shape: Closure.EffectShape) ?Closure.WorldPort {
             for (world_ports) |port| {
+                if (port.fingerprint != port.computeFingerprint()) continue;
                 if (!policy.allowsWorldPortRef(port.evidenceRef())) continue;
                 if (port.exposed_intrinsic_ref != null) continue;
                 if (port.effect_shape_ref == null) continue;

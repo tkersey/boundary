@@ -3118,6 +3118,24 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectEqualStrings("duplicate_effect_shape", duplicate_shape_result.report.blockers[0].tag);
     try duplicate_shape_result.certificate.check(duplicate_shape_result.graph, duplicate_shape_result.report, audit_policy, duplicate_shape_result.static_treaty_plans);
 
+    var stale_shape = shape;
+    stale_shape.name = "approve-tampered";
+    try std.testing.expect(stale_shape.fingerprint != stale_shape.computeFingerprint());
+    var stale_shape_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{stale_shape},
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = audit_policy,
+    });
+    defer stale_shape_result.deinit();
+    try std.testing.expectEqual(@as(usize, 0), stale_shape_result.report.effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 0), stale_shape_result.plan_refs.len);
+    try std.testing.expectEqual(@as(usize, 1), stale_shape_result.report.blocker_count);
+    try std.testing.expectEqualStrings("stale_effect_shape", stale_shape_result.report.blockers[0].tag);
+    try stale_shape_result.certificate.check(stale_shape_result.graph, stale_shape_result.report, audit_policy, stale_shape_result.static_treaty_plans);
+
     const shape_missing_op_selector = Evidence.BoundaryEffectShape.init(.{
         .program_label = "evidence-test",
         .plan_label = "evidence-test-plan-missing-op",
@@ -3421,6 +3439,47 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expect(!world_port_result.report.closed());
     try std.testing.expectEqual(@as(usize, 1), world_port_result.report.open_world_port_count);
     try world_port_result.certificate.check(world_port_result.graph, world_port_result.report, world_port_only_policy, world_port_result.static_treaty_plans);
+
+    var stale_world_port = Closure.WorldPort.init(.{
+        .label = "stale-approval-world-port",
+        .kind = .host_tool,
+        .effect_shape_ref = shape_missing_op_selector.evidenceRef(),
+        .exposed_intrinsic_ref = offer_intrinsic_ref,
+        .supported_protocol_labels = &.{"other"},
+        .supported_site_indexes = &.{site_index + 1},
+        .supported_protocol_op_fingerprints = &.{protocol_op_fingerprint + 1},
+    });
+    const stale_world_port_allowed = [_]u64{stale_world_port.fingerprint};
+    stale_world_port.effect_shape_ref = shape.evidenceRef();
+    stale_world_port.supported_protocol_labels = &.{"approval"};
+    stale_world_port.supported_site_indexes = &.{site_index};
+    stale_world_port.supported_protocol_op_fingerprints = &.{protocol_op_fingerprint};
+    try std.testing.expect(stale_world_port.fingerprint != stale_world_port.computeFingerprint());
+    const stale_world_ports = [_]Closure.WorldPort{stale_world_port};
+    var stale_world_port_policy = Evidence.BoundaryClosurePolicy.worldBoundary();
+    stale_world_port_policy.allowed_world_port_fingerprints = stale_world_port_allowed[0..];
+    stale_world_port_policy.reject_host_intrinsics = true;
+    var stale_world_port_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape},
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = stale_world_port_policy,
+        .world_ports = stale_world_ports[0..],
+    });
+    defer stale_world_port_result.deinit();
+    try std.testing.expectEqual(@as(usize, 0), stale_world_port_result.report.open_world_port_count);
+    var saw_stale_world_port_blocker = false;
+    for (stale_world_port_result.report.blockers) |blocker| {
+        if (std.mem.eql(u8, blocker.tag, "stale_world_port")) saw_stale_world_port_blocker = true;
+    }
+    try std.testing.expect(saw_stale_world_port_blocker);
+    try std.testing.expect(!stale_world_port_result.report.closedExceptWorldPorts());
+    try std.testing.expectError(
+        error.BoundaryClosureNotClosed,
+        stale_world_port_result.certificate.check(stale_world_port_result.graph, stale_world_port_result.report, stale_world_port_policy, stale_world_port_result.static_treaty_plans),
+    );
 
     var selectorless_provider = try Program.Exchange.ProviderManifest.encode(allocator, .{
         .label = "selectorless-closure-provider",
