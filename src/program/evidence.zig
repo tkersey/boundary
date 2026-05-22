@@ -3213,7 +3213,17 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             for (all_plans.items) |plan| {
                 if (plan.selected_semantic_body != .boundary_program) continue;
                 const provider_ref = plan.selected_provider_ref orelse continue;
-                const selected_program = selectedPlanProviderProgram(analysis_input, plan) orelse continue;
+                const selected_program = selectedPlanProviderProgram(analysis_input, plan) orelse {
+                    const evidence_blocker = boundaryClosureBlocker(.{
+                        .tag = .provider_program_contract_missing,
+                        .subject = plan.source_shape.evidenceRef(),
+                        .primary = provider_ref,
+                        .summary = "selected program-backed provider is missing provider program closure metadata",
+                    });
+                    try blockers.append(allocator, evidence_blocker);
+                    try appendBlockerGraph(allocator, &nodes, &edges, evidence_blocker);
+                    continue;
+                };
                 if (providerProgramForSelectedOffer(analysis_input.provider_programs, provider_ref, selected_program) == null) {
                     const evidence_blocker = boundaryClosureBlocker(.{
                         .tag = .provider_program_contract_missing,

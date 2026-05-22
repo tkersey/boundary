@@ -24634,6 +24634,19 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer std.testing.allocator.free(legacy_program_required_plan.dependencies);
     try std.testing.expect(legacy_program_required_plan.closed());
     try std.testing.expectEqual(legacy_program_offer.evidenceRef().fingerprint, legacy_program_required_plan.selected_provider_offer_ref.?.fingerprint);
+    var legacy_program_closure = try Program.BoundaryClosure.analyze(std.testing.allocator, .{
+        .allocator = std.testing.allocator,
+        .root_shapes = &.{static_operation_shape},
+        .provider_manifests = &.{decoded_program_provider},
+        .provider_offers = legacy_program_offers[0..],
+        .capabilities = (&[_]Program.Exchange.Capability{program_capability})[0..],
+        .policy = Program.Evidence.BoundaryClosurePolicy.auditOnly(),
+    });
+    defer legacy_program_closure.deinit();
+    try std.testing.expectEqual(@as(usize, 0), legacy_program_closure.report.provider_program_refs.len);
+    try std.testing.expectEqual(@as(usize, 1), legacy_program_closure.report.blocker_count);
+    try std.testing.expectEqualStrings("provider_program_contract_missing", legacy_program_closure.report.blockers[0].tag);
+    try std.testing.expect(!legacy_program_closure.report.closed());
     var wildcard_program_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, ProgramBackedHarness.manifestOptions(&.{}));
     defer wildcard_program_provider.deinit();
     try std.testing.expect(wildcard_program_provider.supportsRequest(request_envelope));
