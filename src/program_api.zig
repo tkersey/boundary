@@ -13222,13 +13222,12 @@ pub fn program(
             var provider_program_mapping_attestation_seed: u8 = 0;
 
             fn providerProgramMappingBackedByManifest(offer: ProviderOffer, provider: ProviderManifest, mapping_fingerprint: u64) bool {
-                const legacy_program_offer = offer.format_version == provider_offer_legacy_program_format_version;
                 const current_program_offer = offer.format_version == provider_offer_program_format_version and
                     offer.providerProgramMappingAttested() and
                     offer.provider_program_ref != null and
                     offer.provider_program_effect_shape_count != null and
                     offer.provider_program_effect_shape_fingerprint != null;
-                return (legacy_program_offer or current_program_offer) and
+                return current_program_offer and
                     provider.format_version >= exchange_provider_format_version and
                     provider.provider_fingerprint == offer.provider_fingerprint and
                     providerOfferFieldsBoundToBytes(offer) and
