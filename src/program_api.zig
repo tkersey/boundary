@@ -17053,6 +17053,7 @@ pub fn program(
             fn staticMorphismSupportsShape(morphism: MorphismOffer, site_fingerprint: u64, protocol_op_fingerprint: u64, response_refs: []const Evidence.BoundaryValueRef, shape: Evidence.BoundaryEffectShape) bool {
                 if (morphism.blockers.len != 0) return false;
                 if (morphism.target_response_refs.len > 3) return false;
+                if (morphism.target_response_refs.len != 0 and morphism.source_response_refs.len == 0) return false;
                 if (morphism.source_site_fingerprint) |site| if (site != site_fingerprint) return false;
                 if (morphism.source_protocol_op_fingerprint) |op| if (op != protocol_op_fingerprint) return false;
                 if (morphism.source_usage != staticUsage(shape.usage_summary)) return false;

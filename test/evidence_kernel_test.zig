@@ -1811,7 +1811,8 @@ test "static treaty planner matches provider shape without request bytes" {
         .capabilities = &.{multi_target_capability},
         .treaty_policy = .{ .allow_direct_handling = false },
     });
-    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.static_treaty, wildcard_source_target_static_plan.status);
+    try std.testing.expect(wildcard_source_target_static_plan.status != Program.Exchange.TreatyResolver.StaticStatus.static_treaty);
+    try std.testing.expectEqual(@as(usize, 0), wildcard_source_target_static_plan.candidate_count);
     const wildcard_source_target_closure_plan = try Program.Exchange.TreatyResolver.planShape(.{
         .allocator = allocator,
         .shape = shape,
@@ -1824,7 +1825,8 @@ test "static treaty planner matches provider shape without request bytes" {
     });
     defer allocator.free(wildcard_source_target_closure_plan.blockers);
     defer allocator.free(wildcard_source_target_closure_plan.dependencies);
-    try std.testing.expect(wildcard_source_target_closure_plan.closed());
+    try std.testing.expect(!wildcard_source_target_closure_plan.closed());
+    try std.testing.expect(wildcard_source_target_closure_plan.selected_morphism_ref == null);
     var wildcard_source_target_closure = try Program.BoundaryClosure.analyze(allocator, .{
         .allocator = allocator,
         .root_shapes = &.{shape},
@@ -1836,8 +1838,8 @@ test "static treaty planner matches provider shape without request bytes" {
         .policy = wildcard_morphism_policy,
     });
     defer wildcard_source_target_closure.deinit();
-    try wildcard_source_target_closure.assertClosedExceptWorldPorts();
-    try std.testing.expectEqual(@as(usize, 1), wildcard_source_target_closure.report.residualized_pipeline_route_count);
+    try std.testing.expect(!wildcard_source_target_closure.report.closedExceptWorldPorts());
+    try std.testing.expectEqual(@as(usize, 0), wildcard_source_target_closure.report.residualized_pipeline_route_count);
     try std.testing.expectEqual(@as(usize, 0), wildcard_source_target_closure.report.declarative_route_count);
     const partial_offer_multi_target_static_plan = Program.Exchange.TreatyResolver.planStatic(.{
         .shape = shape,

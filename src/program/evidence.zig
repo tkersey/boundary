@@ -4749,6 +4749,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             if (morphism.blockers.len != 0) return false;
             if (morphism.source_usage != closureShapeUsage(shape.usage_summary)) return false;
             if (morphism.target_response_refs.len > maxStaticResponseRefs) return false;
+            if (morphism.target_response_refs.len != 0 and morphism.source_response_refs.len == 0) return false;
             if (morphism.source_site_fingerprint) |fingerprint| {
                 if (shape.site_fingerprint == null or shape.site_fingerprint.? != fingerprint) return false;
             }
