@@ -5567,6 +5567,11 @@ fn worldPortRefAllowedByPolicy(world_port_ref: Ref, policy: BoundaryClosurePolic
             if (std.mem.eql(u8, allowed, label_value)) return true;
         }
     }
+    if (!policy.require_all_effect_shapes_closed) {
+        return policy.allowed_world_port_fingerprints.len == 0 and
+            policy.allowed_world_port_kinds.len == 0 and
+            policy.allowed_world_port_labels.len == 0;
+    }
     return false;
 }
 

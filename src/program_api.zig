@@ -16522,6 +16522,7 @@ pub fn program(
                             (inputs.treaty_policy.require_obligation_opening and !offer.opens_obligation))
                         {
                             plan.blocked_count += 1;
+                            addStaticBlocker(plan, .treaty_policy_incompatible, plan.shape_ref, offer.evidenceRef(), "provider offer is incompatible with static provider manifest, treaty, tag, or obligation policy");
                             continue :direct_offers;
                         }
                         if (staticProviderBodyBlocker(inputs.treaty_policy, provider.*, offer, plan.shape_ref, &plan.blockers)) {
@@ -16588,6 +16589,7 @@ pub fn program(
                                 (inputs.treaty_policy.require_obligation_opening and !offer.opens_obligation))
                             {
                                 plan.blocked_count += 1;
+                                addStaticBlocker(plan, .treaty_policy_incompatible, plan.shape_ref, offer.evidenceRef(), "morphism provider offer is incompatible with static provider manifest, treaty, tag, or obligation policy");
                                 continue :morphism_offers;
                             }
                             if (staticProviderBodyBlocker(inputs.treaty_policy, provider.*, offer, plan.shape_ref, &plan.blockers)) {

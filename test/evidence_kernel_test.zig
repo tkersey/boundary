@@ -407,6 +407,21 @@ test "static treaty planner matches provider shape without request bytes" {
     defer allocator.free(deterministic_replay_plan.blockers);
     defer allocator.free(deterministic_replay_plan.dependencies);
     try std.testing.expect(deterministic_replay_plan.closed());
+    const rejected_replay_plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = allocator,
+        .shape = shape,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .treaty_policy = .{ .require_obligation_opening = true },
+        .policy = world_plan_policy,
+    });
+    defer allocator.free(rejected_replay_plan.blockers);
+    defer allocator.free(rejected_replay_plan.dependencies);
+    try std.testing.expect(!rejected_replay_plan.closed());
+    try std.testing.expect(rejected_replay_plan.selected_provider_offer_ref == null);
+    try std.testing.expect(rejected_replay_plan.blockers.len != 0);
+    try std.testing.expectEqual(Evidence.BoundaryClosureBlockerTag.treaty_policy_incompatible, rejected_replay_plan.blockers[0].tag);
     var deterministic_replay_result = try Program.BoundaryClosure.analyze(allocator, .{
         .allocator = allocator,
         .root_shapes = &.{shape},
@@ -3089,6 +3104,17 @@ test "boundary closure optional static treaty plans do not close unplanned shape
     try std.testing.expectEqual(Evidence.domains.boundary_effect_shape.id, shape_only_result.report.world_port_intrinsic_refs[0].domain_id);
     try std.testing.expect(shape_only_result.report.world_port_intrinsic_refs[0].eql(shape.evidenceRef()));
     try shape_only_result.certificate.check(shape_only_result.graph, shape_only_result.report, shape_only_policy, shape_only_result.static_treaty_plans);
+
+    var audit_shape_only_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape},
+        .policy = Evidence.BoundaryClosurePolicy.auditOnly(),
+        .world_ports = shape_only_ports[0..],
+    });
+    defer audit_shape_only_result.deinit();
+    try audit_shape_only_result.assertClosedExceptWorldPorts();
+    try std.testing.expectEqual(@as(usize, 1), audit_shape_only_result.report.open_world_port_count);
+    try audit_shape_only_result.certificate.check(audit_shape_only_result.graph, audit_shape_only_result.report, Evidence.BoundaryClosurePolicy.auditOnly(), audit_shape_only_result.static_treaty_plans);
 
     var optional_policy = Evidence.BoundaryClosurePolicy.strictStatic();
     optional_policy.label = "optional_static";
