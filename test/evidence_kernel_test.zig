@@ -526,6 +526,19 @@ test "static treaty planner matches provider shape without request bytes" {
     defer allocator.free(capsule_treaty_plan.dependencies);
     try std.testing.expect(!capsule_treaty_plan.closed());
     try std.testing.expect(capsule_treaty_plan.selected_provider_offer_ref == null);
+    const capsule_treaty_present_plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = allocator,
+        .shape = capsule_shape,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{capsule_required_offer},
+        .capabilities = &.{capability},
+        .treaty_policy = .{ .require_capsule_embedding = true },
+        .policy = capsule_required_policy,
+    });
+    defer allocator.free(capsule_treaty_present_plan.blockers);
+    defer allocator.free(capsule_treaty_present_plan.dependencies);
+    try std.testing.expect(capsule_treaty_present_plan.closed());
+    try std.testing.expectEqual(capsule_required_offer.evidenceRef().fingerprint, capsule_treaty_present_plan.selected_provider_offer_ref.?.fingerprint);
 
     const missing_value_shape = Evidence.BoundaryEffectShape.init(.{
         .program_label = "evidence-test",

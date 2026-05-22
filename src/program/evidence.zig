@@ -3386,7 +3386,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             var selection: CandidateSelection = .{};
             var rejected_candidates = std.ArrayList(BoundaryClosureBlocker).empty;
             defer rejected_candidates.deinit(inputs.allocator);
-            if (inputs.treaty_policy.require_capsule_embedding) {
+            if (inputs.treaty_policy.require_capsule_embedding and !shapeCarriesCapsule(inputs.shape)) {
                 try blockers.append(inputs.allocator, .{ .tag = .treaty_policy_incompatible, .subject = inputs.shape.evidenceRef(), .summary = "closure planning has no embedded capsule evidence for a capsule-required treaty policy" });
                 return selection;
             }

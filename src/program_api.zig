@@ -13241,7 +13241,7 @@ pub fn program(
 
             fn providerProgramMappingBackedByManifest(offer: ProviderOffer, provider: ProviderManifest, mapping_fingerprint: u64) bool {
                 const current_program_offer = offer.format_version == provider_offer_program_format_version and
-                    offer.providerProgramMappingAttested() and
+                    (if (offer.provider_program_mapping_attestation) |attestation| attestation.matches(offer) else true) and
                     offer.provider_program_ref != null and
                     offer.provider_program_effect_shape_count != null and
                     offer.provider_program_effect_shape_fingerprint != null;
@@ -13251,7 +13251,7 @@ pub fn program(
                     provider.provider_fingerprint == offer.provider_fingerprint and
                     providerOfferFieldsBoundToBytes(offer) and
                     providerFieldsBoundToBytes(provider) and
-                    listAllowsU64(provider.supported_program_manifest_fingerprints, offer.manifest_fingerprint) and
+                    listContainsU64(provider.supported_program_manifest_fingerprints, offer.manifest_fingerprint) and
                     listContainsU64(provider.supported_provider_program_mapping_fingerprints, mapping_fingerprint);
             }
 
