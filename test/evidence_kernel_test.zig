@@ -2983,6 +2983,9 @@ test "boundary closure optional static treaty plans do not close unplanned shape
     try std.testing.expectEqual(@as(usize, 1), optional_result.static_treaty_plans.len);
     try std.testing.expect(optional_result.static_treaty_plans[0].selected_provider_offer_ref == null);
     try std.testing.expect(!optional_result.static_treaty_plans[0].closedUnderPolicy(optional_policy));
+    const optional_evidence_report = optional_result.report.toEvidenceReport();
+    try std.testing.expect(!optional_evidence_report.success);
+    try std.testing.expectError(error.EvidenceReportHasErrors, optional_evidence_report.assertOk());
     try std.testing.expectEqual(
         error.BoundaryClosureNotClosed,
         optional_result.certificate.check(optional_result.graph, optional_result.report, optional_policy),

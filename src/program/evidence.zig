@@ -2639,7 +2639,7 @@ pub const BoundaryClosureReport = struct {
 
     pub fn toEvidenceReport(self: @This()) Report {
         const policy_fingerprint = if (self.policy_summary) |policy| policy.policy_fingerprint else null;
-        if (self.blocker_count != 0 or hasErrorBlockers(self.blockers)) {
+        if (self.blocker_count != 0 or hasErrorBlockers(self.blockers) or !self.closedExceptWorldPorts()) {
             return Report.withFailure(self.evidenceRef(), domains.boundary_closure_report.id, self.dependencies, self.blockers, &.{}, policy_fingerprint, self.summary);
         }
         return Report.ok(self.evidenceRef(), domains.boundary_closure_report.id, self.dependencies);
@@ -3779,8 +3779,9 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
         }
 
         fn providerProgramShapesMatchSelected(provider_program: ProviderProgram, selected_program: SelectedProviderProgram) bool {
-            if (provider_program.effect_free) return selected_program.effect_shape_count == 0 and provider_program.shapes.len == 0;
-            if (provider_program.shapes.len != selected_program.effect_shape_count) return false;
+            if (provider_program.effect_free) {
+                if (selected_program.effect_shape_count != 0 or provider_program.shapes.len != 0) return false;
+            } else if (provider_program.shapes.len != selected_program.effect_shape_count) return false;
             return fingerprintBoundaryEffectShapeSet(provider_program.shapes) == selected_program.effect_shape_fingerprint;
         }
 
