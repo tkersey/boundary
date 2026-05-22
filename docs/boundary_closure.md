@@ -91,11 +91,12 @@ graph fingerprint is computed.
 ## WorldPort Declarations
 
 `BoundaryClosure.WorldPort` is an explicit open boundary that World must
-implement. It declares a label, kind, effect-shape ref, the exact exposed
+implement. It declares a label, kind, effect-shape ref, optional exposed
 host-intrinsic ref, expected protocol/site/op shape, usage/branch/replay
 summaries, required evidence refs, tags, and metadata. Built-in kinds cover host
 tools, models, files, humans, randomness, clocks, foreign systems, test
-fixtures, and custom ports.
+fixtures, and custom ports. A port with no exposed intrinsic is a shape-only
+world obligation for that exact effect site.
 
 A world port is not an implementation. It is a typed declaration that an allowed
 host intrinsic or open effect is intentionally outside Boundary.

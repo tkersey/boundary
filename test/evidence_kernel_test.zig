@@ -2748,6 +2748,35 @@ test "boundary closure optional static treaty plans do not block closure" {
     }
     try std.testing.expect(saw_no_provider);
 
+    const shape_only_port = Closure.WorldPort.init(.{
+        .label = "shape-only-world-port",
+        .kind = .host_tool,
+        .effect_shape_ref = shape.evidenceRef(),
+        .supported_protocol_labels = &.{"approval"},
+        .supported_site_indexes = &.{site_index},
+        .supported_protocol_op_fingerprints = &.{protocol_op_fingerprint},
+        .contract_summary = "world owns this open approval effect",
+    });
+    const shape_only_ports = [_]Closure.WorldPort{shape_only_port};
+    var shape_only_policy = Evidence.BoundaryClosurePolicy.worldBoundary();
+    const allowed_shape_only_ports = [_]u64{shape_only_port.fingerprint};
+    shape_only_policy.allowed_world_port_fingerprints = allowed_shape_only_ports[0..];
+    var shape_only_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape},
+        .policy = shape_only_policy,
+        .world_ports = shape_only_ports[0..],
+    });
+    defer shape_only_result.deinit();
+    try shape_only_result.assertClosedExceptWorldPorts();
+    try std.testing.expectEqual(@as(usize, 1), shape_only_result.report.effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 0), shape_only_result.report.closed_effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 1), shape_only_result.report.open_world_port_count);
+    try std.testing.expectEqual(@as(usize, 0), shape_only_result.report.blocker_count);
+    try std.testing.expectEqual(Evidence.domains.boundary_effect_shape.id, shape_only_result.report.world_port_intrinsic_refs[0].domain_id);
+    try std.testing.expect(shape_only_result.report.world_port_intrinsic_refs[0].eql(shape.evidenceRef()));
+    try shape_only_result.certificate.check(shape_only_result.graph, shape_only_result.report, shape_only_policy);
+
     var optional_policy = Evidence.BoundaryClosurePolicy.strictStatic();
     optional_policy.label = "optional_static";
     optional_policy.require_static_treaty_plans = false;

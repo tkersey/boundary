@@ -2775,9 +2775,14 @@ pub const BoundaryClosureCertificate = struct {
         if (!graphNodeRefsMatchReport(graph, .host_intrinsic, report.host_intrinsic_refs)) return error.BoundaryClosureCertificateMismatch;
         if (!graphNodeRefsMatchReport(graph, .world_port, report.world_port_refs)) return error.BoundaryClosureCertificateMismatch;
         if (!graphWorldPortEdgesMatchReport(graph, report)) return error.BoundaryClosureCertificateMismatch;
-        for (report.world_port_intrinsic_refs) |paired_intrinsic_ref| {
-            if (paired_intrinsic_ref.domain_id != domains.host_intrinsic.id) return error.BoundaryClosureCertificateMismatch;
-            if (!refsContain(report.host_intrinsic_refs, paired_intrinsic_ref)) return error.BoundaryClosureCertificateMismatch;
+        for (report.world_port_intrinsic_refs) |paired_ref| {
+            if (paired_ref.domain_id == domains.host_intrinsic.id) {
+                if (!refsContain(report.host_intrinsic_refs, paired_ref)) return error.BoundaryClosureCertificateMismatch;
+            } else if (paired_ref.domain_id == domains.boundary_effect_shape.id) {
+                if (!graphHasNode(graph, .operation_site, paired_ref) and !graphHasNode(graph, .after_site, paired_ref)) return error.BoundaryClosureCertificateMismatch;
+            } else {
+                return error.BoundaryClosureCertificateMismatch;
+            }
         }
         if (self.selected_static_treaty_plan_refs.len != report.effect_shape_count) return error.BoundaryClosureCertificateMismatch;
         if (!graphPlanRefsMatchCertificate(graph, self.selected_static_treaty_plan_refs)) return error.BoundaryClosureCertificateMismatch;
@@ -2788,9 +2793,15 @@ pub const BoundaryClosureCertificate = struct {
                 if (!report.closed()) return error.BoundaryClosureNotClosed;
             }
         }
-        for (report.world_port_refs, report.world_port_intrinsic_refs) |world_port_ref, paired_intrinsic_ref| {
+        for (report.world_port_refs, report.world_port_intrinsic_refs) |world_port_ref, paired_ref| {
             if (!policy.allowsWorldPortRef(world_port_ref)) return error.BoundaryClosureWorldPortsRejected;
-            if (!graphHasEdge(graph, .world_port_exposes, paired_intrinsic_ref, world_port_ref)) return error.BoundaryClosureWorldPortsRejected;
+            if (paired_ref.domain_id == domains.host_intrinsic.id) {
+                if (!graphHasEdge(graph, .world_port_exposes, paired_ref, world_port_ref)) return error.BoundaryClosureWorldPortsRejected;
+            } else if (paired_ref.domain_id == domains.boundary_effect_shape.id) {
+                if (!graphHasEdge(graph, .opens_obligation, paired_ref, world_port_ref)) return error.BoundaryClosureWorldPortsRejected;
+            } else {
+                return error.BoundaryClosureWorldPortsRejected;
+            }
         }
         for (report.host_intrinsic_refs) |host_intrinsic_ref| {
             if (!policy.allowsHostIntrinsicRef(host_intrinsic_ref) and !reportHasAllowedWorldPortForIntrinsic(report, graph, policy, host_intrinsic_ref)) return error.BoundaryClosureIntrinsicRejected;
@@ -3581,8 +3592,16 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                         try edges.append(allocator, .{ .kind = .world_port_exposes, .from = intrinsic_ref, .to = port.evidenceRef() });
                     }
                 }
+                const closed_under_policy = plan.closedUnderPolicy(input.policy);
+                const shape_world_port = if (!closed_under_policy) shapeOnlyWorldPortForShape(input.policy, input.world_ports, shape) else null;
+                if (shape_world_port) |port| {
+                    try world_port_refs.append(allocator, port.evidenceRef());
+                    try world_port_intrinsic_refs.append(allocator, shape_ref);
+                    try nodes.append(allocator, .{ .kind = .world_port, .ref = port.evidenceRef(), .label = port.label });
+                    try edges.append(allocator, .{ .kind = .opens_obligation, .from = shape_ref, .to = port.evidenceRef() });
+                }
                 if (plan.selected_provider_offer_ref != null and plan.selected_semantic_body == .unknown) try unknown_refs.append(allocator, shape_ref);
-                if (plan.closedUnderPolicy(input.policy)) {
+                if (closed_under_policy) {
                     if (world_port_refs.items.len == world_port_count_before_shape) {
                         closed_count.* += 1;
                     } else {
@@ -3595,8 +3614,11 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                         .residualized_program, .pipeline => residualized_pipeline_count.* += 1,
                         .host_intrinsic, .unknown => {},
                     }
+                } else if (shape_world_port != null) {
+                    world_port_shape_count.* += 1;
                 }
-                for (plan.blockers) |closure_blocker| {
+                plan_blockers: for (plan.blockers) |closure_blocker| {
+                    if (shape_world_port != null and staticTreatyRequirementBlocker(closure_blocker.tag)) continue :plan_blockers;
                     const evidence_blocker = closure_blocker.toEvidenceBlocker();
                     try blockers.append(allocator, evidence_blocker);
                     try appendBlockerGraph(allocator, nodes, edges, evidence_blocker);
@@ -4790,18 +4812,34 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
         fn worldPortForShape(policy: Policy, world_ports: []const Closure.WorldPort, shape: Closure.EffectShape, intrinsic_ref: Ref) ?Closure.WorldPort {
             for (world_ports) |port| {
                 if (!policy.allowsWorldPortRef(port.evidenceRef())) continue;
-                if (port.effect_shape_ref) |shape_ref| {
-                    if (!shape_ref.eql(shape.evidenceRef())) continue;
-                }
+                if (!worldPortMatchesShape(port, shape)) continue;
                 if (port.exposed_intrinsic_ref) |exposed_ref| {
                     if (!exposed_ref.eql(intrinsic_ref)) continue;
                 } else continue;
-                if (!listAllowsStringClosure(port.supported_protocol_labels, shape.protocol_label)) continue;
-                if (shape.site_index) |site| if (!listAllowsUsizeClosure(port.supported_site_indexes, site)) continue;
-                if (shape.protocol_op_fingerprint) |protocol_op| if (!listAllowsU64Closure(port.supported_protocol_op_fingerprints, protocol_op)) continue;
                 return port;
             }
             return null;
+        }
+
+        fn shapeOnlyWorldPortForShape(policy: Policy, world_ports: []const Closure.WorldPort, shape: Closure.EffectShape) ?Closure.WorldPort {
+            for (world_ports) |port| {
+                if (!policy.allowsWorldPortRef(port.evidenceRef())) continue;
+                if (port.exposed_intrinsic_ref != null) continue;
+                if (port.effect_shape_ref == null) continue;
+                if (!worldPortMatchesShape(port, shape)) continue;
+                return port;
+            }
+            return null;
+        }
+
+        fn worldPortMatchesShape(port: Closure.WorldPort, shape: Closure.EffectShape) bool {
+            if (port.effect_shape_ref) |shape_ref| {
+                if (!shape_ref.eql(shape.evidenceRef())) return false;
+            }
+            if (!listAllowsStringClosure(port.supported_protocol_labels, shape.protocol_label)) return false;
+            if (shape.site_index) |site| if (!listAllowsUsizeClosure(port.supported_site_indexes, site)) return false;
+            if (shape.protocol_op_fingerprint) |protocol_op| if (!listAllowsU64Closure(port.supported_protocol_op_fingerprints, protocol_op)) return false;
+            return true;
         }
     };
 }
@@ -4845,6 +4883,7 @@ fn policySummaryMatches(summary: ?PolicySummary, policy: BoundaryClosurePolicy) 
 fn reportHasAllowedWorldPortForIntrinsic(report: BoundaryClosureReport, graph: BoundaryGraph, policy: BoundaryClosurePolicy, intrinsic_ref: Ref) bool {
     if (!policy.allow_world_ports or report.open_world_port_count == 0) return false;
     for (report.world_port_refs, report.world_port_intrinsic_refs) |world_port_ref, paired_intrinsic_ref| {
+        if (paired_intrinsic_ref.domain_id != domains.host_intrinsic.id) continue;
         if (!paired_intrinsic_ref.eql(intrinsic_ref)) continue;
         if (!policy.allowsWorldPortRef(world_port_ref)) continue;
         if (!graphHasEdge(graph, .world_port_exposes, intrinsic_ref, world_port_ref)) continue;
@@ -4956,13 +4995,20 @@ fn graphRootYieldEdgesMatchReport(graph: BoundaryGraph, report: BoundaryClosureR
 }
 
 fn graphWorldPortEdgesMatchReport(graph: BoundaryGraph, report: BoundaryClosureReport) bool {
-    var graph_count: usize = 0;
+    for (report.world_port_refs, report.world_port_intrinsic_refs) |world_port_ref, paired_ref| {
+        if (paired_ref.domain_id == domains.host_intrinsic.id) {
+            if (!graphHasEdge(graph, .world_port_exposes, paired_ref, world_port_ref)) return false;
+        } else if (paired_ref.domain_id == domains.boundary_effect_shape.id) {
+            if (!graphHasEdge(graph, .opens_obligation, paired_ref, world_port_ref)) return false;
+        } else {
+            return false;
+        }
+    }
     for (graph.edges) |edge| {
         if (edge.kind != .world_port_exposes) continue;
-        graph_count += 1;
         if (!reportHasWorldPortPair(report, edge.from, edge.to)) return false;
     }
-    return graph_count == report.world_port_refs.len;
+    return true;
 }
 
 fn graphWorldPortShapeCount(graph: BoundaryGraph, report: BoundaryClosureReport) usize {
@@ -4975,11 +5021,14 @@ fn graphWorldPortShapeCount(graph: BoundaryGraph, report: BoundaryClosureReport)
 }
 
 fn graphShapeHasWorldPort(graph: BoundaryGraph, report: BoundaryClosureReport, shape_ref: Ref) bool {
-    for (report.world_port_refs, report.world_port_intrinsic_refs) |world_port_ref, intrinsic_ref| {
-        if (!graphHasEdge(graph, .intrinsic_boundary, shape_ref, intrinsic_ref)) continue;
-        if (!graphHasEdge(graph, .opens_obligation, shape_ref, world_port_ref)) continue;
-        if (graphHasEdge(graph, .world_port_exposes, intrinsic_ref, world_port_ref)) {
-            return true;
+    for (report.world_port_refs, report.world_port_intrinsic_refs) |world_port_ref, paired_ref| {
+        if (paired_ref.domain_id == domains.host_intrinsic.id) {
+            if (!graphHasEdge(graph, .intrinsic_boundary, shape_ref, paired_ref)) continue;
+            if (!graphHasEdge(graph, .opens_obligation, shape_ref, world_port_ref)) continue;
+            if (graphHasEdge(graph, .world_port_exposes, paired_ref, world_port_ref)) return true;
+        } else if (paired_ref.domain_id == domains.boundary_effect_shape.id) {
+            if (!paired_ref.eql(shape_ref)) continue;
+            if (graphHasEdge(graph, .opens_obligation, shape_ref, world_port_ref)) return true;
         }
     }
     return false;
