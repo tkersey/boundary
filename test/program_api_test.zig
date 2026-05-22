@@ -24628,14 +24628,14 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expectEqual(program_catalog.provider_offers[0].provider_program_mapping_fingerprint, decoded_program_offer.provider_program_mapping_fingerprint);
     try std.testing.expect(program_catalog.provider_offers[0].providerProgramMappingAttested());
     try std.testing.expect(!decoded_program_offer.providerProgramMappingAttested());
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, decoded_program_offer.semanticBodyWithProvider(program_catalog.provider_manifest));
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, decoded_program_offer.semanticBodyWithProvider(program_catalog.provider_manifest));
     decoded_program_offer.provider_program_mapping_attestation = .{ .token = 0 };
     try std.testing.expect(!decoded_program_offer.providerProgramMappingAttested());
     try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, decoded_program_offer.semanticBodyWithProvider(program_catalog.provider_manifest));
     decoded_program_offer.provider_program_mapping_attestation = null;
     var decoded_program_provider = try Program.Exchange.ProviderManifest.decode(std.testing.allocator, program_catalog.provider_manifest.bytes);
     defer decoded_program_provider.deinit();
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, decoded_program_offer.semanticBodyWithProvider(decoded_program_provider));
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, decoded_program_offer.semanticBodyWithProvider(decoded_program_provider));
     const legacy_program_offer_bytes = try testLegacyProgramProviderOfferBytes(Program, std.testing.allocator, program_catalog.provider_offers[0]);
     defer std.testing.allocator.free(legacy_program_offer_bytes);
     var legacy_program_offer = try Program.Exchange.ProviderOffer.decode(std.testing.allocator, legacy_program_offer_bytes);
@@ -24681,7 +24681,8 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     var wildcard_program_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, ProgramBackedHarness.manifestOptions(&.{}));
     defer wildcard_program_provider.deinit();
     try std.testing.expect(wildcard_program_provider.supportsRequest(request_envelope));
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, decoded_program_offer.semanticBodyWithProvider(wildcard_program_provider));
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, program_catalog.provider_offers[0].semanticBodyWithProvider(wildcard_program_provider));
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, decoded_program_offer.semanticBodyWithProvider(wildcard_program_provider));
     var mappingless_program_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
         .label = "program-backed-mappingless-provider",
         .provider_fingerprint = ProgramBackedHarness.provider_fingerprint,
@@ -24694,7 +24695,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expect(mappingless_program_provider.supportsRequest(request_envelope));
     try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, program_catalog.provider_offers[0].semanticBodyWithProvider(mappingless_program_provider));
     const wildcard_program_providers = [_]Program.Exchange.ProviderManifest{wildcard_program_provider};
-    const wildcard_program_offers = [_]Program.Exchange.ProviderOffer{decoded_program_offer};
+    const wildcard_program_offers = [_]Program.Exchange.ProviderOffer{program_catalog.provider_offers[0]};
     var wildcard_program_result = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = request_envelope,
@@ -24735,8 +24736,8 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     });
     defer std.testing.allocator.free(decoded_program_required_plan.blockers);
     defer std.testing.allocator.free(decoded_program_required_plan.dependencies);
-    try std.testing.expect(decoded_program_required_plan.closed());
-    try std.testing.expectEqual(decoded_program_offer.evidenceRef().fingerprint, decoded_program_required_plan.selected_provider_offer_ref.?.fingerprint);
+    try std.testing.expect(!decoded_program_required_plan.closed());
+    try std.testing.expect(decoded_program_required_plan.selected_provider_offer_ref == null);
     var program_morphism_request = Program.Exchange.TreatyRequest.fromRequest(request_envelope);
     program_morphism_request.allow_provider_fallback = false;
     const program_dynamic_morphisms = [_]Program.Exchange.MorphismOffer{.{
@@ -24899,9 +24900,8 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         .treaty_policy = .{ .defunctionalization_policy = Program.Evidence.DefunctionalizationPolicy.strict() },
     });
     defer decoded_program_result.deinit();
-    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, decoded_program_result.status);
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, decoded_program_result.treaty.?.provider_semantic_body);
-    try decoded_program_result.assertDefunctionalized(Program.Evidence.DefunctionalizationPolicy.strict());
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, decoded_program_result.status);
+    try std.testing.expectError(error.UnknownSemanticBody, decoded_program_result.assertDefunctionalized(Program.Evidence.DefunctionalizationPolicy.strict()));
     var program_required_decoded_result = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = request_envelope,
@@ -24916,14 +24916,12 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         } },
     });
     defer program_required_decoded_result.deinit();
-    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, program_required_decoded_result.status);
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, program_required_decoded_result.treaty.?.provider_semantic_body);
-    try program_required_decoded_result.assertDefunctionalized(.{
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, program_required_decoded_result.status);
+    try std.testing.expectError(error.HostIntrinsicsPresent, program_required_decoded_result.assertDefunctionalized(.{
         .label = "program-backed-required",
         .allow_host_intrinsics = true,
         .require_program_backed_providers = true,
-    });
-    try std.testing.expectEqual(@as(usize, 0), program_required_decoded_result.defunctionalizationReport().unknown_count);
+    }));
     try program_required_decoded_result.assertDefunctionalized(.{
         .label = "later-permissive-policy",
         .allow_host_intrinsics = true,
@@ -24961,7 +24959,7 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer decoded_foreign_program_provider.deinit();
     var decoded_foreign_program_offer = try Program.Exchange.ProviderOffer.decode(std.testing.allocator, foreign_program_catalog.provider_offers[0].bytes);
     defer decoded_foreign_program_offer.deinit();
-    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, decoded_foreign_program_offer.semanticBodyWithProvider(decoded_foreign_program_provider));
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, decoded_foreign_program_offer.semanticBodyWithProvider(decoded_foreign_program_provider));
     try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, decoded_foreign_program_offer.semanticBodyWithProvider(program_catalog.provider_manifest));
     const decoded_unknown_providers = [_]Program.Exchange.ProviderManifest{program_catalog.provider_manifest};
     const decoded_unknown_offers = [_]Program.Exchange.ProviderOffer{decoded_foreign_program_offer};
