@@ -3829,7 +3829,11 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
         }
 
         fn shapeSupportedForPlanning(shape: Closure.EffectShape) bool {
-            return shape.kind == .operation or shape.kind == .after;
+            if (shape.kind != .operation and shape.kind != .after) return false;
+            return shape.site_index != null and
+                shape.site_fingerprint != null and
+                shape.protocol_label.len != 0 and
+                shape.protocol_op_fingerprint != null;
         }
 
         fn hasClosureBlockerTag(blockers: []const BoundaryClosureBlocker, tag: BoundaryClosureBlockerTag) bool {

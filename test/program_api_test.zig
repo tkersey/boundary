@@ -61,6 +61,27 @@ fn testExchangeFingerprint(domain: []const u8, version: u32, image_bytes: []cons
     return hasher.final();
 }
 
+fn testLegacyProgramProviderOfferBytes(comptime Program: type, allocator: std.mem.Allocator, offer: Program.Exchange.ProviderOffer) ![]u8 {
+    const program_ref = offer.provider_program_ref orelse return error.ExpectedProviderProgramRef;
+    const payload = offer.bytes[0 .. offer.bytes.len - 8];
+    const program_label_len: usize = if (program_ref.label) |label| @sizeOf(u64) + label.len else 0;
+    const program_ref_len = @sizeOf(u64) + @sizeOf(u8) + program_label_len;
+    const current_only_tail_len = program_ref_len + @sizeOf(u64) + @sizeOf(u64);
+    if (payload.len <= current_only_tail_len) return error.ProgramContractViolation;
+    const legacy_payload_len = payload.len - current_only_tail_len;
+    var legacy = try allocator.alloc(u8, legacy_payload_len + @sizeOf(u64));
+    errdefer allocator.free(legacy);
+    @memcpy(legacy[0..legacy_payload_len], payload[0..legacy_payload_len]);
+    std.mem.writeInt(u32, legacy["ABL_EXO1".len..][0..4], 2, .little);
+    const fingerprint = testExchangeFingerprint(
+        "boundary.exchange.provider_offer",
+        Program.Exchange.provider_offer_fingerprint_version,
+        legacy[0..legacy_payload_len],
+    );
+    std.mem.writeInt(u64, legacy[legacy_payload_len..][0..8], fingerprint, .little);
+    return legacy;
+}
+
 fn testHashOptionalU64(hasher: *std.hash.Wyhash, value: ?u64) void {
     hasher.update(&[_]u8{@intFromBool(value != null)});
     if (value) |actual| testHashU64(hasher, actual);
@@ -24524,6 +24545,13 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     var decoded_program_provider = try Program.Exchange.ProviderManifest.decode(std.testing.allocator, program_catalog.provider_manifest.bytes);
     defer decoded_program_provider.deinit();
     try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, decoded_program_offer.semanticBodyWithProvider(decoded_program_provider));
+    const legacy_program_offer_bytes = try testLegacyProgramProviderOfferBytes(Program, std.testing.allocator, program_catalog.provider_offers[0]);
+    defer std.testing.allocator.free(legacy_program_offer_bytes);
+    var legacy_program_offer = try Program.Exchange.ProviderOffer.decode(std.testing.allocator, legacy_program_offer_bytes);
+    defer legacy_program_offer.deinit();
+    try std.testing.expectEqual(@as(u32, 2), legacy_program_offer.format_version);
+    try std.testing.expectEqual(program_catalog.provider_offers[0].provider_program_mapping_fingerprint, legacy_program_offer.provider_program_mapping_fingerprint);
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, legacy_program_offer.semanticBodyWithProvider(decoded_program_provider));
     var wildcard_program_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, ProgramBackedHarness.manifestOptions(&.{}));
     defer wildcard_program_provider.deinit();
     try std.testing.expect(wildcard_program_provider.supportsRequest(request_envelope));

@@ -528,6 +528,35 @@ test "static treaty planner matches provider shape without request bytes" {
     }
     try std.testing.expect(saw_unhandled_shape);
 
+    const unbound_operation_shape = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "evidence-test",
+        .plan_label = "evidence-test-plan",
+        .plan_hash = 1,
+        .kind = .operation,
+        .name = "approve",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(response_ref),
+        .protocol_label = "approval",
+    });
+    const unbound_operation_plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = allocator,
+        .shape = unbound_operation_shape,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = world_plan_policy,
+    });
+    defer allocator.free(unbound_operation_plan.blockers);
+    defer allocator.free(unbound_operation_plan.dependencies);
+    try std.testing.expect(!unbound_operation_plan.closed());
+    try std.testing.expect(unbound_operation_plan.selected_provider_offer_ref == null);
+    var saw_unbound_shape = false;
+    for (unbound_operation_plan.blockers) |blocker| {
+        if (blocker.tag == .effect_shape_unhandled) saw_unbound_shape = true;
+    }
+    try std.testing.expect(saw_unbound_shape);
+
     var return_only_offer = try Program.Exchange.ProviderOffer.encode(allocator, .{
         .label = "return-only-offer",
         .provider_fingerprint = provider.provider_fingerprint,
