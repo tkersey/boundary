@@ -2703,6 +2703,70 @@ test "static treaty planner matches provider shape without request bytes" {
     try std.testing.expectEqual(Evidence.BoundaryClosureBlockerTag.ambiguous_static_treaty_plan, ambiguous_plan.blockers[0].tag);
 }
 
+test "boundary closure optional static treaty plans do not block closure" {
+    const allocator = std.testing.allocator;
+    var manifest = try Program.Exchange.Manifest.encode(allocator);
+    defer manifest.deinit();
+
+    const payload_ref = boundary.ir.ValueRef{ .codec = .unit };
+    const response_ref = boundary.ir.ValueRef{ .codec = .bool };
+    const site_index: usize = 5;
+    const protocol_op_fingerprint: u64 = 0xACE;
+    const shape = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "optional-static-test",
+        .plan_label = "optional-static-test-plan",
+        .plan_hash = 0xABCD,
+        .manifest_fingerprint = manifest.fingerprint,
+        .kind = .operation,
+        .site_index = site_index,
+        .site_fingerprint = protocol_op_fingerprint,
+        .name = "approve",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(response_ref),
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = protocol_op_fingerprint,
+    });
+    const Closure = Evidence.BoundaryClosure(Program);
+
+    var strict_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape},
+    });
+    defer strict_result.deinit();
+    try std.testing.expect(!strict_result.report.closed());
+    try std.testing.expectEqual(@as(usize, 1), strict_result.report.effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 0), strict_result.report.closed_effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 1), strict_result.report.blocker_count);
+    try std.testing.expectEqual(
+        error.BoundaryClosureNotClosed,
+        strict_result.certificate.check(strict_result.graph, strict_result.report, Evidence.BoundaryClosurePolicy.strictStatic()),
+    );
+    var saw_no_provider = false;
+    for (strict_result.report.blockers) |blocker| {
+        if (std.mem.eql(u8, blocker.tag, "no_provider_offer_for_shape")) saw_no_provider = true;
+    }
+    try std.testing.expect(saw_no_provider);
+
+    var optional_policy = Evidence.BoundaryClosurePolicy.strictStatic();
+    optional_policy.label = "optional_static";
+    optional_policy.require_static_treaty_plans = false;
+    var optional_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape},
+        .policy = optional_policy,
+    });
+    defer optional_result.deinit();
+    try optional_result.assertClosed();
+    try std.testing.expectEqual(@as(usize, 1), optional_result.report.effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 1), optional_result.report.closed_effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 0), optional_result.report.blocker_count);
+    try std.testing.expectEqual(@as(usize, 0), optional_result.report.unknown_body_count);
+    try std.testing.expectEqual(@as(usize, 1), optional_result.static_treaty_plans.len);
+    try std.testing.expect(optional_result.static_treaty_plans[0].selected_provider_offer_ref == null);
+    try optional_result.certificate.check(optional_result.graph, optional_result.report, optional_policy);
+}
+
 test "boundary closure traversal closes a provider-backed shape" {
     const allocator = std.testing.allocator;
     var manifest = try Program.Exchange.Manifest.encode(allocator);
@@ -3018,6 +3082,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     var world_port_only_policy = Evidence.BoundaryClosurePolicy.worldBoundary();
     const world_port_only_allowed = [_]u64{world_port.fingerprint};
     world_port_only_policy.allowed_world_port_fingerprints = world_port_only_allowed[0..];
+    world_port_only_policy.reject_host_intrinsics = true;
     var world_port_result = try Closure.analyze(allocator, .{
         .allocator = allocator,
         .root_shapes = &.{shape},
@@ -3032,6 +3097,41 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expect(!world_port_result.report.closed());
     try std.testing.expectEqual(@as(usize, 1), world_port_result.report.open_world_port_count);
     try world_port_result.certificate.check(world_port_result.graph, world_port_result.report, world_port_only_policy);
+
+    const second_shape = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "evidence-test",
+        .plan_label = "evidence-test-plan-2",
+        .plan_hash = 2,
+        .manifest_fingerprint = manifest.fingerprint,
+        .kind = .operation,
+        .site_index = site_index,
+        .site_fingerprint = protocol_op_fingerprint,
+        .name = "approve",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(response_ref),
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = protocol_op_fingerprint,
+    });
+    var mixed_world_policy = Evidence.BoundaryClosurePolicy.worldBoundary();
+    mixed_world_policy.allowed_world_port_fingerprints = world_port_only_allowed[0..];
+    mixed_world_policy.allowed_host_intrinsic_fingerprints = allowed_intrinsics[0..];
+    var mixed_world_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{ shape, second_shape },
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = mixed_world_policy,
+        .world_ports = world_ports[0..],
+    });
+    defer mixed_world_result.deinit();
+    try mixed_world_result.assertClosedExceptWorldPorts();
+    try std.testing.expectEqual(@as(usize, 2), mixed_world_result.report.effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 1), mixed_world_result.report.closed_effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 1), mixed_world_result.report.open_world_port_count);
+    try mixed_world_result.certificate.check(mixed_world_result.graph, mixed_world_result.report, mixed_world_policy);
+
     var overcounted_world_report = world_port_result.report;
     overcounted_world_report.closed_effect_shape_count = 2;
     overcounted_world_report.report_fingerprint = overcounted_world_report.computeFingerprint();

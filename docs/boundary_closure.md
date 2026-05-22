@@ -70,6 +70,9 @@ resolution still binds a real request envelope, concrete payload fingerprint,
 provider manifest, offer, route, capability, usage metadata, and response guards.
 The static plan proves that a request from this site has a valid route under the
 configured catalogs and policies, subject to those runtime guards.
+When `BoundaryClosurePolicy.require_static_treaty_plans` is false, closure still
+emits one static treaty-plan ref per effect shape, but a missing provider offer,
+capability grant, or static route is no longer a closure blocker.
 
 ## BoundaryGraph Nodes And Edges
 

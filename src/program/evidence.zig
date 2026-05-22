@@ -2415,6 +2415,11 @@ pub const BoundaryStaticTreatyPlan = struct {
     pub fn closed(self: @This()) bool {
         return self.selected_provider_offer_ref != null and !hasErrorClosureBlockers(self.blockers);
     }
+
+    pub fn closedUnderPolicy(self: @This(), policy: BoundaryClosurePolicy) bool {
+        if (self.closed()) return true;
+        return !policy.require_static_treaty_plans and !hasErrorClosureBlockers(self.blockers);
+    }
 };
 
 pub const BoundaryGraph = struct {
@@ -2792,7 +2797,11 @@ pub const BoundaryClosureCertificate = struct {
         }
         if (!policy.allow_world_ports and report.open_world_port_count != 0) return error.BoundaryClosureWorldPortsRejected;
         if (policy.reject_unknown_semantic_bodies and report.unknown_body_count != 0) return error.BoundaryClosureUnknownBodies;
-        if (policy.reject_host_intrinsics and report.host_intrinsic_count != 0) return error.BoundaryClosureIntrinsicRejected;
+        if (policy.reject_host_intrinsics) {
+            for (report.host_intrinsic_refs) |host_intrinsic_ref| {
+                if (!reportHasAllowedWorldPortForIntrinsic(report, graph, policy, host_intrinsic_ref)) return error.BoundaryClosureIntrinsicRejected;
+            }
+        }
         if (policy.reject_ambiguous_routes and report.ambiguity_count != 0) return error.BoundaryClosureAmbiguous;
     }
 
@@ -3417,16 +3426,55 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             }
 
             if (selection.offer_ref == null) {
-                try blockers.appendSlice(inputs.allocator, rejected_candidates.items);
+                for (rejected_candidates.items) |candidate_blocker| {
+                    if (!inputs.policy.require_static_treaty_plans and staticTreatyRequirementBlocker(candidate_blocker.tag)) continue;
+                    try blockers.append(inputs.allocator, candidate_blocker);
+                }
                 if (selection.direct_count == 0 and selection.morphism_count == 0) {
-                    try blockers.append(inputs.allocator, .{ .tag = .no_provider_offer_for_shape, .subject = inputs.shape.evidenceRef(), .summary = "no provider offer can handle this effect shape" });
+                    if (inputs.policy.require_static_treaty_plans) {
+                        try blockers.append(inputs.allocator, .{ .tag = .no_provider_offer_for_shape, .subject = inputs.shape.evidenceRef(), .summary = "no provider offer can handle this effect shape" });
+                    }
                 } else {
-                    try blockers.append(inputs.allocator, .{ .tag = .no_static_treaty_plan, .subject = inputs.shape.evidenceRef(), .summary = "candidate offers exist but no static route satisfies policy and capability constraints" });
+                    if (inputs.policy.require_static_treaty_plans) {
+                        try blockers.append(inputs.allocator, .{ .tag = .no_static_treaty_plan, .subject = inputs.shape.evidenceRef(), .summary = "candidate offers exist but no static route satisfies policy and capability constraints" });
+                    }
                 }
             } else if (inputs.policy.reject_ambiguous_routes and selection.selected_rank_count > 1) {
                 try blockers.append(inputs.allocator, .{ .tag = .ambiguous_static_treaty_plan, .subject = inputs.shape.evidenceRef(), .primary = selection.offer_ref, .summary = "multiple static treaty routes remain unresolved" });
             }
             return selection;
+        }
+
+        fn staticTreatyRequirementBlocker(tag: BoundaryClosureBlockerTag) bool {
+            return switch (tag) {
+                .no_static_treaty_plan,
+                .no_provider_offer_for_shape,
+                .no_capability_for_shape,
+                => true,
+                .root_program_missing,
+                .provider_catalog_empty,
+                .effect_shape_unhandled,
+                .nested_provider_effect_unhandled,
+                .ambiguous_static_treaty_plan,
+                .intrinsic_route_rejected,
+                .unallowlisted_intrinsic,
+                .unknown_semantic_body,
+                .dynamic_mapper_rejected,
+                .provider_program_contract_missing,
+                .provider_program_nested_unknown,
+                .world_port_missing,
+                .world_port_shape_mismatch,
+                .capability_shape_mismatch,
+                .treaty_policy_incompatible,
+                .defunctionalization_policy_incompatible,
+                .runtime_guard_required,
+                .unsupported_shape_planning,
+                .residualization_shape_unsupported,
+                .pipeline_shape_unsupported,
+                .depth_limit_exceeded,
+                .cycle_detected,
+                => false,
+            };
         }
 
         fn analyzeShapes(
@@ -3514,6 +3562,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                                 try world_port_refs.append(allocator, port.evidenceRef());
                                 try world_port_intrinsic_refs.append(allocator, intrinsic_ref);
                                 try nodes.append(allocator, .{ .kind = .world_port, .ref = port.evidenceRef(), .label = port.label });
+                                try edges.append(allocator, .{ .kind = .opens_obligation, .from = shape_ref, .to = port.evidenceRef() });
                                 try edges.append(allocator, .{ .kind = .world_port_exposes, .from = intrinsic_ref, .to = port.evidenceRef() });
                             }
                         }
@@ -3528,11 +3577,12 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                         try world_port_refs.append(allocator, port.evidenceRef());
                         try world_port_intrinsic_refs.append(allocator, intrinsic_ref);
                         try nodes.append(allocator, .{ .kind = .world_port, .ref = port.evidenceRef(), .label = port.label });
+                        try edges.append(allocator, .{ .kind = .opens_obligation, .from = shape_ref, .to = port.evidenceRef() });
                         try edges.append(allocator, .{ .kind = .world_port_exposes, .from = intrinsic_ref, .to = port.evidenceRef() });
                     }
                 }
-                if (plan.selected_semantic_body == .unknown) try unknown_refs.append(allocator, shape_ref);
-                if (plan.closed()) {
+                if (plan.selected_provider_offer_ref != null and plan.selected_semantic_body == .unknown) try unknown_refs.append(allocator, shape_ref);
+                if (plan.closedUnderPolicy(input.policy)) {
                     if (world_port_refs.items.len == world_port_count_before_shape) {
                         closed_count.* += 1;
                     } else {
@@ -4925,13 +4975,11 @@ fn graphWorldPortShapeCount(graph: BoundaryGraph, report: BoundaryClosureReport)
 }
 
 fn graphShapeHasWorldPort(graph: BoundaryGraph, report: BoundaryClosureReport, shape_ref: Ref) bool {
-    for (graph.edges) |shape_edge| {
-        if (shape_edge.kind != .intrinsic_boundary or !shape_edge.from.eql(shape_ref)) continue;
-        intrinsic_refs: for (report.world_port_intrinsic_refs) |intrinsic_ref| {
-            if (!shape_edge.to.eql(intrinsic_ref)) continue :intrinsic_refs;
-            for (report.world_port_refs) |world_port_ref| {
-                if (graphHasEdge(graph, .world_port_exposes, intrinsic_ref, world_port_ref)) return true;
-            }
+    for (report.world_port_refs, report.world_port_intrinsic_refs) |world_port_ref, intrinsic_ref| {
+        if (!graphHasEdge(graph, .intrinsic_boundary, shape_ref, intrinsic_ref)) continue;
+        if (!graphHasEdge(graph, .opens_obligation, shape_ref, world_port_ref)) continue;
+        if (graphHasEdge(graph, .world_port_exposes, intrinsic_ref, world_port_ref)) {
+            return true;
         }
     }
     return false;
