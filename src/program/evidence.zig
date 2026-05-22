@@ -2804,6 +2804,7 @@ pub const BoundaryClosureCertificate = struct {
             graph,
             report,
             policy,
+            self.blocker_refs,
             self.selected_static_treaty_plan_refs,
             static_treaty_plans,
         )) return error.BoundaryClosureCertificateMismatch;
@@ -3065,7 +3066,15 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             defer dependencies.deinit(inputs.allocator);
 
             try dependencies.append(inputs.allocator, .{ .role = .effect_shape, .ref = inputs.shape.evidenceRef() });
-            const runtime_request_value_guard_required = shapeRequiresValueRef(inputs.shape) and inputs.shape.value_ref == null;
+            const shape_stale = inputs.shape.fingerprint != inputs.shape.computeFingerprint();
+            if (shape_stale) {
+                try blockers.append(inputs.allocator, .{
+                    .tag = .stale_effect_shape,
+                    .subject = inputs.shape.evidenceRef(),
+                    .summary = "effect shape fields do not match its evidence fingerprint",
+                });
+            }
+            const runtime_request_value_guard_required = !shape_stale and shapeRequiresValueRef(inputs.shape) and inputs.shape.value_ref == null;
             if (runtime_request_value_guard_required and inputs.policy.reject_request_value_dependence) {
                 try blockers.append(inputs.allocator, .{
                     .tag = .runtime_guard_required,
@@ -3074,7 +3083,9 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 });
             }
             var selected: CandidateSelection = .{};
-            if (shapeSupportedForPlanning(inputs.shape)) {
+            if (shape_stale) {
+                // Stale public fields are not allowed to drive provider selection.
+            } else if (shapeSupportedForPlanning(inputs.shape)) {
                 selected = try selectShapeCandidate(inputs, &blockers, &dependencies);
             } else if (inputs.policy.reject_unknown_effect_shapes) {
                 try blockers.append(inputs.allocator, .{
@@ -3560,38 +3571,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
         }
 
         fn staticTreatyRequirementBlocker(tag: BoundaryClosureBlockerTag) bool {
-            return switch (tag) {
-                .no_static_treaty_plan,
-                .no_provider_offer_for_shape,
-                .no_capability_for_shape,
-                => true,
-                .root_program_missing,
-                .provider_catalog_empty,
-                .effect_shape_unhandled,
-                .nested_provider_effect_unhandled,
-                .stale_effect_shape,
-                .stale_world_port,
-                .duplicate_effect_shape,
-                .ambiguous_static_treaty_plan,
-                .intrinsic_route_rejected,
-                .unallowlisted_intrinsic,
-                .unknown_semantic_body,
-                .dynamic_mapper_rejected,
-                .provider_program_contract_missing,
-                .provider_program_nested_unknown,
-                .world_port_missing,
-                .world_port_shape_mismatch,
-                .capability_shape_mismatch,
-                .treaty_policy_incompatible,
-                .defunctionalization_policy_incompatible,
-                .runtime_guard_required,
-                .unsupported_shape_planning,
-                .residualization_shape_unsupported,
-                .pipeline_shape_unsupported,
-                .depth_limit_exceeded,
-                .cycle_detected,
-                => false,
-            };
+            return boundaryStaticTreatyRequirementBlocker(tag);
         }
 
         fn analyzeShapes(
@@ -5041,6 +5021,41 @@ fn hasErrorClosureBlockers(blockers: []const BoundaryClosureBlocker) bool {
     return false;
 }
 
+fn boundaryStaticTreatyRequirementBlocker(tag: BoundaryClosureBlockerTag) bool {
+    return switch (tag) {
+        .no_static_treaty_plan,
+        .no_provider_offer_for_shape,
+        .no_capability_for_shape,
+        => true,
+        .root_program_missing,
+        .provider_catalog_empty,
+        .effect_shape_unhandled,
+        .nested_provider_effect_unhandled,
+        .stale_effect_shape,
+        .stale_world_port,
+        .duplicate_effect_shape,
+        .ambiguous_static_treaty_plan,
+        .intrinsic_route_rejected,
+        .unallowlisted_intrinsic,
+        .unknown_semantic_body,
+        .dynamic_mapper_rejected,
+        .provider_program_contract_missing,
+        .provider_program_nested_unknown,
+        .world_port_missing,
+        .world_port_shape_mismatch,
+        .capability_shape_mismatch,
+        .treaty_policy_incompatible,
+        .defunctionalization_policy_incompatible,
+        .runtime_guard_required,
+        .unsupported_shape_planning,
+        .residualization_shape_unsupported,
+        .pipeline_shape_unsupported,
+        .depth_limit_exceeded,
+        .cycle_detected,
+        => false,
+    };
+}
+
 fn refsEqual(lhs: []const Ref, rhs: []const Ref) bool {
     if (lhs.len != rhs.len) return false;
     for (lhs, rhs) |left, right| {
@@ -5062,6 +5077,14 @@ fn blockerRefsMatchBlockers(refs: []const Ref, blockers: []const Blocker) bool {
         if (!ref.eql(refForBoundaryClosureBlocker(blocker))) return false;
     }
     return true;
+}
+
+fn blockersContain(blockers: []const Blocker, needle: Blocker) bool {
+    const needle_fingerprint = needle.fingerprint();
+    for (blockers) |blocker| {
+        if (blocker.fingerprint() == needle_fingerprint) return true;
+    }
+    return false;
 }
 
 fn policySummaryMatches(summary: ?PolicySummary, policy: BoundaryClosurePolicy) bool {
@@ -5135,6 +5158,7 @@ fn staticTreatyPlansMatchCertificate(
     graph: BoundaryGraph,
     report: BoundaryClosureReport,
     policy: BoundaryClosurePolicy,
+    blocker_refs: []const Ref,
     plan_refs: []const Ref,
     plans: []const BoundaryStaticTreatyPlan,
 ) bool {
@@ -5160,6 +5184,7 @@ fn staticTreatyPlansMatchCertificate(
         const plan = matched_plan.?;
         if (plan.fingerprint != plan.computeFingerprint()) return false;
         if (!plan.evidenceRef().eql(plan_ref)) return false;
+        if (!staticTreatyPlanBlockersMatchReport(graph, report, blocker_refs, plan)) return false;
 
         const shape_ref = plan.source_shape.evidenceRef();
         if (!graphHasNode(graph, .operation_site, shape_ref) and !graphHasNode(graph, .after_site, shape_ref)) return false;
@@ -5208,6 +5233,23 @@ fn staticTreatyPlansMatchCertificate(
         declarative_route_count == report.declarative_route_count and
         residualized_pipeline_route_count == report.residualized_pipeline_route_count and
         intrinsic_route_count == report.intrinsic_route_count;
+}
+
+fn staticTreatyPlanBlockersMatchReport(graph: BoundaryGraph, report: BoundaryClosureReport, blocker_refs: []const Ref, plan: BoundaryStaticTreatyPlan) bool {
+    const shape_ref = plan.source_shape.evidenceRef();
+    const has_world_port = graphShapeHasWorldPort(graph, report, shape_ref);
+    for (plan.blockers) |closure_blocker| {
+        if (has_world_port and boundaryStaticTreatyRequirementBlocker(closure_blocker.tag)) continue;
+        const blocker = closure_blocker.toEvidenceBlocker();
+        const blocker_ref = refForBoundaryClosureBlocker(blocker);
+        if (!refsContain(blocker_refs, blocker_ref)) return false;
+        if (!blockersContain(report.blockers, blocker)) return false;
+        if (!graphHasNode(graph, .blocker, blocker_ref)) return false;
+        if (blocker.subject) |subject_ref| {
+            if (!graphHasEdge(graph, .blocked_by, subject_ref, blocker_ref)) return false;
+        }
+    }
+    return true;
 }
 
 fn selectedPlanHostIntrinsicCount(plan: BoundaryStaticTreatyPlan) usize {

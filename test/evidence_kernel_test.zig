@@ -315,6 +315,23 @@ test "static treaty planner matches provider shape without request bytes" {
     try std.testing.expect(!plan.runtime_request_value_validation_required);
     try std.testing.expect(!plan.byte_size_runtime_guard_required);
 
+    var stale_direct_shape = shape;
+    stale_direct_shape.site_fingerprint = protocol_op_fingerprint +% 1;
+    const stale_direct_plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = allocator,
+        .shape = stale_direct_shape,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = world_plan_policy,
+    });
+    defer allocator.free(stale_direct_plan.blockers);
+    defer allocator.free(stale_direct_plan.dependencies);
+    try std.testing.expect(!stale_direct_plan.closed());
+    try std.testing.expectEqual(@as(usize, 1), stale_direct_plan.blockers.len);
+    try std.testing.expectEqual(Evidence.BoundaryClosureBlockerTag.stale_effect_shape, stale_direct_plan.blockers[0].tag);
+    try std.testing.expect(stale_direct_plan.selected_provider_offer_ref == null);
+
     var max_zero_closure_policy = world_plan_policy;
     max_zero_closure_policy.defunctionalization_policy.maximum_intrinsic_count = 0;
     const max_zero_closure_plan = try Program.Exchange.TreatyResolver.planShape(.{
@@ -3827,6 +3844,42 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
         forged_plan_edge_certificate.check(forged_plan_edge_graph, forged_plan_edge_report, closure_policy, result.static_treaty_plans),
+    );
+    const hidden_blocker_plan = try Closure.planTreatyForShape(.{
+        .allocator = allocator,
+        .shape = shape,
+        .policy = closure_policy,
+    });
+    defer allocator.free(hidden_blocker_plan.blockers);
+    defer allocator.free(hidden_blocker_plan.dependencies);
+    try std.testing.expect(hidden_blocker_plan.blockers.len != 0);
+    const hidden_blocker_plan_ref = hidden_blocker_plan.evidenceRef();
+    const hidden_blocker_shape_ref = shape.evidenceRef();
+    const hidden_blocker_nodes = [_]Closure.Graph.Node{
+        .{ .kind = .operation_site, .ref = hidden_blocker_shape_ref, .label = shape.name },
+        .{ .kind = .treaty_shape_plan, .ref = hidden_blocker_plan_ref, .label = hidden_blocker_plan.label },
+    };
+    const hidden_blocker_edges = [_]Closure.Graph.Edge{.{
+        .kind = .treaty_planned,
+        .from = hidden_blocker_shape_ref,
+        .to = hidden_blocker_plan_ref,
+    }};
+    const hidden_blocker_graph = Closure.Graph.init("hidden-plan-blocker-graph", hidden_blocker_nodes[0..], hidden_blocker_edges[0..], &.{});
+    const hidden_blocker_policy = Evidence.BoundaryClosurePolicy.auditOnly();
+    const hidden_blocker_report = Evidence.BoundaryClosureReport.init(.{
+        .graph_fingerprint = hidden_blocker_graph.fingerprint,
+        .effect_shape_count = 1,
+        .policy_summary = hidden_blocker_policy.policySummary(),
+    });
+    const hidden_blocker_certificate = Evidence.BoundaryClosureCertificate.init(
+        hidden_blocker_report,
+        hidden_blocker_graph,
+        hidden_blocker_policy,
+        &.{hidden_blocker_plan_ref},
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        hidden_blocker_certificate.check(hidden_blocker_graph, hidden_blocker_report, hidden_blocker_policy, &.{hidden_blocker_plan}),
     );
     var stale_count_certificate = result.certificate;
     stale_count_certificate.closed_effect_shape_count = 0;
