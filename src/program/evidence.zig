@@ -3887,7 +3887,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
         }
 
         fn selectedPlanProviderProgram(input: Input, plan: StaticTreatyPlan) ?SelectedProviderProgram {
-            if (!plan.closed() or plan.selected_semantic_body != .boundary_program) return null;
+            if (plan.selected_semantic_body != .boundary_program) return null;
             const selected_offer_ref = plan.selected_provider_offer_ref orelse return null;
             for (input.provider_offers) |offer| {
                 if (!offer.evidenceRef().eql(selected_offer_ref)) continue;

@@ -24463,6 +24463,30 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expectEqual(@as(usize, 1), nested_closure.report.provider_program_refs.len);
     try std.testing.expectEqual(@as(usize, 0), nested_closure.report.blocker_count);
 
+    const duplicate_program_offers = [_]Program.Exchange.ProviderOffer{
+        program_catalog.provider_offers[0],
+        program_catalog.provider_offers[0],
+    };
+    var ambiguous_program_closure = try Program.BoundaryClosure.analyze(std.testing.allocator, .{
+        .allocator = std.testing.allocator,
+        .root_shapes = &.{static_operation_shape},
+        .provider_programs = provider_programs[0..],
+        .provider_manifests = &.{program_catalog.provider_manifest},
+        .provider_offers = duplicate_program_offers[0..],
+        .capabilities = &.{program_capability},
+        .policy = closure_policy,
+    });
+    defer ambiguous_program_closure.deinit();
+    var saw_ambiguous_program_route = false;
+    var saw_missing_program_contract = false;
+    for (ambiguous_program_closure.report.blockers) |blocker| {
+        if (std.mem.eql(u8, blocker.tag, "ambiguous_static_treaty_plan")) saw_ambiguous_program_route = true;
+        if (std.mem.eql(u8, blocker.tag, "provider_program_contract_missing")) saw_missing_program_contract = true;
+    }
+    try std.testing.expect(saw_ambiguous_program_route);
+    try std.testing.expect(!saw_missing_program_contract);
+    try std.testing.expectEqual(@as(usize, 1), ambiguous_program_closure.report.provider_program_refs.len);
+
     const AfterHandlerBody = struct {
         pub const compiled_plan = pureArithmeticPlan("program-backed-provider-depth-after-handler");
     };
