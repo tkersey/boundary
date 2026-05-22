@@ -3096,6 +3096,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     try result.assertClosed();
     try std.testing.expectEqual(@as(usize, 1), result.report.effect_shape_count);
     try std.testing.expectEqual(@as(usize, 1), result.report.closed_effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 1), result.report.intrinsic_route_count);
     try std.testing.expectEqual(@as(usize, 1), result.static_treaty_plans.len);
     try std.testing.expectEqual(offer.evidenceRef().fingerprint, result.static_treaty_plans[0].selected_provider_offer_ref.?.fingerprint);
     try result.certificate.check(result.graph, result.report, closure_policy, result.static_treaty_plans);
@@ -3741,6 +3742,19 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
         stale_count_certificate.check(result.graph, result.report, closure_policy, result.static_treaty_plans),
+    );
+    var forged_route_mix_report = result.report;
+    forged_route_mix_report.intrinsic_route_count = 0;
+    forged_route_mix_report.report_fingerprint = forged_route_mix_report.computeFingerprint();
+    const forged_route_mix_certificate = Evidence.BoundaryClosureCertificate.init(
+        forged_route_mix_report,
+        result.graph,
+        closure_policy,
+        result.plan_refs,
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        forged_route_mix_certificate.check(result.graph, forged_route_mix_report, closure_policy, result.static_treaty_plans),
     );
     const forged_plan_refs = [_]Evidence.Ref{result.static_treaty_plans[0].evidenceRef()};
     const forged_world_port_ref = Evidence.refFor(Evidence.domains.boundary_world_port, 0xBEEF, .{

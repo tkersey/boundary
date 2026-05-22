@@ -2335,6 +2335,7 @@ pub const BoundaryStaticTreatyPlan = struct {
     selected_provider_ref: ?Ref = null,
     selected_capability_ref: ?Ref = null,
     selected_morphism_ref: ?Ref = null,
+    selected_morphism_semantic_body: ?SemanticBody = null,
     selected_semantic_body: SemanticBody = .unknown,
     selected_intrinsic_ref: ?Ref = null,
     boundary_native: bool = false,
@@ -2353,6 +2354,7 @@ pub const BoundaryStaticTreatyPlan = struct {
         selected_provider_ref: ?Ref = null,
         selected_capability_ref: ?Ref = null,
         selected_morphism_ref: ?Ref = null,
+        selected_morphism_semantic_body: ?SemanticBody = null,
         selected_semantic_body: SemanticBody = .unknown,
         selected_intrinsic_ref: ?Ref = null,
         boundary_native: bool = false,
@@ -2374,6 +2376,7 @@ pub const BoundaryStaticTreatyPlan = struct {
             .selected_provider_ref = options.selected_provider_ref,
             .selected_capability_ref = options.selected_capability_ref,
             .selected_morphism_ref = options.selected_morphism_ref,
+            .selected_morphism_semantic_body = options.selected_morphism_semantic_body,
             .selected_semantic_body = options.selected_semantic_body,
             .selected_intrinsic_ref = options.selected_intrinsic_ref,
             .boundary_native = options.boundary_native,
@@ -2397,6 +2400,7 @@ pub const BoundaryStaticTreatyPlan = struct {
         builder.fieldOptionalRef("provider", self.selected_provider_ref);
         builder.fieldOptionalRef("capability", self.selected_capability_ref);
         builder.fieldOptionalRef("morphism", self.selected_morphism_ref);
+        if (self.selected_morphism_semantic_body) |body| builder.fieldBytes("morphism_semantic_body", @tagName(body));
         builder.fieldBytes("semantic_body", @tagName(self.selected_semantic_body));
         builder.fieldOptionalRef("intrinsic", self.selected_intrinsic_ref);
         builder.fieldBool("boundary_native", self.boundary_native);
@@ -3109,6 +3113,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 .selected_provider_ref = selected.provider_ref,
                 .selected_capability_ref = selected.capability_ref,
                 .selected_morphism_ref = selected.morphism_ref,
+                .selected_morphism_semantic_body = selected.morphism_body,
                 .selected_semantic_body = selected.body,
                 .selected_intrinsic_ref = selected.intrinsic_ref,
                 .boundary_native = selected.body.isNonIntrinsic() and (if (selected.morphism_body) |body| body.isNonIntrinsic() else true),
@@ -5096,6 +5101,10 @@ fn staticTreatyPlansMatchCertificate(
     var closed_shape_count: usize = 0;
     var world_port_shape_count: usize = 0;
     var unknown_body_count: usize = 0;
+    var boundary_native_route_count: usize = 0;
+    var declarative_route_count: usize = 0;
+    var residualized_pipeline_route_count: usize = 0;
+    var intrinsic_route_count: usize = 0;
     for (plan_refs) |plan_ref| {
         if (plan_ref.domain_id != domains.boundary_static_treaty_plan.id) return false;
         var match_count: usize = 0;
@@ -5138,6 +5147,13 @@ fn staticTreatyPlansMatchCertificate(
             } else {
                 closed_shape_count += 1;
             }
+            if (plan.boundary_native) boundary_native_route_count += 1;
+            if (plan.host_intrinsic) intrinsic_route_count += selectedPlanHostIntrinsicCount(plan);
+            switch (plan.selected_morphism_semantic_body orelse plan.selected_semantic_body) {
+                .boundary_program, .kernel_primitive, .host_intrinsic, .unknown => {},
+                .declarative => declarative_route_count += 1,
+                .residualized_program, .pipeline => residualized_pipeline_route_count += 1,
+            }
         } else if (has_world_port) {
             world_port_shape_count += 1;
         }
@@ -5145,7 +5161,21 @@ fn staticTreatyPlansMatchCertificate(
 
     return closed_shape_count == report.closed_effect_shape_count and
         world_port_shape_count == report.open_world_port_count and
-        unknown_body_count == report.unknown_body_count;
+        unknown_body_count == report.unknown_body_count and
+        boundary_native_route_count == report.boundary_native_route_count and
+        declarative_route_count == report.declarative_route_count and
+        residualized_pipeline_route_count == report.residualized_pipeline_route_count and
+        intrinsic_route_count == report.intrinsic_route_count;
+}
+
+fn selectedPlanHostIntrinsicCount(plan: BoundaryStaticTreatyPlan) usize {
+    if (plan.selected_provider_offer_ref == null) return 0;
+    var count: usize = 0;
+    if (plan.selected_semantic_body == .host_intrinsic) count += 1;
+    if (plan.selected_morphism_semantic_body) |body| {
+        if (body == .host_intrinsic) count += 1;
+    }
+    return count;
 }
 
 fn graphBlockerRefsMatchCertificate(graph: BoundaryGraph, blocker_refs: []const Ref, blockers: []const Blocker) bool {
