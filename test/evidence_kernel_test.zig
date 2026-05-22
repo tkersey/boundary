@@ -328,6 +328,13 @@ test "static treaty planner matches provider shape without request bytes" {
     try std.testing.expectEqual(capability.evidenceRef().fingerprint, plan.selected_capability_ref.?.fingerprint);
     try std.testing.expect(!plan.runtime_request_value_validation_required);
     try std.testing.expect(!plan.byte_size_runtime_guard_required);
+    var missing_authority_plan = plan;
+    missing_authority_plan.selected_capability_ref = null;
+    missing_authority_plan.fingerprint = missing_authority_plan.computeFingerprint();
+    try std.testing.expect(!missing_authority_plan.closedUnderPolicy(world_plan_policy));
+    var program_required_static_policy = world_plan_policy;
+    program_required_static_policy.require_program_backed_providers = true;
+    try std.testing.expect(!plan.closedUnderPolicy(program_required_static_policy));
 
     var stale_direct_shape = shape;
     stale_direct_shape.site_fingerprint = protocol_op_fingerprint +% 1;

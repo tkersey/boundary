@@ -2467,12 +2467,24 @@ pub const BoundaryStaticTreatyPlan = struct {
     }
 
     pub fn closed(self: @This()) bool {
-        return self.selected_provider_offer_ref != null and !hasErrorClosureBlockers(self.blockers);
+        return self.selected_provider_offer_ref != null and
+            self.selected_provider_ref != null and
+            self.selected_capability_ref != null and
+            !hasErrorClosureBlockers(self.blockers);
     }
 
     pub fn closedUnderPolicy(self: @This(), policy: BoundaryClosurePolicy) bool {
-        _ = policy;
-        return self.closed();
+        if (!self.closed()) return false;
+        if (self.selected_morphism_ref != null and self.selected_morphism_semantic_body == null) return false;
+        if ((policy.reject_unknown_semantic_bodies or policy.defunctionalization_policy.reject_unknown) and self.selected_semantic_body == .unknown) return false;
+        if (policy.require_program_backed_providers or policy.defunctionalization_policy.require_program_backed_providers) {
+            if (self.selected_semantic_body != .boundary_program) return false;
+        }
+        if (policy.require_declarative_morphisms or policy.defunctionalization_policy.require_declarative_morphisms) {
+            const body = self.selected_morphism_semantic_body orelse return true;
+            if (body != .declarative and body != .residualized_program and body != .pipeline) return false;
+        }
+        return true;
     }
 };
 
