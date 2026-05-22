@@ -697,6 +697,27 @@ test "static treaty planner matches provider shape without request bytes" {
         .treaty_policy = .{ .disallow_fresh_response = true },
     });
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.blocked, static_fresh_disallowed_plan.status);
+    const unnamed_shape = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "evidence-test",
+        .plan_label = "evidence-test-plan",
+        .plan_hash = 1,
+        .kind = .operation,
+        .site_index = site_index,
+        .site_fingerprint = protocol_op_fingerprint,
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(response_ref),
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = protocol_op_fingerprint,
+    });
+    const unnamed_op_scoped_static_plan = Program.Exchange.TreatyResolver.planStatic(.{
+        .shape = unnamed_shape,
+        .manifest = manifest,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+    });
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.blocked, unnamed_op_scoped_static_plan.status);
     const fresh_disallowed_plan = try Program.Exchange.TreatyResolver.planShape(.{
         .allocator = allocator,
         .shape = shape,

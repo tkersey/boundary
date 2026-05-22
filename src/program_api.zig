@@ -16944,7 +16944,10 @@ pub fn program(
                 }
                 if (!listAllowsU64(capability.allowed_protocol_op_fingerprints, protocol_op_fingerprint)) return false;
                 if (!listAllowsString(capability.allowed_requirement_labels, requirement_label)) return false;
-                if (shape.name.len != 0 and !listAllowsString(capability.allowed_op_names, shape.name)) return false;
+                if (capability.allowed_op_names.len != 0) {
+                    if (shape.name.len == 0) return false;
+                    if (!listAllowsString(capability.allowed_op_names, shape.name)) return false;
+                }
                 if (shape.max_request_bytes != 0 and shape.max_request_bytes > capability.max_request_bytes) return false;
                 if (shape.max_payload_bytes != 0 and shape.max_payload_bytes > capability.max_payload_bytes) return false;
                 if (shape.max_response_bytes != 0 and shape.max_response_bytes > capability.max_response_bytes) return false;
