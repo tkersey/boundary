@@ -990,6 +990,32 @@ test "static treaty planner matches provider shape without request bytes" {
     defer allocator.free(unbound_capability_plan.dependencies);
     try std.testing.expect(!unbound_capability_plan.closed());
     try std.testing.expect(unbound_capability_plan.selected_capability_ref == null);
+    const narrow_route_plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = allocator,
+        .shape = byte_bounded_shape,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{forged_capability},
+        .route_policy = .{ .max_envelope_bytes = 63 },
+        .policy = world_plan_policy,
+    });
+    defer allocator.free(narrow_route_plan.blockers);
+    defer allocator.free(narrow_route_plan.dependencies);
+    try std.testing.expect(!narrow_route_plan.closed());
+    try std.testing.expect(narrow_route_plan.selected_provider_offer_ref == null);
+    const wrong_site_route_plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = allocator,
+        .shape = byte_bounded_shape,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{forged_capability},
+        .route_policy = .{ .allowed_operation_sites = &.{site_index + 1} },
+        .policy = world_plan_policy,
+    });
+    defer allocator.free(wrong_site_route_plan.blockers);
+    defer allocator.free(wrong_site_route_plan.dependencies);
+    try std.testing.expect(!wrong_site_route_plan.closed());
+    try std.testing.expect(wrong_site_route_plan.selected_provider_offer_ref == null);
 
     var unrelated_static_offer = try Program.Exchange.ProviderOffer.encode(allocator, .{
         .label = "unrelated-static-offer",
@@ -1409,6 +1435,24 @@ test "static treaty planner matches provider shape without request bytes" {
         .capabilities = &.{capability},
     });
     try std.testing.expect(narrow_offer_static_plan.status != Program.Exchange.TreatyResolver.StaticStatus.static_treaty);
+    const narrow_route_static_plan = Program.Exchange.TreatyResolver.planStatic(.{
+        .shape = byte_bound_shape,
+        .manifest = manifest,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .route_policy = .{ .max_envelope_bytes = 63 },
+    });
+    try std.testing.expect(narrow_route_static_plan.status != Program.Exchange.TreatyResolver.StaticStatus.static_treaty);
+    const wrong_site_route_static_plan = Program.Exchange.TreatyResolver.planStatic(.{
+        .shape = byte_bound_shape,
+        .manifest = manifest,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .route_policy = .{ .allowed_operation_sites = &.{site_index + 1} },
+    });
+    try std.testing.expect(wrong_site_route_static_plan.status != Program.Exchange.TreatyResolver.StaticStatus.static_treaty);
 
     var wrong_response_capability = try Program.Exchange.Capability.encode(allocator, .{
         .issuer_label = "wrong-response-capability",

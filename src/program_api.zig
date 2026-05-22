@@ -17032,7 +17032,9 @@ pub fn program(
             }
 
             fn staticRoutePolicyAllowsShape(policy: Policy, shape: Evidence.BoundaryEffectShape, has_capsule: bool) bool {
+                if (shape.max_request_bytes != 0 and shape.max_request_bytes > policy.max_envelope_bytes) return false;
                 if (shape.max_response_bytes != 0 and shape.max_response_bytes > policy.max_envelope_bytes) return false;
+                if (!staticRoutePolicyAllowsShapeSite(policy, shape)) return false;
                 if (!policy.allow_response_value_images and shape.max_payload_bytes != 0) return false;
                 if (shape.max_payload_bytes != 0 and shape.max_payload_bytes > policy.max_payload_bytes) return false;
                 if (has_capsule and !policy.allow_capsules) return false;
@@ -17041,6 +17043,17 @@ pub fn program(
                     if (shape.max_capsule_image_bytes > capsule_limit) return false;
                 }
                 return true;
+            }
+
+            fn staticRoutePolicyAllowsShapeSite(policy: Policy, shape: Evidence.BoundaryEffectShape) bool {
+                const allowed = switch (shape.kind) {
+                    .operation, .provider_program => policy.allowed_operation_sites,
+                    .after => policy.allowed_after_sites,
+                    .root_program, .intrinsic, .world_port, .unknown => null,
+                };
+                const list = allowed orelse return true;
+                const site_index = shape.site_index orelse return false;
+                return listAllowsUsize(list, site_index);
             }
 
             fn staticCapabilityBlockedByTreatyPolicy(capability: Capability, policy: Treaty.Policy) bool {

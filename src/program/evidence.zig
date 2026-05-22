@@ -4305,7 +4305,9 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
         }
 
         fn closureRoutePolicyAllowsShape(policy: ProgramType.Exchange.Policy, shape: Closure.EffectShape) bool {
+            if (shape.max_request_bytes != 0 and shape.max_request_bytes > policy.max_envelope_bytes) return false;
             if (shape.max_response_bytes != 0 and shape.max_response_bytes > policy.max_envelope_bytes) return false;
+            if (!closureRoutePolicyAllowsShapeSite(policy, shape)) return false;
             if (!policy.allow_response_value_images and shape.max_payload_bytes != 0) return false;
             if (shape.max_payload_bytes != 0 and shape.max_payload_bytes > policy.max_payload_bytes) return false;
             if (shape.max_capsule_image_bytes != 0) {
@@ -4314,6 +4316,13 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 if (shape.max_capsule_image_bytes > capsule_limit) return false;
             }
             return true;
+        }
+
+        fn closureRoutePolicyAllowsShapeSite(policy: ProgramType.Exchange.Policy, shape: Closure.EffectShape) bool {
+            const allowed = if (shape.kind == .after) policy.allowed_after_sites else policy.allowed_operation_sites;
+            const list = allowed orelse return true;
+            const site_index = shape.site_index orelse return false;
+            return listAllowsUsizeClosure(list, site_index);
         }
 
         fn closureCapabilityBlockedByTreatyPolicy(capability: ProgramType.Exchange.Capability, policy: ProgramType.Exchange.Treaty.Policy) bool {
