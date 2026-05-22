@@ -3782,6 +3782,25 @@ test "boundary closure traversal closes a provider-backed shape" {
         error.BoundaryClosureCertificateMismatch,
         forged_intrinsic_certificate.check(result.graph, forged_intrinsic_report, closure_policy),
     );
+    const forged_unknown_refs = [_]Evidence.Ref{result.static_treaty_plans[0].source_shape.evidenceRef()};
+    const undercounted_unknown_report = Evidence.BoundaryClosureReport.init(.{
+        .graph_fingerprint = result.graph.fingerprint,
+        .effect_shape_count = 1,
+        .closed_effect_shape_count = 1,
+        .unknown_body_count = 0,
+        .unknown_refs = forged_unknown_refs[0..],
+        .policy_summary = closure_policy.policySummary(),
+    });
+    const undercounted_unknown_certificate = Evidence.BoundaryClosureCertificate.init(
+        undercounted_unknown_report,
+        result.graph,
+        closure_policy,
+        forged_plan_refs[0..],
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        undercounted_unknown_certificate.check(result.graph, undercounted_unknown_report, closure_policy),
+    );
 
     var not_closed_report = result.report;
     not_closed_report.closed_effect_shape_count = 0;

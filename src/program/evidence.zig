@@ -2771,6 +2771,7 @@ pub const BoundaryClosureCertificate = struct {
         if (report.open_world_port_count != graphWorldPortShapeCount(graph, report)) return error.BoundaryClosureCertificateMismatch;
         if ((report.open_world_port_count == 0) != (report.world_port_refs.len == 0)) return error.BoundaryClosureCertificateMismatch;
         if (report.host_intrinsic_count != report.host_intrinsic_refs.len) return error.BoundaryClosureCertificateMismatch;
+        if (report.unknown_body_count != report.unknown_refs.len) return error.BoundaryClosureCertificateMismatch;
         if (report.world_port_refs.len != report.world_port_intrinsic_refs.len) return error.BoundaryClosureCertificateMismatch;
         if (!graphNodeRefsMatchReport(graph, .host_intrinsic, report.host_intrinsic_refs)) return error.BoundaryClosureCertificateMismatch;
         if (!graphNodeRefsMatchReport(graph, .world_port, report.world_port_refs)) return error.BoundaryClosureCertificateMismatch;
