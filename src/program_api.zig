@@ -10564,6 +10564,19 @@ pub fn program(
                     pub fn hasErrors(self: @This()) bool {
                         return self.count != 0 or self.truncated;
                     }
+
+                    fn evidenceOmittedFingerprint(self: @This()) ?u64 {
+                        if (!self.truncated) return null;
+                        var builder = Evidence.FingerprintBuilder.init(Evidence.domains.boundary_static_treaty_plan);
+                        builder.fieldBytes("kind", "static_treaty_plan_omitted_blockers");
+                        builder.fieldUsize("retained_count", self.count);
+                        builder.fieldUsize("capacity", self.blockers.len);
+                        for (self.blockers[0..self.count], 0..) |blocker, index| {
+                            builder.fieldUsize("blocker.index", index);
+                            builder.fieldU64("blocker.fingerprint", blocker.fingerprint());
+                        }
+                        return builder.finish();
+                    }
                 };
 
                 /// Static treaty plan evidence over a shape/catalog/policy tuple.
@@ -10596,6 +10609,9 @@ pub fn program(
                     pub fn toEvidenceReport(self: *const @This(), dependencies: []const Evidence.Dependency) Evidence.Report {
                         const plan_ref = self.evidenceRef();
                         if (self.status == .static_treaty and !self.blockers.hasErrors()) return Evidence.Report.ok(plan_ref, Evidence.domains.boundary_static_treaty_plan.id, dependencies);
+                        if (self.blockers.evidenceOmittedFingerprint()) |omitted_fingerprint| {
+                            return Evidence.Report.withIncompleteFailure(plan_ref, Evidence.domains.boundary_static_treaty_plan.id, dependencies, self.blockers.slice(), &.{}, omitted_fingerprint, null, "static treaty plan");
+                        }
                         return Evidence.Report.withFailure(plan_ref, Evidence.domains.boundary_static_treaty_plan.id, dependencies, self.blockers.slice(), &.{}, null, "static treaty plan");
                     }
                 };

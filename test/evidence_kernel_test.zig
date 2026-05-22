@@ -1203,6 +1203,23 @@ test "static treaty planner matches provider shape without request bytes" {
     try std.testing.expect(static_plan_report.success);
     try std.testing.expect(static_plan_report.subject.eql(static_plan_with_rejected_candidate.evidenceRef()));
 
+    const overflowing_static_offers = [_]Program.Exchange.ProviderOffer{offer} ** 17;
+    const overflowing_static_plan = Program.Exchange.TreatyResolver.planStatic(.{
+        .shape = shape,
+        .manifest = manifest,
+        .provider_manifests = &.{},
+        .provider_offers = overflowing_static_offers[0..],
+        .capabilities = &.{capability},
+    });
+    try std.testing.expect(overflowing_static_plan.blockers.truncated);
+    try std.testing.expectEqual(@as(usize, 16), overflowing_static_plan.blockers.slice().len);
+    const overflowing_static_report = overflowing_static_plan.toEvidenceReport(&.{});
+    try std.testing.expect(!overflowing_static_report.success);
+    try std.testing.expect(overflowing_static_report.truncated);
+    try std.testing.expect(overflowing_static_report.omitted_fingerprint != null);
+    try std.testing.expect(overflowing_static_report.hasErrors());
+    try std.testing.expectError(error.EvidenceReportHasErrors, overflowing_static_report.assertOk());
+
     const bounded_authority_static_plan = Program.Exchange.TreatyResolver.planStatic(.{
         .shape = shape,
         .manifest = manifest,
