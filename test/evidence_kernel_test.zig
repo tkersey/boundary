@@ -1982,6 +1982,31 @@ test "static treaty planner matches provider shape without request bytes" {
     try std.testing.expectEqual(dynamic_morphism_offer.evidenceRef().fingerprint, dynamic_morphism_plan.selected_morphism_ref.?.fingerprint);
     try Evidence.expectDependencyContains(dynamic_morphism_plan.dependencies, .offer, morphism_target_offer.evidenceRef());
     try Evidence.expectDependencyContains(dynamic_morphism_plan.dependencies, .capability, morphism_capability.evidenceRef());
+    const rejected_morphism_target_provider_static_plan = Program.Exchange.TreatyResolver.planStatic(.{
+        .shape = shape,
+        .manifest = manifest,
+        .provider_manifests = &.{morphism_target_provider},
+        .provider_offers = &.{morphism_target_offer},
+        .morphism_offers = &.{morphism_offer},
+        .capabilities = &.{morphism_capability},
+        .treaty_policy = .{ .allow_direct_handling = false, .reject_intrinsic_provider = true },
+    });
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.blocked, rejected_morphism_target_provider_static_plan.status);
+    try std.testing.expectEqual(@as(usize, 0), rejected_morphism_target_provider_static_plan.candidate_count);
+    const rejected_morphism_target_provider_plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = allocator,
+        .shape = shape,
+        .provider_manifests = &.{morphism_target_provider},
+        .provider_offers = &.{morphism_target_offer},
+        .morphism_offers = &.{morphism_offer},
+        .capabilities = &.{morphism_capability},
+        .treaty_policy = .{ .allow_direct_handling = false, .reject_intrinsic_provider = true },
+        .policy = morphism_policy,
+    });
+    defer allocator.free(rejected_morphism_target_provider_plan.blockers);
+    defer allocator.free(rejected_morphism_target_provider_plan.dependencies);
+    try std.testing.expect(!rejected_morphism_target_provider_plan.closed());
+    try std.testing.expect(rejected_morphism_target_provider_plan.selected_provider_offer_ref == null);
     const mixed_morphism_offer = Program.Exchange.MorphismOffer{
         .label = "approval-mixed-morphism",
         .source_site_fingerprint = protocol_op_fingerprint,

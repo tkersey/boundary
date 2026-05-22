@@ -16542,6 +16542,10 @@ pub fn program(
                                 plan.blocked_count += 1;
                                 continue :morphism_offers;
                             }
+                            if (staticProviderBodyBlocker(inputs.treaty_policy, provider.*, offer, plan.shape_ref, &plan.blockers)) {
+                                plan.blocked_count += 1;
+                                continue :morphism_offers;
+                            }
                             morphism_capabilities: for (inputs.capabilities) |capability| {
                                 if (!staticCapabilitySupportsMorphismTarget(capability, inputs.manifest, provider.*, offer, inputs.route_policy, request_kind, site_index, morphism.target_protocol_op_fingerprint, inputs.shape, morphism, inputs.has_capsule)) continue :morphism_capabilities;
                                 selectStaticPlanCandidate(inputs.treaty_policy, inputs.route_policy, plan, inputs.shape, provider.*, offer, capability, morphism);
