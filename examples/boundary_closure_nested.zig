@@ -144,18 +144,28 @@ fn analyzeRoot(allocator: std.mem.Allocator, writer: anytype) !u64 {
     const providers = [_]RootProgram.Exchange.ProviderManifest{catalog.provider_manifest};
     const offers = [_]RootProgram.Exchange.ProviderOffer{catalog.provider_offers[0]};
     const capabilities = [_]RootProgram.Exchange.Capability{capability};
+    const provider_programs = [_]Closure.ProviderProgram{.{
+        .provider_ref = catalog.provider_manifest.evidenceRef(),
+        .program_ref = RootProgram.Evidence.refFor(RootProgram.Evidence.domains.program_plan, ApprovalProviderProgram.compiled_plan.hash(), .{ .label = ApprovalProviderProgram.contract.label }),
+        .provider_program_mapping_fingerprint = ApprovalDecl.provider_program_mapping_fingerprint,
+    }};
     var closure = try Closure.analyze(allocator, .{
         .allocator = allocator,
         .root_shapes = root_shapes[0..1],
+        .provider_programs = provider_programs[0..],
         .provider_manifests = providers[0..],
         .provider_offers = offers[0..],
         .capabilities = capabilities[0..],
         .policy = Closure.Policy.strict(),
     });
     defer closure.deinit();
-    try closure.assertClosed();
+    if (closure.report.closed()) return error.ExpectedNestedClosureBlocker;
+    closure.assertClosed() catch |err| switch (err) {
+        error.BoundaryClosureNotClosed => {},
+    };
     try writer.print("root_effect_shape_fingerprint={x}\n", .{root_shapes[0].fingerprint});
     try writer.print("root_static_treaty_plan={x}\n", .{closure.static_treaty_plans[0].fingerprint});
+    try writer.print("root_missing_nested_shape_blockers={}\n", .{closure.report.blocker_count});
     return closure.certificate.certificate_fingerprint;
 }
 
@@ -178,9 +188,16 @@ fn analyzeNested(allocator: std.mem.Allocator, writer: anytype) !u64 {
     const providers = [_]ApprovalProviderProgram.Exchange.ProviderManifest{catalog.provider_manifest};
     const offers = [_]ApprovalProviderProgram.Exchange.ProviderOffer{catalog.provider_offers[0]};
     const capabilities = [_]ApprovalProviderProgram.Exchange.Capability{capability};
+    const provider_programs = [_]Closure.ProviderProgram{.{
+        .provider_ref = catalog.provider_manifest.evidenceRef(),
+        .program_ref = ApprovalProviderProgram.Evidence.refFor(ApprovalProviderProgram.Evidence.domains.program_plan, PolicyProviderProgram.compiled_plan.hash(), .{ .label = PolicyProviderProgram.contract.label }),
+        .provider_program_mapping_fingerprint = PolicyDecl.provider_program_mapping_fingerprint,
+        .effect_free = true,
+    }};
     var closure = try Closure.analyze(allocator, .{
         .allocator = allocator,
         .root_shapes = nested_shapes[0..1],
+        .provider_programs = provider_programs[0..],
         .provider_manifests = providers[0..],
         .provider_offers = offers[0..],
         .capabilities = capabilities[0..],

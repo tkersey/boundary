@@ -100,9 +100,16 @@ pub fn run(writer: anytype) !void {
     const providers = [_]SourceProgram.Exchange.ProviderManifest{catalog.provider_manifest};
     const offers = [_]SourceProgram.Exchange.ProviderOffer{catalog.provider_offers[0]};
     const capabilities = [_]SourceProgram.Exchange.Capability{capability};
+    const provider_programs = [_]Closure.ProviderProgram{.{
+        .provider_ref = catalog.provider_manifest.evidenceRef(),
+        .program_ref = SourceProgram.Evidence.refFor(SourceProgram.Evidence.domains.program_plan, HandlerProgram.compiled_plan.hash(), .{ .label = HandlerProgram.contract.label }),
+        .provider_program_mapping_fingerprint = ApprovalDecl.provider_program_mapping_fingerprint,
+        .effect_free = true,
+    }};
     var closure = try Closure.analyze(allocator, .{
         .allocator = allocator,
         .root_shapes = root_shapes[0..1],
+        .provider_programs = provider_programs[0..],
         .provider_manifests = providers[0..],
         .provider_offers = offers[0..],
         .capabilities = capabilities[0..],

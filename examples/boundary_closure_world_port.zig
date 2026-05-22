@@ -91,6 +91,7 @@ pub fn run(writer: anytype) !void {
         .label = "human-approval-port",
         .kind = .host_human,
         .effect_shape_ref = root_shapes[0].evidenceRef(),
+        .exposed_intrinsic_ref = intrinsic_ref,
         .supported_protocol_labels = &.{"approval"},
         .supported_site_indexes = &.{ApprovalRequest.index},
         .supported_protocol_op_fingerprints = &.{ApprovalRequest.fingerprint},
@@ -109,8 +110,6 @@ pub fn run(writer: anytype) !void {
     defer strict.deinit();
 
     var policy = Closure.Policy.worldBoundary();
-    const allowed = [_]u64{intrinsic_ref.fingerprint};
-    policy.allowed_host_intrinsic_fingerprints = allowed[0..];
     const allowed_ports = [_]u64{port.fingerprint};
     policy.allowed_world_port_fingerprints = allowed_ports[0..];
     var world = try Closure.analyze(allocator, .{

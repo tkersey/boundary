@@ -1318,7 +1318,7 @@ pub fn program(
         /// Stable format version for Program.Exchange provider offer images.
         pub const exchange_provider_offer_format_version: u32 = Evidence.domains.provider_offer.format_version.?;
         /// Stable format version for Program.Exchange program-backed provider offer images.
-        pub const exchange_provider_program_offer_format_version: u32 = 2;
+        pub const exchange_provider_program_offer_format_version: u32 = 3;
         /// Stable fingerprint version for Program.Exchange provider offer images.
         pub const exchange_provider_offer_fingerprint_version: u32 = Evidence.domains.provider_offer.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange provider harness declarations.
@@ -3907,6 +3907,7 @@ pub fn program(
             const response_magic = "ABL_EXR1";
             const provider_magic = "ABL_EXP1";
             const provider_offer_magic = "ABL_EXO1";
+            const provider_offer_legacy_program_format_version: u32 = 2;
             const provider_offer_program_format_version: u32 = exchange_provider_program_offer_format_version;
             const treaty_authorization_magic = "ABL_EXT1";
             const capability_magic = "ABL_EXC1";
@@ -5656,6 +5657,11 @@ pub fn program(
                     }
                 }
 
+                /// Return true when public fields still match the encoded provider bytes.
+                pub fn fieldsBoundToBytes(self: @This()) bool {
+                    return providerFieldsBoundToBytes(self);
+                }
+
                 /// Canonical evidence reference for this provider manifest.
                 pub fn evidenceRef(self: @This()) Evidence.Ref {
                     return Evidence.refForProviderManifest(self);
@@ -5705,6 +5711,10 @@ pub fn program(
                 tags: []const []const u8,
                 metadata: []u8,
                 provider_program_mapping_fingerprint: ?u64 = null,
+                provider_program_ref: ?Evidence.Ref = null,
+                provider_program_ref_label: ?[]u8 = null,
+                provider_program_effect_shape_count: ?usize = null,
+                provider_program_effect_shape_fingerprint: ?u64 = null,
                 provider_program_mapping_attestation: ?ProviderProgramMappingAttestation = null,
 
                 /// Options used to encode a provider offer.
@@ -5732,6 +5742,9 @@ pub fn program(
                     tags: []const []const u8 = &.{},
                     metadata: []const u8 = &.{},
                     provider_program_mapping_fingerprint: ?u64 = null,
+                    provider_program_ref: ?Evidence.Ref = null,
+                    provider_program_effect_shape_count: ?usize = null,
+                    provider_program_effect_shape_fingerprint: ?u64 = null,
                 };
 
                 /// Encode a provider offer into deterministic owned bytes.
@@ -5772,7 +5785,7 @@ pub fn program(
                     var reader = Reader.init(payload);
                     try reader.expectBytes(provider_offer_magic);
                     const format_version = try reader.readU32();
-                    if (format_version != exchange_provider_offer_format_version and format_version != provider_offer_program_format_version) return error.ProgramContractViolation;
+                    if (!providerOfferFormatSupported(format_version)) return error.ProgramContractViolation;
                     if (try reader.readU32() != exchange_provider_offer_fingerprint_version) return error.ProgramContractViolation;
                     const label_value = try allocator.dupe(u8, try reader.readLenBytes());
                     errdefer allocator.free(label_value);
@@ -5807,7 +5820,11 @@ pub fn program(
                     errdefer freeStringList(allocator, tags_value);
                     const metadata_value = try allocator.dupe(u8, try reader.readLenBytes());
                     errdefer allocator.free(metadata_value);
-                    const program_mapping_fingerprint: ?u64 = if (format_version == provider_offer_program_format_version) try reader.readU64() else null;
+                    const program_mapping_fingerprint: ?u64 = if (providerOfferFormatHasProgramMapping(format_version)) try reader.readU64() else null;
+                    const program_ref = if (providerOfferFormatHasProgramRef(format_version)) try readProviderProgramRef(allocator, &reader) else @as(DecodedProviderProgramRef, .{ .ref = null, .label = null });
+                    errdefer if (program_ref.label) |program_label| allocator.free(program_label);
+                    const effect_shape_count: ?usize = if (providerOfferFormatHasProgramRef(format_version)) try reader.readUsize() else null;
+                    const effect_shape_fingerprint: ?u64 = if (providerOfferFormatHasProgramRef(format_version)) try reader.readU64() else null;
                     if (!reader.eof()) return error.ProgramContractViolation;
                     const owned = try allocator.dupe(u8, bytes);
                     errdefer allocator.free(owned);
@@ -5839,6 +5856,10 @@ pub fn program(
                         .tags = tags_value,
                         .metadata = metadata_value,
                         .provider_program_mapping_fingerprint = program_mapping_fingerprint,
+                        .provider_program_ref = program_ref.ref,
+                        .provider_program_ref_label = program_ref.label,
+                        .provider_program_effect_shape_count = effect_shape_count,
+                        .provider_program_effect_shape_fingerprint = effect_shape_fingerprint,
                     };
                     try offer.validate();
                     return offer;
@@ -5850,6 +5871,15 @@ pub fn program(
                     if (self.max_response_bytes == 0 or self.max_request_bytes == 0) return error.ProgramContractViolation;
                     if (self.provider_program_mapping_fingerprint) |fingerprint| {
                         if (fingerprint == 0) return error.ProgramContractViolation;
+                        if (self.format_version == provider_offer_program_format_version) {
+                            try validateProviderProgramRef(self.provider_program_ref orelse return error.ProgramContractViolation);
+                            _ = self.provider_program_effect_shape_count orelse return error.ProgramContractViolation;
+                            _ = self.provider_program_effect_shape_fingerprint orelse return error.ProgramContractViolation;
+                        }
+                    } else if (self.provider_program_ref != null) {
+                        return error.ProgramContractViolation;
+                    } else if (self.provider_program_effect_shape_count != null or self.provider_program_effect_shape_fingerprint != null) {
+                        return error.ProgramContractViolation;
                     }
                     if (self.provider_program_mapping_attestation) |attestation| {
                         if (!attestation.matches(self)) return error.ProgramContractViolation;
@@ -5870,7 +5900,9 @@ pub fn program(
                     self.allocator.free(self.produced_response_refs);
                     freeStringList(self.allocator, self.tags);
                     self.allocator.free(self.metadata);
+                    if (self.provider_program_ref_label) |label_value| self.allocator.free(label_value);
                     self.bytes = &.{};
+                    self.provider_program_ref_label = null;
                 }
 
                 /// Return true when the offer can handle the source request envelope.
@@ -5945,6 +5977,7 @@ pub fn program(
 
                 /// Optional Boundary-program body ref for program-backed offers.
                 pub fn programBodyRef(self: @This()) ?Evidence.Ref {
+                    if (self.provider_program_ref) |ref| return ref;
                     if (self.provider_program_mapping_fingerprint) |fingerprint| {
                         return Evidence.refFor(Evidence.domains.provider_program_mapping, fingerprint, .{ .label = self.label });
                     }
@@ -8344,6 +8377,24 @@ pub fn program(
                 return @hasDecl(Entry, "provider_program_mapping_fingerprint");
             }
 
+            fn providerHarnessEntryProgramRef(comptime Entry: type) Evidence.Ref {
+                comptime assertProviderHarnessProgramBackedEntry(Entry);
+                return Evidence.refFor(Evidence.domains.program_plan, Entry.handler_program.compiled_plan.hash(), .{
+                    .label = Entry.handler_program.contract.label,
+                });
+            }
+
+            fn providerHarnessEntryProgramEffectShapeCount(comptime Entry: type) usize {
+                comptime assertProviderHarnessProgramBackedEntry(Entry);
+                return Entry.handler_program.contract.session.yield_sites.len + Entry.handler_program.contract.session.after_sites.len;
+            }
+
+            fn providerHarnessEntryProgramEffectShapeFingerprint(comptime Entry: type) u64 {
+                comptime assertProviderHarnessProgramBackedEntry(Entry);
+                const shapes = Entry.handler_program.BoundaryClosure.effectShapesForProgram(Entry.handler_program, .operation);
+                return Evidence.fingerprintBoundaryEffectShapeSet(shapes[0..]);
+            }
+
             fn assertProviderHarnessNoDuplicates(comptime entries: anytype) void {
                 var operation_covered: [protocol.operation_site_count]bool = [_]bool{false} ** protocol.operation_site_count;
                 var after_covered: [protocol.after_site_count]bool = [_]bool{false} ** protocol.after_site_count;
@@ -8542,6 +8593,9 @@ pub fn program(
                     .tags = Entry.offer_options.tags,
                     .metadata = Entry.offer_options.metadata,
                     .provider_program_mapping_fingerprint = if (comptime providerHarnessEntryProgramBacked(Entry)) Entry.provider_program_mapping_fingerprint else null,
+                    .provider_program_ref = if (comptime providerHarnessEntryProgramBacked(Entry)) providerHarnessEntryProgramRef(Entry) else null,
+                    .provider_program_effect_shape_count = if (comptime providerHarnessEntryProgramBacked(Entry)) providerHarnessEntryProgramEffectShapeCount(Entry) else null,
+                    .provider_program_effect_shape_fingerprint = if (comptime providerHarnessEntryProgramBacked(Entry)) providerHarnessEntryProgramEffectShapeFingerprint(Entry) else null,
                 };
                 return if (comptime providerHarnessEntryProgramBacked(Entry))
                     ProviderOffer.encodeProgramMapped(allocator, options)
@@ -8729,6 +8783,9 @@ pub fn program(
                     .tags = Entry.offer_options.tags,
                     .metadata = Entry.offer_options.metadata,
                     .provider_program_mapping_fingerprint = if (comptime providerHarnessEntryProgramBacked(Entry)) Entry.provider_program_mapping_fingerprint else null,
+                    .provider_program_ref = if (comptime providerHarnessEntryProgramBacked(Entry)) providerHarnessEntryProgramRef(Entry) else null,
+                    .provider_program_effect_shape_count = if (comptime providerHarnessEntryProgramBacked(Entry)) providerHarnessEntryProgramEffectShapeCount(Entry) else null,
+                    .provider_program_effect_shape_fingerprint = if (comptime providerHarnessEntryProgramBacked(Entry)) providerHarnessEntryProgramEffectShapeFingerprint(Entry) else null,
                 };
             }
 
@@ -8757,6 +8814,9 @@ pub fn program(
                     .tags = offer.tags,
                     .metadata = offer.metadata,
                     .provider_program_mapping_fingerprint = offer.provider_program_mapping_fingerprint,
+                    .provider_program_ref = offer.provider_program_ref,
+                    .provider_program_effect_shape_count = offer.provider_program_effect_shape_count,
+                    .provider_program_effect_shape_fingerprint = offer.provider_program_effect_shape_fingerprint,
                 };
             }
 
@@ -10071,6 +10131,11 @@ pub fn program(
                     return Evidence.refForCapability(self);
                 }
 
+                /// Return true when public fields still match the encoded capability bytes.
+                pub fn fieldsBoundToBytes(self: @This()) bool {
+                    return capabilityFieldsBoundToBytes(self);
+                }
+
                 /// Return a child capability whose authority is a subset of this capability.
                 pub fn attenuate(self: @This(), allocator: std.mem.Allocator, args: Attenuation) Error!@This() {
                     if (!capabilityFieldsBoundToBytes(self)) return error.ProgramContractViolation;
@@ -10459,6 +10524,7 @@ pub fn program(
                     capabilities: []const Capability = &.{},
                     morphism_offers: []const MorphismOffer = &.{},
                     treaty_policy: Treaty.Policy = .{},
+                    route_policy: Policy = .{},
                     has_capsule: bool = false,
                     label: []const u8 = "static treaty plan",
                 };
@@ -10504,6 +10570,7 @@ pub fn program(
                     fingerprint: u64,
                     status: StaticStatus,
                     shape_ref: Evidence.Ref,
+                    provider_fingerprint: u64 = 0,
                     provider_ref: ?Evidence.Ref = null,
                     provider_offer_ref: ?Evidence.Ref = null,
                     capability_ref: ?Evidence.Ref = null,
@@ -10514,6 +10581,8 @@ pub fn program(
                     morphism_intrinsic_ref: ?Evidence.Ref = null,
                     candidate_count: usize = 0,
                     blocked_count: usize = 0,
+                    ambiguous_best: bool = false,
+                    selected_authority: StaticAuthority = .{},
                     blockers: StaticBlockerList = .{},
 
                     /// Return the Evidence ref for this static treaty plan.
@@ -10523,8 +10592,9 @@ pub fn program(
 
                     /// Lower the static treaty plan into a shared Evidence report.
                     pub fn toEvidenceReport(self: *const @This(), dependencies: []const Evidence.Dependency) Evidence.Report {
-                        if (!self.blockers.hasErrors()) return Evidence.Report.ok(self.shape_ref, Evidence.domains.boundary_static_treaty_plan.id, dependencies);
-                        return Evidence.Report.withFailure(self.shape_ref, Evidence.domains.boundary_static_treaty_plan.id, dependencies, self.blockers.slice(), &.{}, null, "static treaty plan");
+                        const plan_ref = self.evidenceRef();
+                        if (self.status == .static_treaty and !self.blockers.hasErrors()) return Evidence.Report.ok(plan_ref, Evidence.domains.boundary_static_treaty_plan.id, dependencies);
+                        return Evidence.Report.withFailure(plan_ref, Evidence.domains.boundary_static_treaty_plan.id, dependencies, self.blockers.slice(), &.{}, null, "static treaty plan");
                     }
                 };
 
@@ -12915,6 +12985,68 @@ pub fn program(
                 if (options.max_response_bytes == 0 or options.max_request_bytes == 0) return error.ProgramContractViolation;
                 if (options.provider_program_mapping_fingerprint) |fingerprint| {
                     if (fingerprint == 0) return error.ProgramContractViolation;
+                    try validateProviderProgramRef(options.provider_program_ref orelse return error.ProgramContractViolation);
+                    _ = options.provider_program_effect_shape_count orelse return error.ProgramContractViolation;
+                    _ = options.provider_program_effect_shape_fingerprint orelse return error.ProgramContractViolation;
+                } else if (options.provider_program_ref != null) {
+                    return error.ProgramContractViolation;
+                } else if (options.provider_program_effect_shape_count != null or options.provider_program_effect_shape_fingerprint != null) {
+                    return error.ProgramContractViolation;
+                }
+            }
+
+            fn validateProviderProgramRef(ref: Evidence.Ref) Error!void {
+                if (ref.domain_id != Evidence.domains.program_plan.id) return error.ProgramContractViolation;
+                if (ref.fingerprint == 0) return error.ProgramContractViolation;
+                if (ref.format_version != null) return error.ProgramContractViolation;
+                if (ref.branch_id != null or ref.site_index != null or ref.kind_tag != null) return error.ProgramContractViolation;
+            }
+
+            fn providerOfferFormatSupported(format_version: u32) bool {
+                return format_version == exchange_provider_offer_format_version or
+                    format_version == provider_offer_legacy_program_format_version or
+                    format_version == provider_offer_program_format_version;
+            }
+
+            fn providerOfferFormatHasProgramMapping(format_version: u32) bool {
+                return format_version == provider_offer_legacy_program_format_version or
+                    format_version == provider_offer_program_format_version;
+            }
+
+            fn providerOfferFormatHasProgramRef(format_version: u32) bool {
+                return format_version == provider_offer_program_format_version;
+            }
+
+            const DecodedProviderProgramRef = struct {
+                ref: ?Evidence.Ref,
+                label: ?[]u8,
+            };
+
+            fn writeProviderProgramRef(writer: *Writer, ref: Evidence.Ref) std.mem.Allocator.Error!void {
+                try writer.writeU64(ref.fingerprint);
+                try writer.writeBool(ref.label != null);
+                if (ref.label) |program_label| try writer.writeLenBytes(program_label);
+            }
+
+            fn readProviderProgramRef(allocator: std.mem.Allocator, reader: *Reader) Error!DecodedProviderProgramRef {
+                const fingerprint = try reader.readU64();
+                const has_label = try reader.readBool();
+                const program_label = if (has_label) try allocator.dupe(u8, try reader.readLenBytes()) else null;
+                errdefer if (program_label) |label_value| allocator.free(label_value);
+                const ref = Evidence.refFor(Evidence.domains.program_plan, fingerprint, .{ .label = program_label });
+                try validateProviderProgramRef(ref);
+                return .{ .ref = ref, .label = program_label };
+            }
+
+            fn expectProviderProgramRef(reader: *Reader, expected: ?Evidence.Ref) Error!void {
+                const expected_ref = expected orelse return error.ProgramContractViolation;
+                try validateProviderProgramRef(expected_ref);
+                const fingerprint = try reader.readU64();
+                if (fingerprint != expected_ref.fingerprint) return error.ProgramContractViolation;
+                const has_label = try reader.readBool();
+                if (has_label != (expected_ref.label != null)) return error.ProgramContractViolation;
+                if (has_label) {
+                    if (!std.mem.eql(u8, try reader.readLenBytes(), expected_ref.label.?)) return error.ProgramContractViolation;
                 }
             }
 
@@ -12944,7 +13076,12 @@ pub fn program(
                 try writer.writeUsize(options.max_capsule_bytes);
                 try writeStringList(writer, options.tags);
                 try writer.writeLenBytes(options.metadata);
-                if (options.provider_program_mapping_fingerprint) |fingerprint| try writer.writeU64(fingerprint);
+                if (options.provider_program_mapping_fingerprint) |fingerprint| {
+                    try writer.writeU64(fingerprint);
+                    try writeProviderProgramRef(writer, options.provider_program_ref.?);
+                    try writer.writeUsize(options.provider_program_effect_shape_count.?);
+                    try writer.writeU64(options.provider_program_effect_shape_fingerprint.?);
+                }
             }
 
             fn providerOfferFromOptions(
@@ -12975,6 +13112,20 @@ pub fn program(
                 errdefer freeStringList(allocator, tags_value);
                 const metadata_value = try allocator.dupe(u8, options.metadata);
                 errdefer allocator.free(metadata_value);
+                const provider_program_ref_label: ?[]u8 = if (options.provider_program_ref) |ref|
+                    if (ref.label) |program_label| try allocator.dupe(u8, program_label) else null
+                else
+                    null;
+                errdefer if (provider_program_ref_label) |program_label_value| allocator.free(program_label_value);
+                const provider_program_ref: ?Evidence.Ref = if (options.provider_program_ref) |ref| .{
+                    .domain_id = ref.domain_id,
+                    .fingerprint = ref.fingerprint,
+                    .format_version = ref.format_version,
+                    .label = provider_program_ref_label,
+                    .branch_id = ref.branch_id,
+                    .site_index = ref.site_index,
+                    .kind_tag = ref.kind_tag,
+                } else null;
                 return .{
                     .allocator = allocator,
                     .bytes = bytes,
@@ -13003,6 +13154,10 @@ pub fn program(
                     .tags = tags_value,
                     .metadata = metadata_value,
                     .provider_program_mapping_fingerprint = options.provider_program_mapping_fingerprint,
+                    .provider_program_ref = provider_program_ref,
+                    .provider_program_ref_label = provider_program_ref_label,
+                    .provider_program_effect_shape_count = options.provider_program_effect_shape_count,
+                    .provider_program_effect_shape_fingerprint = options.provider_program_effect_shape_fingerprint,
                     .provider_program_mapping_attestation = provider_program_mapping_attestation,
                 };
             }
@@ -13014,7 +13169,7 @@ pub fn program(
                 var reader = Reader.init(payload);
                 reader.expectBytes(provider_offer_magic) catch return false;
                 const format_version = reader.readU32() catch return false;
-                if (format_version != exchange_provider_offer_format_version and format_version != provider_offer_program_format_version) return false;
+                if (!providerOfferFormatSupported(format_version)) return false;
                 if (format_version != offer.format_version) return false;
                 if ((reader.readU32() catch return false) != exchange_provider_offer_fingerprint_version) return false;
                 if (!std.mem.eql(u8, reader.readLenBytes() catch return false, offer.label)) return false;
@@ -13040,8 +13195,18 @@ pub fn program(
                 if ((reader.readUsize() catch return false) != offer.max_capsule_bytes) return false;
                 expectStringList(&reader, offer.tags) catch return false;
                 if (!std.mem.eql(u8, reader.readLenBytes() catch return false, offer.metadata)) return false;
-                const program_mapping_fingerprint: ?u64 = if (format_version == provider_offer_program_format_version) reader.readU64() catch return false else null;
+                const program_mapping_fingerprint: ?u64 = if (providerOfferFormatHasProgramMapping(format_version)) reader.readU64() catch return false else null;
                 if (program_mapping_fingerprint != offer.provider_program_mapping_fingerprint) return false;
+                if (providerOfferFormatHasProgramRef(format_version)) {
+                    expectProviderProgramRef(&reader, offer.provider_program_ref) catch return false;
+                    if ((reader.readUsize() catch return false) != (offer.provider_program_effect_shape_count orelse return false)) return false;
+                    if ((reader.readU64() catch return false) != (offer.provider_program_effect_shape_fingerprint orelse return false)) return false;
+                } else if (offer.provider_program_ref != null) return false;
+                if (!providerOfferFormatHasProgramRef(format_version) and
+                    (offer.provider_program_effect_shape_count != null or offer.provider_program_effect_shape_fingerprint != null))
+                {
+                    return false;
+                }
                 return reader.eof();
             }
 
@@ -13059,6 +13224,9 @@ pub fn program(
             fn providerProgramMappingBackedByManifest(offer: ProviderOffer, provider: ProviderManifest, mapping_fingerprint: u64) bool {
                 return offer.format_version == provider_offer_program_format_version and
                     offer.providerProgramMappingAttested() and
+                    offer.provider_program_ref != null and
+                    offer.provider_program_effect_shape_count != null and
+                    offer.provider_program_effect_shape_fingerprint != null and
                     provider.format_version >= exchange_provider_format_version and
                     provider.provider_fingerprint == offer.provider_fingerprint and
                     providerOfferFieldsBoundToBytes(offer) and
@@ -16296,6 +16464,13 @@ pub fn program(
                     plan.status = .blocked;
                     return;
                 }
+                if (inputs.shape.manifest_fingerprint) |shape_manifest| {
+                    if (shape_manifest != inputs.manifest.fingerprint) {
+                        addStaticBlocker(plan, .treaty_policy_incompatible, plan.shape_ref, null, "effect shape cites a different exchange manifest");
+                        plan.status = .blocked;
+                        return;
+                    }
+                }
 
                 if (inputs.has_capsule and inputs.treaty_policy.disallow_capsule_export) {
                     addStaticBlocker(plan, .treaty_policy_incompatible, plan.shape_ref, null, "treaty policy disallows capsule-bearing static shape");
@@ -16310,28 +16485,28 @@ pub fn program(
 
                 if (inputs.treaty_policy.allow_direct_handling) {
                     direct_offers: for (inputs.provider_offers) |offer| {
+                        if (!staticOfferSupportsShape(offer, inputs.manifest, request_kind, site_index, protocol_op_fingerprint, requirement_label, value_ref, inputs.shape, inputs.has_capsule)) continue :direct_offers;
                         const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse {
                             plan.blocked_count += 1;
                             addStaticBlocker(plan, .no_provider_offer_for_shape, plan.shape_ref, offer.evidenceRef(), "provider offer is not backed by a provider manifest");
                             continue :direct_offers;
                         };
-                        if (staticProviderBodyBlocker(inputs.treaty_policy, provider.*, offer, plan.shape_ref, &plan.blockers)) {
-                            plan.blocked_count += 1;
-                            continue :direct_offers;
-                        }
-                        if (!staticProviderManifestSupportsShape(provider.*, inputs.manifest, request_kind, site_index, protocol_op_fingerprint, requirement_label, inputs.has_capsule) or
-                            !staticOfferSupportsShape(offer, inputs.manifest, request_kind, site_index, protocol_op_fingerprint, requirement_label, value_ref, response_refs, inputs.has_capsule) or
+                        if (!staticProviderManifestSupportsShape(provider.*, inputs.manifest, request_kind, site_index, protocol_op_fingerprint, requirement_label, inputs.shape, inputs.has_capsule) or
                             !staticOfferUsageCompatible(offer, inputs.shape, inputs.treaty_policy) or
                             !providerOfferTagsAllowPolicy(inputs.treaty_policy, offer.tags))
                         {
                             plan.blocked_count += 1;
                             continue :direct_offers;
                         }
+                        if (staticProviderBodyBlocker(inputs.treaty_policy, provider.*, offer, plan.shape_ref, &plan.blockers)) {
+                            plan.blocked_count += 1;
+                            continue :direct_offers;
+                        }
                         var matched_capability = false;
                         direct_capabilities: for (inputs.capabilities) |capability| {
-                            if (!staticCapabilitySupportsShape(capability, inputs.manifest, provider.*, request_kind, site_index, protocol_op_fingerprint, requirement_label, inputs.shape, response_refs, inputs.has_capsule)) continue :direct_capabilities;
+                            if (!staticCapabilitySupportsShape(capability, inputs.manifest, provider.*, offer, inputs.route_policy, request_kind, site_index, protocol_op_fingerprint, requirement_label, inputs.shape, response_refs, inputs.has_capsule)) continue :direct_capabilities;
                             matched_capability = true;
-                            selectStaticPlanCandidate(inputs.treaty_policy, plan, provider.*, offer, capability, null);
+                            selectStaticPlanCandidate(inputs.treaty_policy, inputs.route_policy, plan, inputs.shape, provider.*, offer, capability, null);
                         }
                         if (!matched_capability) {
                             plan.blocked_count += 1;
@@ -16348,21 +16523,28 @@ pub fn program(
                             addStaticBlocker(plan, .world_port_missing, plan.shape_ref, morphism.evidenceRef(), "morphism offer requires a runtime adapter boundary");
                             continue :morphisms;
                         }
+                        if (!inputs.treaty_policy.allow_residualization and morphism.hasStaticAdapter()) {
+                            plan.blocked_count += 1;
+                            addStaticBlocker(plan, .treaty_policy_incompatible, plan.shape_ref, morphism.evidenceRef(), "treaty policy disallows residualized or pipeline morphism adapters");
+                            continue :morphisms;
+                        }
                         if (staticMorphismBodyBlocker(inputs.treaty_policy, morphism, plan.shape_ref, &plan.blockers)) {
                             plan.blocked_count += 1;
                             continue :morphisms;
                         }
                         morphism_offers: for (inputs.provider_offers) |offer| {
                             const provider = providerManifestForOffer(inputs.provider_manifests, offer) orelse continue :morphism_offers;
-                            if (!staticProviderManifestSupportsShape(provider.*, inputs.manifest, request_kind, site_index, morphism.target_protocol_op_fingerprint, requirement_label, inputs.has_capsule) or
-                                !staticOfferSupportsMorphismTarget(offer, inputs.manifest, request_kind, site_index, morphism.target_protocol_op_fingerprint, value_ref, response_refs, inputs.has_capsule))
+                            if (!staticProviderManifestSupportsMorphismTarget(provider.*, inputs.manifest, request_kind, site_index, morphism.target_protocol_op_fingerprint, inputs.shape, inputs.has_capsule) or
+                                !staticOfferSupportsMorphismTarget(offer, inputs.manifest, request_kind, site_index, morphism.target_protocol_op_fingerprint, value_ref, inputs.shape, morphism, inputs.has_capsule) or
+                                !staticMorphismTargetUsageCompatible(offer, inputs.shape, morphism, inputs.treaty_policy) or
+                                !providerOfferTagsAllowPolicy(inputs.treaty_policy, offer.tags))
                             {
                                 plan.blocked_count += 1;
                                 continue :morphism_offers;
                             }
                             morphism_capabilities: for (inputs.capabilities) |capability| {
-                                if (!staticCapabilitySupportsShape(capability, inputs.manifest, provider.*, request_kind, site_index, morphism.target_protocol_op_fingerprint, requirement_label, inputs.shape, response_refs, inputs.has_capsule)) continue :morphism_capabilities;
-                                selectStaticPlanCandidate(inputs.treaty_policy, plan, provider.*, offer, capability, morphism);
+                                if (!staticCapabilitySupportsMorphismTarget(capability, inputs.manifest, provider.*, offer, inputs.route_policy, request_kind, site_index, morphism.target_protocol_op_fingerprint, inputs.shape, morphism, inputs.has_capsule)) continue :morphism_capabilities;
+                                selectStaticPlanCandidate(inputs.treaty_policy, inputs.route_policy, plan, inputs.shape, provider.*, offer, capability, morphism);
                             }
                         }
                     }
@@ -16370,9 +16552,15 @@ pub fn program(
 
                 if (plan.candidate_count == 1) {
                     plan.status = .static_treaty;
+                    plan.blockers = .{};
                 } else if (plan.candidate_count > 1) {
-                    plan.status = .ambiguous_static_treaties;
-                    addStaticBlocker(plan, .ambiguous_static_treaty_plan, plan.shape_ref, plan.provider_offer_ref, "multiple static treaty plans match the effect shape");
+                    if (staticAllowsSelectedAmbiguity(inputs.treaty_policy, plan.*)) {
+                        plan.status = .static_treaty;
+                        plan.blockers = .{};
+                    } else {
+                        plan.status = .ambiguous_static_treaties;
+                        addStaticBlocker(plan, .ambiguous_static_treaty_plan, plan.shape_ref, plan.provider_offer_ref, "multiple static treaty plans match the effect shape");
+                    }
                 } else if (plan.blocked_count != 0 or plan.blockers.count != 0) {
                     plan.status = .blocked;
                 } else {
@@ -16383,15 +16571,28 @@ pub fn program(
 
             fn selectStaticPlanCandidate(
                 policy: Treaty.Policy,
+                route_policy: Policy,
                 plan: *TreatyResolver.StaticPlan,
+                shape: Evidence.BoundaryEffectShape,
                 provider: ProviderManifest,
                 offer: ProviderOffer,
                 capability: Capability,
                 morphism: ?MorphismOffer,
             ) void {
+                const candidate_authority = staticCandidateAuthority(policy, route_policy, provider, offer, capability, shape);
                 plan.candidate_count += 1;
-                if (plan.provider_offer_ref != null and !staticCandidatePreferred(policy, plan.*, provider, offer, morphism)) return;
+                if (plan.provider_offer_ref != null) {
+                    const candidate_preferred = staticCandidatePreferred(policy, plan.*, candidate_authority, provider, offer, morphism);
+                    const selected_preferred = staticSelectedPreferred(policy, plan.*, candidate_authority, provider, offer, morphism);
+                    if (candidate_preferred and !selected_preferred) {
+                        plan.ambiguous_best = false;
+                    } else {
+                        if (!selected_preferred and staticTieIsAmbiguous(policy)) plan.ambiguous_best = true;
+                        return;
+                    }
+                }
                 plan.provider_ref = provider.evidenceRef();
+                plan.provider_fingerprint = provider.provider_fingerprint;
                 plan.provider_offer_ref = offer.evidenceRef();
                 plan.capability_ref = capability.evidenceRef();
                 plan.morphism_offer_ref = if (morphism) |morphism_offer| morphism_offer.evidenceRef() else null;
@@ -16399,16 +16600,120 @@ pub fn program(
                 plan.morphism_semantic_body = if (morphism) |morphism_offer| morphism_offer.semanticBody() else null;
                 plan.provider_intrinsic_ref = offer.hostIntrinsicRef();
                 plan.morphism_intrinsic_ref = if (morphism) |morphism_offer| morphism_offer.hostIntrinsicRef() else null;
+                plan.selected_authority = candidate_authority;
             }
 
-            fn staticCandidatePreferred(policy: Treaty.Policy, selected: TreatyResolver.StaticPlan, provider: ProviderManifest, offer: ProviderOffer, morphism: ?MorphismOffer) bool {
-                const candidate_provider_rank = providerSemanticBodyRank(offer.semanticBodyWithProvider(provider));
-                const selected_provider_rank = providerSemanticBodyRank(selected.provider_semantic_body);
-                if (candidate_provider_rank != selected_provider_rank) return candidate_provider_rank < selected_provider_rank;
-                const candidate_morphism_rank = if (morphism) |morphism_offer| morphismSemanticBodyRank(policy, morphism_offer.semanticBody()) else 0;
-                const selected_morphism_rank = if (selected.morphism_semantic_body) |body| morphismSemanticBodyRank(policy, body) else 0;
-                if (candidate_morphism_rank != selected_morphism_rank) return candidate_morphism_rank < selected_morphism_rank;
-                return true;
+            fn staticCandidatePreferred(policy: Treaty.Policy, selected: TreatyResolver.StaticPlan, candidate_authority: StaticAuthority, provider: ProviderManifest, offer: ProviderOffer, morphism: ?MorphismOffer) bool {
+                if (treatyDefunctionalizationPreferenceEnabled(policy)) {
+                    const candidate_provider_rank = providerSemanticBodyRank(offer.semanticBodyWithProvider(provider));
+                    const selected_provider_rank = providerSemanticBodyRank(selected.provider_semantic_body);
+                    if (treatyDefunctionalizationProviderPreferenceEnabled(policy) and candidate_provider_rank != selected_provider_rank) return candidate_provider_rank < selected_provider_rank;
+                    const candidate_morphism_rank = if (morphism) |morphism_offer| morphismSemanticBodyRank(policy, morphism_offer.semanticBody()) else 0;
+                    const selected_morphism_rank = if (selected.morphism_semantic_body) |body| morphismSemanticBodyRank(policy, body) else 0;
+                    if (treatyDefunctionalizationMorphismPreferenceEnabled(policy) and candidate_morphism_rank != selected_morphism_rank) return candidate_morphism_rank < selected_morphism_rank;
+                }
+                return switch (policy.ambiguity_policy) {
+                    .reject_ambiguous => false,
+                    .prefer_direct => staticHandlingRank(morphism, .prefer_direct) < staticSelectedHandlingRank(selected, .prefer_direct),
+                    .prefer_residualized => staticHandlingRank(morphism, .prefer_residualized) < staticSelectedHandlingRank(selected, .prefer_residualized),
+                    .prefer_dynamic => staticHandlingRank(morphism, .prefer_dynamic) < staticSelectedHandlingRank(selected, .prefer_dynamic),
+                    .prefer_least_authority => staticAuthorityLess(candidate_authority, selected.selected_authority) or (!staticAuthorityLess(selected.selected_authority, candidate_authority) and providerPriorityLess(policy.provider_priority, provider.provider_fingerprint, selected.provider_fingerprint)),
+                    .host_ordered => providerPriorityLess(policy.provider_priority, provider.provider_fingerprint, selected.provider_fingerprint),
+                };
+            }
+
+            fn staticSelectedPreferred(policy: Treaty.Policy, selected: TreatyResolver.StaticPlan, candidate_authority: StaticAuthority, provider: ProviderManifest, offer: ProviderOffer, morphism: ?MorphismOffer) bool {
+                if (treatyDefunctionalizationPreferenceEnabled(policy)) {
+                    const selected_provider_rank = providerSemanticBodyRank(selected.provider_semantic_body);
+                    const candidate_provider_rank = providerSemanticBodyRank(offer.semanticBodyWithProvider(provider));
+                    if (treatyDefunctionalizationProviderPreferenceEnabled(policy) and selected_provider_rank != candidate_provider_rank) return selected_provider_rank < candidate_provider_rank;
+                    const selected_morphism_rank = if (selected.morphism_semantic_body) |body| morphismSemanticBodyRank(policy, body) else 0;
+                    const candidate_morphism_rank = if (morphism) |morphism_offer| morphismSemanticBodyRank(policy, morphism_offer.semanticBody()) else 0;
+                    if (treatyDefunctionalizationMorphismPreferenceEnabled(policy) and selected_morphism_rank != candidate_morphism_rank) return selected_morphism_rank < candidate_morphism_rank;
+                }
+                return switch (policy.ambiguity_policy) {
+                    .reject_ambiguous => false,
+                    .prefer_direct => staticSelectedHandlingRank(selected, .prefer_direct) < staticHandlingRank(morphism, .prefer_direct),
+                    .prefer_residualized => staticSelectedHandlingRank(selected, .prefer_residualized) < staticHandlingRank(morphism, .prefer_residualized),
+                    .prefer_dynamic => staticSelectedHandlingRank(selected, .prefer_dynamic) < staticHandlingRank(morphism, .prefer_dynamic),
+                    .prefer_least_authority => staticAuthorityLess(selected.selected_authority, candidate_authority) or (!staticAuthorityLess(candidate_authority, selected.selected_authority) and providerPriorityLess(policy.provider_priority, selected.provider_fingerprint, provider.provider_fingerprint)),
+                    .host_ordered => providerPriorityLess(policy.provider_priority, selected.provider_fingerprint, provider.provider_fingerprint),
+                };
+            }
+
+            const StaticAuthority = struct {
+                max_response_bytes: usize = std.math.maxInt(usize),
+                max_payload_bytes: usize = std.math.maxInt(usize),
+                capsule_restore_allowed: bool = true,
+                response_kind_count: u8 = 3,
+                attenuated: bool = false,
+            };
+
+            fn staticCandidateAuthority(policy: Treaty.Policy, route_policy: Policy, provider: ProviderManifest, offer: ProviderOffer, capability: Capability, shape: Evidence.BoundaryEffectShape) StaticAuthority {
+                var response_kinds = responseKindSetIntersection(provider.allowed_response_kinds, capability.allowed_response_kinds);
+                response_kinds = responseKindSetIntersection(response_kinds, offer.allowed_response_kinds);
+                response_kinds = responseKindSetIntersection(response_kinds, route_policy.allowed_response_kinds);
+                return .{
+                    .max_response_bytes = staticMinNonZero(.{
+                        provider.max_response_envelope_bytes,
+                        capability.max_response_bytes,
+                        offer.max_response_bytes,
+                        if (shape.max_response_bytes == 0) std.math.maxInt(usize) else shape.max_response_bytes,
+                        policy.max_envelope_bytes,
+                        route_policy.max_envelope_bytes,
+                    }),
+                    .max_payload_bytes = staticMinNonZero(.{
+                        capability.max_payload_bytes,
+                        if (shape.max_payload_bytes == 0) std.math.maxInt(usize) else shape.max_payload_bytes,
+                        route_policy.max_payload_bytes,
+                    }),
+                    .capsule_restore_allowed = capability.allow_capsule_restore and provider.accepts_capsule_restore,
+                    .response_kind_count = responseKindCount(response_kinds),
+                    .attenuated = capability.parent_capability_fingerprint != null,
+                };
+            }
+
+            fn staticAuthorityLess(candidate: StaticAuthority, selected: StaticAuthority) bool {
+                if (candidate.max_response_bytes != selected.max_response_bytes) return candidate.max_response_bytes < selected.max_response_bytes;
+                if (candidate.max_payload_bytes != selected.max_payload_bytes) return candidate.max_payload_bytes < selected.max_payload_bytes;
+                if (candidate.capsule_restore_allowed != selected.capsule_restore_allowed) return !candidate.capsule_restore_allowed;
+                if (candidate.response_kind_count != selected.response_kind_count) return candidate.response_kind_count < selected.response_kind_count;
+                if (candidate.attenuated != selected.attenuated) return candidate.attenuated;
+                return false;
+            }
+
+            fn staticMinNonZero(values: anytype) usize {
+                var result: usize = std.math.maxInt(usize);
+                inline for (values) |value| {
+                    if (value != 0) result = @min(result, value);
+                }
+                return result;
+            }
+
+            fn staticAllowsSelectedAmbiguity(policy: Treaty.Policy, plan: TreatyResolver.StaticPlan) bool {
+                return (policy.ambiguity_policy != .reject_ambiguous or treatyDefunctionalizationPreferenceEnabled(policy)) and !plan.ambiguous_best;
+            }
+
+            fn staticTieIsAmbiguous(policy: Treaty.Policy) bool {
+                return policy.ambiguity_policy != .host_ordered;
+            }
+
+            fn staticHandlingRank(morphism: ?MorphismOffer, policy: Treaty.AmbiguityPolicy) u8 {
+                const handling: Treaty.HandlingKind = if (morphism) |morphism_offer| blk: {
+                    if (morphism_offer.dynamic_morphism_fingerprint != null) break :blk .dynamic_morphism;
+                    if (morphism_offer.residual_morphism_fingerprint != null or morphism_offer.pipeline_fingerprint != null) break :blk .residualized;
+                    break :blk .direct;
+                } else .direct;
+                return treatyHandlingRank(handling, policy);
+            }
+
+            fn staticSelectedHandlingRank(selected: TreatyResolver.StaticPlan, policy: Treaty.AmbiguityPolicy) u8 {
+                const handling: Treaty.HandlingKind = if (selected.morphism_offer_ref == null) .direct else switch (selected.morphism_semantic_body orelse .unknown) {
+                    .host_intrinsic => .dynamic_morphism,
+                    .residualized_program, .pipeline, .declarative => .residualized,
+                    .boundary_program, .kernel_primitive, .unknown => .direct,
+                };
+                return treatyHandlingRank(handling, policy);
             }
 
             fn staticShapeRequestKind(shape: Evidence.BoundaryEffectShape) ?RequestKind {
@@ -16442,24 +16747,51 @@ pub fn program(
             }
 
             fn staticShapeResponseKinds(shape: Evidence.BoundaryEffectShape) Policy.ResponseKindSet {
-                const has_desired = shape.desired_response_refs.len != 0;
-                return .{
-                    .@"resume" = shape.expected_resume_ref != null or has_desired,
-                    .return_now = shape.result_ref != null,
-                    .resume_after = false,
+                return switch (shape.kind) {
+                    .after => .{
+                        .@"resume" = false,
+                        .return_now = false,
+                        .resume_after = if (shape.expected_after_ref) |ref| staticShapeDesiredResponseAllows(shape, ref) else false,
+                    },
+                    .root_program,
+                    .provider_program,
+                    .operation,
+                    .intrinsic,
+                    .world_port,
+                    .unknown,
+                    => .{
+                        .@"resume" = staticShapeMayResume(shape) and (if (shape.expected_resume_ref) |ref| staticShapeDesiredResponseAllows(shape, ref) else false),
+                        .return_now = staticShapeMayReturnNow(shape) and (if (shape.result_ref) |ref| staticShapeDesiredResponseAllows(shape, ref) else false),
+                        .resume_after = false,
+                    },
                 };
             }
 
             fn staticShapeResponseRefs(shape: Evidence.BoundaryEffectShape, buffer: *[3]Evidence.BoundaryValueRef) []const Evidence.BoundaryValueRef {
-                if (shape.desired_response_refs.len != 0) return shape.desired_response_refs;
-                var count: usize = 0;
-                if (shape.expected_resume_ref) |ref| {
-                    buffer[count] = ref;
-                    count += 1;
+                if (shape.kind == .after) {
+                    if (shape.expected_after_ref) |ref| {
+                        if (!staticShapeDesiredResponseAllows(shape, ref)) return buffer[0..0];
+                        buffer[0] = ref;
+                        return buffer[0..1];
+                    }
+                    return buffer[0..0];
                 }
-                if (shape.result_ref) |ref| {
-                    buffer[count] = ref;
-                    count += 1;
+                var count: usize = 0;
+                if (staticShapeMayResume(shape)) {
+                    if (shape.expected_resume_ref) |ref| {
+                        if (staticShapeDesiredResponseAllows(shape, ref)) {
+                            buffer[count] = ref;
+                            count += 1;
+                        }
+                    }
+                }
+                if (staticShapeMayReturnNow(shape)) {
+                    if (shape.result_ref) |ref| {
+                        if (staticShapeDesiredResponseAllows(shape, ref)) {
+                            buffer[count] = ref;
+                            count += 1;
+                        }
+                    }
                 }
                 return buffer[0..count];
             }
@@ -16471,12 +16803,41 @@ pub fn program(
                 site_index: usize,
                 protocol_op_fingerprint: u64,
                 requirement_label: []const u8,
+                shape: Evidence.BoundaryEffectShape,
                 has_capsule: bool,
             ) bool {
                 if (!providerFieldsBoundToBytes(provider)) return false;
                 if (!listAllowsU64(provider.supported_program_manifest_fingerprints, manifest.fingerprint)) return false;
                 if (!listAllowsString(provider.supported_protocol_labels, requirement_label)) return false;
                 if (provider.supported_protocol_op_fingerprints.len != 0 and !listAllowsU64(provider.supported_protocol_op_fingerprints, protocol_op_fingerprint)) return false;
+                if (shape.max_request_bytes != 0 and shape.max_request_bytes > provider.max_request_envelope_bytes) return false;
+                if (shape.max_response_bytes != 0 and shape.max_response_bytes > provider.max_response_envelope_bytes) return false;
+                if (shape.max_capsule_image_bytes != 0 and !provider.accepts_embedded_capsules) return false;
+                if (has_capsule and !provider.accepts_embedded_capsules) return false;
+                const operation_sites_constrained = provider.supported_operation_sites.len != 0;
+                const after_sites_constrained = provider.supported_after_sites.len != 0;
+                return switch (request_kind) {
+                    .operation => !(!operation_sites_constrained and after_sites_constrained) and (!operation_sites_constrained or listAllowsUsize(provider.supported_operation_sites, site_index)),
+                    .after => !(!after_sites_constrained and operation_sites_constrained) and (!after_sites_constrained or listAllowsUsize(provider.supported_after_sites, site_index)),
+                };
+            }
+
+            fn staticProviderManifestSupportsMorphismTarget(
+                provider: ProviderManifest,
+                manifest: Manifest,
+                request_kind: RequestKind,
+                site_index: usize,
+                target_protocol_op_fingerprint: u64,
+                shape: Evidence.BoundaryEffectShape,
+                has_capsule: bool,
+            ) bool {
+                if (!providerFieldsBoundToBytes(provider)) return false;
+                if (!listAllowsU64(provider.supported_program_manifest_fingerprints, manifest.fingerprint)) return false;
+                if (provider.supported_protocol_op_fingerprints.len == 0 and provider.supported_protocol_labels.len != 0) return false;
+                if (!listAllowsU64(provider.supported_protocol_op_fingerprints, target_protocol_op_fingerprint)) return false;
+                if (shape.max_request_bytes != 0 and shape.max_request_bytes > provider.max_request_envelope_bytes) return false;
+                if (shape.max_response_bytes != 0 and shape.max_response_bytes > provider.max_response_envelope_bytes) return false;
+                if (shape.max_capsule_image_bytes != 0 and !provider.accepts_embedded_capsules) return false;
                 if (has_capsule and !provider.accepts_embedded_capsules) return false;
                 const operation_sites_constrained = provider.supported_operation_sites.len != 0;
                 const after_sites_constrained = provider.supported_after_sites.len != 0;
@@ -16494,7 +16855,7 @@ pub fn program(
                 protocol_op_fingerprint: u64,
                 requirement_label: []const u8,
                 value_ref: Evidence.BoundaryValueRef,
-                response_refs: []const Evidence.BoundaryValueRef,
+                shape: Evidence.BoundaryEffectShape,
                 has_capsule: bool,
             ) bool {
                 offer.validate() catch return false;
@@ -16502,7 +16863,10 @@ pub fn program(
                 if (!offer.capsule_policy.allows(has_capsule)) return false;
                 if (!listAllowsString(offer.supported_protocol_labels, requirement_label)) return false;
                 if (!listAllowsU64(offer.supported_protocol_op_fingerprints, protocol_op_fingerprint)) return false;
-                if (!staticOfferAllowsAnyResponseRef(offer, response_refs)) return false;
+                if (shape.max_request_bytes != 0 and shape.max_request_bytes > offer.max_request_bytes) return false;
+                if (shape.max_response_bytes != 0 and shape.max_response_bytes > offer.max_response_bytes) return false;
+                if (shape.max_capsule_image_bytes != 0 and shape.max_capsule_image_bytes > offer.max_capsule_bytes) return false;
+                if (!staticOfferAllowsShapeResponse(offer, shape)) return false;
                 const operation_sites_constrained = offer.supported_operation_sites.len != 0;
                 const after_sites_constrained = offer.supported_after_sites.len != 0;
                 return switch (request_kind) {
@@ -16522,14 +16886,23 @@ pub fn program(
                 site_index: usize,
                 target_protocol_op_fingerprint: u64,
                 value_ref: Evidence.BoundaryValueRef,
-                response_refs: []const Evidence.BoundaryValueRef,
+                shape: Evidence.BoundaryEffectShape,
+                morphism: MorphismOffer,
                 has_capsule: bool,
             ) bool {
                 offer.validate() catch return false;
                 if (offer.manifest_fingerprint != manifest.fingerprint) return false;
                 if (!offer.capsule_policy.allows(has_capsule)) return false;
+                if (offer.supported_protocol_op_fingerprints.len == 0 and offer.supported_protocol_labels.len != 0) return false;
                 if (!listAllowsU64(offer.supported_protocol_op_fingerprints, target_protocol_op_fingerprint)) return false;
-                if (!staticOfferAllowsAnyResponseRef(offer, response_refs)) return false;
+                if (shape.max_request_bytes != 0 and shape.max_request_bytes > offer.max_request_bytes) return false;
+                if (shape.max_response_bytes != 0 and shape.max_response_bytes > offer.max_response_bytes) return false;
+                if (shape.max_capsule_image_bytes != 0 and shape.max_capsule_image_bytes > offer.max_capsule_bytes) return false;
+                const allowed_kinds = responseKindSetIntersection(staticShapeResponseKinds(shape), offer.allowed_response_kinds);
+                if (!responseKindSetIntersects(staticShapeResponseKinds(shape), allowed_kinds)) return false;
+                var target_refs_buffer: [3]Evidence.BoundaryValueRef = undefined;
+                const target_refs = staticMorphismTargetResponseRefsForKinds(shape, morphism, allowed_kinds, &target_refs_buffer);
+                if (!staticOfferAllowsAllResponseRefs(offer, target_refs)) return false;
                 const operation_sites_constrained = offer.supported_operation_sites.len != 0;
                 const after_sites_constrained = offer.supported_after_sites.len != 0;
                 return switch (request_kind) {
@@ -16546,6 +16919,8 @@ pub fn program(
                 capability: Capability,
                 manifest: Manifest,
                 provider: ProviderManifest,
+                offer: ProviderOffer,
+                policy: Policy,
                 request_kind: RequestKind,
                 site_index: usize,
                 protocol_op_fingerprint: u64,
@@ -16557,6 +16932,8 @@ pub fn program(
                 if (!capabilityFieldsBoundToBytes(capability)) return false;
                 if (capability.provider_fingerprint != provider.provider_fingerprint) return false;
                 if (capability.manifest_fingerprint != manifest.fingerprint) return false;
+                if (!policyProviderAllowed(policy, provider.provider_fingerprint)) return false;
+                if (!policyCapabilityAllowed(policy, capability.fingerprint)) return false;
                 if (!capability.allowed_request_kinds.allows(request_kind)) return false;
                 if (!listAllowsString(capability.allowed_program_labels, shape.program_label)) return false;
                 if (shape.plan_hash == 0 and capability.allowed_plan_hashes.len != 0) return false;
@@ -16573,15 +16950,74 @@ pub fn program(
                 if (shape.max_response_bytes != 0 and shape.max_response_bytes > capability.max_response_bytes) return false;
                 if (has_capsule and !capability.allow_embedded_capsule_response_handling) return false;
                 if (has_capsule and shape.max_capsule_image_bytes != 0 and shape.max_capsule_image_bytes > capability.max_capsule_image_bytes) return false;
-                if (!responseKindSetIntersects(staticShapeResponseKinds(shape), capability.allowed_response_kinds)) return false;
+                var response_kinds = responseKindSetIntersection(staticShapeResponseKinds(shape), provider.allowed_response_kinds);
+                response_kinds = responseKindSetIntersection(response_kinds, offer.allowed_response_kinds);
+                response_kinds = responseKindSetIntersection(response_kinds, capability.allowed_response_kinds);
+                response_kinds = responseKindSetIntersection(response_kinds, policy.allowed_response_kinds);
+                if (!responseKindSetIntersects(staticShapeResponseKinds(shape), response_kinds)) return false;
+                var direct_refs_buffer: [3]Evidence.BoundaryValueRef = undefined;
+                const direct_refs = staticShapeResponseRefs(shape, &direct_refs_buffer);
+                if (staticBoundaryRefSlicesEqual(response_refs, direct_refs)) {
+                    var paired_refs_buffer: [3]Evidence.BoundaryValueRef = undefined;
+                    return staticBoundaryRefsAllowedByCapability(capability.allowed_response_refs, staticShapeResponseRefsForKinds(shape, response_kinds, &paired_refs_buffer));
+                }
                 return staticBoundaryRefsAllowedByCapability(capability.allowed_response_refs, response_refs);
+            }
+
+            fn staticCapabilitySupportsMorphismTarget(
+                capability: Capability,
+                manifest: Manifest,
+                provider: ProviderManifest,
+                offer: ProviderOffer,
+                policy: Policy,
+                request_kind: RequestKind,
+                site_index: usize,
+                target_protocol_op_fingerprint: u64,
+                shape: Evidence.BoundaryEffectShape,
+                morphism: MorphismOffer,
+                has_capsule: bool,
+            ) bool {
+                if (!capabilityFieldsBoundToBytes(capability)) return false;
+                if (capability.provider_fingerprint != provider.provider_fingerprint) return false;
+                if (capability.manifest_fingerprint != manifest.fingerprint) return false;
+                if (!policyProviderAllowed(policy, provider.provider_fingerprint)) return false;
+                if (!policyCapabilityAllowed(policy, capability.fingerprint)) return false;
+                if (!capability.allowed_request_kinds.allows(request_kind)) return false;
+                if (!listAllowsString(capability.allowed_program_labels, shape.program_label)) return false;
+                if (shape.plan_hash == 0 and capability.allowed_plan_hashes.len != 0) return false;
+                if (shape.plan_hash != 0 and !listAllowsU64(capability.allowed_plan_hashes, shape.plan_hash)) return false;
+                switch (request_kind) {
+                    .operation => if (!listAllowsUsize(capability.allowed_operation_sites, site_index)) return false,
+                    .after => if (!listAllowsUsize(capability.allowed_after_sites, site_index)) return false,
+                }
+                if (capability.allowed_protocol_op_fingerprints.len == 0 and
+                    (capability.allowed_requirement_labels.len != 0 or capability.allowed_op_names.len != 0))
+                {
+                    return false;
+                }
+                if (!listAllowsU64(capability.allowed_protocol_op_fingerprints, target_protocol_op_fingerprint)) return false;
+                if (shape.max_request_bytes != 0 and shape.max_request_bytes > capability.max_request_bytes) return false;
+                if (shape.max_payload_bytes != 0 and shape.max_payload_bytes > capability.max_payload_bytes) return false;
+                if (shape.max_response_bytes != 0 and shape.max_response_bytes > capability.max_response_bytes) return false;
+                if (has_capsule and !capability.allow_embedded_capsule_response_handling) return false;
+                if (has_capsule and shape.max_capsule_image_bytes != 0 and shape.max_capsule_image_bytes > capability.max_capsule_image_bytes) return false;
+                var response_kinds = responseKindSetIntersection(staticShapeResponseKinds(shape), provider.allowed_response_kinds);
+                response_kinds = responseKindSetIntersection(response_kinds, offer.allowed_response_kinds);
+                response_kinds = responseKindSetIntersection(response_kinds, capability.allowed_response_kinds);
+                response_kinds = responseKindSetIntersection(response_kinds, policy.allowed_response_kinds);
+                if (!responseKindSetIntersects(staticShapeResponseKinds(shape), response_kinds)) return false;
+                var target_refs_buffer: [3]Evidence.BoundaryValueRef = undefined;
+                const target_refs = staticMorphismTargetResponseRefsForKinds(shape, morphism, response_kinds, &target_refs_buffer);
+                return staticBoundaryRefsAllAllowedByCapability(capability.allowed_response_refs, target_refs);
             }
 
             fn staticOfferUsageCompatible(offer: ProviderOffer, shape: Evidence.BoundaryEffectShape, policy: Treaty.Policy) bool {
                 const usage = staticUsage(shape.usage_summary);
-                const response_use = staticResponseUse(shape.replay_policy_summary, if (policy.require_replay_only_response) .replayed else .fresh);
+                const response_use = staticResponseUseForOffer(offer, shape.replay_policy_summary, policy);
                 const replay_policy = staticResponseUse(shape.replay_policy_summary, .fresh);
                 const branch_policy = staticBranchPolicy(shape.branch_policy_summary);
+                if (policy.disallow_fresh_response and response_use == .fresh) return false;
+                if (policy.require_replay_only_response and response_use != .replayed and response_use != .deterministic_replay) return false;
                 return policy.allowed_usage_modes.allows(usage) and
                     offer.supported_usage_modes.allows(usage) and
                     policy.allowed_response_uses.allows(response_use) and
@@ -16591,12 +17027,28 @@ pub fn program(
                     offer.supported_branch_policies.allows(branch_policy);
             }
 
+            fn staticMorphismTargetUsageCompatible(offer: ProviderOffer, shape: Evidence.BoundaryEffectShape, morphism: MorphismOffer, policy: Treaty.Policy) bool {
+                const source_usage = staticUsage(shape.usage_summary);
+                const response_use = staticResponseUseForOffer(offer, shape.replay_policy_summary, policy);
+                const replay_policy = staticResponseUse(shape.replay_policy_summary, .fresh);
+                const branch_policy = staticBranchPolicy(shape.branch_policy_summary);
+                if (policy.disallow_fresh_response and response_use == .fresh) return false;
+                if (policy.require_replay_only_response and response_use != .replayed and response_use != .deterministic_replay) return false;
+                return policy.allowed_usage_modes.allows(source_usage) and
+                    offer.supported_usage_modes.allows(morphism.target_usage) and
+                    policy.allowed_response_uses.allows(response_use) and
+                    offer.supported_response_uses.allows(response_use) and
+                    offer.supported_replay_policies.allows(replay_policy) and
+                    policy.allowed_branch_policies.allows(branch_policy) and
+                    offer.supported_branch_policies.allows(branch_policy);
+            }
+
             fn staticMorphismSupportsShape(morphism: MorphismOffer, site_fingerprint: u64, protocol_op_fingerprint: u64, response_refs: []const Evidence.BoundaryValueRef, shape: Evidence.BoundaryEffectShape) bool {
                 if (morphism.blockers.len != 0) return false;
+                if (morphism.target_response_refs.len > 3) return false;
                 if (morphism.source_site_fingerprint) |site| if (site != site_fingerprint) return false;
                 if (morphism.source_protocol_op_fingerprint) |op| if (op != protocol_op_fingerprint) return false;
                 if (morphism.source_usage != staticUsage(shape.usage_summary)) return false;
-                if (morphism.target_response_refs.len != 0 and morphism.source_response_refs.len == 0) return false;
                 if (morphism.source_response_refs.len == 0) return true;
                 for (response_refs) |ref| {
                     if (staticValueRefListAllows(morphism.source_response_refs, ref)) return true;
@@ -16689,11 +17141,125 @@ pub fn program(
                 return false;
             }
 
+            fn staticOfferAllowsAllResponseRefs(offer: ProviderOffer, refs: []const Evidence.BoundaryValueRef) bool {
+                if (refs.len == 0) return false;
+                for (refs) |ref| {
+                    if (!staticValueRefListAllows(offer.produced_response_refs, ref)) return false;
+                }
+                return true;
+            }
+
+            fn staticOfferAllowsShapeResponse(offer: ProviderOffer, shape: Evidence.BoundaryEffectShape) bool {
+                const shape_kinds = staticShapeResponseKinds(shape);
+                const allowed_kinds = responseKindSetIntersection(shape_kinds, offer.allowed_response_kinds);
+                if (!responseKindSetIntersects(shape_kinds, allowed_kinds)) return false;
+                var refs_buffer: [3]Evidence.BoundaryValueRef = undefined;
+                return staticOfferAllowsAnyResponseRef(offer, staticShapeResponseRefsForKinds(shape, allowed_kinds, &refs_buffer));
+            }
+
             fn staticBoundaryRefsAllowedByCapability(allowed_refs: []const lowering_api.ValueRef, refs: []const Evidence.BoundaryValueRef) bool {
                 for (refs) |ref| {
                     if (staticValueRefListAllows(allowed_refs, ref)) return true;
                 }
                 return false;
+            }
+
+            fn staticBoundaryRefsAllAllowedByCapability(allowed_refs: []const lowering_api.ValueRef, refs: []const Evidence.BoundaryValueRef) bool {
+                if (refs.len == 0) return false;
+                for (refs) |ref| {
+                    if (!staticValueRefListAllows(allowed_refs, ref)) return false;
+                }
+                return true;
+            }
+
+            fn staticBoundaryRefListContains(refs: []const Evidence.BoundaryValueRef, needle: Evidence.BoundaryValueRef) bool {
+                for (refs) |ref| {
+                    if (ref.eql(needle)) return true;
+                }
+                return false;
+            }
+
+            fn staticMorphismTargetResponseRefsForKinds(shape: Evidence.BoundaryEffectShape, morphism: MorphismOffer, kinds: Policy.ResponseKindSet, buffer: *[3]Evidence.BoundaryValueRef) []const Evidence.BoundaryValueRef {
+                if (morphism.target_response_refs.len == 0) return staticShapeResponseRefsForKinds(shape, kinds, buffer);
+                if (morphism.target_response_refs.len > buffer.len) return buffer[0..0];
+                var source_refs_buffer: [3]Evidence.BoundaryValueRef = undefined;
+                const source_refs = staticShapeResponseRefsForKinds(shape, kinds, &source_refs_buffer);
+                if (morphism.source_response_refs.len != 0) {
+                    var source_ref_supported = false;
+                    for (morphism.source_response_refs) |source_ref| {
+                        const boundary_source_ref = Evidence.BoundaryValueRef.fromValueRef(source_ref);
+                        if (staticBoundaryRefListContains(source_refs, boundary_source_ref)) source_ref_supported = true;
+                    }
+                    if (!source_ref_supported) return buffer[0..0];
+                } else if (source_refs.len == 0) {
+                    return buffer[0..0];
+                }
+                var count: usize = 0;
+                for (morphism.target_response_refs) |target_ref| {
+                    buffer[count] = Evidence.BoundaryValueRef.fromValueRef(target_ref);
+                    count += 1;
+                    if (count == buffer.len) break;
+                }
+                return buffer[0..count];
+            }
+
+            fn staticShapeResponseRefsForKinds(shape: Evidence.BoundaryEffectShape, kinds: Policy.ResponseKindSet, buffer: *[3]Evidence.BoundaryValueRef) []const Evidence.BoundaryValueRef {
+                if (shape.kind == .after) {
+                    if (!kinds.resume_after) return buffer[0..0];
+                    if (shape.expected_after_ref) |ref| {
+                        if (staticShapeDesiredResponseAllows(shape, ref)) {
+                            buffer[0] = ref;
+                            return buffer[0..1];
+                        }
+                        return buffer[0..0];
+                    }
+                    return buffer[0..0];
+                }
+
+                var count: usize = 0;
+                if (kinds.@"resume") {
+                    if (staticShapeMayResume(shape)) {
+                        if (shape.expected_resume_ref) |ref| {
+                            if (staticShapeDesiredResponseAllows(shape, ref)) {
+                                buffer[count] = ref;
+                                count += 1;
+                            }
+                        }
+                    }
+                }
+                if (kinds.return_now) {
+                    if (staticShapeMayReturnNow(shape)) {
+                        if (shape.result_ref) |ref| {
+                            if (staticShapeDesiredResponseAllows(shape, ref)) {
+                                buffer[count] = ref;
+                                count += 1;
+                            }
+                        }
+                    }
+                }
+                return buffer[0..count];
+            }
+
+            fn staticShapeMayResume(shape: Evidence.BoundaryEffectShape) bool {
+                return !std.mem.eql(u8, shape.mode, "abort");
+            }
+
+            fn staticShapeMayReturnNow(shape: Evidence.BoundaryEffectShape) bool {
+                return !std.mem.eql(u8, shape.mode, "transform");
+            }
+
+            fn staticShapeDesiredResponseAllows(shape: Evidence.BoundaryEffectShape, ref: Evidence.BoundaryValueRef) bool {
+                if (shape.desired_response_refs.len == 0) return true;
+                for (shape.desired_response_refs) |desired| if (desired.eql(ref)) return true;
+                return false;
+            }
+
+            fn staticBoundaryRefSlicesEqual(left: []const Evidence.BoundaryValueRef, right: []const Evidence.BoundaryValueRef) bool {
+                if (left.len != right.len) return false;
+                for (left, right) |left_ref, right_ref| {
+                    if (!left_ref.eql(right_ref)) return false;
+                }
+                return true;
             }
 
             fn staticValueRefListAllows(list: []const lowering_api.ValueRef, value: Evidence.BoundaryValueRef) bool {
@@ -16720,6 +17286,20 @@ pub fn program(
                 return .copyable;
             }
 
+            fn staticTreatyResponseUseAllowed(policy: Treaty.Policy, offer: ProviderOffer, response_use: ResponseUse) bool {
+                return policy.allowed_response_uses.allows(response_use) and offer.supported_response_uses.allows(response_use);
+            }
+
+            fn staticResponseUseForOffer(offer: ProviderOffer, replay_policy_summary: []const u8, policy: Treaty.Policy) ResponseUse {
+                if (replay_policy_summary.len != 0) return staticResponseUse(replay_policy_summary, .fresh);
+                if (policy.require_replay_only_response) {
+                    if (staticTreatyResponseUseAllowed(policy, offer, .replayed)) return .replayed;
+                    if (staticTreatyResponseUseAllowed(policy, offer, .deterministic_replay)) return .deterministic_replay;
+                    return .replayed;
+                }
+                return .fresh;
+            }
+
             fn staticResponseUse(value: []const u8, default_value: ResponseUse) ResponseUse {
                 if (std.mem.eql(u8, value, "replayed")) return .replayed;
                 if (std.mem.eql(u8, value, "deterministic_replay")) return .deterministic_replay;
@@ -16744,14 +17324,17 @@ pub fn program(
                 hashBytes(&hasher, plan.label);
                 hashBytes(&hasher, @tagName(plan.status));
                 hashStaticEvidenceRef(&hasher, plan.shape_ref);
+                hashU64(&hasher, plan.provider_fingerprint);
                 hashOptionalEvidenceRef(&hasher, plan.provider_ref);
                 hashOptionalEvidenceRef(&hasher, plan.provider_offer_ref);
                 hashOptionalEvidenceRef(&hasher, plan.capability_ref);
                 hashOptionalEvidenceRef(&hasher, plan.morphism_offer_ref);
                 hashBytes(&hasher, @tagName(plan.provider_semantic_body));
                 hashOptionalBytes(&hasher, if (plan.morphism_semantic_body) |body| @tagName(body) else null);
+                hashStaticAuthority(&hasher, plan.selected_authority);
                 hashUsize(&hasher, plan.candidate_count);
                 hashUsize(&hasher, plan.blocked_count);
+                hashBool(&hasher, plan.ambiguous_best);
                 for (plan.blockers.blockers[0..plan.blockers.count]) |blocker| {
                     hashBytes(&hasher, blocker.tag);
                     hashBytes(&hasher, blocker.summary);
@@ -16759,6 +17342,14 @@ pub fn program(
                 }
                 hashBool(&hasher, plan.blockers.truncated);
                 return hasher.final();
+            }
+
+            fn hashStaticAuthority(hasher: *std.hash.Wyhash, authority: StaticAuthority) void {
+                hashUsize(hasher, authority.max_response_bytes);
+                hashUsize(hasher, authority.max_payload_bytes);
+                hashBool(hasher, authority.capsule_restore_allowed);
+                hashU32(hasher, authority.response_kind_count);
+                hashBool(hasher, authority.attenuated);
             }
 
             fn hashStaticEvidenceRef(hasher: *std.hash.Wyhash, ref: Evidence.Ref) void {

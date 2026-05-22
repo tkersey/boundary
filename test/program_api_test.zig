@@ -24205,6 +24205,17 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expectEqual(@as(usize, 0), program_report.host_intrinsic_count);
     try ProgramBackedHarness.assertDefunctionalized(Program.Evidence.DefunctionalizationPolicy.strict());
     try std.testing.expect(ProgramBackedDecl.provider_program_mapping_fingerprint != 0);
+    const provider_program_ref = Program.Evidence.refFor(Program.Evidence.domains.program_plan, HandlerProgram.compiled_plan.hash(), .{ .label = HandlerProgram.contract.label });
+    try std.testing.expect(program_catalog.provider_offers[0].provider_program_ref.?.eql(provider_program_ref));
+    try std.testing.expectEqual(@as(?usize, 0), program_catalog.provider_offers[0].provider_program_effect_shape_count);
+    try std.testing.expectEqual(
+        @as(?u64, Program.Evidence.fingerprintBoundaryEffectShapeSet(&.{})),
+        program_catalog.provider_offers[0].provider_program_effect_shape_fingerprint,
+    );
+    var unbound_ref_offer = program_catalog.provider_offers[0];
+    unbound_ref_offer.provider_program_ref.?.format_version = 1;
+    try std.testing.expectError(error.ProgramContractViolation, unbound_ref_offer.validate());
+    try std.testing.expect(!unbound_ref_offer.providerProgramMappingAttested());
     try ProgramBackedHarness.validateManualOffer(std.testing.allocator, 0, program_catalog.provider_offers[0]);
     try std.testing.expectError(error.ProgramContractViolation, Program.Exchange.ProviderOffer.encode(std.testing.allocator, .{
         .label = "forged-program-offer",
@@ -24299,6 +24310,171 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, preferred_mixed.status);
     try std.testing.expectEqual(ProgramBackedHarness.provider_fingerprint, preferred_mixed.treaty.?.provider_fingerprint);
     try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, preferred_mixed.treaty.?.provider_semantic_body);
+    const static_operation_shape = Program.Evidence.BoundaryEffectShape.init(.{
+        .program_label = Program.contract.label,
+        .plan_label = Program.compiled_plan.label,
+        .plan_hash = Program.compiled_plan.hash(),
+        .kind = .operation,
+        .site_index = OperationSite.index,
+        .site_fingerprint = OperationSite.fingerprint,
+        .semantic_label = OperationSite.semantic_label,
+        .name = OperationSite.op_name,
+        .mode = @tagName(OperationSite.op_mode),
+        .value_ref = Program.Evidence.BoundaryValueRef.fromValueRef(OperationSite.payload_ref),
+        .expected_resume_ref = Program.Evidence.BoundaryValueRef.fromValueRef(OperationSite.resume_ref),
+        .protocol_label = OperationSite.requirement_label,
+        .protocol_op_fingerprint = OperationSite.fingerprint,
+    });
+    const generated_operation_shape = Program.BoundaryClosure.operationShape(Program, OperationSite, .operation);
+    switch (OperationSite.op_mode) {
+        .transform => {
+            try std.testing.expect(generated_operation_shape.expected_resume_ref != null);
+            try std.testing.expect(generated_operation_shape.result_ref == null);
+        },
+        .choice => {
+            try std.testing.expect(generated_operation_shape.expected_resume_ref != null);
+            try std.testing.expect(generated_operation_shape.result_ref != null);
+        },
+        .abort => {
+            try std.testing.expect(generated_operation_shape.expected_resume_ref == null);
+            try std.testing.expect(generated_operation_shape.result_ref != null);
+        },
+    }
+    const host_offer_ref = catalog.provider_offers[0].hostIntrinsicRef() orelse return error.ExpectedHostIntrinsic;
+    const allowed_host_intrinsics = [_]u64{host_offer_ref.fingerprint};
+    var closure_policy = Program.Evidence.BoundaryClosurePolicy.worldBoundary();
+    closure_policy.allowed_host_intrinsic_fingerprints = allowed_host_intrinsics[0..];
+    const preferred_static_plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = std.testing.allocator,
+        .shape = static_operation_shape,
+        .provider_manifests = mixed_providers[0..],
+        .provider_offers = mixed_offers[0..],
+        .capabilities = mixed_capabilities[0..],
+        .policy = closure_policy,
+    });
+    defer std.testing.allocator.free(preferred_static_plan.blockers);
+    defer std.testing.allocator.free(preferred_static_plan.dependencies);
+    try std.testing.expect(preferred_static_plan.closed());
+    try std.testing.expectEqual(program_catalog.provider_offers[0].fingerprint, preferred_static_plan.selected_provider_offer_ref.?.fingerprint);
+    const unrelated_provider_program_ref = Program.Evidence.refFor(Program.Evidence.domains.program_plan, HandlerProgram.compiled_plan.hash() +% 1, .{ .label = "unrelated-handler" });
+    const provider_programs = [_]Program.BoundaryClosure.ProviderProgram{.{
+        .provider_ref = program_catalog.provider_manifest.evidenceRef(),
+        .program_ref = provider_program_ref,
+        .provider_program_mapping_fingerprint = ProgramBackedDecl.provider_program_mapping_fingerprint,
+        .effect_free = true,
+    }};
+    var nested_closure = try Program.BoundaryClosure.analyze(std.testing.allocator, .{
+        .allocator = std.testing.allocator,
+        .root_shapes = &.{static_operation_shape},
+        .provider_programs = provider_programs[0..],
+        .provider_manifests = &.{program_catalog.provider_manifest},
+        .provider_offers = &.{program_catalog.provider_offers[0]},
+        .capabilities = &.{program_capability},
+        .policy = Program.Evidence.BoundaryClosurePolicy.auditOnly(),
+    });
+    defer nested_closure.deinit();
+    try std.testing.expectEqual(@as(usize, 1), nested_closure.report.provider_program_refs.len);
+    try std.testing.expectEqual(@as(usize, 0), nested_closure.report.blocker_count);
+
+    const AfterHandlerBody = struct {
+        pub const compiled_plan = pureArithmeticPlan("program-backed-provider-depth-after-handler");
+    };
+    const AfterHandlerProgram = boundary.program("program-backed-provider-depth-after-handler", struct {}, AfterHandlerBody);
+    const AfterProgramBackedDecl = Program.Exchange.ProviderHandler.program(.{
+        .label = "program-backed-depth-after",
+        .after = AfterSite,
+        .program = AfterHandlerProgram,
+        .map_request = .unit_args,
+        .map_result = .result_to_resume_after,
+    });
+    const AfterProgramBackedHarness = Program.Exchange.ProviderHarness(.{
+        .label = "program-backed-depth-after-provider",
+        .provider_fingerprint = @as(?u64, 0x5159),
+        .entries = .{AfterProgramBackedDecl},
+    });
+    var after_program_catalog = try AfterProgramBackedHarness.buildCatalog(std.testing.allocator);
+    defer after_program_catalog.deinit();
+    var after_program_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "program-backed-after-issuer",
+        .provider_fingerprint = AfterProgramBackedHarness.provider_fingerprint,
+        .manifest_fingerprint = after_program_catalog.manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = false, .after = true },
+        .allowed_after_sites = &.{AfterSite.index},
+        .allowed_protocol_op_fingerprints = &.{OperationSite.fingerprint},
+        .allowed_requirement_labels = &.{"authored"},
+        .allowed_op_names = &.{"dispatch"},
+        .allowed_response_kinds = .{ .@"resume" = false, .return_now = false, .resume_after = true },
+        .allowed_response_refs = after_program_catalog.provider_offers[0].produced_response_refs,
+    });
+    defer after_program_capability.deinit();
+    const after_static_shape = Program.BoundaryClosure.afterShape(Program, AfterSite);
+    const after_provider_program_ref = Program.Evidence.refFor(Program.Evidence.domains.program_plan, AfterHandlerProgram.compiled_plan.hash(), .{ .label = AfterHandlerProgram.contract.label });
+    const depth_limited_programs = [_]Program.BoundaryClosure.ProviderProgram{
+        .{
+            .provider_ref = program_catalog.provider_manifest.evidenceRef(),
+            .program_ref = provider_program_ref,
+            .provider_program_mapping_fingerprint = ProgramBackedDecl.provider_program_mapping_fingerprint,
+            .shapes = &.{after_static_shape},
+        },
+        .{
+            .provider_ref = after_program_catalog.provider_manifest.evidenceRef(),
+            .program_ref = after_provider_program_ref,
+            .provider_program_mapping_fingerprint = AfterProgramBackedDecl.provider_program_mapping_fingerprint,
+            .effect_free = true,
+        },
+    };
+    const depth_limited_providers = [_]Program.Exchange.ProviderManifest{ program_catalog.provider_manifest, after_program_catalog.provider_manifest };
+    const depth_limited_offers = [_]Program.Exchange.ProviderOffer{ program_catalog.provider_offers[0], after_program_catalog.provider_offers[0] };
+    const depth_limited_capabilities = [_]Program.Exchange.Capability{ program_capability, after_program_capability };
+    var depth_limited_policy = Program.Evidence.BoundaryClosurePolicy.auditOnly();
+    depth_limited_policy.max_nested_provider_depth = 1;
+    var depth_limited_closure = try Program.BoundaryClosure.analyze(std.testing.allocator, .{
+        .allocator = std.testing.allocator,
+        .root_shapes = &.{static_operation_shape},
+        .provider_programs = depth_limited_programs[0..],
+        .provider_manifests = depth_limited_providers[0..],
+        .provider_offers = depth_limited_offers[0..],
+        .capabilities = depth_limited_capabilities[0..],
+        .policy = depth_limited_policy,
+    });
+    defer depth_limited_closure.deinit();
+    try std.testing.expectEqual(@as(usize, 0), depth_limited_closure.report.provider_program_refs.len);
+    try std.testing.expectEqual(@as(usize, 1), depth_limited_closure.report.blocker_count);
+    try std.testing.expectEqualStrings("provider_program_contract_missing", depth_limited_closure.report.blockers[0].tag);
+    try std.testing.expect(!depth_limited_closure.report.closed());
+    try depth_limited_closure.certificate.check(depth_limited_closure.graph, depth_limited_closure.report, depth_limited_policy);
+    const wrong_mapping_programs = [_]Program.BoundaryClosure.ProviderProgram{
+        .{
+            .provider_ref = program_catalog.provider_manifest.evidenceRef(),
+            .program_ref = unrelated_provider_program_ref,
+            .provider_program_mapping_fingerprint = ProgramBackedDecl.provider_program_mapping_fingerprint,
+            .effect_free = true,
+        },
+        .{
+            .provider_ref = program_catalog.provider_manifest.evidenceRef(),
+            .program_ref = provider_program_ref,
+            .provider_program_mapping_fingerprint = ProgramBackedDecl.provider_program_mapping_fingerprint +% 1,
+            .effect_free = true,
+        },
+    };
+    var mapping_matched_closure = try Program.BoundaryClosure.analyze(std.testing.allocator, .{
+        .allocator = std.testing.allocator,
+        .root_shapes = &.{static_operation_shape},
+        .provider_programs = wrong_mapping_programs[0..],
+        .provider_manifests = &.{program_catalog.provider_manifest},
+        .provider_offers = &.{program_catalog.provider_offers[0]},
+        .capabilities = &.{program_capability},
+        .policy = Program.Evidence.BoundaryClosurePolicy.auditOnly(),
+    });
+    defer mapping_matched_closure.deinit();
+    try std.testing.expectEqual(@as(usize, 0), mapping_matched_closure.report.provider_program_refs.len);
+    try std.testing.expectEqual(@as(usize, 1), mapping_matched_closure.report.blocker_count);
+    try std.testing.expectEqualStrings("provider_program_contract_missing", mapping_matched_closure.report.blockers[0].tag);
+    try mapping_matched_closure.certificate.check(
+        mapping_matched_closure.graph,
+        mapping_matched_closure.report,
+        Program.Evidence.BoundaryClosurePolicy.auditOnly(),
+    );
     var explicit_preferred_mixed = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = request_envelope,
@@ -24352,6 +24528,17 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer wildcard_program_provider.deinit();
     try std.testing.expect(wildcard_program_provider.supportsRequest(request_envelope));
     try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, decoded_program_offer.semanticBodyWithProvider(wildcard_program_provider));
+    var mappingless_program_provider = try Program.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "program-backed-mappingless-provider",
+        .provider_fingerprint = ProgramBackedHarness.provider_fingerprint,
+        .supported_program_manifest_fingerprints = &.{program_catalog.manifest.fingerprint},
+        .supported_protocol_labels = &.{OperationSite.requirement_label},
+        .supported_operation_sites = &.{OperationSite.index},
+        .supported_protocol_op_fingerprints = &.{OperationSite.fingerprint},
+    });
+    defer mappingless_program_provider.deinit();
+    try std.testing.expect(mappingless_program_provider.supportsRequest(request_envelope));
+    try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, program_catalog.provider_offers[0].semanticBodyWithProvider(mappingless_program_provider));
     const wildcard_program_providers = [_]Program.Exchange.ProviderManifest{wildcard_program_provider};
     const wildcard_program_offers = [_]Program.Exchange.ProviderOffer{decoded_program_offer};
     var wildcard_program_result = try Program.Exchange.TreatyResolver.resolve(.{
@@ -24365,6 +24552,20 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     });
     defer wildcard_program_result.deinit();
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.blocked, wildcard_program_result.status);
+    const mappingless_program_providers = [_]Program.Exchange.ProviderManifest{mappingless_program_provider};
+    const wildcard_attested_program_offers = [_]Program.Exchange.ProviderOffer{program_catalog.provider_offers[0]};
+    const wildcard_attested_closure_plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = std.testing.allocator,
+        .shape = static_operation_shape,
+        .provider_manifests = mappingless_program_providers[0..],
+        .provider_offers = wildcard_attested_program_offers[0..],
+        .capabilities = (&[_]Program.Exchange.Capability{program_capability})[0..],
+        .policy = closure_policy,
+    });
+    defer std.testing.allocator.free(wildcard_attested_closure_plan.blockers);
+    defer std.testing.allocator.free(wildcard_attested_closure_plan.dependencies);
+    try std.testing.expect(!wildcard_attested_closure_plan.closed());
+    try std.testing.expect(wildcard_attested_closure_plan.selected_provider_offer_ref == null);
     const decoded_program_providers = [_]Program.Exchange.ProviderManifest{decoded_program_provider};
     const decoded_program_offers = [_]Program.Exchange.ProviderOffer{decoded_program_offer};
     const attested_program_offers = [_]Program.Exchange.ProviderOffer{program_catalog.provider_offers[0]};
@@ -24379,6 +24580,29 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         .source_response_refs = program_catalog.provider_offers[0].produced_response_refs,
         .target_response_refs = program_catalog.provider_offers[0].produced_response_refs,
     }};
+    const program_static_morphisms = [_]Program.Exchange.MorphismOffer{.{
+        .label = "program-backed-static-morphism",
+        .source_site_fingerprint = request_envelope.site_fingerprint,
+        .source_protocol_op_fingerprint = OperationSite.fingerprint,
+        .target_protocol_op_fingerprint = OperationSite.fingerprint,
+        .pipeline_fingerprint = 0x515802,
+        .source_response_refs = program_catalog.provider_offers[0].produced_response_refs,
+        .target_response_refs = program_catalog.provider_offers[0].produced_response_refs,
+    }};
+    const wildcard_attested_morphism_closure_plan = try Program.Exchange.TreatyResolver.planShape(.{
+        .allocator = std.testing.allocator,
+        .shape = static_operation_shape,
+        .provider_manifests = mappingless_program_providers[0..],
+        .provider_offers = wildcard_attested_program_offers[0..],
+        .morphism_offers = program_static_morphisms[0..],
+        .capabilities = (&[_]Program.Exchange.Capability{program_capability})[0..],
+        .treaty_policy = .{ .allow_direct_handling = false },
+        .policy = closure_policy,
+    });
+    defer std.testing.allocator.free(wildcard_attested_morphism_closure_plan.blockers);
+    defer std.testing.allocator.free(wildcard_attested_morphism_closure_plan.dependencies);
+    try std.testing.expect(!wildcard_attested_morphism_closure_plan.closed());
+    try std.testing.expect(wildcard_attested_morphism_closure_plan.selected_provider_offer_ref == null);
     var provider_required_dynamic_morphism = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = request_envelope,
@@ -25771,6 +25995,9 @@ test "Program.Exchange ProviderHarness accepts handlerless after current values"
     const After = Program.protocol.afterSite("handlerless", "step", 0);
     try std.testing.expect(!After.has_static_input_ref);
     try std.testing.expect(After.current_value_ref == null);
+    const closure_shapes = Program.BoundaryClosure.effectShapesForProgram(Program, .operation);
+    try std.testing.expectEqual(Program.Evidence.BoundaryEffectShape.Kind.operation, closure_shapes[0].kind);
+    try std.testing.expectEqual(Program.Evidence.BoundaryEffectShape.Kind.after, closure_shapes[1].kind);
 
     const Outcome = union(enum) {
         forward,

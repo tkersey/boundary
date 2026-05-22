@@ -48,8 +48,8 @@ identity, signing, encryption, and actual host-intrinsic execution.
 `BoundaryClosure.EffectShape` is a static witness. It describes a program
 operation site, after site, protocol operation, nested provider site, residual
 site, intrinsic boundary, or world-port shape using program labels, plan hashes,
-site indexes, site fingerprints, requirement/op names, mode, value refs,
-semantic labels, and an `Evidence.Ref`.
+exchange manifest fingerprints, site indexes, site fingerprints, requirement/op
+names, mode, value refs, semantic labels, and an `Evidence.Ref`.
 
 It is not a request envelope. It contains no concrete payload bytes, no request
 token, no provider handle, no allocator, and no thread/runtime identity. Runtime
@@ -88,10 +88,11 @@ graph fingerprint is computed.
 ## WorldPort Declarations
 
 `BoundaryClosure.WorldPort` is an explicit open boundary that World must
-implement. It declares a label, kind, effect-shape ref, expected protocol/site/op
-shape, usage/branch/replay summaries, required evidence refs, tags, and
-metadata. Built-in kinds cover host tools, models, files, humans, randomness,
-clocks, foreign systems, test fixtures, and custom ports.
+implement. It declares a label, kind, effect-shape ref, the exact exposed
+host-intrinsic ref, expected protocol/site/op shape, usage/branch/replay
+summaries, required evidence refs, tags, and metadata. Built-in kinds cover host
+tools, models, files, humans, randomness, clocks, foreign systems, test
+fixtures, and custom ports.
 
 A world port is not an implementation. It is a typed declaration that an allowed
 host intrinsic or open effect is intentionally outside Boundary.
@@ -149,6 +150,7 @@ machine-readable.
 An adjacent World interpreter should read:
 
 - root program refs
+- effect-free root refs, when a referenced root intentionally has no yield sites
 - provider harness/provider refs
 - static treaty plan refs
 - world-port declarations
@@ -160,6 +162,10 @@ An adjacent World interpreter should read:
 World should not treat the certificate as cryptographic authorization. It is a
 deterministic semantic witness that the Boundary portion is closed, or that the
 only open parts are explicit world ports.
+
+A root ref by itself is not a proof. If a root program is included, closure must
+also include its extracted effect shapes, or list that same ref in
+`effect_free_root_refs` to make the absence of yield sites explicit.
 
 ## Examples
 
