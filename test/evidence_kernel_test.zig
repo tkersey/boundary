@@ -3880,8 +3880,8 @@ test "boundary closure traversal closes a provider-backed shape" {
         .allocator = mixed_owner_allocator,
         .policy = Evidence.BoundaryClosurePolicy.auditOnly(),
     });
-    try std.testing.expect(mixed_allocator_result.allocator.ptr == mixed_owner_allocator.ptr);
-    try std.testing.expect(mixed_allocator_result.allocator.vtable == mixed_owner_allocator.vtable);
+    try std.testing.expect(mixed_allocator_result.allocator.ptr == allocator.ptr);
+    try std.testing.expect(mixed_allocator_result.allocator.vtable == allocator.vtable);
     mixed_allocator_result.deinit();
 
     const provider_program_ref = Evidence.refFor(Evidence.domains.program_plan, 0xABCDEF, .{ .label = "provider-program" });
