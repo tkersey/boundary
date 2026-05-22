@@ -3102,6 +3102,22 @@ test "boundary closure traversal closes a provider-backed shape" {
     try result.certificate.check(result.graph, result.report, closure_policy, result.static_treaty_plans);
     try std.testing.expect(Evidence.refForBoundaryClosureCertificate(result.certificate).eql(result.certificate.evidenceRef()));
 
+    const audit_policy = Evidence.BoundaryClosurePolicy.auditOnly();
+    var duplicate_shape_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{ shape, shape },
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = audit_policy,
+    });
+    defer duplicate_shape_result.deinit();
+    try std.testing.expectEqual(@as(usize, 1), duplicate_shape_result.report.effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 1), duplicate_shape_result.plan_refs.len);
+    try std.testing.expectEqual(@as(usize, 1), duplicate_shape_result.report.blocker_count);
+    try std.testing.expectEqualStrings("duplicate_effect_shape", duplicate_shape_result.report.blockers[0].tag);
+    try duplicate_shape_result.certificate.check(duplicate_shape_result.graph, duplicate_shape_result.report, audit_policy, duplicate_shape_result.static_treaty_plans);
+
     const shape_missing_op_selector = Evidence.BoundaryEffectShape.init(.{
         .program_label = "evidence-test",
         .plan_label = "evidence-test-plan-missing-op",

@@ -1610,6 +1610,7 @@ pub const BoundaryClosureBlockerTag = enum {
     no_static_treaty_plan,
     no_provider_offer_for_shape,
     no_capability_for_shape,
+    duplicate_effect_shape,
     ambiguous_static_treaty_plan,
     intrinsic_route_rejected,
     unallowlisted_intrinsic,
@@ -3161,6 +3162,8 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             defer active_provider_program_refs.deinit(allocator);
             var active_provider_program_keys = std.ArrayList(SelectedProviderProgramKey).empty;
             defer active_provider_program_keys.deinit(allocator);
+            var seen_shape_refs = std.ArrayList(Ref).empty;
+            defer seen_shape_refs.deinit(allocator);
 
             if (analysis_input.root_shapes.len == 0 and analysis_input.root_program_refs.len == 0) {
                 const evidence_blocker = boundaryClosureBlocker(.{
@@ -3213,8 +3216,8 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             var intrinsic_count: usize = 0;
             var ambiguity_count: usize = 0;
 
-            try analyzeShapes(allocator, analysis_input, analysis_input.root_shapes, &all_plans, &blockers, &plan_refs, &world_port_refs, &world_port_intrinsic_refs, &host_intrinsic_refs, &unknown_refs, &nodes, &edges, &closed_count, &world_port_shape_count, &boundary_native_count, &declarative_count, &residualized_pipeline_count, &intrinsic_count, &ambiguity_count, analysis_input.root_program_refs, null);
-            try analyzeSelectedProviderPrograms(allocator, analysis_input, &all_plans, &blockers, &plan_refs, &provider_program_refs, &provider_program_keys, &active_provider_program_refs, &active_provider_program_keys, &world_port_refs, &world_port_intrinsic_refs, &host_intrinsic_refs, &unknown_refs, &nodes, &edges, &closed_count, &world_port_shape_count, &boundary_native_count, &declarative_count, &residualized_pipeline_count, &intrinsic_count, &ambiguity_count, 0, all_plans.items.len, 0);
+            try analyzeShapes(allocator, analysis_input, analysis_input.root_shapes, &all_plans, &blockers, &plan_refs, &seen_shape_refs, &world_port_refs, &world_port_intrinsic_refs, &host_intrinsic_refs, &unknown_refs, &nodes, &edges, &closed_count, &world_port_shape_count, &boundary_native_count, &declarative_count, &residualized_pipeline_count, &intrinsic_count, &ambiguity_count, analysis_input.root_program_refs, null);
+            try analyzeSelectedProviderPrograms(allocator, analysis_input, &all_plans, &blockers, &plan_refs, &seen_shape_refs, &provider_program_refs, &provider_program_keys, &active_provider_program_refs, &active_provider_program_keys, &world_port_refs, &world_port_intrinsic_refs, &host_intrinsic_refs, &unknown_refs, &nodes, &edges, &closed_count, &world_port_shape_count, &boundary_native_count, &declarative_count, &residualized_pipeline_count, &intrinsic_count, &ambiguity_count, 0, all_plans.items.len, 0);
             for (all_plans.items) |plan| {
                 if (plan.selected_semantic_body != .boundary_program) continue;
                 const provider_ref = plan.selected_provider_ref orelse continue;
@@ -3275,7 +3278,6 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             }
             const owned_plan_refs = try plan_refs.toOwnedSlice(allocator);
             errdefer allocator.free(owned_plan_refs);
-            const selected_provider_shape_count = providerShapeCountForKeys(analysis_input.provider_programs, provider_program_keys.items);
             const owned_provider_program_refs = try provider_program_refs.toOwnedSlice(allocator);
             errdefer allocator.free(owned_provider_program_refs);
             const owned_world_port_refs = try world_port_refs.toOwnedSlice(allocator);
@@ -3298,7 +3300,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 .effect_free_root_refs = owned_effect_free_root_refs,
                 .provider_harness_refs = owned_provider_harness_refs,
                 .provider_program_refs = owned_provider_program_refs,
-                .effect_shape_count = analysis_input.root_shapes.len + selected_provider_shape_count,
+                .effect_shape_count = owned_plan_refs.len,
                 .closed_effect_shape_count = closed_count,
                 .open_world_port_count = world_port_shape_count,
                 .host_intrinsic_count = intrinsic_count,
@@ -3555,6 +3557,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 .provider_catalog_empty,
                 .effect_shape_unhandled,
                 .nested_provider_effect_unhandled,
+                .duplicate_effect_shape,
                 .ambiguous_static_treaty_plan,
                 .intrinsic_route_rejected,
                 .unallowlisted_intrinsic,
@@ -3584,6 +3587,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             all_plans: *std.ArrayList(StaticTreatyPlan),
             blockers: *std.ArrayList(Blocker),
             plan_refs: *std.ArrayList(Ref),
+            seen_shape_refs: *std.ArrayList(Ref),
             world_port_refs: *std.ArrayList(Ref),
             world_port_intrinsic_refs: *std.ArrayList(Ref),
             host_intrinsic_refs: *std.ArrayList(Ref),
@@ -3602,6 +3606,17 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
         ) !void {
             for (shapes) |shape| {
                 const shape_ref = shape.evidenceRef();
+                if (refsContain(seen_shape_refs.items, shape_ref)) {
+                    const evidence_blocker = boundaryClosureBlocker(.{
+                        .tag = .duplicate_effect_shape,
+                        .subject = shape_ref,
+                        .summary = "duplicate effect shape is not certified twice",
+                    });
+                    try blockers.append(allocator, evidence_blocker);
+                    try appendBlockerGraph(allocator, nodes, edges, evidence_blocker);
+                    continue;
+                }
+                try seen_shape_refs.append(allocator, shape_ref);
                 try nodes.append(allocator, .{ .kind = if (shape.kind == .after) .after_site else .operation_site, .ref = shape_ref, .label = shape.name });
                 if (parent_provider_program_ref) |program_ref| {
                     try edges.append(allocator, .{ .kind = .provider_program_yields, .from = program_ref, .to = shape_ref });
@@ -3775,6 +3790,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             all_plans: *std.ArrayList(StaticTreatyPlan),
             blockers: *std.ArrayList(Blocker),
             plan_refs: *std.ArrayList(Ref),
+            seen_shape_refs: *std.ArrayList(Ref),
             provider_program_refs: *std.ArrayList(Ref),
             provider_program_keys: *std.ArrayList(SelectedProviderProgramKey),
             active_provider_program_refs: *std.ArrayList(Ref),
@@ -3844,8 +3860,8 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 }
 
                 const nested_plan_start = all_plans.items.len;
-                try analyzeShapes(allocator, input, provider_program.shapes, all_plans, blockers, plan_refs, world_port_refs, world_port_intrinsic_refs, host_intrinsic_refs, unknown_refs, nodes, edges, closed_count, world_port_shape_count, boundary_native_count, declarative_count, residualized_pipeline_count, intrinsic_count, ambiguity_count, &.{}, provider_program.program_ref);
-                try analyzeSelectedProviderPrograms(allocator, input, all_plans, blockers, plan_refs, provider_program_refs, provider_program_keys, active_provider_program_refs, active_provider_program_keys, world_port_refs, world_port_intrinsic_refs, host_intrinsic_refs, unknown_refs, nodes, edges, closed_count, world_port_shape_count, boundary_native_count, declarative_count, residualized_pipeline_count, intrinsic_count, ambiguity_count, nested_plan_start, all_plans.items.len, depth + 1);
+                try analyzeShapes(allocator, input, provider_program.shapes, all_plans, blockers, plan_refs, seen_shape_refs, world_port_refs, world_port_intrinsic_refs, host_intrinsic_refs, unknown_refs, nodes, edges, closed_count, world_port_shape_count, boundary_native_count, declarative_count, residualized_pipeline_count, intrinsic_count, ambiguity_count, &.{}, provider_program.program_ref);
+                try analyzeSelectedProviderPrograms(allocator, input, all_plans, blockers, plan_refs, seen_shape_refs, provider_program_refs, provider_program_keys, active_provider_program_refs, active_provider_program_keys, world_port_refs, world_port_intrinsic_refs, host_intrinsic_refs, unknown_refs, nodes, edges, closed_count, world_port_shape_count, boundary_native_count, declarative_count, residualized_pipeline_count, intrinsic_count, ambiguity_count, nested_plan_start, all_plans.items.len, depth + 1);
                 _ = active_provider_program_refs.pop();
                 _ = active_provider_program_keys.pop();
             }
