@@ -13004,13 +13004,11 @@ pub fn program(
 
             fn providerOfferFormatSupported(format_version: u32) bool {
                 return format_version == exchange_provider_offer_format_version or
-                    format_version == provider_offer_legacy_program_format_version or
                     format_version == provider_offer_program_format_version;
             }
 
             fn providerOfferFormatHasProgramMapping(format_version: u32) bool {
-                return format_version == provider_offer_legacy_program_format_version or
-                    format_version == provider_offer_program_format_version;
+                return format_version == provider_offer_program_format_version;
             }
 
             fn providerOfferFormatHasProgramRef(format_version: u32) bool {
@@ -16493,7 +16491,8 @@ pub fn program(
                         };
                         if (!staticProviderManifestSupportsShape(provider.*, inputs.manifest, request_kind, site_index, protocol_op_fingerprint, requirement_label, inputs.shape, inputs.has_capsule) or
                             !staticOfferUsageCompatible(offer, inputs.shape, inputs.treaty_policy) or
-                            !providerOfferTagsAllowPolicy(inputs.treaty_policy, offer.tags))
+                            !providerOfferTagsAllowPolicy(inputs.treaty_policy, offer.tags) or
+                            (inputs.treaty_policy.require_obligation_opening and !offer.opens_obligation))
                         {
                             plan.blocked_count += 1;
                             continue :direct_offers;
@@ -16504,6 +16503,7 @@ pub fn program(
                         }
                         var matched_capability = false;
                         direct_capabilities: for (inputs.capabilities) |capability| {
+                            if (staticCapabilityBlockedByTreatyPolicy(capability, inputs.treaty_policy)) continue :direct_capabilities;
                             if (!staticCapabilitySupportsShape(capability, inputs.manifest, provider.*, offer, inputs.route_policy, request_kind, site_index, protocol_op_fingerprint, requirement_label, inputs.shape, response_refs, inputs.has_capsule)) continue :direct_capabilities;
                             matched_capability = true;
                             selectStaticPlanCandidate(inputs.treaty_policy, inputs.route_policy, plan, inputs.shape, provider.*, offer, capability, null);
@@ -16523,6 +16523,11 @@ pub fn program(
                             addStaticBlocker(plan, .world_port_missing, plan.shape_ref, morphism.evidenceRef(), "morphism offer requires a runtime adapter boundary");
                             continue :morphisms;
                         }
+                        if (!morphism.hasStaticAdapter() and morphism.dynamic_morphism_fingerprint == null) {
+                            plan.blocked_count += 1;
+                            addStaticBlocker(plan, .dynamic_mapper_rejected, plan.shape_ref, morphism.evidenceRef(), "dynamic morphism lacks an adapter fingerprint");
+                            continue :morphisms;
+                        }
                         if (!inputs.treaty_policy.allow_residualization and morphism.hasStaticAdapter()) {
                             plan.blocked_count += 1;
                             addStaticBlocker(plan, .treaty_policy_incompatible, plan.shape_ref, morphism.evidenceRef(), "treaty policy disallows residualized or pipeline morphism adapters");
@@ -16537,7 +16542,8 @@ pub fn program(
                             if (!staticProviderManifestSupportsMorphismTarget(provider.*, inputs.manifest, request_kind, site_index, morphism.target_protocol_op_fingerprint, inputs.shape, inputs.has_capsule) or
                                 !staticOfferSupportsMorphismTarget(offer, inputs.manifest, request_kind, site_index, morphism.target_protocol_op_fingerprint, value_ref, inputs.shape, morphism, inputs.has_capsule) or
                                 !staticMorphismTargetUsageCompatible(offer, inputs.shape, morphism, inputs.treaty_policy) or
-                                !providerOfferTagsAllowPolicy(inputs.treaty_policy, offer.tags))
+                                !providerOfferTagsAllowPolicy(inputs.treaty_policy, offer.tags) or
+                                (inputs.treaty_policy.require_obligation_opening and !offer.opens_obligation))
                             {
                                 plan.blocked_count += 1;
                                 continue :morphism_offers;
@@ -16547,6 +16553,7 @@ pub fn program(
                                 continue :morphism_offers;
                             }
                             morphism_capabilities: for (inputs.capabilities) |capability| {
+                                if (staticCapabilityBlockedByTreatyPolicy(capability, inputs.treaty_policy)) continue :morphism_capabilities;
                                 if (!staticCapabilitySupportsMorphismTarget(capability, inputs.manifest, provider.*, offer, inputs.route_policy, request_kind, site_index, morphism.target_protocol_op_fingerprint, inputs.shape, morphism, inputs.has_capsule)) continue :morphism_capabilities;
                                 selectStaticPlanCandidate(inputs.treaty_policy, inputs.route_policy, plan, inputs.shape, provider.*, offer, capability, morphism);
                             }
@@ -16666,14 +16673,14 @@ pub fn program(
                         policy.max_envelope_bytes,
                         route_policy.max_envelope_bytes,
                     }),
-                    .max_payload_bytes = staticMinNonZero(.{
+                    .max_payload_bytes = if (route_policy.allow_response_value_images) staticMinNonZero(.{
                         capability.max_payload_bytes,
                         if (shape.max_payload_bytes == 0) std.math.maxInt(usize) else shape.max_payload_bytes,
                         route_policy.max_payload_bytes,
-                    }),
-                    .capsule_restore_allowed = capability.allow_capsule_restore and provider.accepts_capsule_restore,
+                    }) else 0,
+                    .capsule_restore_allowed = capability.allow_capsule_restore and provider.accepts_capsule_restore and route_policy.allow_capsule_restore,
                     .response_kind_count = responseKindCount(response_kinds),
-                    .attenuated = capability.parent_capability_fingerprint != null,
+                    .attenuated = capability.parent_capability_fingerprint != null or policy.require_least_authority or policy.require_capability_attenuation,
                 };
             }
 
@@ -16957,6 +16964,7 @@ pub fn program(
                 if (shape.max_response_bytes != 0 and shape.max_response_bytes > capability.max_response_bytes) return false;
                 if (has_capsule and !capability.allow_embedded_capsule_response_handling) return false;
                 if (has_capsule and shape.max_capsule_image_bytes != 0 and shape.max_capsule_image_bytes > capability.max_capsule_image_bytes) return false;
+                if (!staticRoutePolicyAllowsShape(policy, shape, has_capsule)) return false;
                 var response_kinds = responseKindSetIntersection(staticShapeResponseKinds(shape), provider.allowed_response_kinds);
                 response_kinds = responseKindSetIntersection(response_kinds, offer.allowed_response_kinds);
                 response_kinds = responseKindSetIntersection(response_kinds, capability.allowed_response_kinds);
@@ -17008,6 +17016,7 @@ pub fn program(
                 if (shape.max_response_bytes != 0 and shape.max_response_bytes > capability.max_response_bytes) return false;
                 if (has_capsule and !capability.allow_embedded_capsule_response_handling) return false;
                 if (has_capsule and shape.max_capsule_image_bytes != 0 and shape.max_capsule_image_bytes > capability.max_capsule_image_bytes) return false;
+                if (!staticRoutePolicyAllowsShape(policy, shape, has_capsule)) return false;
                 var response_kinds = responseKindSetIntersection(staticShapeResponseKinds(shape), provider.allowed_response_kinds);
                 response_kinds = responseKindSetIntersection(response_kinds, offer.allowed_response_kinds);
                 response_kinds = responseKindSetIntersection(response_kinds, capability.allowed_response_kinds);
@@ -17016,6 +17025,23 @@ pub fn program(
                 var target_refs_buffer: [3]Evidence.BoundaryValueRef = undefined;
                 const target_refs = staticMorphismTargetResponseRefsForKinds(shape, morphism, response_kinds, &target_refs_buffer);
                 return staticBoundaryRefsAllAllowedByCapability(capability.allowed_response_refs, target_refs);
+            }
+
+            fn staticRoutePolicyAllowsShape(policy: Policy, shape: Evidence.BoundaryEffectShape, has_capsule: bool) bool {
+                if (shape.max_response_bytes != 0 and shape.max_response_bytes > policy.max_envelope_bytes) return false;
+                if (!policy.allow_response_value_images and shape.max_payload_bytes != 0) return false;
+                if (shape.max_payload_bytes != 0 and shape.max_payload_bytes > policy.max_payload_bytes) return false;
+                if (has_capsule and !policy.allow_capsules) return false;
+                if (has_capsule and shape.max_capsule_image_bytes != 0) {
+                    const capsule_limit = policy.max_capsule_image_bytes orelse policy.max_payload_bytes;
+                    if (shape.max_capsule_image_bytes > capsule_limit) return false;
+                }
+                return true;
+            }
+
+            fn staticCapabilityBlockedByTreatyPolicy(capability: Capability, policy: Treaty.Policy) bool {
+                return policy.require_capability_attenuation and
+                    capability.parent_capability_fingerprint == null;
             }
 
             fn staticOfferUsageCompatible(offer: ProviderOffer, shape: Evidence.BoundaryEffectShape, policy: Treaty.Policy) bool {

@@ -3354,6 +3354,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                     direct_capabilities: for (inputs.capabilities) |capability| {
                         if (!capabilityMatchesShape(capability, offer, inputs.shape)) continue :direct_capabilities;
                         if (!directCandidateResponseShapeAllowed(inputs.route_policy, provider, offer, capability, inputs.shape)) continue :direct_capabilities;
+                        if (closureCapabilityBlockedByTreatyPolicy(capability, inputs.treaty_policy)) continue :direct_capabilities;
                         matched_capability = true;
                         selection.direct_count += 1;
                         try dependencies.append(inputs.allocator, .{ .role = .offer, .ref = offer.evidenceRef() });
@@ -3428,6 +3429,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                         morphism_capabilities: for (inputs.capabilities) |capability| {
                             if (!capabilityMatchesMorphismTarget(capability, offer, inputs.shape, morphism, target_shape)) continue :morphism_capabilities;
                             if (!targetCandidateResponseShapeAllowed(inputs.route_policy, provider, offer, capability, inputs.shape, morphism, target_shape)) continue :morphism_capabilities;
+                            if (closureCapabilityBlockedByTreatyPolicy(capability, inputs.treaty_policy)) continue :morphism_capabilities;
                             try dependencies.append(inputs.allocator, .{ .role = .offer, .ref = offer.evidenceRef() });
                             try dependencies.append(inputs.allocator, .{ .role = .capability, .ref = capability.evidenceRef() });
                             selectCandidate(inputs.policy, inputs.treaty_policy, inputs.route_policy, &selection, target_shape, provider, offer, capability, morphism, provider_body, offer.hostIntrinsicRef());
@@ -3980,14 +3982,14 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                     policy.max_envelope_bytes,
                     route_policy.max_envelope_bytes,
                 }),
-                .max_payload_bytes = closureMinNonZero(.{
+                .max_payload_bytes = if (route_policy.allow_response_value_images) closureMinNonZero(.{
                     capability.max_payload_bytes,
                     if (shape.max_payload_bytes == 0) std.math.maxInt(usize) else shape.max_payload_bytes,
                     route_policy.max_payload_bytes,
-                }),
-                .capsule_restore_allowed = capability.allow_capsule_restore and provider.accepts_capsule_restore,
+                }) else 0,
+                .capsule_restore_allowed = capability.allow_capsule_restore and provider.accepts_capsule_restore and route_policy.allow_capsule_restore,
                 .response_kind_count = closureResponseKindCount(response_kinds),
-                .attenuated = capability.parent_capability_fingerprint != null,
+                .attenuated = capability.parent_capability_fingerprint != null or policy.require_least_authority or policy.require_capability_attenuation,
             };
         }
 
@@ -4298,6 +4300,23 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             return false;
         }
 
+        fn closureRoutePolicyAllowsShape(policy: ProgramType.Exchange.Policy, shape: Closure.EffectShape) bool {
+            if (shape.max_response_bytes != 0 and shape.max_response_bytes > policy.max_envelope_bytes) return false;
+            if (!policy.allow_response_value_images and shape.max_payload_bytes != 0) return false;
+            if (shape.max_payload_bytes != 0 and shape.max_payload_bytes > policy.max_payload_bytes) return false;
+            if (shape.max_capsule_image_bytes != 0) {
+                if (!policy.allow_capsules) return false;
+                const capsule_limit = policy.max_capsule_image_bytes orelse policy.max_payload_bytes;
+                if (shape.max_capsule_image_bytes > capsule_limit) return false;
+            }
+            return true;
+        }
+
+        fn closureCapabilityBlockedByTreatyPolicy(capability: ProgramType.Exchange.Capability, policy: ProgramType.Exchange.Treaty.Policy) bool {
+            return policy.require_capability_attenuation and
+                capability.parent_capability_fingerprint == null;
+        }
+
         fn closureIntrinsicRefAllowedByTreatyPolicy(intrinsic_ref: Ref, policy: ProgramType.Exchange.Treaty.Policy) bool {
             if (policy.allowed_intrinsic_fingerprints.len == 0 and policy.allowed_intrinsic_kinds.len == 0) return true;
             if (intrinsic_ref.domain_id != domains.host_intrinsic.id) return false;
@@ -4448,6 +4467,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
         ) bool {
             if (!closureRoutePolicyAllowsProvider(policy, provider.provider_fingerprint)) return false;
             if (!closureRoutePolicyAllowsCapability(policy, capability.fingerprint)) return false;
+            if (!closureRoutePolicyAllowsShape(policy, shape)) return false;
             var kinds = closureResponseKindIntersection(provider.allowed_response_kinds, capability.allowed_response_kinds);
             kinds = closureResponseKindIntersection(kinds, offer.allowed_response_kinds);
             kinds = closureResponseKindIntersection(kinds, policy.allowed_response_kinds);
@@ -4465,6 +4485,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
         ) bool {
             if (!closureRoutePolicyAllowsProvider(policy, provider.provider_fingerprint)) return false;
             if (!closureRoutePolicyAllowsCapability(policy, capability.fingerprint)) return false;
+            if (!closureRoutePolicyAllowsShape(policy, shape)) return false;
             var kinds = closureResponseKindIntersection(provider.allowed_response_kinds, capability.allowed_response_kinds);
             kinds = closureResponseKindIntersection(kinds, offer.allowed_response_kinds);
             kinds = closureResponseKindIntersection(kinds, policy.allowed_response_kinds);
@@ -4539,6 +4560,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             const branch_policy = closureShapeBranchPolicy(shape.branch_policy_summary);
             if (policy.disallow_fresh_response and response_use == .fresh) return false;
             if (policy.require_replay_only_response and response_use != .replayed and response_use != .deterministic_replay) return false;
+            if (policy.require_obligation_opening and !offer.opens_obligation) return false;
             return policy.allowed_usage_modes.allows(usage) and
                 offer.supported_usage_modes.allows(usage) and
                 policy.allowed_response_uses.allows(response_use) and
@@ -4567,6 +4589,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             const branch_policy = closureShapeBranchPolicy(source_shape.branch_policy_summary);
             if (policy.disallow_fresh_response and response_use == .fresh) return false;
             if (policy.require_replay_only_response and response_use != .replayed and response_use != .deterministic_replay) return false;
+            if (policy.require_obligation_opening and !offer.opens_obligation) return false;
             return policy.allowed_usage_modes.allows(source_usage) and
                 offer.supported_usage_modes.allows(target_usage) and
                 policy.allowed_response_uses.allows(response_use) and
