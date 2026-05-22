@@ -16446,6 +16446,11 @@ pub fn program(
             }
 
             fn planStaticInto(inputs: TreatyResolver.StaticInputs, plan: *TreatyResolver.StaticPlan) void {
+                if (inputs.shape.fingerprint != inputs.shape.computeFingerprint()) {
+                    addStaticBlocker(plan, .stale_effect_shape, plan.shape_ref, null, "effect shape fields do not match its evidence fingerprint");
+                    plan.status = .blocked;
+                    return;
+                }
                 const request_kind = staticShapeRequestKind(inputs.shape) orelse {
                     addStaticBlocker(plan, .unsupported_shape_planning, plan.shape_ref, null, "effect shape is not a request boundary");
                     plan.status = .blocked;

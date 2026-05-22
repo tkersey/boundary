@@ -352,6 +352,16 @@ test "static treaty planner matches provider shape without request bytes" {
     try std.testing.expectEqual(@as(usize, 1), stale_direct_plan.blockers.len);
     try std.testing.expectEqual(Evidence.BoundaryClosureBlockerTag.stale_effect_shape, stale_direct_plan.blockers[0].tag);
     try std.testing.expect(stale_direct_plan.selected_provider_offer_ref == null);
+    const stale_public_static_plan = Program.Exchange.TreatyResolver.planStatic(.{
+        .shape = stale_direct_shape,
+        .manifest = manifest,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+    });
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.blocked, stale_public_static_plan.status);
+    try std.testing.expectEqualStrings("stale_effect_shape", stale_public_static_plan.blockers.slice()[0].tag);
+    try std.testing.expectEqual(@as(u64, 0), stale_public_static_plan.provider_fingerprint);
 
     var max_zero_closure_policy = world_plan_policy;
     max_zero_closure_policy.defunctionalization_policy.maximum_intrinsic_count = 0;
@@ -367,6 +377,22 @@ test "static treaty planner matches provider shape without request bytes" {
     defer allocator.free(max_zero_closure_plan.dependencies);
     try std.testing.expect(!max_zero_closure_plan.closed());
     try std.testing.expectEqual(Evidence.BoundaryClosureBlockerTag.defunctionalization_policy_incompatible, max_zero_closure_plan.blockers[0].tag);
+    try std.testing.expect(max_zero_closure_plan.selected_provider_offer_ref == null);
+    try std.testing.expect(max_zero_closure_plan.selected_intrinsic_ref == null);
+    var max_zero_closure_result = try Program.BoundaryClosure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape},
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = max_zero_closure_policy,
+    });
+    defer max_zero_closure_result.deinit();
+    try std.testing.expectEqual(@as(usize, 0), max_zero_closure_result.report.host_intrinsic_count);
+    try std.testing.expectError(
+        error.BoundaryClosureNotClosed,
+        max_zero_closure_result.certificate.check(max_zero_closure_result.graph, max_zero_closure_result.report, max_zero_closure_policy, max_zero_closure_result.static_treaty_plans),
+    );
 
     const max_zero_treaty_plan = try Program.Exchange.TreatyResolver.planShape(.{
         .allocator = allocator,

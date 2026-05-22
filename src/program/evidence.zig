@@ -3160,6 +3160,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                     .primary = selected.intrinsic_ref orelse selected.morphism_ref orelse selected.offer_ref,
                     .summary = "selected static treaty route exceeds defunctionalization intrinsic count policy",
                 });
+                clearSelectedRoute(&selected);
             }
             const real_runtime_guard_required = runtime_request_value_guard_required or hasClosureBlockerTag(blockers.items, .runtime_guard_required);
             if (real_runtime_guard_required and !hasClosureBlockerTag(blockers.items, .runtime_guard_required) and
@@ -4058,6 +4059,20 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 }
             }
             return null;
+        }
+
+        fn clearSelectedRoute(selection: *CandidateSelection) void {
+            selection.offer_ref = null;
+            selection.provider_ref = null;
+            selection.provider_fingerprint = 0;
+            selection.capability_ref = null;
+            selection.morphism_ref = null;
+            selection.morphism_body = null;
+            selection.intrinsic_ref = null;
+            selection.body = .unknown;
+            selection.selected_rank = std.math.maxInt(u8);
+            selection.selected_rank_count = 0;
+            selection.selected_authority = .{};
         }
 
         fn selectCandidate(
