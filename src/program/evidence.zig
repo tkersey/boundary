@@ -2878,11 +2878,11 @@ pub const BoundaryClosureCertificate = struct {
         if (report.blocker_count != report.blockers.len) return error.BoundaryClosureCertificateMismatch;
         if (!blockerRefsMatchBlockers(self.blocker_refs, report.blockers)) return error.BoundaryClosureCertificateMismatch;
         if (!graphBlockerRefsMatchCertificate(graph, self.blocker_refs, report.blockers)) return error.BoundaryClosureCertificateMismatch;
+        if (report.world_port_refs.len != report.world_port_intrinsic_refs.len) return error.BoundaryClosureCertificateMismatch;
         if (report.open_world_port_count != graphWorldPortShapeCount(graph, report)) return error.BoundaryClosureCertificateMismatch;
         if ((report.open_world_port_count == 0) != (report.world_port_refs.len == 0)) return error.BoundaryClosureCertificateMismatch;
         if (report.host_intrinsic_count != report.host_intrinsic_refs.len) return error.BoundaryClosureCertificateMismatch;
         if (report.unknown_body_count != report.unknown_refs.len) return error.BoundaryClosureCertificateMismatch;
-        if (report.world_port_refs.len != report.world_port_intrinsic_refs.len) return error.BoundaryClosureCertificateMismatch;
         if (!graphNodeRefsMatchReport(graph, .host_intrinsic, report.host_intrinsic_refs)) return error.BoundaryClosureCertificateMismatch;
         if (!graphNodeRefsMatchReport(graph, .world_port, report.world_port_refs)) return error.BoundaryClosureCertificateMismatch;
         if (!graphWorldPortEdgesMatchReport(graph, report)) return error.BoundaryClosureCertificateMismatch;
@@ -2982,8 +2982,13 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             program_ref: Ref,
             mapping_fingerprint: ?u64,
             effect_shape_fingerprint: u64,
+            effect_free: bool,
 
             fn eql(self: @This(), other: @This()) bool {
+                return self.sameSelection(other) and self.effect_free == other.effect_free;
+            }
+
+            fn sameSelection(self: @This(), other: @This()) bool {
                 return self.provider_ref.eql(other.provider_ref) and
                     self.program_ref.eql(other.program_ref) and
                     self.mapping_fingerprint == other.mapping_fingerprint and
@@ -3950,7 +3955,9 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             provider_programs: for (input.provider_programs) |provider_program| {
                 if (!providerProgramSelected(all_plans.items[selected_plan_start..selected_plan_end], provider_program)) continue :provider_programs;
                 const selected_key = providerProgramKey(provider_program);
-                if (providerProgramKeysContain(active_provider_program_keys.items, selected_key)) {
+                if (refsContain(active_provider_program_refs.items, provider_program.program_ref) or
+                    providerProgramKeysContain(active_provider_program_keys.items, selected_key))
+                {
                     const evidence_blocker = boundaryClosureBlocker(.{
                         .tag = .cycle_detected,
                         .subject = provider_program.program_ref,
@@ -3962,6 +3969,19 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                     continue :provider_programs;
                 }
                 if (providerProgramKeysContain(provider_program_keys.items, selected_key)) continue :provider_programs;
+                if (refsContain(provider_program_refs.items, provider_program.program_ref)) {
+                    if (providerProgramKeysContainConflictingProof(provider_program_keys.items, selected_key)) {
+                        const evidence_blocker = boundaryClosureBlocker(.{
+                            .tag = .provider_program_contract_missing,
+                            .subject = provider_program.program_ref,
+                            .primary = provider_program.provider_ref,
+                            .summary = "selected provider program has conflicting closure proof metadata",
+                        });
+                        try blockers.append(allocator, evidence_blocker);
+                        try appendBlockerGraph(allocator, nodes, edges, evidence_blocker);
+                    }
+                    continue :provider_programs;
+                }
                 if (depth >= input.policy.max_nested_provider_depth or depth >= input.policy.max_depth) {
                     const evidence_blocker = boundaryClosureBlocker(.{
                         .tag = .depth_limit_exceeded,
@@ -3974,13 +3994,14 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                     continue :provider_programs;
                 }
 
-                try provider_program_refs.append(allocator, provider_program.program_ref);
-                try provider_program_keys.append(allocator, selected_key);
-                try active_provider_program_refs.append(allocator, provider_program.program_ref);
-                try active_provider_program_keys.append(allocator, selected_key);
-                try nodes.append(allocator, .{ .kind = .provider_program, .ref = provider_program.program_ref, .label = "provider program" });
-
                 if (provider_program.shapes.len == 0 and !provider_program.effect_free) {
+                    if (selectedProviderProgramHasProofAlternative(
+                        all_plans.items[selected_plan_start..selected_plan_end],
+                        input.provider_programs,
+                        selected_key,
+                    )) continue :provider_programs;
+
+                    try provider_program_keys.append(allocator, selected_key);
                     const evidence_blocker = boundaryClosureBlocker(.{
                         .tag = .provider_program_nested_unknown,
                         .subject = provider_program.program_ref,
@@ -3989,10 +4010,14 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                     });
                     try blockers.append(allocator, evidence_blocker);
                     try appendBlockerGraph(allocator, nodes, edges, evidence_blocker);
-                    _ = active_provider_program_refs.pop();
-                    _ = active_provider_program_keys.pop();
                     continue :provider_programs;
                 }
+
+                try provider_program_keys.append(allocator, selected_key);
+                try provider_program_refs.append(allocator, provider_program.program_ref);
+                try active_provider_program_refs.append(allocator, provider_program.program_ref);
+                try active_provider_program_keys.append(allocator, selected_key);
+                try nodes.append(allocator, .{ .kind = .provider_program, .ref = provider_program.program_ref, .label = "provider program" });
 
                 const nested_plan_start = all_plans.items.len;
                 try analyzeShapes(allocator, input, provider_program.shapes, all_plans, blockers, plan_refs, seen_shape_refs, world_port_refs, world_port_intrinsic_refs, host_intrinsic_refs, unknown_refs, nodes, edges, closed_count, world_port_shape_count, boundary_native_count, declarative_count, residualized_pipeline_count, intrinsic_count, intrinsic_route_count, ambiguity_count, &.{}, provider_program.program_ref);
@@ -4008,12 +4033,30 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 .program_ref = provider_program.program_ref,
                 .mapping_fingerprint = provider_program.provider_program_mapping_fingerprint,
                 .effect_shape_fingerprint = fingerprintBoundaryEffectShapeSet(provider_program.shapes),
+                .effect_free = provider_program.effect_free,
             };
         }
 
         fn providerProgramKeysContain(keys: []const SelectedProviderProgramKey, needle: SelectedProviderProgramKey) bool {
             for (keys) |key| {
                 if (key.eql(needle)) return true;
+            }
+            return false;
+        }
+
+        fn providerProgramKeysContainConflictingProof(keys: []const SelectedProviderProgramKey, needle: SelectedProviderProgramKey) bool {
+            for (keys) |key| {
+                if (!key.program_ref.eql(needle.program_ref)) continue;
+                if (key.effect_shape_fingerprint != needle.effect_shape_fingerprint or key.effect_free != needle.effect_free) return true;
+            }
+            return false;
+        }
+
+        fn selectedProviderProgramHasProofAlternative(plans: []const StaticTreatyPlan, programs: []const ProviderProgram, selected_key: SelectedProviderProgramKey) bool {
+            for (programs) |program| {
+                if (program.shapes.len == 0 and !program.effect_free) continue;
+                if (!providerProgramSelected(plans, program)) continue;
+                if (providerProgramKey(program).sameSelection(selected_key)) return true;
             }
             return false;
         }
@@ -5353,6 +5396,7 @@ fn staticTreatyPlansMatchCertificate(
         if (!graphHasEdge(graph, .treaty_planned, shape_ref, plan_ref)) return false;
         if (plan.selected_provider_offer_ref) |offer_ref| {
             if (plan.selected_provider_ref == null or plan.selected_capability_ref == null) return false;
+            if (offer_ref.domain_id != domains.provider_offer.id) return false;
             if (!graphHasNode(graph, .provider_offer, offer_ref)) return false;
             if (!graphHasEdge(graph, .handled_by_provider, shape_ref, offer_ref)) return false;
         }
@@ -5361,14 +5405,17 @@ fn staticTreatyPlansMatchCertificate(
         }
         if (!staticTreatyProviderProgramProofMatches(graph, report, plan)) return false;
         if (plan.selected_capability_ref) |capability_ref| {
+            if (capability_ref.domain_id != domains.capability.id) return false;
             if (!graphHasNode(graph, .capability_grant, capability_ref)) return false;
             if (!graphHasEdge(graph, .authorized_by_capability, shape_ref, capability_ref)) return false;
         }
         if (plan.selected_morphism_ref) |morphism_ref| {
+            if (morphism_ref.domain_id != domains.morphism_offer.id) return false;
             if (!graphHasNode(graph, .morphism_offer, morphism_ref)) return false;
             if (!graphHasEdge(graph, .adapted_by_morphism, shape_ref, morphism_ref)) return false;
         }
         if (plan.selected_intrinsic_ref) |intrinsic_ref| {
+            if (intrinsic_ref.domain_id != domains.host_intrinsic.id) return false;
             if (!graphHasNode(graph, .host_intrinsic, intrinsic_ref)) return false;
             if (!graphHasEdge(graph, .intrinsic_boundary, shape_ref, intrinsic_ref)) return false;
         }
@@ -5377,7 +5424,10 @@ fn staticTreatyPlansMatchCertificate(
             if (plan.selected_semantic_body == .host_intrinsic and plan.selected_intrinsic_ref == null) return false;
             if (graphHostIntrinsicEdgeCountForShape(graph, report, shape_ref) != selected_intrinsic_count) return false;
         }
-        if (plan.selected_provider_offer_ref != null and selectedPlanSemanticBody(plan) == .unknown) unknown_body_count += 1;
+        if (plan.selected_provider_offer_ref != null and selectedPlanSemanticBody(plan) == .unknown) {
+            if (!refsContain(report.unknown_refs, shape_ref)) return false;
+            unknown_body_count += 1;
+        }
 
         const has_world_port = graphShapeHasWorldPort(graph, report, shape_ref);
         count_ambiguity_blockers: for (plan.blockers) |closure_blocker| {
@@ -5427,7 +5477,8 @@ fn staticTreatyProviderProgramProofMatches(graph: BoundaryGraph, report: Boundar
     if (refsContain(report.provider_program_refs, program_ref)) {
         if (!graphHasNode(graph, .provider_program, program_ref)) return false;
         const graph_effect_shapes = graphProviderProgramEffectShapeProof(graph, program_ref) orelse return false;
-        return graph_effect_shapes.count == effect_shape_count and graph_effect_shapes.fingerprint == effect_shape_fingerprint;
+        if (graph_effect_shapes.count == effect_shape_count and graph_effect_shapes.fingerprint == effect_shape_fingerprint) return true;
+        return reportHasProviderProgramMissingBlocker(report, plan);
     }
     return reportHasProviderProgramMissingBlocker(report, plan);
 }
@@ -5471,10 +5522,21 @@ fn graphProviderProgramEffectShapeProof(graph: BoundaryGraph, program_ref: Ref) 
 
 fn reportHasProviderProgramMissingBlocker(report: BoundaryClosureReport, plan: BoundaryStaticTreatyPlan) bool {
     const shape_ref = plan.source_shape.evidenceRef();
+    const program_ref = plan.selected_provider_program_ref;
     for (report.blockers) |blocker| {
-        if (!std.mem.eql(u8, blocker.tag, @tagName(BoundaryClosureBlockerTag.provider_program_contract_missing))) continue;
         if (blocker.subject) |subject| {
-            if (subject.eql(shape_ref)) return true;
+            if (std.mem.eql(u8, blocker.tag, @tagName(BoundaryClosureBlockerTag.provider_program_contract_missing)) and
+                (subject.eql(shape_ref) or (program_ref != null and subject.eql(program_ref.?))))
+            {
+                return true;
+            }
+            if (std.mem.eql(u8, blocker.tag, @tagName(BoundaryClosureBlockerTag.provider_program_nested_unknown)) or
+                std.mem.eql(u8, blocker.tag, @tagName(BoundaryClosureBlockerTag.cycle_detected)))
+            {
+                if (program_ref) |ref| {
+                    if (subject.eql(ref)) return true;
+                }
+            }
         }
     }
     return false;
@@ -5514,7 +5576,8 @@ fn selectedPlanSemanticBody(plan: BoundaryStaticTreatyPlan) SemanticBody {
 
 fn blockerSubjectMustHaveGraphNode(blocker: Blocker) bool {
     return !std.mem.eql(u8, blocker.short_code, @tagName(BoundaryClosureBlockerTag.stale_effect_shape)) and
-        !std.mem.eql(u8, blocker.short_code, @tagName(BoundaryClosureBlockerTag.stale_world_port));
+        !std.mem.eql(u8, blocker.short_code, @tagName(BoundaryClosureBlockerTag.stale_world_port)) and
+        !std.mem.eql(u8, blocker.short_code, @tagName(BoundaryClosureBlockerTag.provider_program_nested_unknown));
 }
 
 fn graphBlockerRefsMatchCertificate(graph: BoundaryGraph, blocker_refs: []const Ref, blockers: []const Blocker) bool {

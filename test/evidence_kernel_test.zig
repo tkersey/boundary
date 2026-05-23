@@ -44,6 +44,76 @@ const Program = boundary.program("evidence-test", struct {}, struct {
 
 const Evidence = Program.Evidence;
 
+const closure_fixture_semantic = boundary.ir.builder.semantic;
+const closure_fixture_handlers = struct {};
+const closure_approval_protocol = boundary.ir.schema.Protocol(.{
+    .label = "approval",
+    .ops = .{boundary.ir.schema.transform("request", []const u8, i32)},
+});
+const closure_approval_rows = closure_approval_protocol.Rows(closure_fixture_handlers, .{ .requirement_index = 0, .first_op = 0 });
+const closure_approval_request_op = closure_approval_rows.op("request");
+const closure_source_compiled = closure_fixture_semantic.finish(.{
+    .label = "evidence-closure-source",
+    .ir_hash = 0xC105E501,
+    .entry = "run",
+    .requirements = &.{closure_approval_rows.requirement},
+    .ops = &closure_approval_rows.ops,
+    .functions = .{.{
+        .symbol_name = "run",
+        .requirements = closure_fixture_semantic.span(0, 1),
+        .params = .{},
+        .locals = .{
+            closure_fixture_semantic.local("payload", []const u8),
+            closure_fixture_semantic.local("decision", i32),
+        },
+        .result = i32,
+        .blocks = .{.{
+            .name = "entry",
+            .instructions = .{
+                closure_fixture_semantic.constString("payload", "deploy-prod"),
+                closure_fixture_semantic.call(closure_approval_request_op, .{ .dst = "decision", .payload = "payload", .label = "approval.request" }),
+            },
+            .terminator = closure_fixture_semantic.returnValue("decision"),
+        }},
+    }},
+}) catch |err| @compileError("invalid closure source fixture: " ++ @errorName(err));
+const closure_source_program = boundary.program("evidence-closure-source", closure_fixture_handlers, struct {
+    pub const site_metadata = closure_source_compiled.site_metadata;
+    pub const compiled_plan = closure_source_compiled.plan;
+});
+const closure_approval_request = closure_source_program.protocol.operationSite("approval", "request", 0);
+const closure_handler_compiled = closure_fixture_semantic.finish(.{
+    .label = "evidence-closure-handler",
+    .ir_hash = 0xC105E502,
+    .entry = "run",
+    .functions = .{.{
+        .symbol_name = "run",
+        .params = .{closure_fixture_semantic.param("payload", []const u8)},
+        .locals = .{closure_fixture_semantic.local("decision", i32)},
+        .result = i32,
+        .blocks = .{.{
+            .name = "entry",
+            .instructions = .{closure_fixture_semantic.constI32("decision", 1)},
+            .terminator = closure_fixture_semantic.returnValue("decision"),
+        }},
+    }},
+}) catch |err| @compileError("invalid closure handler fixture: " ++ @errorName(err));
+const closure_handler_program = boundary.program("evidence-closure-handler", struct {}, struct {
+    pub const compiled_plan = closure_handler_compiled.plan;
+});
+const closure_approval_decl = closure_source_program.Exchange.ProviderHandler.program(.{
+    .label = "approval-program-handler",
+    .op = closure_approval_request,
+    .program = closure_handler_program,
+    .map_request = .payload_to_args,
+    .map_result = .result_to_resume,
+});
+const closure_harness = closure_source_program.Exchange.ProviderHarness(.{
+    .label = "approval-program-provider",
+    .provider_fingerprint = @as(?u64, 0xC105E503),
+    .entries = .{closure_approval_decl},
+});
+
 fn hashU32(hasher: *std.hash.Wyhash, value: u32) void {
     var bytes = [_]u8{0} ** 4;
     std.mem.writeInt(u32, &bytes, value, .little);
@@ -4411,6 +4481,24 @@ test "boundary closure traversal closes a provider-backed shape" {
         error.BoundaryClosureCertificateMismatch,
         mispaired_world_certificate.check(world_port_result.graph, mispaired_world_report, world_port_only_policy, world_port_result.static_treaty_plans),
     );
+    const mismatched_world_pairs_report = Evidence.BoundaryClosureReport.init(.{
+        .graph_fingerprint = world_port_result.graph.fingerprint,
+        .effect_shape_count = 1,
+        .closed_effect_shape_count = 0,
+        .open_world_port_count = 1,
+        .world_port_refs = world_port_result.report.world_port_refs,
+        .policy_summary = world_port_only_policy.policySummary(),
+    });
+    const mismatched_world_pairs_certificate = Evidence.BoundaryClosureCertificate.init(
+        mismatched_world_pairs_report,
+        world_port_result.graph,
+        world_port_only_policy,
+        world_port_result.plan_refs,
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        mismatched_world_pairs_certificate.check(world_port_result.graph, mismatched_world_pairs_report, world_port_only_policy, world_port_result.static_treaty_plans),
+    );
     const omitted_intrinsic_report = Evidence.BoundaryClosureReport.init(.{
         .graph_fingerprint = world_port_result.graph.fingerprint,
         .effect_shape_count = 1,
@@ -4650,6 +4738,90 @@ test "boundary closure traversal closes a provider-backed shape" {
         error.BoundaryClosureNotClosed,
         node_bound_result.certificate.check(node_bound_result.graph, node_bound_result.report, node_bound_policy, node_bound_result.static_treaty_plans),
     );
+}
+
+test "boundary closure does not prove provider programs without nested shape witnesses" {
+    const allocator = std.testing.allocator;
+    const Closure = closure_source_program.BoundaryClosure;
+    const root_shapes = Closure.effectShapesForProgram(closure_source_program, .operation);
+    var catalog = try closure_harness.buildCatalog(allocator);
+    defer catalog.deinit();
+    var capability = try closure_source_program.Exchange.Capability.encode(allocator, .{
+        .issuer_label = "closure-host",
+        .provider_fingerprint = closure_harness.provider_fingerprint,
+        .manifest_fingerprint = catalog.manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true },
+        .allowed_operation_sites = &.{closure_approval_request.index},
+        .allowed_protocol_op_fingerprints = &.{closure_approval_request.fingerprint},
+        .allowed_requirement_labels = &.{"approval"},
+        .allowed_op_names = &.{"request"},
+    });
+    defer capability.deinit();
+
+    const provider_program_ref = closure_source_program.Evidence.refFor(
+        closure_source_program.Evidence.domains.program_plan,
+        closure_handler_program.compiled_plan.hash(),
+        .{ .label = closure_handler_program.contract.label },
+    );
+    const provider_programs = [_]Closure.ProviderProgram{.{
+        .provider_ref = catalog.provider_manifest.evidenceRef(),
+        .program_ref = provider_program_ref,
+        .provider_program_mapping_fingerprint = closure_approval_decl.provider_program_mapping_fingerprint,
+    }};
+    var result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = root_shapes[0..1],
+        .provider_programs = provider_programs[0..],
+        .provider_manifests = &.{catalog.provider_manifest},
+        .provider_offers = &.{catalog.provider_offers[0]},
+        .capabilities = &.{capability},
+        .policy = Closure.Policy.auditOnly(),
+    });
+    defer result.deinit();
+
+    try std.testing.expect(!result.report.closed());
+    try std.testing.expectEqual(@as(usize, 0), result.report.provider_program_refs.len);
+    try std.testing.expectEqual(@as(usize, 0), result.certificate.provider_program_refs.len);
+    var saw_nested_unknown = false;
+    for (result.report.blockers) |blocker| {
+        if (std.mem.eql(u8, blocker.tag, @tagName(Evidence.BoundaryClosureBlockerTag.provider_program_nested_unknown))) {
+            saw_nested_unknown = true;
+            try std.testing.expect(blocker.subject.?.eql(provider_program_ref));
+        }
+    }
+    try std.testing.expect(saw_nested_unknown);
+    for (result.graph.nodes) |node| {
+        if (node.kind == .provider_program) try std.testing.expect(!node.ref.eql(provider_program_ref));
+    }
+    try result.certificate.check(result.graph, result.report, Closure.Policy.auditOnly(), result.static_treaty_plans);
+
+    const mixed_provider_programs = [_]Closure.ProviderProgram{
+        provider_programs[0],
+        .{
+            .provider_ref = catalog.provider_manifest.evidenceRef(),
+            .program_ref = provider_program_ref,
+            .provider_program_mapping_fingerprint = closure_approval_decl.provider_program_mapping_fingerprint,
+            .effect_free = true,
+        },
+    };
+    var mixed_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = root_shapes[0..1],
+        .provider_programs = mixed_provider_programs[0..],
+        .provider_manifests = &.{catalog.provider_manifest},
+        .provider_offers = &.{catalog.provider_offers[0]},
+        .capabilities = &.{capability},
+        .policy = Closure.Policy.auditOnly(),
+    });
+    defer mixed_result.deinit();
+
+    try mixed_result.assertClosed();
+    try std.testing.expectEqual(@as(usize, 1), mixed_result.report.provider_program_refs.len);
+    try std.testing.expect(mixed_result.report.provider_program_refs[0].eql(provider_program_ref));
+    for (mixed_result.report.blockers) |blocker| {
+        try std.testing.expect(!std.mem.eql(u8, blocker.tag, @tagName(Evidence.BoundaryClosureBlockerTag.provider_program_nested_unknown)));
+    }
+    try mixed_result.certificate.check(mixed_result.graph, mixed_result.report, Closure.Policy.auditOnly(), mixed_result.static_treaty_plans);
 }
 
 test "semantic body classifications expose stable evidence refs" {
