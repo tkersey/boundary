@@ -17034,9 +17034,9 @@ pub fn program(
                 const direct_refs = staticShapeResponseRefs(shape, &direct_refs_buffer);
                 if (staticBoundaryRefSlicesEqual(response_refs, direct_refs)) {
                     var paired_refs_buffer: [3]Evidence.BoundaryValueRef = undefined;
-                    return staticBoundaryRefsAllowedByCapability(capability.allowed_response_refs, staticShapeResponseRefsForKinds(shape, response_kinds, &paired_refs_buffer));
+                    return staticBoundaryRefsAllowedByOfferAndCapability(offer, capability.allowed_response_refs, staticShapeResponseRefsForKinds(shape, response_kinds, &paired_refs_buffer));
                 }
-                return staticBoundaryRefsAllowedByCapability(capability.allowed_response_refs, response_refs);
+                return staticBoundaryRefsAllowedByOfferAndCapability(offer, capability.allowed_response_refs, response_refs);
             }
 
             fn staticCapabilitySupportsMorphismTarget(
@@ -17265,9 +17265,10 @@ pub fn program(
                 return staticOfferAllowsAnyResponseRef(offer, staticShapeResponseRefsForKinds(shape, allowed_kinds, &refs_buffer));
             }
 
-            fn staticBoundaryRefsAllowedByCapability(allowed_refs: []const lowering_api.ValueRef, refs: []const Evidence.BoundaryValueRef) bool {
+            fn staticBoundaryRefsAllowedByOfferAndCapability(offer: ProviderOffer, allowed_refs: []const lowering_api.ValueRef, refs: []const Evidence.BoundaryValueRef) bool {
                 for (refs) |ref| {
-                    if (staticValueRefListAllows(allowed_refs, ref)) return true;
+                    if (staticValueRefListAllows(offer.produced_response_refs, ref) and
+                        staticValueRefListAllows(allowed_refs, ref)) return true;
                 }
                 return false;
             }

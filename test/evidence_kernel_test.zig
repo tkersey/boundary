@@ -101,6 +101,31 @@ const closure_handler_compiled = closure_fixture_semantic.finish(.{
 const closure_handler_program = boundary.program("evidence-closure-handler", struct {}, struct {
     pub const compiled_plan = closure_handler_compiled.plan;
 });
+const closure_recursive_handler_compiled = closure_fixture_semantic.finish(.{
+    .label = "evidence-closure-recursive-handler",
+    .ir_hash = 0xC105E506,
+    .entry = "run",
+    .requirements = &.{closure_approval_rows.requirement},
+    .ops = &closure_approval_rows.ops,
+    .functions = .{.{
+        .symbol_name = "run",
+        .requirements = closure_fixture_semantic.span(0, 1),
+        .params = .{closure_fixture_semantic.param("payload", []const u8)},
+        .locals = .{closure_fixture_semantic.local("decision", i32)},
+        .result = i32,
+        .blocks = .{.{
+            .name = "entry",
+            .instructions = .{
+                closure_fixture_semantic.call(closure_approval_request_op, .{ .dst = "decision", .payload = "payload", .label = "approval.request" }),
+            },
+            .terminator = closure_fixture_semantic.returnValue("decision"),
+        }},
+    }},
+}) catch |err| @compileError("invalid recursive closure handler fixture: " ++ @errorName(err));
+const closure_recursive_handler_program = boundary.program("evidence-closure-recursive-handler", closure_fixture_handlers, struct {
+    pub const site_metadata = closure_recursive_handler_compiled.site_metadata;
+    pub const compiled_plan = closure_recursive_handler_compiled.plan;
+});
 const closure_approval_decl = closure_source_program.Exchange.ProviderHandler.program(.{
     .label = "approval-program-handler",
     .op = closure_approval_request,
@@ -2433,11 +2458,47 @@ test "static treaty planner matches provider shape without request bytes" {
     defer dynamic_morphism_result.deinit();
     try dynamic_morphism_result.assertClosed();
     try std.testing.expectEqual(@as(usize, 2), dynamic_morphism_result.report.host_intrinsic_count);
+    try std.testing.expect(dynamic_morphism_result.static_treaty_plans[0].selected_morphism_intrinsic_ref.?.eql(dynamic_morphism_intrinsic_ref));
     var saw_dynamic_morphism_intrinsic = false;
     for (dynamic_morphism_result.report.host_intrinsic_refs) |ref| {
         if (ref.eql(dynamic_morphism_intrinsic_ref)) saw_dynamic_morphism_intrinsic = true;
     }
     try std.testing.expect(saw_dynamic_morphism_intrinsic);
+    const forged_dynamic_morphism_intrinsic_ref = Evidence.refFor(Evidence.domains.host_intrinsic, dynamic_morphism_intrinsic_ref.fingerprint +% 1, .{
+        .label = "forged-dynamic-morphism",
+        .kind_tag = @tagName(Evidence.HostIntrinsic.Kind.host_tool),
+    });
+    const forged_dynamic_nodes = try allocator.dupe(Program.BoundaryClosure.Graph.Node, dynamic_morphism_result.graph.nodes);
+    defer allocator.free(forged_dynamic_nodes);
+    for (forged_dynamic_nodes) |*node| {
+        if (node.ref.eql(dynamic_morphism_intrinsic_ref)) node.ref = forged_dynamic_morphism_intrinsic_ref;
+    }
+    const forged_dynamic_edges = try allocator.dupe(Program.BoundaryClosure.Graph.Edge, dynamic_morphism_result.graph.edges);
+    defer allocator.free(forged_dynamic_edges);
+    for (forged_dynamic_edges) |*edge| {
+        if (edge.from.eql(dynamic_morphism_intrinsic_ref)) edge.from = forged_dynamic_morphism_intrinsic_ref;
+        if (edge.to.eql(dynamic_morphism_intrinsic_ref)) edge.to = forged_dynamic_morphism_intrinsic_ref;
+    }
+    const forged_dynamic_graph = Program.BoundaryClosure.Graph.init("forged-dynamic-morphism-intrinsic", forged_dynamic_nodes, forged_dynamic_edges, &.{});
+    const forged_dynamic_host_refs = [_]Evidence.Ref{ forged_dynamic_morphism_intrinsic_ref, morphism_target_intrinsic_ref };
+    const forged_dynamic_intrinsics = [_]u64{ forged_dynamic_morphism_intrinsic_ref.fingerprint, morphism_target_intrinsic_ref.fingerprint };
+    var forged_dynamic_policy = dynamic_morphism_policy;
+    forged_dynamic_policy.allowed_host_intrinsic_fingerprints = forged_dynamic_intrinsics[0..];
+    var forged_dynamic_report = dynamic_morphism_result.report;
+    forged_dynamic_report.graph_fingerprint = forged_dynamic_graph.fingerprint;
+    forged_dynamic_report.host_intrinsic_refs = forged_dynamic_host_refs[0..];
+    forged_dynamic_report.policy_summary = forged_dynamic_policy.policySummary();
+    forged_dynamic_report.report_fingerprint = forged_dynamic_report.computeFingerprint();
+    const forged_dynamic_certificate = Evidence.BoundaryClosureCertificate.init(
+        forged_dynamic_report,
+        forged_dynamic_graph,
+        forged_dynamic_policy,
+        dynamic_morphism_result.plan_refs,
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        forged_dynamic_certificate.check(forged_dynamic_graph, forged_dynamic_report, forged_dynamic_policy, dynamic_morphism_result.static_treaty_plans),
+    );
     const source_capability_morphism_plan = try Program.Exchange.TreatyResolver.planShape(.{
         .allocator = allocator,
         .shape = shape,
@@ -3416,6 +3477,24 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectEqual(@as(usize, 1), stale_shape_result.report.blocker_count);
     try std.testing.expectEqualStrings("stale_effect_shape", stale_shape_result.report.blockers[0].tag);
     try stale_shape_result.certificate.check(stale_shape_result.graph, stale_shape_result.report, audit_policy, stale_shape_result.static_treaty_plans);
+    const stale_shape_root_ref = Evidence.refFor(Evidence.domains.program_plan, shape.plan_hash, .{ .label = shape.program_label });
+    var stale_shape_root_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{stale_shape},
+        .root_program_refs = &.{stale_shape_root_ref},
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = audit_policy,
+    });
+    defer stale_shape_root_result.deinit();
+    var saw_stale_shape_root_missing = false;
+    for (stale_shape_root_result.report.blockers) |blocker| {
+        if (std.mem.eql(u8, blocker.tag, "root_program_missing") and blocker.subject != null and blocker.subject.?.eql(stale_shape_root_ref)) {
+            saw_stale_shape_root_missing = true;
+        }
+    }
+    try std.testing.expect(saw_stale_shape_root_missing);
 
     const shape_missing_op_selector = Evidence.BoundaryEffectShape.init(.{
         .program_label = "evidence-test",
@@ -3567,6 +3646,42 @@ test "boundary closure traversal closes a provider-backed shape" {
     }
     try std.testing.expect(saw_root_yields_edge);
     try owned_ref_result.certificate.check(owned_ref_result.graph, owned_ref_result.report, closure_policy, owned_ref_result.static_treaty_plans);
+    const missing_hash_shape = Evidence.BoundaryEffectShape.init(.{
+        .program_label = shape.program_label,
+        .plan_label = shape.plan_label,
+        .manifest_fingerprint = manifest.fingerprint,
+        .kind = .operation,
+        .site_index = site_index,
+        .site_fingerprint = protocol_op_fingerprint,
+        .name = "approve",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(response_ref),
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = protocol_op_fingerprint,
+    });
+    const matching_label_root_ref = Evidence.refFor(Evidence.domains.program_plan, 0x515151, .{ .label = missing_hash_shape.program_label });
+    var missing_hash_root_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{missing_hash_shape},
+        .root_program_refs = &.{matching_label_root_ref},
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = closure_policy,
+    });
+    defer missing_hash_root_result.deinit();
+    try std.testing.expect(!missing_hash_root_result.report.closed());
+    var saw_missing_hash_root_blocker = false;
+    for (missing_hash_root_result.report.blockers) |blocker| {
+        if (std.mem.eql(u8, blocker.tag, "root_program_missing") and blocker.subject != null and blocker.subject.?.eql(missing_hash_shape.evidenceRef())) {
+            saw_missing_hash_root_blocker = true;
+        }
+    }
+    try std.testing.expect(saw_missing_hash_root_blocker);
+    for (missing_hash_root_result.graph.edges) |edge| {
+        try std.testing.expect(!(edge.kind == .root_yields and edge.from.eql(matching_label_root_ref) and edge.to.eql(missing_hash_shape.evidenceRef())));
+    }
     var configured_root_policy = closure_policy;
     configured_root_policy.require_root_program_refs = true;
     var rootless_configured_result = try Closure.analyze(allocator, .{
@@ -3587,7 +3702,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     }
     try std.testing.expect(saw_rootless_blocker);
     try std.testing.expectError(
-        error.BoundaryClosureNotClosed,
+        error.BoundaryClosureCertificateMismatch,
         rootless_configured_result.certificate.check(rootless_configured_result.graph, rootless_configured_result.report, configured_root_policy, rootless_configured_result.static_treaty_plans),
     );
     var effect_free_root_yield_report = owned_ref_result.report;
@@ -4307,6 +4422,35 @@ test "boundary closure traversal closes a provider-backed shape" {
         error.BoundaryClosureCertificateMismatch,
         forged_route_mix_certificate.check(result.graph, forged_route_mix_report, closure_policy, result.static_treaty_plans),
     );
+    const unplanned_shape_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = "unplanned-shape",
+        .source_shape = shape,
+    });
+    const unplanned_nodes = [_]Closure.Graph.Node{
+        .{ .kind = .operation_site, .ref = shape.evidenceRef(), .label = shape.name },
+        .{ .kind = .treaty_shape_plan, .ref = unplanned_shape_plan.evidenceRef(), .label = unplanned_shape_plan.label },
+    };
+    const unplanned_edges = [_]Closure.Graph.Edge{
+        .{ .kind = .treaty_planned, .from = shape.evidenceRef(), .to = unplanned_shape_plan.evidenceRef() },
+    };
+    const unplanned_graph = Closure.Graph.init("unplanned-static-treaty-graph", unplanned_nodes[0..], unplanned_edges[0..], &.{});
+    const unplanned_report = Evidence.BoundaryClosureReport.init(.{
+        .graph_fingerprint = unplanned_graph.fingerprint,
+        .effect_shape_count = 1,
+        .policy_summary = audit_policy.policySummary(),
+    });
+    const unplanned_plan_refs = [_]Evidence.Ref{unplanned_shape_plan.evidenceRef()};
+    const unplanned_certificate = Evidence.BoundaryClosureCertificate.init(
+        unplanned_report,
+        unplanned_graph,
+        audit_policy,
+        unplanned_plan_refs[0..],
+    );
+    const unplanned_plans = [_]Evidence.BoundaryStaticTreatyPlan{unplanned_shape_plan};
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        unplanned_certificate.check(unplanned_graph, unplanned_report, audit_policy, unplanned_plans[0..]),
+    );
     const forged_plan_refs = [_]Evidence.Ref{result.static_treaty_plans[0].evidenceRef()};
     const forged_world_port_ref = Evidence.refFor(Evidence.domains.boundary_world_port, 0xBEEF, .{
         .label = "forged-world-port",
@@ -4378,6 +4522,80 @@ test "boundary closure traversal closes a provider-backed shape" {
         .protocol_label = "approval",
         .protocol_op_fingerprint = protocol_op_fingerprint + 1,
     });
+    const per_shape_world_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = "per-shape-world-plan",
+        .source_shape = shape,
+        .selected_provider_offer_ref = offer.evidenceRef(),
+        .selected_provider_ref = provider.evidenceRef(),
+        .selected_capability_ref = capability.evidenceRef(),
+        .selected_semantic_body = .host_intrinsic,
+        .selected_intrinsic_ref = offer_intrinsic_ref,
+        .host_intrinsic = true,
+    });
+    const per_shape_unexposed_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = "per-shape-unexposed-plan",
+        .source_shape = nested_shape,
+        .selected_provider_offer_ref = offer.evidenceRef(),
+        .selected_provider_ref = provider.evidenceRef(),
+        .selected_capability_ref = capability.evidenceRef(),
+        .selected_semantic_body = .host_intrinsic,
+        .selected_intrinsic_ref = offer_intrinsic_ref,
+        .host_intrinsic = true,
+    });
+    const per_shape_plan_refs = [_]Evidence.Ref{ per_shape_world_plan.evidenceRef(), per_shape_unexposed_plan.evidenceRef() };
+    const per_shape_nodes = [_]Closure.Graph.Node{
+        .{ .kind = .operation_site, .ref = shape.evidenceRef(), .label = shape.name },
+        .{ .kind = .operation_site, .ref = nested_shape.evidenceRef(), .label = nested_shape.name },
+        .{ .kind = .treaty_shape_plan, .ref = per_shape_world_plan.evidenceRef(), .label = per_shape_world_plan.label },
+        .{ .kind = .treaty_shape_plan, .ref = per_shape_unexposed_plan.evidenceRef(), .label = per_shape_unexposed_plan.label },
+        .{ .kind = .provider_offer, .ref = offer.evidenceRef(), .label = offer.label },
+        .{ .kind = .capability_grant, .ref = capability.evidenceRef(), .label = capability.issuer_label },
+        .{ .kind = .host_intrinsic, .ref = offer_intrinsic_ref, .label = "shared-host-intrinsic" },
+        .{ .kind = .world_port, .ref = forged_world_port_ref, .label = "shape-local-world-port" },
+    };
+    const per_shape_edges = [_]Closure.Graph.Edge{
+        .{ .kind = .treaty_planned, .from = shape.evidenceRef(), .to = per_shape_world_plan.evidenceRef() },
+        .{ .kind = .handled_by_provider, .from = shape.evidenceRef(), .to = offer.evidenceRef() },
+        .{ .kind = .authorized_by_capability, .from = shape.evidenceRef(), .to = capability.evidenceRef() },
+        .{ .kind = .intrinsic_boundary, .from = shape.evidenceRef(), .to = offer_intrinsic_ref },
+        .{ .kind = .opens_obligation, .from = shape.evidenceRef(), .to = forged_world_port_ref },
+        .{ .kind = .world_port_exposes, .from = offer_intrinsic_ref, .to = forged_world_port_ref },
+        .{ .kind = .treaty_planned, .from = nested_shape.evidenceRef(), .to = per_shape_unexposed_plan.evidenceRef() },
+        .{ .kind = .handled_by_provider, .from = nested_shape.evidenceRef(), .to = offer.evidenceRef() },
+        .{ .kind = .authorized_by_capability, .from = nested_shape.evidenceRef(), .to = capability.evidenceRef() },
+        .{ .kind = .intrinsic_boundary, .from = nested_shape.evidenceRef(), .to = offer_intrinsic_ref },
+    };
+    const per_shape_graph = Closure.Graph.init("per-shape-world-port-proof", per_shape_nodes[0..], per_shape_edges[0..], &.{});
+    const per_shape_world_refs = [_]Evidence.Ref{forged_world_port_ref};
+    const per_shape_intrinsic_refs = [_]Evidence.Ref{offer_intrinsic_ref};
+    var per_shape_policy = Evidence.BoundaryClosurePolicy.auditOnly();
+    per_shape_policy.reject_host_intrinsics = true;
+    per_shape_policy.allow_world_ports = true;
+    const per_shape_allowed_ports = [_]u64{forged_world_port_ref.fingerprint};
+    per_shape_policy.allowed_world_port_fingerprints = per_shape_allowed_ports[0..];
+    const per_shape_report = Evidence.BoundaryClosureReport.init(.{
+        .graph_fingerprint = per_shape_graph.fingerprint,
+        .effect_shape_count = 2,
+        .closed_effect_shape_count = 1,
+        .open_world_port_count = 1,
+        .host_intrinsic_count = 1,
+        .intrinsic_route_count = 2,
+        .world_port_refs = per_shape_world_refs[0..],
+        .world_port_intrinsic_refs = per_shape_intrinsic_refs[0..],
+        .host_intrinsic_refs = per_shape_intrinsic_refs[0..],
+        .policy_summary = per_shape_policy.policySummary(),
+    });
+    const per_shape_certificate = Evidence.BoundaryClosureCertificate.init(
+        per_shape_report,
+        per_shape_graph,
+        per_shape_policy,
+        per_shape_plan_refs[0..],
+    );
+    const per_shape_plans = [_]Evidence.BoundaryStaticTreatyPlan{ per_shape_world_plan, per_shape_unexposed_plan };
+    try std.testing.expectError(
+        error.BoundaryClosureIntrinsicRejected,
+        per_shape_certificate.check(per_shape_graph, per_shape_report, per_shape_policy, per_shape_plans[0..]),
+    );
     const program_backed_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
         .label = "program-backed-provider-plan",
         .source_shape = shape,
@@ -4399,6 +4617,7 @@ test "boundary closure traversal closes a provider-backed shape" {
         .selected_semantic_body = .declarative,
     });
     const program_backed_plan_refs = [_]Evidence.Ref{ program_backed_plan.evidenceRef(), nested_plan.evidenceRef() };
+    const program_backed_mapping_ref = Evidence.refForProviderProgramMapping(program_backed_plan.selected_provider_program_mapping_fingerprint.?);
     const program_backed_nodes = [_]Closure.Graph.Node{
         .{ .kind = .operation_site, .ref = shape.evidenceRef(), .label = shape.name },
         .{ .kind = .operation_site, .ref = nested_shape.evidenceRef(), .label = nested_shape.name },
@@ -4407,11 +4626,13 @@ test "boundary closure traversal closes a provider-backed shape" {
         .{ .kind = .provider_offer, .ref = offer.evidenceRef(), .label = offer.label },
         .{ .kind = .capability_grant, .ref = capability.evidenceRef(), .label = capability.issuer_label },
         .{ .kind = .provider_program, .ref = program_backed_ref, .label = "program-backed-provider" },
+        .{ .kind = .provider_program_mapping, .ref = program_backed_mapping_ref, .label = "program-backed-mapping" },
     };
     const program_backed_edges = [_]Closure.Graph.Edge{
         .{ .kind = .treaty_planned, .from = shape.evidenceRef(), .to = program_backed_plan.evidenceRef() },
         .{ .kind = .handled_by_provider, .from = shape.evidenceRef(), .to = offer.evidenceRef() },
         .{ .kind = .authorized_by_capability, .from = shape.evidenceRef(), .to = capability.evidenceRef() },
+        .{ .kind = .provider_program_mapped_by, .from = program_backed_ref, .to = program_backed_mapping_ref },
         .{ .kind = .provider_program_yields, .from = program_backed_ref, .to = nested_shape.evidenceRef() },
         .{ .kind = .treaty_planned, .from = nested_shape.evidenceRef(), .to = nested_plan.evidenceRef() },
         .{ .kind = .handled_by_provider, .from = nested_shape.evidenceRef(), .to = offer.evidenceRef() },
@@ -4436,17 +4657,70 @@ test "boundary closure traversal closes a provider-backed shape" {
     );
     const program_backed_plans = [_]Evidence.BoundaryStaticTreatyPlan{ program_backed_plan, nested_plan };
     try program_backed_certificate.check(program_backed_graph, program_backed_report, program_backed_policy, program_backed_plans[0..]);
-    const forged_program_edges = [_]Closure.Graph.Edge{
-        program_backed_edges[0],
-        program_backed_edges[1],
-        program_backed_edges[2],
-        program_backed_edges[3],
-        program_backed_edges[4],
-        program_backed_edges[5],
-        program_backed_edges[6],
-        .{ .kind = .provider_program_yields, .from = program_backed_ref, .to = shape.evidenceRef(), .label = "forged-provider-program-yield" },
-    };
-    const forged_program_graph = Closure.Graph.init("forged-provider-program-yield-graph", program_backed_nodes[0..], forged_program_edges[0..], &.{});
+    const forged_mapping_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = program_backed_plan.label,
+        .source_shape = shape,
+        .selected_provider_offer_ref = offer.evidenceRef(),
+        .selected_provider_ref = provider.evidenceRef(),
+        .selected_capability_ref = capability.evidenceRef(),
+        .selected_semantic_body = .boundary_program,
+        .selected_provider_program_ref = program_backed_ref,
+        .selected_provider_program_mapping_fingerprint = 0xBACCED02,
+        .selected_provider_program_effect_shape_count = 1,
+        .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{nested_shape}),
+    });
+    const forged_mapping_refs = [_]Evidence.Ref{ forged_mapping_plan.evidenceRef(), nested_plan.evidenceRef() };
+    const forged_mapping_nodes = try allocator.dupe(Closure.Graph.Node, program_backed_nodes[0..]);
+    defer allocator.free(forged_mapping_nodes);
+    for (forged_mapping_nodes) |*node| {
+        if (node.ref.eql(program_backed_plan.evidenceRef())) node.ref = forged_mapping_plan.evidenceRef();
+    }
+    const forged_mapping_edges = try allocator.dupe(Closure.Graph.Edge, program_backed_edges[0..]);
+    defer allocator.free(forged_mapping_edges);
+    for (forged_mapping_edges) |*edge| {
+        if (edge.to.eql(program_backed_plan.evidenceRef())) edge.to = forged_mapping_plan.evidenceRef();
+    }
+    const forged_mapping_graph = Closure.Graph.init("forged-provider-program-mapping", forged_mapping_nodes, forged_mapping_edges, &.{});
+    var forged_mapping_report = program_backed_report;
+    forged_mapping_report.graph_fingerprint = forged_mapping_graph.fingerprint;
+    forged_mapping_report.report_fingerprint = forged_mapping_report.computeFingerprint();
+    const forged_mapping_certificate = Evidence.BoundaryClosureCertificate.init(
+        forged_mapping_report,
+        forged_mapping_graph,
+        program_backed_policy,
+        forged_mapping_refs[0..],
+    );
+    const forged_mapping_plans = [_]Evidence.BoundaryStaticTreatyPlan{ forged_mapping_plan, nested_plan };
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        forged_mapping_certificate.check(forged_mapping_graph, forged_mapping_report, program_backed_policy, forged_mapping_plans[0..]),
+    );
+    const unattested_program_ref = Evidence.refFor(Evidence.domains.program_plan, 0xA77E57ED, .{ .label = "unattested-provider-program" });
+    const extra_program_nodes = try allocator.alloc(Closure.Graph.Node, program_backed_nodes.len + 1);
+    defer allocator.free(extra_program_nodes);
+    @memcpy(extra_program_nodes[0..program_backed_nodes.len], program_backed_nodes[0..]);
+    extra_program_nodes[program_backed_nodes.len] = .{ .kind = .provider_program, .ref = unattested_program_ref, .label = "unattested-provider-program" };
+    const extra_program_graph = Closure.Graph.init("unattested-provider-program-proof", extra_program_nodes, program_backed_edges[0..], &.{});
+    const extra_program_refs = [_]Evidence.Ref{ program_backed_ref, unattested_program_ref };
+    var extra_program_report = program_backed_report;
+    extra_program_report.graph_fingerprint = extra_program_graph.fingerprint;
+    extra_program_report.provider_program_refs = extra_program_refs[0..];
+    extra_program_report.report_fingerprint = extra_program_report.computeFingerprint();
+    const extra_program_certificate = Evidence.BoundaryClosureCertificate.init(
+        extra_program_report,
+        extra_program_graph,
+        program_backed_policy,
+        program_backed_plan_refs[0..],
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        extra_program_certificate.check(extra_program_graph, extra_program_report, program_backed_policy, program_backed_plans[0..]),
+    );
+    const forged_program_edges = try allocator.alloc(Closure.Graph.Edge, program_backed_edges.len + 1);
+    defer allocator.free(forged_program_edges);
+    @memcpy(forged_program_edges[0..program_backed_edges.len], program_backed_edges[0..]);
+    forged_program_edges[program_backed_edges.len] = .{ .kind = .provider_program_yields, .from = program_backed_ref, .to = shape.evidenceRef(), .label = "forged-provider-program-yield" };
+    const forged_program_graph = Closure.Graph.init("forged-provider-program-yield-graph", program_backed_nodes[0..], forged_program_edges, &.{});
     var forged_program_yield_report = program_backed_report;
     forged_program_yield_report.graph_fingerprint = forged_program_graph.fingerprint;
     forged_program_yield_report.report_fingerprint = forged_program_yield_report.computeFingerprint();
@@ -4794,6 +5068,113 @@ test "boundary closure does not prove provider programs without nested shape wit
         if (node.kind == .provider_program) try std.testing.expect(!node.ref.eql(provider_program_ref));
     }
     try result.certificate.check(result.graph, result.report, Closure.Policy.auditOnly(), result.static_treaty_plans);
+
+    const RecursiveDecl = closure_source_program.Exchange.ProviderHandler.program(.{
+        .label = "recursive-approval-program",
+        .op = closure_approval_request,
+        .program = closure_recursive_handler_program,
+        .map_request = .payload_to_args,
+        .map_result = .result_to_resume,
+    });
+    comptime @setEvalBranchQuota(10_000);
+    const RecursiveHarness = closure_source_program.Exchange.ProviderHarness(.{
+        .label = "recursive-approval-provider",
+        .provider_fingerprint = @as(?u64, 0xC105E505),
+        .entries = .{RecursiveDecl},
+    });
+    var recursive_catalog = try RecursiveHarness.buildCatalog(allocator);
+    defer recursive_catalog.deinit();
+    var recursive_capability = try closure_source_program.Exchange.Capability.encode(allocator, .{
+        .issuer_label = "recursive-closure-host",
+        .provider_fingerprint = RecursiveHarness.provider_fingerprint,
+        .manifest_fingerprint = recursive_catalog.manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true },
+        .allowed_operation_sites = &.{closure_approval_request.index},
+        .allowed_protocol_op_fingerprints = &.{closure_approval_request.fingerprint},
+        .allowed_requirement_labels = &.{"approval"},
+        .allowed_op_names = &.{"request"},
+    });
+    defer recursive_capability.deinit();
+    const recursive_shapes = closure_recursive_handler_program.BoundaryClosure.effectShapesForProgram(closure_recursive_handler_program, .operation);
+    var stale_nested_shape = recursive_shapes[0];
+    stale_nested_shape.name = "stale-nested-approval";
+    try std.testing.expect(stale_nested_shape.fingerprint != stale_nested_shape.computeFingerprint());
+    const stale_nested_shapes = [_]Closure.EffectShape{stale_nested_shape};
+    const recursive_program_ref = closure_source_program.Evidence.refFor(
+        closure_source_program.Evidence.domains.program_plan,
+        closure_recursive_handler_program.compiled_plan.hash(),
+        .{ .label = closure_recursive_handler_program.contract.label },
+    );
+    const stale_nested_programs = [_]Closure.ProviderProgram{.{
+        .provider_ref = recursive_catalog.provider_manifest.evidenceRef(),
+        .program_ref = recursive_program_ref,
+        .provider_program_mapping_fingerprint = RecursiveDecl.provider_program_mapping_fingerprint,
+        .shapes = stale_nested_shapes[0..],
+    }};
+    var stale_nested_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = root_shapes[0..1],
+        .provider_programs = stale_nested_programs[0..],
+        .provider_manifests = &.{recursive_catalog.provider_manifest},
+        .provider_offers = &.{recursive_catalog.provider_offers[0]},
+        .capabilities = &.{recursive_capability},
+        .policy = Closure.Policy.auditOnly(),
+    });
+    defer stale_nested_result.deinit();
+    try std.testing.expect(!stale_nested_result.report.closed());
+    try std.testing.expectEqual(@as(usize, 0), stale_nested_result.report.provider_program_refs.len);
+    var saw_stale_contract_missing = false;
+    for (stale_nested_result.report.blockers) |blocker| {
+        if (std.mem.eql(u8, blocker.tag, @tagName(Evidence.BoundaryClosureBlockerTag.provider_program_contract_missing)) and
+            blocker.subject != null and blocker.subject.?.eql(recursive_program_ref))
+        {
+            saw_stale_contract_missing = true;
+        }
+    }
+    try std.testing.expect(saw_stale_contract_missing);
+    try stale_nested_result.certificate.check(stale_nested_result.graph, stale_nested_result.report, Closure.Policy.auditOnly(), stale_nested_result.static_treaty_plans);
+    try std.testing.expectEqual(error.BoundaryClosureNotClosed, stale_nested_result.assertClosed());
+
+    var mappingless_provider = try closure_source_program.Exchange.ProviderManifest.encode(allocator, .{
+        .label = "mappingless-program-provider",
+        .provider_fingerprint = closure_harness.provider_fingerprint,
+        .supported_program_manifest_fingerprints = &.{catalog.manifest.fingerprint},
+        .supported_protocol_labels = &.{closure_approval_request.requirement_label},
+        .supported_operation_sites = &.{closure_approval_request.index},
+        .supported_protocol_op_fingerprints = &.{closure_approval_request.fingerprint},
+    });
+    defer mappingless_provider.deinit();
+    const known_morphism = closure_source_program.Exchange.MorphismOffer{
+        .label = "known-morphism-unknown-provider",
+        .source_site_fingerprint = closure_approval_request.fingerprint,
+        .source_protocol_op_fingerprint = closure_approval_request.fingerprint,
+        .target_protocol_op_fingerprint = closure_approval_request.fingerprint,
+        .pipeline_fingerprint = 0xC105E504,
+        .source_response_refs = catalog.provider_offers[0].produced_response_refs,
+        .target_response_refs = catalog.provider_offers[0].produced_response_refs,
+    };
+    var unknown_provider_morphism_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = root_shapes[0..1],
+        .provider_manifests = &.{mappingless_provider},
+        .provider_offers = &.{catalog.provider_offers[0]},
+        .morphism_offers = &.{known_morphism},
+        .capabilities = &.{capability},
+        .treaty_policy = .{ .allow_direct_handling = false },
+        .policy = Closure.Policy.auditOnly(),
+    });
+    defer unknown_provider_morphism_result.deinit();
+    try unknown_provider_morphism_result.assertClosed();
+    try std.testing.expectEqual(@as(usize, 1), unknown_provider_morphism_result.report.unknown_body_count);
+    try std.testing.expectEqual(@as(usize, 1), unknown_provider_morphism_result.report.unknown_refs.len);
+    try std.testing.expectEqual(Evidence.SemanticBody.unknown, unknown_provider_morphism_result.static_treaty_plans[0].selected_semantic_body);
+    try std.testing.expectEqual(Evidence.SemanticBody.pipeline, unknown_provider_morphism_result.static_treaty_plans[0].selected_morphism_semantic_body.?);
+    try unknown_provider_morphism_result.certificate.check(
+        unknown_provider_morphism_result.graph,
+        unknown_provider_morphism_result.report,
+        Closure.Policy.auditOnly(),
+        unknown_provider_morphism_result.static_treaty_plans,
+    );
 
     const mixed_provider_programs = [_]Closure.ProviderProgram{
         provider_programs[0],

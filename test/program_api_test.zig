@@ -24469,6 +24469,29 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer nested_closure.deinit();
     try std.testing.expectEqual(@as(usize, 1), nested_closure.report.provider_program_refs.len);
     try std.testing.expectEqual(@as(usize, 0), nested_closure.report.blocker_count);
+
+    var immediate_depth_policy = Program.Evidence.BoundaryClosurePolicy.auditOnly();
+    immediate_depth_policy.max_nested_provider_depth = 0;
+    var immediate_depth_closure = try Program.BoundaryClosure.analyze(std.testing.allocator, .{
+        .allocator = std.testing.allocator,
+        .root_shapes = &.{static_operation_shape},
+        .provider_programs = provider_programs[0..],
+        .provider_manifests = &.{program_catalog.provider_manifest},
+        .provider_offers = &.{program_catalog.provider_offers[0]},
+        .capabilities = &.{program_capability},
+        .policy = immediate_depth_policy,
+    });
+    defer immediate_depth_closure.deinit();
+    try std.testing.expectEqual(@as(usize, 0), immediate_depth_closure.report.provider_program_refs.len);
+    try std.testing.expectEqual(@as(usize, 1), immediate_depth_closure.report.blocker_count);
+    try std.testing.expectEqualStrings("depth_limit_exceeded", immediate_depth_closure.report.blockers[0].tag);
+    try immediate_depth_closure.certificate.check(
+        immediate_depth_closure.graph,
+        immediate_depth_closure.report,
+        immediate_depth_policy,
+        immediate_depth_closure.static_treaty_plans,
+    );
+
     var omitted_program_nodes = try std.testing.allocator.alloc(Program.BoundaryClosure.Graph.Node, nested_closure.graph.nodes.len);
     defer std.testing.allocator.free(omitted_program_nodes);
     var omitted_program_node_count: usize = 0;
@@ -24589,6 +24612,72 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expectEqualStrings("provider_program_contract_missing", depth_limited_closure.report.blockers[0].tag);
     try std.testing.expect(!depth_limited_closure.report.closed());
     try depth_limited_closure.certificate.check(depth_limited_closure.graph, depth_limited_closure.report, depth_limited_policy, depth_limited_closure.static_treaty_plans);
+
+    const ReusedAfterProgramBackedDecl = Program.Exchange.ProviderHandler.program(.{
+        .label = "program-backed-reused-after",
+        .after = AfterSite,
+        .program = HandlerProgram,
+        .map_request = .unit_args,
+        .map_result = .result_to_resume_after,
+    });
+    const ReusedProgramBackedHarness = Program.Exchange.ProviderHarness(.{
+        .label = "program-backed-reused-handler-provider",
+        .provider_fingerprint = @as(?u64, 0x5160),
+        .entries = .{ ProgramBackedDecl, ReusedAfterProgramBackedDecl },
+    });
+    var reused_program_catalog = try ReusedProgramBackedHarness.buildCatalog(std.testing.allocator);
+    defer reused_program_catalog.deinit();
+    try std.testing.expect(ProgramBackedDecl.provider_program_mapping_fingerprint != ReusedAfterProgramBackedDecl.provider_program_mapping_fingerprint);
+    var reused_program_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "program-backed-reused-handler-issuer",
+        .provider_fingerprint = ReusedProgramBackedHarness.provider_fingerprint,
+        .manifest_fingerprint = reused_program_catalog.manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true, .after = true },
+        .allowed_operation_sites = &.{OperationSite.index},
+        .allowed_after_sites = &.{AfterSite.index},
+        .allowed_protocol_op_fingerprints = &.{OperationSite.fingerprint},
+        .allowed_requirement_labels = &.{"authored"},
+        .allowed_op_names = &.{"dispatch"},
+    });
+    defer reused_program_capability.deinit();
+    const reused_programs = [_]Program.BoundaryClosure.ProviderProgram{
+        .{
+            .provider_ref = reused_program_catalog.provider_manifest.evidenceRef(),
+            .program_ref = provider_program_ref,
+            .provider_program_mapping_fingerprint = ProgramBackedDecl.provider_program_mapping_fingerprint,
+            .effect_free = true,
+        },
+        .{
+            .provider_ref = reused_program_catalog.provider_manifest.evidenceRef(),
+            .program_ref = provider_program_ref,
+            .provider_program_mapping_fingerprint = ReusedAfterProgramBackedDecl.provider_program_mapping_fingerprint,
+            .effect_free = true,
+        },
+    };
+    var reused_program_closure = try Program.BoundaryClosure.analyze(std.testing.allocator, .{
+        .allocator = std.testing.allocator,
+        .root_shapes = &.{ static_operation_shape, after_static_shape },
+        .provider_programs = reused_programs[0..],
+        .provider_manifests = &.{reused_program_catalog.provider_manifest},
+        .provider_offers = reused_program_catalog.provider_offers,
+        .capabilities = &.{reused_program_capability},
+        .policy = Program.Evidence.BoundaryClosurePolicy.auditOnly(),
+    });
+    defer reused_program_closure.deinit();
+    try std.testing.expectEqual(@as(usize, 1), reused_program_closure.report.provider_program_refs.len);
+    try std.testing.expectEqual(@as(usize, 0), reused_program_closure.report.blocker_count);
+    var reused_mapping_edge_count: usize = 0;
+    for (reused_program_closure.graph.edges) |edge| {
+        if (edge.kind == .provider_program_mapped_by and edge.from.eql(provider_program_ref)) reused_mapping_edge_count += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 2), reused_mapping_edge_count);
+    try reused_program_closure.certificate.check(
+        reused_program_closure.graph,
+        reused_program_closure.report,
+        Program.Evidence.BoundaryClosurePolicy.auditOnly(),
+        reused_program_closure.static_treaty_plans,
+    );
+
     const wrong_mapping_programs = [_]Program.BoundaryClosure.ProviderProgram{
         .{
             .provider_ref = program_catalog.provider_manifest.evidenceRef(),
@@ -29735,6 +29824,67 @@ test "Program.Exchange treaty response shape follows offer and route narrowing" 
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.Status.treaty, produced_resume_narrowed.status);
     try std.testing.expectEqual(@as(usize, 1), produced_resume_narrowed.treaty.?.expected_response_refs.len);
     try std.testing.expect(produced_resume_narrowed.treaty.?.expected_response_refs[0].eql(trace.resume_ref));
+    const BoolBody = struct {
+        pub const compiled_plan = choiceResumeI32ReturnBoolPlan("static-disjoint-response-pair");
+    };
+    const BoolProgram = boundary.program("static-disjoint-response-pair", struct {}, BoolBody);
+    const BoolSite = BoolProgram.protocol.operationSite("authored", "dispatch", 0);
+    var bool_manifest = try BoolProgram.Exchange.Manifest.encode(std.testing.allocator);
+    defer bool_manifest.deinit();
+    var bool_provider = try BoolProgram.Exchange.ProviderManifest.encode(std.testing.allocator, .{
+        .label = "static-disjoint-provider",
+        .provider_fingerprint = 0x4561,
+        .supported_program_manifest_fingerprints = &.{bool_manifest.fingerprint},
+        .supported_operation_sites = &.{BoolSite.index},
+        .supported_protocol_labels = &.{BoolSite.requirement_label},
+        .supported_protocol_op_fingerprints = &.{BoolSite.fingerprint},
+    });
+    defer bool_provider.deinit();
+    const bool_resume_refs = [_]@TypeOf(BoolSite.resume_ref){BoolSite.resume_ref};
+    var resume_only_offer = try BoolProgram.Exchange.ProviderOffer.encode(std.testing.allocator, .{
+        .label = "static-resume-only-offer",
+        .provider_fingerprint = bool_provider.provider_fingerprint,
+        .manifest_fingerprint = bool_manifest.fingerprint,
+        .supported_operation_sites = &.{BoolSite.index},
+        .supported_protocol_labels = &.{BoolSite.requirement_label},
+        .supported_protocol_op_fingerprints = &.{BoolSite.fingerprint},
+        .produced_response_refs = bool_resume_refs[0..],
+    });
+    defer resume_only_offer.deinit();
+    const bool_return_refs = [_]@TypeOf(BoolSite.result_ref){BoolSite.result_ref};
+    var return_now_capability = try BoolProgram.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "return-now-only-issuer",
+        .provider_fingerprint = bool_provider.provider_fingerprint,
+        .manifest_fingerprint = bool_manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true, .after = false },
+        .allowed_operation_sites = &.{BoolSite.index},
+        .allowed_protocol_op_fingerprints = &.{BoolSite.fingerprint},
+        .allowed_requirement_labels = &.{BoolSite.requirement_label},
+        .allowed_op_names = &.{BoolSite.op_name},
+        .allowed_response_kinds = .{ .@"resume" = false, .return_now = true, .resume_after = false },
+        .allowed_response_refs = bool_return_refs[0..],
+    });
+    defer return_now_capability.deinit();
+    const bool_providers = [_]BoolProgram.Exchange.ProviderManifest{bool_provider};
+    const resume_only_offers = [_]BoolProgram.Exchange.ProviderOffer{resume_only_offer};
+    const return_now_capabilities = [_]BoolProgram.Exchange.Capability{return_now_capability};
+    const disjoint_static_plan = try BoolProgram.Exchange.TreatyResolver.planShape(.{
+        .allocator = std.testing.allocator,
+        .shape = BoolProgram.BoundaryClosure.operationShape(BoolProgram, BoolSite, .operation),
+        .provider_manifests = bool_providers[0..],
+        .provider_offers = resume_only_offers[0..],
+        .capabilities = return_now_capabilities[0..],
+        .policy = BoolProgram.Evidence.BoundaryClosurePolicy.auditOnly(),
+    });
+    defer std.testing.allocator.free(disjoint_static_plan.blockers);
+    defer std.testing.allocator.free(disjoint_static_plan.dependencies);
+    try std.testing.expect(!disjoint_static_plan.closed());
+    try std.testing.expect(disjoint_static_plan.selected_provider_offer_ref == null);
+    var saw_disjoint_response_ref_capability = false;
+    for (disjoint_static_plan.blockers) |blocker| {
+        if (blocker.tag == .no_capability_for_shape) saw_disjoint_response_ref_capability = true;
+    }
+    try std.testing.expect(saw_disjoint_response_ref_capability);
     var offer_narrowed = try Program.Exchange.TreatyResolver.resolve(.{
         .allocator = std.testing.allocator,
         .request = envelope,
