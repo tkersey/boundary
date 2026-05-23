@@ -3571,6 +3571,26 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectEqual(@as(usize, 1), effect_free_root_result.report.effect_free_root_refs.len);
     try effect_free_root_result.certificate.check(effect_free_root_result.graph, effect_free_root_result.report, closure_policy, effect_free_root_result.static_treaty_plans);
 
+    const conflicting_effect_free_root_ref = Evidence.refFor(Evidence.domains.program_plan, shape.plan_hash, .{ .label = shape.program_label });
+    var conflicting_effect_free_root_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape},
+        .root_program_refs = &.{conflicting_effect_free_root_ref},
+        .effect_free_root_refs = &.{conflicting_effect_free_root_ref},
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = closure_policy,
+    });
+    defer conflicting_effect_free_root_result.deinit();
+    try std.testing.expect(!conflicting_effect_free_root_result.report.closed());
+    try std.testing.expectEqual(@as(usize, 0), conflicting_effect_free_root_result.report.effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 1), conflicting_effect_free_root_result.report.blocker_count);
+    try std.testing.expectError(
+        error.BoundaryClosureNotClosed,
+        conflicting_effect_free_root_result.certificate.check(conflicting_effect_free_root_result.graph, conflicting_effect_free_root_result.report, closure_policy, conflicting_effect_free_root_result.static_treaty_plans),
+    );
+
     const unwitnessed_root_ref = Evidence.refFor(Evidence.domains.program_plan, 0xEFFEC7BAD, .{ .label = "unwitnessed-root" });
     var partial_root_result = try Closure.analyze(allocator, .{
         .allocator = allocator,
@@ -4270,6 +4290,105 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
         forged_program_cert.check(result.graph, forged_provider_program_report, closure_policy, result.static_treaty_plans),
+    );
+    const program_backed_ref = Evidence.refFor(Evidence.domains.program_plan, 0xBACCED, .{ .label = "program-backed-provider" });
+    const nested_shape = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "nested-evidence-test",
+        .plan_label = "nested-evidence-test-plan",
+        .plan_hash = 2,
+        .manifest_fingerprint = manifest.fingerprint,
+        .kind = .operation,
+        .site_index = site_index + 1,
+        .site_fingerprint = protocol_op_fingerprint + 1,
+        .semantic_label = "nested-approval",
+        .name = "nested-approve",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(response_ref),
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = protocol_op_fingerprint + 1,
+    });
+    const program_backed_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = "program-backed-provider-plan",
+        .source_shape = shape,
+        .selected_provider_offer_ref = offer.evidenceRef(),
+        .selected_provider_ref = provider.evidenceRef(),
+        .selected_capability_ref = capability.evidenceRef(),
+        .selected_semantic_body = .boundary_program,
+        .selected_provider_program_ref = program_backed_ref,
+        .selected_provider_program_mapping_fingerprint = 0xBACCED01,
+        .selected_provider_program_effect_shape_count = 1,
+        .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{nested_shape}),
+    });
+    const nested_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = "nested-provider-plan",
+        .source_shape = nested_shape,
+        .selected_provider_offer_ref = offer.evidenceRef(),
+        .selected_provider_ref = provider.evidenceRef(),
+        .selected_capability_ref = capability.evidenceRef(),
+        .selected_semantic_body = .declarative,
+    });
+    const program_backed_plan_refs = [_]Evidence.Ref{ program_backed_plan.evidenceRef(), nested_plan.evidenceRef() };
+    const program_backed_nodes = [_]Closure.Graph.Node{
+        .{ .kind = .operation_site, .ref = shape.evidenceRef(), .label = shape.name },
+        .{ .kind = .operation_site, .ref = nested_shape.evidenceRef(), .label = nested_shape.name },
+        .{ .kind = .treaty_shape_plan, .ref = program_backed_plan.evidenceRef(), .label = program_backed_plan.label },
+        .{ .kind = .treaty_shape_plan, .ref = nested_plan.evidenceRef(), .label = nested_plan.label },
+        .{ .kind = .provider_offer, .ref = offer.evidenceRef(), .label = offer.label },
+        .{ .kind = .capability_grant, .ref = capability.evidenceRef(), .label = capability.issuer_label },
+        .{ .kind = .provider_program, .ref = program_backed_ref, .label = "program-backed-provider" },
+    };
+    const program_backed_edges = [_]Closure.Graph.Edge{
+        .{ .kind = .treaty_planned, .from = shape.evidenceRef(), .to = program_backed_plan.evidenceRef() },
+        .{ .kind = .handled_by_provider, .from = shape.evidenceRef(), .to = offer.evidenceRef() },
+        .{ .kind = .authorized_by_capability, .from = shape.evidenceRef(), .to = capability.evidenceRef() },
+        .{ .kind = .provider_program_yields, .from = program_backed_ref, .to = nested_shape.evidenceRef() },
+        .{ .kind = .treaty_planned, .from = nested_shape.evidenceRef(), .to = nested_plan.evidenceRef() },
+        .{ .kind = .handled_by_provider, .from = nested_shape.evidenceRef(), .to = offer.evidenceRef() },
+        .{ .kind = .authorized_by_capability, .from = nested_shape.evidenceRef(), .to = capability.evidenceRef() },
+    };
+    const program_backed_graph = Closure.Graph.init("program-backed-provider-proof", program_backed_nodes[0..], program_backed_edges[0..], &.{});
+    const program_backed_provider_refs = [_]Evidence.Ref{program_backed_ref};
+    const program_backed_policy = Evidence.BoundaryClosurePolicy.auditOnly();
+    const program_backed_report = Evidence.BoundaryClosureReport.init(.{
+        .graph_fingerprint = program_backed_graph.fingerprint,
+        .effect_shape_count = 2,
+        .closed_effect_shape_count = 2,
+        .provider_program_refs = program_backed_provider_refs[0..],
+        .declarative_route_count = 1,
+        .policy_summary = program_backed_policy.policySummary(),
+    });
+    const program_backed_certificate = Evidence.BoundaryClosureCertificate.init(
+        program_backed_report,
+        program_backed_graph,
+        program_backed_policy,
+        program_backed_plan_refs[0..],
+    );
+    const program_backed_plans = [_]Evidence.BoundaryStaticTreatyPlan{ program_backed_plan, nested_plan };
+    try program_backed_certificate.check(program_backed_graph, program_backed_report, program_backed_policy, program_backed_plans[0..]);
+    const forged_program_edges = [_]Closure.Graph.Edge{
+        program_backed_edges[0],
+        program_backed_edges[1],
+        program_backed_edges[2],
+        program_backed_edges[3],
+        program_backed_edges[4],
+        program_backed_edges[5],
+        program_backed_edges[6],
+        .{ .kind = .provider_program_yields, .from = program_backed_ref, .to = shape.evidenceRef(), .label = "forged-provider-program-yield" },
+    };
+    const forged_program_graph = Closure.Graph.init("forged-provider-program-yield-graph", program_backed_nodes[0..], forged_program_edges[0..], &.{});
+    var forged_program_yield_report = program_backed_report;
+    forged_program_yield_report.graph_fingerprint = forged_program_graph.fingerprint;
+    forged_program_yield_report.report_fingerprint = forged_program_yield_report.computeFingerprint();
+    const forged_program_yield_certificate = Evidence.BoundaryClosureCertificate.init(
+        forged_program_yield_report,
+        forged_program_graph,
+        program_backed_policy,
+        program_backed_plan_refs[0..],
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        forged_program_yield_certificate.check(forged_program_graph, forged_program_yield_report, program_backed_policy, program_backed_plans[0..]),
     );
     const mispaired_world_report = Evidence.BoundaryClosureReport.init(.{
         .graph_fingerprint = world_port_result.graph.fingerprint,

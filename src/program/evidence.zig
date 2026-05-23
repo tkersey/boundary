@@ -3728,6 +3728,18 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                     try appendBlockerGraph(allocator, nodes, edges, evidence_blocker);
                     continue;
                 }
+                if (parent_provider_program_ref == null) {
+                    if (effectFreeRootMatchingShape(input.effect_free_root_refs, shape)) |effect_free_root_ref| {
+                        const evidence_blocker = boundaryClosureBlocker(.{
+                            .tag = .root_program_missing,
+                            .subject = effect_free_root_ref,
+                            .summary = "effect-free root witness conflicts with a yielding root effect shape",
+                        });
+                        try blockers.append(allocator, evidence_blocker);
+                        try appendBlockerGraph(allocator, nodes, edges, evidence_blocker);
+                        continue;
+                    }
+                }
                 try seen_shape_refs.append(allocator, shape_ref);
                 try nodes.append(allocator, .{ .kind = if (shape.kind == .after) .after_site else .operation_site, .ref = shape_ref, .label = shape.name });
                 if (parent_provider_program_ref) |program_ref| {
@@ -3874,6 +3886,13 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 matched = true;
             }
             return matched;
+        }
+
+        fn effectFreeRootMatchingShape(effect_free_root_refs: []const Ref, shape: Closure.EffectShape) ?Ref {
+            for (effect_free_root_refs) |root_ref| {
+                if (rootRefMatchesShape(root_ref, shape)) return root_ref;
+            }
+            return null;
         }
 
         fn rootRefMatchesShape(root_ref: Ref, shape: Closure.EffectShape) bool {
@@ -5404,13 +5423,50 @@ fn staticTreatyProviderProgramProofMatches(graph: BoundaryGraph, report: Boundar
     if (program_ref.domain_id != domains.program_plan.id) return false;
     _ = plan.selected_provider_program_mapping_fingerprint orelse return false;
     const effect_shape_count = plan.selected_provider_program_effect_shape_count orelse return false;
-    _ = plan.selected_provider_program_effect_shape_fingerprint orelse return false;
+    const effect_shape_fingerprint = plan.selected_provider_program_effect_shape_fingerprint orelse return false;
     if (refsContain(report.provider_program_refs, program_ref)) {
         if (!graphHasNode(graph, .provider_program, program_ref)) return false;
-        if (effect_shape_count != 0 and !graphHasOutgoingEdge(graph, .provider_program_yields, program_ref)) return false;
-        return true;
+        const graph_effect_shapes = graphProviderProgramEffectShapeProof(graph, program_ref) orelse return false;
+        return graph_effect_shapes.count == effect_shape_count and graph_effect_shapes.fingerprint == effect_shape_fingerprint;
     }
     return reportHasProviderProgramMissingBlocker(report, plan);
+}
+
+fn graphProviderProgramEffectShapeProof(graph: BoundaryGraph, program_ref: Ref) ?struct {
+    count: u64,
+    fingerprint: u64,
+} {
+    var count: usize = 0;
+    for (graph.edges) |edge| {
+        if (edge.kind != .provider_program_yields or !edge.from.eql(program_ref)) continue;
+        if (!graphHasNode(graph, .operation_site, edge.to) and !graphHasNode(graph, .after_site, edge.to)) return null;
+        count += 1;
+    }
+
+    var builder = FingerprintBuilder.init(domains.boundary_effect_shape);
+    builder.fieldUsize("shape_count", count);
+    var emitted_rank: usize = 0;
+    while (emitted_rank < count) : (emitted_rank += 1) {
+        var selected_ref: ?Ref = null;
+        provider_edges: for (graph.edges, 0..) |edge, index| {
+            if (edge.kind != .provider_program_yields or !edge.from.eql(program_ref)) continue :provider_edges;
+            var rank: usize = 0;
+            other_provider_edges: for (graph.edges, 0..) |other_edge, other_index| {
+                if (other_edge.kind != .provider_program_yields or !other_edge.from.eql(program_ref)) continue :other_provider_edges;
+                if (refLessForCanonicalSet(other_edge.to, edge.to) or (other_edge.to.eql(edge.to) and other_index < index)) rank += 1;
+            }
+            if (rank == emitted_rank) {
+                selected_ref = edge.to;
+                break;
+            }
+        }
+        builder.fieldRef("shape", selected_ref.?);
+    }
+
+    return .{
+        .count = @intCast(count),
+        .fingerprint = builder.finish(),
+    };
 }
 
 fn reportHasProviderProgramMissingBlocker(report: BoundaryClosureReport, plan: BoundaryStaticTreatyPlan) bool {
