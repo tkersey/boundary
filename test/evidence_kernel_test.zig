@@ -4297,6 +4297,48 @@ test "boundary closure traversal closes a provider-backed shape" {
         error.BoundaryClosureCertificateMismatch,
         duplicate_plan_edge_certificate.check(duplicate_plan_edge_graph, duplicate_plan_edge_report, closure_policy, result.static_treaty_plans),
     );
+    const forged_provider_offer_ref = Evidence.refFor(Evidence.domains.provider_offer, 0xFA110FF3, .{ .label = "unselected-provider-offer" });
+    const forged_capability_ref = Evidence.refFor(Evidence.domains.capability, 0xFA11CA9A, .{ .label = "unselected-capability" });
+    const forged_morphism_ref = Evidence.refFor(Evidence.domains.morphism_offer, 0xFA110D1A, .{ .label = "unselected-morphism" });
+    const forged_route_cases = [_]struct {
+        node_kind: Closure.Graph.NodeKind,
+        edge_kind: Closure.Graph.EdgeKind,
+        ref: Evidence.Ref,
+        label: []const u8,
+    }{
+        .{ .node_kind = .provider_offer, .edge_kind = .handled_by_provider, .ref = forged_provider_offer_ref, .label = "forged-provider-route" },
+        .{ .node_kind = .capability_grant, .edge_kind = .authorized_by_capability, .ref = forged_capability_ref, .label = "forged-capability-route" },
+        .{ .node_kind = .morphism_offer, .edge_kind = .adapted_by_morphism, .ref = forged_morphism_ref, .label = "forged-morphism-route" },
+    };
+    for (forged_route_cases) |case| {
+        const forged_route_nodes = try allocator.alloc(Closure.Graph.Node, result.graph.nodes.len + 1);
+        defer allocator.free(forged_route_nodes);
+        @memcpy(forged_route_nodes[0..result.graph.nodes.len], result.graph.nodes);
+        forged_route_nodes[result.graph.nodes.len] = .{ .kind = case.node_kind, .ref = case.ref, .label = case.label };
+        const forged_route_edges = try allocator.alloc(Closure.Graph.Edge, result.graph.edges.len + 1);
+        defer allocator.free(forged_route_edges);
+        @memcpy(forged_route_edges[0..result.graph.edges.len], result.graph.edges);
+        forged_route_edges[result.graph.edges.len] = .{
+            .kind = case.edge_kind,
+            .from = shape.evidenceRef(),
+            .to = case.ref,
+            .label = case.label,
+        };
+        const forged_route_graph = Closure.Graph.init(case.label, forged_route_nodes, forged_route_edges, result.graph.dependencies);
+        var forged_route_report = result.report;
+        forged_route_report.graph_fingerprint = forged_route_graph.fingerprint;
+        forged_route_report.report_fingerprint = forged_route_report.computeFingerprint();
+        const forged_route_certificate = Evidence.BoundaryClosureCertificate.init(
+            forged_route_report,
+            forged_route_graph,
+            closure_policy,
+            result.plan_refs,
+        );
+        try std.testing.expectError(
+            error.BoundaryClosureCertificateMismatch,
+            forged_route_certificate.check(forged_route_graph, forged_route_report, closure_policy, result.static_treaty_plans),
+        );
+    }
     const forged_root_domain_ref = provider.evidenceRef();
     const forged_root_domain_nodes = try allocator.alloc(Closure.Graph.Node, result.graph.nodes.len + 1);
     defer allocator.free(forged_root_domain_nodes);

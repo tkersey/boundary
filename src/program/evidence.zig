@@ -5491,6 +5491,21 @@ fn graphPlanRefsMatchCertificate(graph: BoundaryGraph, plan_refs: []const Ref) b
     return true;
 }
 
+fn graphRouteEdgesMatchSelectedRef(graph: BoundaryGraph, kind: BoundaryGraph.EdgeKind, target_kind: BoundaryGraph.NodeKind, shape_ref: Ref, selected_ref: ?Ref) bool {
+    var count: usize = 0;
+    for (graph.edges) |edge| {
+        if (edge.kind != kind or !edge.from.eql(shape_ref)) continue;
+        count += 1;
+        if (!graphHasNode(graph, target_kind, edge.to)) return false;
+        const expected_ref = selected_ref orelse return false;
+        if (!edge.to.eql(expected_ref)) return false;
+    }
+    if (selected_ref) |expected_ref| {
+        return count == 1 and graphHasNode(graph, target_kind, expected_ref);
+    }
+    return count == 0;
+}
+
 fn staticTreatyPlansMatchCertificate(
     graph: BoundaryGraph,
     report: BoundaryClosureReport,
@@ -5530,12 +5545,14 @@ fn staticTreatyPlansMatchCertificate(
         const shape_ref = plan.source_shape.evidenceRef();
         if (!graphHasNode(graph, .operation_site, shape_ref) and !graphHasNode(graph, .after_site, shape_ref)) return false;
         if (!graphHasEdge(graph, .treaty_planned, shape_ref, plan_ref)) return false;
+        if (!graphRouteEdgesMatchSelectedRef(graph, .handled_by_provider, .provider_offer, shape_ref, plan.selected_provider_offer_ref)) return false;
+        if (!graphRouteEdgesMatchSelectedRef(graph, .authorized_by_capability, .capability_grant, shape_ref, plan.selected_capability_ref)) return false;
+        if (!graphRouteEdgesMatchSelectedRef(graph, .adapted_by_morphism, .morphism_offer, shape_ref, plan.selected_morphism_ref)) return false;
         if (policy.require_static_treaty_plans and plan.selected_provider_offer_ref == null and !hasErrorClosureBlockers(plan.blockers)) return false;
         if (plan.selected_provider_offer_ref) |offer_ref| {
             if (plan.selected_provider_ref == null or plan.selected_capability_ref == null) return false;
             if (offer_ref.domain_id != domains.provider_offer.id) return false;
             if (!graphHasNode(graph, .provider_offer, offer_ref)) return false;
-            if (!graphHasEdge(graph, .handled_by_provider, shape_ref, offer_ref)) return false;
         }
         if (plan.selected_provider_ref) |provider_ref| {
             if (provider_ref.domain_id != domains.provider_manifest.id) return false;
@@ -5544,12 +5561,10 @@ fn staticTreatyPlansMatchCertificate(
         if (plan.selected_capability_ref) |capability_ref| {
             if (capability_ref.domain_id != domains.capability.id) return false;
             if (!graphHasNode(graph, .capability_grant, capability_ref)) return false;
-            if (!graphHasEdge(graph, .authorized_by_capability, shape_ref, capability_ref)) return false;
         }
         if (plan.selected_morphism_ref) |morphism_ref| {
             if (morphism_ref.domain_id != domains.morphism_offer.id) return false;
             if (!graphHasNode(graph, .morphism_offer, morphism_ref)) return false;
-            if (!graphHasEdge(graph, .adapted_by_morphism, shape_ref, morphism_ref)) return false;
         }
         if (plan.selected_intrinsic_ref) |intrinsic_ref| {
             if (intrinsic_ref.domain_id != domains.host_intrinsic.id) return false;
