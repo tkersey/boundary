@@ -3272,6 +3272,16 @@ test "boundary closure optional static treaty plans do not close unplanned shape
         error.BoundaryClosureNotClosed,
         strict_result.certificate.check(strict_result.graph, strict_result.report, Evidence.BoundaryClosurePolicy.strictStatic(), strict_result.static_treaty_plans),
     );
+    const derived_strict_certificate = Evidence.BoundaryClosureCertificate.init(
+        strict_result.report,
+        strict_result.graph,
+        Evidence.BoundaryClosurePolicy.strictStatic(),
+        strict_result.plan_refs,
+    );
+    try std.testing.expectEqual(
+        error.BoundaryClosureNotClosed,
+        derived_strict_certificate.check(strict_result.graph, strict_result.report, Evidence.BoundaryClosurePolicy.strictStatic(), strict_result.static_treaty_plans),
+    );
     var saw_no_provider = false;
     for (strict_result.report.blockers) |blocker| {
         if (std.mem.eql(u8, blocker.tag, "no_provider_offer_for_shape")) saw_no_provider = true;
@@ -4657,6 +4667,35 @@ test "boundary closure traversal closes a provider-backed shape" {
     );
     const program_backed_plans = [_]Evidence.BoundaryStaticTreatyPlan{ program_backed_plan, nested_plan };
     try program_backed_certificate.check(program_backed_graph, program_backed_report, program_backed_policy, program_backed_plans[0..]);
+    const extra_intrinsic_nodes = try allocator.alloc(Closure.Graph.Node, program_backed_nodes.len + 1);
+    defer allocator.free(extra_intrinsic_nodes);
+    @memcpy(extra_intrinsic_nodes[0..program_backed_nodes.len], program_backed_nodes[0..]);
+    extra_intrinsic_nodes[program_backed_nodes.len] = .{ .kind = .host_intrinsic, .ref = forged_intrinsic_ref, .label = "unselected-host-intrinsic" };
+    const extra_intrinsic_edges = try allocator.alloc(Closure.Graph.Edge, program_backed_edges.len + 1);
+    defer allocator.free(extra_intrinsic_edges);
+    @memcpy(extra_intrinsic_edges[0..program_backed_edges.len], program_backed_edges[0..]);
+    extra_intrinsic_edges[program_backed_edges.len] = .{ .kind = .intrinsic_boundary, .from = shape.evidenceRef(), .to = forged_intrinsic_ref };
+    const extra_intrinsic_graph = Closure.Graph.init("unselected-host-intrinsic-edge", extra_intrinsic_nodes, extra_intrinsic_edges, &.{});
+    const extra_intrinsic_report = Evidence.BoundaryClosureReport.init(.{
+        .graph_fingerprint = extra_intrinsic_graph.fingerprint,
+        .effect_shape_count = 2,
+        .closed_effect_shape_count = 2,
+        .provider_program_refs = program_backed_provider_refs[0..],
+        .host_intrinsic_count = 1,
+        .declarative_route_count = 1,
+        .host_intrinsic_refs = forged_intrinsic_refs[0..],
+        .policy_summary = program_backed_policy.policySummary(),
+    });
+    const extra_intrinsic_certificate = Evidence.BoundaryClosureCertificate.init(
+        extra_intrinsic_report,
+        extra_intrinsic_graph,
+        program_backed_policy,
+        program_backed_plan_refs[0..],
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        extra_intrinsic_certificate.check(extra_intrinsic_graph, extra_intrinsic_report, program_backed_policy, program_backed_plans[0..]),
+    );
     const forged_mapping_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
         .label = program_backed_plan.label,
         .source_shape = shape,
@@ -4807,6 +4846,24 @@ test "boundary closure traversal closes a provider-backed shape" {
         error.BoundaryClosureCertificateMismatch,
         forged_intrinsic_certificate.check(result.graph, forged_intrinsic_report, closure_policy, result.static_treaty_plans),
     );
+    const unattested_intrinsic_nodes = try allocator.alloc(Closure.Graph.Node, result.graph.nodes.len + 1);
+    defer allocator.free(unattested_intrinsic_nodes);
+    @memcpy(unattested_intrinsic_nodes[0..result.graph.nodes.len], result.graph.nodes);
+    unattested_intrinsic_nodes[result.graph.nodes.len] = .{ .kind = .host_intrinsic, .ref = forged_intrinsic_ref, .label = "unattested-host-intrinsic" };
+    const unattested_intrinsic_graph = Closure.Graph.init("unattested-host-intrinsic-ref", unattested_intrinsic_nodes, result.graph.edges, &.{});
+    var unattested_intrinsic_report = forged_intrinsic_report;
+    unattested_intrinsic_report.graph_fingerprint = unattested_intrinsic_graph.fingerprint;
+    unattested_intrinsic_report.report_fingerprint = unattested_intrinsic_report.computeFingerprint();
+    const unattested_intrinsic_certificate = Evidence.BoundaryClosureCertificate.init(
+        unattested_intrinsic_report,
+        unattested_intrinsic_graph,
+        closure_policy,
+        forged_plan_refs[0..],
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        unattested_intrinsic_certificate.check(unattested_intrinsic_graph, unattested_intrinsic_report, closure_policy, result.static_treaty_plans),
+    );
     const forged_unknown_refs = [_]Evidence.Ref{result.static_treaty_plans[0].source_shape.evidenceRef()};
     const undercounted_unknown_report = Evidence.BoundaryClosureReport.init(.{
         .graph_fingerprint = result.graph.fingerprint,
@@ -4852,11 +4909,12 @@ test "boundary closure traversal closes a provider-backed shape" {
     blocked_but_count_default_report.blocker_count = forged_blockers.len;
     blocked_but_count_default_report.report_fingerprint = blocked_but_count_default_report.computeFingerprint();
     try std.testing.expect(!blocked_but_count_default_report.closed());
-    const missing_blocker_ref_certificate = Evidence.BoundaryClosureCertificate.init(
+    const missing_blocker_ref_certificate = Evidence.BoundaryClosureCertificate.initWithBlockerRefs(
         blocked_but_count_default_report,
         result.graph,
         closure_policy,
         forged_plan_refs[0..],
+        &.{},
     );
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
@@ -4890,6 +4948,18 @@ test "boundary closure traversal closes a provider-backed shape" {
     }
     try std.testing.expect(saw_empty_audit_blocker_node);
     try empty_audit_result.certificate.check(
+        empty_audit_result.graph,
+        empty_audit_result.report,
+        Evidence.BoundaryClosurePolicy.auditOnly(),
+        empty_audit_result.static_treaty_plans,
+    );
+    const derived_empty_audit_certificate = Evidence.BoundaryClosureCertificate.init(
+        empty_audit_result.report,
+        empty_audit_result.graph,
+        Evidence.BoundaryClosurePolicy.auditOnly(),
+        empty_audit_result.plan_refs,
+    );
+    try derived_empty_audit_certificate.check(
         empty_audit_result.graph,
         empty_audit_result.report,
         Evidence.BoundaryClosurePolicy.auditOnly(),

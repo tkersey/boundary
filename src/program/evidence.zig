@@ -2769,6 +2769,7 @@ pub const BoundaryClosureCertificate = struct {
     intrinsic_refs: []const Ref = &.{},
     selected_static_treaty_plan_refs: []const Ref = &.{},
     blocker_refs: []const Ref = &.{},
+    derive_blocker_refs: bool = false,
     effect_shape_count: usize = 0,
     closed_effect_shape_count: usize = 0,
     world_port_count: usize = 0,
@@ -2776,7 +2777,10 @@ pub const BoundaryClosureCertificate = struct {
     summary: []const u8 = "boundary closure certificate",
 
     pub fn init(report: BoundaryClosureReport, graph: BoundaryGraph, policy: BoundaryClosurePolicy, plan_refs: []const Ref) @This() {
-        return initWithBlockerRefs(report, graph, policy, plan_refs, &.{});
+        var certificate = initWithBlockerRefs(report, graph, policy, plan_refs, &.{});
+        certificate.derive_blocker_refs = report.blockers.len != 0;
+        certificate.certificate_fingerprint = certificate.computeFingerprint();
+        return certificate;
     }
 
     pub fn initWithBlockerRefs(report: BoundaryClosureReport, graph: BoundaryGraph, policy: BoundaryClosurePolicy, plan_refs: []const Ref, blocker_refs: []const Ref) @This() {
@@ -2822,6 +2826,7 @@ pub const BoundaryClosureCertificate = struct {
         for (self.intrinsic_refs) |ref| builder.fieldRef("intrinsic", ref);
         for (self.selected_static_treaty_plan_refs) |ref| builder.fieldRef("static_treaty_plan", ref);
         for (self.blocker_refs) |ref| builder.fieldRef("blocker", ref);
+        if (self.derive_blocker_refs) builder.fieldBool("derive_blocker_refs", true);
         builder.fieldUsize("effect_shape_count", self.effect_shape_count);
         builder.fieldUsize("closed_effect_shape_count", self.closed_effect_shape_count);
         builder.fieldUsize("world_port_count", self.world_port_count);
@@ -2883,14 +2888,20 @@ pub const BoundaryClosureCertificate = struct {
         if (self.world_port_count != report.open_world_port_count) return error.BoundaryClosureCertificateMismatch;
         if (self.blocker_count != report.blocker_count) return error.BoundaryClosureCertificateMismatch;
         if (report.blocker_count != report.blockers.len) return error.BoundaryClosureCertificateMismatch;
-        if (!blockerRefsMatchBlockers(self.blocker_refs, report.blockers)) return error.BoundaryClosureCertificateMismatch;
-        if (!graphBlockerRefsMatchCertificate(graph, self.blocker_refs, report.blockers)) return error.BoundaryClosureCertificateMismatch;
+        if (self.derive_blocker_refs) {
+            if (self.blocker_refs.len != 0) return error.BoundaryClosureCertificateMismatch;
+            if (!derivedBlockerRefsMatchGraph(graph, report.blockers)) return error.BoundaryClosureCertificateMismatch;
+        } else {
+            if (!blockerRefsMatchBlockers(self.blocker_refs, report.blockers)) return error.BoundaryClosureCertificateMismatch;
+            if (!graphBlockerRefsMatchCertificate(graph, self.blocker_refs, report.blockers)) return error.BoundaryClosureCertificateMismatch;
+        }
         if (report.world_port_refs.len != report.world_port_intrinsic_refs.len) return error.BoundaryClosureCertificateMismatch;
         if (report.open_world_port_count != graphWorldPortShapeCount(graph, report)) return error.BoundaryClosureCertificateMismatch;
         if ((report.open_world_port_count == 0) != (report.world_port_refs.len == 0)) return error.BoundaryClosureCertificateMismatch;
         if (report.host_intrinsic_count != report.host_intrinsic_refs.len) return error.BoundaryClosureCertificateMismatch;
         if (report.unknown_body_count != report.unknown_refs.len) return error.BoundaryClosureCertificateMismatch;
         if (!graphNodeRefsMatchReport(graph, .host_intrinsic, report.host_intrinsic_refs)) return error.BoundaryClosureCertificateMismatch;
+        if (!graphHostIntrinsicRefsMatchReport(graph, report, self.selected_static_treaty_plan_refs)) return error.BoundaryClosureCertificateMismatch;
         if (!graphNodeRefsMatchReport(graph, .world_port, report.world_port_refs)) return error.BoundaryClosureCertificateMismatch;
         if (!graphWorldPortEdgesMatchReport(graph, report)) return error.BoundaryClosureCertificateMismatch;
         for (report.world_port_intrinsic_refs) |paired_ref| {
@@ -2909,6 +2920,7 @@ pub const BoundaryClosureCertificate = struct {
             report,
             policy,
             self.blocker_refs,
+            self.derive_blocker_refs,
             self.selected_static_treaty_plan_refs,
             static_treaty_plans,
         )) return error.BoundaryClosureCertificateMismatch;
@@ -5360,6 +5372,33 @@ fn blockerRefsMatchBlockers(refs: []const Ref, blockers: []const Blocker) bool {
     return true;
 }
 
+fn derivedBlockerRefsMatchGraph(graph: BoundaryGraph, blockers: []const Blocker) bool {
+    var graph_blocker_count: usize = 0;
+    for (graph.nodes) |node| {
+        if (node.kind != .blocker) continue;
+        graph_blocker_count += 1;
+        var matched = false;
+        for (blockers) |blocker| {
+            if (node.ref.eql(refForBoundaryClosureBlocker(blocker))) {
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) return false;
+    }
+    if (graph_blocker_count != blockers.len) return false;
+    for (blockers) |blocker| {
+        const blocker_ref = refForBoundaryClosureBlocker(blocker);
+        if (blocker_ref.domain_id != domains.boundary_closure_report.id) return false;
+        if (!graphHasNode(graph, .blocker, blocker_ref)) return false;
+        if (blocker.subject) |subject_ref| {
+            if (blockerSubjectMustHaveGraphNode(blocker) and !graphHasAnyNode(graph, subject_ref)) return false;
+            if (!graphHasEdge(graph, .blocked_by, subject_ref, blocker_ref)) return false;
+        }
+    }
+    return true;
+}
+
 fn blockersContain(blockers: []const Blocker, needle: Blocker) bool {
     const needle_fingerprint = needle.fingerprint();
     for (blockers) |blocker| {
@@ -5457,6 +5496,7 @@ fn staticTreatyPlansMatchCertificate(
     report: BoundaryClosureReport,
     policy: BoundaryClosurePolicy,
     blocker_refs: []const Ref,
+    derive_blocker_refs: bool,
     plan_refs: []const Ref,
     plans: []const BoundaryStaticTreatyPlan,
 ) bool {
@@ -5485,7 +5525,7 @@ fn staticTreatyPlansMatchCertificate(
         if (plan.fingerprint != plan.computeFingerprint()) return false;
         if (plan.source_shape.fingerprint != plan.source_shape.computeFingerprint()) return false;
         if (!plan.evidenceRef().eql(plan_ref)) return false;
-        if (!staticTreatyPlanBlockersMatchReport(graph, report, blocker_refs, plan)) return false;
+        if (!staticTreatyPlanBlockersMatchReport(graph, report, blocker_refs, derive_blocker_refs, plan)) return false;
 
         const shape_ref = plan.source_shape.evidenceRef();
         if (!graphHasNode(graph, .operation_site, shape_ref) and !graphHasNode(graph, .after_site, shape_ref)) return false;
@@ -5524,13 +5564,11 @@ fn staticTreatyPlansMatchCertificate(
             if (!graphHasEdge(graph, .intrinsic_boundary, shape_ref, intrinsic_ref)) return false;
         }
         const selected_intrinsic_count = selectedPlanHostIntrinsicCount(plan);
-        if (selected_intrinsic_count != 0) {
-            if (plan.selected_semantic_body == .host_intrinsic and plan.selected_intrinsic_ref == null) return false;
-            if (plan.selected_morphism_semantic_body) |morphism_body| {
-                if (morphism_body == .host_intrinsic and plan.selected_morphism_intrinsic_ref == null) return false;
-            }
-            if (graphHostIntrinsicEdgeCountForShape(graph, report, shape_ref) != selected_intrinsic_count) return false;
+        if (plan.selected_semantic_body == .host_intrinsic and plan.selected_intrinsic_ref == null) return false;
+        if (plan.selected_morphism_semantic_body) |morphism_body| {
+            if (morphism_body == .host_intrinsic and plan.selected_morphism_intrinsic_ref == null) return false;
         }
+        if (graphHostIntrinsicEdgeCountForShape(graph, report, shape_ref) != selected_intrinsic_count) return false;
         const selected_unknown_body_count = selectedPlanUnknownBodyCount(plan);
         if (selected_unknown_body_count != 0) {
             if (!refsContain(report.unknown_refs, shape_ref)) return false;
@@ -5666,14 +5704,20 @@ fn reportHasProviderProgramMissingBlocker(report: BoundaryClosureReport, plan: B
     return false;
 }
 
-fn staticTreatyPlanBlockersMatchReport(graph: BoundaryGraph, report: BoundaryClosureReport, blocker_refs: []const Ref, plan: BoundaryStaticTreatyPlan) bool {
+fn staticTreatyPlanBlockersMatchReport(
+    graph: BoundaryGraph,
+    report: BoundaryClosureReport,
+    blocker_refs: []const Ref,
+    derive_blocker_refs: bool,
+    plan: BoundaryStaticTreatyPlan,
+) bool {
     const shape_ref = plan.source_shape.evidenceRef();
     const has_world_port = graphShapeHasWorldPort(graph, report, shape_ref);
     for (plan.blockers) |closure_blocker| {
         if (has_world_port and boundaryStaticTreatyRequirementBlocker(closure_blocker.tag)) continue;
         const blocker = closure_blocker.toEvidenceBlocker();
         const blocker_ref = refForBoundaryClosureBlocker(blocker);
-        if (!refsContain(blocker_refs, blocker_ref)) return false;
+        if (!derive_blocker_refs and !refsContain(blocker_refs, blocker_ref)) return false;
         if (!blockersContain(report.blockers, blocker)) return false;
         if (!graphHasNode(graph, .blocker, blocker_ref)) return false;
         if (blocker.subject) |subject_ref| {
@@ -5749,6 +5793,31 @@ fn graphNodeRefsMatchReport(graph: BoundaryGraph, kind: BoundaryGraph.NodeKind, 
         if (!graphHasNode(graph, kind, report_ref)) return false;
     }
     return true;
+}
+
+fn graphHostIntrinsicRefsMatchReport(graph: BoundaryGraph, report: BoundaryClosureReport, plan_refs: []const Ref) bool {
+    for (report.host_intrinsic_refs) |intrinsic_ref| {
+        if (intrinsic_ref.domain_id != domains.host_intrinsic.id) return false;
+        if (!graphHasNode(graph, .host_intrinsic, intrinsic_ref)) return false;
+        if (!graphHasSelectedPlanIntrinsicBoundary(graph, plan_refs, intrinsic_ref)) return false;
+    }
+    return true;
+}
+
+fn graphHasSelectedPlanIntrinsicBoundary(graph: BoundaryGraph, plan_refs: []const Ref, intrinsic_ref: Ref) bool {
+    for (graph.edges) |edge| {
+        if (edge.kind != .intrinsic_boundary or !edge.to.eql(intrinsic_ref)) continue;
+        if (!graphHasNode(graph, .operation_site, edge.from) and !graphHasNode(graph, .after_site, edge.from)) continue;
+        if (graphShapeHasSelectedPlanRef(graph, plan_refs, edge.from)) return true;
+    }
+    return false;
+}
+
+fn graphShapeHasSelectedPlanRef(graph: BoundaryGraph, plan_refs: []const Ref, shape_ref: Ref) bool {
+    for (plan_refs) |plan_ref| {
+        if (graphHasEdge(graph, .treaty_planned, shape_ref, plan_ref)) return true;
+    }
+    return false;
 }
 
 fn graphRootYieldEdgesMatchReport(graph: BoundaryGraph, report: BoundaryClosureReport) bool {
