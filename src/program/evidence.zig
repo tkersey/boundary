@@ -3929,8 +3929,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
         }
 
         fn rootRefMatchesShape(root_ref: Ref, shape: Closure.EffectShape) bool {
-            if (root_ref.domain_id != domains.program_plan.id) return false;
-            return shape.plan_hash != 0 and root_ref.fingerprint == shape.plan_hash;
+            return programRefMatchesShape(root_ref, shape);
         }
 
         fn providerShapeCountForKeys(programs: []const ProviderProgram, program_keys: []const SelectedProviderProgramKey) usize {
@@ -4167,8 +4166,16 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             } else if (provider_program.shapes.len != selected_program.effect_shape_count) return false;
             for (provider_program.shapes) |shape| {
                 if (!effectShapeFresh(shape)) return false;
+                if (!programRefMatchesShape(provider_program.program_ref, shape)) return false;
             }
             return fingerprintBoundaryEffectShapeSet(provider_program.shapes) == selected_program.effect_shape_fingerprint;
+        }
+
+        fn programRefMatchesShape(program_ref: Ref, shape: Closure.EffectShape) bool {
+            if (program_ref.domain_id != domains.program_plan.id) return false;
+            if (shape.plan_hash == 0 or program_ref.fingerprint != shape.plan_hash) return false;
+            const program_label = program_ref.label orelse return false;
+            return std.mem.eql(u8, program_label, shape.program_label);
         }
 
         fn providerProgramHasStaleShape(provider_program: ProviderProgram) bool {
@@ -5562,6 +5569,7 @@ fn staticTreatyPlansMatchCertificate(
         const shape_ref = plan.source_shape.evidenceRef();
         if (!graphHasNode(graph, .operation_site, shape_ref) and !graphHasNode(graph, .after_site, shape_ref)) return false;
         if (!graphHasEdge(graph, .treaty_planned, shape_ref, plan_ref)) return false;
+        if (!graphRootYieldEdgesMatchShape(graph, shape_ref, plan.source_shape)) return false;
         if (!graphRouteEdgesMatchSelectedRef(graph, .handled_by_provider, .provider_offer, shape_ref, plan.selected_provider_offer_ref)) return false;
         if (!graphRouteEdgesMatchSelectedRef(graph, .authorized_by_capability, .capability_grant, shape_ref, plan.selected_capability_ref)) return false;
         if (!graphRouteEdgesMatchSelectedRef(graph, .adapted_by_morphism, .morphism_offer, shape_ref, plan.selected_morphism_ref)) return false;
@@ -5574,7 +5582,7 @@ fn staticTreatyPlansMatchCertificate(
         if (plan.selected_provider_ref) |provider_ref| {
             if (provider_ref.domain_id != domains.provider_manifest.id) return false;
         }
-        if (!staticTreatyProviderProgramProofMatches(graph, report, plan)) return false;
+        if (!staticTreatyProviderProgramProofMatches(graph, report, plan, plans)) return false;
         if (plan.selected_capability_ref) |capability_ref| {
             if (capability_ref.domain_id != domains.capability.id) return false;
             if (!graphHasNode(graph, .capability_grant, capability_ref)) return false;
@@ -5652,7 +5660,7 @@ fn providerProgramRefsAttestedByPlans(provider_program_refs: []const Ref, plans:
     return true;
 }
 
-fn staticTreatyProviderProgramProofMatches(graph: BoundaryGraph, report: BoundaryClosureReport, plan: BoundaryStaticTreatyPlan) bool {
+fn staticTreatyProviderProgramProofMatches(graph: BoundaryGraph, report: BoundaryClosureReport, plan: BoundaryStaticTreatyPlan, plans: []const BoundaryStaticTreatyPlan) bool {
     if (plan.selected_semantic_body != .boundary_program) {
         return plan.selected_provider_program_ref == null and
             plan.selected_provider_program_mapping_fingerprint == null and
@@ -5669,14 +5677,14 @@ fn staticTreatyProviderProgramProofMatches(graph: BoundaryGraph, report: Boundar
         if (!graphHasNode(graph, .provider_program_mapping, mapping_ref)) return false;
         if (!graphHasEdge(graph, .provider_program_mapped_by, program_ref, mapping_ref)) return false;
         if (!graphHasNode(graph, .provider_program, program_ref)) return false;
-        const graph_effect_shapes = graphProviderProgramEffectShapeProof(graph, program_ref) orelse return false;
+        const graph_effect_shapes = graphProviderProgramEffectShapeProof(graph, program_ref, plans) orelse return false;
         if (graph_effect_shapes.count == effect_shape_count and graph_effect_shapes.fingerprint == effect_shape_fingerprint) return true;
         return reportHasProviderProgramMissingBlocker(report, plan);
     }
     return reportHasProviderProgramMissingBlocker(report, plan);
 }
 
-fn graphProviderProgramEffectShapeProof(graph: BoundaryGraph, program_ref: Ref) ?struct {
+fn graphProviderProgramEffectShapeProof(graph: BoundaryGraph, program_ref: Ref, plans: []const BoundaryStaticTreatyPlan) ?struct {
     count: u64,
     fingerprint: u64,
 } {
@@ -5684,6 +5692,7 @@ fn graphProviderProgramEffectShapeProof(graph: BoundaryGraph, program_ref: Ref) 
     for (graph.edges) |edge| {
         if (edge.kind != .provider_program_yields or !edge.from.eql(program_ref)) continue;
         if (!graphHasNode(graph, .operation_site, edge.to) and !graphHasNode(graph, .after_site, edge.to)) return null;
+        if (!providerProgramYieldTargetMatchesPlan(program_ref, edge.to, plans)) return null;
         count += 1;
     }
 
@@ -5711,6 +5720,16 @@ fn graphProviderProgramEffectShapeProof(graph: BoundaryGraph, program_ref: Ref) 
         .count = @intCast(count),
         .fingerprint = builder.finish(),
     };
+}
+
+fn providerProgramYieldTargetMatchesPlan(program_ref: Ref, shape_ref: Ref, plans: []const BoundaryStaticTreatyPlan) bool {
+    var match_count: usize = 0;
+    for (plans) |plan| {
+        if (!plan.source_shape.evidenceRef().eql(shape_ref)) continue;
+        if (!rootRefMatchesBoundaryShape(program_ref, plan.source_shape)) return false;
+        match_count += 1;
+    }
+    return match_count == 1;
 }
 
 fn reportHasProviderProgramMissingBlocker(report: BoundaryClosureReport, plan: BoundaryStaticTreatyPlan) bool {
@@ -5877,6 +5896,21 @@ fn graphRootYieldEdgesMatchReport(graph: BoundaryGraph, report: BoundaryClosureR
         if (!graphHasIncomingEdge(graph, .root_yields, node.ref)) return false;
     }
     return true;
+}
+
+fn graphRootYieldEdgesMatchShape(graph: BoundaryGraph, shape_ref: Ref, shape: BoundaryEffectShape) bool {
+    for (graph.edges) |edge| {
+        if (edge.kind != .root_yields or !edge.to.eql(shape_ref)) continue;
+        if (!rootRefMatchesBoundaryShape(edge.from, shape)) return false;
+    }
+    return true;
+}
+
+fn rootRefMatchesBoundaryShape(root_ref: Ref, shape: BoundaryEffectShape) bool {
+    if (root_ref.domain_id != domains.program_plan.id) return false;
+    if (shape.plan_hash == 0 or root_ref.fingerprint != shape.plan_hash) return false;
+    const root_label = root_ref.label orelse return false;
+    return std.mem.eql(u8, root_label, shape.program_label);
 }
 
 fn graphWorldPortEdgesMatchReport(graph: BoundaryGraph, report: BoundaryClosureReport) bool {
