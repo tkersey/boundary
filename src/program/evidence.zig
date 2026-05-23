@@ -1795,6 +1795,7 @@ pub const BoundaryClosurePolicy = struct {
     pub fn allowsHostIntrinsicRef(self: @This(), intrinsic_ref: Ref) bool {
         if (intrinsic_ref.domain_id != domains.host_intrinsic.id) return false;
         if (!self.allow_host_intrinsics or self.reject_host_intrinsics) return false;
+        if (!self.defunctionalization_policy.allowsIntrinsicRef(intrinsic_ref)) return false;
         if (self.allow_intrinsic_test_fixtures) {
             if (intrinsic_ref.kind_tag) |kind_tag| {
                 if (std.mem.eql(u8, kind_tag, @tagName(HostIntrinsic.Kind.test_fixture))) return true;
@@ -1816,10 +1817,7 @@ pub const BoundaryClosurePolicy = struct {
         if (!self.require_all_effect_shapes_closed and
             self.allowed_host_intrinsic_fingerprints.len == 0 and
             self.allowed_host_intrinsic_kinds.len == 0 and
-            self.allowed_host_intrinsic_labels.len == 0)
-        {
-            return self.defunctionalization_policy.allowsIntrinsicRef(intrinsic_ref);
-        }
+            self.allowed_host_intrinsic_labels.len == 0) return true;
         return false;
     }
 };
@@ -2931,7 +2929,7 @@ pub const BoundaryClosureCertificate = struct {
         if (!graphPlanRefsMatchCertificate(graph, self.selected_static_treaty_plan_refs)) return error.BoundaryClosureCertificateMismatch;
         if (graph.nodes.len > policy.max_nodes and !reportHasClosureBlockerTag(report, .depth_limit_exceeded)) return error.BoundaryClosureCertificateMismatch;
         if (!staticTreatyPlansRespectDepthPolicy(graph, report, policy, static_treaty_plans) and
-            !reportHasClosureBlockerTag(report, .depth_limit_exceeded)) return error.BoundaryClosureCertificateMismatch;
+            !reportHasProviderProgramTraversalBlocker(report)) return error.BoundaryClosureCertificateMismatch;
         if (!staticTreatyPlansMatchCertificate(
             graph,
             report,
@@ -5359,6 +5357,13 @@ fn reportHasClosureBlockerTag(report: BoundaryClosureReport, tag: BoundaryClosur
         if (std.mem.eql(u8, blocker.short_code, @tagName(tag))) return true;
     }
     return false;
+}
+
+fn reportHasProviderProgramTraversalBlocker(report: BoundaryClosureReport) bool {
+    return reportHasClosureBlockerTag(report, .depth_limit_exceeded) or
+        reportHasClosureBlockerTag(report, .cycle_detected) or
+        reportHasClosureBlockerTag(report, .provider_program_nested_unknown) or
+        reportHasClosureBlockerTag(report, .provider_program_contract_missing);
 }
 
 fn boundaryStaticTreatyRequirementBlocker(tag: BoundaryClosureBlockerTag) bool {

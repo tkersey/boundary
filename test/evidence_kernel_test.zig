@@ -378,6 +378,10 @@ test "static treaty planner matches provider shape without request bytes" {
     const allowed_intrinsics = [_]u64{offer_intrinsic_ref.fingerprint};
     var world_plan_policy = Evidence.BoundaryClosurePolicy.worldBoundary();
     world_plan_policy.allowed_host_intrinsic_fingerprints = allowed_intrinsics[0..];
+    try std.testing.expect(world_plan_policy.allowsHostIntrinsicRef(offer_intrinsic_ref));
+    var nested_intrinsic_reject_policy = world_plan_policy;
+    nested_intrinsic_reject_policy.defunctionalization_policy.allow_host_intrinsics = false;
+    try std.testing.expect(!nested_intrinsic_reject_policy.allowsHostIntrinsicRef(offer_intrinsic_ref));
     var capability = try Program.Exchange.Capability.encode(allocator, .{
         .issuer_label = "host",
         .provider_fingerprint = provider.provider_fingerprint,
@@ -5369,6 +5373,89 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectEqual(@as(usize, 0), depth_result.report.blocker_count);
     try std.testing.expectEqual(depth_result.report.blockers.len, depth_result.certificate.blocker_refs.len);
     try depth_result.certificate.check(depth_result.graph, depth_result.report, depth_policy, depth_result.static_treaty_plans);
+
+    const cycle_shape = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "cycle-root",
+        .kind = .operation,
+        .site_index = 0,
+        .name = "cycle-request",
+    });
+    const cycle_shape_ref = cycle_shape.evidenceRef();
+    const cycle_program_ref = Evidence.refFor(Evidence.domains.program_plan, 0xC1C1E, .{ .label = "cycle-provider-program" });
+    const cycle_nested_shape = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "cycle-provider-program",
+        .plan_hash = cycle_program_ref.fingerprint,
+        .kind = .operation,
+        .site_index = 1,
+        .name = "cycle-nested-request",
+    });
+    const cycle_nested_shape_ref = cycle_nested_shape.evidenceRef();
+    var cycle_shape_set_builder = Evidence.FingerprintBuilder.init(Evidence.domains.boundary_effect_shape);
+    cycle_shape_set_builder.fieldUsize("shape_count", 1);
+    cycle_shape_set_builder.fieldRef("shape", cycle_nested_shape_ref);
+    const cycle_shape_set_fingerprint = cycle_shape_set_builder.finish();
+    const cycle_mapping_ref = Evidence.refForProviderProgramMapping(0xC1C1E3);
+    const cycle_closure_blocker = Evidence.BoundaryClosureBlocker{
+        .tag = .cycle_detected,
+        .subject = cycle_program_ref,
+        .summary = "selected provider program recurs through its own closure graph",
+    };
+    const cycle_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = "cycle-plan",
+        .source_shape = cycle_shape,
+        .selected_semantic_body = .boundary_program,
+        .selected_provider_program_ref = cycle_program_ref,
+        .selected_provider_program_mapping_fingerprint = 0xC1C1E3,
+        .selected_provider_program_effect_shape_count = 1,
+        .selected_provider_program_effect_shape_fingerprint = cycle_shape_set_fingerprint,
+        .blockers = &.{cycle_closure_blocker},
+    });
+    const cycle_plan_ref = cycle_plan.evidenceRef();
+    const cycle_nested_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = "cycle-nested-plan",
+        .source_shape = cycle_nested_shape,
+        .selected_semantic_body = .boundary_program,
+        .selected_provider_program_ref = cycle_program_ref,
+        .selected_provider_program_mapping_fingerprint = 0xC1C1E3,
+        .selected_provider_program_effect_shape_count = 1,
+        .selected_provider_program_effect_shape_fingerprint = cycle_shape_set_fingerprint,
+        .blockers = &.{cycle_closure_blocker},
+    });
+    const cycle_nested_plan_ref = cycle_nested_plan.evidenceRef();
+    const cycle_blocker = cycle_closure_blocker.toEvidenceBlocker();
+    const cycle_blocker_ref = Evidence.refForBoundaryClosureBlocker(cycle_blocker);
+    const cycle_nodes = [_]Evidence.BoundaryGraph.Node{
+        .{ .kind = .operation_site, .ref = cycle_shape_ref, .label = "cycle shape" },
+        .{ .kind = .operation_site, .ref = cycle_nested_shape_ref, .label = "cycle nested shape" },
+        .{ .kind = .provider_program, .ref = cycle_program_ref, .label = "provider program" },
+        .{ .kind = .provider_program_mapping, .ref = cycle_mapping_ref, .label = "provider program mapping" },
+        .{ .kind = .treaty_shape_plan, .ref = cycle_plan_ref, .label = "static treaty plan" },
+        .{ .kind = .treaty_shape_plan, .ref = cycle_nested_plan_ref, .label = "nested static treaty plan" },
+        .{ .kind = .blocker, .ref = cycle_blocker_ref, .label = "cycle blocker" },
+    };
+    const cycle_edges = [_]Evidence.BoundaryGraph.Edge{
+        .{ .kind = .treaty_planned, .from = cycle_shape_ref, .to = cycle_plan_ref },
+        .{ .kind = .treaty_planned, .from = cycle_nested_shape_ref, .to = cycle_nested_plan_ref },
+        .{ .kind = .provider_program_mapped_by, .from = cycle_program_ref, .to = cycle_mapping_ref },
+        .{ .kind = .provider_program_yields, .from = cycle_program_ref, .to = cycle_nested_shape_ref },
+        .{ .kind = .blocked_by, .from = cycle_program_ref, .to = cycle_blocker_ref },
+    };
+    const cycle_graph = Evidence.BoundaryGraph.init("provider-program-cycle-graph", cycle_nodes[0..], cycle_edges[0..], &.{});
+    const cycle_policy = Evidence.BoundaryClosurePolicy.auditOnly();
+    const cycle_report = Evidence.BoundaryClosureReport.init(.{
+        .graph_fingerprint = cycle_graph.fingerprint,
+        .provider_program_refs = &.{cycle_program_ref},
+        .effect_shape_count = 2,
+        .blockers = &.{cycle_blocker},
+        .policy_summary = cycle_policy.policySummary(),
+    });
+    const cycle_certificate = Evidence.BoundaryClosureCertificate.init(
+        cycle_report,
+        cycle_graph,
+        cycle_policy,
+        &.{ cycle_plan_ref, cycle_nested_plan_ref },
+    );
+    try cycle_certificate.check(cycle_graph, cycle_report, cycle_policy, &.{ cycle_plan, cycle_nested_plan });
 
     var node_bound_policy = closure_policy;
     node_bound_policy.max_nodes = 0;
