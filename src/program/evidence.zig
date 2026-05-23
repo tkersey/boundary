@@ -2864,6 +2864,7 @@ pub const BoundaryClosureCertificate = struct {
         if (report.report_fingerprint != report.computeFingerprint()) return error.BoundaryClosureReportMismatch;
         if (self.closure_graph_fingerprint != graph.fingerprint) return error.BoundaryClosureGraphMismatch;
         if (self.closure_report_fingerprint != report.report_fingerprint) return error.BoundaryClosureReportMismatch;
+        if (self.certificate_format_version != domains.boundary_closure_certificate.format_version.?) return error.BoundaryClosureCertificateMismatch;
         if (self.certificate_fingerprint != self.computeFingerprint()) return error.BoundaryClosureCertificateMismatch;
         if (!self.policy_ref.eql(policy.evidenceRef()) or self.policy_fingerprint != policy.fingerprint()) return error.BoundaryClosurePolicyMismatch;
         if (!policySummaryMatches(report.policy_summary, policy)) return error.BoundaryClosurePolicyMismatch;
@@ -2915,6 +2916,7 @@ pub const BoundaryClosureCertificate = struct {
         }
         if (self.selected_static_treaty_plan_refs.len != report.effect_shape_count) return error.BoundaryClosureCertificateMismatch;
         if (!graphPlanRefsMatchCertificate(graph, self.selected_static_treaty_plan_refs)) return error.BoundaryClosureCertificateMismatch;
+        if (graph.nodes.len > policy.max_nodes and !reportHasClosureBlockerTag(report, .depth_limit_exceeded)) return error.BoundaryClosureCertificateMismatch;
         if (!staticTreatyPlansMatchCertificate(
             graph,
             report,
@@ -3392,7 +3394,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 }
             }
 
-            if (nodes.items.len > analysis_input.policy.max_nodes or edges.items.len > analysis_input.policy.max_nodes) {
+            if (nodes.items.len > analysis_input.policy.max_nodes) {
                 const evidence_blocker = boundaryClosureBlocker(.{
                     .tag = .depth_limit_exceeded,
                     .summary = "closure graph exceeds policy max_nodes bound",
@@ -3485,6 +3487,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
 
         const CandidateSelection = struct {
             direct_count: usize = 0,
+            direct_offer_count: usize = 0,
             morphism_count: usize = 0,
             offer_ref: ?Ref = null,
             provider_ref: ?Ref = null,
@@ -3560,6 +3563,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                         try rejected_candidates.append(inputs.allocator, .{ .tag = .treaty_policy_incompatible, .subject = inputs.shape.evidenceRef(), .primary = offer.evidenceRef(), .summary = "provider offer usage or replay policy is incompatible with treaty policy" });
                         continue;
                     }
+                    selection.direct_offer_count += 1;
                     var matched_capability = false;
                     direct_capabilities: for (inputs.capabilities) |capability| {
                         if (!capabilityMatchesShape(capability, offer, inputs.shape)) continue :direct_capabilities;
@@ -3685,7 +3689,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                     if (!inputs.policy.require_static_treaty_plans and staticTreatyRequirementBlocker(candidate_blocker.tag)) continue;
                     try blockers.append(inputs.allocator, candidate_blocker);
                 }
-                if (selection.direct_count == 0 and selection.morphism_count == 0) {
+                if (selection.direct_offer_count == 0 and selection.morphism_count == 0) {
                     if (inputs.policy.require_static_treaty_plans) {
                         try blockers.append(inputs.allocator, .{ .tag = .no_provider_offer_for_shape, .subject = inputs.shape.evidenceRef(), .summary = "no provider offer can handle this effect shape" });
                     }
@@ -3822,12 +3826,14 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                             intrinsic_count.* += 1;
                             try nodes.append(allocator, .{ .kind = .host_intrinsic, .ref = intrinsic_ref, .label = "dynamic morphism mapper" });
                             try edges.append(allocator, .{ .kind = .intrinsic_boundary, .from = shape_ref, .to = intrinsic_ref });
-                            if (worldPortForShape(input.policy, input.world_ports, shape, intrinsic_ref)) |port| {
-                                try world_port_refs.append(allocator, port.evidenceRef());
-                                try world_port_intrinsic_refs.append(allocator, intrinsic_ref);
-                                try nodes.append(allocator, .{ .kind = .world_port, .ref = port.evidenceRef(), .label = port.label });
-                                try edges.append(allocator, .{ .kind = .opens_obligation, .from = shape_ref, .to = port.evidenceRef() });
-                                try edges.append(allocator, .{ .kind = .world_port_exposes, .from = intrinsic_ref, .to = port.evidenceRef() });
+                            if (!input.policy.allowsHostIntrinsicRef(intrinsic_ref)) {
+                                if (worldPortForShape(input.policy, input.world_ports, shape, intrinsic_ref)) |port| {
+                                    try world_port_refs.append(allocator, port.evidenceRef());
+                                    try world_port_intrinsic_refs.append(allocator, intrinsic_ref);
+                                    try nodes.append(allocator, .{ .kind = .world_port, .ref = port.evidenceRef(), .label = port.label });
+                                    try edges.append(allocator, .{ .kind = .opens_obligation, .from = shape_ref, .to = port.evidenceRef() });
+                                    try edges.append(allocator, .{ .kind = .world_port_exposes, .from = intrinsic_ref, .to = port.evidenceRef() });
+                                }
                             }
                         }
                     }
@@ -4204,14 +4210,17 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
 
         fn graphNodeLessThan(_: void, lhs: Graph.Node, rhs: Graph.Node) bool {
             if (@intFromEnum(lhs.kind) != @intFromEnum(rhs.kind)) return @intFromEnum(lhs.kind) < @intFromEnum(rhs.kind);
-            if (lhs.ref.fingerprint != rhs.ref.fingerprint) return lhs.ref.fingerprint < rhs.ref.fingerprint;
+            if (refLessForCanonicalSet(lhs.ref, rhs.ref)) return true;
+            if (refLessForCanonicalSet(rhs.ref, lhs.ref)) return false;
             return std.mem.lessThan(u8, lhs.label, rhs.label);
         }
 
         fn graphEdgeLessThan(_: void, lhs: Graph.Edge, rhs: Graph.Edge) bool {
             if (@intFromEnum(lhs.kind) != @intFromEnum(rhs.kind)) return @intFromEnum(lhs.kind) < @intFromEnum(rhs.kind);
-            if (lhs.from.fingerprint != rhs.from.fingerprint) return lhs.from.fingerprint < rhs.from.fingerprint;
-            if (lhs.to.fingerprint != rhs.to.fingerprint) return lhs.to.fingerprint < rhs.to.fingerprint;
+            if (refLessForCanonicalSet(lhs.from, rhs.from)) return true;
+            if (refLessForCanonicalSet(rhs.from, lhs.from)) return false;
+            if (refLessForCanonicalSet(lhs.to, rhs.to)) return true;
+            if (refLessForCanonicalSet(rhs.to, lhs.to)) return false;
             return std.mem.lessThan(u8, lhs.label, rhs.label);
         }
 
@@ -4666,6 +4675,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
         }
 
         fn worldPortForPlanIntrinsic(input: Input, shape: Closure.EffectShape, plan: StaticTreatyPlan, intrinsic_ref: Ref) ?Closure.WorldPort {
+            if (input.policy.allowsHostIntrinsicRef(intrinsic_ref)) return null;
             if (plan.selected_morphism_ref) |morphism_ref| {
                 if (morphismOfferForRef(input.morphism_offers, morphism_ref)) |morphism| {
                     var target_response_refs_buffer: [3]BoundaryValueRef = undefined;
@@ -5311,6 +5321,13 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
 
 fn hasErrorClosureBlockers(blockers: []const BoundaryClosureBlocker) bool {
     for (blockers) |blocker| if (blocker.severity == .@"error") return true;
+    return false;
+}
+
+fn reportHasClosureBlockerTag(report: BoundaryClosureReport, tag: BoundaryClosureBlockerTag) bool {
+    for (report.blockers) |blocker| {
+        if (std.mem.eql(u8, blocker.short_code, @tagName(tag))) return true;
+    }
     return false;
 }
 

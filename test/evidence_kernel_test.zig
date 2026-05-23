@@ -1203,6 +1203,14 @@ test "static treaty planner matches provider shape without request bytes" {
     defer allocator.free(narrow_capability_plan.dependencies);
     try std.testing.expect(!narrow_capability_plan.closed());
     try std.testing.expect(narrow_capability_plan.selected_provider_offer_ref == null);
+    var saw_narrow_capability_blocker = false;
+    var saw_narrow_provider_blocker = false;
+    for (narrow_capability_plan.blockers) |blocker| {
+        if (blocker.tag == .no_capability_for_shape) saw_narrow_capability_blocker = true;
+        if (blocker.tag == .no_provider_offer_for_shape) saw_narrow_provider_blocker = true;
+    }
+    try std.testing.expect(saw_narrow_capability_blocker);
+    try std.testing.expect(!saw_narrow_provider_blocker);
 
     var forged_capability = narrow_capability;
     forged_capability.max_request_bytes = 64;
@@ -4034,10 +4042,10 @@ test "boundary closure traversal closes a provider-backed shape" {
         .world_ports = world_ports[0..],
     });
     defer mixed_world_result.deinit();
-    try mixed_world_result.assertClosedExceptWorldPorts();
+    try mixed_world_result.assertClosed();
     try std.testing.expectEqual(@as(usize, 2), mixed_world_result.report.effect_shape_count);
-    try std.testing.expectEqual(@as(usize, 1), mixed_world_result.report.closed_effect_shape_count);
-    try std.testing.expectEqual(@as(usize, 1), mixed_world_result.report.open_world_port_count);
+    try std.testing.expectEqual(@as(usize, 2), mixed_world_result.report.closed_effect_shape_count);
+    try std.testing.expectEqual(@as(usize, 0), mixed_world_result.report.open_world_port_count);
     try mixed_world_result.certificate.check(mixed_world_result.graph, mixed_world_result.report, mixed_world_policy, mixed_world_result.static_treaty_plans);
 
     const stray_world_obligation_edges = try allocator.alloc(Closure.Graph.Edge, world_port_result.graph.edges.len + 1);
@@ -4178,6 +4186,21 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectEqual(result.graph.fingerprint, same_result.graph.fingerprint);
     try std.testing.expectEqual(result.report.report_fingerprint, same_result.report.report_fingerprint);
     try std.testing.expectEqual(result.certificate.certificate_fingerprint, same_result.certificate.certificate_fingerprint);
+    const root_branch_a = Evidence.refFor(Evidence.domains.program_plan, 0xC105EAA, .{ .label = "branch-stable-root", .branch_id = 1, .site_index = 1 });
+    const root_branch_b = Evidence.refFor(Evidence.domains.program_plan, 0xC105EAA, .{ .label = "branch-stable-root", .branch_id = 2, .site_index = 1 });
+    var root_order_ab = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_program_refs = &.{ root_branch_a, root_branch_b },
+        .policy = closure_policy,
+    });
+    defer root_order_ab.deinit();
+    var root_order_ba = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_program_refs = &.{ root_branch_b, root_branch_a },
+        .policy = closure_policy,
+    });
+    defer root_order_ba.deinit();
+    try std.testing.expectEqual(root_order_ab.graph.fingerprint, root_order_ba.graph.fingerprint);
     var stale_graph = result.graph;
     stale_graph.label = "stale-graph";
     try std.testing.expectError(
@@ -4339,6 +4362,28 @@ test "boundary closure traversal closes a provider-backed shape" {
             forged_route_certificate.check(forged_route_graph, forged_route_report, closure_policy, result.static_treaty_plans),
         );
     }
+    var bounded_node_policy = closure_policy;
+    bounded_node_policy.max_nodes = result.graph.nodes.len;
+    const forged_extra_node_ref = Evidence.refFor(Evidence.domains.provider_offer, 0xFA11B000, .{ .label = "extra-node-over-policy-bound" });
+    const forged_extra_nodes = try allocator.alloc(Closure.Graph.Node, result.graph.nodes.len + 1);
+    defer allocator.free(forged_extra_nodes);
+    @memcpy(forged_extra_nodes[0..result.graph.nodes.len], result.graph.nodes);
+    forged_extra_nodes[result.graph.nodes.len] = .{ .kind = .provider_offer, .ref = forged_extra_node_ref, .label = "extra-node-over-policy-bound" };
+    const forged_extra_node_graph = Closure.Graph.init("extra-node-over-policy-bound", forged_extra_nodes, result.graph.edges, result.graph.dependencies);
+    var forged_extra_node_report = result.report;
+    forged_extra_node_report.graph_fingerprint = forged_extra_node_graph.fingerprint;
+    forged_extra_node_report.policy_summary = bounded_node_policy.policySummary();
+    forged_extra_node_report.report_fingerprint = forged_extra_node_report.computeFingerprint();
+    const forged_extra_node_certificate = Evidence.BoundaryClosureCertificate.init(
+        forged_extra_node_report,
+        forged_extra_node_graph,
+        bounded_node_policy,
+        result.plan_refs,
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        forged_extra_node_certificate.check(forged_extra_node_graph, forged_extra_node_report, bounded_node_policy, result.static_treaty_plans),
+    );
     const forged_root_domain_ref = provider.evidenceRef();
     const forged_root_domain_nodes = try allocator.alloc(Closure.Graph.Node, result.graph.nodes.len + 1);
     defer allocator.free(forged_root_domain_nodes);
@@ -4460,6 +4505,13 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
         stale_count_certificate.check(result.graph, result.report, closure_policy, result.static_treaty_plans),
+    );
+    var stale_format_certificate = result.certificate;
+    stale_format_certificate.certificate_format_version += 1;
+    stale_format_certificate.certificate_fingerprint = stale_format_certificate.computeFingerprint();
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        stale_format_certificate.check(result.graph, result.report, closure_policy, result.static_treaty_plans),
     );
     var forged_route_mix_report = result.report;
     forged_route_mix_report.intrinsic_route_count = 0;
