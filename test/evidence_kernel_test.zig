@@ -3035,6 +3035,68 @@ test "static treaty planner matches provider shape without request bytes" {
     try std.testing.expectEqual(@as(usize, 0), morphism_plan.direct_candidate_count);
     try std.testing.expectEqual(@as(usize, 1), morphism_plan.morphism_candidate_count);
     try std.testing.expectEqual(morphism_offer.evidenceRef().fingerprint, morphism_plan.selected_morphism_ref.?.fingerprint);
+    var zero_hop_closed_policy = morphism_policy;
+    zero_hop_closed_policy.max_morphism_hops = 0;
+    try std.testing.expect(!morphism_plan.closedUnderPolicy(zero_hop_closed_policy));
+
+    const policy_intrinsic = Evidence.HostIntrinsic.init(.{
+        .label = "policy-closure-host-intrinsic",
+        .kind = .provider_function,
+        .owner_subsystem = .provider_harness,
+        .associated_provider_offer_ref = offer.evidenceRef(),
+    });
+    const policy_morphism_intrinsic = Evidence.HostIntrinsic.init(.{
+        .label = "policy-closure-morphism-intrinsic",
+        .kind = .dynamic_morphism_mapper,
+        .owner_subsystem = .morphism,
+        .associated_morphism_offer_ref = morphism_offer.evidenceRef(),
+    });
+    const request_value_dependent_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = "request-value-dependent-plan",
+        .source_shape = shape,
+        .selected_provider_offer_ref = offer.evidenceRef(),
+        .selected_provider_ref = provider.evidenceRef(),
+        .selected_capability_ref = capability.evidenceRef(),
+        .selected_semantic_body = .declarative,
+        .runtime_request_value_validation_required = true,
+        .byte_size_runtime_guard_required = false,
+    });
+    var request_value_policy = Evidence.BoundaryClosurePolicy.auditOnly();
+    request_value_policy.reject_request_value_dependence = true;
+    request_value_policy.reject_runtime_guards = false;
+    request_value_policy.allow_runtime_guards = true;
+    try std.testing.expect(!request_value_dependent_plan.closedUnderPolicy(request_value_policy));
+    const kernel_primitive_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = "kernel-primitive-plan",
+        .source_shape = shape,
+        .selected_provider_offer_ref = offer.evidenceRef(),
+        .selected_provider_ref = provider.evidenceRef(),
+        .selected_capability_ref = capability.evidenceRef(),
+        .selected_semantic_body = .kernel_primitive,
+        .runtime_request_value_validation_required = false,
+        .byte_size_runtime_guard_required = false,
+    });
+    var no_kernel_policy = Evidence.BoundaryClosurePolicy.auditOnly();
+    no_kernel_policy.allow_kernel_primitives = false;
+    no_kernel_policy.defunctionalization_policy.allow_kernel_primitives = false;
+    try std.testing.expect(!kernel_primitive_plan.closedUnderPolicy(no_kernel_policy));
+    const over_intrinsic_cap_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = "over-intrinsic-cap-plan",
+        .source_shape = shape,
+        .selected_provider_offer_ref = offer.evidenceRef(),
+        .selected_provider_ref = provider.evidenceRef(),
+        .selected_capability_ref = capability.evidenceRef(),
+        .selected_morphism_ref = morphism_offer.evidenceRef(),
+        .selected_morphism_semantic_body = .host_intrinsic,
+        .selected_morphism_intrinsic_ref = policy_morphism_intrinsic.evidenceRef(),
+        .selected_semantic_body = .host_intrinsic,
+        .selected_intrinsic_ref = policy_intrinsic.evidenceRef(),
+        .runtime_request_value_validation_required = false,
+        .byte_size_runtime_guard_required = false,
+    });
+    var capped_intrinsic_policy = Evidence.BoundaryClosurePolicy.auditOnly();
+    capped_intrinsic_policy.defunctionalization_policy.maximum_intrinsic_count = 1;
+    try std.testing.expect(!over_intrinsic_cap_plan.closedUnderPolicy(capped_intrinsic_policy));
 
     var cross_protocol_provider = try Program.Exchange.ProviderManifest.encode(allocator, .{
         .label = "policy-morphism-target-provider",
@@ -4823,6 +4885,26 @@ test "boundary closure traversal closes a provider-backed shape" {
     );
     const program_backed_plans = [_]Evidence.BoundaryStaticTreatyPlan{ program_backed_plan, nested_plan };
     try program_backed_certificate.check(program_backed_graph, program_backed_report, program_backed_policy, program_backed_plans[0..]);
+    var zero_depth_program_policy = program_backed_policy;
+    zero_depth_program_policy.max_nested_provider_depth = 0;
+    const zero_depth_program_report = Evidence.BoundaryClosureReport.init(.{
+        .graph_fingerprint = program_backed_graph.fingerprint,
+        .effect_shape_count = 2,
+        .closed_effect_shape_count = 2,
+        .provider_program_refs = program_backed_provider_refs[0..],
+        .declarative_route_count = 1,
+        .policy_summary = zero_depth_program_policy.policySummary(),
+    });
+    const zero_depth_program_certificate = Evidence.BoundaryClosureCertificate.init(
+        zero_depth_program_report,
+        program_backed_graph,
+        zero_depth_program_policy,
+        program_backed_plan_refs[0..],
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        zero_depth_program_certificate.check(program_backed_graph, zero_depth_program_report, zero_depth_program_policy, program_backed_plans[0..]),
+    );
     const extra_intrinsic_nodes = try allocator.alloc(Closure.Graph.Node, program_backed_nodes.len + 1);
     defer allocator.free(extra_intrinsic_nodes);
     @memcpy(extra_intrinsic_nodes[0..program_backed_nodes.len], program_backed_nodes[0..]);

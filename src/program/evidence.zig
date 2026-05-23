@@ -2498,13 +2498,24 @@ pub const BoundaryStaticTreatyPlan = struct {
     pub fn closedUnderPolicy(self: @This(), policy: BoundaryClosurePolicy) bool {
         if (!self.closed()) return false;
         if (self.selected_morphism_ref != null and self.selected_morphism_semantic_body == null) return false;
+        if (self.selected_morphism_ref != null and policy.max_morphism_hops == 0) return false;
         if ((policy.reject_runtime_guards or !policy.allow_runtime_guards) and
             (self.runtime_request_value_validation_required or self.byte_size_runtime_guard_required)) return false;
+        if (policy.reject_request_value_dependence and self.runtime_request_value_validation_required) return false;
         if (policy.reject_unknown_semantic_bodies or policy.defunctionalization_policy.reject_unknown) {
             if (self.selected_semantic_body == .unknown) return false;
             if (self.selected_morphism_semantic_body) |body| {
                 if (body == .unknown) return false;
             }
+        }
+        if (!policy.allow_kernel_primitives or !policy.defunctionalization_policy.allow_kernel_primitives) {
+            if (self.selected_semantic_body == .kernel_primitive) return false;
+            if (self.selected_morphism_semantic_body) |body| {
+                if (body == .kernel_primitive) return false;
+            }
+        }
+        if (policy.defunctionalization_policy.maximum_intrinsic_count) |maximum| {
+            if (selectedPlanHostIntrinsicCount(self) > maximum) return false;
         }
         if (policy.require_program_backed_providers or policy.defunctionalization_policy.require_program_backed_providers) {
             if (self.selected_semantic_body != .boundary_program) return false;
@@ -2917,6 +2928,8 @@ pub const BoundaryClosureCertificate = struct {
         if (self.selected_static_treaty_plan_refs.len != report.effect_shape_count) return error.BoundaryClosureCertificateMismatch;
         if (!graphPlanRefsMatchCertificate(graph, self.selected_static_treaty_plan_refs)) return error.BoundaryClosureCertificateMismatch;
         if (graph.nodes.len > policy.max_nodes and !reportHasClosureBlockerTag(report, .depth_limit_exceeded)) return error.BoundaryClosureCertificateMismatch;
+        if (!staticTreatyPlansRespectDepthPolicy(graph, report, policy, static_treaty_plans) and
+            !reportHasClosureBlockerTag(report, .depth_limit_exceeded)) return error.BoundaryClosureCertificateMismatch;
         if (!staticTreatyPlansMatchCertificate(
             graph,
             report,
@@ -5646,6 +5659,47 @@ fn staticTreatyPlansMatchCertificate(
         declarative_route_count == report.declarative_route_count and
         residualized_pipeline_route_count == report.residualized_pipeline_route_count and
         intrinsic_route_count == report.intrinsic_route_count;
+}
+
+fn staticTreatyPlansRespectDepthPolicy(
+    graph: BoundaryGraph,
+    report: BoundaryClosureReport,
+    policy: BoundaryClosurePolicy,
+    plans: []const BoundaryStaticTreatyPlan,
+) bool {
+    for (plans) |plan| {
+        const shape_ref = plan.source_shape.evidenceRef();
+        if (graphHasAttestedProviderProgramYield(graph, report, shape_ref)) continue;
+        if (!selectedProviderProgramDepthWithinPolicy(graph, policy, plans, plan, 0)) return false;
+    }
+    return true;
+}
+
+fn selectedProviderProgramDepthWithinPolicy(
+    graph: BoundaryGraph,
+    policy: BoundaryClosurePolicy,
+    plans: []const BoundaryStaticTreatyPlan,
+    plan: BoundaryStaticTreatyPlan,
+    depth: usize,
+) bool {
+    if (depth > plans.len) return false;
+    if (plan.selected_semantic_body != .boundary_program) return true;
+    const program_ref = plan.selected_provider_program_ref orelse return true;
+    if (depth >= policy.max_nested_provider_depth or depth >= policy.max_depth) return false;
+
+    for (graph.edges) |edge| {
+        if (edge.kind != .provider_program_yields or !edge.from.eql(program_ref)) continue;
+        const nested_plan = staticTreatyPlanForShapeRef(plans, edge.to) orelse return false;
+        if (!selectedProviderProgramDepthWithinPolicy(graph, policy, plans, nested_plan, depth + 1)) return false;
+    }
+    return true;
+}
+
+fn staticTreatyPlanForShapeRef(plans: []const BoundaryStaticTreatyPlan, shape_ref: Ref) ?BoundaryStaticTreatyPlan {
+    for (plans) |plan| {
+        if (plan.source_shape.evidenceRef().eql(shape_ref)) return plan;
+    }
+    return null;
 }
 
 fn providerProgramRefsAttestedByPlans(provider_program_refs: []const Ref, plans: []const BoundaryStaticTreatyPlan) bool {
