@@ -2551,6 +2551,7 @@ pub const BoundaryGraph = struct {
         after_site,
         protocol_operation,
         provider_harness,
+        provider_manifest,
         provider_offer,
         provider_program_mapping,
         capability_grant,
@@ -2568,6 +2569,7 @@ pub const BoundaryGraph = struct {
         root_yields,
         provider_program_yields,
         provider_program_mapped_by,
+        provider_advertises_offer,
         handled_by_provider,
         adapted_by_morphism,
         residualized_by,
@@ -3822,6 +3824,14 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 if (plan.selected_provider_offer_ref) |offer_ref| {
                     try nodes.append(allocator, .{ .kind = .provider_offer, .ref = offer_ref, .label = "provider offer" });
                     try edges.append(allocator, .{ .kind = .handled_by_provider, .from = shape_ref, .to = offer_ref });
+                    if (plan.selected_provider_ref) |provider_ref| {
+                        if (!graphNodeItemsContain(nodes.items, .provider_manifest, provider_ref)) {
+                            try nodes.append(allocator, .{ .kind = .provider_manifest, .ref = provider_ref, .label = provider_ref.label orelse "provider manifest" });
+                        }
+                        if (!graphEdgeItemsContain(edges.items, .provider_advertises_offer, provider_ref, offer_ref)) {
+                            try edges.append(allocator, .{ .kind = .provider_advertises_offer, .from = provider_ref, .to = offer_ref });
+                        }
+                    }
                 }
                 if (plan.selected_capability_ref) |cap_ref| {
                     try nodes.append(allocator, .{ .kind = .capability_grant, .ref = cap_ref, .label = "capability" });
@@ -5496,6 +5506,7 @@ fn graphPlanRefsMatchCertificate(graph: BoundaryGraph, plan_refs: []const Ref) b
             .provider_program,
             .protocol_operation,
             .provider_harness,
+            .provider_manifest,
             .provider_offer,
             .provider_program_mapping,
             .capability_grant,
@@ -5543,6 +5554,16 @@ fn graphRouteEdgesMatchSelectedRef(graph: BoundaryGraph, kind: BoundaryGraph.Edg
     return count == 0;
 }
 
+fn graphProviderOfferMatchesSelectedRoute(graph: BoundaryGraph, shape_ref: Ref, provider_ref: Ref, offer_ref: Ref) bool {
+    if (provider_ref.domain_id != domains.provider_manifest.id) return false;
+    if (offer_ref.domain_id != domains.provider_offer.id) return false;
+    if (!graphHasNode(graph, .provider_manifest, provider_ref)) return false;
+    if (!graphHasNode(graph, .provider_offer, offer_ref)) return false;
+    if (!graphHasEdge(graph, .handled_by_provider, shape_ref, offer_ref)) return false;
+    if (!graphHasEdge(graph, .provider_advertises_offer, provider_ref, offer_ref)) return false;
+    return true;
+}
+
 fn staticTreatyPlansMatchCertificate(
     graph: BoundaryGraph,
     report: BoundaryClosureReport,
@@ -5588,9 +5609,11 @@ fn staticTreatyPlansMatchCertificate(
         if (!graphRouteEdgesMatchSelectedRef(graph, .adapted_by_morphism, .morphism_offer, shape_ref, plan.selected_morphism_ref)) return false;
         if (policy.require_static_treaty_plans and plan.selected_provider_offer_ref == null and !hasErrorClosureBlockers(plan.blockers)) return false;
         if (plan.selected_provider_offer_ref) |offer_ref| {
-            if (plan.selected_provider_ref == null or plan.selected_capability_ref == null) return false;
-            if (offer_ref.domain_id != domains.provider_offer.id) return false;
-            if (!graphHasNode(graph, .provider_offer, offer_ref)) return false;
+            const provider_ref = plan.selected_provider_ref orelse return false;
+            if (plan.selected_capability_ref == null) return false;
+            if (!graphProviderOfferMatchesSelectedRoute(graph, shape_ref, provider_ref, offer_ref)) return false;
+        } else if (plan.selected_provider_ref != null) {
+            return false;
         }
         if (plan.selected_provider_ref) |provider_ref| {
             if (provider_ref.domain_id != domains.provider_manifest.id) return false;

@@ -4587,6 +4587,47 @@ test "boundary closure traversal closes a provider-backed shape" {
         error.BoundaryClosureCertificateMismatch,
         forged_provider_domain_certificate.check(forged_provider_domain_graph, forged_provider_domain_report, closure_policy, forged_provider_domain_plans[0..]),
     );
+    var forged_provider_attestation_plan = result.static_treaty_plans[0];
+    forged_provider_attestation_plan.selected_provider_ref = impostor_provider.evidenceRef();
+    forged_provider_attestation_plan.fingerprint = forged_provider_attestation_plan.computeFingerprint();
+    const forged_provider_attestation_plan_ref = forged_provider_attestation_plan.evidenceRef();
+    const forged_attestation_nodes = try allocator.dupe(Closure.Graph.Node, result.graph.nodes);
+    defer allocator.free(forged_attestation_nodes);
+    for (forged_attestation_nodes) |*node| {
+        if (node.kind == .treaty_shape_plan) {
+            node.ref = forged_provider_attestation_plan_ref;
+            node.label = forged_provider_attestation_plan.label;
+            break;
+        }
+    }
+    const forged_attestation_edges = try allocator.dupe(Closure.Graph.Edge, result.graph.edges);
+    defer allocator.free(forged_attestation_edges);
+    for (forged_attestation_edges) |*edge| {
+        if (edge.kind == .treaty_planned) {
+            edge.to = forged_provider_attestation_plan_ref;
+            break;
+        }
+    }
+    const forged_provider_attestation_graph = Closure.Graph.init(
+        "forged-provider-attestation-graph",
+        forged_attestation_nodes,
+        forged_attestation_edges,
+        result.graph.dependencies,
+    );
+    var forged_provider_attestation_report = result.report;
+    forged_provider_attestation_report.graph_fingerprint = forged_provider_attestation_graph.fingerprint;
+    forged_provider_attestation_report.report_fingerprint = forged_provider_attestation_report.computeFingerprint();
+    const forged_provider_attestation_certificate = Evidence.BoundaryClosureCertificate.init(
+        forged_provider_attestation_report,
+        forged_provider_attestation_graph,
+        closure_policy,
+        &.{forged_provider_attestation_plan_ref},
+    );
+    const forged_provider_attestation_plans = [_]Closure.StaticTreatyPlan{forged_provider_attestation_plan};
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        forged_provider_attestation_certificate.check(forged_provider_attestation_graph, forged_provider_attestation_report, closure_policy, forged_provider_attestation_plans[0..]),
+    );
     const hidden_blocker_plan = try Closure.planTreatyForShape(.{
         .allocator = allocator,
         .shape = shape,
@@ -4776,6 +4817,7 @@ test "boundary closure traversal closes a provider-backed shape" {
         .{ .kind = .operation_site, .ref = nested_shape.evidenceRef(), .label = nested_shape.name },
         .{ .kind = .treaty_shape_plan, .ref = per_shape_world_plan.evidenceRef(), .label = per_shape_world_plan.label },
         .{ .kind = .treaty_shape_plan, .ref = per_shape_unexposed_plan.evidenceRef(), .label = per_shape_unexposed_plan.label },
+        .{ .kind = .provider_manifest, .ref = provider.evidenceRef(), .label = provider.label },
         .{ .kind = .provider_offer, .ref = offer.evidenceRef(), .label = offer.label },
         .{ .kind = .capability_grant, .ref = capability.evidenceRef(), .label = capability.issuer_label },
         .{ .kind = .host_intrinsic, .ref = offer_intrinsic_ref, .label = "shared-host-intrinsic" },
@@ -4783,6 +4825,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     };
     const per_shape_edges = [_]Closure.Graph.Edge{
         .{ .kind = .treaty_planned, .from = shape.evidenceRef(), .to = per_shape_world_plan.evidenceRef() },
+        .{ .kind = .provider_advertises_offer, .from = provider.evidenceRef(), .to = offer.evidenceRef() },
         .{ .kind = .handled_by_provider, .from = shape.evidenceRef(), .to = offer.evidenceRef() },
         .{ .kind = .authorized_by_capability, .from = shape.evidenceRef(), .to = capability.evidenceRef() },
         .{ .kind = .intrinsic_boundary, .from = shape.evidenceRef(), .to = offer_intrinsic_ref },
@@ -4851,6 +4894,7 @@ test "boundary closure traversal closes a provider-backed shape" {
         .{ .kind = .operation_site, .ref = nested_shape.evidenceRef(), .label = nested_shape.name },
         .{ .kind = .treaty_shape_plan, .ref = program_backed_plan.evidenceRef(), .label = program_backed_plan.label },
         .{ .kind = .treaty_shape_plan, .ref = nested_plan.evidenceRef(), .label = nested_plan.label },
+        .{ .kind = .provider_manifest, .ref = provider.evidenceRef(), .label = provider.label },
         .{ .kind = .provider_offer, .ref = offer.evidenceRef(), .label = offer.label },
         .{ .kind = .capability_grant, .ref = capability.evidenceRef(), .label = capability.issuer_label },
         .{ .kind = .provider_program, .ref = program_backed_ref, .label = "program-backed-provider" },
@@ -4858,6 +4902,7 @@ test "boundary closure traversal closes a provider-backed shape" {
     };
     const program_backed_edges = [_]Closure.Graph.Edge{
         .{ .kind = .treaty_planned, .from = shape.evidenceRef(), .to = program_backed_plan.evidenceRef() },
+        .{ .kind = .provider_advertises_offer, .from = provider.evidenceRef(), .to = offer.evidenceRef() },
         .{ .kind = .handled_by_provider, .from = shape.evidenceRef(), .to = offer.evidenceRef() },
         .{ .kind = .authorized_by_capability, .from = shape.evidenceRef(), .to = capability.evidenceRef() },
         .{ .kind = .provider_program_mapped_by, .from = program_backed_ref, .to = program_backed_mapping_ref },
