@@ -1679,6 +1679,7 @@ pub const BoundaryClosurePolicy = struct {
     allow_test_world_ports: bool = false,
     allow_intrinsic_test_fixtures: bool = false,
     allow_kernel_primitives: bool = true,
+    require_root_program_refs: bool = false,
     max_morphism_hops: usize = 1,
     max_depth: usize = 64,
     max_nested_provider_depth: usize = 64,
@@ -1767,6 +1768,7 @@ pub const BoundaryClosurePolicy = struct {
         builder.fieldBool("allow_test_world_ports", self.allow_test_world_ports);
         builder.fieldBool("allow_intrinsic_test_fixtures", self.allow_intrinsic_test_fixtures);
         builder.fieldBool("allow_kernel_primitives", self.allow_kernel_primitives);
+        builder.fieldBool("require_root_program_refs", self.require_root_program_refs);
         builder.fieldUsize("max_morphism_hops", self.max_morphism_hops);
         builder.fieldUsize("max_depth", self.max_depth);
         builder.fieldUsize("max_nested_provider_depth", self.max_nested_provider_depth);
@@ -2388,6 +2390,10 @@ pub const BoundaryStaticTreatyPlan = struct {
     selected_morphism_semantic_body: ?SemanticBody = null,
     selected_semantic_body: SemanticBody = .unknown,
     selected_intrinsic_ref: ?Ref = null,
+    selected_provider_program_ref: ?Ref = null,
+    selected_provider_program_mapping_fingerprint: ?u64 = null,
+    selected_provider_program_effect_shape_count: ?u64 = null,
+    selected_provider_program_effect_shape_fingerprint: ?u64 = null,
     boundary_native: bool = false,
     host_intrinsic: bool = false,
     runtime_request_value_validation_required: bool = true,
@@ -2407,6 +2413,10 @@ pub const BoundaryStaticTreatyPlan = struct {
         selected_morphism_semantic_body: ?SemanticBody = null,
         selected_semantic_body: SemanticBody = .unknown,
         selected_intrinsic_ref: ?Ref = null,
+        selected_provider_program_ref: ?Ref = null,
+        selected_provider_program_mapping_fingerprint: ?u64 = null,
+        selected_provider_program_effect_shape_count: ?u64 = null,
+        selected_provider_program_effect_shape_fingerprint: ?u64 = null,
         boundary_native: bool = false,
         host_intrinsic: bool = false,
         runtime_request_value_validation_required: bool = true,
@@ -2429,6 +2439,10 @@ pub const BoundaryStaticTreatyPlan = struct {
             .selected_morphism_semantic_body = options.selected_morphism_semantic_body,
             .selected_semantic_body = options.selected_semantic_body,
             .selected_intrinsic_ref = options.selected_intrinsic_ref,
+            .selected_provider_program_ref = options.selected_provider_program_ref,
+            .selected_provider_program_mapping_fingerprint = options.selected_provider_program_mapping_fingerprint,
+            .selected_provider_program_effect_shape_count = options.selected_provider_program_effect_shape_count,
+            .selected_provider_program_effect_shape_fingerprint = options.selected_provider_program_effect_shape_fingerprint,
             .boundary_native = options.boundary_native,
             .host_intrinsic = options.host_intrinsic,
             .runtime_request_value_validation_required = options.runtime_request_value_validation_required,
@@ -2453,6 +2467,10 @@ pub const BoundaryStaticTreatyPlan = struct {
         if (self.selected_morphism_semantic_body) |body| builder.fieldBytes("morphism_semantic_body", @tagName(body));
         builder.fieldBytes("semantic_body", @tagName(self.selected_semantic_body));
         builder.fieldOptionalRef("intrinsic", self.selected_intrinsic_ref);
+        builder.fieldOptionalRef("provider_program", self.selected_provider_program_ref);
+        builder.fieldOptionalU64("provider_program_mapping", self.selected_provider_program_mapping_fingerprint);
+        builder.fieldOptionalU64("provider_program_effect_shape_count", self.selected_provider_program_effect_shape_count);
+        builder.fieldOptionalU64("provider_program_effect_shape_fingerprint", self.selected_provider_program_effect_shape_fingerprint);
         builder.fieldBool("boundary_native", self.boundary_native);
         builder.fieldBool("host_intrinsic", self.host_intrinsic);
         builder.fieldBool("runtime_request_value_validation_required", self.runtime_request_value_validation_required);
@@ -2486,6 +2504,15 @@ pub const BoundaryStaticTreatyPlan = struct {
         }
         if (policy.require_program_backed_providers or policy.defunctionalization_policy.require_program_backed_providers) {
             if (self.selected_semantic_body != .boundary_program) return false;
+        }
+        if (self.selected_semantic_body == .boundary_program) {
+            if (self.selected_provider_program_ref == null or
+                self.selected_provider_program_mapping_fingerprint == null or
+                self.selected_provider_program_effect_shape_count == null or
+                self.selected_provider_program_effect_shape_fingerprint == null)
+            {
+                return false;
+            }
         }
         if (policy.require_declarative_morphisms or policy.defunctionalization_policy.require_declarative_morphisms) {
             const body = self.selected_morphism_semantic_body orelse return true;
@@ -3201,6 +3228,10 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 .selected_morphism_semantic_body = selected.morphism_body,
                 .selected_semantic_body = selected.body,
                 .selected_intrinsic_ref = selected.intrinsic_ref,
+                .selected_provider_program_ref = selected.provider_program_ref,
+                .selected_provider_program_mapping_fingerprint = selected.provider_program_mapping_fingerprint,
+                .selected_provider_program_effect_shape_count = selected.provider_program_effect_shape_count,
+                .selected_provider_program_effect_shape_fingerprint = selected.provider_program_effect_shape_fingerprint,
                 .boundary_native = selected.body.isNonIntrinsic() and (if (selected.morphism_body) |body| body.isNonIntrinsic() else true),
                 .host_intrinsic = selected.body == .host_intrinsic or (if (selected.morphism_body) |body| body == .host_intrinsic else false),
                 .runtime_request_value_validation_required = runtime_guard_required,
@@ -3316,7 +3347,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             for (all_plans.items) |plan| {
                 if (plan.selected_semantic_body != .boundary_program) continue;
                 const provider_ref = plan.selected_provider_ref orelse continue;
-                const selected_program = selectedPlanProviderProgram(analysis_input, plan) orelse {
+                const selected_program = selectedPlanProviderProgram(plan) orelse {
                     const evidence_blocker = boundaryClosureBlocker(.{
                         .tag = .provider_program_contract_missing,
                         .subject = plan.source_shape.evidenceRef(),
@@ -3441,6 +3472,10 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             morphism_body: ?SemanticBody = null,
             intrinsic_ref: ?Ref = null,
             body: SemanticBody = .unknown,
+            provider_program_ref: ?Ref = null,
+            provider_program_mapping_fingerprint: ?u64 = null,
+            provider_program_effect_shape_count: ?u64 = null,
+            provider_program_effect_shape_fingerprint: ?u64 = null,
             selected_rank: u8 = std.math.maxInt(u8),
             selected_rank_count: usize = 0,
             selected_authority: CandidateAuthority = .{},
@@ -3698,7 +3733,9 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                 if (parent_provider_program_ref) |program_ref| {
                     try edges.append(allocator, .{ .kind = .provider_program_yields, .from = program_ref, .to = shape_ref });
                 } else {
-                    if (!try appendRootYieldEdges(allocator, edges, root_program_refs, shape_ref, shape)) {
+                    if ((root_program_refs.len == 0 and input.policy.require_root_program_refs) or
+                        !try appendRootYieldEdges(allocator, edges, root_program_refs, shape_ref, shape))
+                    {
                         const evidence_blocker = boundaryClosureBlocker(.{
                             .tag = .root_program_missing,
                             .subject = shape_ref,
@@ -3892,7 +3929,7 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             depth: usize,
         ) !void {
             provider_programs: for (input.provider_programs) |provider_program| {
-                if (!providerProgramSelected(input, all_plans.items[selected_plan_start..selected_plan_end], provider_program)) continue :provider_programs;
+                if (!providerProgramSelected(all_plans.items[selected_plan_start..selected_plan_end], provider_program)) continue :provider_programs;
                 const selected_key = providerProgramKey(provider_program);
                 if (providerProgramKeysContain(active_provider_program_keys.items, selected_key)) {
                     const evidence_blocker = boundaryClosureBlocker(.{
@@ -3962,9 +3999,9 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             return false;
         }
 
-        fn providerProgramSelected(input: Input, plans: []const StaticTreatyPlan, provider_program: ProviderProgram) bool {
+        fn providerProgramSelected(plans: []const StaticTreatyPlan, provider_program: ProviderProgram) bool {
             for (plans) |plan| {
-                const selected_program = selectedPlanProviderProgram(input, plan) orelse continue;
+                const selected_program = selectedPlanProviderProgram(plan) orelse continue;
                 const selected_provider_ref = plan.selected_provider_ref orelse continue;
                 if (!selected_provider_ref.eql(provider_program.provider_ref)) continue;
                 if (provider_program.provider_program_mapping_fingerprint) |program_mapping| {
@@ -3986,23 +4023,18 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             return fingerprintBoundaryEffectShapeSet(provider_program.shapes) == selected_program.effect_shape_fingerprint;
         }
 
-        fn selectedPlanProviderProgram(input: Input, plan: StaticTreatyPlan) ?SelectedProviderProgram {
+        fn selectedPlanProviderProgram(plan: StaticTreatyPlan) ?SelectedProviderProgram {
             if (plan.selected_semantic_body != .boundary_program) return null;
-            const selected_offer_ref = plan.selected_provider_offer_ref orelse return null;
-            for (input.provider_offers) |offer| {
-                if (!offer.evidenceRef().eql(selected_offer_ref)) continue;
-                const mapping_fingerprint = offer.provider_program_mapping_fingerprint orelse return null;
-                const program_ref = offer.provider_program_ref orelse return null;
-                const effect_shape_count = offer.provider_program_effect_shape_count orelse return null;
-                const effect_shape_fingerprint = offer.provider_program_effect_shape_fingerprint orelse return null;
-                return .{
-                    .mapping_fingerprint = mapping_fingerprint,
-                    .program_ref = program_ref,
-                    .effect_shape_count = effect_shape_count,
-                    .effect_shape_fingerprint = effect_shape_fingerprint,
-                };
-            }
-            return null;
+            const mapping_fingerprint = plan.selected_provider_program_mapping_fingerprint orelse return null;
+            const program_ref = plan.selected_provider_program_ref orelse return null;
+            const effect_shape_count = plan.selected_provider_program_effect_shape_count orelse return null;
+            const effect_shape_fingerprint = plan.selected_provider_program_effect_shape_fingerprint orelse return null;
+            return .{
+                .mapping_fingerprint = mapping_fingerprint,
+                .program_ref = program_ref,
+                .effect_shape_count = @intCast(effect_shape_count),
+                .effect_shape_fingerprint = effect_shape_fingerprint,
+            };
         }
 
         fn providerProgramForSelectedOffer(programs: []const ProviderProgram, provider_ref: Ref, selected_program: SelectedProviderProgram) ?ProviderProgram {
@@ -4085,6 +4117,10 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             selection.morphism_body = null;
             selection.intrinsic_ref = null;
             selection.body = .unknown;
+            selection.provider_program_ref = null;
+            selection.provider_program_mapping_fingerprint = null;
+            selection.provider_program_effect_shape_count = null;
+            selection.provider_program_effect_shape_fingerprint = null;
             selection.selected_rank = std.math.maxInt(u8);
             selection.selected_rank_count = 0;
             selection.selected_authority = .{};
@@ -4122,6 +4158,17 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
             selection.morphism_body = if (morphism) |morphism_offer| morphism_offer.semanticBody() else null;
             selection.body = body;
             selection.intrinsic_ref = intrinsic_ref;
+            if (body == .boundary_program) {
+                selection.provider_program_ref = offer.provider_program_ref;
+                selection.provider_program_mapping_fingerprint = offer.provider_program_mapping_fingerprint;
+                selection.provider_program_effect_shape_count = if (offer.provider_program_effect_shape_count) |count| @intCast(count) else null;
+                selection.provider_program_effect_shape_fingerprint = offer.provider_program_effect_shape_fingerprint;
+            } else {
+                selection.provider_program_ref = null;
+                selection.provider_program_mapping_fingerprint = null;
+                selection.provider_program_effect_shape_count = null;
+                selection.provider_program_effect_shape_fingerprint = null;
+            }
             selection.selected_rank = closureCandidateRank(closure_policy, policy, body);
             selection.selected_rank_count = 1;
             selection.selected_authority = candidate_authority;
@@ -5293,6 +5340,7 @@ fn staticTreatyPlansMatchCertificate(
         if (plan.selected_provider_ref) |provider_ref| {
             if (provider_ref.domain_id != domains.provider_manifest.id) return false;
         }
+        if (!staticTreatyProviderProgramProofMatches(graph, report, plan)) return false;
         if (plan.selected_capability_ref) |capability_ref| {
             if (!graphHasNode(graph, .capability_grant, capability_ref)) return false;
             if (!graphHasEdge(graph, .authorized_by_capability, shape_ref, capability_ref)) return false;
@@ -5343,6 +5391,37 @@ fn staticTreatyPlansMatchCertificate(
         declarative_route_count == report.declarative_route_count and
         residualized_pipeline_route_count == report.residualized_pipeline_route_count and
         intrinsic_route_count == report.intrinsic_route_count;
+}
+
+fn staticTreatyProviderProgramProofMatches(graph: BoundaryGraph, report: BoundaryClosureReport, plan: BoundaryStaticTreatyPlan) bool {
+    if (plan.selected_semantic_body != .boundary_program) {
+        return plan.selected_provider_program_ref == null and
+            plan.selected_provider_program_mapping_fingerprint == null and
+            plan.selected_provider_program_effect_shape_count == null and
+            plan.selected_provider_program_effect_shape_fingerprint == null;
+    }
+    const program_ref = plan.selected_provider_program_ref orelse return false;
+    if (program_ref.domain_id != domains.program_plan.id) return false;
+    _ = plan.selected_provider_program_mapping_fingerprint orelse return false;
+    const effect_shape_count = plan.selected_provider_program_effect_shape_count orelse return false;
+    _ = plan.selected_provider_program_effect_shape_fingerprint orelse return false;
+    if (refsContain(report.provider_program_refs, program_ref)) {
+        if (!graphHasNode(graph, .provider_program, program_ref)) return false;
+        if (effect_shape_count != 0 and !graphHasOutgoingEdge(graph, .provider_program_yields, program_ref)) return false;
+        return true;
+    }
+    return reportHasProviderProgramMissingBlocker(report, plan);
+}
+
+fn reportHasProviderProgramMissingBlocker(report: BoundaryClosureReport, plan: BoundaryStaticTreatyPlan) bool {
+    const shape_ref = plan.source_shape.evidenceRef();
+    for (report.blockers) |blocker| {
+        if (!std.mem.eql(u8, blocker.tag, @tagName(BoundaryClosureBlockerTag.provider_program_contract_missing))) continue;
+        if (blocker.subject) |subject| {
+            if (subject.eql(shape_ref)) return true;
+        }
+    }
+    return false;
 }
 
 fn staticTreatyPlanBlockersMatchReport(graph: BoundaryGraph, report: BoundaryClosureReport, blocker_refs: []const Ref, plan: BoundaryStaticTreatyPlan) bool {

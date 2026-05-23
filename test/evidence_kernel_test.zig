@@ -3497,6 +3497,29 @@ test "boundary closure traversal closes a provider-backed shape" {
     }
     try std.testing.expect(saw_root_yields_edge);
     try owned_ref_result.certificate.check(owned_ref_result.graph, owned_ref_result.report, closure_policy, owned_ref_result.static_treaty_plans);
+    var configured_root_policy = closure_policy;
+    configured_root_policy.require_root_program_refs = true;
+    var rootless_configured_result = try Closure.analyze(allocator, .{
+        .allocator = allocator,
+        .root_shapes = &.{shape},
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .policy = configured_root_policy,
+    });
+    defer rootless_configured_result.deinit();
+    try std.testing.expect(!rootless_configured_result.report.closed());
+    var saw_rootless_blocker = false;
+    for (rootless_configured_result.report.blockers) |blocker| {
+        if (std.mem.eql(u8, blocker.tag, "root_program_missing") and blocker.subject != null and blocker.subject.?.eql(shape.evidenceRef())) {
+            saw_rootless_blocker = true;
+        }
+    }
+    try std.testing.expect(saw_rootless_blocker);
+    try std.testing.expectError(
+        error.BoundaryClosureNotClosed,
+        rootless_configured_result.certificate.check(rootless_configured_result.graph, rootless_configured_result.report, configured_root_policy, rootless_configured_result.static_treaty_plans),
+    );
     var effect_free_root_yield_report = owned_ref_result.report;
     effect_free_root_yield_report.effect_free_root_refs = owned_ref_result.report.root_program_refs;
     effect_free_root_yield_report.report_fingerprint = effect_free_root_yield_report.computeFingerprint();

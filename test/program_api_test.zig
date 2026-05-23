@@ -24377,6 +24377,13 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer std.testing.allocator.free(preferred_static_plan.dependencies);
     try std.testing.expect(preferred_static_plan.closed());
     try std.testing.expectEqual(program_catalog.provider_offers[0].fingerprint, preferred_static_plan.selected_provider_offer_ref.?.fingerprint);
+    try std.testing.expect(preferred_static_plan.selected_provider_program_ref.?.eql(provider_program_ref));
+    try std.testing.expectEqual(
+        @as(?u64, ProgramBackedDecl.provider_program_mapping_fingerprint),
+        preferred_static_plan.selected_provider_program_mapping_fingerprint,
+    );
+    try std.testing.expectEqual(@as(?u64, 0), preferred_static_plan.selected_provider_program_effect_shape_count);
+    try std.testing.expectEqual(program_catalog.provider_offers[0].provider_program_effect_shape_fingerprint, preferred_static_plan.selected_provider_program_effect_shape_fingerprint);
     const closure_morphism = Program.Exchange.MorphismOffer{
         .label = "closure-diagnostic-morphism",
         .source_site_fingerprint = OperationSite.fingerprint,
@@ -24462,6 +24469,34 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     defer nested_closure.deinit();
     try std.testing.expectEqual(@as(usize, 1), nested_closure.report.provider_program_refs.len);
     try std.testing.expectEqual(@as(usize, 0), nested_closure.report.blocker_count);
+    var omitted_program_nodes = try std.testing.allocator.alloc(Program.BoundaryClosure.Graph.Node, nested_closure.graph.nodes.len);
+    defer std.testing.allocator.free(omitted_program_nodes);
+    var omitted_program_node_count: usize = 0;
+    for (nested_closure.graph.nodes) |node| {
+        if (node.kind == .provider_program) continue;
+        omitted_program_nodes[omitted_program_node_count] = node;
+        omitted_program_node_count += 1;
+    }
+    const omitted_program_graph = Program.BoundaryClosure.Graph.init(
+        "omitted-provider-program-proof",
+        omitted_program_nodes[0..omitted_program_node_count],
+        nested_closure.graph.edges,
+        nested_closure.graph.dependencies,
+    );
+    var omitted_program_report = nested_closure.report;
+    omitted_program_report.graph_fingerprint = omitted_program_graph.fingerprint;
+    omitted_program_report.provider_program_refs = &.{};
+    omitted_program_report.report_fingerprint = omitted_program_report.computeFingerprint();
+    const omitted_program_certificate = Program.Evidence.BoundaryClosureCertificate.init(
+        omitted_program_report,
+        omitted_program_graph,
+        Program.Evidence.BoundaryClosurePolicy.auditOnly(),
+        nested_closure.plan_refs,
+    );
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        omitted_program_certificate.check(omitted_program_graph, omitted_program_report, Program.Evidence.BoundaryClosurePolicy.auditOnly(), nested_closure.static_treaty_plans),
+    );
 
     const duplicate_program_offers = [_]Program.Exchange.ProviderOffer{
         program_catalog.provider_offers[0],

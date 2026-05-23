@@ -106,6 +106,8 @@ pub fn run(writer: anytype) !void {
         .provider_program_mapping_fingerprint = ApprovalDecl.provider_program_mapping_fingerprint,
         .effect_free = true,
     }};
+    var policy = Closure.Policy.strict();
+    policy.require_root_program_refs = true;
     var closure = try Closure.analyze(allocator, .{
         .allocator = allocator,
         .root_shapes = root_shapes[0..1],
@@ -113,7 +115,7 @@ pub fn run(writer: anytype) !void {
         .provider_manifests = providers[0..],
         .provider_offers = offers[0..],
         .capabilities = capabilities[0..],
-        .policy = Closure.Policy.strict(),
+        .policy = policy,
         .root_program_refs = &.{SourceProgram.Evidence.refFor(SourceProgram.Evidence.domains.program_plan, SourceProgram.compiled_plan.hash(), .{ .label = SourceProgram.contract.label })},
         .provider_harness_refs = &.{SourceProgram.Evidence.refForProviderHarness(Harness)},
     });

@@ -3,12 +3,13 @@
 Boundary Closure proves what is inside Boundary and what must be supplied by
 World.
 
-`Program.BoundaryClosure` is an evidence/certificate surface over an already
-configured Boundary system. It performs a static/dry-run pass over root program
-effect sites, provider offers, program-backed provider handlers, morphism offers,
-capability grants, defunctionalization policy, and explicit world ports. It does
-not execute providers, start a scheduler, perform IO, persist data, or implement
-World.
+`Program.BoundaryClosure` is an evidence/certificate surface over Boundary
+effect shapes. With `require_root_program_refs` enabled and root refs supplied,
+it is a certificate surface over an already configured Boundary system. It
+performs a static/dry-run pass over root program effect sites, provider offers,
+program-backed provider handlers, morphism offers, capability grants,
+defunctionalization policy, and explicit world ports. It does not execute
+providers, start a scheduler, perform IO, persist data, or implement World.
 
 ## What Is A Boundary Closure Certificate?
 
@@ -68,8 +69,10 @@ runtime-guard flags, and structured blockers.
 A static treaty plan is not a concrete `Treaty.Certificate`. Concrete treaty
 resolution still binds a real request envelope, concrete payload fingerprint,
 provider manifest, offer, route, capability, usage metadata, and response guards.
-The static plan proves that a request from this site has a valid route under the
-configured catalogs and policies, subject to those runtime guards.
+The static plan proves that this static effect shape has a deterministic,
+policy-compatible route candidate under the configured catalogs and policies;
+concrete request authorization, response validation, and obligation checks remain
+runtime treaty work.
 When `BoundaryClosurePolicy.require_static_treaty_plans` is false, closure still
 emits one static treaty-plan ref per effect shape, but a missing provider offer,
 capability grant, or static route is no longer a closure blocker.
@@ -167,9 +170,11 @@ World should not treat the certificate as cryptographic authorization. It is a
 deterministic semantic witness that the Boundary portion is closed, or that the
 only open parts are explicit world ports.
 
-A root ref by itself is not a proof. If a root program is included, closure must
-also include its extracted effect shapes, or list that same ref in
-`effect_free_root_refs` to make the absence of yield sites explicit.
+A root ref by itself is not a proof. If a certificate is meant to prove a
+configured system, set `require_root_program_refs`, include each root ref, and
+also include its extracted effect shapes or list that same ref in
+`effect_free_root_refs` to make the absence of yield sites explicit. Omitting
+root refs is only a shape-level dry run.
 
 ## Examples
 
@@ -177,8 +182,9 @@ The executable examples cover the three intended proof surfaces:
 
 - `zig build run-boundary-closure-strict` proves a root approval effect is
   closed by a program-backed provider under strict policy.
-- `zig build run-boundary-closure-nested` proves root and nested provider
-  effects with separate closure certificates.
+- `zig build run-boundary-closure-nested` prints the root provider-program
+  contract blocker and the nested provider closure certificate as separate
+  typed-program closure surfaces.
 - `zig build run-boundary-closure-world-port` shows strict host-intrinsic
   rejection and world-boundary acceptance through an explicit world port.
 

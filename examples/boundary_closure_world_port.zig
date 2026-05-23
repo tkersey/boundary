@@ -86,6 +86,7 @@ pub fn run(writer: anytype) !void {
     const providers = [_]Program.Exchange.ProviderManifest{catalog.provider_manifest};
     const offers = [_]Program.Exchange.ProviderOffer{catalog.provider_offers[0]};
     const capabilities = [_]Program.Exchange.Capability{capability};
+    const root_ref = Program.Evidence.refFor(Program.Evidence.domains.program_plan, Program.compiled_plan.hash(), .{ .label = Program.contract.label });
     const intrinsic_ref = offers[0].hostIntrinsicRef() orelse return error.ExpectedIntrinsic;
     const port = Closure.WorldPort.init(.{
         .label = "human-approval-port",
@@ -99,22 +100,27 @@ pub fn run(writer: anytype) !void {
     });
     const ports = [_]Closure.WorldPort{port};
 
+    var strict_policy = Closure.Policy.strict();
+    strict_policy.require_root_program_refs = true;
     var strict = try Closure.analyze(allocator, .{
         .allocator = allocator,
         .root_shapes = root_shapes[0..1],
+        .root_program_refs = &.{root_ref},
         .provider_manifests = providers[0..],
         .provider_offers = offers[0..],
         .capabilities = capabilities[0..],
-        .policy = Closure.Policy.strict(),
+        .policy = strict_policy,
     });
     defer strict.deinit();
 
     var policy = Closure.Policy.worldBoundary();
+    policy.require_root_program_refs = true;
     const allowed_ports = [_]u64{port.fingerprint};
     policy.allowed_world_port_fingerprints = allowed_ports[0..];
     var world = try Closure.analyze(allocator, .{
         .allocator = allocator,
         .root_shapes = root_shapes[0..1],
+        .root_program_refs = &.{root_ref},
         .provider_manifests = providers[0..],
         .provider_offers = offers[0..],
         .capabilities = capabilities[0..],
