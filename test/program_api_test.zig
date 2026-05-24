@@ -24577,6 +24577,49 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     });
     defer after_program_capability.deinit();
     const after_static_shape = Program.BoundaryClosure.afterShape(Program, AfterSite);
+    var after_host_capability = try Program.Exchange.Capability.encode(std.testing.allocator, .{
+        .issuer_label = "harness-after-issuer",
+        .provider_fingerprint = Harness.provider_fingerprint,
+        .manifest_fingerprint = catalog.manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = false, .after = true },
+        .allowed_after_sites = &.{AfterSite.index},
+        .allowed_protocol_op_fingerprints = &.{OperationSite.fingerprint},
+        .allowed_requirement_labels = &.{"authored"},
+        .allowed_op_names = &.{"dispatch"},
+        .allowed_response_kinds = .{ .@"resume" = false, .return_now = false, .resume_after = true },
+        .allowed_response_refs = catalog.provider_offers[1].produced_response_refs,
+    });
+    defer after_host_capability.deinit();
+    const after_host_offer_ref = catalog.provider_offers[1].hostIntrinsicRef() orelse return error.ExpectedHostIntrinsic;
+    const aggregate_allowed_host_intrinsics = [_]u64{ host_offer_ref.fingerprint, after_host_offer_ref.fingerprint };
+    const aggregate_host_shapes = [_]Program.BoundaryClosure.EffectShape{ static_operation_shape, after_static_shape };
+    const aggregate_host_offers = [_]Program.Exchange.ProviderOffer{ catalog.provider_offers[0], catalog.provider_offers[1] };
+    const aggregate_host_capabilities = [_]Program.Exchange.Capability{ capability, after_host_capability };
+    var aggregate_host_policy = Program.Evidence.BoundaryClosurePolicy.worldBoundary();
+    aggregate_host_policy.allowed_host_intrinsic_fingerprints = aggregate_allowed_host_intrinsics[0..];
+    aggregate_host_policy.defunctionalization_policy.maximum_intrinsic_count = 1;
+    var aggregate_host_limited_closure = try Program.BoundaryClosure.analyze(std.testing.allocator, .{
+        .allocator = std.testing.allocator,
+        .root_shapes = aggregate_host_shapes[0..],
+        .provider_manifests = providers[0..],
+        .provider_offers = aggregate_host_offers[0..],
+        .capabilities = aggregate_host_capabilities[0..],
+        .policy = aggregate_host_policy,
+    });
+    defer aggregate_host_limited_closure.deinit();
+    try std.testing.expectEqual(@as(usize, 2), aggregate_host_limited_closure.report.host_intrinsic_count);
+    try std.testing.expectEqual(@as(usize, 1), aggregate_host_limited_closure.report.blocker_count);
+    try std.testing.expectEqualStrings("defunctionalization_policy_incompatible", aggregate_host_limited_closure.report.blockers[0].tag);
+    try std.testing.expect(!aggregate_host_limited_closure.report.closed());
+    try std.testing.expectError(
+        error.BoundaryClosureIntrinsicRejected,
+        aggregate_host_limited_closure.certificate.check(
+            aggregate_host_limited_closure.graph,
+            aggregate_host_limited_closure.report,
+            aggregate_host_policy,
+            aggregate_host_limited_closure.static_treaty_plans,
+        ),
+    );
     const after_provider_program_ref = Program.Evidence.refFor(Program.Evidence.domains.program_plan, AfterHandlerProgram.compiled_plan.hash(), .{ .label = AfterHandlerProgram.contract.label });
     const depth_limited_programs = [_]Program.BoundaryClosure.ProviderProgram{
         .{

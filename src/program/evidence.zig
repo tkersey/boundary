@@ -2911,6 +2911,9 @@ pub const BoundaryClosureCertificate = struct {
         if (report.open_world_port_count != graphWorldPortShapeCount(graph, report)) return error.BoundaryClosureCertificateMismatch;
         if ((report.open_world_port_count == 0) != (report.world_port_refs.len == 0)) return error.BoundaryClosureCertificateMismatch;
         if (report.host_intrinsic_count != report.host_intrinsic_refs.len) return error.BoundaryClosureCertificateMismatch;
+        if (policy.defunctionalization_policy.maximum_intrinsic_count) |maximum| {
+            if (report.host_intrinsic_count > maximum) return error.BoundaryClosureIntrinsicRejected;
+        }
         if (report.unknown_body_count != report.unknown_refs.len) return error.BoundaryClosureCertificateMismatch;
         if (!graphNodeRefsMatchReport(graph, .host_intrinsic, report.host_intrinsic_refs)) return error.BoundaryClosureCertificateMismatch;
         if (!graphHostIntrinsicRefsMatchReport(graph, report, self.selected_static_treaty_plan_refs)) return error.BoundaryClosureCertificateMismatch;
@@ -3401,6 +3404,17 @@ pub fn BoundaryClosure(comptime ProgramType: type) type {
                         .subject = plan.source_shape.evidenceRef(),
                         .primary = provider_ref,
                         .summary = "selected program-backed provider has no provider program closure entry",
+                    });
+                    try blockers.append(allocator, evidence_blocker);
+                    try appendBlockerGraph(allocator, &nodes, &edges, evidence_blocker);
+                }
+            }
+
+            if (analysis_input.policy.defunctionalization_policy.maximum_intrinsic_count) |maximum| {
+                if (intrinsic_count > maximum) {
+                    const evidence_blocker = boundaryClosureBlocker(.{
+                        .tag = .defunctionalization_policy_incompatible,
+                        .summary = "closure host intrinsic count exceeds defunctionalization policy maximum",
                     });
                     try blockers.append(allocator, evidence_blocker);
                     try appendBlockerGraph(allocator, &nodes, &edges, evidence_blocker);
