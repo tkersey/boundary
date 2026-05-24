@@ -16539,6 +16539,10 @@ pub fn program(
                             plan.blocked_count += 1;
                             continue :direct_offers;
                         }
+                        if (staticIntrinsicCountBlocker(inputs.treaty_policy, provider.*, offer, null, plan.shape_ref, &plan.blockers)) {
+                            plan.blocked_count += 1;
+                            continue :direct_offers;
+                        }
                         var matched_capability = false;
                         direct_capabilities: for (inputs.capabilities) |capability| {
                             if (staticCapabilityBlockedByTreatyPolicy(capability, inputs.treaty_policy)) continue :direct_capabilities;
@@ -16603,6 +16607,10 @@ pub fn program(
                                 continue :morphism_offers;
                             }
                             if (staticProviderBodyBlocker(inputs.treaty_policy, provider.*, offer, plan.shape_ref, &plan.blockers)) {
+                                plan.blocked_count += 1;
+                                continue :morphism_offers;
+                            }
+                            if (staticIntrinsicCountBlocker(inputs.treaty_policy, provider.*, offer, morphism, plan.shape_ref, &plan.blockers)) {
                                 plan.blocked_count += 1;
                                 continue :morphism_offers;
                             }
@@ -17173,6 +17181,15 @@ pub fn program(
             fn staticMorphismBodyBlocker(policy: Treaty.Policy, morphism: MorphismOffer, shape_ref: Evidence.Ref, blockers: *TreatyResolver.StaticBlockerList) bool {
                 const tag = treatyMorphismBodyBlocker(policy, morphism) orelse return false;
                 blockers.add(staticBlockerForTreatyTag(tag, shape_ref, morphism.evidenceRef(), "morphism semantic body is rejected by static treaty policy"));
+                return true;
+            }
+
+            fn staticIntrinsicCountBlocker(policy: Treaty.Policy, provider: ProviderManifest, offer: ProviderOffer, morphism: ?MorphismOffer, shape_ref: Evidence.Ref, blockers: *TreatyResolver.StaticBlockerList) bool {
+                const provider_body = offer.semanticBodyWithProvider(provider);
+                const morphism_body = if (morphism) |morphism_offer| morphism_offer.semanticBody() else null;
+                const tag = treatyIntrinsicCountBlocker(policy, provider_body, morphism_body) orelse return false;
+                const primary = if (morphism) |morphism_offer| morphism_offer.evidenceRef() else offer.evidenceRef();
+                blockers.add(staticBlockerForTreatyTag(tag, shape_ref, primary, "selected static treaty route exceeds defunctionalization intrinsic count policy"));
                 return true;
             }
 

@@ -443,6 +443,21 @@ test "static treaty planner matches provider shape without request bytes" {
     });
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.static_treaty, static_plan.status);
     try std.testing.expectEqual(offer_intrinsic_ref.fingerprint, static_plan.provider_intrinsic_ref.?.fingerprint);
+    const max_zero_static_treaty_plan = Program.Exchange.TreatyResolver.planStatic(.{
+        .shape = shape,
+        .manifest = manifest,
+        .provider_manifests = &.{provider},
+        .provider_offers = &.{offer},
+        .capabilities = &.{capability},
+        .treaty_policy = .{
+            .defunctionalization_policy = .{
+                .maximum_intrinsic_count = 0,
+            },
+        },
+    });
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.blocked, max_zero_static_treaty_plan.status);
+    try std.testing.expectEqualStrings("treaty_policy_incompatible", max_zero_static_treaty_plan.blockers.slice()[0].tag);
+    try std.testing.expectEqual(@as(u64, 0), max_zero_static_treaty_plan.provider_fingerprint);
     const semantic_label_only_shape = Evidence.BoundaryEffectShape.init(.{
         .program_label = "evidence-test",
         .plan_label = "evidence-test-plan",
@@ -2427,6 +2442,24 @@ test "static treaty planner matches provider shape without request bytes" {
     });
     try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.static_treaty, static_dynamic_morphism_plan.status);
     try std.testing.expectEqual(dynamic_morphism_intrinsic_ref.fingerprint, static_dynamic_morphism_plan.morphism_intrinsic_ref.?.fingerprint);
+    const count_limited_static_morphism_plan = Program.Exchange.TreatyResolver.planStatic(.{
+        .shape = shape,
+        .manifest = manifest,
+        .provider_manifests = &.{morphism_target_provider},
+        .provider_offers = &.{morphism_target_offer},
+        .morphism_offers = &.{dynamic_morphism_offer},
+        .capabilities = &.{morphism_capability},
+        .treaty_policy = .{
+            .allow_direct_handling = false,
+            .defunctionalization_policy = .{
+                .allow_host_intrinsics = true,
+                .maximum_intrinsic_count = 1,
+            },
+        },
+    });
+    try std.testing.expectEqual(Program.Exchange.TreatyResolver.StaticStatus.blocked, count_limited_static_morphism_plan.status);
+    try std.testing.expectEqualStrings("treaty_policy_incompatible", count_limited_static_morphism_plan.blockers.slice()[0].tag);
+    try std.testing.expect(count_limited_static_morphism_plan.morphism_intrinsic_ref == null);
     var forged_morphism_intrinsic_ref = dynamic_morphism_intrinsic_ref;
     forged_morphism_intrinsic_ref.fingerprint +%= 1;
     var forged_morphism_intrinsic_plan = static_dynamic_morphism_plan;
