@@ -16814,7 +16814,7 @@ pub fn program(
 
             fn staticShapeRequirementLabel(shape: Evidence.BoundaryEffectShape) ?[]const u8 {
                 if (shape.protocol_label.len != 0) return shape.protocol_label;
-                return shape.semantic_label;
+                return null;
             }
 
             fn staticShapeResponseKinds(shape: Evidence.BoundaryEffectShape) Policy.ResponseKindSet {
