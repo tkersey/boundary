@@ -1394,6 +1394,8 @@ pub fn program(
         pub const boundary_world_port_format_version: u32 = Evidence.domains.boundary_world_port.format_version.?;
         /// Stable fingerprint version for host/world boundary port descriptors.
         pub const boundary_world_port_fingerprint_version: u32 = Evidence.domains.boundary_world_port.fingerprint_version;
+        /// Stable fingerprint version for Boundary Closure Elaboration policies.
+        pub const boundary_elaboration_policy_fingerprint_version: u32 = Evidence.domains.boundary_elaboration_policy.fingerprint_version;
         /// Stable format version for Boundary Closure Elaboration certificates.
         pub const boundary_elaboration_certificate_format_version: u32 = Evidence.domains.boundary_elaboration_certificate.format_version.?;
         /// Stable fingerprint version for Boundary Closure Elaboration certificates.

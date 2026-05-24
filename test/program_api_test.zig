@@ -24455,6 +24455,9 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         .provider_ref = program_catalog.provider_manifest.evidenceRef(),
         .program_ref = provider_program_ref,
         .provider_program_mapping_fingerprint = ProgramBackedDecl.provider_program_mapping_fingerprint,
+        .provider_program_mapping_support_fingerprint = Program.BoundaryClosure.providerProgramMappingSupportFingerprintForSelection(program_catalog.provider_manifest.evidenceRef(), program_catalog.provider_offers[0].evidenceRef(), provider_program_ref, ProgramBackedDecl.provider_program_mapping_fingerprint, 0, Program.Evidence.fingerprintBoundaryEffectShapeSet(&.{}), .payload_to_args, .result_to_resume),
+        .request_mapping = .payload_to_args,
+        .result_mapping = .result_to_resume,
         .effect_free = true,
     }};
     var nested_closure = try Program.BoundaryClosure.analyze(std.testing.allocator, .{
@@ -24626,12 +24629,16 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
             .provider_ref = program_catalog.provider_manifest.evidenceRef(),
             .program_ref = provider_program_ref,
             .provider_program_mapping_fingerprint = ProgramBackedDecl.provider_program_mapping_fingerprint,
+            .request_mapping = .payload_to_args,
+            .result_mapping = .result_to_resume,
             .shapes = &.{after_static_shape},
         },
         .{
             .provider_ref = after_program_catalog.provider_manifest.evidenceRef(),
             .program_ref = after_provider_program_ref,
             .provider_program_mapping_fingerprint = AfterProgramBackedDecl.provider_program_mapping_fingerprint,
+            .request_mapping = .unit_args,
+            .result_mapping = .result_to_resume_after,
             .effect_free = true,
         },
     };
@@ -24688,12 +24695,18 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
             .provider_ref = reused_program_catalog.provider_manifest.evidenceRef(),
             .program_ref = provider_program_ref,
             .provider_program_mapping_fingerprint = ProgramBackedDecl.provider_program_mapping_fingerprint,
+            .provider_program_mapping_support_fingerprint = Program.BoundaryClosure.providerProgramMappingSupportFingerprintForSelection(reused_program_catalog.provider_manifest.evidenceRef(), reused_program_catalog.provider_offers[0].evidenceRef(), provider_program_ref, ProgramBackedDecl.provider_program_mapping_fingerprint, 0, Program.Evidence.fingerprintBoundaryEffectShapeSet(&.{}), .payload_to_args, .result_to_resume),
+            .request_mapping = .payload_to_args,
+            .result_mapping = .result_to_resume,
             .effect_free = true,
         },
         .{
             .provider_ref = reused_program_catalog.provider_manifest.evidenceRef(),
             .program_ref = provider_program_ref,
             .provider_program_mapping_fingerprint = ReusedAfterProgramBackedDecl.provider_program_mapping_fingerprint,
+            .provider_program_mapping_support_fingerprint = Program.BoundaryClosure.providerProgramMappingSupportFingerprintForSelection(reused_program_catalog.provider_manifest.evidenceRef(), reused_program_catalog.provider_offers[1].evidenceRef(), provider_program_ref, ReusedAfterProgramBackedDecl.provider_program_mapping_fingerprint, 0, Program.Evidence.fingerprintBoundaryEffectShapeSet(&.{}), .unit_args, .result_to_resume_after),
+            .request_mapping = .unit_args,
+            .result_mapping = .result_to_resume_after,
             .effect_free = true,
         },
     };
@@ -24726,12 +24739,16 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
             .provider_ref = program_catalog.provider_manifest.evidenceRef(),
             .program_ref = unrelated_provider_program_ref,
             .provider_program_mapping_fingerprint = ProgramBackedDecl.provider_program_mapping_fingerprint,
+            .request_mapping = .payload_to_args,
+            .result_mapping = .result_to_resume,
             .effect_free = true,
         },
         .{
             .provider_ref = program_catalog.provider_manifest.evidenceRef(),
             .program_ref = provider_program_ref,
             .provider_program_mapping_fingerprint = ProgramBackedDecl.provider_program_mapping_fingerprint +% 1,
+            .request_mapping = .payload_to_args,
+            .result_mapping = .result_to_resume,
             .effect_free = true,
         },
     };

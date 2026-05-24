@@ -145,10 +145,14 @@ fn analyzeRoot(allocator: std.mem.Allocator, writer: anytype) !u64 {
     const offers = [_]RootProgram.Exchange.ProviderOffer{catalog.provider_offers[0]};
     const capabilities = [_]RootProgram.Exchange.Capability{capability};
     const root_ref = RootProgram.Evidence.refFor(RootProgram.Evidence.domains.program_plan, RootProgram.compiled_plan.hash(), .{ .label = RootProgram.contract.label });
+    const approval_provider_ref = RootProgram.Evidence.refFor(RootProgram.Evidence.domains.program_plan, ApprovalProviderProgram.compiled_plan.hash(), .{ .label = ApprovalProviderProgram.contract.label });
     const provider_programs = [_]Closure.ProviderProgram{.{
         .provider_ref = catalog.provider_manifest.evidenceRef(),
-        .program_ref = RootProgram.Evidence.refFor(RootProgram.Evidence.domains.program_plan, ApprovalProviderProgram.compiled_plan.hash(), .{ .label = ApprovalProviderProgram.contract.label }),
+        .program_ref = approval_provider_ref,
         .provider_program_mapping_fingerprint = ApprovalDecl.provider_program_mapping_fingerprint,
+        .provider_program_mapping_support_fingerprint = Closure.providerProgramMappingSupportFingerprintForSelection(catalog.provider_manifest.evidenceRef(), catalog.provider_offers[0].evidenceRef(), approval_provider_ref, ApprovalDecl.provider_program_mapping_fingerprint, @intCast(catalog.provider_offers[0].provider_program_effect_shape_count.?), catalog.provider_offers[0].provider_program_effect_shape_fingerprint.?, .payload_to_args, .result_to_resume),
+        .request_mapping = .payload_to_args,
+        .result_mapping = .result_to_resume,
     }};
     var policy = Closure.Policy.strict();
     policy.require_root_program_refs = true;
@@ -193,10 +197,14 @@ fn analyzeNested(allocator: std.mem.Allocator, writer: anytype) !u64 {
     const offers = [_]ApprovalProviderProgram.Exchange.ProviderOffer{catalog.provider_offers[0]};
     const capabilities = [_]ApprovalProviderProgram.Exchange.Capability{capability};
     const root_ref = ApprovalProviderProgram.Evidence.refFor(ApprovalProviderProgram.Evidence.domains.program_plan, ApprovalProviderProgram.compiled_plan.hash(), .{ .label = ApprovalProviderProgram.contract.label });
+    const policy_provider_ref = ApprovalProviderProgram.Evidence.refFor(ApprovalProviderProgram.Evidence.domains.program_plan, PolicyProviderProgram.compiled_plan.hash(), .{ .label = PolicyProviderProgram.contract.label });
     const provider_programs = [_]Closure.ProviderProgram{.{
         .provider_ref = catalog.provider_manifest.evidenceRef(),
-        .program_ref = ApprovalProviderProgram.Evidence.refFor(ApprovalProviderProgram.Evidence.domains.program_plan, PolicyProviderProgram.compiled_plan.hash(), .{ .label = PolicyProviderProgram.contract.label }),
+        .program_ref = policy_provider_ref,
         .provider_program_mapping_fingerprint = PolicyDecl.provider_program_mapping_fingerprint,
+        .provider_program_mapping_support_fingerprint = Closure.providerProgramMappingSupportFingerprintForSelection(catalog.provider_manifest.evidenceRef(), catalog.provider_offers[0].evidenceRef(), policy_provider_ref, PolicyDecl.provider_program_mapping_fingerprint, 0, ApprovalProviderProgram.Evidence.fingerprintBoundaryEffectShapeSet(&.{}), .payload_to_args, .result_to_resume),
+        .request_mapping = .payload_to_args,
+        .result_mapping = .result_to_resume,
         .effect_free = true,
     }};
     var policy = Closure.Policy.strict();

@@ -155,6 +155,64 @@ const PolicyHarness = ApprovalProviderProgram.Exchange.ProviderHarness(.{
     .entries = .{PolicyDecl},
 });
 
+fn resolveApprovalTreaty(
+    allocator: std.mem.Allocator,
+    catalog: anytype,
+    request: RootProgram.Exchange.RequestEnvelope,
+) !RootProgram.Exchange.TreatyResolver.Result {
+    var capability = try RootProgram.Exchange.Capability.encode(allocator, .{
+        .issuer_label = "nested-elaboration-root-runtime",
+        .provider_fingerprint = ApprovalHarness.provider_fingerprint,
+        .manifest_fingerprint = catalog.manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true },
+        .allowed_operation_sites = &.{ApprovalRequest.index},
+        .allowed_protocol_op_fingerprints = &.{ApprovalRequest.fingerprint},
+        .allowed_requirement_labels = &.{"approval"},
+        .allowed_op_names = &.{"request"},
+    });
+    defer capability.deinit();
+    const providers = [_]RootProgram.Exchange.ProviderManifest{catalog.provider_manifest};
+    const offers = [_]RootProgram.Exchange.ProviderOffer{catalog.provider_offers[0]};
+    const capabilities = [_]RootProgram.Exchange.Capability{capability};
+    return RootProgram.Exchange.TreatyResolver.resolve(.{
+        .allocator = allocator,
+        .request = request,
+        .manifest = catalog.manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+    });
+}
+
+fn resolvePolicyTreaty(
+    allocator: std.mem.Allocator,
+    catalog: anytype,
+    request: ApprovalProviderProgram.Exchange.RequestEnvelope,
+) !ApprovalProviderProgram.Exchange.TreatyResolver.Result {
+    var capability = try ApprovalProviderProgram.Exchange.Capability.encode(allocator, .{
+        .issuer_label = "nested-elaboration-policy-runtime",
+        .provider_fingerprint = PolicyHarness.provider_fingerprint,
+        .manifest_fingerprint = catalog.manifest.fingerprint,
+        .allowed_request_kinds = .{ .operation = true },
+        .allowed_operation_sites = &.{PolicyCheck.index},
+        .allowed_protocol_op_fingerprints = &.{PolicyCheck.fingerprint},
+        .allowed_requirement_labels = &.{"policy"},
+        .allowed_op_names = &.{"check"},
+    });
+    defer capability.deinit();
+    const providers = [_]ApprovalProviderProgram.Exchange.ProviderManifest{catalog.provider_manifest};
+    const offers = [_]ApprovalProviderProgram.Exchange.ProviderOffer{catalog.provider_offers[0]};
+    const capabilities = [_]ApprovalProviderProgram.Exchange.Capability{capability};
+    return ApprovalProviderProgram.Exchange.TreatyResolver.resolve(.{
+        .allocator = allocator,
+        .request = request,
+        .manifest = catalog.manifest,
+        .provider_manifests = providers[0..],
+        .provider_offers = offers[0..],
+        .capabilities = capabilities[0..],
+    });
+}
+
 fn providerPathValue(allocator: std.mem.Allocator) !i32 {
     var root_runtime = boundary.Runtime.init(allocator);
     defer root_runtime.deinit();
@@ -165,11 +223,65 @@ fn providerPathValue(allocator: std.mem.Allocator) !i32 {
         .after => return error.UnexpectedAfter,
         .done => return error.UnexpectedDone,
     };
+    var approval_envelope = try RootProgram.Exchange.RequestEnvelope.fromRequest(allocator, approval_request, .{});
+    defer approval_envelope.deinit();
+    var approval_catalog = try ApprovalHarness.buildCatalog(allocator);
+    defer approval_catalog.deinit();
+    var approval_resolved = try resolveApprovalTreaty(allocator, approval_catalog, approval_envelope);
+    defer approval_resolved.deinit();
+    const approval_treaty = approval_resolved.treaty orelse return error.ExpectedTreaty;
+    var approval_runtime = boundary.Runtime.init(allocator);
+    defer approval_runtime.deinit();
+    var approval_started = try ApprovalHarness.startProgramExecution(0, &approval_runtime, ApprovalProviderProgram.Handlers{}, allocator, approval_envelope, approval_treaty.certificate, approval_catalog.provider_offers[0], .{ .treaty = approval_treaty });
+    var approval_execution = switch (approval_started) {
+        .provider_suspended => |*value| moved: {
+            const moved_value = value.*;
+            value.session = null;
+            value.nested_request_envelope = null;
+            break :moved moved_value;
+        },
+        .response => |*packet| {
+            packet.deinit();
+            return error.ExpectedProviderSuspension;
+        },
+        .rejected => return error.ExpectedProviderSuspension,
+    };
+    defer approval_execution.deinit();
+    const policy_envelope = approval_execution.nested_request_envelope.?;
+    var policy_catalog = try PolicyHarness.buildCatalog(allocator);
+    defer policy_catalog.deinit();
+    var policy_resolved = try resolvePolicyTreaty(allocator, policy_catalog, policy_envelope);
+    defer policy_resolved.deinit();
+    const policy_treaty = policy_resolved.treaty orelse return error.ExpectedTreaty;
     var policy_runtime = boundary.Runtime.init(allocator);
     defer policy_runtime.deinit();
-    var policy_result = try PolicyProviderProgram.run(&policy_runtime, PolicyProviderProgram.Handlers{ .payload = "deploy-prod" });
-    defer policy_result.deinit();
-    try root_session.@"resume"(approval_request, policy_result.value);
+    var policy_started = try PolicyHarness.startProgramExecution(0, &policy_runtime, PolicyProviderProgram.Handlers{}, allocator, policy_envelope, policy_treaty.certificate, policy_catalog.provider_offers[0], .{ .treaty = policy_treaty });
+    var policy_response = switch (policy_started) {
+        .response => |*packet| moved: {
+            var response = try ApprovalProviderProgram.Exchange.ResponseEnvelope.decode(allocator, packet.response.bytes);
+            errdefer response.deinit();
+            packet.deinit();
+            break :moved response;
+        },
+        .provider_suspended => |*parked| {
+            parked.deinit();
+            return error.ExpectedProviderResponse;
+        },
+        .rejected => return error.ExpectedProviderResponse,
+    };
+    defer policy_response.deinit();
+    var approval_continued = try ApprovalHarness.continueProgramExecution(0, &approval_execution, &approval_runtime, ApprovalProviderProgram.Handlers{}, allocator, approval_envelope, approval_treaty.certificate, approval_catalog.provider_offers[0], policy_response, .{ .treaty = approval_treaty });
+    switch (approval_continued) {
+        .response => |*packet| {
+            defer packet.deinit();
+            try RootProgram.Exchange.applyResponse(&root_session, packet.response, .{});
+        },
+        .provider_suspended => |*parked| {
+            parked.deinit();
+            return error.ExpectedProviderResponse;
+        },
+        .rejected => return error.ExpectedProviderResponse,
+    }
     var done = switch (try root_session.next()) {
         .done => |value| value,
         .request => return error.UnexpectedRequest,
@@ -187,13 +299,22 @@ fn residualValue(allocator: std.mem.Allocator) !i32 {
     return result.value;
 }
 
-fn analyzeNested(allocator: std.mem.Allocator) !struct {
+const NestedAnalysis = struct {
     certificate_ref: RootProgram.Evidence.Ref,
     shape_ref: RootProgram.Evidence.Ref,
     shape_fingerprint: u64,
     provider_program_ref: RootProgram.Evidence.Ref,
     static_treaty_plan_ref: RootProgram.Evidence.Ref,
-} {
+    provider_binding_ref: RootProgram.Evidence.Ref,
+    static_treaty_plan: RootProgram.Evidence.BoundaryStaticTreatyPlan,
+
+    fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.static_treaty_plan.blockers);
+        allocator.free(self.static_treaty_plan.dependencies);
+    }
+};
+
+fn analyzeNested(allocator: std.mem.Allocator) !NestedAnalysis {
     const NestedClosure = ApprovalProviderProgram.BoundaryClosure;
     const nested_shapes = NestedClosure.effectShapesForProgram(ApprovalProviderProgram, .operation);
     var policy_catalog = try PolicyHarness.buildCatalog(allocator);
@@ -209,10 +330,14 @@ fn analyzeNested(allocator: std.mem.Allocator) !struct {
         .allowed_op_names = &.{"check"},
     });
     defer capability.deinit();
+    const policy_provider_ref = RootProgram.Evidence.refFor(RootProgram.Evidence.domains.program_plan, PolicyProviderProgram.compiled_plan.hash(), .{ .label = PolicyProviderProgram.contract.label });
     const provider_programs = [_]NestedClosure.ProviderProgram{.{
         .provider_ref = policy_catalog.provider_manifest.evidenceRef(),
-        .program_ref = RootProgram.Evidence.refFor(RootProgram.Evidence.domains.program_plan, PolicyProviderProgram.compiled_plan.hash(), .{ .label = PolicyProviderProgram.contract.label }),
+        .program_ref = policy_provider_ref,
         .provider_program_mapping_fingerprint = PolicyDecl.provider_program_mapping_fingerprint,
+        .provider_program_mapping_support_fingerprint = NestedClosure.providerProgramMappingSupportFingerprintForSelection(policy_catalog.provider_manifest.evidenceRef(), policy_catalog.provider_offers[0].evidenceRef(), policy_provider_ref, PolicyDecl.provider_program_mapping_fingerprint, 0, RootProgram.Evidence.fingerprintBoundaryEffectShapeSet(&.{}), .payload_to_args, .result_to_resume),
+        .request_mapping = .payload_to_args,
+        .result_mapping = .result_to_resume,
         .effect_free = true,
     }};
     const source_ref = RootProgram.Evidence.refFor(RootProgram.Evidence.domains.program_plan, ApprovalProviderProgram.compiled_plan.hash(), .{ .label = ApprovalProviderProgram.contract.label });
@@ -230,12 +355,21 @@ fn analyzeNested(allocator: std.mem.Allocator) !struct {
     });
     defer closure.deinit();
     try closure.assertClosed();
+    var static_treaty_plan = closure.static_treaty_plans[0];
+    static_treaty_plan.blockers = try allocator.dupe(RootProgram.Evidence.BoundaryClosureBlocker, static_treaty_plan.blockers);
+    errdefer allocator.free(static_treaty_plan.blockers);
+    static_treaty_plan.dependencies = try allocator.dupe(RootProgram.Evidence.Dependency, static_treaty_plan.dependencies);
+    errdefer allocator.free(static_treaty_plan.dependencies);
+    const residual_ref = RootProgram.Evidence.refFor(RootProgram.Evidence.domains.program_plan, ResidualProgram.compiled_plan.hash(), .{ .label = ResidualProgram.contract.label });
+    const provider_binding_ref = RootProgram.Evidence.refForProviderProgramResidualBinding(static_treaty_plan, residual_ref).?;
     return .{
         .certificate_ref = closure.certificate.evidenceRef(),
         .shape_ref = nested_shapes[0].evidenceRef(),
         .shape_fingerprint = nested_shapes[0].fingerprint,
         .provider_program_ref = provider_programs[0].program_ref,
-        .static_treaty_plan_ref = closure.static_treaty_plans[0].evidenceRef(),
+        .static_treaty_plan_ref = static_treaty_plan.evidenceRef(),
+        .provider_binding_ref = provider_binding_ref,
+        .static_treaty_plan = static_treaty_plan,
     };
 }
 
@@ -245,6 +379,7 @@ pub fn run(writer: anytype) !void {
     const root_shapes = Closure.effectShapesForProgram(RootProgram, .operation);
     const approval_provider_shapes = Closure.effectShapesForProgram(ApprovalProviderProgram, .operation);
     const nested = try analyzeNested(allocator);
+    defer nested.deinit(allocator);
     var approval_catalog = try ApprovalHarness.buildCatalog(allocator);
     defer approval_catalog.deinit();
     var capability = try RootProgram.Exchange.Capability.encode(allocator, .{
@@ -264,6 +399,9 @@ pub fn run(writer: anytype) !void {
         .provider_ref = approval_catalog.provider_manifest.evidenceRef(),
         .program_ref = approval_provider_ref,
         .provider_program_mapping_fingerprint = ApprovalDecl.provider_program_mapping_fingerprint,
+        .provider_program_mapping_support_fingerprint = Closure.providerProgramMappingSupportFingerprintForSelection(approval_catalog.provider_manifest.evidenceRef(), approval_catalog.provider_offers[0].evidenceRef(), approval_provider_ref, ApprovalDecl.provider_program_mapping_fingerprint, 1, RootProgram.Evidence.fingerprintBoundaryEffectShapeSet(approval_provider_shapes[0..1]), .payload_to_args, .result_to_resume),
+        .request_mapping = .payload_to_args,
+        .result_mapping = .result_to_resume,
         .shapes = approval_provider_shapes[0..1],
     }};
     var closure_policy = Closure.Policy.auditOnly();
@@ -280,6 +418,15 @@ pub fn run(writer: anytype) !void {
         .provider_harness_refs = &.{RootProgram.Evidence.refForProviderHarness(ApprovalHarness)},
     });
     defer closure.deinit();
+    const elaboration_provider_programs = [_]Closure.ProviderProgram{.{
+        .provider_ref = provider_programs[0].provider_ref,
+        .program_ref = provider_programs[0].program_ref,
+        .provider_program_mapping_fingerprint = provider_programs[0].provider_program_mapping_fingerprint,
+        .provider_program_mapping_support_fingerprint = Closure.providerProgramMappingSupportFingerprintForPlan(closure.static_treaty_plans[0], .payload_to_args, .result_to_resume),
+        .request_mapping = provider_programs[0].request_mapping,
+        .result_mapping = provider_programs[0].result_mapping,
+        .shapes = provider_programs[0].shapes,
+    }};
 
     var elaboration_policy = Closure.Elaboration.Policy.auditOnly();
     elaboration_policy.closure_policy = closure_policy;
@@ -289,7 +436,7 @@ pub fn run(writer: anytype) !void {
         .closure_certificate = closure.certificate,
         .static_treaty_plans = closure.static_treaty_plans,
         .source_program_ref = source_ref,
-        .provider_programs = provider_programs[0..],
+        .provider_programs = elaboration_provider_programs[0..],
         .provider_harness_refs = &.{RootProgram.Evidence.refForProviderHarness(ApprovalHarness)},
         .policy = elaboration_policy,
     };
@@ -332,12 +479,25 @@ pub fn run(writer: anytype) !void {
         .nested_provider_shapes_linked = 1,
     });
     const normal_form = Closure.Elaboration.NormalForm.init("boundary-elaboration-nested-normal-form", .strict_closed, closure.certificate.evidenceRef(), effect_row.evidenceRef(), 0);
-    const evidence_dependency_refs = [_]RootProgram.Evidence.Ref{nested.certificate_ref};
+    const approval_provider_binding_ref = RootProgram.Evidence.refForProviderProgramResidualBinding(closure.static_treaty_plans[0], residual_ref).?;
+    const policy_provider_binding_ref = nested.provider_binding_ref;
     const dependencies = [_]RootProgram.Evidence.Dependency{
         .{ .role = .closure_certificate, .ref = closure.certificate.evidenceRef() },
         .{ .role = .closure_certificate, .ref = nested.certificate_ref },
+        .{ .role = .residual_program, .ref = residual_ref },
+        .{ .role = .provider_program_mapping, .ref = approval_provider_binding_ref },
+        .{ .role = .provider_program_mapping, .ref = policy_provider_binding_ref },
         .{ .role = .elaboration_source_map, .ref = source_map.evidenceRef() },
         .{ .role = .elaboration_effect_row, .ref = effect_row.evidenceRef() },
+    };
+    const evidence_dependency_refs = [_]RootProgram.Evidence.Ref{
+        closure.certificate.evidenceRef(),
+        nested.certificate_ref,
+        residual_ref,
+        approval_provider_binding_ref,
+        policy_provider_binding_ref,
+        source_map.evidenceRef(),
+        effect_row.evidenceRef(),
     };
     const inlined_provider_refs = [_]RootProgram.Evidence.Ref{ approval_provider_ref, nested.provider_program_ref };
     const selected_static_plan_refs = [_]RootProgram.Evidence.Ref{
@@ -369,7 +529,11 @@ pub fn run(writer: anytype) !void {
         },
         .dependencies = dependencies[0..],
     });
-    try elaboration_certificate.check(elaboration_policy, closure.graph.evidenceRef(), closure.report.evidenceRef(), closure.certificate.evidenceRef(), source_map, effect_row, trace_map, normal_form);
+    const elaboration_static_plans = [_]Closure.StaticTreatyPlan{
+        closure.static_treaty_plans[0],
+        nested.static_treaty_plan,
+    };
+    try elaboration_certificate.check(elaboration_policy, closure.graph.evidenceRef(), closure.report.evidenceRef(), closure.certificate.evidenceRef(), source_map, effect_row, trace_map, normal_form, elaboration_static_plans[0..], &.{});
     const original = try providerPathValue(allocator);
     const residual = try residualValue(allocator);
     if (original != residual) return error.ElaborationMismatch;

@@ -144,10 +144,14 @@ pub fn run(writer: anytype) !void {
     });
     defer capability.deinit();
     const source_ref = SourceProgram.Evidence.refFor(SourceProgram.Evidence.domains.program_plan, SourceProgram.compiled_plan.hash(), .{ .label = SourceProgram.contract.label });
+    const provider_program_ref = SourceProgram.Evidence.refFor(SourceProgram.Evidence.domains.program_plan, ProviderProgram.compiled_plan.hash(), .{ .label = ProviderProgram.contract.label });
     const provider_programs = [_]Closure.ProviderProgram{.{
         .provider_ref = catalog.provider_manifest.evidenceRef(),
-        .program_ref = SourceProgram.Evidence.refFor(SourceProgram.Evidence.domains.program_plan, ProviderProgram.compiled_plan.hash(), .{ .label = ProviderProgram.contract.label }),
+        .program_ref = provider_program_ref,
         .provider_program_mapping_fingerprint = ApprovalDecl.provider_program_mapping_fingerprint,
+        .provider_program_mapping_support_fingerprint = Closure.providerProgramMappingSupportFingerprintForSelection(catalog.provider_manifest.evidenceRef(), catalog.provider_offers[0].evidenceRef(), provider_program_ref, ApprovalDecl.provider_program_mapping_fingerprint, 0, SourceProgram.Evidence.fingerprintBoundaryEffectShapeSet(&.{}), .payload_to_args, .result_to_resume),
+        .request_mapping = .payload_to_args,
+        .result_mapping = .result_to_resume,
         .effect_free = true,
     }};
     var closure_policy = Closure.Policy.strict();
@@ -165,6 +169,15 @@ pub fn run(writer: anytype) !void {
     });
     defer closure.deinit();
     try closure.assertClosed();
+    const elaboration_provider_programs = [_]Closure.ProviderProgram{.{
+        .provider_ref = provider_programs[0].provider_ref,
+        .program_ref = provider_programs[0].program_ref,
+        .provider_program_mapping_fingerprint = provider_programs[0].provider_program_mapping_fingerprint,
+        .provider_program_mapping_support_fingerprint = Closure.providerProgramMappingSupportFingerprintForPlan(closure.static_treaty_plans[0], .payload_to_args, .result_to_resume),
+        .request_mapping = provider_programs[0].request_mapping,
+        .result_mapping = provider_programs[0].result_mapping,
+        .effect_free = provider_programs[0].effect_free,
+    }};
 
     var elaboration_policy = Closure.Elaboration.Policy.strict();
     elaboration_policy.closure_policy = closure_policy;
@@ -174,7 +187,7 @@ pub fn run(writer: anytype) !void {
         .closure_certificate = closure.certificate,
         .static_treaty_plans = closure.static_treaty_plans,
         .source_program_ref = source_ref,
-        .provider_programs = provider_programs[0..],
+        .provider_programs = elaboration_provider_programs[0..],
         .provider_harness_refs = &.{SourceProgram.Evidence.refForProviderHarness(Harness)},
         .policy = elaboration_policy,
     };
@@ -185,7 +198,7 @@ pub fn run(writer: anytype) !void {
         .residual_ref = residual_ref,
         .source_site_index = root_shapes[0].site_index,
         .static_treaty_plan_ref = closure.static_treaty_plans[0].evidenceRef(),
-        .provider_program_ref = provider_programs[0].program_ref,
+        .provider_program_ref = elaboration_provider_programs[0].program_ref,
         .disposition = .provider_program_linked,
         .label = "approval.request",
     }};
@@ -202,8 +215,11 @@ pub fn run(writer: anytype) !void {
         .provider_program_links = closure.report.provider_program_refs.len,
     });
     const normal_form = Closure.Elaboration.NormalForm.init("boundary-elaboration-strict-normal-form", .strict_closed, closure.certificate.evidenceRef(), effect_row.evidenceRef(), 0);
+    const provider_binding_ref = SourceProgram.Evidence.refForProviderProgramResidualBinding(closure.static_treaty_plans[0], residual_ref).?;
     const dependencies = [_]SourceProgram.Evidence.Dependency{
         .{ .role = .closure_certificate, .ref = closure.certificate.evidenceRef() },
+        .{ .role = .residual_program, .ref = residual_ref },
+        .{ .role = .provider_program_mapping, .ref = provider_binding_ref },
         .{ .role = .elaboration_source_map, .ref = source_map.evidenceRef() },
         .{ .role = .elaboration_effect_row, .ref = effect_row.evidenceRef() },
     };
@@ -230,7 +246,7 @@ pub fn run(writer: anytype) !void {
         },
         .dependencies = dependencies[0..],
     });
-    try elaboration_certificate.check(elaboration_policy, closure.graph.evidenceRef(), closure.report.evidenceRef(), closure.certificate.evidenceRef(), source_map, effect_row, trace_map, normal_form);
+    try elaboration_certificate.check(elaboration_policy, closure.graph.evidenceRef(), closure.report.evidenceRef(), closure.certificate.evidenceRef(), source_map, effect_row, trace_map, normal_form, closure.static_treaty_plans, &.{});
     const original = try originalValue(allocator);
     const residual = try residualValue(allocator);
     if (original != residual) return error.ElaborationMismatch;

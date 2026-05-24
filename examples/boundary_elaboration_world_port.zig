@@ -228,7 +228,7 @@ pub fn run(writer: anytype) !void {
         },
         .dependencies = dependencies[0..],
     });
-    try elaboration_certificate.check(elaboration_policy, closure.graph.evidenceRef(), closure.report.evidenceRef(), closure.certificate.evidenceRef(), source_map, effect_row, trace_map, normal_form);
+    try elaboration_certificate.check(elaboration_policy, closure.graph.evidenceRef(), closure.report.evidenceRef(), closure.certificate.evidenceRef(), source_map, effect_row, trace_map, normal_form, closure.static_treaty_plans, ports[0..]);
     if (!source_map.sourceForResidualSite(ApprovalRequest.index).?.eql(root_shapes[0].evidenceRef())) return error.SourceMapMismatch;
     if (!source_map.worldPortForResidualSite(ApprovalRequest.index).?.eql(port.evidenceRef())) return error.SourceMapMismatch;
     const final = try residualWorldValue(allocator);
