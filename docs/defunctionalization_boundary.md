@@ -52,6 +52,14 @@ morphisms rank ahead of dynamic host mapper functions. With strict policy,
 intrinsic providers and intrinsic morphism mappers are blocked during both
 treaty resolution and later treaty-response validation.
 
+`Program.BoundaryClosure` applies the same classifications across a configured
+effect graph. It turns root program effect sites, provider offers, program-backed
+provider programs, morphism offers, capability grants, and explicit world ports
+into static treaty plans, a deterministic graph, a report, and a certificate.
+Strict closure rejects host intrinsics and unknown bodies. World-boundary closure
+accepts only explicit allowlisted intrinsics and surfaces them as
+`WorldPort` declarations for an adjacent `world` interpreter.
+
 This layer does not add a parser, source language, VM, Artifact API, async
 runtime, network layer, persistence backend, provider scheduler, service
 discovery system, security layer, public root widening, `ProgramValue` widening,

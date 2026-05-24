@@ -84,6 +84,13 @@ Current domains are registered in `Program.Evidence.domains`:
 | `boundary.evidence.host_intrinsic` | semantic_boundary | 1 | 1 | no | yes | yes | yes | yes | yes | host intrinsic |
 | `boundary.evidence.defunctionalization_report` | semantic_boundary | - | 1 | no | yes | yes | yes | yes | yes | defunctionalization |
 | `boundary.evidence.defunctionalization_policy` | semantic_boundary | - | 1 | no | yes | yes | yes | yes | yes | intrinsic allowlist |
+| `boundary.evidence.closure.effect_shape` | boundary_closure | - | 1 | no | yes | yes | yes | yes | yes | effect shape |
+| `boundary.evidence.closure.static_treaty_plan` | boundary_closure | - | 1 | no | yes | yes | yes | yes | yes | static treaty |
+| `boundary.evidence.closure.policy` | boundary_closure | - | 1 | no | yes | yes | yes | yes | yes | boundary closure policy |
+| `boundary.evidence.closure.graph` | boundary_closure | - | 1 | no | yes | yes | yes | yes | yes | closure graph |
+| `boundary.evidence.closure.report` | boundary_closure | - | 1 | no | yes | yes | yes | yes | yes | boundary closure |
+| `boundary.evidence.closure.certificate` | boundary_closure | 1 | 1 | no | yes | yes | yes | yes | yes | closure certificate |
+| `boundary.evidence.closure.world_port` | boundary_closure | 1 | 1 | no | yes | yes | yes | yes | yes | world port |
 
 The current journal format is v6 because provider-program execution adds
 provider-side started, parked, nested request/response, resumed, completed,
@@ -205,6 +212,41 @@ lowers to `Evidence.Report`. `Evidence.DefunctionalizationPolicy` can reject
 host intrinsics, reject unknown bodies, allowlist intrinsics, reject dynamic
 mappers, require program-backed providers, require declarative/static morphisms,
 and express route preferences for less opaque treaty selection.
+
+## Boundary Closure
+
+`Program.BoundaryClosure.EffectShape` records the static surface a closure proof
+is allowed to inspect: root/program refs, operation and after site fingerprints,
+requirement/op identity, value-ref shapes, semantic labels, source evidence refs,
+and explicit runtime-guard or request-value dependence flags. It is not a
+request envelope and never includes request tokens or concrete payload bytes.
+
+`Program.BoundaryClosure.StaticTreatyPlan` is a shape-level dry run over
+provider offers, morphism offers, capabilities, treaty policy, and
+defunctionalization policy. It records deterministic route selection when
+possible, or blockers when the shape is unhandled, ambiguous, missing
+capability, intrinsic-only under strict policy, or otherwise unsupported.
+
+`Program.BoundaryClosure.Graph` records deterministic closure nodes and edges.
+`Program.BoundaryClosure.Report` summarizes closed shape counts, host
+intrinsics, world ports, unknowns, route body classes, blockers, and policy.
+`Program.BoundaryClosure.Certificate` binds graph/report consistency and exposes
+an `Evidence.CertificateView` for World-facing handoff.
+
+`Program.BoundaryClosure.WorldPort` describes a declared host/world boundary
+using stable metadata only. Its fingerprint excludes runtime addresses, request
+tokens, provider handles, allocator identity, threads, sockets, and concrete
+world implementation state.
+
+`Program.BoundaryClosure.Policy` fingerprints the proof policy: closed-shape
+requirements, runtime-guard acceptance, host-intrinsic/world-port allowlists,
+unknown-body rejection, ambiguity rejection, route preferences, and nested-depth
+bounds. Boundary closure blockers lower to `Evidence.Blocker` with the
+`boundary_closure` source subsystem.
+
+The BoundaryClosure Evidence layer does not execute providers, serialize world
+implementations, widen the public root, or claim cryptographic attestation. It
+is the contract an adjacent `world` interpreter can consume.
 
 ## Version Bump Policy
 

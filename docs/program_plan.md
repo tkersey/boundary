@@ -867,6 +867,22 @@ sets, morphism offers, pipelines, journals, and catalogs.
 bodies, allowlist intrinsics, require program-backed providers, require
 static/declarative morphisms, and make TreatyResolver prefer less opaque routes.
 
+### Boundary Closure Certificates
+
+`Program.BoundaryClosure` turns the individual defunctionalization facts into a
+whole-system closure proof. Given root effect shapes, provider offers,
+morphism offers, capabilities, treaty policy, defunctionalization policy, and
+world-port declarations, it builds static treaty plans, a deterministic closure
+graph, a closure report, and a closure certificate.
+
+Closure is a dry-run evidence pass. It does not execute provider handlers, start
+a scheduler, send messages, or persist state. It proves what is handled by
+Boundary-native programs, declarative bodies, residualized programs, pipelines,
+or kernel primitives, and what remains as explicit world ports that an adjacent
+`world` interpreter must implement.
+
+See [boundary_closure.md](boundary_closure.md).
+
 ### Linear Effect Sessions
 
 Continuations can be copied; the world often cannot. Linear Effect Sessions are
@@ -1251,8 +1267,8 @@ blocker/report APIs remain source-compatible. `Evidence.CertificateView`,
 `Evidence.AuthorizationView`, `Evidence.JournalProjection`, and
 `Evidence.PolicySummary` make validated proof snapshots and journal metadata
 consistent across ProviderHarness, Treaties, Linear Effect Sessions,
-Capabilities, Exchange, Journal, Residualization, Pipeline, and
-Defunctionalization Boundary surfaces.
+Capabilities, Exchange, Journal, Residualization, Pipeline, Defunctionalization
+Boundary, and Boundary Closure Certificate surfaces.
 
 Evidence fingerprints are deterministic semantic witnesses. They are not
 cryptographic signatures, authentication tokens, or transport security. Hosts

@@ -425,6 +425,14 @@ and treaty resolution. Strict policy rejects host intrinsics and unknown bodies.
 World-boundary policy can allowlist declared intrinsics by fingerprint, kind, or
 label.
 
+Use `Program.BoundaryClosure` when a custom protocol is ready to be handed to an
+adjacent `world` interpreter. Closure records static effect shapes for reachable
+operation and after sites, dry-runs treaty planning by shape, follows
+program-backed provider handlers into nested effect sites, rejects unknown
+semantic bodies, and surfaces any allowed host intrinsic as an explicit world
+port. The certificate is evidence; it is not a scheduler, provider registry,
+transport, storage backend, or host-intrinsic implementation.
+
 ### Linear Effect Sessions
 
 Continuations can be copied; the world often cannot. Linear Effect Sessions add
@@ -518,6 +526,8 @@ manually.
     provider harnesses.
 15. Audit semantic boundaries with `DefunctionalizationReport` and enforce them
     with `DefunctionalizationPolicy` when custom protocols cross host code.
+16. Produce a `Program.BoundaryClosure` report/certificate before handing a
+    configured protocol graph to World.
 
 ## Non-Goals
 
