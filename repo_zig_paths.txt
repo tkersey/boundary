@@ -12,6 +12,9 @@ examples/agent_loop.zig
 examples/boundary_closure_nested.zig
 examples/boundary_closure_strict.zig
 examples/boundary_closure_world_port.zig
+examples/boundary_elaboration_nested.zig
+examples/boundary_elaboration_strict.zig
+examples/boundary_elaboration_world_port.zig
 examples/continuation_branching.zig
 examples/custom_approval_workflow.zig
 examples/defunctionalization_boundary.zig

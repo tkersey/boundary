@@ -60,6 +60,13 @@ Strict closure rejects host intrinsics and unknown bodies. World-boundary closur
 accepts only explicit allowlisted intrinsics and surfaces them as
 `WorldPort` declarations for an adjacent `world` interpreter.
 
+`Program.BoundaryClosure.Elaboration` is the next algebraic step for checked
+closure outputs. It treats Boundary-native handlers as program transformations:
+program-backed providers, residualized morphisms, pipeline adapters, and
+declarative routes can be represented in a residual `ProgramPlan` where the
+first-version lowering supports them. Host intrinsics are not executed during
+elaboration; allowed ones remain explicit residual `WorldPort` requests.
+
 This layer does not add a parser, source language, VM, Artifact API, async
 runtime, network layer, persistence backend, provider scheduler, service
 discovery system, security layer, public root widening, `ProgramValue` widening,

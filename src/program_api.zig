@@ -1394,6 +1394,18 @@ pub fn program(
         pub const boundary_world_port_format_version: u32 = Evidence.domains.boundary_world_port.format_version.?;
         /// Stable fingerprint version for host/world boundary port descriptors.
         pub const boundary_world_port_fingerprint_version: u32 = Evidence.domains.boundary_world_port.fingerprint_version;
+        /// Stable format version for Boundary Closure Elaboration certificates.
+        pub const boundary_elaboration_certificate_format_version: u32 = Evidence.domains.boundary_elaboration_certificate.format_version.?;
+        /// Stable fingerprint version for Boundary Closure Elaboration certificates.
+        pub const boundary_elaboration_certificate_fingerprint_version: u32 = Evidence.domains.boundary_elaboration_certificate.fingerprint_version;
+        /// Stable fingerprint version for Boundary Closure Elaboration source maps.
+        pub const boundary_elaboration_source_map_fingerprint_version: u32 = Evidence.domains.boundary_elaboration_source_map.fingerprint_version;
+        /// Stable fingerprint version for Boundary Closure Elaboration effect rows.
+        pub const boundary_elaboration_effect_row_fingerprint_version: u32 = Evidence.domains.boundary_elaboration_effect_row.fingerprint_version;
+        /// Stable fingerprint version for Boundary Closure Elaboration trace maps.
+        pub const boundary_elaboration_trace_map_fingerprint_version: u32 = Evidence.domains.boundary_elaboration_trace_map.fingerprint_version;
+        /// Stable fingerprint version for Boundary Normal Form evidence.
+        pub const boundary_normal_form_fingerprint_version: u32 = Evidence.domains.boundary_normal_form.fingerprint_version;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {

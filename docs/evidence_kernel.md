@@ -91,6 +91,11 @@ Current domains are registered in `Program.Evidence.domains`:
 | `boundary.evidence.closure.report` | boundary_closure | - | 1 | no | yes | yes | yes | yes | yes | boundary closure |
 | `boundary.evidence.closure.certificate` | boundary_closure | 1 | 1 | no | yes | yes | yes | yes | yes | closure certificate |
 | `boundary.evidence.closure.world_port` | boundary_closure | 1 | 1 | no | yes | yes | yes | yes | yes | world port |
+| `boundary.evidence.elaboration.certificate` | boundary_elaboration | 1 | 1 | no | yes | yes | yes | yes | yes | elaboration certificate |
+| `boundary.evidence.elaboration.source_map` | boundary_elaboration | - | 1 | no | yes | yes | yes | yes | yes | elaboration map |
+| `boundary.evidence.elaboration.effect_row` | boundary_elaboration | - | 1 | no | yes | yes | yes | yes | yes | elaboration effects |
+| `boundary.evidence.elaboration.trace_map` | boundary_elaboration | - | 1 | no | yes | yes | yes | yes | yes | elaboration trace |
+| `boundary.evidence.elaboration.normal_form` | boundary_elaboration | - | 1 | no | yes | yes | yes | yes | yes | normal form |
 
 The current journal format is v6 because provider-program execution adds
 provider-side started, parked, nested request/response, resumed, completed,
@@ -130,6 +135,8 @@ Use dependency roles to make proof snapshots inspectable:
 - `effect_session`, `capability_instance`, `obligation`
 - `treaty`, `treaty_certificate`, `treaty_authorization`
 - `pipeline`, `residual_program`, `journal_entry`, `capsule_image`
+- `elaboration_certificate`, `elaboration_source_map`,
+  `elaboration_effect_row`, `elaboration_trace_map`, `normal_form`
 
 ## Fingerprint Builder
 
