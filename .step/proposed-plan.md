@@ -1,30 +1,31 @@
-Iteration: 7
+Iteration: 6
 
-# Boundary Closure Elaboration Plan
+# Program-Backed Provider Harnesses
 
 ## Summary
-Add `Program.BoundaryClosure.Elaboration` as an additive nested namespace that validates a checked closure certificate, compiles supported internal Boundary-native routes into an ordinary residual `ProgramPlan`, lowers explicit WorldPorts to residual effect sites, and emits source/residual/evidence maps plus an elaboration certificate.
-
-The first execution wave builds the namespace, policies, validation, blockers, evidence domains, and certificate skeleton before implementing provider-plan linking. The feature is complete only when the three new examples run, targeted agreement tests pass, and existing closure/provider/treaty/exchange/session/journal/pipeline regressions remain green.
+Implement Program-backed ProviderHarness handlers as ordinary Boundary Programs, using explicit provider-program step APIs rather than changing `Program.Session`. First wave adds declarations, ProviderOffer v2 for program-backed offers only, request/result mapping, execution state, and synchronous completion. Later waves add nested effect suspension/resume, always-encoded handler capsule images, Evidence/journal integration, examples, docs, and regression proof. Done means all three new examples run, focused provider-program tests pass, existing function-backed ProviderHarness offer fingerprints remain byte-stable, and the full requested Zig proof lane is green or explicitly blocked.
 
 ## Non-Goals/Out of Scope
-Do not implement World, scheduling, async, storage, transport, network, retries, provider lifecycle, service discovery, parser/source language, public VM APIs, Artifact APIs, signing, encryption, or security claims. Do not change `Program.Session`, `Program.run`, request-token semantics, public root exports, `ProgramValue`, existing value codecs, or cross-thread/session serialization. Do not execute host intrinsic functions during elaboration; host intrinsics may only appear as explicit residual WorldPorts when policy allows.
+Do not add async runtime, network/RPC server, provider registry, scheduler, service discovery, workflow engine, VM, parser, source language, persistence backend, Artifact API, signing, encryption, security claims, public-root widening, `ProgramValue` widening, serializable request tokens, cross-thread sessions, or arbitrary host handler/context serialization. Do not remove function-backed ProviderHarness handlers or existing Exchange/Treaty/Capability/Journal/Evidence APIs. Do not change `Program.run` or primitive `Program.Session` stepping semantics.
 
 ## Interfaces/Types/APIs Impacted
-- Add `Program.BoundaryClosure.Elaboration` with `Input`, `Policy`, `Result`, `Certificate`, `SourceMap`, `EffectRow`, blocker tags, and `NormalFormKind = enum { strict_closed, world_ports_only, partial_with_blockers }`.
-- Add version constants on `Program`: `boundary_elaboration_certificate_format_version`, `boundary_elaboration_certificate_fingerprint_version`, `boundary_elaboration_source_map_fingerprint_version`, `boundary_elaboration_effect_row_fingerprint_version`, `boundary_elaboration_trace_map_fingerprint_version`, and `boundary_normal_form_fingerprint_version`, all `= 1`.
-- `Input` carries the checked closure certificate, closure graph/report/static treaty plans, root Program, provider harness/provider program bodies, morphism offers, residualization/pipeline adapters, WorldPorts, policy, and optional label/hash override.
-- `Result` exposes constants sufficient for `const ElaboratedBody = Result.Body;` or an equivalent Body struct containing `compiled_plan`, `value_schema_types`, `nested_with_targets`, and `site_metadata`.
-- Register Evidence domains for elaboration certificate, source map, effect row, trace map, and normal form without widening the public root.
+- Add `Program.Exchange.ProviderHandler.program(.{ ... })` for operation and after handlers, with fields: `label`, `op` or `after`, `program`, `map_request`, `map_result`, `usage`, `response_kinds`, `response_use`, `branch_policy`, and optional pure `custom_comptime_mapper`.
+- Add request mapping forms: `.payload_to_args`, `.payload_and_metadata_to_args`, `.unit_args`, `.custom_comptime_mapper`.
+- Add result mapping forms: `.result_to_resume`, `.result_to_return_now`, `.result_to_resume_after`, `.result_to_outcome_union`.
+- Add `ProviderProgramExecution` with deterministic fingerprint, parent request/treaty/provider/offer/route/capability/obligation refs, handler Program label/hash, handler session state, nested turn index, branch id, handler sub-journal, always-encoded capsule image when parked, and Evidence dependencies.
+- Add explicit APIs: `ProviderHarness.startProgramExecution(...)`, `ProviderHarness.continueProgramExecution(...)`, and `ProviderHarness.handleNestedResponse(...)`.
+- Keep existing `ProviderHarness.handle` for function-backed handlers. If selected offer is program-backed, return a typed blocker such as `handler_program_requires_step_api`.
+- Add ProviderOffer v2 only for program-backed offers. V2 includes `provider_program_mapping_fingerprint`; v1 function-backed offer bytes and fingerprints remain unchanged.
+- Add version constants: `Program.exchange_provider_program_execution_fingerprint_version = 1`, `Program.exchange_provider_program_mapping_fingerprint_version = 1`, and `Program.exchange_provider_program_nested_request_fingerprint_version = 1`.
 
 ## Implementation Brief
-1. step=elaboration_versions_evidence_types; owner=implementation; success_criteria=add elaboration version constants, Evidence domains, blocker tags, policy presets, result/map/effect-row/certificate data structures, and focused evidence-domain tests.
-2. step=elaboration_input_validation; owner=implementation; success_criteria=implement `Input.validate` and closure/certificate/ref consistency checks for root, graph, report, policy, provider, provider-program, static plan, and WorldPort mismatches with fail-closed blockers.
-3. step=provider_plan_linker; owner=implementation; success_criteria=link supported program-backed provider plans for `payload_to_args`, `unit_args`, `result_to_resume`, `result_to_return_now`, and `result_to_resume_after` only if current ProgramPlan support exists; reject unsupported mappings/schema mismatches deterministically.
-4. step=worldport_and_maps; owner=implementation; success_criteria=lower explicit WorldPorts to residual operation sites, preserve source/evidence metadata, and expose source/residual/evidence map helpers.
-5. step=morphism_pipeline_normal_form; owner=implementation; success_criteria=integrate supported residualizable morphism, pipeline adapter, and declarative identity/passthrough lowering through existing machinery; add Boundary Normal Form classification and effect-row fingerprints.
-6. step=elaboration_examples_docs_tests; owner=implementation; success_criteria=add strict, nested, and world-port elaboration examples/build steps, update README and docs, and add runtime agreement tests.
-7. step=fixed_point_proof_and_ship; owner=verification; success_criteria=run fixed-point de novo review, negative-ledger handoff, one-change challenge, full Zig proof suite, record `$st` proof, commit, push, and `$ship` a PR with API/proof/non-goal summary.
+1. step=provider_program_declarations_and_offer_v2; owner=implementation; success_criteria=program-backed operation/after declarations derive manifest/catalog entries and ProviderOffer v2 mapping fingerprints while function-backed v1 offers stay byte-stable; duplicate/foreign program mappings reject.
+2. step=request_result_mapping_validation; owner=implementation; success_criteria=payload/unit/metadata/custom request mapping and resume/return_now/resume_after/outcome-union result mapping pass focused tests with compile-time failures where possible.
+3. step=provider_program_execution_sync_api; owner=implementation; success_criteria=ProviderProgramExecution plus explicit start/continue APIs run synchronous handler Programs through Session and build treaty-bound response packets with execution Evidence refs; legacy handle rejects program-backed offers with a blocker.
+4. step=nested_provider_program_suspension_resume; owner=implementation; success_criteria=nested request envelopes include handler capsule images, host-routed treaty-bound ResponseEnvelope resumes handler Sessions, multiple yields work where feasible, and restore checks full linkage.
+5. step=evidence_journal_provider_program_integration; owner=implementation; success_criteria=new Evidence domains/version constants, refs, reports, blockers, dependencies, response packet dependencies, handler sub-journal, parent journal projections, and legacy journal decode tests pass.
+6. step=program_provider_examples_docs_build; owner=implementation; success_criteria=add `program_provider_direct`, `program_provider_nested`, and `program_provider_resume` examples/build steps; update README, `docs/program_plan.md`, `docs/custom_effect_authoring.md`, and `docs/evidence_kernel.md` with the locked framing and non-goals.
+7. step=fixed_point_proof_and_ship; owner=verification; success_criteria=run fixed-point de novo review, negative-ledger handoff, one-change challenge, all requested proof commands, record durable `$st` proof, commit, push, and `$ship` a PR with API/proof/non-goal summary.
 
 ## Proof Commands
 ```bash
@@ -32,14 +33,6 @@ zig version
 zig fmt --check build.zig src examples test bench
 git diff --check
 zig build --summary all
-zig build run-boundary-elaboration-strict
-zig build run-boundary-elaboration-nested
-zig build run-boundary-elaboration-world-port
-zig build run-boundary-closure-strict
-zig build run-boundary-closure-nested
-zig build run-boundary-closure-world-port
-zig build run-defunctionalization-boundary
-zig build run-host-intrinsic-allowlist
 zig build run-program-provider-direct
 zig build run-program-provider-nested
 zig build run-program-provider-resume
@@ -66,24 +59,23 @@ zig build run-custom-approval-workflow
 zig build run-agent-loop
 zig build run-typed-program-plan
 zig build test --summary all
-zig build test --summary none -- --test-filter "boundary elaboration"
-zig build test --summary none -- --test-filter "elaboration certificate"
-zig build test --summary none -- --test-filter "boundary normal form"
-zig build test --summary none -- --test-filter "provider linking"
-zig build test --summary none -- --test-filter "world port lowering"
-zig build test --summary none -- --test-filter "source map"
-zig build test --summary none -- --test-filter "runtime agreement"
-zig build test --summary none -- --test-filter "boundary closure"
-zig build test --summary none -- --test-filter "effect shape"
-zig build test --summary none -- --test-filter "static treaty"
-zig build test --summary none -- --test-filter "world port"
 zig build test --summary none -- --test-filter "program provider"
 zig build test --summary none -- --test-filter "provider program"
+zig build test --summary none -- --test-filter "nested provider"
 zig build test --summary none -- --test-filter "provider harness"
+zig build test --summary none -- --test-filter "provider request"
+zig build test --summary none -- --test-filter "provider outcome"
+zig build test --summary none -- --test-filter "provider journal"
 zig build test --summary none -- --test-filter "evidence"
 zig build test --summary none -- --test-filter "treaty"
-zig build test --summary none -- --test-filter "morphism"
+zig build test --summary none -- --test-filter "offer"
+zig build test --summary none -- --test-filter "resolver"
+zig build test --summary none -- --test-filter "capability"
+zig build test --summary none -- --test-filter "linear"
+zig build test --summary none -- --test-filter "obligation"
 zig build test --summary none -- --test-filter "exchange"
 zig build test --summary none -- --test-filter "journal"
+zig build test --summary none -- --test-filter "mailbox"
+zig build test --summary none -- --test-filter "pipeline"
 zig build lint -- --max-warnings 0
 ```

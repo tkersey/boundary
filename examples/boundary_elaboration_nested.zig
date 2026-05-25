@@ -309,10 +309,47 @@ const NestedAnalysis = struct {
     static_treaty_plan: RootProgram.Evidence.BoundaryStaticTreatyPlan,
 
     fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        deinitOptionalRef(allocator, self.static_treaty_plan.selected_provider_offer_ref);
+        deinitOptionalRef(allocator, self.static_treaty_plan.selected_provider_ref);
+        deinitOptionalRef(allocator, self.static_treaty_plan.selected_provider_program_ref);
         allocator.free(self.static_treaty_plan.blockers);
+        deinitDependencyRefs(allocator, self.static_treaty_plan.dependencies);
         allocator.free(self.static_treaty_plan.dependencies);
     }
 };
+
+fn cloneOptionalRef(allocator: std.mem.Allocator, maybe_ref: ?RootProgram.Evidence.Ref) !?RootProgram.Evidence.Ref {
+    const ref = maybe_ref orelse return null;
+    return try cloneRef(allocator, ref);
+}
+
+fn cloneRef(allocator: std.mem.Allocator, ref: RootProgram.Evidence.Ref) !RootProgram.Evidence.Ref {
+    var cloned = ref;
+    if (ref.label) |label| {
+        cloned.label = try allocator.dupe(u8, label);
+    }
+    errdefer if (cloned.label) |label| allocator.free(label);
+    if (ref.kind_tag) |kind_tag| {
+        cloned.kind_tag = try allocator.dupe(u8, kind_tag);
+    }
+    return cloned;
+}
+
+fn deinitOptionalRef(allocator: std.mem.Allocator, maybe_ref: ?RootProgram.Evidence.Ref) void {
+    const ref = maybe_ref orelse return;
+    deinitRef(allocator, ref);
+}
+
+fn deinitRef(allocator: std.mem.Allocator, ref: RootProgram.Evidence.Ref) void {
+    if (ref.label) |label| allocator.free(label);
+    if (ref.kind_tag) |kind_tag| allocator.free(kind_tag);
+}
+
+fn deinitDependencyRefs(allocator: std.mem.Allocator, dependencies: []const RootProgram.Evidence.Dependency) void {
+    for (dependencies) |dependency| {
+        deinitRef(allocator, dependency.ref);
+    }
+}
 
 fn analyzeNested(allocator: std.mem.Allocator) !NestedAnalysis {
     const NestedClosure = ApprovalProviderProgram.BoundaryClosure;
@@ -358,15 +395,28 @@ fn analyzeNested(allocator: std.mem.Allocator) !NestedAnalysis {
     var static_treaty_plan = closure.static_treaty_plans[0];
     static_treaty_plan.blockers = try allocator.dupe(RootProgram.Evidence.BoundaryClosureBlocker, static_treaty_plan.blockers);
     errdefer allocator.free(static_treaty_plan.blockers);
-    static_treaty_plan.dependencies = try allocator.dupe(RootProgram.Evidence.Dependency, static_treaty_plan.dependencies);
-    errdefer allocator.free(static_treaty_plan.dependencies);
+    var static_treaty_plan_dependencies = try allocator.dupe(RootProgram.Evidence.Dependency, static_treaty_plan.dependencies);
+    errdefer allocator.free(static_treaty_plan_dependencies);
+    var cloned_dependency_count: usize = 0;
+    errdefer deinitDependencyRefs(allocator, static_treaty_plan_dependencies[0..cloned_dependency_count]);
+    for (static_treaty_plan_dependencies) |*dependency| {
+        dependency.ref = try cloneRef(allocator, dependency.ref);
+        cloned_dependency_count += 1;
+    }
+    static_treaty_plan.dependencies = static_treaty_plan_dependencies;
+    static_treaty_plan.selected_provider_offer_ref = try cloneOptionalRef(allocator, static_treaty_plan.selected_provider_offer_ref);
+    errdefer deinitOptionalRef(allocator, static_treaty_plan.selected_provider_offer_ref);
+    static_treaty_plan.selected_provider_ref = try cloneOptionalRef(allocator, static_treaty_plan.selected_provider_ref);
+    errdefer deinitOptionalRef(allocator, static_treaty_plan.selected_provider_ref);
+    static_treaty_plan.selected_provider_program_ref = try cloneOptionalRef(allocator, static_treaty_plan.selected_provider_program_ref);
+    errdefer deinitOptionalRef(allocator, static_treaty_plan.selected_provider_program_ref);
     const residual_ref = RootProgram.Evidence.refFor(RootProgram.Evidence.domains.program_plan, ResidualProgram.compiled_plan.hash(), .{ .label = ResidualProgram.contract.label });
     const provider_binding_ref = RootProgram.Evidence.refForProviderProgramResidualBinding(static_treaty_plan, residual_ref).?;
     return .{
         .certificate_ref = closure.certificate.evidenceRef(),
         .shape_ref = nested_shapes[0].evidenceRef(),
         .shape_fingerprint = nested_shapes[0].fingerprint,
-        .provider_program_ref = provider_programs[0].program_ref,
+        .provider_program_ref = static_treaty_plan.selected_provider_program_ref.?,
         .static_treaty_plan_ref = static_treaty_plan.evidenceRef(),
         .provider_binding_ref = provider_binding_ref,
         .static_treaty_plan = static_treaty_plan,
@@ -442,13 +492,14 @@ pub fn run(writer: anytype) !void {
     };
     try elaboration_input.validate();
     const residual_ref = RootProgram.Evidence.refFor(RootProgram.Evidence.domains.program_plan, ResidualProgram.compiled_plan.hash(), .{ .label = ResidualProgram.contract.label });
+    const selected_approval_provider_ref = closure.static_treaty_plans[0].selected_provider_program_ref.?;
     const source_entries = [_]Closure.Elaboration.SourceMap.Entry{
         .{
             .source_ref = root_shapes[0].evidenceRef(),
             .residual_ref = residual_ref,
             .source_site_index = root_shapes[0].site_index,
             .static_treaty_plan_ref = closure.static_treaty_plans[0].evidenceRef(),
-            .provider_program_ref = approval_provider_ref,
+            .provider_program_ref = selected_approval_provider_ref,
             .disposition = .provider_program_linked,
             .label = "approval.request",
         },
@@ -499,7 +550,7 @@ pub fn run(writer: anytype) !void {
         source_map.evidenceRef(),
         effect_row.evidenceRef(),
     };
-    const inlined_provider_refs = [_]RootProgram.Evidence.Ref{ approval_provider_ref, nested.provider_program_ref };
+    const inlined_provider_refs = [_]RootProgram.Evidence.Ref{ selected_approval_provider_ref, nested.provider_program_ref };
     const selected_static_plan_refs = [_]RootProgram.Evidence.Ref{
         closure.static_treaty_plans[0].evidenceRef(),
         nested.static_treaty_plan_ref,

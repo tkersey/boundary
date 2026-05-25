@@ -267,6 +267,7 @@ test "evidence domain registry is unique and mirrors public version constants" {
     try std.testing.expectEqual(Program.evidence_defunctionalization_report_fingerprint_version, Evidence.domains.defunctionalization_report.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_effect_shape_fingerprint_version, Evidence.domains.boundary_effect_shape.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_static_treaty_plan_fingerprint_version, Evidence.domains.boundary_static_treaty_plan.fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 2), Program.boundary_static_treaty_plan_fingerprint_version);
     try std.testing.expectEqual(Program.boundary_closure_policy_fingerprint_version, Evidence.domains.boundary_closure_policy.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_closure_graph_fingerprint_version, Evidence.domains.boundary_closure_graph.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_closure_report_fingerprint_version, Evidence.domains.boundary_closure_report.fingerprint_version);
@@ -460,7 +461,6 @@ test "boundary elaboration foundational refs and certificate evidence are determ
         .source_ref = source_shape_ref,
         .residual_ref = residual_ref,
         .source_site_index = 0,
-        .residual_site_index = 0,
         .static_treaty_plan_ref = static_plan_ref,
         .disposition = .preserved,
         .label = "root",
@@ -513,6 +513,81 @@ test "boundary elaboration foundational refs and certificate evidence are determ
     });
 
     try certificate.check(policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, source_map, effect_row, trace_map, normal_form, static_plans[0..], &.{});
+    var no_trace_policy = policy;
+    no_trace_policy.emit_trace_map = false;
+    const no_trace_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "strict-elaboration",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = source_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .normal_form_ref = normal_form.evidenceRef(),
+        .policy = no_trace_policy,
+        .normal_form = .strict_closed,
+        .selected_static_treaty_plan_refs = &.{static_plan_ref},
+        .summary_counts = .{
+            .root_effect_shapes = 1,
+            .internal_routes_elaborated = 1,
+        },
+        .evidence_dependency_refs = dependency_refs[0..],
+        .dependencies = dependencies[0..],
+    });
+    try no_trace_certificate.check(no_trace_policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, source_map, effect_row, null, normal_form, static_plans[0..], &.{});
+    const forbidden_trace_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "strict-elaboration",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = source_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .trace_map_ref = trace_map.evidenceRef(),
+        .normal_form_ref = normal_form.evidenceRef(),
+        .policy = no_trace_policy,
+        .normal_form = .strict_closed,
+        .selected_static_treaty_plan_refs = &.{static_plan_ref},
+        .summary_counts = .{
+            .root_effect_shapes = 1,
+            .internal_routes_elaborated = 1,
+        },
+        .evidence_dependency_refs = dependency_refs[0..],
+        .dependencies = dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryElaborationCertificateMismatch,
+        forbidden_trace_certificate.check(no_trace_policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, source_map, effect_row, trace_map, normal_form, static_plans[0..], &.{}),
+    );
+    const forged_label_trace_entries = [_]Elaboration.TraceMap.Entry{.{ .source_ref = source_shape_ref, .residual_ref = residual_ref, .trace_label = "forged-root" }};
+    const forged_label_trace = Elaboration.TraceMap.init("strict-elaboration-forged-label-trace", forged_label_trace_entries[0..]);
+    const forged_label_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "strict-elaboration",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = source_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .trace_map_ref = forged_label_trace.evidenceRef(),
+        .normal_form_ref = normal_form.evidenceRef(),
+        .policy = policy,
+        .normal_form = .strict_closed,
+        .selected_static_treaty_plan_refs = &.{static_plan_ref},
+        .summary_counts = .{
+            .root_effect_shapes = 1,
+            .internal_routes_elaborated = 1,
+        },
+        .evidence_dependency_refs = dependency_refs[0..],
+        .dependencies = dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryElaborationCertificateMismatch,
+        forged_label_certificate.check(policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, source_map, effect_row, forged_label_trace, normal_form, static_plans[0..], &.{}),
+    );
     const provider_route_ref = Evidence.refFor(Evidence.domains.provider_manifest, 0xE1A814, .{ .label = "unbound-certificate-provider" });
     const provider_program_ref = Evidence.refFor(Evidence.domains.program_plan, 0xE1A815, .{ .label = "unbound-certificate-provider-program" });
     const provider_plan = Closure.StaticTreatyPlan.init(.{
@@ -524,6 +599,8 @@ test "boundary elaboration foundational refs and certificate evidence are determ
         .selected_semantic_body = .boundary_program,
         .selected_provider_program_ref = provider_program_ref,
         .selected_provider_program_mapping_fingerprint = 0xE1A816,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
         .selected_provider_program_effect_shape_count = 0,
         .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
     });
@@ -531,7 +608,6 @@ test "boundary elaboration foundational refs and certificate evidence are determ
         .source_ref = source_shape_ref,
         .residual_ref = residual_ref,
         .source_site_index = 0,
-        .residual_site_index = 0,
         .provider_program_ref = provider_program_ref,
         .static_treaty_plan_ref = provider_plan.evidenceRef(),
         .disposition = .provider_program_linked,
@@ -1323,6 +1399,67 @@ test "boundary elaboration foundational refs and certificate evidence are determ
         .dependencies = dependencies[0..],
     });
     try valid_blocker_refs.check(unbounded_blocker_policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, partial_source_map, blocker_row, partial_trace_map, blocker_normal_form, partial_static_plans[0..], &.{});
+    const direct_shape_blocker = Evidence.BoundaryClosureBlocker{
+        .tag = .duplicate_effect_shape,
+        .subject = blocked_shape_ref,
+        .summary = "direct shape blocker",
+    };
+    const direct_shape_blocker_ref = Evidence.refForBoundaryClosureBlocker(direct_shape_blocker.toEvidenceBlocker());
+    const mixed_direct_entries = [_]Elaboration.SourceMap.Entry{
+        partial_source_map_entries[0],
+        partial_source_map_entries[1],
+        .{
+            .source_ref = blocked_shape_ref,
+            .residual_ref = residual_ref,
+            .source_site_index = 1,
+            .blocker_ref = direct_shape_blocker_ref,
+            .disposition = .blocked,
+            .label = "direct-shape-blocker",
+        },
+    };
+    const mixed_direct_map = Elaboration.SourceMap.init("partial-elaboration-direct-shape-blocker-map", mixed_direct_entries[0..], &.{});
+    const mixed_direct_trace_entries = [_]Elaboration.TraceMap.Entry{
+        partial_trace_entries[0],
+        partial_trace_entries[1],
+        .{ .source_ref = blocked_shape_ref, .residual_ref = residual_ref, .trace_label = "direct-shape-blocker" },
+    };
+    const mixed_direct_trace_map = Elaboration.TraceMap.init("partial-elaboration-direct-shape-blocker-trace", mixed_direct_trace_entries[0..]);
+    const mixed_direct_row = Elaboration.EffectRow.init(.{
+        .label = "blocked-elaboration-direct-shape-row",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .normal_form = .partial_with_blockers,
+        .source_effect_shapes = 2,
+        .closed_effect_shapes = 1,
+        .blockers = 3,
+        .unsupported_shapes = 2,
+    });
+    var direct_blocker_policy = unbounded_blocker_policy;
+    direct_blocker_policy.max_blockers = 3;
+    const mixed_direct_normal_form = Elaboration.NormalForm.init("blocked-elaboration-direct-shape-normal-form", .partial_with_blockers, closure_certificate_ref, mixed_direct_row.evidenceRef(), 3);
+    const mixed_direct_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "blocked-elaboration",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = mixed_direct_map.evidenceRef(),
+        .effect_row_ref = mixed_direct_row.evidenceRef(),
+        .trace_map_ref = mixed_direct_trace_map.evidenceRef(),
+        .normal_form_ref = mixed_direct_normal_form.evidenceRef(),
+        .policy = direct_blocker_policy,
+        .normal_form = .partial_with_blockers,
+        .selected_static_treaty_plan_refs = partial_static_plan_refs[0..],
+        .blocker_refs = &.{ first_blocker_ref, second_blocker_ref, direct_shape_blocker_ref },
+        .summary_counts = .{
+            .root_effect_shapes = 2,
+            .internal_routes_elaborated = 1,
+            .blockers = 3,
+        },
+        .dependencies = dependencies[0..],
+    });
+    try mixed_direct_certificate.check(direct_blocker_policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, mixed_direct_map, mixed_direct_row, mixed_direct_trace_map, mixed_direct_normal_form, partial_static_plans[0..], &.{});
     const static_entry_forged_blocker = Evidence.refFor(Evidence.domains.boundary_closure_report, 0xE1A819, .{ .kind_tag = "static_entry_forged_blocker" });
     const forged_static_blocker_entries = [_]Elaboration.SourceMap.Entry{
         source_map_entries[0],
@@ -1459,7 +1596,11 @@ test "elaboration certificate source map world port lowering boundary normal for
     const Elaboration = Program.BoundaryClosure.Elaboration;
     const source_ref = Evidence.refFor(Evidence.domains.program_plan, 0xE1B001, .{ .label = "source" });
     const residual_ref = Evidence.refFor(Evidence.domains.program_plan, 0xE1B002, .{ .label = "residual" });
+    const provider_ref = Evidence.refFor(Evidence.domains.provider_manifest, 0xE1B003, .{ .label = "approval.provider.manifest" });
+    const provider_offer_ref = Evidence.refFor(Evidence.domains.provider_offer, 0xE1B004, .{ .label = "approval.provider.offer" });
     const provider_program_ref = Evidence.refFor(Evidence.domains.program_plan, 0xE1B005, .{ .label = "approval.provider" });
+    const provider_morphism_ref = Evidence.refFor(Evidence.domains.morphism_offer, 0xE1B00D, .{ .label = "approval.provider.morphism" });
+    const provider_pipeline_ref = Evidence.refFor(Evidence.domains.pipeline, 0xE1B00C, .{ .label = "provider-program-pipeline-proof" });
     const provider_static_plan_deps = [_]Evidence.Dependency{.{
         .role = .residual_program,
         .ref = residual_ref,
@@ -1482,7 +1623,14 @@ test "elaboration certificate source map world port lowering boundary normal for
         .label = "approval.plan",
         .source_shape = source_shape,
         .selected_semantic_body = .boundary_program,
+        .selected_provider_ref = provider_ref,
+        .selected_provider_offer_ref = provider_offer_ref,
         .selected_provider_program_ref = provider_program_ref,
+        .selected_provider_program_mapping_fingerprint = 0xE1B00B,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
+        .selected_provider_program_effect_shape_count = 0,
+        .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
         .dependencies = provider_static_plan_deps[0..],
     });
     const static_plan_ref = static_plan.evidenceRef();
@@ -1540,8 +1688,8 @@ test "elaboration certificate source map world port lowering boundary normal for
     try std.testing.expect(source_map.staticPlanForElaboratedRoute(source_shape_ref).?.eql(static_plan_ref));
 
     const trace_entries = [_]Elaboration.TraceMap.Entry{
-        .{ .source_ref = source_shape_ref, .residual_ref = residual_ref, .trace_label = "approval.request.provider" },
-        .{ .source_ref = world_shape_ref, .residual_ref = world_port_ref, .trace_label = "approval.request.world" },
+        .{ .source_ref = source_shape_ref, .residual_ref = residual_ref, .trace_label = "provider linking" },
+        .{ .source_ref = world_shape_ref, .residual_ref = world_port_ref, .trace_label = "world port lowering" },
     };
     const trace_map = Elaboration.TraceMap.init("runtime-agreement-trace-map", trace_entries[0..]);
     const effect_row = Elaboration.EffectRow.init(.{
@@ -1595,6 +1743,288 @@ test "elaboration certificate source map world port lowering boundary normal for
     });
     const world_ports = [_]Closure.WorldPort{world_port};
     try elaboration_certificate.check(policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, source_map, effect_row, trace_map, normal_form, static_plans[0..], world_ports[0..]);
+    const morphed_provider_static_plan_deps = [_]Evidence.Dependency{
+        .{ .role = .residual_program, .ref = residual_ref },
+        .{ .role = .morphism, .ref = provider_morphism_ref },
+        .{ .role = .pipeline, .ref = provider_pipeline_ref },
+    };
+    const morphed_provider_static_plan = Closure.StaticTreatyPlan.init(.{
+        .label = "approval.plan.morphed",
+        .source_shape = source_shape,
+        .selected_semantic_body = .boundary_program,
+        .selected_provider_ref = provider_ref,
+        .selected_provider_offer_ref = provider_offer_ref,
+        .selected_provider_program_ref = provider_program_ref,
+        .selected_provider_program_mapping_fingerprint = 0xE1B00B,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
+        .selected_provider_program_effect_shape_count = 0,
+        .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
+        .selected_morphism_ref = provider_morphism_ref,
+        .selected_morphism_semantic_body = .pipeline,
+        .dependencies = morphed_provider_static_plan_deps[0..],
+    });
+    const morphed_provider_static_plan_ref = morphed_provider_static_plan.evidenceRef();
+    var morphed_provider_entries = source_entries;
+    morphed_provider_entries[0].static_treaty_plan_ref = morphed_provider_static_plan_ref;
+    const morphed_provider_map = Elaboration.SourceMap.init("runtime-agreement-morphed-provider-map", morphed_provider_entries[0..], &.{});
+    const morphed_provider_static_plans = [_]Closure.StaticTreatyPlan{ morphed_provider_static_plan, world_static_plan };
+    const morphed_provider_dependencies = [_]Evidence.Dependency{
+        .{ .role = .closure_certificate, .ref = closure_certificate_ref },
+        .{ .role = .elaboration_source_map, .ref = morphed_provider_map.evidenceRef() },
+        .{ .role = .elaboration_trace_map, .ref = trace_map.evidenceRef() },
+        .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
+    };
+    const morphed_provider_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "runtime-agreement-residual",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = morphed_provider_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .trace_map_ref = trace_map.evidenceRef(),
+        .normal_form_ref = normal_form.evidenceRef(),
+        .policy = policy,
+        .normal_form = .world_ports_only,
+        .selected_static_treaty_plan_refs = &.{ morphed_provider_static_plan_ref, world_static_plan_ref },
+        .world_port_refs = &.{world_port_ref},
+        .residual_world_port_refs = &.{world_port_ref},
+        .inlined_provider_program_refs = &.{provider_program_ref},
+        .summary_counts = .{
+            .root_effect_shapes = 2,
+            .internal_routes_elaborated = 1,
+            .provider_programs_linked = 1,
+            .world_ports_emitted = 1,
+        },
+        .dependencies = morphed_provider_dependencies[0..],
+    });
+    try morphed_provider_certificate.check(policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, morphed_provider_map, effect_row, trace_map, normal_form, morphed_provider_static_plans[0..], world_ports[0..]);
+    const missing_morphism_provider_static_plan = Closure.StaticTreatyPlan.init(.{
+        .label = "approval.plan.morphed.missing-proof",
+        .source_shape = source_shape,
+        .selected_semantic_body = .boundary_program,
+        .selected_provider_ref = provider_ref,
+        .selected_provider_offer_ref = provider_offer_ref,
+        .selected_provider_program_ref = provider_program_ref,
+        .selected_provider_program_mapping_fingerprint = 0xE1B00B,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
+        .selected_provider_program_effect_shape_count = 0,
+        .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
+        .selected_morphism_ref = provider_morphism_ref,
+        .selected_morphism_semantic_body = .pipeline,
+        .dependencies = provider_static_plan_deps[0..],
+    });
+    const missing_morphism_provider_static_plan_ref = missing_morphism_provider_static_plan.evidenceRef();
+    var missing_morphism_provider_entries = source_entries;
+    missing_morphism_provider_entries[0].static_treaty_plan_ref = missing_morphism_provider_static_plan_ref;
+    const missing_morphism_provider_map = Elaboration.SourceMap.init("runtime-agreement-missing-morphism-provider-map", missing_morphism_provider_entries[0..], &.{});
+    const missing_morphism_provider_static_plans = [_]Closure.StaticTreatyPlan{ missing_morphism_provider_static_plan, world_static_plan };
+    const missing_morphism_provider_dependencies = [_]Evidence.Dependency{
+        .{ .role = .closure_certificate, .ref = closure_certificate_ref },
+        .{ .role = .elaboration_source_map, .ref = missing_morphism_provider_map.evidenceRef() },
+        .{ .role = .elaboration_trace_map, .ref = trace_map.evidenceRef() },
+        .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
+    };
+    const missing_morphism_provider_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "runtime-agreement-residual",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = missing_morphism_provider_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .trace_map_ref = trace_map.evidenceRef(),
+        .normal_form_ref = normal_form.evidenceRef(),
+        .policy = policy,
+        .normal_form = .world_ports_only,
+        .selected_static_treaty_plan_refs = &.{ missing_morphism_provider_static_plan_ref, world_static_plan_ref },
+        .world_port_refs = &.{world_port_ref},
+        .residual_world_port_refs = &.{world_port_ref},
+        .inlined_provider_program_refs = &.{provider_program_ref},
+        .summary_counts = .{
+            .root_effect_shapes = 2,
+            .internal_routes_elaborated = 1,
+            .provider_programs_linked = 1,
+            .world_ports_emitted = 1,
+        },
+        .dependencies = missing_morphism_provider_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryElaborationCertificateMismatch,
+        missing_morphism_provider_certificate.check(policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, missing_morphism_provider_map, effect_row, trace_map, normal_form, missing_morphism_provider_static_plans[0..], world_ports[0..]),
+    );
+    const provider_program_label_copy = try std.testing.allocator.dupe(u8, "approval.provider");
+    defer std.testing.allocator.free(provider_program_label_copy);
+    const provider_program_ref_copy = Evidence.refFor(Evidence.domains.program_plan, provider_program_ref.fingerprint, .{ .label = provider_program_label_copy });
+    var copied_provider_entries = source_entries;
+    copied_provider_entries[0].provider_program_ref = provider_program_ref_copy;
+    const copied_provider_map = Elaboration.SourceMap.init("runtime-agreement-copied-provider-map", copied_provider_entries[0..], &.{});
+    const copied_provider_dependencies = [_]Evidence.Dependency{
+        .{ .role = .closure_certificate, .ref = closure_certificate_ref },
+        .{ .role = .elaboration_source_map, .ref = copied_provider_map.evidenceRef() },
+        .{ .role = .elaboration_trace_map, .ref = trace_map.evidenceRef() },
+        .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
+    };
+    const copied_provider_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "runtime-agreement-residual",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = copied_provider_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .trace_map_ref = trace_map.evidenceRef(),
+        .normal_form_ref = normal_form.evidenceRef(),
+        .policy = policy,
+        .normal_form = .world_ports_only,
+        .selected_static_treaty_plan_refs = &.{ static_plan_ref, world_static_plan_ref },
+        .world_port_refs = &.{world_port_ref},
+        .residual_world_port_refs = &.{world_port_ref},
+        .inlined_provider_program_refs = &.{provider_program_ref_copy},
+        .summary_counts = .{
+            .root_effect_shapes = 2,
+            .internal_routes_elaborated = 1,
+            .provider_programs_linked = 1,
+            .world_ports_emitted = 1,
+        },
+        .dependencies = copied_provider_dependencies[0..],
+    });
+    try copied_provider_certificate.check(policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, copied_provider_map, effect_row, trace_map, normal_form, static_plans[0..], world_ports[0..]);
+    const duplicate_plan_entries = [_]Elaboration.SourceMap.Entry{ source_entries[0], source_entries[0] };
+    const duplicate_plan_map = Elaboration.SourceMap.init("runtime-agreement-duplicate-plan-map", duplicate_plan_entries[0..], &.{});
+    const duplicate_plan_trace_entries = [_]Elaboration.TraceMap.Entry{ trace_entries[0], trace_entries[0] };
+    const duplicate_plan_trace_map = Elaboration.TraceMap.init("runtime-agreement-duplicate-plan-trace-map", duplicate_plan_trace_entries[0..]);
+    const duplicate_plan_effect_row = Elaboration.EffectRow.init(.{
+        .label = "runtime-agreement-duplicate-plan-effect-row",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .normal_form = .strict_closed,
+        .source_effect_shapes = 2,
+        .closed_effect_shapes = 2,
+        .provider_program_links = 2,
+    });
+    const duplicate_plan_normal_form = Elaboration.NormalForm.init("runtime-agreement-duplicate-plan-normal-form", .strict_closed, closure_certificate_ref, duplicate_plan_effect_row.evidenceRef(), 0);
+    const duplicate_plan_dependencies = [_]Evidence.Dependency{
+        .{ .role = .closure_certificate, .ref = closure_certificate_ref },
+        .{ .role = .elaboration_source_map, .ref = duplicate_plan_map.evidenceRef() },
+        .{ .role = .elaboration_trace_map, .ref = duplicate_plan_trace_map.evidenceRef() },
+        .{ .role = .normal_form, .ref = duplicate_plan_normal_form.evidenceRef() },
+    };
+    const duplicate_plan_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "runtime-agreement-residual",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = duplicate_plan_map.evidenceRef(),
+        .effect_row_ref = duplicate_plan_effect_row.evidenceRef(),
+        .trace_map_ref = duplicate_plan_trace_map.evidenceRef(),
+        .normal_form_ref = duplicate_plan_normal_form.evidenceRef(),
+        .policy = policy,
+        .normal_form = .strict_closed,
+        .selected_static_treaty_plan_refs = &.{ static_plan_ref, static_plan_ref },
+        .inlined_provider_program_refs = &.{provider_program_ref},
+        .summary_counts = .{
+            .root_effect_shapes = 2,
+            .internal_routes_elaborated = 2,
+            .provider_programs_linked = 1,
+        },
+        .dependencies = duplicate_plan_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryElaborationCertificateMismatch,
+        duplicate_plan_certificate.check(policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, duplicate_plan_map, duplicate_plan_effect_row, duplicate_plan_trace_map, duplicate_plan_normal_form, static_plans[0..], &.{}),
+    );
+    var stale_static_plan = static_plan;
+    stale_static_plan.direct_candidate_count += 1;
+    const stale_static_plans = [_]Closure.StaticTreatyPlan{ stale_static_plan, world_static_plan };
+    try std.testing.expectEqual(
+        error.BoundaryElaborationCertificateMismatch,
+        elaboration_certificate.check(policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, source_map, effect_row, trace_map, normal_form, stale_static_plans[0..], world_ports[0..]),
+    );
+    const binding_provider_ref = Evidence.refFor(Evidence.domains.provider_manifest, 0xE1B004, .{
+        .format_version = Evidence.domains.provider_manifest.format_version,
+        .label = "approval.provider.manifest",
+    });
+    const binding_provider_offer_ref = Evidence.refFor(Evidence.domains.provider_offer, 0xE1B00C, .{
+        .format_version = Evidence.domains.provider_offer.format_version,
+        .label = "approval.provider.offer",
+    });
+    const binding_plan = Closure.StaticTreatyPlan.init(.{
+        .label = "approval.binding.plan",
+        .source_shape = source_shape,
+        .selected_semantic_body = .boundary_program,
+        .selected_provider_ref = binding_provider_ref,
+        .selected_provider_offer_ref = binding_provider_offer_ref,
+        .selected_provider_program_ref = provider_program_ref,
+        .selected_provider_program_mapping_fingerprint = 0xE1B00A,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
+        .selected_provider_program_effect_shape_count = 0,
+        .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
+    });
+    const binding_provider_program_alias_ref = Evidence.refFor(Evidence.domains.program_plan, provider_program_ref.fingerprint, .{ .label = "approval.provider.alias" });
+    const alias_binding_plan = Closure.StaticTreatyPlan.init(.{
+        .label = "approval.binding.plan",
+        .source_shape = source_shape,
+        .selected_semantic_body = .boundary_program,
+        .selected_provider_ref = binding_provider_ref,
+        .selected_provider_offer_ref = binding_provider_offer_ref,
+        .selected_provider_program_ref = binding_provider_program_alias_ref,
+        .selected_provider_program_mapping_fingerprint = 0xE1B00A,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
+        .selected_provider_program_effect_shape_count = 0,
+        .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
+    });
+    const binding_ref = Evidence.refForProviderProgramResidualBinding(binding_plan, residual_ref).?;
+    const alias_binding_ref = Evidence.refForProviderProgramResidualBinding(alias_binding_plan, residual_ref).?;
+    try std.testing.expect(!binding_ref.eql(alias_binding_ref));
+    const provider_program_alias_ref = Evidence.refFor(Evidence.domains.program_plan, provider_program_ref.fingerprint, .{ .label = "approval.provider.alias" });
+    var forged_provider_entries = source_entries;
+    forged_provider_entries[0].provider_program_ref = provider_program_alias_ref;
+    const forged_provider_source_map = Elaboration.SourceMap.init("runtime-agreement-forged-provider-map", forged_provider_entries[0..], &.{});
+    const forged_provider_dependencies = [_]Evidence.Dependency{
+        .{ .role = .closure_certificate, .ref = closure_certificate_ref },
+        .{ .role = .elaboration_source_map, .ref = forged_provider_source_map.evidenceRef() },
+        .{ .role = .elaboration_trace_map, .ref = trace_map.evidenceRef() },
+        .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
+    };
+    const forged_provider_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "runtime-agreement-residual",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = forged_provider_source_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .trace_map_ref = trace_map.evidenceRef(),
+        .normal_form_ref = normal_form.evidenceRef(),
+        .policy = policy,
+        .normal_form = .world_ports_only,
+        .selected_static_treaty_plan_refs = &.{ static_plan_ref, world_static_plan_ref },
+        .world_port_refs = &.{world_port_ref},
+        .residual_world_port_refs = &.{world_port_ref},
+        .inlined_provider_program_refs = &.{provider_program_alias_ref},
+        .summary_counts = .{
+            .root_effect_shapes = 2,
+            .internal_routes_elaborated = 1,
+            .provider_programs_linked = 1,
+            .world_ports_emitted = 1,
+        },
+        .dependencies = forged_provider_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryElaborationCertificateMismatch,
+        forged_provider_certificate.check(policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, forged_provider_source_map, effect_row, trace_map, normal_form, static_plans[0..], world_ports[0..]),
+    );
     var intrinsic_blocking_policy = policy;
     intrinsic_blocking_policy.allow_intrinsic_world_ports = false;
     const intrinsic_blocking_certificate = Elaboration.Certificate.init(.{
@@ -1821,7 +2251,7 @@ test "elaboration certificate source map world port lowering boundary normal for
     };
     const provider_as_world_map = Elaboration.SourceMap.init("runtime-agreement-provider-as-world-map", provider_as_world_entries[0..], &.{});
     const provider_as_world_trace_entries = [_]Elaboration.TraceMap.Entry{
-        .{ .source_ref = source_shape_ref, .residual_ref = provider_world_port_ref, .trace_label = "approval.request.provider-as-world" },
+        .{ .source_ref = source_shape_ref, .residual_ref = provider_world_port_ref, .trace_label = "provider route downgraded to world port" },
         trace_entries[1],
     };
     const provider_as_world_trace = Elaboration.TraceMap.init("runtime-agreement-provider-as-world-trace", provider_as_world_trace_entries[0..]);
@@ -2433,6 +2863,7 @@ test "boundary elaboration input validation rejects duplicate provider proof ref
         .kind = .operation,
         .site_index = 0,
         .protocol_label = "approval",
+        .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
     });
     const nested_shape = Closure.EffectShape.init(.{
         .program_label = "provider-program",
@@ -2450,6 +2881,8 @@ test "boundary elaboration input validation rejects duplicate provider proof ref
         .selected_semantic_body = .boundary_program,
         .selected_provider_program_ref = provider_program_ref,
         .selected_provider_program_mapping_fingerprint = 0xE1D1_0501,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
         .selected_provider_program_effect_shape_count = 1,
         .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{nested_shape}),
     });
@@ -2495,6 +2928,8 @@ test "boundary elaboration input validation rejects duplicate provider proof ref
         .selected_morphism_semantic_body = .pipeline,
         .selected_provider_program_ref = provider_program_ref,
         .selected_provider_program_mapping_fingerprint = provider_plan.selected_provider_program_mapping_fingerprint,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
         .selected_provider_program_effect_shape_count = provider_plan.selected_provider_program_effect_shape_count,
         .selected_provider_program_effect_shape_fingerprint = provider_plan.selected_provider_program_effect_shape_fingerprint,
         .dependencies = pipeline_morphism_dependencies[0..],
@@ -2521,7 +2956,7 @@ test "boundary elaboration input validation rejects duplicate provider proof ref
         .provider_programs = matching_provider_programs[0..],
         .policy = provider_pipeline_policy,
     };
-    try std.testing.expectEqual(error.BoundaryElaborationBlocked, provider_pipeline_input.validate());
+    try provider_pipeline_input.validate();
 
     var blocker_policy = Elaboration.Policy.auditOnly();
     blocker_policy.max_blockers = 1;
@@ -2539,6 +2974,47 @@ test "boundary elaboration input validation rejects duplicate provider proof ref
         .policy = blocker_policy,
     };
     try std.testing.expectEqual(error.BoundaryElaborationBlocked, capped_input.validate());
+
+    var unsupported_blocker_policy = Elaboration.Policy.auditOnly();
+    unsupported_blocker_policy.fail_on_unsupported_shape = true;
+    unsupported_blocker_policy.max_blockers = 1;
+    const non_unsupported_blocker = Evidence.boundaryClosureBlocker(.{
+        .tag = .cycle_detected,
+        .subject = source_ref,
+        .summary = "provider traversal cycle",
+    });
+    const non_unsupported_report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+        .blockers = &.{non_unsupported_blocker},
+    });
+    const non_unsupported_input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = non_unsupported_report,
+        .closure_certificate = Closure.Certificate.init(non_unsupported_report, graph, Closure.Policy.auditOnly(), &.{}),
+        .source_program_ref = source_ref,
+        .policy = unsupported_blocker_policy,
+    };
+    try non_unsupported_input.validate();
+
+    const unsupported_shape_blocker = Evidence.boundaryClosureBlocker(.{
+        .tag = .unsupported_shape_planning,
+        .subject = source_shape.evidenceRef(),
+        .summary = "unsupported shape",
+    });
+    const unsupported_shape_report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+        .blockers = &.{unsupported_shape_blocker},
+    });
+    const unsupported_shape_input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = unsupported_shape_report,
+        .closure_certificate = Closure.Certificate.init(unsupported_shape_report, graph, Closure.Policy.auditOnly(), &.{}),
+        .source_program_ref = source_ref,
+        .policy = unsupported_blocker_policy,
+    };
+    try std.testing.expectEqual(error.BoundaryElaborationBlocked, unsupported_shape_input.validate());
 
     const intrinsic_ref = Evidence.refFor(Evidence.domains.host_intrinsic, 0xE1D106, .{ .label = "host.approval" });
     const intrinsic_plan = Closure.StaticTreatyPlan.init(.{
@@ -2589,6 +3065,37 @@ test "boundary elaboration input validation rejects duplicate provider proof ref
         .policy = Elaboration.Policy.auditOnly(),
     };
     try constrained_intrinsic_input.validate();
+
+    const intrinsic_subject_alias_ref = Evidence.refFor(Evidence.domains.host_intrinsic, intrinsic_ref.fingerprint, .{ .label = "host.approval.alias" });
+    const shape_subject_alias_ref = Evidence.refFor(Evidence.domains.boundary_effect_shape, source_shape.fingerprint, .{
+        .label = "source-shape-alias",
+        .site_index = 0,
+        .kind_tag = "operation",
+    });
+    const subject_alias_intrinsic_port = Closure.WorldPort.init(.{
+        .label = "subject-alias-host-intrinsic-world-port",
+        .kind = .test_fixture,
+        .effect_shape_ref = shape_subject_alias_ref,
+        .exposed_intrinsic_ref = intrinsic_subject_alias_ref,
+        .supported_protocol_labels = &.{"approval"},
+        .supported_site_indexes = &.{0},
+    });
+    const subject_alias_intrinsic_report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+        .world_port_refs = &.{subject_alias_intrinsic_port.evidenceRef()},
+        .open_world_port_count = 1,
+    });
+    const subject_alias_intrinsic_input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = subject_alias_intrinsic_report,
+        .closure_certificate = Closure.Certificate.init(subject_alias_intrinsic_report, graph, Closure.Policy.auditOnly(), &.{intrinsic_plan.evidenceRef()}),
+        .static_treaty_plans = &.{intrinsic_plan},
+        .source_program_ref = source_ref,
+        .world_ports = &.{subject_alias_intrinsic_port},
+        .policy = Elaboration.Policy.auditOnly(),
+    };
+    try subject_alias_intrinsic_input.validate();
 
     const non_host_intrinsic_ref = Evidence.refFor(Evidence.domains.program_plan, 0xE1D10C, .{ .kind_tag = "provider_function" });
     const non_host_intrinsic_plan = Closure.StaticTreatyPlan.init(.{
@@ -2646,6 +3153,161 @@ test "boundary elaboration input validation rejects duplicate provider proof ref
         .policy = policy,
     };
     try std.testing.expectEqual(error.BoundaryElaborationBlocked, morphism_intrinsic_input.validate());
+
+    const target_shape_world_port_ok = comptime blk: {
+        @setEvalBranchQuota(200_000);
+        const target_shape_pipeline_morphism = Program.Exchange.MorphismOffer{
+            .label = "provider-pipeline-morphism",
+            .target_protocol_op_fingerprint = 0xE1D1_0D01,
+            .pipeline_fingerprint = 0xE1D108,
+        };
+        const target_shape_pipeline_morphism_ref = target_shape_pipeline_morphism.evidenceRef();
+        const target_shape_pipeline_adapter_ref = Evidence.refFor(Evidence.domains.pipeline, target_shape_pipeline_morphism.pipeline_fingerprint.?, .{ .label = "provider-pipeline-adapter" });
+        const target_source_ref = Evidence.refFor(Evidence.domains.program_plan, Program.compiled_plan.hash(), .{ .label = Program.contract.label });
+        const target_graph = Closure.Graph.init("morphism-target-shape-graph", &.{}, &.{}, &.{});
+        const target_source_shape = Closure.EffectShape.init(.{
+            .program_label = "source",
+            .kind = .operation,
+            .site_index = 0,
+            .protocol_label = "approval",
+            .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
+        });
+        const morphism_target_shape = Closure.EffectShape.init(.{
+            .program_label = "source",
+            .kind = .operation,
+            .site_index = 0,
+            .protocol_label = "approval",
+            .protocol_op_fingerprint = 0xE1D1_0D01,
+            .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
+            .usage_summary = "copyable",
+        });
+        const morphism_target_shape_alias_ref = Evidence.refFor(Evidence.domains.boundary_effect_shape, morphism_target_shape.fingerprint, .{
+            .label = "morphism-target-alias",
+            .site_index = 0,
+            .kind_tag = "operation",
+        });
+        const target_shape_world_port = Closure.WorldPort.init(.{
+            .label = "morphism-target-shape-world-port",
+            .kind = .test_fixture,
+            .effect_shape_ref = morphism_target_shape_alias_ref,
+            .supported_protocol_labels = &.{"approval"},
+            .supported_site_indexes = &.{0},
+        });
+        const target_shape_morphism_dependencies = [_]Evidence.Dependency{
+            .{ .role = .morphism, .ref = target_shape_pipeline_morphism_ref },
+            .{ .role = .pipeline, .ref = target_shape_pipeline_adapter_ref },
+        };
+        const target_shape_morphism_plan = Closure.StaticTreatyPlan.init(.{
+            .label = "morphism-target-shape-route",
+            .source_shape = target_source_shape,
+            .selected_semantic_body = .declarative,
+            .selected_morphism_ref = target_shape_pipeline_morphism_ref,
+            .selected_morphism_target_shape_ref = morphism_target_shape_alias_ref,
+            .selected_morphism_target_shape = morphism_target_shape,
+            .selected_morphism_semantic_body = .pipeline,
+            .dependencies = target_shape_morphism_dependencies[0..],
+        });
+        const target_shape_report = Closure.Report.init(.{
+            .graph_fingerprint = target_graph.fingerprint,
+            .root_program_refs = &.{target_source_ref},
+            .effect_shape_count = 1,
+            .world_port_refs = &.{target_shape_world_port.evidenceRef()},
+            .open_world_port_count = 1,
+        });
+        var target_shape_policy = Elaboration.Policy.auditOnly();
+        target_shape_policy.allow_pipeline_adapters = true;
+        const target_shape_input = Elaboration.Input{
+            .closure_graph = target_graph,
+            .closure_report = target_shape_report,
+            .closure_certificate = Closure.Certificate.init(target_shape_report, target_graph, Closure.Policy.auditOnly(), &.{target_shape_morphism_plan.evidenceRef()}),
+            .static_treaty_plans = &.{target_shape_morphism_plan},
+            .source_program_ref = target_source_ref,
+            .world_ports = &.{target_shape_world_port},
+            .morphism_offers = &.{target_shape_pipeline_morphism},
+            .morphism_offer_refs = &.{target_shape_pipeline_morphism_ref},
+            .pipeline_adapter_refs = &.{target_shape_pipeline_adapter_ref},
+            .policy = target_shape_policy,
+        };
+        const TargetShapeBody = Elaboration.FromResidual(target_shape_input, closure_source_program, .{ .label = "morphism-target-shape-body" });
+        const positive_ok = TargetShapeBody.source_map.entries[0].source_ref.eql(morphism_target_shape_alias_ref) and
+            TargetShapeBody.source_map.entries[0].world_port_ref.?.eql(target_shape_world_port.evidenceRef());
+
+        const offered_target_shape = Closure.EffectShape.init(.{
+            .program_label = "offered-morphism-target",
+            .kind = .operation,
+            .site_index = 0,
+            .protocol_label = "approval",
+            .protocol_op_fingerprint = 0xE1D1_0D02,
+            .usage_summary = "copyable",
+        });
+        const forged_target_shape = Closure.EffectShape.init(.{
+            .program_label = "forged-morphism-target",
+            .kind = .operation,
+            .site_index = 0,
+            .protocol_label = "approval",
+            .protocol_op_fingerprint = 0xE1D1_0D03,
+            .usage_summary = "copyable",
+        });
+        const checked_morphism = Program.Exchange.MorphismOffer{
+            .label = "checked-target-shape-morphism",
+            .target_protocol_op_fingerprint = 0xE1D1_0D02,
+            .pipeline_fingerprint = 0xE1D1_0D04,
+        };
+        const checked_pipeline_ref = Evidence.refFor(Evidence.domains.pipeline, checked_morphism.pipeline_fingerprint.?, .{ .label = "checked-target-shape-pipeline" });
+        const forged_target_shape_port = Closure.WorldPort.init(.{
+            .label = "forged-morphism-target-shape-world-port",
+            .kind = .test_fixture,
+            .effect_shape_ref = forged_target_shape.evidenceRef(),
+            .supported_protocol_labels = &.{"approval"},
+            .supported_site_indexes = &.{0},
+        });
+        const forged_target_shape_dependencies = [_]Evidence.Dependency{
+            .{ .role = .morphism, .ref = checked_morphism.evidenceRef() },
+            .{ .role = .pipeline, .ref = checked_pipeline_ref },
+        };
+        const forged_target_shape_plan = Closure.StaticTreatyPlan.init(.{
+            .label = "forged-morphism-target-shape-route",
+            .source_shape = target_source_shape,
+            .selected_semantic_body = .declarative,
+            .selected_morphism_ref = checked_morphism.evidenceRef(),
+            .selected_morphism_target_shape_ref = forged_target_shape.evidenceRef(),
+            .selected_morphism_target_shape = forged_target_shape,
+            .selected_morphism_semantic_body = .pipeline,
+            .dependencies = forged_target_shape_dependencies[0..],
+        });
+        const forged_target_shape_report = Closure.Report.init(.{
+            .graph_fingerprint = target_graph.fingerprint,
+            .root_program_refs = &.{target_source_ref},
+            .effect_shape_count = 1,
+            .world_port_refs = &.{forged_target_shape_port.evidenceRef()},
+            .open_world_port_count = 1,
+        });
+        const forged_target_shape_input = Elaboration.Input{
+            .closure_graph = target_graph,
+            .closure_report = forged_target_shape_report,
+            .closure_certificate = Closure.Certificate.init(forged_target_shape_report, target_graph, Closure.Policy.auditOnly(), &.{forged_target_shape_plan.evidenceRef()}),
+            .static_treaty_plans = &.{forged_target_shape_plan},
+            .source_program_ref = target_source_ref,
+            .world_ports = &.{forged_target_shape_port},
+            .morphism_offers = &.{checked_morphism},
+            .morphism_offer_refs = &.{checked_morphism.evidenceRef()},
+            .pipeline_adapter_refs = &.{checked_pipeline_ref},
+            .policy = Elaboration.Policy.auditOnly(),
+        };
+        const forged_rejected = reject: {
+            forged_target_shape_input.validateResidualProgram(closure_source_program) catch |err| {
+                break :reject err == error.BoundaryElaborationBlocked or
+                    err == error.BoundaryElaborationResidualProgramMismatch;
+            };
+            break :reject false;
+        };
+        var mask: u8 = 0;
+        if (positive_ok) mask |= 0b001;
+        if (offered_target_shape.evidenceRef().fingerprint != forged_target_shape.evidenceRef().fingerprint) mask |= 0b010;
+        if (forged_rejected) mask |= 0b100;
+        break :blk mask;
+    };
+    try std.testing.expectEqual(@as(u8, 0b111), target_shape_world_port_ok);
 
     const fresh_world_port = Closure.WorldPort.init(.{
         .label = "stale-elaboration-world-port",
@@ -2807,6 +3469,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .kind = .operation,
             .site_index = 0,
             .protocol_label = "approval",
+            .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
         });
         const wrong_residual_ref = Evidence.refFor(Evidence.domains.program_plan, 0xE1D214, .{ .label = "wrong-residual-program" });
         const forged_dependencies = [_]Evidence.Dependency{.{
@@ -2822,6 +3485,8 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .selected_semantic_body = .boundary_program,
             .selected_provider_program_ref = forged_provider_program_ref,
             .selected_provider_program_mapping_fingerprint = 0xE1D2_1401,
+            .selected_provider_program_request_mapping_tag = "payload_to_args",
+            .selected_provider_program_result_mapping_tag = "result_to_resume",
             .selected_provider_program_effect_shape_count = 0,
             .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
             .dependencies = forged_dependencies[0..],
@@ -2869,6 +3534,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .kind = .operation,
             .site_index = 0,
             .protocol_label = "approval",
+            .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
         });
         const unbound_plan = Closure.StaticTreatyPlan.init(.{
             .label = "provider-without-future-residual-dep-plan",
@@ -2879,6 +3545,8 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .selected_semantic_body = .boundary_program,
             .selected_provider_program_ref = unbound_provider_program_ref,
             .selected_provider_program_mapping_fingerprint = 0xE1D2_1501,
+            .selected_provider_program_request_mapping_tag = "payload_to_args",
+            .selected_provider_program_result_mapping_tag = "result_to_resume",
             .selected_provider_program_effect_shape_count = 0,
             .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
         });
@@ -2904,12 +3572,21 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .program_ref = unbound_provider_program_ref,
             .residual_program_ref = unbound_residual_ref,
             .mapping_fingerprint = unbound_plan.selected_provider_program_mapping_fingerprint,
+            .mapping_support_fingerprint = unbound_plan.selected_provider_program_mapping_support_fingerprint,
             .effect_shape_ref = unbound_shape.evidenceRef(),
         }};
         const underspecified_provider_links = [_]Elaboration.ProviderProgramLink{.{
             .provider_ref = unbound_provider_ref,
             .program_ref = unbound_provider_program_ref,
             .residual_program_ref = unbound_residual_ref,
+        }};
+        const forged_support_provider_links = [_]Elaboration.ProviderProgramLink{.{
+            .provider_ref = unbound_provider_ref,
+            .program_ref = unbound_provider_program_ref,
+            .residual_program_ref = unbound_residual_ref,
+            .mapping_fingerprint = unbound_plan.selected_provider_program_mapping_fingerprint,
+            .mapping_support_fingerprint = unbound_plan.selected_provider_program_mapping_support_fingerprint.? +% 1,
+            .effect_shape_ref = unbound_shape.evidenceRef(),
         }};
         const underspecified_input = Elaboration.Input{
             .closure_graph = unbound_graph,
@@ -2924,6 +3601,10 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
         };
         const underspecified_rejected = if (underspecified_input.validateResidualProgram(Program)) |_| false else |err| err == error.BoundaryElaborationResidualProgramMismatch;
         if (!underspecified_rejected) break :blk false;
+        var forged_support_input = underspecified_input;
+        forged_support_input.provider_program_links = forged_support_provider_links[0..];
+        const forged_support_rejected = if (forged_support_input.validateResidualProgram(Program)) |_| false else |err| err == error.BoundaryElaborationResidualProgramMismatch;
+        if (!forged_support_rejected) break :blk false;
         const unbound_input = Elaboration.Input{
             .closure_graph = unbound_graph,
             .closure_report = unbound_report,
@@ -2951,6 +3632,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .kind = .operation,
             .site_index = 0,
             .protocol_label = "approval",
+            .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
         });
         const rebind_plan = Closure.StaticTreatyPlan.init(.{
             .label = "provider-without-dep-rebind-plan",
@@ -2961,6 +3643,8 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .selected_semantic_body = .boundary_program,
             .selected_provider_program_ref = rebind_program_ref,
             .selected_provider_program_mapping_fingerprint = 0xE1D2_3901,
+            .selected_provider_program_request_mapping_tag = "payload_to_args",
+            .selected_provider_program_result_mapping_tag = "result_to_resume",
             .selected_provider_program_effect_shape_count = 0,
             .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
         });
@@ -3006,6 +3690,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .kind = .operation,
             .site_index = 0,
             .protocol_label = "approval",
+            .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
         });
         const unsupported_plan = Closure.StaticTreatyPlan.init(.{
             .label = "unsupported-provider-mapping-plan",
@@ -3016,6 +3701,8 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .selected_semantic_body = .boundary_program,
             .selected_provider_program_ref = unsupported_program_ref,
             .selected_provider_program_mapping_fingerprint = 0xE1D2_4001,
+            .selected_provider_program_request_mapping_tag = "payload_to_args",
+            .selected_provider_program_result_mapping_tag = "result_to_resume",
             .selected_provider_program_effect_shape_count = 0,
             .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
         });
@@ -3049,6 +3736,87 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             unsupported_input.validate() catch |err| break :reject err == error.BoundaryElaborationProviderProgramRefMismatch;
             break :reject false;
         };
+        const non_unit_shape = Closure.EffectShape.init(.{
+            .program_label = "unsupported-provider-mapping-source",
+            .kind = .operation,
+            .site_index = 0,
+            .protocol_label = "approval",
+            .value_ref = Evidence.BoundaryValueRef.init("product", 1),
+        });
+        const unit_args_plan = Closure.StaticTreatyPlan.init(.{
+            .label = "unsupported-provider-unit-args-plan",
+            .source_shape = non_unit_shape,
+            .selected_provider_ref = unsupported_provider_ref,
+            .selected_provider_offer_ref = unsupported_provider_ref,
+            .selected_capability_ref = unsupported_provider_ref,
+            .selected_semantic_body = .boundary_program,
+            .selected_provider_program_ref = unsupported_program_ref,
+            .selected_provider_program_mapping_fingerprint = 0xE1D2_4002,
+            .selected_provider_program_request_mapping_tag = "unit_args",
+            .selected_provider_program_result_mapping_tag = "result_to_resume",
+            .selected_provider_program_effect_shape_count = 0,
+            .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
+        });
+        const unit_args_certificate = Closure.Certificate.init(unsupported_report, unsupported_graph, Closure.Policy.auditOnly(), &.{unit_args_plan.evidenceRef()});
+        const unit_args_programs = [_]Closure.ProviderProgram{.{
+            .provider_ref = unsupported_provider_ref,
+            .program_ref = unsupported_program_ref,
+            .provider_program_mapping_fingerprint = unit_args_plan.selected_provider_program_mapping_fingerprint,
+            .provider_program_mapping_support_fingerprint = Closure.providerProgramMappingSupportFingerprintForPlan(unit_args_plan, .unit_args, .result_to_resume),
+            .request_mapping = .unit_args,
+            .result_mapping = .result_to_resume,
+            .effect_free = true,
+        }};
+        const unit_args_input = Elaboration.Input{
+            .closure_graph = unsupported_graph,
+            .closure_report = unsupported_report,
+            .closure_certificate = unit_args_certificate,
+            .static_treaty_plans = &.{unit_args_plan},
+            .source_program_ref = source_ref,
+            .provider_programs = unit_args_programs[0..],
+            .policy = Elaboration.Policy.auditOnly(),
+        };
+        const unit_args_rejected = reject: {
+            unit_args_input.validate() catch |err| break :reject err == error.BoundaryElaborationProviderProgramRefMismatch;
+            break :reject false;
+        };
+        const resume_after_plan = Closure.StaticTreatyPlan.init(.{
+            .label = "unsupported-provider-resume-after-plan",
+            .source_shape = unsupported_shape,
+            .selected_provider_ref = unsupported_provider_ref,
+            .selected_provider_offer_ref = unsupported_provider_ref,
+            .selected_capability_ref = unsupported_provider_ref,
+            .selected_semantic_body = .boundary_program,
+            .selected_provider_program_ref = unsupported_program_ref,
+            .selected_provider_program_mapping_fingerprint = 0xE1D2_4003,
+            .selected_provider_program_request_mapping_tag = "payload_to_args",
+            .selected_provider_program_result_mapping_tag = "result_to_resume_after",
+            .selected_provider_program_effect_shape_count = 0,
+            .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
+        });
+        const resume_after_certificate = Closure.Certificate.init(unsupported_report, unsupported_graph, Closure.Policy.auditOnly(), &.{resume_after_plan.evidenceRef()});
+        const resume_after_programs = [_]Closure.ProviderProgram{.{
+            .provider_ref = unsupported_provider_ref,
+            .program_ref = unsupported_program_ref,
+            .provider_program_mapping_fingerprint = resume_after_plan.selected_provider_program_mapping_fingerprint,
+            .provider_program_mapping_support_fingerprint = Closure.providerProgramMappingSupportFingerprintForPlan(resume_after_plan, .payload_to_args, .result_to_resume_after),
+            .request_mapping = .payload_to_args,
+            .result_mapping = .result_to_resume_after,
+            .effect_free = true,
+        }};
+        const resume_after_input = Elaboration.Input{
+            .closure_graph = unsupported_graph,
+            .closure_report = unsupported_report,
+            .closure_certificate = resume_after_certificate,
+            .static_treaty_plans = &.{resume_after_plan},
+            .source_program_ref = source_ref,
+            .provider_programs = resume_after_programs[0..],
+            .policy = Elaboration.Policy.auditOnly(),
+        };
+        const resume_after_rejected = reject: {
+            resume_after_input.validate() catch |err| break :reject err == error.BoundaryElaborationProviderProgramRefMismatch;
+            break :reject false;
+        };
         const forged_supported_programs = [_]Closure.ProviderProgram{.{
             .provider_ref = unsupported_provider_ref,
             .program_ref = unsupported_program_ref,
@@ -3064,7 +3832,10 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             forged_supported_input.validate() catch |err| break :reject err == error.BoundaryElaborationProviderProgramRefMismatch;
             break :reject false;
         };
-        break :blk unsupported_rejected and forged_supported_rejected;
+        break :blk unsupported_rejected and
+            unit_args_rejected and
+            resume_after_rejected and
+            forged_supported_rejected;
     };
     try std.testing.expect(unsupported_mapping_rejected);
 
@@ -3081,6 +3852,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .site_index = closure_approval_request.index,
             .protocol_label = "approval",
             .protocol_op_fingerprint = closure_approval_request.fingerprint,
+            .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
         });
         const first_nested_shape = Closure.EffectShape.init(.{
             .program_label = "from-residual-provider-program",
@@ -3112,6 +3884,8 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .selected_semantic_body = .boundary_program,
             .selected_provider_program_ref = linked_provider_program_ref,
             .selected_provider_program_mapping_fingerprint = 0xE1D2_1701,
+            .selected_provider_program_request_mapping_tag = "payload_to_args",
+            .selected_provider_program_result_mapping_tag = "result_to_resume",
             .selected_provider_program_effect_shape_count = 2,
             .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{ first_nested_shape, second_nested_shape }),
         });
@@ -3186,12 +3960,14 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .kind = .operation,
             .site_index = 0,
             .protocol_label = "approval",
+            .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
         });
         const second_shape = Closure.EffectShape.init(.{
             .program_label = "shared-provider-source",
             .kind = .operation,
             .site_index = 1,
             .protocol_label = "approval",
+            .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
         });
         const first_plan = Closure.StaticTreatyPlan.init(.{
             .label = "shared-provider-first-plan",
@@ -3202,6 +3978,8 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .selected_semantic_body = .boundary_program,
             .selected_provider_program_ref = program_ref_a,
             .selected_provider_program_mapping_fingerprint = 0xE1D2_2101,
+            .selected_provider_program_request_mapping_tag = "payload_to_args",
+            .selected_provider_program_result_mapping_tag = "result_to_resume",
             .selected_provider_program_effect_shape_count = 0,
             .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
         });
@@ -3214,6 +3992,8 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .selected_semantic_body = .boundary_program,
             .selected_provider_program_ref = program_ref_a,
             .selected_provider_program_mapping_fingerprint = 0xE1D2_2101,
+            .selected_provider_program_request_mapping_tag = "payload_to_args",
+            .selected_provider_program_result_mapping_tag = "result_to_resume",
             .selected_provider_program_effect_shape_count = 0,
             .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
         });
@@ -3313,6 +4093,57 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             Body.effect_row.source_effect_shapes == 1;
     };
     try std.testing.expect(blocker_only_source_map_bound);
+
+    const cycle_blocker_not_shape = comptime blk: {
+        @setEvalBranchQuota(200_000);
+        const blocker_graph = Closure.Graph.init("from-residual-cycle-blocker-map-graph", &.{}, &.{}, &.{});
+        const blocker_source_ref = source_ref;
+        const blocked_shape_ref = Evidence.refFor(Evidence.domains.boundary_effect_shape, 0xE1D21A, .{ .label = "blocked.approval.cycle", .site_index = 0 });
+        const closure_blocker = Evidence.boundaryClosureBlocker(.{
+            .tag = .cycle_detected,
+            .subject = blocked_shape_ref,
+            .site_index = 0,
+            .summary = "provider traversal cycle blocks shape without marking unsupported shape",
+        });
+        const blocker_report = Closure.Report.init(.{
+            .graph_fingerprint = blocker_graph.fingerprint,
+            .root_program_refs = &.{blocker_source_ref},
+            .effect_shape_count = 1,
+            .blockers = &.{closure_blocker},
+        });
+        const blocker_certificate = Closure.Certificate.init(blocker_report, blocker_graph, Closure.Policy.auditOnly(), &.{});
+        var blocker_policy = Elaboration.Policy.auditOnly();
+        blocker_policy.fail_on_unsupported_shape = true;
+        blocker_policy.max_blockers = 1;
+        const blocker_input = Elaboration.Input{
+            .closure_graph = blocker_graph,
+            .closure_report = blocker_report,
+            .closure_certificate = blocker_certificate,
+            .source_program_ref = blocker_source_ref,
+            .policy = blocker_policy,
+        };
+        const Body = Elaboration.FromResidual(blocker_input, Program, .{ .label = "from-residual-cycle-blocker-map-body" });
+        Body.certificate.check(
+            blocker_input.policy,
+            blocker_graph.evidenceRef(),
+            blocker_report.evidenceRef(),
+            blocker_certificate.evidenceRef(),
+            Body.source_map,
+            Body.effect_row,
+            Body.trace_map,
+            Body.normal_form,
+            &.{},
+            &.{},
+        ) catch break :blk false;
+        break :blk Body.normal_form.kind == .partial_with_blockers and
+            Body.effect_row.blockers == 1 and
+            Body.effect_row.unsupported_shapes == 0 and
+            Body.source_map.entries.len == 1 and
+            Body.source_map.entries[0].disposition == .blocked and
+            Body.source_map.entries[0].source_ref.eql(blocked_shape_ref) and
+            Body.source_map.entries[0].blocker_ref.?.eql(Evidence.refForBoundaryClosureBlocker(closure_blocker));
+    };
+    try std.testing.expect(cycle_blocker_not_shape);
 
     const blocked_plan_map_bound = comptime blk: {
         @setEvalBranchQuota(200_000);
@@ -3426,6 +4257,8 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .selected_semantic_body = .boundary_program,
             .selected_provider_program_ref = blocked_program_ref,
             .selected_provider_program_mapping_fingerprint = 0xE1D2_2301,
+            .selected_provider_program_request_mapping_tag = "payload_to_args",
+            .selected_provider_program_result_mapping_tag = "result_to_resume",
             .selected_provider_program_effect_shape_count = 0,
             .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
             .blockers = &.{plan_blocker},
@@ -3499,6 +4332,49 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
     };
     try std.testing.expect(wildcard_world_port_matches_residual_site);
 
+    const direct_world_port_source_site = comptime blk: {
+        @setEvalBranchQuota(200_000);
+        const source_site_index = closure_approval_request.index + 7;
+        const direct_shape = Closure.EffectShape.init(.{
+            .program_label = "direct-world-port-source",
+            .kind = .operation,
+            .site_index = source_site_index,
+            .protocol_label = "approval",
+            .protocol_op_fingerprint = closure_approval_request.fingerprint,
+        });
+        const direct_port = Closure.WorldPort.init(.{
+            .label = "direct-world-port",
+            .kind = .test_fixture,
+            .effect_shape_ref = direct_shape.evidenceRef(),
+            .supported_protocol_labels = &.{"approval"},
+            .supported_site_indexes = &.{ source_site_index, closure_approval_request.index },
+            .supported_protocol_op_fingerprints = &.{closure_approval_request.fingerprint},
+        });
+        const direct_graph = Closure.Graph.init("direct-world-port-source-site-graph", &.{}, &.{}, &.{});
+        const direct_report = Closure.Report.init(.{
+            .graph_fingerprint = direct_graph.fingerprint,
+            .root_program_refs = &.{source_ref},
+            .effect_shape_count = 1,
+            .world_port_refs = &.{direct_port.evidenceRef()},
+            .open_world_port_count = 1,
+        });
+        const direct_certificate = Closure.Certificate.init(direct_report, direct_graph, Closure.Policy.auditOnly(), &.{});
+        const direct_input = Elaboration.Input{
+            .closure_graph = direct_graph,
+            .closure_report = direct_report,
+            .closure_certificate = direct_certificate,
+            .source_program_ref = source_ref,
+            .world_ports = &.{direct_port},
+            .policy = Elaboration.Policy.auditOnly(),
+        };
+        const Body = Elaboration.FromResidual(direct_input, closure_source_program, .{ .label = "direct-world-port-source-site-body" });
+        break :blk Body.source_map.entries.len == 1 and
+            Body.source_map.entries[0].source_ref.eql(direct_shape.evidenceRef()) and
+            Body.source_map.entries[0].source_site_index.? == source_site_index and
+            Body.source_map.entries[0].residual_site_index.? == closure_approval_request.index;
+    };
+    try std.testing.expect(direct_world_port_source_site);
+
     const shape_only_plan_port_lowers = comptime blk: {
         @setEvalBranchQuota(200_000);
         const shape_only_shape = Closure.EffectShape.init(.{
@@ -3540,13 +4416,122 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .policy = Elaboration.Policy.auditOnly(),
         };
         const Body = Elaboration.FromResidual(shape_only_input, closure_source_program, .{ .label = "shape-only-static-plan-world-body" });
+        const missing_morphism_ref = Evidence.refFor(Evidence.domains.morphism_offer, 0xE1D2_8301, .{ .label = "missing-shape-only-morphism" });
+        const missing_proof_plan = Closure.StaticTreatyPlan.init(.{
+            .label = "shape-only-static-plan-missing-proof",
+            .source_shape = shape_only_shape,
+            .selected_semantic_body = .declarative,
+            .selected_morphism_ref = missing_morphism_ref,
+            .selected_morphism_semantic_body = .declarative,
+            .selected_morphism_target_shape_ref = shape_only_shape.evidenceRef(),
+            .selected_morphism_target_shape = shape_only_shape,
+        });
+        var missing_proof_entries = [_]Elaboration.SourceMap.Entry{Body.source_map.entries[0]};
+        missing_proof_entries[0].static_treaty_plan_ref = missing_proof_plan.evidenceRef();
+        missing_proof_entries[0].source_ref = shape_only_shape.evidenceRef();
+        const missing_proof_map = Elaboration.SourceMap.init("shape-only-missing-proof-map", missing_proof_entries[0..], &.{});
+        const missing_proof_trace_entries = [_]Elaboration.TraceMap.Entry{.{
+            .source_ref = shape_only_shape.evidenceRef(),
+            .residual_ref = shape_only_port.evidenceRef(),
+            .trace_label = missing_proof_entries[0].label,
+        }};
+        const missing_proof_trace = Elaboration.TraceMap.init("shape-only-missing-proof-trace", missing_proof_trace_entries[0..]);
+        const missing_proof_dependencies = [_]Evidence.Dependency{
+            .{ .role = .closure_certificate, .ref = shape_only_certificate.evidenceRef() },
+            .{ .role = .elaboration_source_map, .ref = missing_proof_map.evidenceRef() },
+            .{ .role = .elaboration_trace_map, .ref = missing_proof_trace.evidenceRef() },
+            .{ .role = .normal_form, .ref = Body.normal_form.evidenceRef() },
+        };
+        const missing_proof_certificate = Elaboration.Certificate.init(.{
+            .elaborated_program_label = closure_source_program.contract.label,
+            .source_program_ref = source_ref,
+            .residual_program_ref = Body.certificate.residual_program_ref,
+            .closure_certificate_ref = shape_only_certificate.evidenceRef(),
+            .closure_graph_ref = shape_only_graph.evidenceRef(),
+            .closure_report_ref = shape_only_report.evidenceRef(),
+            .source_map_ref = missing_proof_map.evidenceRef(),
+            .effect_row_ref = Body.effect_row.evidenceRef(),
+            .trace_map_ref = missing_proof_trace.evidenceRef(),
+            .normal_form_ref = Body.normal_form.evidenceRef(),
+            .policy = shape_only_input.policy,
+            .normal_form = Body.normal_form.kind,
+            .selected_static_treaty_plan_refs = &.{missing_proof_plan.evidenceRef()},
+            .world_port_refs = &.{shape_only_port.evidenceRef()},
+            .residual_world_port_refs = &.{shape_only_port.evidenceRef()},
+            .summary_counts = Body.certificate.summary_counts,
+            .dependencies = missing_proof_dependencies[0..],
+        });
+        const missing_proof_rejected = reject: {
+            missing_proof_certificate.check(
+                shape_only_input.policy,
+                shape_only_graph.evidenceRef(),
+                shape_only_report.evidenceRef(),
+                shape_only_certificate.evidenceRef(),
+                missing_proof_map,
+                Body.effect_row,
+                missing_proof_trace,
+                Body.normal_form,
+                &.{missing_proof_plan},
+                &.{shape_only_port},
+            ) catch |err| break :reject err == error.BoundaryElaborationCertificateMismatch;
+            break :reject false;
+        };
         break :blk Body.source_map.entries.len == 1 and
             Body.source_map.entries[0].disposition == .world_port_lowered and
             Body.source_map.entries[0].world_port_ref.?.eql(shape_only_port.evidenceRef()) and
             Body.effect_row.world_ports == 1 and
-            Body.normal_form.kind == .world_ports_only;
+            Body.normal_form.kind == .world_ports_only and
+            missing_proof_rejected;
     };
     try std.testing.expect(shape_only_plan_port_lowers);
+
+    const wildcard_shape_port_lowers = comptime blk: {
+        @setEvalBranchQuota(200_000);
+        const shape_only_shape = Closure.EffectShape.init(.{
+            .program_label = "unbound-shape-only-static-plan-source",
+            .kind = .operation,
+            .site_index = closure_approval_request.index,
+            .protocol_label = "approval",
+            .protocol_op_fingerprint = closure_approval_request.fingerprint,
+        });
+        const shape_only_plan = Closure.StaticTreatyPlan.init(.{
+            .label = "unbound-shape-only-static-plan",
+            .source_shape = shape_only_shape,
+            .selected_semantic_body = .declarative,
+        });
+        const broad_port = Closure.WorldPort.init(.{
+            .label = "unbound-shape-only-static-plan-world-port",
+            .kind = .test_fixture,
+            .supported_protocol_labels = &.{"approval"},
+            .supported_site_indexes = &.{closure_approval_request.index},
+            .supported_protocol_op_fingerprints = &.{closure_approval_request.fingerprint},
+        });
+        const shape_only_graph = Closure.Graph.init("unbound-shape-only-static-plan-world-graph", &.{}, &.{}, &.{});
+        const shape_only_report = Closure.Report.init(.{
+            .graph_fingerprint = shape_only_graph.fingerprint,
+            .root_program_refs = &.{source_ref},
+            .effect_shape_count = 1,
+            .world_port_refs = &.{broad_port.evidenceRef()},
+            .open_world_port_count = 1,
+        });
+        const shape_only_certificate = Closure.Certificate.init(shape_only_report, shape_only_graph, Closure.Policy.auditOnly(), &.{shape_only_plan.evidenceRef()});
+        const shape_only_input = Elaboration.Input{
+            .closure_graph = shape_only_graph,
+            .closure_report = shape_only_report,
+            .closure_certificate = shape_only_certificate,
+            .static_treaty_plans = &.{shape_only_plan},
+            .source_program_ref = source_ref,
+            .world_ports = &.{broad_port},
+            .policy = Elaboration.Policy.auditOnly(),
+        };
+        const Body = Elaboration.FromResidual(shape_only_input, closure_source_program, .{ .label = "wildcard-shape-only-static-plan-world-body" });
+        break :blk Body.source_map.entries.len == 1 and
+            Body.source_map.entries[0].disposition == .world_port_lowered and
+            Body.source_map.entries[0].world_port_ref.?.eql(broad_port.evidenceRef()) and
+            Body.effect_row.world_ports == 1 and
+            Body.normal_form.kind == .world_ports_only;
+    };
+    try std.testing.expect(wildcard_shape_port_lowers);
 
     const static_direct_blocker_bound = comptime blk: {
         @setEvalBranchQuota(200_000);
@@ -3615,6 +4600,71 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             Body.effect_row.blockers == 1;
     };
     try std.testing.expect(static_direct_blocker_bound);
+
+    const dup_direct_blocker_once = comptime blk: {
+        @setEvalBranchQuota(200_000);
+        const shape = Closure.EffectShape.init(.{
+            .program_label = "duplicate-direct-blocker-source",
+            .kind = .operation,
+            .site_index = closure_approval_request.index,
+            .protocol_label = "approval",
+            .protocol_op_fingerprint = closure_approval_request.fingerprint,
+        });
+        const plan = Closure.StaticTreatyPlan.init(.{
+            .label = "duplicate-direct-blocker-plan",
+            .source_shape = shape,
+            .selected_semantic_body = .declarative,
+        });
+        const port = Closure.WorldPort.init(.{
+            .label = "duplicate-direct-blocker-world-port",
+            .kind = .test_fixture,
+            .effect_shape_ref = shape.evidenceRef(),
+            .supported_protocol_labels = &.{"approval"},
+            .supported_site_indexes = &.{closure_approval_request.index},
+            .supported_protocol_op_fingerprints = &.{closure_approval_request.fingerprint},
+        });
+        const duplicate_blocker = Evidence.boundaryClosureBlocker(.{
+            .tag = .provider_program_contract_missing,
+            .subject = shape.evidenceRef(),
+            .summary = "report-level blocker duplicates planned source shape",
+        });
+        const dup_graph = Closure.Graph.init("duplicate-direct-blocker-graph", &.{}, &.{}, &.{});
+        const dup_report = Closure.Report.init(.{
+            .graph_fingerprint = dup_graph.fingerprint,
+            .root_program_refs = &.{source_ref},
+            .effect_shape_count = 1,
+            .world_port_refs = &.{port.evidenceRef()},
+            .open_world_port_count = 1,
+            .blockers = &.{duplicate_blocker},
+        });
+        const dup_certificate = Closure.Certificate.init(dup_report, dup_graph, Closure.Policy.auditOnly(), &.{plan.evidenceRef()});
+        const dup_input = Elaboration.Input{
+            .closure_graph = dup_graph,
+            .closure_report = dup_report,
+            .closure_certificate = dup_certificate,
+            .static_treaty_plans = &.{plan},
+            .source_program_ref = source_ref,
+            .world_ports = &.{port},
+            .policy = Elaboration.Policy.auditOnly(),
+        };
+        const Body = Elaboration.FromResidual(dup_input, closure_source_program, .{ .label = "duplicate-direct-blocker-body" });
+        Body.certificate.check(
+            dup_input.policy,
+            dup_graph.evidenceRef(),
+            dup_report.evidenceRef(),
+            dup_certificate.evidenceRef(),
+            Body.source_map,
+            Body.effect_row,
+            Body.trace_map,
+            Body.normal_form,
+            &.{plan},
+            &.{port},
+        ) catch break :blk false;
+        break :blk Body.source_map.entries.len == 2 and
+            Body.effect_row.source_effect_shapes == 1 and
+            Body.effect_row.blockers == 1;
+    };
+    try std.testing.expect(dup_direct_blocker_once);
 
     const morphism_shape_port_targets = comptime blk: {
         @setEvalBranchQuota(200_000);
@@ -3927,6 +4977,120 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             Body.source_map.worldPortForResidualSite(second_site.index).?.eql(second_port.evidenceRef());
     };
     try std.testing.expect(site_index_ports_ok);
+
+    const multi_site_descriptor_ok = comptime blk: {
+        @setEvalBranchQuota(200_000);
+        const MultiClosure = closure_multi_yield_program.BoundaryClosure;
+        const MultiElaboration = MultiClosure.Elaboration;
+        const first_site = closure_multi_yield_program.contract.session.yield_sites[0];
+        const second_site = closure_multi_yield_program.contract.session.yield_sites[1];
+        const multi_source_ref = closure_multi_yield_program.Evidence.refFor(
+            closure_multi_yield_program.Evidence.domains.program_plan,
+            closure_multi_yield_program.compiled_plan.hash(),
+            .{ .label = closure_multi_yield_program.contract.label },
+        );
+        const shared_port = MultiClosure.WorldPort.init(.{
+            .label = "shared-multi-yield-world-port",
+            .kind = .test_fixture,
+            .supported_protocol_labels = &.{"approval"},
+            .supported_site_indexes = &.{ first_site.index, second_site.index },
+        });
+        const shared_port_refs = [_]Evidence.Ref{ shared_port.evidenceRef(), shared_port.evidenceRef() };
+        const multi_graph = MultiClosure.Graph.init("shared-yield-world-port-graph", &.{}, &.{}, &.{});
+        const multi_report = MultiClosure.Report.init(.{
+            .graph_fingerprint = multi_graph.fingerprint,
+            .root_program_refs = &.{multi_source_ref},
+            .effect_shape_count = 2,
+            .world_port_refs = shared_port_refs[0..],
+            .open_world_port_count = 2,
+        });
+        const multi_certificate = MultiClosure.Certificate.init(multi_report, multi_graph, MultiClosure.Policy.auditOnly(), &.{});
+        const multi_input = MultiElaboration.Input{
+            .closure_graph = multi_graph,
+            .closure_report = multi_report,
+            .closure_certificate = multi_certificate,
+            .source_program_ref = multi_source_ref,
+            .world_ports = &.{shared_port},
+            .policy = MultiElaboration.Policy.auditOnly(),
+        };
+        const Body = MultiElaboration.FromResidual(multi_input, closure_multi_yield_program, .{ .label = "shared-yield-world-port-body" });
+        break :blk Body.source_map.worldPortForResidualSite(first_site.index).?.eql(shared_port.evidenceRef()) and
+            Body.source_map.worldPortForResidualSite(second_site.index).?.eql(shared_port.evidenceRef());
+    };
+    try std.testing.expect(multi_site_descriptor_ok);
+
+    const planned_shared_world_port_ok = comptime blk: {
+        @setEvalBranchQuota(200_000);
+        const MultiClosure = closure_multi_yield_program.BoundaryClosure;
+        const MultiElaboration = MultiClosure.Elaboration;
+        const MultiEvidence = closure_multi_yield_program.Evidence;
+        const first_site = closure_multi_yield_program.contract.session.yield_sites[0];
+        const second_site = closure_multi_yield_program.contract.session.yield_sites[1];
+        const multi_source_ref = MultiEvidence.refFor(
+            MultiEvidence.domains.program_plan,
+            closure_multi_yield_program.compiled_plan.hash(),
+            .{ .label = closure_multi_yield_program.contract.label },
+        );
+        const intrinsic_ref = MultiEvidence.refFor(MultiEvidence.domains.host_intrinsic, 0xE1D2_2A01, .{ .label = "shared-planned-world-port-intrinsic" });
+        const first_shape = MultiClosure.EffectShape.init(.{
+            .program_label = closure_multi_yield_program.contract.label,
+            .plan_hash = closure_multi_yield_program.compiled_plan.hash(),
+            .kind = .operation,
+            .site_index = first_site.index,
+            .protocol_label = "approval",
+        });
+        const second_shape = MultiClosure.EffectShape.init(.{
+            .program_label = closure_multi_yield_program.contract.label,
+            .plan_hash = closure_multi_yield_program.compiled_plan.hash(),
+            .kind = .operation,
+            .site_index = second_site.index,
+            .protocol_label = "approval",
+        });
+        const first_plan = MultiClosure.StaticTreatyPlan.init(.{
+            .label = "first-shared-world-port-plan",
+            .source_shape = first_shape,
+            .selected_semantic_body = .host_intrinsic,
+            .selected_intrinsic_ref = intrinsic_ref,
+            .host_intrinsic = true,
+        });
+        const second_plan = MultiClosure.StaticTreatyPlan.init(.{
+            .label = "second-shared-world-port-plan",
+            .source_shape = second_shape,
+            .selected_semantic_body = .host_intrinsic,
+            .selected_intrinsic_ref = intrinsic_ref,
+            .host_intrinsic = true,
+        });
+        const shared_port = MultiClosure.WorldPort.init(.{
+            .label = "shared-planned-world-port",
+            .kind = .test_fixture,
+            .exposed_intrinsic_ref = intrinsic_ref,
+            .supported_protocol_labels = &.{"approval"},
+            .supported_site_indexes = &.{ first_site.index, second_site.index },
+        });
+        const shared_port_refs = [_]MultiEvidence.Ref{ shared_port.evidenceRef(), shared_port.evidenceRef() };
+        const multi_graph = MultiClosure.Graph.init("shared-planned-world-port-graph", &.{}, &.{}, &.{});
+        const multi_report = MultiClosure.Report.init(.{
+            .graph_fingerprint = multi_graph.fingerprint,
+            .root_program_refs = &.{multi_source_ref},
+            .effect_shape_count = 2,
+            .world_port_refs = shared_port_refs[0..],
+            .open_world_port_count = 2,
+        });
+        const multi_certificate = MultiClosure.Certificate.init(multi_report, multi_graph, MultiClosure.Policy.auditOnly(), &.{ first_plan.evidenceRef(), second_plan.evidenceRef() });
+        const multi_input = MultiElaboration.Input{
+            .closure_graph = multi_graph,
+            .closure_report = multi_report,
+            .closure_certificate = multi_certificate,
+            .static_treaty_plans = &.{ first_plan, second_plan },
+            .source_program_ref = multi_source_ref,
+            .world_ports = &.{shared_port},
+            .policy = MultiElaboration.Policy.auditOnly(),
+        };
+        const Body = MultiElaboration.FromResidual(multi_input, closure_multi_yield_program, .{ .label = "shared-planned-world-port-body" });
+        break :blk Body.source_map.worldPortForResidualSite(first_site.index).?.eql(shared_port.evidenceRef()) and
+            Body.source_map.worldPortForResidualSite(second_site.index).?.eql(shared_port.evidenceRef());
+    };
+    try std.testing.expect(planned_shared_world_port_ok);
 
     const merged_world_port_site = comptime blk: {
         @setEvalBranchQuota(200_000);
@@ -7080,6 +8244,33 @@ test "static treaty planner matches provider shape without request bytes" {
     try std.testing.expect(!unallowlisted_morphism_plan.closed());
     try std.testing.expect(unallowlisted_morphism_plan.selected_morphism_ref == null);
     const target_shape_response_refs = [_]Evidence.BoundaryValueRef{Evidence.BoundaryValueRef.fromValueRef(morphism_target_response_ref)};
+    const morphism_target_shape_without_responses = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "evidence-test",
+        .plan_label = "evidence-test-plan",
+        .plan_hash = 1,
+        .kind = .operation,
+        .site_index = site_index,
+        .site_fingerprint = protocol_op_fingerprint,
+        .name = "approve",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(response_ref),
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = target_protocol_op_fingerprint,
+        .usage_summary = "copyable",
+    });
+    var selected_target_response_refs = [_]Evidence.BoundaryValueRef{.{ .codec = "" }} ** 3;
+    selected_target_response_refs[0] = target_shape_response_refs[0];
+    const selected_response_ref_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = "approval-morphism-target-response-ref-plan",
+        .source_shape = shape,
+        .selected_morphism_target_shape = morphism_target_shape_without_responses,
+        .selected_morphism_target_response_ref_count = 1,
+        .selected_morphism_target_response_refs = selected_target_response_refs,
+    });
+    const selected_response_ref_witness = selected_response_ref_plan.morphismTargetShapeWitness().?;
+    try std.testing.expectEqual(selected_response_ref_witness.computeFingerprint(), selected_response_ref_witness.fingerprint);
+    try std.testing.expect(!selected_response_ref_witness.evidenceRef().eql(morphism_target_shape_without_responses.evidenceRef()));
     const morphism_target_shape = Evidence.BoundaryEffectShape.init(.{
         .program_label = "evidence-test",
         .plan_label = "evidence-test-plan",
@@ -9268,6 +10459,8 @@ test "boundary closure traversal closes a provider-backed shape" {
         .selected_semantic_body = .boundary_program,
         .selected_provider_program_ref = program_backed_ref,
         .selected_provider_program_mapping_fingerprint = 0xBACCED01,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
         .selected_provider_program_effect_shape_count = 1,
         .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{nested_shape}),
     });
@@ -9280,7 +10473,7 @@ test "boundary closure traversal closes a provider-backed shape" {
         .selected_semantic_body = .declarative,
     });
     const program_backed_plan_refs = [_]Evidence.Ref{ program_backed_plan.evidenceRef(), nested_plan.evidenceRef() };
-    const program_backed_mapping_ref = Evidence.refForProviderProgramMapping(program_backed_plan.selected_provider_program_mapping_fingerprint.?);
+    const program_backed_mapping_ref = Evidence.refForProviderProgramMapping(program_backed_plan.selected_provider_program_mapping_support_fingerprint.?);
     const program_backed_nodes = [_]Closure.Graph.Node{
         .{ .kind = .operation_site, .ref = shape.evidenceRef(), .label = shape.name },
         .{ .kind = .operation_site, .ref = nested_shape.evidenceRef(), .label = nested_shape.name },
@@ -9416,6 +10609,8 @@ test "boundary closure traversal closes a provider-backed shape" {
         .selected_semantic_body = .boundary_program,
         .selected_provider_program_ref = program_backed_ref,
         .selected_provider_program_mapping_fingerprint = 0xBACCED02,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
         .selected_provider_program_effect_shape_count = 1,
         .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{nested_shape}),
     });
@@ -9444,6 +10639,47 @@ test "boundary closure traversal closes a provider-backed shape" {
     try std.testing.expectError(
         error.BoundaryClosureCertificateMismatch,
         forged_mapping_certificate.check(forged_mapping_graph, forged_mapping_report, program_backed_policy, forged_mapping_plans[0..]),
+    );
+    const forged_offer_ref = Evidence.refFor(Evidence.domains.provider_offer, 0xE75A_0A90, .{ .label = "alternate-program-backed-offer" });
+    const forged_offer_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = program_backed_plan.label,
+        .source_shape = shape,
+        .selected_provider_offer_ref = forged_offer_ref,
+        .selected_provider_ref = provider.evidenceRef(),
+        .selected_capability_ref = capability.evidenceRef(),
+        .selected_semantic_body = .boundary_program,
+        .selected_provider_program_ref = program_backed_ref,
+        .selected_provider_program_mapping_fingerprint = program_backed_plan.selected_provider_program_mapping_fingerprint.?,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
+        .selected_provider_program_effect_shape_count = 1,
+        .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{nested_shape}),
+    });
+    const forged_offer_refs = [_]Evidence.Ref{ forged_offer_plan.evidenceRef(), nested_plan.evidenceRef() };
+    const forged_offer_nodes = try allocator.dupe(Closure.Graph.Node, program_backed_nodes[0..]);
+    defer allocator.free(forged_offer_nodes);
+    for (forged_offer_nodes) |*node| {
+        if (node.ref.eql(program_backed_plan.evidenceRef())) node.ref = forged_offer_plan.evidenceRef();
+    }
+    const forged_offer_edges = try allocator.dupe(Closure.Graph.Edge, program_backed_edges[0..]);
+    defer allocator.free(forged_offer_edges);
+    for (forged_offer_edges) |*edge| {
+        if (edge.to.eql(program_backed_plan.evidenceRef())) edge.to = forged_offer_plan.evidenceRef();
+    }
+    const forged_offer_graph = Closure.Graph.init("forged-provider-program-offer-support", forged_offer_nodes, forged_offer_edges, &.{});
+    var forged_offer_report = program_backed_report;
+    forged_offer_report.graph_fingerprint = forged_offer_graph.fingerprint;
+    forged_offer_report.report_fingerprint = forged_offer_report.computeFingerprint();
+    const forged_offer_certificate = Evidence.BoundaryClosureCertificate.init(
+        forged_offer_report,
+        forged_offer_graph,
+        program_backed_policy,
+        forged_offer_refs[0..],
+    );
+    const forged_offer_plans = [_]Evidence.BoundaryStaticTreatyPlan{ forged_offer_plan, nested_plan };
+    try std.testing.expectError(
+        error.BoundaryClosureCertificateMismatch,
+        forged_offer_certificate.check(forged_offer_graph, forged_offer_report, program_backed_policy, forged_offer_plans[0..]),
     );
     const extra_mapping_ref = Evidence.refForProviderProgramMapping(0xE75A_0A91);
     const extra_mapping_nodes = try allocator.alloc(Closure.Graph.Node, program_backed_nodes.len + 1);
@@ -9516,6 +10752,8 @@ test "boundary closure traversal closes a provider-backed shape" {
         .selected_semantic_body = .boundary_program,
         .selected_provider_program_ref = program_backed_ref,
         .selected_provider_program_mapping_fingerprint = program_backed_plan.selected_provider_program_mapping_fingerprint,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
         .selected_provider_program_effect_shape_count = 2,
         .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{ shape, nested_shape }),
     });
@@ -9556,6 +10794,8 @@ test "boundary closure traversal closes a provider-backed shape" {
         .selected_semantic_body = .boundary_program,
         .selected_provider_program_ref = program_backed_ref,
         .selected_provider_program_mapping_fingerprint = program_backed_plan.selected_provider_program_mapping_fingerprint,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
         .selected_provider_program_effect_shape_count = 2,
         .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{ nested_shape, nested_shape }),
     });
@@ -9899,7 +11139,9 @@ test "boundary closure traversal closes a provider-backed shape" {
     cycle_shape_set_builder.fieldUsize("shape_count", 1);
     cycle_shape_set_builder.fieldRef("shape", cycle_nested_shape_ref);
     const cycle_shape_set_fingerprint = cycle_shape_set_builder.finish();
-    const cycle_mapping_ref = Evidence.refForProviderProgramMapping(0xC1C1E3);
+    const cycle_provider_ref = Evidence.refFor(Evidence.domains.provider_manifest, 0xC1C1E1, .{ .label = "cycle-provider" });
+    const cycle_offer_ref = Evidence.refFor(Evidence.domains.provider_offer, 0xC1C1E2, .{ .label = "cycle-offer" });
+    const cycle_capability_ref = Evidence.refFor(Evidence.domains.capability, 0xC1C1E4, .{ .label = "cycle-capability" });
     const cycle_closure_blocker = Evidence.BoundaryClosureBlocker{
         .tag = .cycle_detected,
         .subject = cycle_program_ref,
@@ -9909,19 +11151,30 @@ test "boundary closure traversal closes a provider-backed shape" {
         .label = "cycle-plan",
         .source_shape = cycle_shape,
         .selected_semantic_body = .boundary_program,
+        .selected_provider_ref = cycle_provider_ref,
+        .selected_provider_offer_ref = cycle_offer_ref,
+        .selected_capability_ref = cycle_capability_ref,
         .selected_provider_program_ref = cycle_program_ref,
         .selected_provider_program_mapping_fingerprint = 0xC1C1E3,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
         .selected_provider_program_effect_shape_count = 1,
         .selected_provider_program_effect_shape_fingerprint = cycle_shape_set_fingerprint,
         .blockers = &.{cycle_closure_blocker},
     });
     const cycle_plan_ref = cycle_plan.evidenceRef();
+    const cycle_mapping_ref = Evidence.refForProviderProgramMapping(cycle_plan.selected_provider_program_mapping_support_fingerprint.?);
     const cycle_nested_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
         .label = "cycle-nested-plan",
         .source_shape = cycle_nested_shape,
         .selected_semantic_body = .boundary_program,
+        .selected_provider_ref = cycle_provider_ref,
+        .selected_provider_offer_ref = cycle_offer_ref,
+        .selected_capability_ref = cycle_capability_ref,
         .selected_provider_program_ref = cycle_program_ref,
         .selected_provider_program_mapping_fingerprint = 0xC1C1E3,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
         .selected_provider_program_effect_shape_count = 1,
         .selected_provider_program_effect_shape_fingerprint = cycle_shape_set_fingerprint,
         .blockers = &.{cycle_closure_blocker},
@@ -9932,6 +11185,9 @@ test "boundary closure traversal closes a provider-backed shape" {
     const cycle_nodes = [_]Evidence.BoundaryGraph.Node{
         .{ .kind = .operation_site, .ref = cycle_shape_ref, .label = "cycle shape" },
         .{ .kind = .operation_site, .ref = cycle_nested_shape_ref, .label = "cycle nested shape" },
+        .{ .kind = .provider_manifest, .ref = cycle_provider_ref, .label = "cycle provider" },
+        .{ .kind = .provider_offer, .ref = cycle_offer_ref, .label = "cycle offer" },
+        .{ .kind = .capability_grant, .ref = cycle_capability_ref, .label = "cycle capability" },
         .{ .kind = .provider_program, .ref = cycle_program_ref, .label = "provider program" },
         .{ .kind = .provider_program_mapping, .ref = cycle_mapping_ref, .label = "provider program mapping" },
         .{ .kind = .treaty_shape_plan, .ref = cycle_plan_ref, .label = "static treaty plan" },
@@ -9941,6 +11197,11 @@ test "boundary closure traversal closes a provider-backed shape" {
     const cycle_edges = [_]Evidence.BoundaryGraph.Edge{
         .{ .kind = .treaty_planned, .from = cycle_shape_ref, .to = cycle_plan_ref },
         .{ .kind = .treaty_planned, .from = cycle_nested_shape_ref, .to = cycle_nested_plan_ref },
+        .{ .kind = .handled_by_provider, .from = cycle_shape_ref, .to = cycle_offer_ref },
+        .{ .kind = .handled_by_provider, .from = cycle_nested_shape_ref, .to = cycle_offer_ref },
+        .{ .kind = .provider_advertises_offer, .from = cycle_provider_ref, .to = cycle_offer_ref },
+        .{ .kind = .authorized_by_capability, .from = cycle_shape_ref, .to = cycle_capability_ref },
+        .{ .kind = .authorized_by_capability, .from = cycle_nested_shape_ref, .to = cycle_capability_ref },
         .{ .kind = .provider_program_mapped_by, .from = cycle_program_ref, .to = cycle_mapping_ref },
         .{ .kind = .provider_program_yields, .from = cycle_program_ref, .to = cycle_nested_shape_ref },
         .{ .kind = .blocked_by, .from = cycle_program_ref, .to = cycle_blocker_ref },

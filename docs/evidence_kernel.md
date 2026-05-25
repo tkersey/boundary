@@ -85,7 +85,7 @@ Current domains are registered in `Program.Evidence.domains`:
 | `boundary.evidence.defunctionalization_report` | semantic_boundary | - | 1 | no | yes | yes | yes | yes | yes | defunctionalization |
 | `boundary.evidence.defunctionalization_policy` | semantic_boundary | - | 1 | no | yes | yes | yes | yes | yes | intrinsic allowlist |
 | `boundary.evidence.closure.effect_shape` | boundary_closure | - | 1 | no | yes | yes | yes | yes | yes | effect shape |
-| `boundary.evidence.closure.static_treaty_plan` | boundary_closure | - | 1 | no | yes | yes | yes | yes | yes | static treaty |
+| `boundary.evidence.closure.static_treaty_plan` | boundary_closure | - | 2 | no | yes | yes | yes | yes | yes | static treaty |
 | `boundary.evidence.closure.policy` | boundary_closure | - | 1 | no | yes | yes | yes | yes | yes | boundary closure policy |
 | `boundary.evidence.closure.graph` | boundary_closure | - | 1 | no | yes | yes | yes | yes | yes | closure graph |
 | `boundary.evidence.closure.report` | boundary_closure | - | 1 | no | yes | yes | yes | yes | yes | boundary closure |

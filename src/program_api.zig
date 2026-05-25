@@ -1318,7 +1318,7 @@ pub fn program(
         /// Stable format version for Program.Exchange provider offer images.
         pub const exchange_provider_offer_format_version: u32 = Evidence.domains.provider_offer.format_version.?;
         /// Stable format version for Program.Exchange program-backed provider offer images.
-        pub const exchange_provider_program_offer_format_version: u32 = 3;
+        pub const exchange_provider_program_offer_format_version: u32 = 4;
         /// Stable fingerprint version for Program.Exchange provider offer images.
         pub const exchange_provider_offer_fingerprint_version: u32 = Evidence.domains.provider_offer.fingerprint_version;
         /// Stable fingerprint version for Program.Exchange provider harness declarations.
@@ -5727,6 +5727,8 @@ pub fn program(
                 provider_program_mapping_fingerprint: ?u64 = null,
                 provider_program_ref: ?Evidence.Ref = null,
                 provider_program_ref_label: ?[]u8 = null,
+                provider_program_request_mapping: ?RequestToProgramArgs = null,
+                provider_program_result_mapping: ?ProgramResultToProviderOutcome = null,
                 provider_program_effect_shape_count: ?usize = null,
                 provider_program_effect_shape_fingerprint: ?u64 = null,
                 provider_program_mapping_attestation: ?ProviderProgramMappingAttestation = null,
@@ -5757,6 +5759,8 @@ pub fn program(
                     metadata: []const u8 = &.{},
                     provider_program_mapping_fingerprint: ?u64 = null,
                     provider_program_ref: ?Evidence.Ref = null,
+                    provider_program_request_mapping: ?RequestToProgramArgs = null,
+                    provider_program_result_mapping: ?ProgramResultToProviderOutcome = null,
                     provider_program_effect_shape_count: ?usize = null,
                     provider_program_effect_shape_fingerprint: ?u64 = null,
                 };
@@ -5837,6 +5841,8 @@ pub fn program(
                     const program_mapping_fingerprint: ?u64 = if (providerOfferFormatHasProgramMapping(format_version)) try reader.readU64() else null;
                     const program_ref = if (providerOfferFormatHasProgramRef(format_version)) try readProviderProgramRef(allocator, &reader) else @as(DecodedProviderProgramRef, .{ .ref = null, .label = null });
                     errdefer if (program_ref.label) |program_label| allocator.free(program_label);
+                    const program_request_mapping: ?RequestToProgramArgs = if (providerOfferFormatHasProgramMappingTags(format_version)) try readProviderProgramRequestMapping(&reader) else null;
+                    const program_result_mapping: ?ProgramResultToProviderOutcome = if (providerOfferFormatHasProgramMappingTags(format_version)) try readProviderProgramResultMapping(&reader) else null;
                     const effect_shape_count: ?usize = if (providerOfferFormatHasProgramRef(format_version)) try reader.readUsize() else null;
                     const effect_shape_fingerprint: ?u64 = if (providerOfferFormatHasProgramRef(format_version)) try reader.readU64() else null;
                     if (!reader.eof()) return error.ProgramContractViolation;
@@ -5872,6 +5878,8 @@ pub fn program(
                         .provider_program_mapping_fingerprint = program_mapping_fingerprint,
                         .provider_program_ref = program_ref.ref,
                         .provider_program_ref_label = program_ref.label,
+                        .provider_program_request_mapping = program_request_mapping,
+                        .provider_program_result_mapping = program_result_mapping,
                         .provider_program_effect_shape_count = effect_shape_count,
                         .provider_program_effect_shape_fingerprint = effect_shape_fingerprint,
                     };
@@ -5887,10 +5895,14 @@ pub fn program(
                         if (fingerprint == 0) return error.ProgramContractViolation;
                         if (self.format_version == provider_offer_program_format_version) {
                             try validateProviderProgramRef(self.provider_program_ref orelse return error.ProgramContractViolation);
+                            _ = self.provider_program_request_mapping orelse return error.ProgramContractViolation;
+                            _ = self.provider_program_result_mapping orelse return error.ProgramContractViolation;
                             _ = self.provider_program_effect_shape_count orelse return error.ProgramContractViolation;
                             _ = self.provider_program_effect_shape_fingerprint orelse return error.ProgramContractViolation;
                         }
                     } else if (self.provider_program_ref != null) {
+                        return error.ProgramContractViolation;
+                    } else if (self.provider_program_request_mapping != null or self.provider_program_result_mapping != null) {
                         return error.ProgramContractViolation;
                     } else if (self.provider_program_effect_shape_count != null or self.provider_program_effect_shape_fingerprint != null) {
                         return error.ProgramContractViolation;
@@ -8608,6 +8620,8 @@ pub fn program(
                     .metadata = Entry.offer_options.metadata,
                     .provider_program_mapping_fingerprint = if (comptime providerHarnessEntryProgramBacked(Entry)) Entry.provider_program_mapping_fingerprint else null,
                     .provider_program_ref = if (comptime providerHarnessEntryProgramBacked(Entry)) providerHarnessEntryProgramRef(Entry) else null,
+                    .provider_program_request_mapping = if (comptime providerHarnessEntryProgramBacked(Entry)) Entry.request_to_program_args else null,
+                    .provider_program_result_mapping = if (comptime providerHarnessEntryProgramBacked(Entry)) Entry.program_result_to_provider_outcome else null,
                     .provider_program_effect_shape_count = if (comptime providerHarnessEntryProgramBacked(Entry)) providerHarnessEntryProgramEffectShapeCount(Entry) else null,
                     .provider_program_effect_shape_fingerprint = if (comptime providerHarnessEntryProgramBacked(Entry)) providerHarnessEntryProgramEffectShapeFingerprint(Entry) else null,
                 };
@@ -8798,6 +8812,8 @@ pub fn program(
                     .metadata = Entry.offer_options.metadata,
                     .provider_program_mapping_fingerprint = if (comptime providerHarnessEntryProgramBacked(Entry)) Entry.provider_program_mapping_fingerprint else null,
                     .provider_program_ref = if (comptime providerHarnessEntryProgramBacked(Entry)) providerHarnessEntryProgramRef(Entry) else null,
+                    .provider_program_request_mapping = if (comptime providerHarnessEntryProgramBacked(Entry)) Entry.request_to_program_args else null,
+                    .provider_program_result_mapping = if (comptime providerHarnessEntryProgramBacked(Entry)) Entry.program_result_to_provider_outcome else null,
                     .provider_program_effect_shape_count = if (comptime providerHarnessEntryProgramBacked(Entry)) providerHarnessEntryProgramEffectShapeCount(Entry) else null,
                     .provider_program_effect_shape_fingerprint = if (comptime providerHarnessEntryProgramBacked(Entry)) providerHarnessEntryProgramEffectShapeFingerprint(Entry) else null,
                 };
@@ -8829,6 +8845,8 @@ pub fn program(
                     .metadata = offer.metadata,
                     .provider_program_mapping_fingerprint = offer.provider_program_mapping_fingerprint,
                     .provider_program_ref = offer.provider_program_ref,
+                    .provider_program_request_mapping = offer.provider_program_request_mapping,
+                    .provider_program_result_mapping = offer.provider_program_result_mapping,
                     .provider_program_effect_shape_count = offer.provider_program_effect_shape_count,
                     .provider_program_effect_shape_fingerprint = offer.provider_program_effect_shape_fingerprint,
                 };
@@ -13023,9 +13041,13 @@ pub fn program(
                 if (options.provider_program_mapping_fingerprint) |fingerprint| {
                     if (fingerprint == 0) return error.ProgramContractViolation;
                     try validateProviderProgramRef(options.provider_program_ref orelse return error.ProgramContractViolation);
+                    _ = options.provider_program_request_mapping orelse return error.ProgramContractViolation;
+                    _ = options.provider_program_result_mapping orelse return error.ProgramContractViolation;
                     _ = options.provider_program_effect_shape_count orelse return error.ProgramContractViolation;
                     _ = options.provider_program_effect_shape_fingerprint orelse return error.ProgramContractViolation;
                 } else if (options.provider_program_ref != null) {
+                    return error.ProgramContractViolation;
+                } else if (options.provider_program_request_mapping != null or options.provider_program_result_mapping != null) {
                     return error.ProgramContractViolation;
                 } else if (options.provider_program_effect_shape_count != null or options.provider_program_effect_shape_fingerprint != null) {
                     return error.ProgramContractViolation;
@@ -13042,15 +13064,20 @@ pub fn program(
             fn providerOfferFormatSupported(format_version: u32) bool {
                 return format_version == exchange_provider_offer_format_version or
                     format_version == provider_offer_legacy_program_format_version or
+                    format_version == 3 or
                     format_version == provider_offer_program_format_version;
             }
 
             fn providerOfferFormatHasProgramMapping(format_version: u32) bool {
                 return format_version == provider_offer_legacy_program_format_version or
-                    format_version == provider_offer_program_format_version;
+                    providerOfferFormatHasProgramRef(format_version);
             }
 
             fn providerOfferFormatHasProgramRef(format_version: u32) bool {
+                return format_version >= 3 and format_version <= provider_offer_program_format_version;
+            }
+
+            fn providerOfferFormatHasProgramMappingTags(format_version: u32) bool {
                 return format_version == provider_offer_program_format_version;
             }
 
@@ -13087,6 +13114,30 @@ pub fn program(
                 }
             }
 
+            fn writeProviderProgramRequestMapping(writer: *Writer, mapping: RequestToProgramArgs) std.mem.Allocator.Error!void {
+                try writer.writeLenBytes(@tagName(mapping));
+            }
+
+            fn writeProviderProgramResultMapping(writer: *Writer, mapping: ProgramResultToProviderOutcome) std.mem.Allocator.Error!void {
+                try writer.writeLenBytes(@tagName(mapping));
+            }
+
+            fn readProviderProgramRequestMapping(reader: *Reader) Error!RequestToProgramArgs {
+                const tag = try reader.readLenBytes();
+                inline for (std.meta.fields(RequestToProgramArgs)) |field| {
+                    if (std.mem.eql(u8, tag, field.name)) return @enumFromInt(field.value);
+                }
+                return error.ProgramContractViolation;
+            }
+
+            fn readProviderProgramResultMapping(reader: *Reader) Error!ProgramResultToProviderOutcome {
+                const tag = try reader.readLenBytes();
+                inline for (std.meta.fields(ProgramResultToProviderOutcome)) |field| {
+                    if (std.mem.eql(u8, tag, field.name)) return @enumFromInt(field.value);
+                }
+                return error.ProgramContractViolation;
+            }
+
             fn writeProviderOfferPayload(writer: *Writer, options: ProviderOffer.Options) std.mem.Allocator.Error!void {
                 try writer.writeBytes(provider_offer_magic);
                 try writer.writeU32(if (options.provider_program_mapping_fingerprint != null) provider_offer_program_format_version else exchange_provider_offer_format_version);
@@ -13116,6 +13167,8 @@ pub fn program(
                 if (options.provider_program_mapping_fingerprint) |fingerprint| {
                     try writer.writeU64(fingerprint);
                     try writeProviderProgramRef(writer, options.provider_program_ref.?);
+                    try writeProviderProgramRequestMapping(writer, options.provider_program_request_mapping.?);
+                    try writeProviderProgramResultMapping(writer, options.provider_program_result_mapping.?);
                     try writer.writeUsize(options.provider_program_effect_shape_count.?);
                     try writer.writeU64(options.provider_program_effect_shape_fingerprint.?);
                 }
@@ -13193,6 +13246,8 @@ pub fn program(
                     .provider_program_mapping_fingerprint = options.provider_program_mapping_fingerprint,
                     .provider_program_ref = provider_program_ref,
                     .provider_program_ref_label = provider_program_ref_label,
+                    .provider_program_request_mapping = options.provider_program_request_mapping,
+                    .provider_program_result_mapping = options.provider_program_result_mapping,
                     .provider_program_effect_shape_count = options.provider_program_effect_shape_count,
                     .provider_program_effect_shape_fingerprint = options.provider_program_effect_shape_fingerprint,
                     .provider_program_mapping_attestation = provider_program_mapping_attestation,
@@ -13236,9 +13291,20 @@ pub fn program(
                 if (program_mapping_fingerprint != offer.provider_program_mapping_fingerprint) return false;
                 if (providerOfferFormatHasProgramRef(format_version)) {
                     expectProviderProgramRef(&reader, offer.provider_program_ref) catch return false;
+                    if (providerOfferFormatHasProgramMappingTags(format_version)) {
+                        if ((readProviderProgramRequestMapping(&reader) catch return false) != (offer.provider_program_request_mapping orelse return false)) return false;
+                        if ((readProviderProgramResultMapping(&reader) catch return false) != (offer.provider_program_result_mapping orelse return false)) return false;
+                    } else if (offer.provider_program_request_mapping != null or offer.provider_program_result_mapping != null) {
+                        return false;
+                    }
                     if ((reader.readUsize() catch return false) != (offer.provider_program_effect_shape_count orelse return false)) return false;
                     if ((reader.readU64() catch return false) != (offer.provider_program_effect_shape_fingerprint orelse return false)) return false;
                 } else if (offer.provider_program_ref != null) return false;
+                if (!providerOfferFormatHasProgramMappingTags(format_version) and
+                    (offer.provider_program_request_mapping != null or offer.provider_program_result_mapping != null))
+                {
+                    return false;
+                }
                 if (!providerOfferFormatHasProgramRef(format_version) and
                     (offer.provider_program_effect_shape_count != null or offer.provider_program_effect_shape_fingerprint != null))
                 {
