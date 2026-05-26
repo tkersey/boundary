@@ -41,6 +41,13 @@ fn unitPlan() boundary.ir.ProgramPlan {
 const Program = boundary.program("evidence-test", struct {}, struct {
     pub const compiled_plan = unitPlan();
 });
+const nested_unit_program = boundary.program("evidence-nested-unit", struct {}, struct {
+    pub const compiled_plan = unitPlan();
+    pub const nested_with_targets = .{boundary.ir.NestedWithTarget{
+        .metadata = "unit-target",
+        .function_index = 0,
+    }};
+});
 
 const Evidence = Program.Evidence;
 
@@ -440,6 +447,7 @@ test "boundary elaboration foundational refs and certificate evidence are determ
     });
     const source_shape = Closure.EffectShape.init(.{
         .program_label = "source",
+        .plan_hash = source_ref.fingerprint,
         .kind = .operation,
         .site_index = 0,
         .protocol_label = "root",
@@ -513,6 +521,40 @@ test "boundary elaboration foundational refs and certificate evidence are determ
     });
 
     try certificate.check(policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, source_map, effect_row, trace_map, normal_form, static_plans[0..], &.{});
+    const forged_attribution_row = Elaboration.EffectRow.init(.{
+        .label = "strict-elaboration-forged-attribution-row",
+        .source_program_ref = residual_ref,
+        .residual_program_ref = residual_ref,
+        .normal_form = .strict_closed,
+        .source_effect_shapes = 1,
+        .closed_effect_shapes = 1,
+    });
+    const forged_attribution_normal = Elaboration.NormalForm.init("strict-elaboration-forged-attribution-normal-form", .strict_closed, closure_certificate_ref, forged_attribution_row.evidenceRef(), 0);
+    const forged_attribution_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "strict-elaboration",
+        .source_program_ref = residual_ref,
+        .residual_program_ref = residual_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = source_map.evidenceRef(),
+        .effect_row_ref = forged_attribution_row.evidenceRef(),
+        .trace_map_ref = trace_map.evidenceRef(),
+        .normal_form_ref = forged_attribution_normal.evidenceRef(),
+        .policy = policy,
+        .normal_form = .strict_closed,
+        .selected_static_treaty_plan_refs = &.{static_plan_ref},
+        .summary_counts = .{
+            .root_effect_shapes = 1,
+            .internal_routes_elaborated = 1,
+        },
+        .evidence_dependency_refs = dependency_refs[0..],
+        .dependencies = dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryElaborationCertificateMismatch,
+        forged_attribution_certificate.check(policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, source_map, forged_attribution_row, trace_map, forged_attribution_normal, static_plans[0..], &.{}),
+    );
     var no_trace_policy = policy;
     no_trace_policy.emit_trace_map = false;
     const no_trace_certificate = Elaboration.Certificate.init(.{
@@ -1399,6 +1441,37 @@ test "boundary elaboration foundational refs and certificate evidence are determ
         .dependencies = dependencies[0..],
     });
     try valid_blocker_refs.check(unbounded_blocker_policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, partial_source_map, blocker_row, partial_trace_map, blocker_normal_form, partial_static_plans[0..], &.{});
+    const empty_blocker_source_map = Elaboration.SourceMap.init("partial-elaboration-empty-blocker-map", &.{}, &.{});
+    const empty_blocker_trace_map = Elaboration.TraceMap.init("partial-elaboration-empty-blocker-trace", &.{});
+    const unanchored_blocker_row = Elaboration.EffectRow.init(.{
+        .label = "partial-elaboration-unanchored-blocker-row",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .normal_form = .partial_with_blockers,
+        .blockers = 1,
+    });
+    const unanchored_blocker_normal_form = Elaboration.NormalForm.init("partial-elaboration-unanchored-blocker-normal-form", .partial_with_blockers, closure_certificate_ref, unanchored_blocker_row.evidenceRef(), 1);
+    const unanchored_blocker_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "partial-elaboration-unanchored-blocker",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = empty_blocker_source_map.evidenceRef(),
+        .effect_row_ref = unanchored_blocker_row.evidenceRef(),
+        .trace_map_ref = empty_blocker_trace_map.evidenceRef(),
+        .normal_form_ref = unanchored_blocker_normal_form.evidenceRef(),
+        .policy = unbounded_blocker_policy,
+        .normal_form = .partial_with_blockers,
+        .blocker_refs = &.{first_blocker_ref},
+        .summary_counts = .{ .blockers = 1 },
+        .dependencies = dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryElaborationCertificateMismatch,
+        unanchored_blocker_certificate.check(unbounded_blocker_policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, empty_blocker_source_map, unanchored_blocker_row, empty_blocker_trace_map, unanchored_blocker_normal_form, &.{}, &.{}),
+    );
     const direct_shape_blocker = Evidence.BoundaryClosureBlocker{
         .tag = .duplicate_effect_shape,
         .subject = blocked_shape_ref,
@@ -1986,6 +2059,57 @@ test "elaboration certificate source map world port lowering boundary normal for
     const binding_ref = Evidence.refForProviderProgramResidualBinding(binding_plan, residual_ref).?;
     const alias_binding_ref = Evidence.refForProviderProgramResidualBinding(alias_binding_plan, residual_ref).?;
     try std.testing.expect(!binding_ref.eql(alias_binding_ref));
+    const morph_target_shape_a = Closure.EffectShape.init(.{
+        .program_label = "approval.binding.target",
+        .kind = .operation,
+        .site_index = 0,
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = 0xE1B10A,
+    });
+    const morph_target_shape_b = Closure.EffectShape.init(.{
+        .program_label = "approval.binding.target",
+        .kind = .operation,
+        .site_index = 0,
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = 0xE1B10B,
+    });
+    const morphism_ref = Evidence.refFor(Evidence.domains.morphism_offer, 0xE1B10C, .{ .label = "approval.binding.morphism" });
+    const morph_bind_plan_a = Closure.StaticTreatyPlan.init(.{
+        .label = "approval.binding.morphism.a",
+        .source_shape = source_shape,
+        .selected_semantic_body = .boundary_program,
+        .selected_provider_ref = binding_provider_ref,
+        .selected_provider_offer_ref = binding_provider_offer_ref,
+        .selected_provider_program_ref = provider_program_ref,
+        .selected_provider_program_mapping_fingerprint = 0xE1B00A,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
+        .selected_provider_program_effect_shape_count = 0,
+        .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
+        .selected_morphism_ref = morphism_ref,
+        .selected_morphism_target_shape_ref = morph_target_shape_a.evidenceRef(),
+        .selected_morphism_target_shape = morph_target_shape_a,
+    });
+    const morph_bind_plan_b = Closure.StaticTreatyPlan.init(.{
+        .label = "approval.binding.morphism.b",
+        .source_shape = source_shape,
+        .selected_semantic_body = .boundary_program,
+        .selected_provider_ref = binding_provider_ref,
+        .selected_provider_offer_ref = binding_provider_offer_ref,
+        .selected_provider_program_ref = provider_program_ref,
+        .selected_provider_program_mapping_fingerprint = 0xE1B00A,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
+        .selected_provider_program_effect_shape_count = 0,
+        .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
+        .selected_morphism_ref = morphism_ref,
+        .selected_morphism_target_shape_ref = morph_target_shape_b.evidenceRef(),
+        .selected_morphism_target_shape = morph_target_shape_b,
+    });
+    const morph_bind_ref_a = Evidence.refForProviderProgramResidualBinding(morph_bind_plan_a, residual_ref).?;
+    const morph_bind_ref_b = Evidence.refForProviderProgramResidualBinding(morph_bind_plan_b, residual_ref).?;
+    try std.testing.expect(!morph_bind_ref_a.eql(morph_bind_ref_b));
+    try std.testing.expect(!morph_bind_ref_a.eql(binding_ref));
     const provider_program_alias_ref = Evidence.refFor(Evidence.domains.program_plan, provider_program_ref.fingerprint, .{ .label = "approval.provider.alias" });
     var forged_provider_entries = source_entries;
     forged_provider_entries[0].provider_program_ref = provider_program_alias_ref;
@@ -2956,7 +3080,7 @@ test "boundary elaboration input validation rejects duplicate provider proof ref
         .provider_programs = matching_provider_programs[0..],
         .policy = provider_pipeline_policy,
     };
-    try provider_pipeline_input.validate();
+    try std.testing.expectEqual(error.BoundaryElaborationProviderProgramRefMismatch, provider_pipeline_input.validate());
 
     var blocker_policy = Elaboration.Policy.auditOnly();
     blocker_policy.max_blockers = 1;
@@ -3407,6 +3531,31 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
         break :blk Body.certificate.evidenceView().domain == Evidence.domains.boundary_elaboration_certificate.id;
     };
     try std.testing.expect(from_residual_compiles);
+
+    const from_residual_nested_targets = comptime blk: {
+        @setEvalBranchQuota(200_000);
+        const residual_graph = Closure.Graph.init("from-residual-nested-target-graph", &.{}, &.{}, &.{});
+        const residual_report = Closure.Report.init(.{
+            .graph_fingerprint = residual_graph.fingerprint,
+            .root_program_refs = &.{source_ref},
+        });
+        const residual_certificate = Closure.Certificate.init(residual_report, residual_graph, Closure.Policy.auditOnly(), &.{});
+        const residual_input = Elaboration.Input{
+            .closure_graph = residual_graph,
+            .closure_report = residual_report,
+            .closure_certificate = residual_certificate,
+            .source_program_ref = source_ref,
+            .policy = Elaboration.Policy.auditOnly(),
+        };
+        const Body = Elaboration.FromResidual(residual_input, nested_unit_program, .{ .label = "from-residual-nested-target-body" });
+        const Wrapped = boundary.program("from-residual-nested-target", struct {}, Body);
+        break :blk Body.nested_with_targets.len == 1 and
+            Wrapped.contract.has_nested_with_targets and
+            Wrapped.contract.nested_with_targets.len == 1 and
+            std.mem.eql(u8, Wrapped.contract.nested_with_targets[0].metadata, "unit-target") and
+            Wrapped.contract.nested_with_targets[0].function_index == 0;
+    };
+    try std.testing.expect(from_residual_nested_targets);
 
     const no_trace_evidence = comptime blk: {
         @setEvalBranchQuota(200_000);
@@ -4055,7 +4204,10 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
         };
         const Body = Elaboration.FromResidual(blocker_input, Program, .{ .label = "from-residual-blocker-body" });
         break :blk Body.certificate.blocker_refs.len == 1 and
-            Body.certificate.blocker_refs[0].eql(Evidence.refForBoundaryClosureBlocker(closure_blocker));
+            Body.certificate.blocker_refs[0].eql(Evidence.refForBoundaryClosureBlocker(closure_blocker)) and
+            Body.source_map.entries.len == 1 and
+            Body.source_map.entries[0].disposition == .blocked and
+            Body.source_map.entries[0].blocker_ref.?.eql(Evidence.refForBoundaryClosureBlocker(closure_blocker));
     };
     try std.testing.expect(residual_blocker_ref_bound);
 
@@ -4812,6 +4964,20 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .selected_morphism_semantic_body = .pipeline,
             .selected_semantic_body = .declarative,
         });
+        const pipeline_ref = Evidence.refFor(Evidence.domains.pipeline, morphism.pipeline_fingerprint.?, .{ .label = "shape-only-missing-target-pipeline" });
+        const forged_dependencies = [_]Evidence.Dependency{
+            .{ .role = .morphism, .ref = morphism.evidenceRef() },
+            .{ .role = .pipeline, .ref = pipeline_ref },
+        };
+        const forged_morphism_plan = Closure.StaticTreatyPlan.init(.{
+            .label = "morphism-shape-only-forged-target-ref-plan",
+            .source_shape = source_shape,
+            .selected_morphism_ref = morphism.evidenceRef(),
+            .selected_morphism_target_shape_ref = target_shape.evidenceRef(),
+            .selected_morphism_semantic_body = .pipeline,
+            .selected_semantic_body = .declarative,
+            .dependencies = forged_dependencies[0..],
+        });
         const target_port = Closure.WorldPort.init(.{
             .label = "morphism-shape-only-missing-target-port",
             .kind = .test_fixture,
@@ -4839,7 +5005,74 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .policy = Elaboration.Policy.auditOnly(),
         };
         morphism_input.validate() catch |err| break :blk err == error.BoundaryElaborationBlocked;
-        break :blk false;
+        const forged_entries = [_]Elaboration.SourceMap.Entry{.{
+            .source_ref = target_shape.evidenceRef(),
+            .residual_ref = source_ref,
+            .source_site_index = closure_approval_request.index,
+            .residual_site_index = closure_approval_request.index,
+            .static_treaty_plan_ref = forged_morphism_plan.evidenceRef(),
+            .world_port_ref = target_port.evidenceRef(),
+            .disposition = .world_port_lowered,
+            .label = "forged morphism target world port",
+        }};
+        const forged_map = Elaboration.SourceMap.init("morphism-shape-only-forged-target-ref-map", forged_entries[0..], &.{});
+        const forged_trace_entries = [_]Elaboration.TraceMap.Entry{.{
+            .source_ref = target_shape.evidenceRef(),
+            .residual_ref = target_port.evidenceRef(),
+            .trace_label = forged_entries[0].label,
+        }};
+        const forged_trace = Elaboration.TraceMap.init("morphism-shape-only-forged-target-ref-trace", forged_trace_entries[0..]);
+        const forged_row = Elaboration.EffectRow.init(.{
+            .label = "morphism-shape-only-forged-target-ref-row",
+            .source_program_ref = source_ref,
+            .residual_program_ref = source_ref,
+            .normal_form = .world_ports_only,
+            .source_effect_shapes = 1,
+            .world_ports = 1,
+        });
+        const forged_normal_form = Elaboration.NormalForm.init(
+            "morphism-shape-only-forged-target-ref-normal-form",
+            .world_ports_only,
+            morphism_certificate.evidenceRef(),
+            forged_row.evidenceRef(),
+            0,
+        );
+        const forged_certificate = Elaboration.Certificate.init(.{
+            .elaborated_program_label = closure_source_program.contract.label,
+            .source_program_ref = source_ref,
+            .residual_program_ref = source_ref,
+            .closure_certificate_ref = morphism_certificate.evidenceRef(),
+            .closure_graph_ref = morphism_graph.evidenceRef(),
+            .closure_report_ref = morphism_report.evidenceRef(),
+            .source_map_ref = forged_map.evidenceRef(),
+            .effect_row_ref = forged_row.evidenceRef(),
+            .trace_map_ref = forged_trace.evidenceRef(),
+            .normal_form_ref = forged_normal_form.evidenceRef(),
+            .policy = morphism_input.policy,
+            .normal_form = forged_normal_form.kind,
+            .selected_static_treaty_plan_refs = &.{forged_morphism_plan.evidenceRef()},
+            .world_port_refs = &.{target_port.evidenceRef()},
+            .residual_world_port_refs = &.{target_port.evidenceRef()},
+            .summary_counts = .{
+                .world_ports_emitted = 1,
+            },
+        });
+        const forged_target_ref_rejected = reject: {
+            forged_certificate.check(
+                morphism_input.policy,
+                morphism_graph.evidenceRef(),
+                morphism_report.evidenceRef(),
+                morphism_certificate.evidenceRef(),
+                forged_map,
+                forged_row,
+                forged_trace,
+                forged_normal_form,
+                &.{forged_morphism_plan},
+                &.{target_port},
+            ) catch |err| break :reject err == error.BoundaryElaborationCertificateMismatch;
+            break :reject false;
+        };
+        break :blk forged_target_ref_rejected;
     };
     try std.testing.expect(morphism_target_ref_rejected);
 
@@ -5139,12 +5372,16 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .policy = Elaboration.Policy.auditOnly(),
         };
         const Body = Elaboration.FromResidual(world_input, closure_source_program, .{ .label = "planned-world-port-body" });
+        const Wrapped = boundary.program("planned-world-port-wrapped", closure_fixture_handlers, Body);
         break :blk Body.source_map.entries.len == 1 and
             Body.effect_row.source_effect_shapes == 1 and
             Body.effect_row.closed_effect_shapes == 0 and
             Body.source_map.entries[0].source_site_index.? == source_site_index and
             Body.source_map.entries[0].residual_site_index.? == closure_approval_request.index and
-            Body.source_map.worldPortForResidualSite(closure_approval_request.index).?.eql(world_port.evidenceRef());
+            Body.source_map.worldPortForResidualSite(closure_approval_request.index).?.eql(world_port.evidenceRef()) and
+            Wrapped.protocol.operation_site_metadata.len == 1 and
+            Wrapped.protocol.operation_site_metadata[0].semantic_label != null and
+            std.mem.eql(u8, Wrapped.protocol.operation_site_metadata[0].semantic_label.?, "approval.request");
     };
     try std.testing.expect(merged_world_port_site);
 
