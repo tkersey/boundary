@@ -4172,6 +4172,8 @@ pub const BoundaryWorldDispatchTable = struct {
     fingerprint: u64,
     entries: []const Entry = &.{},
 
+    pub const missing_world_port_id: u32 = std.math.maxInt(u32);
+
     pub const Entry = struct {
         residual_site_index: usize,
         residual_site_fingerprint: u64,
@@ -4200,10 +4202,19 @@ pub const BoundaryWorldDispatchTable = struct {
     }
 
     pub fn lookup(self: @This(), residual_site_index: usize) ?u32 {
+        if (residual_site_index < self.entries.len) {
+            const entry = self.entries[residual_site_index];
+            if (entry.residual_site_index == residual_site_index) return worldPortIdOrNull(entry.world_port_id);
+        }
         for (self.entries) |entry| {
-            if (entry.residual_site_index == residual_site_index) return entry.world_port_id;
+            if (entry.residual_site_index == residual_site_index) return worldPortIdOrNull(entry.world_port_id);
         }
         return null;
+    }
+
+    fn worldPortIdOrNull(world_port_id: u32) ?u32 {
+        if (world_port_id == missing_world_port_id) return null;
+        return world_port_id;
     }
 };
 
@@ -4331,6 +4342,24 @@ pub const BoundaryWorldSurface = struct {
     }
 
     pub fn computeFingerprint(self: @This()) u64 {
+        var builder = self.fingerprintBuilderWithoutReplayRecipe();
+        builder.fieldRef("replay_key_recipe", self.replay_key_recipe_ref);
+        return builder.finish();
+    }
+
+    pub fn replayScopeRef(self: @This()) Ref {
+        return refFor(domains.boundary_world_surface, self.computeReplayScopeFingerprint(), .{
+            .format_version = domains.boundary_world_surface.format_version,
+            .label = self.label,
+        });
+    }
+
+    fn computeReplayScopeFingerprint(self: @This()) u64 {
+        var builder = self.fingerprintBuilderWithoutReplayRecipe();
+        return builder.finish();
+    }
+
+    fn fingerprintBuilderWithoutReplayRecipe(self: @This()) FingerprintBuilder {
         var builder = FingerprintBuilder.init(domains.boundary_world_surface);
         builder.fieldU32("format_version", self.surface_format_version);
         builder.fieldBytes("label", self.label);
@@ -4343,10 +4372,9 @@ pub const BoundaryWorldSurface = struct {
         builder.fieldRef("value_table", self.value_table_ref);
         builder.fieldRef("dispatch_table", self.dispatch_table_ref);
         builder.fieldRef("profile", self.profile_ref);
-        builder.fieldRef("replay_key_recipe", self.replay_key_recipe_ref);
         builder.fieldBytes("normal_form", @tagName(self.normal_form));
         builder.fieldUsize("world_port_count", self.world_port_count);
-        return builder.finish();
+        return builder;
     }
 
     pub fn evidenceRef(self: @This()) Ref {
@@ -4466,6 +4494,10 @@ pub const BoundaryTargetCertificate = struct {
         if (self.certificate_format_version != domains.boundary_target_certificate.format_version.?) return error.BoundaryTargetCertificateMismatch;
         if (self.certificate_fingerprint != self.computeFingerprint()) return error.BoundaryTargetCertificateMismatch;
         if (self.policy_fingerprint != policy.fingerprint()) return error.BoundaryTargetPolicyMismatch;
+        if (!targetPolicyEmitsRequiredArtifacts(policy)) return error.BoundaryTargetPolicyMismatch;
+        if (self.elaboration_certificate_ref.domain_id != domains.boundary_elaboration_certificate.id) return error.BoundaryTargetCertificateMismatch;
+        if (self.residual_program_ref.domain_id != domains.program_plan.id) return error.BoundaryTargetCertificateMismatch;
+        if (world_surface.surface_format_version != domains.boundary_world_surface.format_version.?) return error.BoundaryTargetCertificateMismatch;
         if (world_surface.surface_fingerprint != world_surface.computeFingerprint()) return error.BoundaryTargetCertificateMismatch;
         if (port_table.fingerprint != port_table.computeFingerprint()) return error.BoundaryTargetCertificateMismatch;
         if (value_table.fingerprint != value_table.computeFingerprint()) return error.BoundaryTargetCertificateMismatch;
@@ -4473,6 +4505,8 @@ pub const BoundaryTargetCertificate = struct {
         if (profile.fingerprint != profile.computeFingerprint()) return error.BoundaryTargetCertificateMismatch;
         if (replay_key_recipe.fingerprint != replay_key_recipe.computeFingerprint()) return error.BoundaryTargetCertificateMismatch;
         if (evidence_map.fingerprint != evidence_map.computeFingerprint()) return error.BoundaryTargetCertificateMismatch;
+        if (!targetDependenciesMatch(self.dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, self.residual_program_ref, self.elaboration_certificate_ref)) return error.BoundaryTargetCertificateMismatch;
+        if (!targetDependenciesMatch(evidence_map.dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, self.residual_program_ref, self.elaboration_certificate_ref)) return error.BoundaryTargetCertificateMismatch;
         if (!self.world_surface_ref.eql(world_surface.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!self.port_table_ref.eql(port_table.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!self.value_table_ref.eql(value_table.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
@@ -4482,12 +4516,23 @@ pub const BoundaryTargetCertificate = struct {
         if (!self.evidence_map_ref.eql(evidence_map.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!self.elaboration_certificate_ref.eql(world_surface.elaboration_certificate_ref)) return error.BoundaryTargetCertificateMismatch;
         if (!self.residual_program_ref.eql(world_surface.residual_program_ref)) return error.BoundaryTargetCertificateMismatch;
+        if (world_surface.elaboration_certificate_ref.domain_id != domains.boundary_elaboration_certificate.id) return error.BoundaryTargetCertificateMismatch;
+        if (world_surface.residual_program_ref.domain_id != domains.program_plan.id) return error.BoundaryTargetCertificateMismatch;
+        if (world_surface.source_map_ref.domain_id != domains.boundary_elaboration_source_map.id) return error.BoundaryTargetCertificateMismatch;
+        if (world_surface.effect_row_ref.domain_id != domains.boundary_elaboration_effect_row.id) return error.BoundaryTargetCertificateMismatch;
         if (!world_surface.port_table_ref.eql(port_table.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!world_surface.value_table_ref.eql(value_table.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!world_surface.dispatch_table_ref.eql(dispatch_table.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!world_surface.profile_ref.eql(profile.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!world_surface.replay_key_recipe_ref.eql(replay_key_recipe.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
+        if (!replay_key_recipe.surface_ref.eql(world_surface.replayScopeRef())) return error.BoundaryTargetCertificateMismatch;
         if (!targetTablesConform(port_table, value_table, dispatch_table, profile)) return error.BoundaryTargetCertificateMismatch;
+        if (world_surface.world_port_count != profile.world_port_count) return error.BoundaryTargetCertificateMismatch;
+        if (world_surface.world_port_count != port_table.entries.len) return error.BoundaryTargetCertificateMismatch;
+        if (world_surface.world_port_count == 0 and world_surface.normal_form == .world_ports_only) return error.BoundaryTargetCertificateMismatch;
+        if (world_surface.world_port_count != 0 and world_surface.normal_form == .strict_closed) return error.BoundaryTargetCertificateMismatch;
+        if (world_surface.normal_form == .partial_with_blockers and policy.fail_on_unsupported_instruction) return error.BoundaryTargetSurfaceRejected;
+        if (!policy.allow_world_ports and profile.world_port_count != 0) return error.BoundaryTargetSurfaceRejected;
         if (policy.require_no_search_hot_path and !profile.no_search_hot_path) return error.BoundaryTargetSurfaceRejected;
         if (policy.require_bounded_surface and !profile.bounded) return error.BoundaryTargetSurfaceRejected;
         if (profile.world_port_count > policy.max_world_ports or profile.value_descriptor_count > policy.max_value_descriptors) return error.BoundaryTargetSurfaceRejected;
@@ -4507,6 +4552,35 @@ pub const BoundaryTargetCertificate = struct {
     }
 };
 
+fn targetDependenciesMatch(
+    dependencies: []const Dependency,
+    world_surface: BoundaryWorldSurface,
+    port_table: BoundaryWorldPortTable,
+    value_table: BoundaryWorldValueTable,
+    dispatch_table: BoundaryWorldDispatchTable,
+    profile: BoundarySurfaceProfile,
+    replay_key_recipe: BoundaryReplayKeyRecipe,
+    residual_program_ref: Ref,
+    elaboration_certificate_ref: Ref,
+) bool {
+    return dependencies.len == 8 and
+        dependenciesContainRef(dependencies, .elaboration_certificate, elaboration_certificate_ref) and
+        dependenciesContainRef(dependencies, .world_surface, world_surface.evidenceRef()) and
+        dependenciesContainRef(dependencies, .world_port_table, port_table.evidenceRef()) and
+        dependenciesContainRef(dependencies, .world_value_table, value_table.evidenceRef()) and
+        dependenciesContainRef(dependencies, .world_dispatch_table, dispatch_table.evidenceRef()) and
+        dependenciesContainRef(dependencies, .surface_profile, profile.evidenceRef()) and
+        dependenciesContainRef(dependencies, .replay_key_recipe, replay_key_recipe.evidenceRef()) and
+        dependenciesContainRef(dependencies, .residual_program, residual_program_ref);
+}
+
+fn targetPolicyEmitsRequiredArtifacts(policy: BoundaryTargetPolicy) bool {
+    return policy.emit_source_map and
+        policy.emit_trace_map and
+        policy.emit_evidence_map and
+        policy.emit_world_surface;
+}
+
 fn targetTablesConform(
     port_table: BoundaryWorldPortTable,
     value_table: BoundaryWorldValueTable,
@@ -4516,9 +4590,27 @@ fn targetTablesConform(
     if (profile.world_port_count != port_table.entries.len) return false;
     if (profile.value_descriptor_count != value_table.entries.len) return false;
     if (profile.dispatch_entry_count != dispatch_table.entries.len) return false;
-    if (port_table.entries.len != dispatch_table.entries.len) return false;
+    if (dispatch_table.entries.len < port_table.entries.len) return false;
+    if (profile.no_search_hot_path and !targetDispatchTableDense(dispatch_table)) return false;
+    for (dispatch_table.entries, 0..) |dispatch, index| {
+        if (profile.no_search_hot_path and dispatch.residual_site_index != index) return false;
+        if (dispatch.world_port_id == BoundaryWorldDispatchTable.missing_world_port_id) {
+            if (dispatch.residual_site_fingerprint != 0) return false;
+            for (port_table.entries) |port| {
+                if (port.residual_site_index == dispatch.residual_site_index) return false;
+            }
+            continue;
+        }
+        const port_index: usize = @intCast(dispatch.world_port_id);
+        if (port_index >= port_table.entries.len) return false;
+        const port = port_table.entries[port_index];
+        if (dispatch.residual_site_index != port.residual_site_index) return false;
+        if (dispatch.residual_site_fingerprint != port.residual_site_fingerprint) return false;
+    }
     for (port_table.entries, 0..) |port, index| {
-        if (port.world_port_id != index) return false;
+        if (index >= BoundaryWorldDispatchTable.missing_world_port_id) return false;
+        if (port.world_port_id != @as(u32, @intCast(index))) return false;
+        if (port.world_port_ref.domain_id != domains.boundary_world_port.id) return false;
         var dispatch_count: usize = 0;
         dispatch_loop: for (dispatch_table.entries) |dispatch| {
             if (dispatch.residual_site_index != port.residual_site_index) continue :dispatch_loop;
@@ -4527,13 +4619,43 @@ fn targetTablesConform(
             dispatch_count += 1;
         }
         if (dispatch_count != 1) return false;
-        var value_count: usize = 0;
-        for (value_table.entries) |value| {
-            if (value.world_port_id == port.world_port_id) value_count += 1;
+        var has_payload = false;
+        var has_resume = false;
+        var has_result = false;
+        value_loop: for (value_table.entries, 0..) |value, value_index| {
+            if (value_index > std.math.maxInt(u32)) return false;
+            if (value.value_id != @as(u32, @intCast(value_index))) return false;
+            const value_port_index: usize = @intCast(value.world_port_id);
+            if (value_port_index >= port_table.entries.len) return false;
+            if (value.world_port_id != port.world_port_id) continue :value_loop;
+            switch (value.kind) {
+                .payload => {
+                    if (has_payload) return false;
+                    if (!value.ref.eql(port.payload_ref)) return false;
+                    has_payload = true;
+                },
+                .@"resume" => {
+                    if (has_resume) return false;
+                    if (!value.ref.eql(port.resume_ref)) return false;
+                    has_resume = true;
+                },
+                .result => {
+                    if (has_result) return false;
+                    if (!value.ref.eql(port.result_ref)) return false;
+                    has_result = true;
+                },
+            }
         }
-        if (value_count != 3) return false;
+        if (!has_payload or !has_resume or !has_result) return false;
     }
-    return profile.no_search_hot_path;
+    return true;
+}
+
+fn targetDispatchTableDense(dispatch_table: BoundaryWorldDispatchTable) bool {
+    for (dispatch_table.entries, 0..) |entry, index| {
+        if (entry.residual_site_index != index) return false;
+    }
+    return true;
 }
 
 fn traceMapMatchesSourceMap(trace_map: BoundaryElaborationTraceMap, source_map: BoundaryElaborationSourceMap) bool {
@@ -5883,8 +6005,14 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
 
             pub fn compileComptime(comptime options: anytype) type {
                 const input = options.input;
+                const policy = comptime targetPolicyOption(options);
                 const ResidualProgram = PlanBuilder.synthesizeResidualProgram(options);
-                const Body = FromResidual(input, ResidualProgram, options);
+                const target_input = comptime blk: {
+                    var copy = input;
+                    copy.policy = targetElaborationPolicy(policy);
+                    break :blk copy;
+                };
+                const Body = FromResidual(target_input, ResidualProgram, options);
                 return FromBodyWithProgram(Body, ResidualProgram, options);
             }
 
@@ -5923,6 +6051,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
 
             pub fn FromBodyWithProgram(comptime SourceBody: type, comptime ResidualProgram: type, comptime options: anytype) type {
                 const policy = comptime targetPolicyOption(options);
+                comptime assertTargetPolicySupported(policy, ResidualProgram);
                 const port_entries = comptime targetWorldPortEntries(SourceBody, ResidualProgram);
                 const value_entries = comptime targetWorldValueEntries(port_entries);
                 const dispatch_entries = comptime targetWorldDispatchEntries(port_entries);
@@ -5935,16 +6064,10 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     .world_port_count = port_entries.len,
                     .value_descriptor_count = value_entries.len,
                     .dispatch_entry_count = dispatch_entries.len,
-                    .no_search_hot_path = port_entries.len == dispatch_entries.len,
+                    .no_search_hot_path = targetDispatchEntriesDense(dispatch_entries[0..]),
                     .bounded = bounded,
                 });
-                const ReplayComponentsValue = [_][]const u8{ "surface_fingerprint", "residual_site_index", "world_port_id" };
-                const ReplayKeyRecipeValue = comptime ReplayKeyRecipe.init(
-                    targetOption(options, "replay_key_recipe_label", SourceBody.certificate.elaborated_program_label ++ ".replay_key_recipe"),
-                    SourceBody.certificate.evidenceRef(),
-                    ReplayComponentsValue[0..],
-                );
-                const SurfaceValue = comptime WorldSurface.init(.{
+                const SurfaceScopeValue = comptime WorldSurface.init(.{
                     .label = targetOption(options, "world_surface_label", SourceBody.certificate.elaborated_program_label ++ ".world_surface"),
                     .residual_program_label = SourceBody.certificate.elaborated_program_label,
                     .residual_program_ref = SourceBody.certificate.residual_program_ref,
@@ -5955,9 +6078,30 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     .value_table_ref = ValueTableValue.evidenceRef(),
                     .dispatch_table_ref = DispatchTableValue.evidenceRef(),
                     .profile_ref = ProfileValue.evidenceRef(),
-                    .replay_key_recipe_ref = ReplayKeyRecipeValue.evidenceRef(),
+                    .replay_key_recipe_ref = SourceBody.certificate.evidenceRef(),
                     .normal_form = SourceBody.normal_form.kind,
                     .world_port_count = port_entries.len,
+                });
+                const ReplayComponentsValue = [_][]const u8{ "world_surface_fingerprint", "world_port_id", "request_fingerprint", "response_fingerprint" };
+                const ReplayKeyRecipeValue = comptime ReplayKeyRecipe.init(
+                    targetOption(options, "replay_key_recipe_label", SourceBody.certificate.elaborated_program_label ++ ".replay_key_recipe"),
+                    SurfaceScopeValue.replayScopeRef(),
+                    ReplayComponentsValue[0..],
+                );
+                const SurfaceValue = comptime WorldSurface.init(.{
+                    .label = SurfaceScopeValue.label,
+                    .residual_program_label = SurfaceScopeValue.residual_program_label,
+                    .residual_program_ref = SurfaceScopeValue.residual_program_ref,
+                    .elaboration_certificate_ref = SurfaceScopeValue.elaboration_certificate_ref,
+                    .source_map_ref = SurfaceScopeValue.source_map_ref,
+                    .effect_row_ref = SurfaceScopeValue.effect_row_ref,
+                    .port_table_ref = SurfaceScopeValue.port_table_ref,
+                    .value_table_ref = SurfaceScopeValue.value_table_ref,
+                    .dispatch_table_ref = SurfaceScopeValue.dispatch_table_ref,
+                    .profile_ref = SurfaceScopeValue.profile_ref,
+                    .replay_key_recipe_ref = ReplayKeyRecipeValue.evidenceRef(),
+                    .normal_form = SurfaceScopeValue.normal_form,
+                    .world_port_count = SurfaceScopeValue.world_port_count,
                 });
                 const DependenciesValue = comptime targetDependencies(SourceBody, SurfaceValue, PortTableValue, ValueTableValue, DispatchTableValue, ProfileValue, ReplayKeyRecipeValue);
                 const EvidenceMapValue = comptime EvidenceMap.init(
@@ -6040,6 +6184,34 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 .{};
         }
 
+        fn targetElaborationPolicy(comptime policy: TargetPolicy) BoundaryElaborationPolicy {
+            var elaboration_policy = policy.elaboration_policy;
+            elaboration_policy.allow_world_ports = policy.allow_world_ports;
+            elaboration_policy.closure_policy.allow_world_ports = policy.allow_world_ports;
+            elaboration_policy.closure_policy.reject_host_intrinsics = policy.reject_host_intrinsic_internal_routes;
+            elaboration_policy.require_certificate_checked = policy.require_checked_closure_certificate;
+            elaboration_policy.require_checked_closure_certificate = policy.require_checked_closure_certificate;
+            elaboration_policy.allow_provider_program_linking = policy.allow_program_backed_providers;
+            elaboration_policy.allow_declarative_morphisms = policy.allow_declarative_morphisms;
+            elaboration_policy.allow_residualized_morphisms = policy.allow_residualized_morphisms;
+            elaboration_policy.allow_pipeline_adapters = policy.allow_pipeline_adapters;
+            elaboration_policy.reject_unknown_semantic_bodies = policy.reject_unknown_semantic_bodies;
+            elaboration_policy.max_nested_provider_depth = if (policy.allow_nested_program_backed_providers) policy.max_nested_provider_depth else 0;
+            elaboration_policy.closure_policy.max_nested_provider_depth = elaboration_policy.max_nested_provider_depth;
+            elaboration_policy.fail_on_unsupported_shape = policy.fail_on_unsupported_instruction;
+            elaboration_policy.emit_trace_map = policy.emit_trace_map;
+            return elaboration_policy;
+        }
+
+        fn assertTargetPolicySupported(comptime policy: TargetPolicy, comptime ResidualProgram: type) void {
+            if (!targetPolicyEmitsRequiredArtifacts(policy)) {
+                @compileError("Boundary Target requires source, trace, evidence, and world-surface artifact emission");
+            }
+            if (ResidualProgram.compiled_plan.functions.len > policy.max_generated_functions) {
+                @compileError("Boundary Target residual program exceeds max_generated_functions");
+            }
+        }
+
         fn targetResidualProgramOption(comptime options: anytype) type {
             return if (comptime @hasField(@TypeOf(options), "residual_program"))
                 options.residual_program
@@ -6073,7 +6245,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     @compileError("Boundary Target world-port source-map entry is missing residual_site_index");
                 const site = targetResidualSiteForIndex(ResidualProgram, residual_site_index) orelse
                     @compileError("Boundary Target world-port source-map entry points at a missing residual site");
-                if (index > std.math.maxInt(u16)) @compileError("Boundary Target supports at most 65536 world ports in one surface");
+                if (index >= WorldDispatchTable.missing_world_port_id) @compileError("Boundary Target supports at most 4294967295 world ports in one surface");
                 entries[index] = .{
                     .world_port_id = @intCast(index),
                     .residual_site_index = residual_site_index,
@@ -6110,16 +6282,40 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             return entries;
         }
 
-        fn targetWorldDispatchEntries(comptime port_entries: anytype) [port_entries.len]WorldDispatchTable.Entry {
-            var entries: [port_entries.len]WorldDispatchTable.Entry = undefined;
-            inline for (port_entries, 0..) |port, index| {
+        fn targetWorldDispatchEntryCount(comptime port_entries: anytype) usize {
+            var count: usize = 0;
+            inline for (port_entries) |port| {
+                if (port.residual_site_index == std.math.maxInt(usize)) @compileError("Boundary Target residual site index is too large for dense dispatch");
+                const needed = port.residual_site_index + 1;
+                if (needed > count) count = needed;
+            }
+            return count;
+        }
+
+        fn targetWorldDispatchEntries(comptime port_entries: anytype) [targetWorldDispatchEntryCount(port_entries)]WorldDispatchTable.Entry {
+            var entries: [targetWorldDispatchEntryCount(port_entries)]WorldDispatchTable.Entry = undefined;
+            inline for (0..entries.len) |index| {
                 entries[index] = .{
+                    .residual_site_index = index,
+                    .residual_site_fingerprint = 0,
+                    .world_port_id = WorldDispatchTable.missing_world_port_id,
+                };
+            }
+            inline for (port_entries) |port| {
+                entries[port.residual_site_index] = .{
                     .residual_site_index = port.residual_site_index,
                     .residual_site_fingerprint = port.residual_site_fingerprint,
                     .world_port_id = port.world_port_id,
                 };
             }
             return entries;
+        }
+
+        fn targetDispatchEntriesDense(comptime dispatch_entries: []const WorldDispatchTable.Entry) bool {
+            inline for (dispatch_entries, 0..) |entry, index| {
+                if (entry.residual_site_index != index) return false;
+            }
+            return true;
         }
 
         fn targetDependencies(

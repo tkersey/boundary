@@ -1826,7 +1826,7 @@ test "certified boundary target world surface tables and certificate are determi
     });
     const entries = [_]Elaboration.WorldPortTable.Entry{.{
         .world_port_id = 0,
-        .residual_site_index = 7,
+        .residual_site_index = 0,
         .residual_site_fingerprint = 0xC781_0005,
         .world_port_ref = world_port_ref,
         .source_ref = source_ref,
@@ -1845,7 +1845,7 @@ test "certified boundary target world surface tables and certificate are determi
     };
     const value_table = Elaboration.WorldValueTable.init("target.values", value_entries[0..]);
     const dispatch_entries = [_]Elaboration.WorldDispatchTable.Entry{.{
-        .residual_site_index = 7,
+        .residual_site_index = 0,
         .residual_site_fingerprint = 0xC781_0005,
         .world_port_id = 0,
     }};
@@ -1858,8 +1858,7 @@ test "certified boundary target world surface tables and certificate are determi
         .no_search_hot_path = true,
         .bounded = true,
     });
-    const replay = Elaboration.ReplayKeyRecipe.init("target.replay", elaboration_certificate_ref, &.{ "world_surface_fingerprint", "world_port_id", "request_fingerprint", "response_kind" });
-    const surface = Elaboration.WorldSurface.init(.{
+    const surface_scope = Elaboration.WorldSurface.init(.{
         .label = "target.surface",
         .residual_program_label = "residual",
         .residual_program_ref = residual_program_ref,
@@ -1870,15 +1869,35 @@ test "certified boundary target world surface tables and certificate are determi
         .value_table_ref = value_table.evidenceRef(),
         .dispatch_table_ref = dispatch_table.evidenceRef(),
         .profile_ref = profile.evidenceRef(),
-        .replay_key_recipe_ref = replay.evidenceRef(),
+        .replay_key_recipe_ref = elaboration_certificate_ref,
         .normal_form = .world_ports_only,
         .world_port_count = 1,
     });
+    const replay = Elaboration.ReplayKeyRecipe.init("target.replay", surface_scope.replayScopeRef(), &.{ "world_surface_fingerprint", "world_port_id", "request_fingerprint", "response_fingerprint" });
+    const surface = Elaboration.WorldSurface.init(.{
+        .label = surface_scope.label,
+        .residual_program_label = surface_scope.residual_program_label,
+        .residual_program_ref = surface_scope.residual_program_ref,
+        .elaboration_certificate_ref = surface_scope.elaboration_certificate_ref,
+        .source_map_ref = surface_scope.source_map_ref,
+        .effect_row_ref = surface_scope.effect_row_ref,
+        .port_table_ref = surface_scope.port_table_ref,
+        .value_table_ref = surface_scope.value_table_ref,
+        .dispatch_table_ref = surface_scope.dispatch_table_ref,
+        .profile_ref = surface_scope.profile_ref,
+        .replay_key_recipe_ref = replay.evidenceRef(),
+        .normal_form = surface_scope.normal_form,
+        .world_port_count = surface_scope.world_port_count,
+    });
     const dependencies = [_]Evidence.Dependency{
+        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
         .{ .role = .world_surface, .ref = surface.evidenceRef() },
         .{ .role = .world_port_table, .ref = port_table.evidenceRef() },
         .{ .role = .world_value_table, .ref = value_table.evidenceRef() },
         .{ .role = .world_dispatch_table, .ref = dispatch_table.evidenceRef() },
+        .{ .role = .surface_profile, .ref = profile.evidenceRef() },
+        .{ .role = .replay_key_recipe, .ref = replay.evidenceRef() },
+        .{ .role = .residual_program, .ref = residual_program_ref },
     };
     const evidence_map = Elaboration.TargetEvidenceMap.init("target.evidence", dependencies[0..]);
     const policy = Elaboration.Target.Policy.worldBoundary();
@@ -1903,6 +1922,537 @@ test "certified boundary target world surface tables and certificate are determi
     try std.testing.expectEqual(@as(u32, 0), dispatch_table.entries[0].world_port_id);
     try std.testing.expect(profile.no_search_hot_path);
     try std.testing.expect(certificate.evidenceView().certificate_ref.eql(certificate.evidenceRef()));
+
+    const gapped_port_entries = [_]Elaboration.WorldPortTable.Entry{.{
+        .world_port_id = 0,
+        .residual_site_index = 5,
+        .residual_site_fingerprint = 0xC781_0005,
+        .world_port_ref = world_port_ref,
+        .source_ref = source_ref,
+        .payload_ref = value_ref,
+        .resume_ref = value_ref,
+        .result_ref = value_ref,
+        .protocol_label = "approval",
+        .op_name = "request",
+        .semantic_label = "approval.request",
+    }};
+    const gapped_port_table = Elaboration.WorldPortTable.init("target.gapped-ports", gapped_port_entries[0..]);
+    const gapped_dispatch_entries = [_]Elaboration.WorldDispatchTable.Entry{
+        .{ .residual_site_index = 0, .residual_site_fingerprint = 0, .world_port_id = Elaboration.WorldDispatchTable.missing_world_port_id },
+        .{ .residual_site_index = 1, .residual_site_fingerprint = 0, .world_port_id = Elaboration.WorldDispatchTable.missing_world_port_id },
+        .{ .residual_site_index = 2, .residual_site_fingerprint = 0, .world_port_id = Elaboration.WorldDispatchTable.missing_world_port_id },
+        .{ .residual_site_index = 3, .residual_site_fingerprint = 0, .world_port_id = Elaboration.WorldDispatchTable.missing_world_port_id },
+        .{ .residual_site_index = 4, .residual_site_fingerprint = 0, .world_port_id = Elaboration.WorldDispatchTable.missing_world_port_id },
+        .{ .residual_site_index = 5, .residual_site_fingerprint = 0xC781_0005, .world_port_id = 0 },
+    };
+    const gapped_dispatch_table = Elaboration.WorldDispatchTable.init("target.gapped-dispatch", gapped_dispatch_entries[0..]);
+    const gapped_profile = Elaboration.SurfaceProfile.init(.{
+        .label = "target.gapped-profile",
+        .world_port_count = gapped_port_table.entries.len,
+        .value_descriptor_count = value_table.entries.len,
+        .dispatch_entry_count = gapped_dispatch_table.entries.len,
+        .no_search_hot_path = true,
+        .bounded = true,
+    });
+    const gapped_surface_scope = Elaboration.WorldSurface.init(.{
+        .label = "target.gapped-surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_program_ref,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .source_map_ref = surface.source_map_ref,
+        .effect_row_ref = surface.effect_row_ref,
+        .port_table_ref = gapped_port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = gapped_dispatch_table.evidenceRef(),
+        .profile_ref = gapped_profile.evidenceRef(),
+        .replay_key_recipe_ref = replay.evidenceRef(),
+        .normal_form = .world_ports_only,
+        .world_port_count = 1,
+    });
+    const gapped_replay = Elaboration.ReplayKeyRecipe.init("target.gapped-replay", gapped_surface_scope.replayScopeRef(), replay.components);
+    const gapped_surface = Elaboration.WorldSurface.init(.{
+        .label = gapped_surface_scope.label,
+        .residual_program_label = gapped_surface_scope.residual_program_label,
+        .residual_program_ref = gapped_surface_scope.residual_program_ref,
+        .elaboration_certificate_ref = gapped_surface_scope.elaboration_certificate_ref,
+        .source_map_ref = gapped_surface_scope.source_map_ref,
+        .effect_row_ref = gapped_surface_scope.effect_row_ref,
+        .port_table_ref = gapped_surface_scope.port_table_ref,
+        .value_table_ref = gapped_surface_scope.value_table_ref,
+        .dispatch_table_ref = gapped_surface_scope.dispatch_table_ref,
+        .profile_ref = gapped_surface_scope.profile_ref,
+        .replay_key_recipe_ref = gapped_replay.evidenceRef(),
+        .normal_form = gapped_surface_scope.normal_form,
+        .world_port_count = gapped_surface_scope.world_port_count,
+    });
+    const gapped_dependencies = [_]Evidence.Dependency{
+        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
+        .{ .role = .world_surface, .ref = gapped_surface.evidenceRef() },
+        .{ .role = .world_port_table, .ref = gapped_port_table.evidenceRef() },
+        .{ .role = .world_value_table, .ref = value_table.evidenceRef() },
+        .{ .role = .world_dispatch_table, .ref = gapped_dispatch_table.evidenceRef() },
+        .{ .role = .surface_profile, .ref = gapped_profile.evidenceRef() },
+        .{ .role = .replay_key_recipe, .ref = gapped_replay.evidenceRef() },
+        .{ .role = .residual_program, .ref = residual_program_ref },
+    };
+    const gapped_evidence_map = Elaboration.TargetEvidenceMap.init("target.gapped-evidence", gapped_dependencies[0..]);
+    const gapped_certificate = Elaboration.Target.Certificate.init(.{
+        .target_label = "target.gapped",
+        .policy = policy,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .residual_program_ref = residual_program_ref,
+        .world_surface_ref = gapped_surface.evidenceRef(),
+        .port_table_ref = gapped_port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = gapped_dispatch_table.evidenceRef(),
+        .profile_ref = gapped_profile.evidenceRef(),
+        .replay_key_recipe_ref = gapped_replay.evidenceRef(),
+        .evidence_map_ref = gapped_evidence_map.evidenceRef(),
+        .dependencies = gapped_dependencies[0..],
+    });
+    try gapped_certificate.check(policy, gapped_surface, gapped_port_table, value_table, gapped_dispatch_table, gapped_profile, gapped_replay, gapped_evidence_map);
+    try std.testing.expectEqual(null, gapped_dispatch_table.lookup(0));
+    try std.testing.expectEqual(@as(u32, 0), gapped_dispatch_table.lookup(5).?);
+
+    var no_surface_policy = policy;
+    no_surface_policy.emit_world_surface = false;
+    const no_surface_certificate = Elaboration.Target.Certificate.init(.{
+        .target_label = "target.no-surface",
+        .policy = no_surface_policy,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .residual_program_ref = residual_program_ref,
+        .world_surface_ref = surface.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = replay.evidenceRef(),
+        .evidence_map_ref = evidence_map.evidenceRef(),
+        .dependencies = dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryTargetPolicyMismatch,
+        no_surface_certificate.check(no_surface_policy, surface, port_table, value_table, dispatch_table, profile, replay, evidence_map),
+    );
+
+    var unsupported_surface = surface;
+    unsupported_surface.surface_format_version = surface.surface_format_version + 1;
+    unsupported_surface.surface_fingerprint = unsupported_surface.computeFingerprint();
+    const unsupported_dependencies = [_]Evidence.Dependency{
+        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
+        .{ .role = .world_surface, .ref = unsupported_surface.evidenceRef() },
+        .{ .role = .world_port_table, .ref = port_table.evidenceRef() },
+        .{ .role = .world_value_table, .ref = value_table.evidenceRef() },
+        .{ .role = .world_dispatch_table, .ref = dispatch_table.evidenceRef() },
+        .{ .role = .surface_profile, .ref = profile.evidenceRef() },
+        .{ .role = .replay_key_recipe, .ref = replay.evidenceRef() },
+        .{ .role = .residual_program, .ref = residual_program_ref },
+    };
+    const unsupported_evidence_map = Elaboration.TargetEvidenceMap.init("target.unsupported-evidence", unsupported_dependencies[0..]);
+    const unsupported_certificate = Elaboration.Target.Certificate.init(.{
+        .target_label = "target.unsupported",
+        .policy = policy,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .residual_program_ref = residual_program_ref,
+        .world_surface_ref = unsupported_surface.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = replay.evidenceRef(),
+        .evidence_map_ref = unsupported_evidence_map.evidenceRef(),
+        .dependencies = unsupported_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryTargetCertificateMismatch,
+        unsupported_certificate.check(policy, unsupported_surface, port_table, value_table, dispatch_table, profile, replay, unsupported_evidence_map),
+    );
+
+    var wrong_source_surface_scope = surface;
+    wrong_source_surface_scope.source_map_ref = Evidence.refFor(Evidence.domains.program_plan, 0xC781_00A0, .{ .label = "wrong-source-map-domain" });
+    wrong_source_surface_scope.surface_fingerprint = wrong_source_surface_scope.computeFingerprint();
+    const wrong_source_replay = Elaboration.ReplayKeyRecipe.init("target.wrong-source-replay", wrong_source_surface_scope.replayScopeRef(), replay.components);
+    var wrong_source_surface = wrong_source_surface_scope;
+    wrong_source_surface.replay_key_recipe_ref = wrong_source_replay.evidenceRef();
+    wrong_source_surface.surface_fingerprint = wrong_source_surface.computeFingerprint();
+    const wrong_source_dependencies = [_]Evidence.Dependency{
+        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
+        .{ .role = .world_surface, .ref = wrong_source_surface.evidenceRef() },
+        .{ .role = .world_port_table, .ref = port_table.evidenceRef() },
+        .{ .role = .world_value_table, .ref = value_table.evidenceRef() },
+        .{ .role = .world_dispatch_table, .ref = dispatch_table.evidenceRef() },
+        .{ .role = .surface_profile, .ref = profile.evidenceRef() },
+        .{ .role = .replay_key_recipe, .ref = wrong_source_replay.evidenceRef() },
+        .{ .role = .residual_program, .ref = residual_program_ref },
+    };
+    const wrong_source_evidence_map = Elaboration.TargetEvidenceMap.init("target.wrong-source-evidence", wrong_source_dependencies[0..]);
+    const wrong_source_certificate = Elaboration.Target.Certificate.init(.{
+        .target_label = "target.wrong-source",
+        .policy = policy,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .residual_program_ref = residual_program_ref,
+        .world_surface_ref = wrong_source_surface.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = wrong_source_replay.evidenceRef(),
+        .evidence_map_ref = wrong_source_evidence_map.evidenceRef(),
+        .dependencies = wrong_source_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryTargetCertificateMismatch,
+        wrong_source_certificate.check(policy, wrong_source_surface, port_table, value_table, dispatch_table, profile, wrong_source_replay, wrong_source_evidence_map),
+    );
+
+    var wrong_effect_surface_scope = surface;
+    wrong_effect_surface_scope.effect_row_ref = Evidence.refFor(Evidence.domains.boundary_elaboration_source_map, 0xC781_00A1, .{ .label = "wrong-effect-row-domain" });
+    wrong_effect_surface_scope.surface_fingerprint = wrong_effect_surface_scope.computeFingerprint();
+    const wrong_effect_replay = Elaboration.ReplayKeyRecipe.init("target.wrong-effect-replay", wrong_effect_surface_scope.replayScopeRef(), replay.components);
+    var wrong_effect_surface = wrong_effect_surface_scope;
+    wrong_effect_surface.replay_key_recipe_ref = wrong_effect_replay.evidenceRef();
+    wrong_effect_surface.surface_fingerprint = wrong_effect_surface.computeFingerprint();
+    const wrong_effect_dependencies = [_]Evidence.Dependency{
+        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
+        .{ .role = .world_surface, .ref = wrong_effect_surface.evidenceRef() },
+        .{ .role = .world_port_table, .ref = port_table.evidenceRef() },
+        .{ .role = .world_value_table, .ref = value_table.evidenceRef() },
+        .{ .role = .world_dispatch_table, .ref = dispatch_table.evidenceRef() },
+        .{ .role = .surface_profile, .ref = profile.evidenceRef() },
+        .{ .role = .replay_key_recipe, .ref = wrong_effect_replay.evidenceRef() },
+        .{ .role = .residual_program, .ref = residual_program_ref },
+    };
+    const wrong_effect_evidence_map = Elaboration.TargetEvidenceMap.init("target.wrong-effect-evidence", wrong_effect_dependencies[0..]);
+    const wrong_effect_certificate = Elaboration.Target.Certificate.init(.{
+        .target_label = "target.wrong-effect",
+        .policy = policy,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .residual_program_ref = residual_program_ref,
+        .world_surface_ref = wrong_effect_surface.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = wrong_effect_replay.evidenceRef(),
+        .evidence_map_ref = wrong_effect_evidence_map.evidenceRef(),
+        .dependencies = wrong_effect_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryTargetCertificateMismatch,
+        wrong_effect_certificate.check(policy, wrong_effect_surface, port_table, value_table, dispatch_table, profile, wrong_effect_replay, wrong_effect_evidence_map),
+    );
+
+    const relaxed_profile = Elaboration.SurfaceProfile.init(.{
+        .label = "target.relaxed-profile",
+        .world_port_count = port_table.entries.len,
+        .value_descriptor_count = value_table.entries.len,
+        .dispatch_entry_count = dispatch_table.entries.len,
+        .no_search_hot_path = false,
+        .bounded = true,
+    });
+    const relaxed_surface_scope = Elaboration.WorldSurface.init(.{
+        .label = "target.relaxed-surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_program_ref,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .source_map_ref = surface.source_map_ref,
+        .effect_row_ref = surface.effect_row_ref,
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = relaxed_profile.evidenceRef(),
+        .replay_key_recipe_ref = replay.evidenceRef(),
+        .normal_form = .world_ports_only,
+        .world_port_count = 1,
+    });
+    const relaxed_replay = Elaboration.ReplayKeyRecipe.init("target.relaxed-replay", relaxed_surface_scope.replayScopeRef(), replay.components);
+    const relaxed_surface = Elaboration.WorldSurface.init(.{
+        .label = relaxed_surface_scope.label,
+        .residual_program_label = relaxed_surface_scope.residual_program_label,
+        .residual_program_ref = relaxed_surface_scope.residual_program_ref,
+        .elaboration_certificate_ref = relaxed_surface_scope.elaboration_certificate_ref,
+        .source_map_ref = relaxed_surface_scope.source_map_ref,
+        .effect_row_ref = relaxed_surface_scope.effect_row_ref,
+        .port_table_ref = relaxed_surface_scope.port_table_ref,
+        .value_table_ref = relaxed_surface_scope.value_table_ref,
+        .dispatch_table_ref = relaxed_surface_scope.dispatch_table_ref,
+        .profile_ref = relaxed_surface_scope.profile_ref,
+        .replay_key_recipe_ref = relaxed_replay.evidenceRef(),
+        .normal_form = relaxed_surface_scope.normal_form,
+        .world_port_count = relaxed_surface_scope.world_port_count,
+    });
+    const audit_policy = Elaboration.Target.Policy.auditOnly();
+    const relaxed_dependencies = [_]Evidence.Dependency{
+        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
+        .{ .role = .world_surface, .ref = relaxed_surface.evidenceRef() },
+        .{ .role = .world_port_table, .ref = port_table.evidenceRef() },
+        .{ .role = .world_value_table, .ref = value_table.evidenceRef() },
+        .{ .role = .world_dispatch_table, .ref = dispatch_table.evidenceRef() },
+        .{ .role = .surface_profile, .ref = relaxed_profile.evidenceRef() },
+        .{ .role = .replay_key_recipe, .ref = relaxed_replay.evidenceRef() },
+        .{ .role = .residual_program, .ref = residual_program_ref },
+    };
+    const relaxed_evidence_map = Elaboration.TargetEvidenceMap.init("target.relaxed-evidence", relaxed_dependencies[0..]);
+    const relaxed_certificate = Elaboration.Target.Certificate.init(.{
+        .target_label = "target.relaxed",
+        .policy = audit_policy,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .residual_program_ref = residual_program_ref,
+        .world_surface_ref = relaxed_surface.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = relaxed_profile.evidenceRef(),
+        .replay_key_recipe_ref = relaxed_replay.evidenceRef(),
+        .evidence_map_ref = relaxed_evidence_map.evidenceRef(),
+        .dependencies = relaxed_dependencies[0..],
+    });
+    try relaxed_certificate.check(audit_policy, relaxed_surface, port_table, value_table, dispatch_table, relaxed_profile, relaxed_replay, relaxed_evidence_map);
+
+    const strict_policy = Elaboration.Target.Policy.strictClosed();
+    const strict_certificate = Elaboration.Target.Certificate.init(.{
+        .target_label = "target.strict",
+        .policy = strict_policy,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .residual_program_ref = residual_program_ref,
+        .world_surface_ref = surface.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = replay.evidenceRef(),
+        .evidence_map_ref = evidence_map.evidenceRef(),
+        .dependencies = dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryTargetSurfaceRejected,
+        strict_certificate.check(strict_policy, surface, port_table, value_table, dispatch_table, profile, replay, evidence_map),
+    );
+
+    const inconsistent_surface_scope = Elaboration.WorldSurface.init(.{
+        .label = "target.inconsistent-surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_program_ref,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .source_map_ref = surface.source_map_ref,
+        .effect_row_ref = surface.effect_row_ref,
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = replay.evidenceRef(),
+        .normal_form = .strict_closed,
+        .world_port_count = 0,
+    });
+    const inconsistent_replay = Elaboration.ReplayKeyRecipe.init("target.inconsistent-replay", inconsistent_surface_scope.replayScopeRef(), replay.components);
+    const inconsistent_surface = Elaboration.WorldSurface.init(.{
+        .label = inconsistent_surface_scope.label,
+        .residual_program_label = inconsistent_surface_scope.residual_program_label,
+        .residual_program_ref = inconsistent_surface_scope.residual_program_ref,
+        .elaboration_certificate_ref = inconsistent_surface_scope.elaboration_certificate_ref,
+        .source_map_ref = inconsistent_surface_scope.source_map_ref,
+        .effect_row_ref = inconsistent_surface_scope.effect_row_ref,
+        .port_table_ref = inconsistent_surface_scope.port_table_ref,
+        .value_table_ref = inconsistent_surface_scope.value_table_ref,
+        .dispatch_table_ref = inconsistent_surface_scope.dispatch_table_ref,
+        .profile_ref = inconsistent_surface_scope.profile_ref,
+        .replay_key_recipe_ref = inconsistent_replay.evidenceRef(),
+        .normal_form = inconsistent_surface_scope.normal_form,
+        .world_port_count = inconsistent_surface_scope.world_port_count,
+    });
+    const inconsistent_dependencies = [_]Evidence.Dependency{
+        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
+        .{ .role = .world_surface, .ref = inconsistent_surface.evidenceRef() },
+        .{ .role = .world_port_table, .ref = port_table.evidenceRef() },
+        .{ .role = .world_value_table, .ref = value_table.evidenceRef() },
+        .{ .role = .world_dispatch_table, .ref = dispatch_table.evidenceRef() },
+        .{ .role = .surface_profile, .ref = profile.evidenceRef() },
+        .{ .role = .replay_key_recipe, .ref = inconsistent_replay.evidenceRef() },
+        .{ .role = .residual_program, .ref = residual_program_ref },
+    };
+    const inconsistent_evidence_map = Elaboration.TargetEvidenceMap.init("target.inconsistent-evidence", inconsistent_dependencies[0..]);
+    const inconsistent_certificate = Elaboration.Target.Certificate.init(.{
+        .target_label = "target.inconsistent",
+        .policy = policy,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .residual_program_ref = residual_program_ref,
+        .world_surface_ref = inconsistent_surface.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = inconsistent_replay.evidenceRef(),
+        .evidence_map_ref = inconsistent_evidence_map.evidenceRef(),
+        .dependencies = inconsistent_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryTargetCertificateMismatch,
+        inconsistent_certificate.check(policy, inconsistent_surface, port_table, value_table, dispatch_table, profile, inconsistent_replay, inconsistent_evidence_map),
+    );
+
+    const orphan_value_entries = [_]Elaboration.WorldValueTable.Entry{
+        .{ .value_id = 0, .world_port_id = 0, .kind = .payload, .ref = value_ref },
+        .{ .value_id = 1, .world_port_id = 0, .kind = .@"resume", .ref = value_ref },
+        .{ .value_id = 2, .world_port_id = 0, .kind = .result, .ref = value_ref },
+        .{ .value_id = 3, .world_port_id = 7, .kind = .payload, .ref = value_ref },
+    };
+    const orphan_value_table = Elaboration.WorldValueTable.init("target.orphan-values", orphan_value_entries[0..]);
+    const orphan_profile = Elaboration.SurfaceProfile.init(.{
+        .label = "target.orphan-profile",
+        .world_port_count = port_table.entries.len,
+        .value_descriptor_count = orphan_value_table.entries.len,
+        .dispatch_entry_count = dispatch_table.entries.len,
+        .no_search_hot_path = true,
+        .bounded = true,
+    });
+    const orphan_surface_scope = Elaboration.WorldSurface.init(.{
+        .label = "target.orphan-surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_program_ref,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .source_map_ref = surface.source_map_ref,
+        .effect_row_ref = surface.effect_row_ref,
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = orphan_value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = orphan_profile.evidenceRef(),
+        .replay_key_recipe_ref = replay.evidenceRef(),
+        .normal_form = .world_ports_only,
+        .world_port_count = 1,
+    });
+    const orphan_replay = Elaboration.ReplayKeyRecipe.init("target.orphan-replay", orphan_surface_scope.replayScopeRef(), replay.components);
+    const orphan_surface = Elaboration.WorldSurface.init(.{
+        .label = orphan_surface_scope.label,
+        .residual_program_label = orphan_surface_scope.residual_program_label,
+        .residual_program_ref = orphan_surface_scope.residual_program_ref,
+        .elaboration_certificate_ref = orphan_surface_scope.elaboration_certificate_ref,
+        .source_map_ref = orphan_surface_scope.source_map_ref,
+        .effect_row_ref = orphan_surface_scope.effect_row_ref,
+        .port_table_ref = orphan_surface_scope.port_table_ref,
+        .value_table_ref = orphan_surface_scope.value_table_ref,
+        .dispatch_table_ref = orphan_surface_scope.dispatch_table_ref,
+        .profile_ref = orphan_surface_scope.profile_ref,
+        .replay_key_recipe_ref = orphan_replay.evidenceRef(),
+        .normal_form = orphan_surface_scope.normal_form,
+        .world_port_count = orphan_surface_scope.world_port_count,
+    });
+    const orphan_dependencies = [_]Evidence.Dependency{
+        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
+        .{ .role = .world_surface, .ref = orphan_surface.evidenceRef() },
+        .{ .role = .world_port_table, .ref = port_table.evidenceRef() },
+        .{ .role = .world_value_table, .ref = orphan_value_table.evidenceRef() },
+        .{ .role = .world_dispatch_table, .ref = dispatch_table.evidenceRef() },
+        .{ .role = .surface_profile, .ref = orphan_profile.evidenceRef() },
+        .{ .role = .replay_key_recipe, .ref = orphan_replay.evidenceRef() },
+        .{ .role = .residual_program, .ref = residual_program_ref },
+    };
+    const orphan_evidence_map = Elaboration.TargetEvidenceMap.init("target.orphan-evidence", orphan_dependencies[0..]);
+    const orphan_certificate = Elaboration.Target.Certificate.init(.{
+        .target_label = "target.orphan",
+        .policy = policy,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .residual_program_ref = residual_program_ref,
+        .world_surface_ref = orphan_surface.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = orphan_value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = orphan_profile.evidenceRef(),
+        .replay_key_recipe_ref = orphan_replay.evidenceRef(),
+        .evidence_map_ref = orphan_evidence_map.evidenceRef(),
+        .dependencies = orphan_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryTargetCertificateMismatch,
+        orphan_certificate.check(policy, orphan_surface, port_table, orphan_value_table, dispatch_table, orphan_profile, orphan_replay, orphan_evidence_map),
+    );
+
+    const other_value_ref = Evidence.BoundaryValueRef.init("i64", null);
+    const mismatched_value_entries = [_]Elaboration.WorldValueTable.Entry{
+        .{ .value_id = 0, .world_port_id = 0, .kind = .payload, .ref = other_value_ref },
+        .{ .value_id = 1, .world_port_id = 0, .kind = .@"resume", .ref = value_ref },
+        .{ .value_id = 2, .world_port_id = 0, .kind = .result, .ref = value_ref },
+    };
+    const mismatched_value_table = Elaboration.WorldValueTable.init("target.mismatched-values", mismatched_value_entries[0..]);
+    const mismatched_surface_scope = Elaboration.WorldSurface.init(.{
+        .label = "target.mismatched-surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_program_ref,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .source_map_ref = surface.source_map_ref,
+        .effect_row_ref = surface.effect_row_ref,
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = mismatched_value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = replay.evidenceRef(),
+        .normal_form = .world_ports_only,
+        .world_port_count = 1,
+    });
+    const mismatched_replay = Elaboration.ReplayKeyRecipe.init("target.mismatched-replay", mismatched_surface_scope.replayScopeRef(), replay.components);
+    const mismatched_surface = Elaboration.WorldSurface.init(.{
+        .label = mismatched_surface_scope.label,
+        .residual_program_label = mismatched_surface_scope.residual_program_label,
+        .residual_program_ref = mismatched_surface_scope.residual_program_ref,
+        .elaboration_certificate_ref = mismatched_surface_scope.elaboration_certificate_ref,
+        .source_map_ref = mismatched_surface_scope.source_map_ref,
+        .effect_row_ref = mismatched_surface_scope.effect_row_ref,
+        .port_table_ref = mismatched_surface_scope.port_table_ref,
+        .value_table_ref = mismatched_surface_scope.value_table_ref,
+        .dispatch_table_ref = mismatched_surface_scope.dispatch_table_ref,
+        .profile_ref = mismatched_surface_scope.profile_ref,
+        .replay_key_recipe_ref = mismatched_replay.evidenceRef(),
+        .normal_form = mismatched_surface_scope.normal_form,
+        .world_port_count = mismatched_surface_scope.world_port_count,
+    });
+    const mismatched_dependencies = [_]Evidence.Dependency{
+        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
+        .{ .role = .world_surface, .ref = mismatched_surface.evidenceRef() },
+        .{ .role = .world_port_table, .ref = port_table.evidenceRef() },
+        .{ .role = .world_value_table, .ref = mismatched_value_table.evidenceRef() },
+        .{ .role = .world_dispatch_table, .ref = dispatch_table.evidenceRef() },
+        .{ .role = .surface_profile, .ref = profile.evidenceRef() },
+        .{ .role = .replay_key_recipe, .ref = mismatched_replay.evidenceRef() },
+        .{ .role = .residual_program, .ref = residual_program_ref },
+    };
+    const mismatched_evidence_map = Elaboration.TargetEvidenceMap.init("target.mismatched-evidence", mismatched_dependencies[0..]);
+    const mismatched_certificate = Elaboration.Target.Certificate.init(.{
+        .target_label = "target.mismatched",
+        .policy = policy,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .residual_program_ref = residual_program_ref,
+        .world_surface_ref = mismatched_surface.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = mismatched_value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = mismatched_replay.evidenceRef(),
+        .evidence_map_ref = mismatched_evidence_map.evidenceRef(),
+        .dependencies = mismatched_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryTargetCertificateMismatch,
+        mismatched_certificate.check(policy, mismatched_surface, port_table, mismatched_value_table, dispatch_table, profile, mismatched_replay, mismatched_evidence_map),
+    );
+
+    const empty_evidence_map = Elaboration.TargetEvidenceMap.init("target.empty-evidence", &.{});
+    const empty_dependency_certificate = Elaboration.Target.Certificate.init(.{
+        .target_label = "target.empty-deps",
+        .policy = policy,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .residual_program_ref = residual_program_ref,
+        .world_surface_ref = surface.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = replay.evidenceRef(),
+        .evidence_map_ref = empty_evidence_map.evidenceRef(),
+        .dependencies = &.{},
+    });
+    try std.testing.expectEqual(
+        error.BoundaryTargetCertificateMismatch,
+        empty_dependency_certificate.check(policy, surface, port_table, value_table, dispatch_table, profile, replay, empty_evidence_map),
+    );
 }
 
 test "elaboration certificate source map world port lowering boundary normal form provider linking runtime agreement" {

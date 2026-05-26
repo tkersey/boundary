@@ -73,7 +73,8 @@ shape.
 port. It does not widen `ProgramValue` and does not introduce new codecs.
 
 `WorldDispatchTable` maps residual operation site indexes to dense ids, with
-site fingerprints available for validation and diagnostics.
+explicit miss slots for site-index gaps and site fingerprints available for
+validation and diagnostics.
 
 `SurfaceProfile` summarizes port count, value descriptor count, dispatch count,
 no-search readiness, and boundedness policy.
@@ -81,7 +82,7 @@ no-search readiness, and boundedness policy.
 Replay metadata is the evidence-backed recipe:
 
 ```text
-{ world_surface_fingerprint, world_port_id, request_fingerprint, response_kind }
+{ world_surface_fingerprint, world_port_id, request_fingerprint, response_fingerprint }
 ```
 
 Boundary emits the recipe only; journal storage and replay lookup belong to
