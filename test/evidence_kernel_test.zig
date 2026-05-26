@@ -1969,6 +1969,78 @@ test "certified boundary target world surface tables and certificate are determi
         malformed_certificate.check(policy, malformed_surface, port_table, value_table, dispatch_table, profile, malformed_replay, malformed_evidence_map),
     );
 
+    const zero_port_value_table = Elaboration.WorldValueTable.init("target.zero-port-values", value_entries[0..1]);
+    const zero_port_profile = Elaboration.SurfaceProfile.init(.{
+        .label = "target.zero-port-profile",
+        .world_port_count = 0,
+        .value_descriptor_count = zero_port_value_table.entries.len,
+        .dispatch_entry_count = 0,
+        .no_search_hot_path = true,
+        .bounded = true,
+    });
+    const zero_port_table = Elaboration.WorldPortTable.init("target.zero-port-ports", &.{});
+    const zero_port_dispatch_table = Elaboration.WorldDispatchTable.init("target.zero-port-dispatch", &.{});
+    const zero_port_surface_scope = Elaboration.WorldSurface.init(.{
+        .label = "target.zero-port-surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_program_ref,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .source_map_ref = surface.source_map_ref,
+        .effect_row_ref = surface.effect_row_ref,
+        .port_table_ref = zero_port_table.evidenceRef(),
+        .value_table_ref = zero_port_value_table.evidenceRef(),
+        .dispatch_table_ref = zero_port_dispatch_table.evidenceRef(),
+        .profile_ref = zero_port_profile.evidenceRef(),
+        .replay_key_recipe_ref = replay.evidenceRef(),
+        .normal_form = .strict_closed,
+        .world_port_count = 0,
+    });
+    const zero_port_replay = Elaboration.ReplayKeyRecipe.init("target.zero-port-replay", zero_port_surface_scope.replayScopeRef(), replay.components);
+    const zero_port_surface = Elaboration.WorldSurface.init(.{
+        .label = zero_port_surface_scope.label,
+        .residual_program_label = zero_port_surface_scope.residual_program_label,
+        .residual_program_ref = zero_port_surface_scope.residual_program_ref,
+        .elaboration_certificate_ref = zero_port_surface_scope.elaboration_certificate_ref,
+        .source_map_ref = zero_port_surface_scope.source_map_ref,
+        .effect_row_ref = zero_port_surface_scope.effect_row_ref,
+        .port_table_ref = zero_port_surface_scope.port_table_ref,
+        .value_table_ref = zero_port_surface_scope.value_table_ref,
+        .dispatch_table_ref = zero_port_surface_scope.dispatch_table_ref,
+        .profile_ref = zero_port_surface_scope.profile_ref,
+        .replay_key_recipe_ref = zero_port_replay.evidenceRef(),
+        .normal_form = zero_port_surface_scope.normal_form,
+        .world_port_count = zero_port_surface_scope.world_port_count,
+    });
+    const zero_port_dependencies = [_]Evidence.Dependency{
+        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
+        .{ .role = .world_surface, .ref = zero_port_surface.evidenceRef() },
+        .{ .role = .world_port_table, .ref = zero_port_table.evidenceRef() },
+        .{ .role = .world_value_table, .ref = zero_port_value_table.evidenceRef() },
+        .{ .role = .world_dispatch_table, .ref = zero_port_dispatch_table.evidenceRef() },
+        .{ .role = .surface_profile, .ref = zero_port_profile.evidenceRef() },
+        .{ .role = .replay_key_recipe, .ref = zero_port_replay.evidenceRef() },
+        .{ .role = .residual_program, .ref = residual_program_ref },
+    };
+    const zero_port_evidence_map = Elaboration.TargetEvidenceMap.init("target.zero-port-evidence", zero_port_dependencies[0..]);
+    const zero_port_certificate = Elaboration.Target.Certificate.init(.{
+        .target_label = "target.zero-port",
+        .policy = policy,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .residual_program_ref = residual_program_ref,
+        .world_surface_ref = zero_port_surface.evidenceRef(),
+        .port_table_ref = zero_port_table.evidenceRef(),
+        .value_table_ref = zero_port_value_table.evidenceRef(),
+        .dispatch_table_ref = zero_port_dispatch_table.evidenceRef(),
+        .profile_ref = zero_port_profile.evidenceRef(),
+        .replay_key_recipe_ref = zero_port_replay.evidenceRef(),
+        .evidence_map_ref = zero_port_evidence_map.evidenceRef(),
+        .dependencies = zero_port_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryTargetCertificateMismatch,
+        zero_port_certificate.check(policy, zero_port_surface, zero_port_table, zero_port_value_table, zero_port_dispatch_table, zero_port_profile, zero_port_replay, zero_port_evidence_map),
+    );
+
     const gapped_port_entries = [_]Elaboration.WorldPortTable.Entry{.{
         .world_port_id = 0,
         .residual_site_index = 5,
@@ -4399,6 +4471,51 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
     };
     try std.testing.expect(target_from_residual_compiles);
 
+    const target_policy_unlocks_blockers = comptime blk: {
+        @setEvalBranchQuota(300_000);
+        const blocker_graph = Closure.Graph.init("target-policy-blocker-graph", &.{}, &.{}, &.{});
+        const blocker_source_ref = source_ref;
+        const blocked_shape_ref = Evidence.refFor(Evidence.domains.boundary_effect_shape, 0xE1D2_7700, .{ .label = "target.blocked.approval", .site_index = 0 });
+        const closure_blocker = Evidence.boundaryClosureBlocker(.{
+            .tag = .unsupported_shape_planning,
+            .subject = blocked_shape_ref,
+            .site_index = 0,
+            .summary = "target policy allows partial blocker artifact",
+        });
+        const blocker_report = Closure.Report.init(.{
+            .graph_fingerprint = blocker_graph.fingerprint,
+            .root_program_refs = &.{blocker_source_ref},
+            .effect_shape_count = 1,
+            .blockers = &.{closure_blocker},
+        });
+        const blocker_certificate = Closure.Certificate.init(blocker_report, blocker_graph, Closure.Policy.auditOnly(), &.{});
+        var restrictive_elaboration_policy = Elaboration.Policy.auditOnly();
+        restrictive_elaboration_policy.allow_partial_with_blockers = false;
+        restrictive_elaboration_policy.fail_on_unsupported_shape = true;
+        restrictive_elaboration_policy.max_blockers = 0;
+        const blocker_input = Elaboration.Input{
+            .closure_graph = blocker_graph,
+            .closure_report = blocker_report,
+            .closure_certificate = blocker_certificate,
+            .source_program_ref = blocker_source_ref,
+            .policy = restrictive_elaboration_policy,
+        };
+        var target_policy = Elaboration.Target.Policy.strictClosed();
+        target_policy.elaboration_policy = restrictive_elaboration_policy;
+        target_policy.require_checked_closure_certificate = false;
+        target_policy.fail_on_unsupported_instruction = false;
+        const Target = Elaboration.Target.compileComptime(.{
+            .label = "target-policy-blocker-body",
+            .input = blocker_input,
+            .residual_program = Program,
+            .policy = target_policy,
+        });
+        Target.assertNormalForm(.partial_with_blockers);
+        break :blk Target.Certificate.evidenceView().domain == Evidence.domains.boundary_target_certificate.id and
+            Target.Body.effect_row.blockers == 1;
+    };
+    try std.testing.expect(target_policy_unlocks_blockers);
+
     const target_root_copy = comptime blk: {
         @setEvalBranchQuota(300_000);
         const residual_graph = Closure.Graph.init("target-root-copy-graph", &.{}, &.{}, &.{});
@@ -6392,11 +6509,13 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .policy = Elaboration.Policy.auditOnly(),
         };
         const Body = Elaboration.FromResidual(world_input, closure_source_program, .{ .label = "planned-world-port-body" });
+        var target_policy = Elaboration.Target.Policy.auditOnly();
+        target_policy.elaboration_policy.allow_intrinsic_world_ports = false;
         const Target = Elaboration.Target.compileComptime(.{
             .label = "planned-world-port-target-body",
             .input = world_input,
             .residual_program = closure_source_program,
-            .policy = Elaboration.Target.Policy.auditOnly(),
+            .policy = target_policy,
         });
         Target.assertNormalForm(.world_ports_only);
         Target.assertWorldSurfaceReady();
@@ -6897,7 +7016,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
     try std.testing.expect(residual_route_count_split);
 
     const host_provider_pipeline = comptime blk: {
-        @setEvalBranchQuota(200_000);
+        @setEvalBranchQuota(3_000_000);
         const ct_shape = Closure.EffectShape.init(.{
             .program_label = "host-provider-pipeline-source",
             .kind = .operation,

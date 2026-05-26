@@ -4606,6 +4606,11 @@ fn targetTablesConform(
     if (profile.value_descriptor_count != value_table.entries.len) return false;
     if (profile.dispatch_entry_count != dispatch_table.entries.len) return false;
     if (dispatch_table.entries.len < port_table.entries.len) return false;
+    for (value_table.entries, 0..) |value, value_index| {
+        if (value_index > std.math.maxInt(u32)) return false;
+        if (value.value_id != @as(u32, @intCast(value_index))) return false;
+        if (@as(usize, @intCast(value.world_port_id)) >= port_table.entries.len) return false;
+    }
     if (profile.no_search_hot_path and !targetDispatchTableDense(dispatch_table)) return false;
     for (dispatch_table.entries, 0..) |dispatch, index| {
         if (profile.no_search_hot_path and dispatch.residual_site_index != index) return false;
@@ -6203,6 +6208,8 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             var elaboration_policy = policy.elaboration_policy;
             elaboration_policy.allow_world_ports = policy.allow_world_ports;
             elaboration_policy.closure_policy.allow_world_ports = policy.allow_world_ports;
+            elaboration_policy.allow_intrinsic_world_ports = !policy.reject_host_intrinsic_internal_routes;
+            elaboration_policy.closure_policy.allow_host_intrinsics = !policy.reject_host_intrinsic_internal_routes;
             elaboration_policy.closure_policy.reject_host_intrinsics = policy.reject_host_intrinsic_internal_routes;
             elaboration_policy.require_certificate_checked = policy.require_checked_closure_certificate;
             elaboration_policy.require_checked_closure_certificate = policy.require_checked_closure_certificate;
@@ -6214,6 +6221,8 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             elaboration_policy.max_nested_provider_depth = if (policy.allow_nested_program_backed_providers) policy.max_nested_provider_depth else 0;
             elaboration_policy.closure_policy.max_nested_provider_depth = elaboration_policy.max_nested_provider_depth;
             elaboration_policy.fail_on_unsupported_shape = policy.fail_on_unsupported_instruction;
+            elaboration_policy.allow_partial_with_blockers = !policy.fail_on_unsupported_instruction;
+            elaboration_policy.max_blockers = if (policy.fail_on_unsupported_instruction) 0 else std.math.maxInt(usize);
             elaboration_policy.emit_trace_map = policy.emit_trace_map;
             return elaboration_policy;
         }
