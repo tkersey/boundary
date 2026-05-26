@@ -111,12 +111,12 @@ world ports and still rejects implicit internal host intrinsics.
 ## Certified Boundary Target
 
 `Elaboration.Target.compileComptime` produces a Certified Boundary Target. In V1
-it synthesizes the residual plan by root-copying already-normal shapes when no
-explicit residual program is supplied, or packages a supplied residual program
-after `FromResidual` validation. The target-neutral `WorldSurface` binds the
-elaboration certificate, residual program ref, source map, effect row, normal
-form, port table, value table, dispatch table, profile, replay-key recipe,
-evidence map, and target certificate.
+it requires an explicit `.residual_program` or `.root` and packages that supplied
+residual program after `FromResidual` validation. The target-neutral
+`WorldSurface` binds the elaboration certificate, residual program ref, source
+map, effect row, normal form, port table, value table, dispatch table, profile,
+replay-key recipe, and evidence map. The target certificate binds and checks the
+`WorldSurface` ref.
 
 The dispatch table is the target boundary. It gives World a dense residual-site
 to world-port lookup, so a generated target does not need to search the source

@@ -82,6 +82,7 @@ const Target = blk: {
     break :blk Elaboration.Target.compileComptime(.{
         .label = "world-surface-nested-target",
         .input = elaboration_input,
+        .residual_program = Program,
         .policy = Elaboration.Target.Policy.auditOnly(),
     });
 };
@@ -95,6 +96,7 @@ pub fn run(writer: anytype) !void {
     defer result.deinit();
     try writer.print("root_effect_shape_fingerprint={x}\n", .{root_shape.fingerprint});
     try writer.print("nested_effect_shape_fingerprint={x}\n", .{nested_shape.fingerprint});
+    try writer.print("coverage_scope=strict_root_copy_no_nested_plans\n", .{});
     try writer.print("generated_plan_hash={x}\n", .{Program.compiled_plan.hash()});
     try writer.print("world_surface_fingerprint={x}\n", .{Target.WorldSurface.surface_fingerprint});
     try writer.print("final_result={d}\n", .{result.value});

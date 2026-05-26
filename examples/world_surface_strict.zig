@@ -54,6 +54,7 @@ const Target = blk: {
     break :blk Elaboration.Target.compileComptime(.{
         .label = "world-surface-strict-target",
         .input = elaboration_input,
+        .residual_program = Program,
         .policy = Elaboration.Target.Policy.auditOnly(),
     });
 };

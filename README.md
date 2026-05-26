@@ -751,7 +751,7 @@ zig build run-boundary-closure-strict
 zig build run-boundary-closure-nested
 zig build run-boundary-closure-world-port
 zig build run-world-surface-strict
-zig build run-world-surface-nested
+zig build run-world-surface-nested # scoped root-copy target
 zig build run-world-surface-ports
 zig build run-program-provider-direct
 zig build run-program-provider-nested

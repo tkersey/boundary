@@ -11,18 +11,15 @@ Boundary Normal Form, dense world-port dispatch metadata, source/trace/evidence
 maps, replay-key recipe metadata, and a target certificate.
 
 `FromResidual` remains the validation path for a supplied residual plan.
-`Target.compileComptime` and `Target.compile` synthesize the conservative V1
-residual plan by root-copying already-normal shapes when no explicit residual
-program is supplied, then build the target-neutral surface and validate the body
-through `FromResidual`. Passing `.residual_program` keeps the supplied-plan
-validation path available.
+`Target.compileComptime` requires `.residual_program` or `.root`, builds the
+target-neutral surface, and validates the body through `FromResidual`.
 
 ## WorldSurface
 
 `WorldSurface` is metadata, not an ABI. It binds the residual program ref,
 elaboration certificate, source map, effect row, normal form, `WorldPortTable`,
-`WorldValueTable`, `WorldDispatchTable`, `SurfaceProfile`, replay recipe, and
-target certificate fingerprint.
+`WorldValueTable`, `WorldDispatchTable`, `SurfaceProfile`, and replay recipe.
+The target certificate binds and checks the `WorldSurface` ref.
 
 Boundary does not define WASM imports, native function tables, message formats,
 linear memory, status codes, scheduling, storage, transport, replay persistence,
@@ -82,7 +79,7 @@ no-search readiness, and boundedness policy.
 Replay metadata is the evidence-backed recipe:
 
 ```text
-{ world_surface_fingerprint, world_port_id, request_fingerprint, response_fingerprint }
+{ world_surface_scope_fingerprint, world_port_id, request_fingerprint, response_fingerprint }
 ```
 
 Boundary emits the recipe only; journal storage and replay lookup belong to
