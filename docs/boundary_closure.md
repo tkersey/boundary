@@ -48,7 +48,10 @@ Closure can also feed Boundary Elaboration. Closure proves the configured graph
 is closed; `Program.BoundaryClosure.Elaboration` binds a residual `ProgramPlan`,
 maps, effect row, Boundary Normal Form metadata, and an elaboration certificate
 for the supported internal routes. See
-[boundary_elaboration.md](boundary_elaboration.md).
+[boundary_elaboration.md](boundary_elaboration.md). `Elaboration.Target` adds
+the Certified Boundary Target layer: a validated residual body plus a
+target-neutral `WorldSurface`, dense world-port ids, value/dispatch tables,
+profile metadata, replay recipe, and target certificate for World.
 
 ## EffectShape Vs RequestEnvelope
 

@@ -24,10 +24,15 @@ tokens. See [docs/evidence_kernel.md](docs/evidence_kernel.md).
 `Program.BoundaryClosure` proves configured effect graphs are closed under
 defunctionalized handling, except for explicit world ports. Checked closure
 results can feed `Program.BoundaryClosure.Elaboration`, which binds an ordinary
-residual `ProgramPlan`, source/residual/evidence maps, an effect row, Boundary
-Normal Form metadata, and an elaboration certificate. See
+generated or supplied residual `ProgramPlan`, source/residual/evidence maps, an
+effect row, Boundary Normal Form metadata, and an elaboration certificate.
+`Elaboration.Target`
+packages the validated residual body into a Certified Boundary Target with a
+target-neutral `WorldSurface`, dense world-port dispatch table, value table,
+profile, replay recipe, and target certificate. See
 [docs/boundary_closure.md](docs/boundary_closure.md) and
-[docs/boundary_elaboration.md](docs/boundary_elaboration.md).
+[docs/boundary_elaboration.md](docs/boundary_elaboration.md), plus
+[docs/world_surface.md](docs/world_surface.md).
 
 ## Program
 
@@ -745,6 +750,9 @@ zig build run-provider-harness-replayable
 zig build run-boundary-closure-strict
 zig build run-boundary-closure-nested
 zig build run-boundary-closure-world-port
+zig build run-world-surface-strict
+zig build run-world-surface-nested
+zig build run-world-surface-ports
 zig build run-program-provider-direct
 zig build run-program-provider-nested
 zig build run-program-provider-resume

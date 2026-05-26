@@ -20,6 +20,11 @@ function-backed ProviderHarness handlers, `Program.run` handler functions,
 `Program.Interpreter` handler functions, and dynamic morphism mapper functions.
 They are not inspectable Boundary semantics.
 
+Certified Boundary Targets keep that split intact. Boundary can link or
+residualize supported Boundary-native routes, but explicit `WorldPort` sites
+remain residual operations described by `WorldSurface`; World chooses the ABI and
+executes the host side.
+
 `Program.Evidence.HostIntrinsic` gives each declared intrinsic a deterministic
 descriptor and evidence ref. Its fingerprint is based on declared labels, kind,
 policy summaries, refs, tags, and metadata. It excludes function pointer

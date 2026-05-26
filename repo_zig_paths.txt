@@ -47,6 +47,9 @@ examples/program_provider_resume.zig
 examples/residualized_approval_policy.zig
 examples/state_basic.zig
 examples/typed_program_plan.zig
+examples/world_surface_nested.zig
+examples/world_surface_ports.zig
+examples/world_surface_strict.zig
 src/boundary_shared.zig
 src/algebraic.zig
 src/bench_support.zig

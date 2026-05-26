@@ -289,6 +289,17 @@ test "evidence domain registry is unique and mirrors public version constants" {
     try std.testing.expectEqual(Program.boundary_elaboration_effect_row_fingerprint_version, Evidence.domains.boundary_elaboration_effect_row.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_elaboration_trace_map_fingerprint_version, Evidence.domains.boundary_elaboration_trace_map.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_normal_form_fingerprint_version, Evidence.domains.boundary_normal_form.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_world_surface_format_version, Evidence.domains.boundary_world_surface.format_version.?);
+    try std.testing.expectEqual(Program.boundary_world_surface_fingerprint_version, Evidence.domains.boundary_world_surface.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_world_port_table_fingerprint_version, Evidence.domains.boundary_world_port_table.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_world_value_table_fingerprint_version, Evidence.domains.boundary_world_value_table.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_world_dispatch_table_fingerprint_version, Evidence.domains.boundary_world_dispatch_table.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_world_surface_profile_fingerprint_version, Evidence.domains.boundary_world_surface_profile.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_world_replay_key_recipe_fingerprint_version, Evidence.domains.boundary_world_replay_key_recipe.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_target_policy_fingerprint_version, Evidence.domains.boundary_target_policy.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_target_certificate_format_version, Evidence.domains.boundary_target_certificate.format_version.?);
+    try std.testing.expectEqual(Program.boundary_target_certificate_fingerprint_version, Evidence.domains.boundary_target_certificate.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_target_evidence_map_fingerprint_version, Evidence.domains.boundary_target_evidence_map.fingerprint_version);
     try std.testing.expectEqual(@as(u32, 3), Evidence.domains.treaty_authorization_legacy_v3.format_version.?);
     try std.testing.expectEqual(@as(u32, 2), Evidence.domains.treaty_authorization_legacy_v2.format_version.?);
     try std.testing.expectEqual(Program.pipeline_fingerprint_version, Evidence.domains.pipeline.fingerprint_version);
@@ -1798,6 +1809,100 @@ test "boundary elaboration foundational refs and certificate evidence are determ
         error.BoundaryElaborationCertificateMismatch,
         blockerless_partial_certificate.check(unbounded_blocker_policy, closure_graph_ref, closure_report_ref, closure_certificate_ref, partial_source_map, blockerless_partial_row, partial_trace_map, blockerless_partial_normal, partial_static_plans[0..], &.{}),
     );
+}
+
+test "certified boundary target world surface tables and certificate are deterministic" {
+    const Elaboration = Program.BoundaryClosure.Elaboration;
+    const value_ref = Evidence.BoundaryValueRef.init("i32", null);
+    const source_ref = Evidence.refFor(Evidence.domains.boundary_effect_shape, 0xC781_0001, .{ .label = "source-shape" });
+    const world_port_ref = Evidence.refFor(Evidence.domains.boundary_world_port, 0xC781_0002, .{
+        .format_version = Evidence.domains.boundary_world_port.format_version,
+        .label = "world-port",
+    });
+    const residual_program_ref = Evidence.refFor(Evidence.domains.program_plan, 0xC781_0003, .{ .label = "residual" });
+    const elaboration_certificate_ref = Evidence.refFor(Evidence.domains.boundary_elaboration_certificate, 0xC781_0004, .{
+        .format_version = Evidence.domains.boundary_elaboration_certificate.format_version,
+        .label = "elaboration",
+    });
+    const entries = [_]Elaboration.WorldPortTable.Entry{.{
+        .world_port_id = 0,
+        .residual_site_index = 7,
+        .residual_site_fingerprint = 0xC781_0005,
+        .world_port_ref = world_port_ref,
+        .source_ref = source_ref,
+        .payload_ref = value_ref,
+        .resume_ref = value_ref,
+        .result_ref = value_ref,
+        .protocol_label = "approval",
+        .op_name = "request",
+        .semantic_label = "approval.request",
+    }};
+    const port_table = Elaboration.WorldPortTable.init("target.ports", entries[0..]);
+    const value_entries = [_]Elaboration.WorldValueTable.Entry{
+        .{ .value_id = 0, .world_port_id = 0, .kind = .payload, .ref = value_ref },
+        .{ .value_id = 1, .world_port_id = 0, .kind = .@"resume", .ref = value_ref },
+        .{ .value_id = 2, .world_port_id = 0, .kind = .result, .ref = value_ref },
+    };
+    const value_table = Elaboration.WorldValueTable.init("target.values", value_entries[0..]);
+    const dispatch_entries = [_]Elaboration.WorldDispatchTable.Entry{.{
+        .residual_site_index = 7,
+        .residual_site_fingerprint = 0xC781_0005,
+        .world_port_id = 0,
+    }};
+    const dispatch_table = Elaboration.WorldDispatchTable.init("target.dispatch", dispatch_entries[0..]);
+    const profile = Elaboration.SurfaceProfile.init(.{
+        .label = "target.profile",
+        .world_port_count = port_table.entries.len,
+        .value_descriptor_count = value_table.entries.len,
+        .dispatch_entry_count = dispatch_table.entries.len,
+        .no_search_hot_path = true,
+        .bounded = true,
+    });
+    const replay = Elaboration.ReplayKeyRecipe.init("target.replay", elaboration_certificate_ref, &.{ "world_surface_fingerprint", "world_port_id", "request_fingerprint", "response_kind" });
+    const surface = Elaboration.WorldSurface.init(.{
+        .label = "target.surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_program_ref,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .source_map_ref = Evidence.refFor(Evidence.domains.boundary_elaboration_source_map, 0xC781_0006, .{ .label = "source-map" }),
+        .effect_row_ref = Evidence.refFor(Evidence.domains.boundary_elaboration_effect_row, 0xC781_0007, .{ .label = "effect-row" }),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = replay.evidenceRef(),
+        .normal_form = .world_ports_only,
+        .world_port_count = 1,
+    });
+    const dependencies = [_]Evidence.Dependency{
+        .{ .role = .world_surface, .ref = surface.evidenceRef() },
+        .{ .role = .world_port_table, .ref = port_table.evidenceRef() },
+        .{ .role = .world_value_table, .ref = value_table.evidenceRef() },
+        .{ .role = .world_dispatch_table, .ref = dispatch_table.evidenceRef() },
+    };
+    const evidence_map = Elaboration.TargetEvidenceMap.init("target.evidence", dependencies[0..]);
+    const policy = Elaboration.Target.Policy.worldBoundary();
+    const certificate = Elaboration.Target.Certificate.init(.{
+        .target_label = "target",
+        .policy = policy,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .residual_program_ref = residual_program_ref,
+        .world_surface_ref = surface.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = replay.evidenceRef(),
+        .evidence_map_ref = evidence_map.evidenceRef(),
+        .dependencies = dependencies[0..],
+    });
+    try certificate.check(policy, surface, port_table, value_table, dispatch_table, profile, replay, evidence_map);
+    try std.testing.expectEqual(@as(usize, 1), surface.world_port_count);
+    try std.testing.expectEqual(@as(u32, 0), port_table.entries[0].world_port_id);
+    try std.testing.expectEqual(@as(usize, 3), value_table.entries.len);
+    try std.testing.expectEqual(@as(u32, 0), dispatch_table.entries[0].world_port_id);
+    try std.testing.expect(profile.no_search_hot_path);
+    try std.testing.expect(certificate.evidenceView().certificate_ref.eql(certificate.evidenceRef()));
 }
 
 test "elaboration certificate source map world port lowering boundary normal form provider linking runtime agreement" {
@@ -3667,6 +3772,63 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
         break :blk Body.certificate.evidenceView().domain == Evidence.domains.boundary_elaboration_certificate.id;
     };
     try std.testing.expect(from_residual_compiles);
+
+    const target_from_residual_compiles = comptime blk: {
+        @setEvalBranchQuota(300_000);
+        const residual_graph = Closure.Graph.init("target-from-residual-graph", &.{}, &.{}, &.{});
+        const residual_report = Closure.Report.init(.{
+            .graph_fingerprint = residual_graph.fingerprint,
+            .root_program_refs = &.{source_ref},
+        });
+        const residual_certificate = Closure.Certificate.init(residual_report, residual_graph, Closure.Policy.auditOnly(), &.{});
+        const residual_input = Elaboration.Input{
+            .closure_graph = residual_graph,
+            .closure_report = residual_report,
+            .closure_certificate = residual_certificate,
+            .source_program_ref = source_ref,
+            .policy = Elaboration.Policy.auditOnly(),
+        };
+        const Target = Elaboration.Target.compileComptime(.{
+            .label = "target-from-residual-body",
+            .input = residual_input,
+            .residual_program = Program,
+            .policy = Elaboration.Target.Policy.auditOnly(),
+        });
+        Target.assertWorldSurfaceReady();
+        Target.assertNoSearchHotPath();
+        break :blk Target.certificate.evidenceView().domain == Evidence.domains.boundary_target_certificate.id and
+            Target.world_surface.evidenceRef().domain_id == Evidence.domains.boundary_world_surface.id and
+            Target.world_port_table.entries.len == 0 and
+            Target.world_dispatch_table.entries.len == 0;
+    };
+    try std.testing.expect(target_from_residual_compiles);
+
+    const target_root_copy = comptime blk: {
+        @setEvalBranchQuota(300_000);
+        const residual_graph = Closure.Graph.init("target-root-copy-graph", &.{}, &.{}, &.{});
+        const residual_report = Closure.Report.init(.{
+            .graph_fingerprint = residual_graph.fingerprint,
+            .root_program_refs = &.{source_ref},
+        });
+        const residual_certificate = Closure.Certificate.init(residual_report, residual_graph, Closure.Policy.auditOnly(), &.{});
+        const residual_input = Elaboration.Input{
+            .closure_graph = residual_graph,
+            .closure_report = residual_report,
+            .closure_certificate = residual_certificate,
+            .source_program_ref = source_ref,
+            .policy = Elaboration.Policy.auditOnly(),
+        };
+        const Target = Elaboration.Target.compileComptime(.{
+            .label = "target-root-copy-body",
+            .input = residual_input,
+            .policy = Elaboration.Target.Policy.auditOnly(),
+        });
+        Target.assertWorldSurfaceReady();
+        break :blk Target.Program == Program and
+            Target.certificate.residual_program_ref.eql(Elaboration.Target.PlanBuilder.residualProgramRef(residual_input, Program)) and
+            Elaboration.Target.PlanBuilder.generatedPlanRef(residual_input, Program).domain_id == Evidence.domains.boundary_elaboration_generated_plan.id;
+    };
+    try std.testing.expect(target_root_copy);
 
     const from_residual_nested_targets = comptime blk: {
         @setEvalBranchQuota(200_000);
@@ -5634,8 +5796,24 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .policy = Elaboration.Policy.auditOnly(),
         };
         const Body = Elaboration.FromResidual(world_input, closure_source_program, .{ .label = "planned-world-port-body" });
+        const Target = Elaboration.Target.compileComptime(.{
+            .label = "planned-world-port-target-body",
+            .input = world_input,
+            .residual_program = closure_source_program,
+            .policy = Elaboration.Target.Policy.auditOnly(),
+        });
+        Target.assertNormalForm(.world_ports_only);
+        Target.assertWorldSurfaceReady();
+        Target.assertNoSearchHotPath();
         const Wrapped = boundary.program("planned-world-port-wrapped", closure_fixture_handlers, Body);
         break :blk Body.source_map.entries.len == 1 and
+            Target.Body.source_map.entries.len == Body.source_map.entries.len and
+            Target.WorldSurface.world_port_count == 1 and
+            Target.WorldPortTable.entries.len == 1 and
+            Target.WorldPortTable.entries[0].world_port_id == 0 and
+            Target.WorldDispatchTable.entries[0].residual_site_index == closure_approval_request.index and
+            Target.WorldValueTable.entries.len == 3 and
+            Target.Certificate.world_surface_ref.eql(Target.WorldSurface.evidenceRef()) and
             Body.effect_row.source_effect_shapes == 1 and
             Body.effect_row.closed_effect_shapes == 0 and
             Body.source_map.entries[0].source_site_index.? == source_site_index and
