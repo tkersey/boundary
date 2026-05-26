@@ -1923,6 +1923,52 @@ test "certified boundary target world surface tables and certificate are determi
     try std.testing.expect(profile.no_search_hot_path);
     try std.testing.expect(certificate.evidenceView().certificate_ref.eql(certificate.evidenceRef()));
 
+    const malformed_replay = Elaboration.ReplayKeyRecipe.init("target.malformed-replay", surface_scope.replayScopeRef(), &.{ "world_port_id", "world_surface_fingerprint", "request_fingerprint" });
+    const malformed_surface = Elaboration.WorldSurface.init(.{
+        .label = surface_scope.label,
+        .residual_program_label = surface_scope.residual_program_label,
+        .residual_program_ref = surface_scope.residual_program_ref,
+        .elaboration_certificate_ref = surface_scope.elaboration_certificate_ref,
+        .source_map_ref = surface_scope.source_map_ref,
+        .effect_row_ref = surface_scope.effect_row_ref,
+        .port_table_ref = surface_scope.port_table_ref,
+        .value_table_ref = surface_scope.value_table_ref,
+        .dispatch_table_ref = surface_scope.dispatch_table_ref,
+        .profile_ref = surface_scope.profile_ref,
+        .replay_key_recipe_ref = malformed_replay.evidenceRef(),
+        .normal_form = surface_scope.normal_form,
+        .world_port_count = surface_scope.world_port_count,
+    });
+    const malformed_dependencies = [_]Evidence.Dependency{
+        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
+        .{ .role = .world_surface, .ref = malformed_surface.evidenceRef() },
+        .{ .role = .world_port_table, .ref = port_table.evidenceRef() },
+        .{ .role = .world_value_table, .ref = value_table.evidenceRef() },
+        .{ .role = .world_dispatch_table, .ref = dispatch_table.evidenceRef() },
+        .{ .role = .surface_profile, .ref = profile.evidenceRef() },
+        .{ .role = .replay_key_recipe, .ref = malformed_replay.evidenceRef() },
+        .{ .role = .residual_program, .ref = residual_program_ref },
+    };
+    const malformed_evidence_map = Elaboration.TargetEvidenceMap.init("target.malformed-replay-evidence", malformed_dependencies[0..]);
+    const malformed_certificate = Elaboration.Target.Certificate.init(.{
+        .target_label = "target.malformed-replay",
+        .policy = policy,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .residual_program_ref = residual_program_ref,
+        .world_surface_ref = malformed_surface.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = malformed_replay.evidenceRef(),
+        .evidence_map_ref = malformed_evidence_map.evidenceRef(),
+        .dependencies = malformed_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryTargetCertificateMismatch,
+        malformed_certificate.check(policy, malformed_surface, port_table, value_table, dispatch_table, profile, malformed_replay, malformed_evidence_map),
+    );
+
     const gapped_port_entries = [_]Elaboration.WorldPortTable.Entry{.{
         .world_port_id = 0,
         .residual_site_index = 5,

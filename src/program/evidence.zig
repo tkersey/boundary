@@ -4526,6 +4526,7 @@ pub const BoundaryTargetCertificate = struct {
         if (!world_surface.profile_ref.eql(profile.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!world_surface.replay_key_recipe_ref.eql(replay_key_recipe.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!replay_key_recipe.surface_ref.eql(world_surface.replayScopeRef())) return error.BoundaryTargetCertificateMismatch;
+        if (!targetReplayKeyRecipeConforms(replay_key_recipe)) return error.BoundaryTargetCertificateMismatch;
         if (!targetTablesConform(port_table, value_table, dispatch_table, profile)) return error.BoundaryTargetCertificateMismatch;
         if (world_surface.world_port_count != profile.world_port_count) return error.BoundaryTargetCertificateMismatch;
         if (world_surface.world_port_count != port_table.entries.len) return error.BoundaryTargetCertificateMismatch;
@@ -4579,6 +4580,20 @@ fn targetPolicyEmitsRequiredArtifacts(policy: BoundaryTargetPolicy) bool {
         policy.emit_trace_map and
         policy.emit_evidence_map and
         policy.emit_world_surface;
+}
+
+fn targetReplayKeyRecipeConforms(recipe: BoundaryReplayKeyRecipe) bool {
+    const expected = [_][]const u8{
+        "world_surface_fingerprint",
+        "world_port_id",
+        "request_fingerprint",
+        "response_fingerprint",
+    };
+    if (recipe.components.len != expected.len) return false;
+    for (recipe.components, expected) |actual, required| {
+        if (!std.mem.eql(u8, actual, required)) return false;
+    }
+    return true;
 }
 
 fn targetTablesConform(
