@@ -66,7 +66,9 @@ fn testLegacyProgramProviderOfferBytes(comptime Program: type, allocator: std.me
     const payload = offer.bytes[0 .. offer.bytes.len - 8];
     const program_label_len: usize = if (program_ref.label) |label| @sizeOf(u64) + label.len else 0;
     const program_ref_len = @sizeOf(u64) + @sizeOf(u8) + program_label_len;
-    const current_only_tail_len = program_ref_len + @sizeOf(u64) + @sizeOf(u64);
+    const request_mapping_len = @sizeOf(u64) + @tagName(offer.provider_program_request_mapping orelse return error.ExpectedProviderProgramRef).len;
+    const result_mapping_len = @sizeOf(u64) + @tagName(offer.provider_program_result_mapping orelse return error.ExpectedProviderProgramRef).len;
+    const current_only_tail_len = program_ref_len + request_mapping_len + result_mapping_len + @sizeOf(u64) + @sizeOf(u64);
     if (payload.len <= current_only_tail_len) return error.ProgramContractViolation;
     const legacy_payload_len = payload.len - current_only_tail_len;
     var legacy = try allocator.alloc(u8, legacy_payload_len + @sizeOf(u64));
@@ -24215,6 +24217,10 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     );
     try std.testing.expectEqual(@as(usize, 1), program_catalog.provider_manifest.supported_provider_program_mapping_fingerprints.len);
     try std.testing.expectEqual(ProgramBackedDecl.provider_program_mapping_fingerprint, program_catalog.provider_manifest.supported_provider_program_mapping_fingerprints[0]);
+    const program_offer_options = ProgramBackedHarness.offerOptions(0, program_catalog.manifest.fingerprint);
+    try std.testing.expectEqual(@as(?u64, ProgramBackedDecl.provider_program_mapping_fingerprint), program_offer_options.provider_program_mapping_fingerprint);
+    try std.testing.expectEqual(Program.Exchange.RequestToProgramArgs.unit_args, program_offer_options.provider_program_request_mapping.?);
+    try std.testing.expectEqual(Program.Exchange.ProgramResultToProviderOutcome.result_to_resume, program_offer_options.provider_program_result_mapping.?);
     try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, ProgramBackedHarness.declarationSemanticBody(0));
     try std.testing.expectEqual(Program.Evidence.SemanticBody.unknown, program_catalog.provider_offers[0].semanticBody());
     try std.testing.expectEqual(Program.Evidence.SemanticBody.boundary_program, program_catalog.provider_offers[0].semanticBodyWithProvider(program_catalog.provider_manifest));
@@ -24228,6 +24234,8 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
     try std.testing.expect(ProgramBackedDecl.provider_program_mapping_fingerprint != 0);
     const provider_program_ref = Program.Evidence.refFor(Program.Evidence.domains.program_plan, HandlerProgram.compiled_plan.hash(), .{ .label = HandlerProgram.contract.label });
     try std.testing.expect(program_catalog.provider_offers[0].provider_program_ref.?.eql(provider_program_ref));
+    try std.testing.expectEqual(Program.Exchange.RequestToProgramArgs.unit_args, program_catalog.provider_offers[0].provider_program_request_mapping.?);
+    try std.testing.expectEqual(Program.Exchange.ProgramResultToProviderOutcome.result_to_resume, program_catalog.provider_offers[0].provider_program_result_mapping.?);
     try std.testing.expectEqual(@as(?usize, 0), program_catalog.provider_offers[0].provider_program_effect_shape_count);
     try std.testing.expectEqual(
         @as(?u64, Program.Evidence.fingerprintBoundaryEffectShapeSet(&.{})),
@@ -24455,6 +24463,9 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
         .provider_ref = program_catalog.provider_manifest.evidenceRef(),
         .program_ref = provider_program_ref,
         .provider_program_mapping_fingerprint = ProgramBackedDecl.provider_program_mapping_fingerprint,
+        .provider_program_mapping_support_fingerprint = Program.BoundaryClosure.providerProgramMappingSupportFingerprintForSelection(program_catalog.provider_manifest.evidenceRef(), program_catalog.provider_offers[0].evidenceRef(), provider_program_ref, ProgramBackedDecl.provider_program_mapping_fingerprint, 0, Program.Evidence.fingerprintBoundaryEffectShapeSet(&.{}), .unit_args, .result_to_resume),
+        .request_mapping = .unit_args,
+        .result_mapping = .result_to_resume,
         .effect_free = true,
     }};
     var nested_closure = try Program.BoundaryClosure.analyze(std.testing.allocator, .{
@@ -24626,12 +24637,16 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
             .provider_ref = program_catalog.provider_manifest.evidenceRef(),
             .program_ref = provider_program_ref,
             .provider_program_mapping_fingerprint = ProgramBackedDecl.provider_program_mapping_fingerprint,
+            .request_mapping = .payload_to_args,
+            .result_mapping = .result_to_resume,
             .shapes = &.{after_static_shape},
         },
         .{
             .provider_ref = after_program_catalog.provider_manifest.evidenceRef(),
             .program_ref = after_provider_program_ref,
             .provider_program_mapping_fingerprint = AfterProgramBackedDecl.provider_program_mapping_fingerprint,
+            .request_mapping = .unit_args,
+            .result_mapping = .result_to_resume_after,
             .effect_free = true,
         },
     };
@@ -24688,12 +24703,18 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
             .provider_ref = reused_program_catalog.provider_manifest.evidenceRef(),
             .program_ref = provider_program_ref,
             .provider_program_mapping_fingerprint = ProgramBackedDecl.provider_program_mapping_fingerprint,
+            .provider_program_mapping_support_fingerprint = Program.BoundaryClosure.providerProgramMappingSupportFingerprintForSelection(reused_program_catalog.provider_manifest.evidenceRef(), reused_program_catalog.provider_offers[0].evidenceRef(), provider_program_ref, ProgramBackedDecl.provider_program_mapping_fingerprint, 0, Program.Evidence.fingerprintBoundaryEffectShapeSet(&.{}), .unit_args, .result_to_resume),
+            .request_mapping = .unit_args,
+            .result_mapping = .result_to_resume,
             .effect_free = true,
         },
         .{
             .provider_ref = reused_program_catalog.provider_manifest.evidenceRef(),
             .program_ref = provider_program_ref,
             .provider_program_mapping_fingerprint = ReusedAfterProgramBackedDecl.provider_program_mapping_fingerprint,
+            .provider_program_mapping_support_fingerprint = Program.BoundaryClosure.providerProgramMappingSupportFingerprintForSelection(reused_program_catalog.provider_manifest.evidenceRef(), reused_program_catalog.provider_offers[1].evidenceRef(), provider_program_ref, ReusedAfterProgramBackedDecl.provider_program_mapping_fingerprint, 0, Program.Evidence.fingerprintBoundaryEffectShapeSet(&.{}), .unit_args, .result_to_resume_after),
+            .request_mapping = .unit_args,
+            .result_mapping = .result_to_resume_after,
             .effect_free = true,
         },
     };
@@ -24726,12 +24747,16 @@ test "Program.Exchange ProviderHarness derives provider catalog and rejects fore
             .provider_ref = program_catalog.provider_manifest.evidenceRef(),
             .program_ref = unrelated_provider_program_ref,
             .provider_program_mapping_fingerprint = ProgramBackedDecl.provider_program_mapping_fingerprint,
+            .request_mapping = .payload_to_args,
+            .result_mapping = .result_to_resume,
             .effect_free = true,
         },
         .{
             .provider_ref = program_catalog.provider_manifest.evidenceRef(),
             .program_ref = provider_program_ref,
             .provider_program_mapping_fingerprint = ProgramBackedDecl.provider_program_mapping_fingerprint +% 1,
+            .request_mapping = .payload_to_args,
+            .result_mapping = .result_to_resume,
             .effect_free = true,
         },
     };

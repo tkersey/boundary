@@ -7,6 +7,13 @@ an `boundary.ir.ProgramPlan`.
 The root package stays small: `boundary.effect`, `boundary.ir`,
 `boundary.program`, and `boundary.Runtime`.
 
+Boundary Closure Elaboration emits the same kind of body: an ordinary
+`Body.compiled_plan` plus optional value schema, nested target, site metadata,
+source-map, effect-row, trace-map, normal-form, and certificate constants. The
+elaborated program is consumed through normal `Program.contract`,
+`Program.protocol`, `Program.Session`, and `Program.run`; no TreatyResolver or
+ProviderHarness is needed for internal routes that were elaborated.
+
 ## Scalar body
 
 A scalar plan uses scalar locals and scalar `ProgramValue` entry arguments. If

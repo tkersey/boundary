@@ -21,6 +21,14 @@ projections, and policy summaries. Evidence fingerprints are deterministic
 semantic witnesses, not cryptographic security claims or serialized request
 tokens. See [docs/evidence_kernel.md](docs/evidence_kernel.md).
 
+`Program.BoundaryClosure` proves configured effect graphs are closed under
+defunctionalized handling, except for explicit world ports. Checked closure
+results can feed `Program.BoundaryClosure.Elaboration`, which binds an ordinary
+residual `ProgramPlan`, source/residual/evidence maps, an effect row, Boundary
+Normal Form metadata, and an elaboration certificate. See
+[docs/boundary_closure.md](docs/boundary_closure.md) and
+[docs/boundary_elaboration.md](docs/boundary_elaboration.md).
+
 ## Program
 
 `boundary.program` executes a `Body.compiled_plan`. The plan is built at comptime

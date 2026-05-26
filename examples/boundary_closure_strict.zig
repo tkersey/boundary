@@ -100,10 +100,14 @@ pub fn run(writer: anytype) !void {
     const providers = [_]SourceProgram.Exchange.ProviderManifest{catalog.provider_manifest};
     const offers = [_]SourceProgram.Exchange.ProviderOffer{catalog.provider_offers[0]};
     const capabilities = [_]SourceProgram.Exchange.Capability{capability};
+    const provider_program_ref = SourceProgram.Evidence.refFor(SourceProgram.Evidence.domains.program_plan, HandlerProgram.compiled_plan.hash(), .{ .label = HandlerProgram.contract.label });
     const provider_programs = [_]Closure.ProviderProgram{.{
         .provider_ref = catalog.provider_manifest.evidenceRef(),
-        .program_ref = SourceProgram.Evidence.refFor(SourceProgram.Evidence.domains.program_plan, HandlerProgram.compiled_plan.hash(), .{ .label = HandlerProgram.contract.label }),
+        .program_ref = provider_program_ref,
         .provider_program_mapping_fingerprint = ApprovalDecl.provider_program_mapping_fingerprint,
+        .provider_program_mapping_support_fingerprint = Closure.providerProgramMappingSupportFingerprintForSelection(catalog.provider_manifest.evidenceRef(), catalog.provider_offers[0].evidenceRef(), provider_program_ref, ApprovalDecl.provider_program_mapping_fingerprint, 0, SourceProgram.Evidence.fingerprintBoundaryEffectShapeSet(&.{}), .payload_to_args, .result_to_resume),
+        .request_mapping = .payload_to_args,
+        .result_mapping = .result_to_resume,
         .effect_free = true,
     }};
     var policy = Closure.Policy.strict();

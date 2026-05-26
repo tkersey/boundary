@@ -44,6 +44,12 @@ plans, world-port declarations, policy summary, and evidence refs; it still owns
 scheduling, storage, transport, provider lifecycle, retries, cancellation,
 identity, signing, encryption, and actual host-intrinsic execution.
 
+Closure can also feed Boundary Elaboration. Closure proves the configured graph
+is closed; `Program.BoundaryClosure.Elaboration` binds a residual `ProgramPlan`,
+maps, effect row, Boundary Normal Form metadata, and an elaboration certificate
+for the supported internal routes. See
+[boundary_elaboration.md](boundary_elaboration.md).
+
 ## EffectShape Vs RequestEnvelope
 
 `BoundaryClosure.EffectShape` is a static witness. It describes a program
@@ -187,6 +193,12 @@ The executable examples cover the three intended proof surfaces:
   typed-program closure surfaces.
 - `zig build run-boundary-closure-world-port` shows strict host-intrinsic
   rejection and world-boundary acceptance through an explicit world port.
+- `zig build run-boundary-elaboration-strict` compiles a strict program-backed
+  provider route into an ordinary residual plan.
+- `zig build run-boundary-elaboration-nested` binds a root provider route and a
+  nested provider closure certificate to one residual plan.
+- `zig build run-boundary-elaboration-world-port` emits a residual world-port
+  request and maps it back to the source `EffectShape` and `WorldPort`.
 
 ## Non-Goals
 
