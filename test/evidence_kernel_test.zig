@@ -4065,6 +4065,49 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             unit_args_input.validate() catch |err| break :reject err == error.BoundaryElaborationProviderProgramRefMismatch;
             break :reject false;
         };
+        const unknown_value_shape = Closure.EffectShape.init(.{
+            .program_label = "unsupported-provider-mapping-source",
+            .kind = .operation,
+            .site_index = 0,
+            .protocol_label = "approval",
+        });
+        const unknown_value_unit_args_plan = Closure.StaticTreatyPlan.init(.{
+            .label = "unsupported-provider-unknown-value-unit-args-plan",
+            .source_shape = unknown_value_shape,
+            .selected_provider_ref = unsupported_provider_ref,
+            .selected_provider_offer_ref = unsupported_provider_ref,
+            .selected_capability_ref = unsupported_provider_ref,
+            .selected_semantic_body = .boundary_program,
+            .selected_provider_program_ref = unsupported_program_ref,
+            .selected_provider_program_mapping_fingerprint = 0xE1D2_4007,
+            .selected_provider_program_request_mapping_tag = "unit_args",
+            .selected_provider_program_result_mapping_tag = "result_to_resume",
+            .selected_provider_program_effect_shape_count = 0,
+            .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
+        });
+        const unknown_value_certificate = Closure.Certificate.init(unsupported_report, unsupported_graph, Closure.Policy.auditOnly(), &.{unknown_value_unit_args_plan.evidenceRef()});
+        const unknown_value_programs = [_]Closure.ProviderProgram{.{
+            .provider_ref = unsupported_provider_ref,
+            .program_ref = unsupported_program_ref,
+            .provider_program_mapping_fingerprint = unknown_value_unit_args_plan.selected_provider_program_mapping_fingerprint,
+            .provider_program_mapping_support_fingerprint = Closure.providerProgramMappingSupportFingerprintForPlan(unknown_value_unit_args_plan, .unit_args, .result_to_resume),
+            .request_mapping = .unit_args,
+            .result_mapping = .result_to_resume,
+            .effect_free = true,
+        }};
+        const unknown_value_input = Elaboration.Input{
+            .closure_graph = unsupported_graph,
+            .closure_report = unsupported_report,
+            .closure_certificate = unknown_value_certificate,
+            .static_treaty_plans = &.{unknown_value_unit_args_plan},
+            .source_program_ref = source_ref,
+            .provider_programs = unknown_value_programs[0..],
+            .policy = Elaboration.Policy.auditOnly(),
+        };
+        const unknown_value_rejected = reject: {
+            unknown_value_input.validate() catch |err| break :reject err == error.BoundaryElaborationProviderProgramRefMismatch;
+            break :reject false;
+        };
         const resume_after_plan = Closure.StaticTreatyPlan.init(.{
             .label = "unsupported-provider-resume-after-plan",
             .source_shape = unsupported_shape,
@@ -4119,6 +4162,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
         };
         break :blk unsupported_rejected and
             unit_args_rejected and
+            unknown_value_rejected and
             resume_after_rejected and
             forged_supported_rejected;
     };

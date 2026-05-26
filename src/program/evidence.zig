@@ -4636,7 +4636,8 @@ fn providerProgramMappingShapeForPlan(plan: BoundaryStaticTreatyPlan) ?BoundaryE
 fn providerProgramMappingTagsCompatibleWithShape(shape: BoundaryEffectShape, request_mapping: anytype, result_mapping: anytype) bool {
     switch (request_mapping) {
         .payload_to_args => {},
-        .unit_args => if (shape.value_ref) |ref| {
+        .unit_args => {
+            const ref = shape.value_ref orelse return false;
             if (!boundaryValueRefIsUnit(ref)) return false;
         },
         .payload_and_metadata_to_args,
