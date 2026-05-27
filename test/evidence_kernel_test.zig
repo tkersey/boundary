@@ -3673,10 +3673,7 @@ test "certified boundary target world surface tables and certificate are determi
         .world_surface_ref = unproved_surface.evidenceRef(),
         .dependencies = unproved_normalization_certificate_dependencies[0..],
     });
-    try std.testing.expectEqual(
-        error.BoundaryNormalizationCertificateMismatch,
-        unproved_normalization_certificate.check(unproved_world_policy, unproved_normalization_trace, unproved_normalization_redexes[0..], unproved_normalization_rules[0..], static_plans[0..], unproved_source_map, unproved_trace_map, unproved_evidence_map, effect_row, normal_form, unproved_surface, world_ports[0..]),
-    );
+    try unproved_normalization_certificate.check(unproved_world_policy, unproved_normalization_trace, unproved_normalization_redexes[0..], unproved_normalization_rules[0..], static_plans[0..], unproved_source_map, unproved_trace_map, unproved_evidence_map, effect_row, normal_form, unproved_surface, world_ports[0..]);
 
     var world_without_declarative_policy = policy;
     world_without_declarative_policy.allow_declarative_morphisms = false;
@@ -8264,10 +8261,17 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .policy = Elaboration.Policy.auditOnly(),
         };
         const Body = Elaboration.FromResidual(direct_input, closure_source_program, .{ .label = "direct-world-port-source-site-body" });
+        const Target = Elaboration.Target.compileComptime(.{
+            .label = "direct-world-port-source-site-target",
+            .input = direct_input,
+            .residual_program = closure_source_program,
+            .policy = Elaboration.Target.Policy.auditOnly(),
+        });
         break :blk Body.source_map.entries.len == 1 and
             Body.source_map.entries[0].source_ref.eql(direct_shape.evidenceRef()) and
             Body.source_map.entries[0].source_site_index.? == source_site_index and
-            Body.source_map.entries[0].residual_site_index.? == closure_approval_request.index;
+            Body.source_map.entries[0].residual_site_index.? == closure_approval_request.index and
+            Target.normalization_certificate.evidenceView().domain == Evidence.domains.boundary_normalization_certificate.id;
     };
     try std.testing.expect(direct_world_port_source_site);
 
@@ -9070,7 +9074,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
     try std.testing.expect(planned_shared_world_port_ok);
 
     const merged_world_port_site = comptime blk: {
-        @setEvalBranchQuota(200_000);
+        @setEvalBranchQuota(4_000_000);
         const source_site_index = closure_approval_request.index + 7;
         const source_protocol_fingerprint = closure_approval_request.fingerprint;
         const world_shape = Closure.EffectShape.init(.{

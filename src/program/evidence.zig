@@ -5478,7 +5478,9 @@ fn normalizationWorldPortRouteProofMatchesSourceEntry(entry: BoundaryElaboration
     const world_port_ref = entry.world_port_ref orelse return false;
     const world_port = worldPortForRef(world_ports, world_port_ref) orelse return false;
     if (entry.provider_program_ref != null) return false;
-    const plan_ref = entry.static_treaty_plan_ref orelse return false;
+    const plan_ref = entry.static_treaty_plan_ref orelse {
+        return semantic_body == .unknown and sourceMapWorldPortEntryMatchesPort(entry, world_port);
+    };
     const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return false;
     if (!staticTreatyPlanIntegrityMatches(plan)) return false;
     if (boundaryStaticTreatyPlanRouteSemanticBody(plan) != semantic_body) return false;
