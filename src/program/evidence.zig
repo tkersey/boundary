@@ -6099,8 +6099,10 @@ fn sourceMapNestedProviderShapesLinkedCount(source_map: BoundaryElaborationSourc
         const program_ref = plan.selected_provider_program_ref orelse return null;
         if (sourceMapEntrySliceProviderProgramRefCount(source_map.entries[0..index], program_ref) != 0) continue;
         const shape_count = plan.selected_provider_program_effect_shape_count orelse return null;
-        if ((sourceMapNestedProviderChildEntryCount(source_map, static_treaty_plans, program_ref) orelse return null) != shape_count) return null;
-        count += shape_count;
+        const shape_fingerprint = plan.selected_provider_program_effect_shape_fingerprint orelse return null;
+        const proof = sourceMapNestedProviderChildShapeProof(source_map, static_treaty_plans, program_ref) orelse return null;
+        if (proof.count != shape_count or proof.fingerprint != shape_fingerprint) return null;
+        count += @intCast(shape_count);
     }
     return count;
 }
@@ -6114,14 +6116,54 @@ fn sourceMapEntrySliceProviderProgramRefCount(entries: []const BoundaryElaborati
     return count;
 }
 
-fn sourceMapNestedProviderChildEntryCount(source_map: BoundaryElaborationSourceMap, static_treaty_plans: []const BoundaryStaticTreatyPlan, program_ref: Ref) ?usize {
+const NestedProviderChildShapeProof = struct {
+    count: u64,
+    fingerprint: u64,
+};
+
+fn sourceMapNestedProviderChildShapeProof(source_map: BoundaryElaborationSourceMap, static_treaty_plans: []const BoundaryStaticTreatyPlan, program_ref: Ref) ?NestedProviderChildShapeProof {
+    if (program_ref.domain_id != domains.program_plan.id) return null;
     var count: usize = 0;
     for (source_map.entries) |entry| {
         const plan_ref = entry.static_treaty_plan_ref orelse continue;
         const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return null;
-        if (plan.source_shape.plan_hash == program_ref.fingerprint) count += 1;
+        if (plan.source_shape.plan_hash != program_ref.fingerprint) continue;
+        if (!entry.source_ref.eql(plan.source_shape.evidenceRef())) return null;
+        count += 1;
     }
-    return count;
+
+    var builder = FingerprintBuilder.init(domains.boundary_effect_shape);
+    builder.fieldUsize("shape_count", count);
+    var emitted_rank: usize = 0;
+    while (emitted_rank < count) : (emitted_rank += 1) {
+        var selected_ref: ?Ref = null;
+        provider_entries: for (source_map.entries, 0..) |entry, index| {
+            const plan_ref = entry.static_treaty_plan_ref orelse continue :provider_entries;
+            const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return null;
+            if (plan.source_shape.plan_hash != program_ref.fingerprint) continue :provider_entries;
+            const entry_ref = plan.source_shape.evidenceRef();
+            if (!entry.source_ref.eql(entry_ref)) return null;
+            var rank: usize = 0;
+            other_provider_entries: for (source_map.entries, 0..) |other_entry, other_index| {
+                const other_plan_ref = other_entry.static_treaty_plan_ref orelse continue :other_provider_entries;
+                const other_plan = staticTreatyPlanForRef(static_treaty_plans, other_plan_ref) orelse return null;
+                if (other_plan.source_shape.plan_hash != program_ref.fingerprint) continue :other_provider_entries;
+                const other_ref = other_plan.source_shape.evidenceRef();
+                if (!other_entry.source_ref.eql(other_ref)) return null;
+                if (refLessForCanonicalSet(other_ref, entry_ref) or (other_ref.eql(entry_ref) and other_index < index)) rank += 1;
+            }
+            if (rank == emitted_rank) {
+                selected_ref = entry_ref;
+                break;
+            }
+        }
+        builder.fieldRef("shape", selected_ref.?);
+    }
+
+    return .{
+        .count = @intCast(count),
+        .fingerprint = builder.finish(),
+    };
 }
 
 fn sourceMapNestedProviderDepth(source_map: BoundaryElaborationSourceMap, static_treaty_plans: []const BoundaryStaticTreatyPlan) ?usize {
@@ -6140,7 +6182,9 @@ fn sourceMapNestedProviderDepthFromPlan(source_map: BoundaryElaborationSourceMap
     const shape_count = plan.selected_provider_program_effect_shape_count orelse return null;
     if (shape_count == 0) return 0;
     if (seen_count >= static_treaty_plans.len) return null;
-    if ((sourceMapNestedProviderChildEntryCount(source_map, static_treaty_plans, program_ref) orelse return null) != shape_count) return null;
+    const shape_fingerprint = plan.selected_provider_program_effect_shape_fingerprint orelse return null;
+    const proof = sourceMapNestedProviderChildShapeProof(source_map, static_treaty_plans, program_ref) orelse return null;
+    if (proof.count != shape_count or proof.fingerprint != shape_fingerprint) return null;
     var child_depth: usize = 0;
     for (source_map.entries) |entry| {
         if (entry.disposition != .provider_program_linked) continue;
@@ -6150,6 +6194,110 @@ fn sourceMapNestedProviderDepthFromPlan(source_map: BoundaryElaborationSourceMap
         child_depth = @max(child_depth, sourceMapNestedProviderDepthFromPlan(source_map, static_treaty_plans, child_plan, seen_count + 1) orelse return null);
     }
     return 1 + child_depth;
+}
+
+test "source map nested provider proof binds child shape fingerprint" {
+    const root_ref = refFor(domains.program_plan, 0xC1D1_0001, .{ .label = "nested-proof-root" });
+    const residual_ref = refFor(domains.program_plan, 0xC1D1_0002, .{ .label = "nested-proof-residual" });
+    const provider_program_ref = refFor(domains.program_plan, 0xC1D1_1001, .{ .label = "nested-proof-provider-program" });
+    const provider_ref = refFor(domains.provider_manifest, 0xC1D1_1002, .{ .label = "nested-proof-provider" });
+    const offer_ref = refFor(domains.provider_offer, 0xC1D1_1003, .{ .label = "nested-proof-offer" });
+    const capability_ref = refFor(domains.capability_grant, 0xC1D1_1004, .{ .label = "nested-proof-capability" });
+
+    const parent_shape = BoundaryEffectShape.init(.{
+        .program_label = "nested-proof-root",
+        .kind = .operation,
+        .site_index = 0,
+        .protocol_label = "approval",
+    });
+    const first_child_shape = BoundaryEffectShape.init(.{
+        .program_label = "nested-proof-provider-program",
+        .plan_hash = provider_program_ref.fingerprint,
+        .kind = .operation,
+        .site_index = 0,
+        .protocol_label = "nested-first",
+    });
+    const second_child_shape = BoundaryEffectShape.init(.{
+        .program_label = "nested-proof-provider-program",
+        .plan_hash = provider_program_ref.fingerprint,
+        .kind = .operation,
+        .site_index = 1,
+        .protocol_label = "nested-second",
+    });
+    const child_shape_fingerprint = fingerprintBoundaryEffectShapeSet(&.{ first_child_shape, second_child_shape });
+
+    const parent_plan = BoundaryStaticTreatyPlan.init(.{
+        .label = "nested-proof-parent",
+        .source_shape = parent_shape,
+        .selected_provider_ref = provider_ref,
+        .selected_provider_offer_ref = offer_ref,
+        .selected_capability_ref = capability_ref,
+        .selected_semantic_body = .boundary_program,
+        .selected_provider_program_ref = provider_program_ref,
+        .selected_provider_program_mapping_fingerprint = 0xC1D1_2001,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
+        .selected_provider_program_effect_shape_count = 2,
+        .selected_provider_program_effect_shape_fingerprint = child_shape_fingerprint,
+    });
+    const first_child_plan = BoundaryStaticTreatyPlan.init(.{
+        .label = "nested-proof-first-child",
+        .source_shape = first_child_shape,
+        .selected_semantic_body = .declarative,
+    });
+    const second_child_plan = BoundaryStaticTreatyPlan.init(.{
+        .label = "nested-proof-second-child",
+        .source_shape = second_child_shape,
+        .selected_semantic_body = .declarative,
+    });
+    const plans = [_]BoundaryStaticTreatyPlan{ parent_plan, first_child_plan, second_child_plan };
+
+    const entries = [_]BoundaryElaborationSourceMap.Entry{
+        .{
+            .source_ref = parent_shape.evidenceRef(),
+            .residual_ref = residual_ref,
+            .provider_program_ref = provider_program_ref,
+            .static_treaty_plan_ref = parent_plan.evidenceRef(),
+            .disposition = .provider_program_linked,
+            .label = "parent provider route",
+        },
+        .{
+            .source_ref = first_child_shape.evidenceRef(),
+            .residual_ref = residual_ref,
+            .static_treaty_plan_ref = first_child_plan.evidenceRef(),
+            .disposition = .preserved,
+            .label = "first nested child",
+        },
+        .{
+            .source_ref = second_child_shape.evidenceRef(),
+            .residual_ref = residual_ref,
+            .static_treaty_plan_ref = second_child_plan.evidenceRef(),
+            .disposition = .preserved,
+            .label = "second nested child",
+        },
+    };
+    const source_map = BoundaryElaborationSourceMap.init("nested-provider-proof-source-map", entries[0..], &.{});
+    const effect_row = BoundaryElaborationEffectRow.init(.{
+        .label = "nested-provider-proof-row",
+        .source_program_ref = root_ref,
+        .residual_program_ref = residual_ref,
+        .normal_form = .strict_closed,
+        .source_effect_shapes = 3,
+        .closed_effect_shapes = 3,
+        .provider_program_links = 1,
+        .linked_provider_programs = 1,
+        .nested_provider_shapes_linked = 2,
+        .nested_provider_depth = 1,
+    });
+    try std.testing.expect(sourceMapEffectRowCountsMatch(source_map, plans[0..], effect_row));
+
+    const forged_entries = [_]BoundaryElaborationSourceMap.Entry{
+        entries[0],
+        entries[1],
+        entries[1],
+    };
+    const forged_source_map = BoundaryElaborationSourceMap.init("nested-provider-forged-source-map", forged_entries[0..], &.{});
+    try std.testing.expect(!sourceMapEffectRowCountsMatch(forged_source_map, plans[0..], effect_row));
 }
 
 fn certificateViewsEqual(left: CertificateView, right: CertificateView) bool {
