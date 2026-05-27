@@ -523,6 +523,223 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     try std.testing.expectEqual(Evidence.domains.boundary_normalization_trace.id, trace.evidenceRef().domain_id);
     try std.testing.expectEqual(Evidence.domains.boundary_normalization_certificate.id, certificate.evidenceView().domain);
     try certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface);
+
+    const morphism_ref = Evidence.refFor(Evidence.domains.morphism_offer, 0xC112, .{ .label = "normalization.morphism" });
+    const residualized_plan_dependencies = [_]Evidence.Dependency{
+        .{ .role = .morphism, .ref = morphism_ref },
+        .{ .role = .residual_program, .ref = residual_ref },
+    };
+    const residualized_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = "normalization.residualized_plan",
+        .source_shape = shape,
+        .selected_semantic_body = .residualized_program,
+        .selected_morphism_ref = morphism_ref,
+        .selected_morphism_semantic_body = .residualized_program,
+        .dependencies = residualized_plan_dependencies[0..],
+    });
+    const residualized_source_map_entry = Evidence.BoundaryElaborationSourceMap.Entry{
+        .source_ref = shape.evidenceRef(),
+        .residual_ref = residual_ref,
+        .source_site_index = 0,
+        .residual_site_index = 0,
+        .static_treaty_plan_ref = residualized_plan.evidenceRef(),
+        .disposition = .residualized,
+        .label = "approval.residualized",
+    };
+    const residualized_route_lowering_fingerprint = Evidence.boundaryNormalizationRouteLoweringFingerprint(residualized_source_map_entry, residual_ref.fingerprint);
+    const residualized_redex = Evidence.BoundaryNormalizationRedex.init(.{
+        .label = "approval.residualized",
+        .source_effect_shape_ref = shape.evidenceRef(),
+        .coordinates = .{ .function_index = 0, .block_index = 0, .instruction_index = 0, .site_index = 0 },
+        .kind = .operation_site,
+        .selected_static_treaty_plan_ref = residualized_plan.evidenceRef(),
+        .current_program_plan_ref = source_ref,
+        .semantic_body = .residualized_program,
+        .expected_lowering_kind = .residualized_morphism,
+        .evidence_dependencies = redex_dependencies[0..],
+    });
+    const residualized_rule = Evidence.BoundaryNormalizationRewriteRule.init(.{
+        .label = "approval.residualized",
+        .kind = .residualized_morphism,
+        .evidence_dependencies = rule_dependencies[0..],
+        .produced_source_map_entries = 1,
+        .produced_trace_map_entries = 1,
+        .produced_effect_row_entries = 1,
+    });
+    const residualized_step = Evidence.BoundaryNormalizationRewriteStep.init(.{
+        .step_index = 0,
+        .redex_ref = residualized_redex.evidenceRef(),
+        .rewrite_rule_ref = residualized_rule.evidenceRef(),
+        .selected_static_treaty_plan_ref = residualized_plan.evidenceRef(),
+        .source_effect_shape_ref = shape.evidenceRef(),
+        .input_program_plan_hash = source_ref.fingerprint,
+        .output_program_plan_hash = residual_ref.fingerprint,
+        .builder_state_fingerprint = residualized_route_lowering_fingerprint,
+        .morphism_or_pipeline_ref = morphism_ref,
+        .summary = "residualized_morphism",
+    });
+    const residualized_redexes = [_]Evidence.BoundaryNormalizationRedex{residualized_redex};
+    const residualized_rules = [_]Evidence.BoundaryNormalizationRewriteRule{residualized_rule};
+    const residualized_steps = [_]Evidence.BoundaryNormalizationRewriteStep{residualized_step};
+    const residualized_static_plans = [_]Evidence.BoundaryStaticTreatyPlan{residualized_plan};
+    const residualized_source_map_entries = [_]Evidence.BoundaryElaborationSourceMap.Entry{residualized_source_map_entry};
+    const residualized_source_map = Evidence.BoundaryElaborationSourceMap.init("normalization.residualized.source_map", residualized_source_map_entries[0..], &.{});
+    const residualized_trace_map_entries = [_]Evidence.BoundaryElaborationTraceMap.Entry{.{
+        .source_ref = shape.evidenceRef(),
+        .residual_ref = residual_ref,
+        .trace_label = "approval.residualized",
+    }};
+    const residualized_trace_map = Evidence.BoundaryElaborationTraceMap.init("normalization.residualized.trace_map", residualized_trace_map_entries[0..]);
+    const residualized_effect_row = Evidence.BoundaryElaborationEffectRow.init(.{
+        .label = "normalization.residualized.effect_row",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .normal_form = .strict_closed,
+        .source_effect_shapes = 1,
+        .closed_effect_shapes = 1,
+        .residualized_routes = 1,
+    });
+    const residualized_normal_form = Evidence.BoundaryNormalForm.init("normalization.residualized.normal_form", .strict_closed, closure_certificate_ref, residualized_effect_row.evidenceRef(), 0);
+    const residualized_eliminated = [_]Evidence.Ref{residualized_redex.evidenceRef()};
+    const residualized_trace_deps = [_]Evidence.Dependency{
+        .{ .role = .closure_certificate, .ref = closure_certificate_ref },
+        .{ .role = .residual_program, .ref = residual_ref },
+        .{ .role = .elaboration_source_map, .ref = residualized_source_map.evidenceRef() },
+        .{ .role = .elaboration_effect_row, .ref = residualized_effect_row.evidenceRef() },
+        .{ .role = .normal_form, .ref = residualized_normal_form.evidenceRef() },
+    };
+    const residualized_trace = Evidence.BoundaryNormalizationTrace.init(.{
+        .label = "normalization.residualized.trace",
+        .root_program_ref = source_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .rewrite_steps = residualized_steps[0..],
+        .eliminated_redex_refs = residualized_eliminated[0..],
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .final_normal_form = .strict_closed,
+        .evidence_dependencies = residualized_trace_deps[0..],
+    });
+    const residualized_world_surface = Evidence.BoundaryWorldSurface.init(.{
+        .label = "normalization.residualized.world_surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_ref,
+        .elaboration_certificate_ref = Evidence.refFor(Evidence.domains.boundary_elaboration_certificate, 0xE1AB, .{ .label = "elaboration" }),
+        .source_map_ref = residualized_source_map.evidenceRef(),
+        .effect_row_ref = residualized_effect_row.evidenceRef(),
+        .port_table_ref = Evidence.refFor(Evidence.domains.boundary_world_port_table, 0x7100, .{}),
+        .value_table_ref = Evidence.refFor(Evidence.domains.boundary_world_value_table, 0x7101, .{}),
+        .dispatch_table_ref = Evidence.refFor(Evidence.domains.boundary_world_dispatch_table, 0x7102, .{}),
+        .profile_ref = Evidence.refFor(Evidence.domains.boundary_world_surface_profile, 0x7103, .{}),
+        .replay_key_recipe_ref = Evidence.refFor(Evidence.domains.boundary_world_replay_key_recipe, 0x7104, .{}),
+        .normal_form = .strict_closed,
+        .world_port_count = 0,
+    });
+    const residualized_certificate = Evidence.BoundaryNormalizationCertificate.init(.{
+        .label = "normalization.residualized.certificate",
+        .closure_certificate_ref = closure_certificate_ref,
+        .target_policy_fingerprint = Evidence.BoundaryTargetPolicy.strictClosed().fingerprint(),
+        .normalization_trace_ref = residualized_trace.evidenceRef(),
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .source_map_ref = residualized_source_map.evidenceRef(),
+        .trace_map_ref = residualized_trace_map.evidenceRef(),
+        .evidence_map_ref = evidence_map.evidenceRef(),
+        .effect_row_ref = residualized_effect_row.evidenceRef(),
+        .normal_form_ref = residualized_normal_form.evidenceRef(),
+        .world_surface_ref = residualized_world_surface.evidenceRef(),
+        .dependencies = (&[_]Evidence.Dependency{
+            .{ .role = .normalization_trace, .ref = residualized_trace.evidenceRef() },
+            .{ .role = .elaboration_source_map, .ref = residualized_source_map.evidenceRef() },
+            .{ .role = .elaboration_trace_map, .ref = residualized_trace_map.evidenceRef() },
+            .{ .role = .target_evidence_map, .ref = evidence_map.evidenceRef() },
+            .{ .role = .elaboration_effect_row, .ref = residualized_effect_row.evidenceRef() },
+            .{ .role = .normal_form, .ref = residualized_normal_form.evidenceRef() },
+            .{ .role = .world_surface, .ref = residualized_world_surface.evidenceRef() },
+        })[0..],
+    });
+    try residualized_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), residualized_trace, residualized_redexes[0..], residualized_rules[0..], residualized_static_plans[0..], residualized_source_map, residualized_trace_map, evidence_map, residualized_effect_row, residualized_normal_form, residualized_world_surface);
+
+    const unbound_residualized_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = "normalization.unbound_residualized_plan",
+        .source_shape = shape,
+        .selected_semantic_body = .residualized_program,
+        .selected_morphism_ref = morphism_ref,
+        .selected_morphism_semantic_body = .residualized_program,
+        .dependencies = (&[_]Evidence.Dependency{.{ .role = .morphism, .ref = morphism_ref }})[0..],
+    });
+    var unbound_residualized_entry = residualized_source_map_entry;
+    unbound_residualized_entry.static_treaty_plan_ref = unbound_residualized_plan.evidenceRef();
+    const unbound_residualized_source_map_entries = [_]Evidence.BoundaryElaborationSourceMap.Entry{unbound_residualized_entry};
+    const unbound_residualized_source_map = Evidence.BoundaryElaborationSourceMap.init("normalization.unbound_residualized.source_map", unbound_residualized_source_map_entries[0..], &.{});
+    const unbound_residualized_route_lowering_fingerprint = Evidence.boundaryNormalizationRouteLoweringFingerprint(unbound_residualized_entry, residual_ref.fingerprint);
+    var unbound_residualized_redex = residualized_redex;
+    unbound_residualized_redex.selected_static_treaty_plan_ref = unbound_residualized_plan.evidenceRef();
+    unbound_residualized_redex.fingerprint = unbound_residualized_redex.computeFingerprint();
+    var unbound_residualized_step = residualized_step;
+    unbound_residualized_step.redex_ref = unbound_residualized_redex.evidenceRef();
+    unbound_residualized_step.selected_static_treaty_plan_ref = unbound_residualized_plan.evidenceRef();
+    unbound_residualized_step.builder_state_fingerprint = unbound_residualized_route_lowering_fingerprint;
+    unbound_residualized_step.fingerprint = unbound_residualized_step.computeFingerprint();
+    const unbound_residualized_redexes = [_]Evidence.BoundaryNormalizationRedex{unbound_residualized_redex};
+    const unbound_residualized_steps = [_]Evidence.BoundaryNormalizationRewriteStep{unbound_residualized_step};
+    const unbound_residualized_static_plans = [_]Evidence.BoundaryStaticTreatyPlan{unbound_residualized_plan};
+    const unbound_residualized_trace_deps = [_]Evidence.Dependency{
+        .{ .role = .closure_certificate, .ref = closure_certificate_ref },
+        .{ .role = .residual_program, .ref = residual_ref },
+        .{ .role = .elaboration_source_map, .ref = unbound_residualized_source_map.evidenceRef() },
+        .{ .role = .elaboration_effect_row, .ref = residualized_effect_row.evidenceRef() },
+        .{ .role = .normal_form, .ref = residualized_normal_form.evidenceRef() },
+    };
+    const unbound_residualized_trace = Evidence.BoundaryNormalizationTrace.init(.{
+        .label = "normalization.unbound_residualized.trace",
+        .root_program_ref = source_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .rewrite_steps = unbound_residualized_steps[0..],
+        .eliminated_redex_refs = (&[_]Evidence.Ref{unbound_residualized_redex.evidenceRef()})[0..],
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .final_normal_form = .strict_closed,
+        .evidence_dependencies = unbound_residualized_trace_deps[0..],
+    });
+    const unbound_residualized_world_surface = Evidence.BoundaryWorldSurface.init(.{
+        .label = "normalization.unbound_residualized.world_surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_ref,
+        .elaboration_certificate_ref = Evidence.refFor(Evidence.domains.boundary_elaboration_certificate, 0xE1AB, .{ .label = "elaboration" }),
+        .source_map_ref = unbound_residualized_source_map.evidenceRef(),
+        .effect_row_ref = residualized_effect_row.evidenceRef(),
+        .port_table_ref = Evidence.refFor(Evidence.domains.boundary_world_port_table, 0x7100, .{}),
+        .value_table_ref = Evidence.refFor(Evidence.domains.boundary_world_value_table, 0x7101, .{}),
+        .dispatch_table_ref = Evidence.refFor(Evidence.domains.boundary_world_dispatch_table, 0x7102, .{}),
+        .profile_ref = Evidence.refFor(Evidence.domains.boundary_world_surface_profile, 0x7103, .{}),
+        .replay_key_recipe_ref = Evidence.refFor(Evidence.domains.boundary_world_replay_key_recipe, 0x7104, .{}),
+        .normal_form = .strict_closed,
+        .world_port_count = 0,
+    });
+    const unbound_residualized_certificate = Evidence.BoundaryNormalizationCertificate.init(.{
+        .label = "normalization.unbound_residualized.certificate",
+        .closure_certificate_ref = closure_certificate_ref,
+        .target_policy_fingerprint = Evidence.BoundaryTargetPolicy.strictClosed().fingerprint(),
+        .normalization_trace_ref = unbound_residualized_trace.evidenceRef(),
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .source_map_ref = unbound_residualized_source_map.evidenceRef(),
+        .trace_map_ref = residualized_trace_map.evidenceRef(),
+        .evidence_map_ref = evidence_map.evidenceRef(),
+        .effect_row_ref = residualized_effect_row.evidenceRef(),
+        .normal_form_ref = residualized_normal_form.evidenceRef(),
+        .world_surface_ref = unbound_residualized_world_surface.evidenceRef(),
+        .dependencies = (&[_]Evidence.Dependency{
+            .{ .role = .normalization_trace, .ref = unbound_residualized_trace.evidenceRef() },
+            .{ .role = .elaboration_source_map, .ref = unbound_residualized_source_map.evidenceRef() },
+            .{ .role = .elaboration_trace_map, .ref = residualized_trace_map.evidenceRef() },
+            .{ .role = .target_evidence_map, .ref = evidence_map.evidenceRef() },
+            .{ .role = .elaboration_effect_row, .ref = residualized_effect_row.evidenceRef() },
+            .{ .role = .normal_form, .ref = residualized_normal_form.evidenceRef() },
+            .{ .role = .world_surface, .ref = unbound_residualized_world_surface.evidenceRef() },
+        })[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryNormalizationCertificateMismatch,
+        unbound_residualized_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), unbound_residualized_trace, unbound_residualized_redexes[0..], residualized_rules[0..], unbound_residualized_static_plans[0..], unbound_residualized_source_map, residualized_trace_map, evidence_map, residualized_effect_row, residualized_normal_form, unbound_residualized_world_surface),
+    );
+
     const missing_resume_shape = Evidence.BoundaryEffectShape.init(.{
         .program_label = "normalization-source",
         .kind = .operation,

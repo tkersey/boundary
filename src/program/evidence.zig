@@ -5070,7 +5070,7 @@ pub const BoundaryNormalizationCertificate = struct {
             if (!normalizationRedexMatchesSourceEntry(redex, entry, static_treaty_plans, trace.root_program_ref, trace.final_program_plan_hash)) return error.BoundaryNormalizationCertificateMismatch;
             if (!normalizationRuleMatchesSourceEntry(rule, entry, static_treaty_plans, trace.root_program_ref)) return error.BoundaryNormalizationCertificateMismatch;
             const semantic_body = normalizationRedexSemanticBodyForSourceEntry(entry, static_treaty_plans) orelse return error.BoundaryNormalizationCertificateMismatch;
-            if (!normalizationProviderRouteProofMatchesSourceEntry(entry, semantic_body, static_treaty_plans)) return error.BoundaryNormalizationCertificateMismatch;
+            if (!normalizationRouteProofMatchesSourceEntry(entry, semantic_body, static_treaty_plans)) return error.BoundaryNormalizationCertificateMismatch;
             if (!normalizationPolicyAllowsRewrite(normalization_policy, rule.kind, semantic_body)) return error.BoundaryNormalizationPolicyMismatch;
             if (!normalizationStepRouteRefsMatch(step, entry, static_treaty_plans)) return error.BoundaryNormalizationCertificateMismatch;
             const expected_builder_fingerprint = boundaryNormalizationRouteLoweringFingerprint(entry, trace.final_program_plan_hash);
@@ -5436,16 +5436,34 @@ fn normalizationRedexSemanticBodyForSourceEntry(entry: BoundaryElaborationSource
     return boundaryStaticTreatyPlanRouteSemanticBody(plan);
 }
 
-fn normalizationProviderRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan) bool {
-    if (entry.disposition != .provider_program_linked) return true;
-    if (semantic_body != .boundary_program) return false;
+fn normalizationRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan) bool {
+    const expected_disposition: ?BoundaryElaborationSourceMap.Disposition = switch (semantic_body) {
+        .boundary_program => .provider_program_linked,
+        .declarative => .preserved,
+        .residualized_program => .residualized,
+        .pipeline => .pipeline_adapter,
+        .host_intrinsic,
+        .unknown,
+        .kernel_primitive,
+        => null,
+    };
+    if (expected_disposition == null or entry.disposition != expected_disposition.?) {
+        return entry.disposition == .world_port_lowered or entry.disposition == .blocked;
+    }
     const plan_ref = entry.static_treaty_plan_ref orelse return false;
     const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return false;
-    if (plan.fingerprint != plan.computeFingerprint()) return false;
-    if (plan.source_shape.fingerprint != plan.source_shape.computeFingerprint()) return false;
+    if (!staticTreatyPlanIntegrityMatches(plan)) return false;
+    if (boundaryStaticTreatyPlanRouteSemanticBody(plan) != semantic_body) return false;
     if (!staticTreatyPlanHasElaborationRouteProof(plan, semantic_body)) return false;
-    const provider_program_ref = entry.provider_program_ref orelse return false;
-    return optionalRefValuesEqual(plan.selected_provider_program_ref, provider_program_ref);
+    if (entry.residual_ref) |residual_ref| {
+        if (staticTreatyPlanNeedsResidualDependencyInCertificate(plan) and !staticTreatyPlanHasDependencyRef(plan, .residual_program, residual_ref)) return false;
+        if (!staticTreatyPlanResidualDependenciesMatch(plan, residual_ref)) return false;
+    }
+    if (entry.disposition == .provider_program_linked) {
+        const provider_program_ref = entry.provider_program_ref orelse return false;
+        return optionalRefValuesEqual(plan.selected_provider_program_ref, provider_program_ref);
+    }
+    return entry.provider_program_ref == null;
 }
 
 pub fn boundaryNormalizationRouteLoweringFingerprint(entry: BoundaryElaborationSourceMap.Entry, output_hash: u64) u64 {
