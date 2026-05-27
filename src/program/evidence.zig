@@ -7521,7 +7521,11 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                         if (self.closure_certificate.evidenceRef().domain_id != domains.boundary_closure_certificate.id) return error.BoundaryElaborationCertificateMismatch;
                         if (self.closure_graph.evidenceRef().domain_id != domains.boundary_closure_graph.id) return error.BoundaryElaborationCertificateMismatch;
                         if (self.root_program_ref.domain_id != domains.program_plan.id) return error.BoundaryElaborationRootRefMismatch;
-                        if (refSliceCount(self.closure_certificate.root_refs, self.root_program_ref) == 0) return error.BoundaryElaborationRootRefMismatch;
+                        if (refSliceCount(self.closure_certificate.root_refs, self.root_program_ref) == 0 and
+                            refSliceCount(self.closure_certificate.effect_free_root_refs, self.root_program_ref) == 0)
+                        {
+                            return error.BoundaryElaborationRootRefMismatch;
+                        }
                         if (!staticPlanRefsMatch(self.static_treaty_plans, self.closure_certificate.selected_static_treaty_plan_refs)) return error.BoundaryElaborationStaticTreatyPlanRefMismatch;
                         if (!refsEqual(self.provider_program_refs, self.closure_certificate.provider_program_refs)) return error.BoundaryElaborationProviderProgramRefMismatch;
                         if (self.max_nested_provider_depth != self.target_policy.max_nested_provider_depth) return error.BoundaryElaborationBlocked;

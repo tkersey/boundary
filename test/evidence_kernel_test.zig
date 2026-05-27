@@ -1683,6 +1683,21 @@ test "boundary normalization input validates checked closure and target policy c
         const normalization_input = Elaboration.Target.Normalization.Input.fromElaboration(input, target_policy);
         normalization_input.validate(input) catch break :blk false;
         normalization_input.validateForTrace() catch break :blk false;
+        const effect_free_report = Closure.Report.init(.{
+            .graph_fingerprint = graph.fingerprint,
+            .effect_free_root_refs = &.{source_ref},
+        });
+        const effect_free_certificate = Closure.Certificate.init(effect_free_report, graph, Closure.Policy.auditOnly(), &.{});
+        const effect_free_input = Elaboration.Input{
+            .closure_graph = graph,
+            .closure_report = effect_free_report,
+            .closure_certificate = effect_free_certificate,
+            .source_program_ref = source_ref,
+            .policy = target_policy.toElaborationPolicy(),
+        };
+        effect_free_input.validate() catch break :blk false;
+        const effect_free_normalization_input = Elaboration.Target.Normalization.Input.fromElaboration(effect_free_input, target_policy);
+        effect_free_normalization_input.validateForTrace() catch break :blk false;
         const routes = Elaboration.Target.Normalization.routesFor(normalization_input);
         if (routes.len != 0) break :blk false;
         var mismatched_policy = normalization_input;
