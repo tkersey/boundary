@@ -341,6 +341,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     const provider_ref = Evidence.refFor(Evidence.domains.provider_manifest, 0xC10E, .{ .label = "normalization.provider_manifest" });
     const offer_ref = Evidence.refFor(Evidence.domains.provider_offer, 0xC10F, .{ .label = "normalization.provider_offer" });
     const capability_ref = Evidence.refFor(Evidence.domains.capability, 0xC110, .{ .label = "normalization.capability" });
+    const resume_ref = Evidence.BoundaryValueRef.init("i32", null);
     const shape = Evidence.BoundaryEffectShape.init(.{
         .program_label = "normalization-source",
         .kind = .operation,
@@ -348,6 +349,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
         .site_fingerprint = 0xB011_DA7A,
         .protocol_label = "approval",
         .protocol_op_fingerprint = 0xB011_DA7A,
+        .expected_resume_ref = resume_ref,
     });
     const static_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
         .label = "normalization.provider_plan",
@@ -521,6 +523,146 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     try std.testing.expectEqual(Evidence.domains.boundary_normalization_trace.id, trace.evidenceRef().domain_id);
     try std.testing.expectEqual(Evidence.domains.boundary_normalization_certificate.id, certificate.evidenceView().domain);
     try certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface);
+    const missing_resume_shape = Evidence.BoundaryEffectShape.init(.{
+        .program_label = "normalization-source",
+        .kind = .operation,
+        .site_index = 0,
+        .site_fingerprint = 0xB011_DA7A,
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = 0xB011_DA7A,
+    });
+    const missing_resume_static_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
+        .label = "normalization.provider_plan.missing_resume",
+        .source_shape = missing_resume_shape,
+        .selected_provider_offer_ref = offer_ref,
+        .selected_provider_ref = provider_ref,
+        .selected_capability_ref = capability_ref,
+        .selected_semantic_body = .boundary_program,
+        .selected_provider_program_ref = provider_program_ref,
+        .selected_provider_program_mapping_fingerprint = 0xC111,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
+        .selected_provider_program_effect_shape_count = 1,
+        .selected_provider_program_effect_shape_fingerprint = missing_resume_shape.fingerprint,
+    });
+    const missing_resume_redex_dependencies = [_]Evidence.Dependency{
+        .{ .role = .source, .ref = missing_resume_shape.evidenceRef() },
+        .{ .role = .residual_program, .ref = Evidence.refFor(Evidence.domains.program_plan, residual_ref.fingerprint, .{}) },
+    };
+    const missing_resume_redex = Evidence.BoundaryNormalizationRedex.init(.{
+        .label = "approval.request",
+        .source_effect_shape_ref = missing_resume_shape.evidenceRef(),
+        .coordinates = .{ .function_index = 0, .block_index = 0, .instruction_index = 0, .site_index = 0 },
+        .kind = .operation_site,
+        .selected_static_treaty_plan_ref = missing_resume_static_plan.evidenceRef(),
+        .current_program_plan_ref = source_ref,
+        .semantic_body = .boundary_program,
+        .expected_lowering_kind = .provider_program_call,
+        .evidence_dependencies = missing_resume_redex_dependencies[0..],
+    });
+    const missing_resume_rule_dependencies = [_]Evidence.Dependency{.{ .role = .source, .ref = missing_resume_shape.evidenceRef() }};
+    const missing_resume_rule = Evidence.BoundaryNormalizationRewriteRule.init(.{
+        .label = "approval.request",
+        .kind = .provider_program_call,
+        .evidence_dependencies = missing_resume_rule_dependencies[0..],
+        .produced_source_map_entries = 1,
+        .produced_trace_map_entries = 1,
+        .produced_effect_row_entries = 1,
+    });
+    const missing_resume_source_map_entry = Evidence.BoundaryElaborationSourceMap.Entry{
+        .source_ref = missing_resume_shape.evidenceRef(),
+        .residual_ref = residual_ref,
+        .source_site_index = 0,
+        .residual_site_index = 0,
+        .provider_program_ref = provider_program_ref,
+        .static_treaty_plan_ref = missing_resume_static_plan.evidenceRef(),
+        .disposition = .provider_program_linked,
+        .label = "approval.request",
+    };
+    const missing_resume_step = Evidence.BoundaryNormalizationRewriteStep.init(.{
+        .step_index = 0,
+        .redex_ref = missing_resume_redex.evidenceRef(),
+        .rewrite_rule_ref = missing_resume_rule.evidenceRef(),
+        .selected_static_treaty_plan_ref = missing_resume_static_plan.evidenceRef(),
+        .source_effect_shape_ref = missing_resume_shape.evidenceRef(),
+        .input_program_plan_hash = source_ref.fingerprint,
+        .output_program_plan_hash = residual_ref.fingerprint,
+        .builder_state_fingerprint = Evidence.boundaryNormalizationRouteLoweringFingerprint(missing_resume_source_map_entry, residual_ref.fingerprint),
+        .provider_program_ref = provider_program_ref,
+        .provider_offer_ref = offer_ref,
+        .summary = "provider_program_call",
+    });
+    const missing_resume_redexes = [_]Evidence.BoundaryNormalizationRedex{missing_resume_redex};
+    const missing_resume_rules = [_]Evidence.BoundaryNormalizationRewriteRule{missing_resume_rule};
+    const missing_resume_steps = [_]Evidence.BoundaryNormalizationRewriteStep{missing_resume_step};
+    const missing_resume_static_plans = [_]Evidence.BoundaryStaticTreatyPlan{missing_resume_static_plan};
+    const missing_resume_source_map_entries = [_]Evidence.BoundaryElaborationSourceMap.Entry{missing_resume_source_map_entry};
+    const missing_resume_source_map = Evidence.BoundaryElaborationSourceMap.init("normalization.missing_resume.source_map", missing_resume_source_map_entries[0..], &.{});
+    const missing_resume_trace_map_entries = [_]Evidence.BoundaryElaborationTraceMap.Entry{.{
+        .source_ref = missing_resume_shape.evidenceRef(),
+        .residual_ref = residual_ref,
+        .trace_label = "approval.request",
+    }};
+    const missing_resume_trace_map = Evidence.BoundaryElaborationTraceMap.init("normalization.missing_resume.trace_map", missing_resume_trace_map_entries[0..]);
+    const missing_resume_eliminated = [_]Evidence.Ref{missing_resume_redex.evidenceRef()};
+    const missing_resume_trace_deps = [_]Evidence.Dependency{
+        .{ .role = .closure_certificate, .ref = closure_certificate_ref },
+        .{ .role = .residual_program, .ref = residual_ref },
+        .{ .role = .elaboration_source_map, .ref = missing_resume_source_map.evidenceRef() },
+        .{ .role = .elaboration_effect_row, .ref = effect_row.evidenceRef() },
+        .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
+    };
+    const missing_resume_trace = Evidence.BoundaryNormalizationTrace.init(.{
+        .label = "normalization.missing_resume.trace",
+        .root_program_ref = source_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .rewrite_steps = missing_resume_steps[0..],
+        .eliminated_redex_refs = missing_resume_eliminated[0..],
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .final_normal_form = .strict_closed,
+        .evidence_dependencies = missing_resume_trace_deps[0..],
+    });
+    const missing_resume_world_surface = Evidence.BoundaryWorldSurface.init(.{
+        .label = "normalization.missing_resume.world_surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_ref,
+        .elaboration_certificate_ref = Evidence.refFor(Evidence.domains.boundary_elaboration_certificate, 0xE1AB, .{ .label = "elaboration" }),
+        .source_map_ref = missing_resume_source_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .port_table_ref = Evidence.refFor(Evidence.domains.boundary_world_port_table, 0x7100, .{}),
+        .value_table_ref = Evidence.refFor(Evidence.domains.boundary_world_value_table, 0x7101, .{}),
+        .dispatch_table_ref = Evidence.refFor(Evidence.domains.boundary_world_dispatch_table, 0x7102, .{}),
+        .profile_ref = Evidence.refFor(Evidence.domains.boundary_world_surface_profile, 0x7103, .{}),
+        .replay_key_recipe_ref = Evidence.refFor(Evidence.domains.boundary_world_replay_key_recipe, 0x7104, .{}),
+        .normal_form = .strict_closed,
+        .world_port_count = 0,
+    });
+    const missing_resume_certificate = Evidence.BoundaryNormalizationCertificate.init(.{
+        .label = "normalization.missing_resume.certificate",
+        .closure_certificate_ref = closure_certificate_ref,
+        .target_policy_fingerprint = Evidence.BoundaryTargetPolicy.strictClosed().fingerprint(),
+        .normalization_trace_ref = missing_resume_trace.evidenceRef(),
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .source_map_ref = missing_resume_source_map.evidenceRef(),
+        .trace_map_ref = missing_resume_trace_map.evidenceRef(),
+        .evidence_map_ref = evidence_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .normal_form_ref = normal_form.evidenceRef(),
+        .world_surface_ref = missing_resume_world_surface.evidenceRef(),
+        .dependencies = (&[_]Evidence.Dependency{
+            .{ .role = .normalization_trace, .ref = missing_resume_trace.evidenceRef() },
+            .{ .role = .elaboration_source_map, .ref = missing_resume_source_map.evidenceRef() },
+            .{ .role = .elaboration_trace_map, .ref = missing_resume_trace_map.evidenceRef() },
+            .{ .role = .target_evidence_map, .ref = evidence_map.evidenceRef() },
+            .{ .role = .elaboration_effect_row, .ref = effect_row.evidenceRef() },
+            .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
+            .{ .role = .world_surface, .ref = missing_resume_world_surface.evidenceRef() },
+        })[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryNormalizationCertificateMismatch,
+        missing_resume_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), missing_resume_trace, missing_resume_redexes[0..], missing_resume_rules[0..], missing_resume_static_plans[0..], missing_resume_source_map, missing_resume_trace_map, evidence_map, effect_row, normal_form, missing_resume_world_surface),
+    );
     var zero_rewrite_policy = Evidence.BoundaryTargetPolicy.strictClosed();
     zero_rewrite_policy.max_rewrite_steps = 0;
     const capped_certificate = Evidence.BoundaryNormalizationCertificate.init(.{
@@ -4279,6 +4421,7 @@ test "elaboration certificate source map world port lowering boundary normal for
     const provider_program_ref = Evidence.refFor(Evidence.domains.program_plan, 0xE1B005, .{ .label = "approval.provider" });
     const provider_morphism_ref = Evidence.refFor(Evidence.domains.morphism_offer, 0xE1B00D, .{ .label = "approval.provider.morphism" });
     const provider_pipeline_ref = Evidence.refFor(Evidence.domains.pipeline, 0xE1B00C, .{ .label = "provider-program-pipeline-proof" });
+    const source_resume_ref = Evidence.BoundaryValueRef.init("i32", null);
     const provider_static_plan_deps = [_]Evidence.Dependency{.{
         .role = .residual_program,
         .ref = residual_ref,
@@ -4288,6 +4431,7 @@ test "elaboration certificate source map world port lowering boundary normal for
         .kind = .operation,
         .site_index = 4,
         .protocol_label = "approval",
+        .expected_resume_ref = source_resume_ref,
     });
     const source_shape_ref = source_shape.evidenceRef();
     const world_shape = Closure.EffectShape.init(.{
@@ -4439,6 +4583,8 @@ test "elaboration certificate source map world port lowering boundary normal for
         .selected_provider_program_effect_shape_count = 0,
         .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
         .selected_morphism_ref = provider_morphism_ref,
+        .selected_morphism_target_shape_ref = source_shape.evidenceRef(),
+        .selected_morphism_target_shape = source_shape,
         .selected_morphism_semantic_body = .pipeline,
         .dependencies = morphed_provider_static_plan_deps[0..],
     });

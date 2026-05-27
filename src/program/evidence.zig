@@ -5070,6 +5070,7 @@ pub const BoundaryNormalizationCertificate = struct {
             if (!normalizationRedexMatchesSourceEntry(redex, entry, static_treaty_plans, trace.root_program_ref, trace.final_program_plan_hash)) return error.BoundaryNormalizationCertificateMismatch;
             if (!normalizationRuleMatchesSourceEntry(rule, entry, static_treaty_plans, trace.root_program_ref)) return error.BoundaryNormalizationCertificateMismatch;
             const semantic_body = normalizationRedexSemanticBodyForSourceEntry(entry, static_treaty_plans) orelse return error.BoundaryNormalizationCertificateMismatch;
+            if (!normalizationProviderRouteProofMatchesSourceEntry(entry, semantic_body, static_treaty_plans)) return error.BoundaryNormalizationCertificateMismatch;
             if (!normalizationPolicyAllowsRewrite(normalization_policy, rule.kind, semantic_body)) return error.BoundaryNormalizationPolicyMismatch;
             if (!normalizationStepRouteRefsMatch(step, entry, static_treaty_plans)) return error.BoundaryNormalizationCertificateMismatch;
             const expected_builder_fingerprint = boundaryNormalizationRouteLoweringFingerprint(entry, trace.final_program_plan_hash);
@@ -5429,6 +5430,18 @@ fn normalizationRedexSemanticBodyForSourceEntry(entry: BoundaryElaborationSource
     const plan_ref = entry.static_treaty_plan_ref orelse return .unknown;
     const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return null;
     return boundaryStaticTreatyPlanRouteSemanticBody(plan);
+}
+
+fn normalizationProviderRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan) bool {
+    if (entry.disposition != .provider_program_linked) return true;
+    if (semantic_body != .boundary_program) return false;
+    const plan_ref = entry.static_treaty_plan_ref orelse return false;
+    const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return false;
+    if (plan.fingerprint != plan.computeFingerprint()) return false;
+    if (plan.source_shape.fingerprint != plan.source_shape.computeFingerprint()) return false;
+    if (!staticTreatyPlanHasElaborationRouteProof(plan, semantic_body)) return false;
+    const provider_program_ref = entry.provider_program_ref orelse return false;
+    return optionalRefValuesEqual(plan.selected_provider_program_ref, provider_program_ref);
 }
 
 pub fn boundaryNormalizationRouteLoweringFingerprint(entry: BoundaryElaborationSourceMap.Entry, output_hash: u64) u64 {
@@ -6551,7 +6564,32 @@ fn staticTreatyPlanHasElaborationRouteProof(plan: BoundaryStaticTreatyPlan, body
 
 fn staticTreatyPlanHasProviderProgramMappingSupportProof(plan: BoundaryStaticTreatyPlan) bool {
     const expected = plan.selectedProviderProgramMappingSupportFingerprint() orelse return false;
-    return plan.selected_provider_program_mapping_support_fingerprint == expected;
+    return plan.selected_provider_program_mapping_support_fingerprint == expected and
+        staticTreatyPlanProviderProgramMappingTagsMatchShape(plan);
+}
+
+fn staticTreatyPlanProviderProgramMappingTagsMatchShape(plan: BoundaryStaticTreatyPlan) bool {
+    const request_mapping_tag = plan.selected_provider_program_request_mapping_tag orelse return false;
+    const result_mapping_tag = plan.selected_provider_program_result_mapping_tag orelse return false;
+    const mapping_shape = providerProgramMappingShapeForPlan(plan) orelse return false;
+    return providerProgramMappingRequestTagMatchesShape(mapping_shape, request_mapping_tag) and
+        providerProgramMappingResultTagMatchesShape(mapping_shape, result_mapping_tag);
+}
+
+fn providerProgramMappingRequestTagMatchesShape(shape: BoundaryEffectShape, tag: []const u8) bool {
+    if (std.mem.eql(u8, tag, "payload_to_args")) return true;
+    if (std.mem.eql(u8, tag, "unit_args")) {
+        const ref = shape.value_ref orelse return false;
+        return boundaryValueRefIsUnit(ref);
+    }
+    return false;
+}
+
+fn providerProgramMappingResultTagMatchesShape(shape: BoundaryEffectShape, tag: []const u8) bool {
+    if (std.mem.eql(u8, tag, "result_to_resume")) return shape.kind == .operation and shape.expected_resume_ref != null;
+    if (std.mem.eql(u8, tag, "result_to_return_now")) return shape.kind == .operation and shape.result_ref != null;
+    if (std.mem.eql(u8, tag, "result_to_resume_after")) return shape.kind == .after and shape.expected_after_ref != null;
+    return false;
 }
 
 fn staticTreatyPlanHasProviderProgramMorphismProof(plan: BoundaryStaticTreatyPlan) bool {
