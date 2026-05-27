@@ -5592,9 +5592,9 @@ fn normalizationTraceDependenciesMatch(
 }
 
 fn normalizationRedexCoordinatesMatchSourceEntry(coordinates: BoundaryNormalizationCoordinates, entry: BoundaryElaborationSourceMap.Entry) bool {
-    return coordinates.function_index == 0 and
-        coordinates.block_index == 0 and
-        coordinates.instruction_index == entry.source_site_index and
+    return coordinates.function_index == null and
+        coordinates.block_index == null and
+        coordinates.instruction_index == null and
         coordinates.site_index == entry.source_site_index;
 }
 
@@ -7813,12 +7813,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                         redexes[index] = Redex.init(.{
                             .label = entry.label,
                             .source_effect_shape_ref = entry.source_ref,
-                            .coordinates = .{
-                                .function_index = 0,
-                                .block_index = 0,
-                                .instruction_index = entry.source_site_index,
-                                .site_index = entry.source_site_index,
-                            },
+                            .coordinates = .{ .site_index = entry.source_site_index },
                             .origin = normalizationRedexOriginForSourceEntry(entry, input.static_treaty_plans, SourceBody.certificate.source_program_ref),
                             .kind = redexKindForSourceEntry(entry, input.static_treaty_plans),
                             .selected_static_treaty_plan_ref = entry.static_treaty_plan_ref,

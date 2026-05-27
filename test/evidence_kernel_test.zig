@@ -373,7 +373,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     const redex = Evidence.BoundaryNormalizationRedex.init(.{
         .label = "approval.request",
         .source_effect_shape_ref = shape.evidenceRef(),
-        .coordinates = .{ .function_index = 0, .block_index = 0, .instruction_index = 0, .site_index = 0 },
+        .coordinates = .{ .site_index = 0 },
         .kind = .operation_site,
         .selected_static_treaty_plan_ref = static_plan.evidenceRef(),
         .current_program_plan_ref = source_ref,
@@ -384,7 +384,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     const same_redex = Evidence.BoundaryNormalizationRedex.init(.{
         .label = "approval.request",
         .source_effect_shape_ref = shape.evidenceRef(),
-        .coordinates = .{ .function_index = 0, .block_index = 0, .instruction_index = 0, .site_index = 0 },
+        .coordinates = .{ .site_index = 0 },
         .kind = .operation_site,
         .selected_static_treaty_plan_ref = static_plan.evidenceRef(),
         .current_program_plan_ref = source_ref,
@@ -395,7 +395,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     const distinct_site_redex = Evidence.BoundaryNormalizationRedex.init(.{
         .label = "approval.distinct-site",
         .source_effect_shape_ref = shape.evidenceRef(),
-        .coordinates = .{ .function_index = 0, .block_index = 0, .instruction_index = 2, .site_index = 7 },
+        .coordinates = .{ .site_index = 7 },
         .kind = .operation_site,
         .selected_static_treaty_plan_ref = static_plan.evidenceRef(),
         .current_program_plan_ref = source_ref,
@@ -616,7 +616,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     const residualized_redex = Evidence.BoundaryNormalizationRedex.init(.{
         .label = "approval.residualized",
         .source_effect_shape_ref = shape.evidenceRef(),
-        .coordinates = .{ .function_index = 0, .block_index = 0, .instruction_index = 0, .site_index = 0 },
+        .coordinates = .{ .site_index = 0 },
         .kind = .operation_site,
         .selected_static_treaty_plan_ref = residualized_plan.evidenceRef(),
         .current_program_plan_ref = source_ref,
@@ -835,7 +835,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     const missing_resume_redex = Evidence.BoundaryNormalizationRedex.init(.{
         .label = "approval.request",
         .source_effect_shape_ref = missing_resume_shape.evidenceRef(),
-        .coordinates = .{ .function_index = 0, .block_index = 0, .instruction_index = 0, .site_index = 0 },
+        .coordinates = .{ .site_index = 0 },
         .kind = .operation_site,
         .selected_static_treaty_plan_ref = missing_resume_static_plan.evidenceRef(),
         .current_program_plan_ref = source_ref,
@@ -1279,7 +1279,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     const forged_coordinate_redex = Evidence.BoundaryNormalizationRedex.init(.{
         .label = "approval.request",
         .source_effect_shape_ref = shape.evidenceRef(),
-        .coordinates = .{ .function_index = 0, .block_index = 0, .instruction_index = 7, .site_index = 0 },
+        .coordinates = .{ .site_index = 7 },
         .kind = .operation_site,
         .selected_static_treaty_plan_ref = static_plan.evidenceRef(),
         .current_program_plan_ref = source_ref,
@@ -1342,7 +1342,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     const forged_semantic_redex = Evidence.BoundaryNormalizationRedex.init(.{
         .label = "approval.request",
         .source_effect_shape_ref = shape.evidenceRef(),
-        .coordinates = .{ .function_index = 0, .block_index = 0, .instruction_index = 0, .site_index = 0 },
+        .coordinates = .{ .site_index = 0 },
         .kind = .operation_site,
         .selected_static_treaty_plan_ref = static_plan.evidenceRef(),
         .current_program_plan_ref = source_ref,
@@ -1504,7 +1504,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     const blocked_redex = Evidence.BoundaryNormalizationRedex.init(.{
         .label = "approval.request",
         .source_effect_shape_ref = shape.evidenceRef(),
-        .coordinates = .{ .function_index = 0, .block_index = 0, .instruction_index = 0, .site_index = 0 },
+        .coordinates = .{ .site_index = 0 },
         .kind = .operation_site,
         .selected_static_treaty_plan_ref = blocked_static_plan.evidenceRef(),
         .current_program_plan_ref = source_ref,
@@ -3379,7 +3379,7 @@ test "certified boundary target world surface tables and certificate are determi
     const normalization_redex = Elaboration.Target.Normalization.Redex.init(.{
         .label = "target.source-entry",
         .source_effect_shape_ref = source_ref,
-        .coordinates = .{ .function_index = 0, .block_index = 0, .instruction_index = 0, .site_index = 0 },
+        .coordinates = .{ .site_index = 0 },
         .kind = .world_port_site,
         .selected_static_treaty_plan_ref = static_plan.evidenceRef(),
         .current_program_plan_ref = residual_program_ref,
@@ -3528,7 +3528,7 @@ test "certified boundary target world surface tables and certificate are determi
     const unproved_normalization_redex = Elaboration.Target.Normalization.Redex.init(.{
         .label = "target.unproved-world-port-entry",
         .source_effect_shape_ref = source_ref,
-        .coordinates = .{ .function_index = 0, .block_index = 0, .instruction_index = 0, .site_index = 0 },
+        .coordinates = .{ .site_index = 0 },
         .kind = .world_port_site,
         .current_program_plan_ref = residual_program_ref,
         .semantic_body = .unknown,
@@ -4140,7 +4140,7 @@ test "certified boundary target world surface tables and certificate are determi
     const gapped_normalization_redex = Elaboration.Target.Normalization.Redex.init(.{
         .label = "target.gapped-source-entry",
         .source_effect_shape_ref = source_ref,
-        .coordinates = .{ .function_index = 0, .block_index = 0, .instruction_index = 0, .site_index = 0 },
+        .coordinates = .{ .site_index = 0 },
         .kind = .world_port_site,
         .selected_static_treaty_plan_ref = static_plan.evidenceRef(),
         .current_program_plan_ref = residual_program_ref,
