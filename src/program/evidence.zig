@@ -5144,7 +5144,11 @@ pub const BoundaryNormalizationCertificate = struct {
         if (!self.world_surface_ref.eql(world_surface.evidenceRef())) return error.BoundaryNormalizationCertificateMismatch;
         if (trace.final_normal_form != normal_form.kind or normal_form.kind != effect_row.normal_form) return error.BoundaryNormalizationCertificateMismatch;
         if (world_surface.normal_form != normal_form.kind) return error.BoundaryNormalizationCertificateMismatch;
+        if (!effectRowSatisfiesNormalForm(effect_row, normal_form)) return error.BoundaryNormalizationCertificateMismatch;
+        if (!targetEffectRowMatchesSurfaceNormalForm(effect_row, world_surface.normal_form)) return error.BoundaryNormalizationCertificateMismatch;
         if (world_surface.world_port_count != effect_row.residual_world_ports) return error.BoundaryNormalizationCertificateMismatch;
+        if (sourceMapWorldPortCount(source_map) != world_surface.world_port_count) return error.BoundaryNormalizationCertificateMismatch;
+        if (world_surface.world_port_count == 0 and world_surface.normal_form == .world_ports_only) return error.BoundaryNormalizationCertificateMismatch;
         if (normal_form.kind == .strict_closed and world_surface.world_port_count != 0) return error.BoundaryNormalizationCertificateMismatch;
         if (!sourceMapBlockerRefsMatchBlockedEntries(source_map, static_treaty_plans, self.blocker_refs)) return error.BoundaryNormalizationCertificateMismatch;
         if (self.blocker_refs.len != effect_row.blockers or self.blocker_refs.len != normal_form.blocker_count) return error.BoundaryNormalizationCertificateMismatch;

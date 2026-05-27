@@ -732,6 +732,180 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
         error.BoundaryNormalizationCertificateMismatch,
         forged_surface_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, forged_surface),
     );
+
+    const empty_world_ports_effect_row = Evidence.BoundaryElaborationEffectRow.init(.{
+        .label = "normalization.empty_world_ports.effect_row",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .normal_form = .world_ports_only,
+        .source_effect_shapes = 1,
+        .closed_effect_shapes = 1,
+        .provider_program_links = 1,
+    });
+    const empty_world_ports_normal_form = Evidence.BoundaryNormalForm.init(
+        "normalization.empty_world_ports.normal_form",
+        .world_ports_only,
+        closure_certificate_ref,
+        empty_world_ports_effect_row.evidenceRef(),
+        0,
+    );
+    const empty_world_ports_trace_deps = [_]Evidence.Dependency{
+        .{ .role = .closure_certificate, .ref = closure_certificate_ref },
+        .{ .role = .residual_program, .ref = residual_ref },
+        .{ .role = .elaboration_source_map, .ref = source_map.evidenceRef() },
+        .{ .role = .elaboration_effect_row, .ref = empty_world_ports_effect_row.evidenceRef() },
+        .{ .role = .normal_form, .ref = empty_world_ports_normal_form.evidenceRef() },
+    };
+    const empty_world_ports_trace = Evidence.BoundaryNormalizationTrace.init(.{
+        .label = "normalization.empty_world_ports.trace",
+        .root_program_ref = source_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .rewrite_steps = steps[0..],
+        .eliminated_redex_refs = eliminated[0..],
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .final_normal_form = .world_ports_only,
+        .evidence_dependencies = empty_world_ports_trace_deps[0..],
+    });
+    const empty_world_ports_surface = Evidence.BoundaryWorldSurface.init(.{
+        .label = "normalization.empty_world_ports.surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_ref,
+        .elaboration_certificate_ref = Evidence.refFor(Evidence.domains.boundary_elaboration_certificate, 0xE1AB, .{ .label = "elaboration" }),
+        .source_map_ref = source_map.evidenceRef(),
+        .effect_row_ref = empty_world_ports_effect_row.evidenceRef(),
+        .port_table_ref = Evidence.refFor(Evidence.domains.boundary_world_port_table, 0x7100, .{}),
+        .value_table_ref = Evidence.refFor(Evidence.domains.boundary_world_value_table, 0x7101, .{}),
+        .dispatch_table_ref = Evidence.refFor(Evidence.domains.boundary_world_dispatch_table, 0x7102, .{}),
+        .profile_ref = Evidence.refFor(Evidence.domains.boundary_world_surface_profile, 0x7103, .{}),
+        .replay_key_recipe_ref = Evidence.refFor(Evidence.domains.boundary_world_replay_key_recipe, 0x7104, .{}),
+        .normal_form = .world_ports_only,
+        .world_port_count = 0,
+    });
+    const empty_world_ports_certificate = Evidence.BoundaryNormalizationCertificate.init(.{
+        .label = "normalization.empty_world_ports.certificate",
+        .closure_certificate_ref = closure_certificate_ref,
+        .target_policy_fingerprint = Evidence.BoundaryTargetPolicy.strictClosed().fingerprint(),
+        .normalization_trace_ref = empty_world_ports_trace.evidenceRef(),
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .source_map_ref = source_map.evidenceRef(),
+        .trace_map_ref = trace_map.evidenceRef(),
+        .evidence_map_ref = evidence_map.evidenceRef(),
+        .effect_row_ref = empty_world_ports_effect_row.evidenceRef(),
+        .normal_form_ref = empty_world_ports_normal_form.evidenceRef(),
+        .world_surface_ref = empty_world_ports_surface.evidenceRef(),
+        .dependencies = (&[_]Evidence.Dependency{
+            .{ .role = .normalization_trace, .ref = empty_world_ports_trace.evidenceRef() },
+            .{ .role = .elaboration_source_map, .ref = source_map.evidenceRef() },
+            .{ .role = .elaboration_trace_map, .ref = trace_map.evidenceRef() },
+            .{ .role = .target_evidence_map, .ref = evidence_map.evidenceRef() },
+            .{ .role = .elaboration_effect_row, .ref = empty_world_ports_effect_row.evidenceRef() },
+            .{ .role = .normal_form, .ref = empty_world_ports_normal_form.evidenceRef() },
+            .{ .role = .world_surface, .ref = empty_world_ports_surface.evidenceRef() },
+        })[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryNormalizationCertificateMismatch,
+        empty_world_ports_certificate.check(
+            Evidence.BoundaryTargetPolicy.strictClosed(),
+            empty_world_ports_trace,
+            redexes[0..],
+            rules[0..],
+            static_plans[0..],
+            source_map,
+            trace_map,
+            evidence_map,
+            empty_world_ports_effect_row,
+            empty_world_ports_normal_form,
+            empty_world_ports_surface,
+        ),
+    );
+
+    const blockerless_partial_effect_row = Evidence.BoundaryElaborationEffectRow.init(.{
+        .label = "normalization.blockerless_partial.effect_row",
+        .source_program_ref = source_ref,
+        .residual_program_ref = residual_ref,
+        .normal_form = .partial_with_blockers,
+        .source_effect_shapes = 1,
+        .closed_effect_shapes = 1,
+        .provider_program_links = 1,
+    });
+    const blockerless_partial_normal_form = Evidence.BoundaryNormalForm.init(
+        "normalization.blockerless_partial.normal_form",
+        .partial_with_blockers,
+        closure_certificate_ref,
+        blockerless_partial_effect_row.evidenceRef(),
+        0,
+    );
+    const blockerless_partial_trace_deps = [_]Evidence.Dependency{
+        .{ .role = .closure_certificate, .ref = closure_certificate_ref },
+        .{ .role = .residual_program, .ref = residual_ref },
+        .{ .role = .elaboration_source_map, .ref = source_map.evidenceRef() },
+        .{ .role = .elaboration_effect_row, .ref = blockerless_partial_effect_row.evidenceRef() },
+        .{ .role = .normal_form, .ref = blockerless_partial_normal_form.evidenceRef() },
+    };
+    const blockerless_partial_trace = Evidence.BoundaryNormalizationTrace.init(.{
+        .label = "normalization.blockerless_partial.trace",
+        .root_program_ref = source_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .rewrite_steps = steps[0..],
+        .eliminated_redex_refs = eliminated[0..],
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .final_normal_form = .partial_with_blockers,
+        .evidence_dependencies = blockerless_partial_trace_deps[0..],
+    });
+    const blockerless_partial_surface = Evidence.BoundaryWorldSurface.init(.{
+        .label = "normalization.blockerless_partial.surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_ref,
+        .elaboration_certificate_ref = Evidence.refFor(Evidence.domains.boundary_elaboration_certificate, 0xE1AB, .{ .label = "elaboration" }),
+        .source_map_ref = source_map.evidenceRef(),
+        .effect_row_ref = blockerless_partial_effect_row.evidenceRef(),
+        .port_table_ref = Evidence.refFor(Evidence.domains.boundary_world_port_table, 0x7100, .{}),
+        .value_table_ref = Evidence.refFor(Evidence.domains.boundary_world_value_table, 0x7101, .{}),
+        .dispatch_table_ref = Evidence.refFor(Evidence.domains.boundary_world_dispatch_table, 0x7102, .{}),
+        .profile_ref = Evidence.refFor(Evidence.domains.boundary_world_surface_profile, 0x7103, .{}),
+        .replay_key_recipe_ref = Evidence.refFor(Evidence.domains.boundary_world_replay_key_recipe, 0x7104, .{}),
+        .normal_form = .partial_with_blockers,
+        .world_port_count = 0,
+    });
+    const blockerless_partial_certificate = Evidence.BoundaryNormalizationCertificate.init(.{
+        .label = "normalization.blockerless_partial.certificate",
+        .closure_certificate_ref = closure_certificate_ref,
+        .target_policy_fingerprint = Evidence.BoundaryTargetPolicy.strictClosed().fingerprint(),
+        .normalization_trace_ref = blockerless_partial_trace.evidenceRef(),
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .source_map_ref = source_map.evidenceRef(),
+        .trace_map_ref = trace_map.evidenceRef(),
+        .evidence_map_ref = evidence_map.evidenceRef(),
+        .effect_row_ref = blockerless_partial_effect_row.evidenceRef(),
+        .normal_form_ref = blockerless_partial_normal_form.evidenceRef(),
+        .world_surface_ref = blockerless_partial_surface.evidenceRef(),
+        .dependencies = (&[_]Evidence.Dependency{
+            .{ .role = .normalization_trace, .ref = blockerless_partial_trace.evidenceRef() },
+            .{ .role = .elaboration_source_map, .ref = source_map.evidenceRef() },
+            .{ .role = .elaboration_trace_map, .ref = trace_map.evidenceRef() },
+            .{ .role = .target_evidence_map, .ref = evidence_map.evidenceRef() },
+            .{ .role = .elaboration_effect_row, .ref = blockerless_partial_effect_row.evidenceRef() },
+            .{ .role = .normal_form, .ref = blockerless_partial_normal_form.evidenceRef() },
+            .{ .role = .world_surface, .ref = blockerless_partial_surface.evidenceRef() },
+        })[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryNormalizationCertificateMismatch,
+        blockerless_partial_certificate.check(
+            Evidence.BoundaryTargetPolicy.strictClosed(),
+            blockerless_partial_trace,
+            redexes[0..],
+            rules[0..],
+            static_plans[0..],
+            source_map,
+            trace_map,
+            evidence_map,
+            blockerless_partial_effect_row,
+            blockerless_partial_normal_form,
+            blockerless_partial_surface,
+        ),
+    );
     const missing_dependency_trace = Evidence.BoundaryNormalizationTrace.init(.{
         .label = "normalization.missing_dependency_trace",
         .root_program_ref = source_ref,
