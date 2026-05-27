@@ -524,6 +524,80 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     try std.testing.expectEqual(Evidence.domains.boundary_normalization_certificate.id, certificate.evidenceView().domain);
     try certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface, &.{});
 
+    const forged_residual_ref = Evidence.refFor(Evidence.domains.provider_manifest, residual_ref.fingerprint, .{ .label = "not-a-program-plan" });
+    var forged_residual_entry = source_map_entry;
+    forged_residual_entry.residual_ref = forged_residual_ref;
+    const forged_residual_entries = [_]Evidence.BoundaryElaborationSourceMap.Entry{forged_residual_entry};
+    const forged_residual_source_map = Evidence.BoundaryElaborationSourceMap.init("normalization.forged_residual.source_map", forged_residual_entries[0..], &.{});
+    const forged_residual_effect_row = Evidence.BoundaryElaborationEffectRow.init(.{
+        .label = "normalization.forged_residual.effect_row",
+        .source_program_ref = source_ref,
+        .residual_program_ref = forged_residual_ref,
+        .normal_form = .strict_closed,
+        .source_effect_shapes = 1,
+        .closed_effect_shapes = 1,
+        .provider_program_links = 1,
+    });
+    const forged_residual_normal_form = Evidence.BoundaryNormalForm.init("normalization.forged_residual.normal_form", .strict_closed, closure_certificate_ref, forged_residual_effect_row.evidenceRef(), 0);
+    const forged_residual_trace_deps = [_]Evidence.Dependency{
+        .{ .role = .closure_certificate, .ref = closure_certificate_ref },
+        .{ .role = .residual_program, .ref = residual_ref },
+        .{ .role = .elaboration_source_map, .ref = forged_residual_source_map.evidenceRef() },
+        .{ .role = .elaboration_effect_row, .ref = forged_residual_effect_row.evidenceRef() },
+        .{ .role = .normal_form, .ref = forged_residual_normal_form.evidenceRef() },
+    };
+    const forged_residual_trace = Evidence.BoundaryNormalizationTrace.init(.{
+        .label = "normalization.forged_residual.trace",
+        .root_program_ref = source_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .rewrite_steps = steps[0..],
+        .eliminated_redex_refs = eliminated[0..],
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .final_normal_form = .strict_closed,
+        .evidence_dependencies = forged_residual_trace_deps[0..],
+    });
+    const forged_residual_world_surface = Evidence.BoundaryWorldSurface.init(.{
+        .label = "normalization.forged_residual.world_surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = forged_residual_ref,
+        .elaboration_certificate_ref = Evidence.refFor(Evidence.domains.boundary_elaboration_certificate, 0xE1AB, .{ .label = "elaboration" }),
+        .source_map_ref = forged_residual_source_map.evidenceRef(),
+        .effect_row_ref = forged_residual_effect_row.evidenceRef(),
+        .port_table_ref = Evidence.refFor(Evidence.domains.boundary_world_port_table, 0x7100, .{}),
+        .value_table_ref = Evidence.refFor(Evidence.domains.boundary_world_value_table, 0x7101, .{}),
+        .dispatch_table_ref = Evidence.refFor(Evidence.domains.boundary_world_dispatch_table, 0x7102, .{}),
+        .profile_ref = Evidence.refFor(Evidence.domains.boundary_world_surface_profile, 0x7103, .{}),
+        .replay_key_recipe_ref = Evidence.refFor(Evidence.domains.boundary_world_replay_key_recipe, 0x7104, .{}),
+        .normal_form = .strict_closed,
+        .world_port_count = 0,
+    });
+    const forged_residual_certificate = Evidence.BoundaryNormalizationCertificate.init(.{
+        .label = "normalization.forged_residual.certificate",
+        .closure_certificate_ref = closure_certificate_ref,
+        .target_policy_fingerprint = Evidence.BoundaryTargetPolicy.strictClosed().fingerprint(),
+        .normalization_trace_ref = forged_residual_trace.evidenceRef(),
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .source_map_ref = forged_residual_source_map.evidenceRef(),
+        .trace_map_ref = trace_map.evidenceRef(),
+        .evidence_map_ref = evidence_map.evidenceRef(),
+        .effect_row_ref = forged_residual_effect_row.evidenceRef(),
+        .normal_form_ref = forged_residual_normal_form.evidenceRef(),
+        .world_surface_ref = forged_residual_world_surface.evidenceRef(),
+        .dependencies = (&[_]Evidence.Dependency{
+            .{ .role = .normalization_trace, .ref = forged_residual_trace.evidenceRef() },
+            .{ .role = .elaboration_source_map, .ref = forged_residual_source_map.evidenceRef() },
+            .{ .role = .elaboration_trace_map, .ref = trace_map.evidenceRef() },
+            .{ .role = .target_evidence_map, .ref = evidence_map.evidenceRef() },
+            .{ .role = .elaboration_effect_row, .ref = forged_residual_effect_row.evidenceRef() },
+            .{ .role = .normal_form, .ref = forged_residual_normal_form.evidenceRef() },
+            .{ .role = .world_surface, .ref = forged_residual_world_surface.evidenceRef() },
+        })[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryNormalizationCertificateMismatch,
+        forged_residual_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), forged_residual_trace, redexes[0..], rules[0..], static_plans[0..], forged_residual_source_map, trace_map, evidence_map, forged_residual_effect_row, forged_residual_normal_form, forged_residual_world_surface, &.{}),
+    );
+
     var forged_nested_effect_row = effect_row;
     forged_nested_effect_row.nested_provider_shapes_linked = 1;
     forged_nested_effect_row.nested_provider_depth = 1;
