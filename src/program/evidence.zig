@@ -6400,7 +6400,9 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             elaboration_policy.allow_declarative_morphisms = policy.allow_declarative_morphisms;
             elaboration_policy.allow_residualized_morphisms = policy.allow_residualized_morphisms;
             elaboration_policy.allow_pipeline_adapters = policy.allow_pipeline_adapters;
-            elaboration_policy.require_program_backed_providers_for_internal_routes = !policy.allow_declarative_morphisms and !policy.allow_residualized_morphisms and !policy.allow_pipeline_adapters;
+            elaboration_policy.require_program_backed_providers_for_internal_routes =
+                elaboration_policy.require_program_backed_providers_for_internal_routes or
+                (!policy.allow_declarative_morphisms and !policy.allow_residualized_morphisms and !policy.allow_pipeline_adapters);
             elaboration_policy.reject_unknown_semantic_bodies = policy.reject_unknown_semantic_bodies;
             elaboration_policy.max_nested_provider_depth = if (policy.allow_nested_program_backed_providers) policy.max_nested_provider_depth else 0;
             elaboration_policy.fail_on_unsupported_shape = policy.fail_on_unsupported_instruction;

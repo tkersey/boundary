@@ -688,6 +688,10 @@ pub fn build(b: *std.Build) void {
             .path = "test/compile_fail/boundary_target_body_policy_mismatch.zig",
             .expected_error = "Boundary Target body policy does not match target policy",
         },
+        .{
+            .path = "test/compile_fail/boundary_target_program_backed_requirement.zig",
+            .expected_error = "BoundaryClosure.Elaboration input rejected residual Program: BoundaryElaborationBlocked",
+        },
     };
     inline for (compile_fail_specs) |spec| {
         const compile_fail_mod = b.createModule(.{
