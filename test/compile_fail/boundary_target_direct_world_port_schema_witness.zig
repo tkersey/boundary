@@ -61,7 +61,6 @@ comptime {
     const world_port = Closure.WorldPort.init(.{
         .label = "target-direct-world-port",
         .kind = .test_fixture,
-        .effect_shape_ref = source_shape.evidenceRef(),
         .supported_protocol_labels = &.{"approval"},
         .supported_site_indexes = &.{source_site.index},
         .supported_protocol_op_fingerprints = &.{source_site.fingerprint},

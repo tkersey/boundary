@@ -8250,7 +8250,16 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .supported_site_indexes = &.{ source_site_index, closure_approval_request.index },
             .supported_protocol_op_fingerprints = &.{closure_approval_request.fingerprint},
         });
-        const direct_graph = Closure.Graph.init("direct-world-port-source-site-graph", &.{}, &.{}, &.{});
+        const direct_nodes = [_]Closure.Graph.Node{
+            .{ .kind = .root_program, .ref = source_ref, .label = closure_source_program.contract.label },
+            .{ .kind = .operation_site, .ref = direct_shape.evidenceRef(), .label = direct_shape.name },
+            .{ .kind = .world_port, .ref = direct_port.evidenceRef(), .label = direct_port.label },
+        };
+        const direct_edges = [_]Closure.Graph.Edge{
+            .{ .kind = .root_yields, .from = source_ref, .to = direct_shape.evidenceRef() },
+            .{ .kind = .opens_obligation, .from = direct_shape.evidenceRef(), .to = direct_port.evidenceRef() },
+        };
+        const direct_graph = Closure.Graph.init("direct-world-port-source-site-graph", direct_nodes[0..], direct_edges[0..], &.{});
         const direct_report = Closure.Report.init(.{
             .graph_fingerprint = direct_graph.fingerprint,
             .root_program_refs = &.{source_ref},
@@ -8274,10 +8283,23 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .residual_program = closure_source_program,
             .policy = Elaboration.Target.Policy.auditOnly(),
         });
+        const allowed_world_ports = [_]u64{direct_port.evidenceRef().fingerprint};
+        var direct_world_target_policy = Elaboration.Target.Policy.worldBoundary();
+        direct_world_target_policy.require_checked_closure_certificate = false;
+        direct_world_target_policy.elaboration_policy.closure_policy.allowed_world_port_fingerprints = allowed_world_ports[0..];
+        const WorldBoundaryTarget = Elaboration.Target.compileComptime(.{
+            .label = "direct-world-port-source-site-world-boundary-target",
+            .input = direct_input,
+            .residual_program = closure_source_program,
+            .policy = direct_world_target_policy,
+        });
         break :blk Body.source_map.entries.len == 1 and
             Body.source_map.entries[0].source_ref.eql(direct_shape.evidenceRef()) and
             Body.source_map.entries[0].source_site_index.? == source_site_index and
             Body.source_map.entries[0].residual_site_index.? == closure_approval_request.index and
+            direct_world_target_policy.reject_unknown_semantic_bodies and
+            WorldBoundaryTarget.NormalizationTrace.residual_world_port_refs.len == 1 and
+            WorldBoundaryTarget.NormalizationTrace.residual_world_port_refs[0].eql(direct_port.evidenceRef()) and
             Target.normalization_certificate.evidenceView().domain == Evidence.domains.boundary_normalization_certificate.id;
     };
     try std.testing.expect(direct_world_port_source_site);

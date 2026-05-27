@@ -5072,7 +5072,7 @@ pub const BoundaryNormalizationCertificate = struct {
             if (!normalizationRuleMatchesSourceEntry(rule, entry, static_treaty_plans, trace.root_program_ref)) return error.BoundaryNormalizationCertificateMismatch;
             const semantic_body = normalizationRedexSemanticBodyForSourceEntry(entry, static_treaty_plans) orelse return error.BoundaryNormalizationCertificateMismatch;
             if (!normalizationRouteProofMatchesSourceEntry(entry, semantic_body, static_treaty_plans, world_ports)) return error.BoundaryNormalizationCertificateMismatch;
-            if (!normalizationPolicyAllowsRewrite(normalization_policy, rule.kind, semantic_body)) return error.BoundaryNormalizationPolicyMismatch;
+            if (!normalizationPolicyAllowsRewrite(normalization_policy, rule.kind, semantic_body, entry)) return error.BoundaryNormalizationPolicyMismatch;
             if (!normalizationStepRouteRefsMatch(step, entry, static_treaty_plans)) return error.BoundaryNormalizationCertificateMismatch;
             const expected_builder_fingerprint = boundaryNormalizationRouteLoweringFingerprint(entry, trace.final_program_plan_hash);
             if (step.builder_state_fingerprint == null or step.builder_state_fingerprint.? != expected_builder_fingerprint) return error.BoundaryNormalizationCertificateMismatch;
@@ -5377,7 +5377,7 @@ pub const BoundaryTargetCertificate = struct {
         if (!effect_row.residual_program_ref.eql(world_surface.residual_program_ref)) return error.BoundaryTargetCertificateMismatch;
         if (!sourceMapResidualRefsMatch(source_map, world_surface.residual_program_ref)) return error.BoundaryTargetCertificateMismatch;
         if (!targetEffectRowMatchesSurfaceNormalForm(effect_row, world_surface.normal_form)) return error.BoundaryTargetCertificateMismatch;
-        if (!targetPortTableMatchesSourceMap(policy, source_map, effect_row, port_table, static_treaty_plans)) return error.BoundaryTargetCertificateMismatch;
+        if (!targetPortTableMatchesSourceMap(policy, source_map, effect_row, port_table, static_treaty_plans, world_ports)) return error.BoundaryTargetCertificateMismatch;
         if (!world_surface.port_table_ref.eql(port_table.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!world_surface.value_table_ref.eql(value_table.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!world_surface.dispatch_table_ref.eql(dispatch_table.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
@@ -5545,17 +5545,25 @@ fn normalizationRuleMatchesSourceEntry(
     return normalizationBlockerRefsMatchSourceEntry(rule.blocker_refs, entry, static_treaty_plans);
 }
 
-fn normalizationPolicyAllowsRewrite(policy: BoundaryNormalizationPolicy, kind: BoundaryNormalizationRewriteRule.Kind, semantic_body: SemanticBody) bool {
+fn normalizationPolicyAllowsRewrite(policy: BoundaryNormalizationPolicy, kind: BoundaryNormalizationRewriteRule.Kind, semantic_body: SemanticBody, entry: BoundaryElaborationSourceMap.Entry) bool {
     return switch (kind) {
         .root_copy => true,
         .already_normal => normalizationPolicyAllowsSemanticBody(policy, semantic_body),
         .provider_program_call => policy.allow_program_provider_rewrites,
         .nested_provider_program_call => policy.allow_program_provider_rewrites and policy.allow_nested_provider_rewrites,
-        .residual_world_port => policy.allow_world_port_residualization and normalizationPolicyAllowsSemanticBody(policy, semantic_body),
+        .residual_world_port => policy.allow_world_port_residualization and
+            (normalizationPolicyAllowsSemanticBody(policy, semantic_body) or normalizationPolicyAllowsDirectWorldPortResidual(semantic_body, entry)),
         .residualized_morphism => policy.allow_residualized_morphism_rewrites,
         .pipeline_adapter => policy.allow_pipeline_rewrites,
         .unsupported => true,
     };
+}
+
+fn normalizationPolicyAllowsDirectWorldPortResidual(semantic_body: SemanticBody, entry: BoundaryElaborationSourceMap.Entry) bool {
+    return semantic_body == .unknown and
+        entry.disposition == .world_port_lowered and
+        entry.static_treaty_plan_ref == null and
+        entry.world_port_ref != null;
 }
 
 fn normalizationPolicyAllowsSemanticBody(policy: BoundaryNormalizationPolicy, semantic_body: SemanticBody) bool {
@@ -5813,17 +5821,18 @@ fn targetPortTableMatchesSourceMap(
     effect_row: BoundaryElaborationEffectRow,
     port_table: BoundaryWorldPortTable,
     static_treaty_plans: []const BoundaryStaticTreatyPlan,
+    world_ports: []const BoundaryWorldPort,
 ) bool {
     const world_port_entries = sourceMapWorldPortCount(source_map);
     if (effect_row.world_ports != world_port_entries) return false;
     if (effect_row.residual_world_ports != world_port_entries) return false;
     if (port_table.entries.len != world_port_entries) return false;
     for (port_table.entries) |entry| {
-        if (sourceMapPortTableEntryCount(policy, source_map, entry, static_treaty_plans) != 1) return false;
+        if (sourceMapPortTableEntryCount(policy, source_map, entry, static_treaty_plans, world_ports) != 1) return false;
     }
     for (source_map.entries) |entry| {
         if (entry.world_port_ref == null) continue;
-        if (sourceMapPortTableEntryCovered(policy, port_table, entry, static_treaty_plans) != 1) return false;
+        if (sourceMapPortTableEntryCovered(policy, port_table, entry, static_treaty_plans, world_ports) != 1) return false;
     }
     return true;
 }
@@ -5833,10 +5842,11 @@ fn sourceMapPortTableEntryCount(
     source_map: BoundaryElaborationSourceMap,
     port_entry: BoundaryWorldPortTable.Entry,
     static_treaty_plans: []const BoundaryStaticTreatyPlan,
+    world_ports: []const BoundaryWorldPort,
 ) usize {
     var count: usize = 0;
     for (source_map.entries) |entry| {
-        if (sourceMapEntryMatchesPortTableEntry(policy, entry, port_entry, static_treaty_plans)) count += 1;
+        if (sourceMapEntryMatchesPortTableEntry(policy, entry, port_entry, static_treaty_plans, world_ports)) count += 1;
     }
     return count;
 }
@@ -5846,10 +5856,11 @@ fn sourceMapPortTableEntryCovered(
     port_table: BoundaryWorldPortTable,
     source_entry: BoundaryElaborationSourceMap.Entry,
     static_treaty_plans: []const BoundaryStaticTreatyPlan,
+    world_ports: []const BoundaryWorldPort,
 ) usize {
     var count: usize = 0;
     for (port_table.entries) |entry| {
-        if (sourceMapEntryMatchesPortTableEntry(policy, source_entry, entry, static_treaty_plans)) count += 1;
+        if (sourceMapEntryMatchesPortTableEntry(policy, source_entry, entry, static_treaty_plans, world_ports)) count += 1;
     }
     return count;
 }
@@ -5859,6 +5870,7 @@ fn sourceMapEntryMatchesPortTableEntry(
     source_entry: BoundaryElaborationSourceMap.Entry,
     port_entry: BoundaryWorldPortTable.Entry,
     static_treaty_plans: []const BoundaryStaticTreatyPlan,
+    world_ports: []const BoundaryWorldPort,
 ) bool {
     if (source_entry.disposition != .world_port_lowered) return false;
     const world_port_ref = source_entry.world_port_ref orelse return false;
@@ -5866,7 +5878,7 @@ fn sourceMapEntryMatchesPortTableEntry(
     return world_port_ref.eql(port_entry.world_port_ref) and
         source_entry.source_ref.eql(port_entry.source_ref) and
         residual_site_index == port_entry.residual_site_index and
-        targetPortTableEntryMatchesSchemaWitness(policy, source_entry, port_entry, static_treaty_plans);
+        targetPortTableEntryMatchesSchemaWitness(policy, source_entry, port_entry, static_treaty_plans, world_ports);
 }
 
 fn targetPortTableEntryMatchesSchemaWitness(
@@ -5874,9 +5886,11 @@ fn targetPortTableEntryMatchesSchemaWitness(
     source_entry: BoundaryElaborationSourceMap.Entry,
     port_entry: BoundaryWorldPortTable.Entry,
     static_treaty_plans: []const BoundaryStaticTreatyPlan,
+    world_ports: []const BoundaryWorldPort,
 ) bool {
     if (!policy.fail_on_schema_mismatch) return true;
-    const plan_ref = source_entry.static_treaty_plan_ref orelse return false;
+    const plan_ref = source_entry.static_treaty_plan_ref orelse
+        return targetPortTableEntryMatchesDescriptorWitness(policy, source_entry, port_entry, world_ports);
     const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return false;
     if (!staticTreatyPlanIntegrityMatches(plan)) return false;
     const shape = if (plan.selected_morphism_ref != null)
@@ -5917,6 +5931,28 @@ fn targetPortTableEntryMatchesSchemaWitness(
         if (!expected_result_ref.eql(port_entry.result_ref)) return false;
     } else if (!std.mem.eql(u8, shape.mode, "transform")) {
         return false;
+    }
+    return true;
+}
+
+fn targetPortTableEntryMatchesDescriptorWitness(
+    policy: BoundaryTargetPolicy,
+    source_entry: BoundaryElaborationSourceMap.Entry,
+    port_entry: BoundaryWorldPortTable.Entry,
+    world_ports: []const BoundaryWorldPort,
+) bool {
+    const world_port_ref = source_entry.world_port_ref orelse return false;
+    const port = worldPortForRef(world_ports, world_port_ref) orelse return false;
+    const effect_shape_ref = port.effect_shape_ref orelse return false;
+    if (!source_entry.source_ref.eql(effect_shape_ref)) return false;
+    if (!sourceMapWorldPortEntryMatchesPort(source_entry, port)) return false;
+    if (!boundaryWorldPortSupportsRequirement(port, port_entry.protocol_label)) return false;
+    if (!boundaryWorldPortSupportsSiteIndex(port, port_entry.residual_site_index)) return false;
+    if (!boundaryWorldPortSupportsOperationFingerprint(port, port_entry.residual_site_fingerprint)) return false;
+    if (policy.preserve_source_coordinates) {
+        const source_site_index = source_entry.source_site_index orelse return false;
+        const expected_source_site_index = effect_shape_ref.site_index orelse return false;
+        if (source_site_index != expected_source_site_index) return false;
     }
     return true;
 }
@@ -8230,7 +8266,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     @compileError("Boundary Target body policy does not match target policy");
                 }
                 const normalization_input = comptime Normalization.Input.fromElaboration(options.input, policy);
-                const port_entries = comptime targetWorldPortEntries(SourceBody, ResidualProgram, options.input.static_treaty_plans, policy);
+                const port_entries = comptime targetWorldPortEntries(SourceBody, ResidualProgram, options.input.static_treaty_plans, options.input.world_ports, policy);
                 const value_entries = comptime targetWorldValueEntries(port_entries);
                 const dispatch_entry_count = comptime targetWorldDispatchEntryCount(port_entries);
                 if (comptime policy.require_bounded_surface and policy.fail_on_unbounded_world_port_when_bounded_required and !boundaryTargetSurfaceBounded(policy, port_entries.len, value_entries.len, dispatch_entry_count)) {
@@ -8472,6 +8508,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             comptime Body: type,
             comptime ResidualProgram: type,
             comptime static_treaty_plans: []const BoundaryStaticTreatyPlan,
+            comptime world_ports: []const Closure.WorldPort,
             comptime policy: TargetPolicy,
         ) [targetWorldPortEntryCount(Body)]WorldPortTable.Entry {
             var entries: [targetWorldPortEntryCount(Body)]WorldPortTable.Entry = undefined;
@@ -8482,7 +8519,10 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     @compileError("Boundary Target world-port source-map entry is missing residual_site_index");
                 const site = targetResidualSiteForIndex(ResidualProgram, residual_site_index) orelse
                     @compileError("Boundary Target world-port source-map entry points at a missing residual site");
-                if (policy.fail_on_schema_mismatch and entry.static_treaty_plan_ref == null) {
+                if (policy.fail_on_schema_mismatch and
+                    entry.static_treaty_plan_ref == null and
+                    !targetWorldPortEntryDescriptorMatches(entry, site, world_ports, policy))
+                {
                     @compileError("Boundary Target world-port source-map entry is missing schema witness");
                 }
                 if (!targetWorldPortEntrySchemaMatches(entry, site, static_treaty_plans, policy)) {
@@ -8506,6 +8546,29 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 index += 1;
             }
             return entries;
+        }
+
+        fn targetWorldPortEntryDescriptorMatches(
+            comptime entry: SourceMap.Entry,
+            comptime site: lowering_api.SessionOperationYieldSite,
+            comptime world_ports: []const Closure.WorldPort,
+            comptime policy: TargetPolicy,
+        ) bool {
+            if (entry.static_treaty_plan_ref != null) return true;
+            const world_port_ref = entry.world_port_ref orelse return false;
+            const port = worldPortForOccurrenceRef(world_ports, world_port_ref) orelse return false;
+            const effect_shape_ref = port.effect_shape_ref orelse return false;
+            if (!entry.source_ref.eql(effect_shape_ref)) return false;
+            if (!sourceMapWorldPortEntryMatchesPort(entry, port)) return false;
+            if (!boundaryWorldPortSupportsRequirement(port, site.requirement_label)) return false;
+            if (!boundaryWorldPortSupportsSiteIndex(port, site.index)) return false;
+            if (!boundaryWorldPortSupportsOperationFingerprint(port, site.fingerprint)) return false;
+            if (policy.preserve_source_coordinates) {
+                const source_site_index = entry.source_site_index orelse return false;
+                const expected_source_site_index = effect_shape_ref.site_index orelse return false;
+                if (source_site_index != expected_source_site_index) return false;
+            }
+            return true;
         }
 
         fn targetWorldPortEntrySchemaMatches(
