@@ -6644,7 +6644,10 @@ fn sourceMapBlockerRefsMatchBlockedEntries(source_map: BoundaryElaborationSource
             if (sourceMapDirectBlockerRefCountFor(source_map, blocker_ref) != refSliceCount(refs, blocker_ref)) return false;
             continue;
         };
-        if (entry.blocker_ref != null) return false;
+        if (entry.blocker_ref) |blocker_ref| {
+            if (sourceMapStaticTreatyPlanBlockerRefCountFor(source_map, plans, blocker_ref) != refSliceCount(refs, blocker_ref)) return false;
+            continue;
+        }
         const plan = staticTreatyPlanForRef(plans, static_treaty_plan_ref) orelse return false;
         for (plan.blockers) |blocker| {
             const blocker_ref = refForBoundaryClosureBlocker(blocker.toEvidenceBlocker());
@@ -6708,11 +6711,11 @@ fn sourceMapBlockedUnsupportedShapeCount(source_map: BoundaryElaborationSourceMa
 fn sourceMapEntryIsUnsupportedShapeBlocker(entry: BoundaryElaborationSourceMap.Entry, plans: []const BoundaryStaticTreatyPlan) bool {
     if (entry.disposition != .blocked) return false;
     if (!sourceMapEntryRepresentsEffectShape(entry)) return false;
+    if (entry.blocker_ref) |blocker_ref| return blockerRefCountsUnsupported(blocker_ref);
     if (entry.static_treaty_plan_ref) |plan_ref| {
         const plan = staticTreatyPlanForRef(plans, plan_ref) orelse return false;
         return staticTreatyPlanHasUnsupportedShapeBlocker(plan);
     }
-    if (entry.blocker_ref) |blocker_ref| return blockerRefCountsUnsupported(blocker_ref);
     return blockerNameCountsUnsupported(entry.label);
 }
 
@@ -6727,6 +6730,10 @@ fn sourceMapStaticTreatyPlanBlockerRefCount(source_map: BoundaryElaborationSourc
     for (source_map.entries) |entry| {
         if (entry.disposition != .blocked) continue;
         const static_treaty_plan_ref = entry.static_treaty_plan_ref orelse continue;
+        if (entry.blocker_ref != null) {
+            count += 1;
+            continue;
+        }
         const plan = staticTreatyPlanForRef(plans, static_treaty_plan_ref) orelse continue;
         count += plan.blockers.len;
     }
@@ -6750,6 +6757,10 @@ fn sourceMapStaticTreatyPlanBlockerRefCountFor(source_map: BoundaryElaborationSo
     for (source_map.entries) |entry| {
         if (entry.disposition != .blocked) continue;
         const static_treaty_plan_ref = entry.static_treaty_plan_ref orelse continue;
+        if (entry.blocker_ref) |blocker_ref| {
+            if (blocker_ref.eql(ref)) count += 1;
+            continue;
+        }
         const plan = staticTreatyPlanForRef(plans, static_treaty_plan_ref) orelse continue;
         for (plan.blockers) |blocker| {
             const blocker_ref = refForBoundaryClosureBlocker(blocker.toEvidenceBlocker());
@@ -7540,7 +7551,6 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             };
             comptime bound_input.validateResidualProgram(ResidualProgram) catch |err|
                 @compileError("BoundaryClosure.Elaboration input rejected residual Program: " ++ @errorName(err));
-            const normal_kind = comptime normalFormKindFor(bound_input);
             const source_entries = comptime sourceEntriesFor(bound_input, residual_ref, ResidualProgram, options);
             const SourceMapValue = comptime SourceMap.init(elaborationOption(options, "source_map_label", bound_input.label ++ ".source_map"), source_entries[0..], &.{});
             const TraceMapValue = comptime if (bound_input.policy.emit_trace_map) blk: {
@@ -7549,6 +7559,8 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             } else null;
             const source_shapes = comptime sourceEntriesEffectShapeCount(source_entries);
             const unsupported_shapes = comptime sourceEntriesBlockedUnsupportedShapeCount(bound_input, source_entries);
+            const source_blockers = comptime sourceEntriesBlockerRefCount(bound_input, source_entries);
+            const normal_kind = comptime normalFormKindFor(bound_input, source_blockers);
             const residualized_routes = comptime residualizedRouteCount(bound_input);
             const pipeline_routes = comptime pipelineRouteCount(bound_input);
             const provider_program_routes = comptime providerProgramRouteCount(bound_input);
@@ -7570,7 +7582,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 .nested_provider_depth = nested_provider_depth,
                 .residualized_routes = residualized_routes,
                 .pipeline_routes = pipeline_routes,
-                .blockers = bound_input.closure_report.blocker_count,
+                .blockers = source_blockers,
                 .unsupported_shapes = unsupported_shapes,
             });
             const NormalFormValue = comptime NormalForm.init(
@@ -7578,12 +7590,12 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 normal_kind,
                 bound_input.closure_certificate.evidenceRef(),
                 EffectRowValue.evidenceRef(),
-                bound_input.closure_report.blocker_count,
+                source_blockers,
             );
             const DependenciesValue = comptime dependenciesFor(bound_input, SourceMapValue, EffectRowValue, TraceMapValue, NormalFormValue);
             const ResidualWorldPortRefsValue = comptime residualWorldPortRefs(bound_input);
             const EvidenceDependencyRefsValue = comptime evidenceDependencyRefs(DependenciesValue);
-            const BlockerRefsValue = comptime blockerRefsFor(bound_input);
+            const BlockerRefsValue = comptime blockerRefsForSourceEntries(bound_input, source_entries);
             const CertificateValue = comptime Certificate.init(.{
                 .elaborated_program_label = ResidualProgram.contract.label,
                 .source_program_ref = bound_input.source_program_ref,
@@ -7613,7 +7625,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     .morphism_routes_elaborated = residualized_routes,
                     .pipeline_routes_elaborated = pipeline_routes,
                     .world_ports_emitted = bound_input.closure_report.open_world_port_count,
-                    .blockers = bound_input.closure_report.blocker_count,
+                    .blockers = source_blockers,
                 },
                 .dependencies = DependenciesValue[0..],
             });
@@ -8692,8 +8704,8 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             };
         }
 
-        fn normalFormKindFor(comptime input: Input) NormalFormKind {
-            if (input.closure_report.blocker_count != 0) return .partial_with_blockers;
+        fn normalFormKindFor(comptime input: Input, comptime blocker_count: usize) NormalFormKind {
+            if (blocker_count != 0) return .partial_with_blockers;
             if (input.closure_report.open_world_port_count != 0) return .world_ports_only;
             return .strict_closed;
         }
@@ -8702,15 +8714,39 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             return if (comptime @hasField(@TypeOf(options), name)) @field(options, name) else default;
         }
 
-        fn sourceEntryCount(comptime input: Input) usize {
+        fn sourceEntryCount(comptime input: Input, comptime ResidualProgram: type) usize {
             return if (input.static_treaty_plans.len != 0)
-                input.static_treaty_plans.len + directClosureBlockerCount(input)
+                input.static_treaty_plans.len + directClosureWorldPortCount(input, ResidualProgram) + directClosureBlockerCount(input)
             else if (input.world_ports.len != 0)
                 input.closure_report.world_port_refs.len + input.closure_report.blockers.len
             else if (input.closure_report.blockers.len != 0)
                 input.closure_report.blockers.len
             else
                 0;
+        }
+
+        fn directClosureWorldPortCount(comptime input: Input, comptime ResidualProgram: type) usize {
+            var count: usize = 0;
+            inline for (input.closure_report.world_port_refs, 0..) |world_port_ref, occurrence_index| {
+                if (!staticTreatyPlansContainWorldPortOccurrence(input, ResidualProgram, world_port_ref, occurrence_index)) count += 1;
+            }
+            return count;
+        }
+
+        fn staticTreatyPlansContainWorldPortOccurrence(
+            comptime input: Input,
+            comptime ResidualProgram: type,
+            comptime world_port_ref: Ref,
+            comptime occurrence_index: usize,
+        ) bool {
+            const occurrence_rank = worldPortOccurrenceRank(input.closure_report.world_port_refs, world_port_ref, occurrence_index);
+            inline for (input.static_treaty_plans, 0..) |plan, plan_index| {
+                if (comptime worldPortForPlan(input, ResidualProgram, plan)) |port| {
+                    if (!port.evidenceRef().eql(world_port_ref)) continue;
+                    if (worldPortPlanOccurrenceRank(input, ResidualProgram, world_port_ref, plan_index) == occurrence_rank) return true;
+                }
+            }
+            return false;
         }
 
         fn directClosureBlockerCount(comptime input: Input) usize {
@@ -8731,9 +8767,9 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             return false;
         }
 
-        fn sourceEntriesFor(comptime input: Input, comptime residual_ref: Ref, comptime ResidualProgram: type, comptime options: anytype) [sourceEntryCount(input)]SourceMap.Entry {
+        fn sourceEntriesFor(comptime input: Input, comptime residual_ref: Ref, comptime ResidualProgram: type, comptime options: anytype) [sourceEntryCount(input, ResidualProgram)]SourceMap.Entry {
             _ = options;
-            var entries: [sourceEntryCount(input)]SourceMap.Entry = undefined;
+            var entries: [sourceEntryCount(input, ResidualProgram)]SourceMap.Entry = undefined;
             var index: usize = 0;
             if (input.static_treaty_plans.len != 0) {
                 inline for (input.static_treaty_plans, 0..) |plan, plan_index| {
@@ -8765,17 +8801,23 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                         };
                     } else {
                         const body = comptime routeSemanticBody(plan);
-                        entries[index] = .{
+                        entries[index] = if (comptime sourceMapDispositionForRouteBody(body)) |disposition| .{
                             .source_ref = plan.source_shape.evidenceRef(),
                             .residual_ref = residual_ref,
                             .source_site_index = plan.source_shape.site_index,
                             .static_treaty_plan_ref = plan.evidenceRef(),
                             .provider_program_ref = plan.selected_provider_program_ref,
-                            .disposition = if (body == .boundary_program) .provider_program_linked else if (body == .pipeline) .pipeline_adapter else if (body == .residualized_program) .residualized else .preserved,
+                            .disposition = disposition,
                             .label = plan.label,
-                        };
+                        } else unsupportedRouteSourceEntry(plan, body, residual_ref);
                     }
                     index += 1;
+                }
+                inline for (input.closure_report.world_port_refs, 0..) |world_port_ref, occurrence_index| {
+                    if (!comptime staticTreatyPlansContainWorldPortOccurrence(input, ResidualProgram, world_port_ref, occurrence_index)) {
+                        entries[index] = directWorldPortSourceEntry(input, residual_ref, ResidualProgram, world_port_ref, occurrence_index);
+                        index += 1;
+                    }
                 }
                 inline for (input.closure_report.blockers) |blocker| {
                     if (!comptime staticTreatyPlansContainBlocker(input.static_treaty_plans, blocker)) {
@@ -8785,24 +8827,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 }
             } else if (input.world_ports.len != 0) {
                 inline for (input.closure_report.world_port_refs, 0..) |world_port_ref, occurrence_index| {
-                    const port = comptime worldPortForOccurrenceRef(input.world_ports, world_port_ref) orelse
-                        @compileError("BoundaryClosure.Elaboration world port ref is not provided by the input descriptors");
-                    const residual_site_index = comptime residualWorldPortSiteIndexForOccurrence(
-                        ResidualProgram,
-                        port,
-                        worldPortOccurrenceRank(input.closure_report.world_port_refs, world_port_ref, occurrence_index),
-                    ) orelse
-                        @compileError("BoundaryClosure.Elaboration world port is not exposed by the residual Program");
-                    const source_site_index = if (port.effect_shape_ref) |shape_ref| shape_ref.site_index orelse residual_site_index else residual_site_index;
-                    entries[index] = .{
-                        .source_ref = port.effect_shape_ref orelse port.evidenceRef(),
-                        .residual_ref = residual_ref,
-                        .source_site_index = source_site_index,
-                        .residual_site_index = residual_site_index,
-                        .world_port_ref = port.evidenceRef(),
-                        .disposition = .world_port_lowered,
-                        .label = port.label,
-                    };
+                    entries[index] = directWorldPortSourceEntry(input, residual_ref, ResidualProgram, world_port_ref, occurrence_index);
                     index += 1;
                 }
                 inline for (input.closure_report.blockers) |blocker| {
@@ -8850,6 +8875,55 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             return false;
         }
 
+        fn sourceMapDispositionForRouteBody(comptime body: SemanticBody) ?SourceMap.Disposition {
+            return switch (body) {
+                .boundary_program => .provider_program_linked,
+                .declarative => .preserved,
+                .residualized_program => .residualized,
+                .pipeline => .pipeline_adapter,
+                .kernel_primitive, .host_intrinsic, .unknown => null,
+            };
+        }
+
+        fn unsupportedRouteSourceEntry(comptime plan: Closure.StaticTreatyPlan, comptime body: SemanticBody, comptime residual_ref: Ref) SourceMap.Entry {
+            return .{
+                .source_ref = plan.source_shape.evidenceRef(),
+                .residual_ref = residual_ref,
+                .source_site_index = plan.source_shape.site_index,
+                .static_treaty_plan_ref = plan.evidenceRef(),
+                .blocker_ref = body.evidenceRef(),
+                .disposition = .blocked,
+                .label = @tagName(body),
+            };
+        }
+
+        fn directWorldPortSourceEntry(
+            comptime input: Input,
+            comptime residual_ref: Ref,
+            comptime ResidualProgram: type,
+            comptime world_port_ref: Ref,
+            comptime occurrence_index: usize,
+        ) SourceMap.Entry {
+            const port = comptime worldPortForOccurrenceRef(input.world_ports, world_port_ref) orelse
+                @compileError("BoundaryClosure.Elaboration world port ref is not provided by the input descriptors");
+            const residual_site_index = comptime residualWorldPortSiteIndexForOccurrence(
+                ResidualProgram,
+                port,
+                worldPortOccurrenceRank(input.closure_report.world_port_refs, world_port_ref, occurrence_index),
+            ) orelse
+                @compileError("BoundaryClosure.Elaboration world port is not exposed by the residual Program");
+            const source_site_index = if (port.effect_shape_ref) |shape_ref| shape_ref.site_index orelse residual_site_index else residual_site_index;
+            return .{
+                .source_ref = port.effect_shape_ref orelse port.evidenceRef(),
+                .residual_ref = residual_ref,
+                .source_site_index = source_site_index,
+                .residual_site_index = residual_site_index,
+                .world_port_ref = port.evidenceRef(),
+                .disposition = .world_port_lowered,
+                .label = port.label,
+            };
+        }
+
         fn sourceEntryRepresentsEffectShape(comptime entry: SourceMap.Entry) bool {
             if (entry.disposition != .blocked) return true;
             if (entry.static_treaty_plan_ref != null) return true;
@@ -8867,12 +8941,47 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
         fn sourceEntryIsUnsupportedShapeBlocker(comptime input: Input, comptime entry: SourceMap.Entry) bool {
             if (entry.disposition != .blocked) return false;
             if (!sourceEntryRepresentsEffectShape(entry)) return false;
+            if (entry.blocker_ref) |blocker_ref| return blockerRefCountsUnsupported(blocker_ref);
             if (entry.static_treaty_plan_ref) |plan_ref| {
                 const plan = staticTreatyPlanForRef(input.static_treaty_plans, plan_ref) orelse return false;
                 return staticTreatyPlanHasUnsupportedShapeBlocker(plan);
             }
-            if (entry.blocker_ref) |blocker_ref| return blockerRefCountsUnsupported(blocker_ref);
             return blockerNameCountsUnsupported(entry.label);
+        }
+
+        fn sourceEntriesBlockerRefCount(comptime input: Input, comptime entries: anytype) usize {
+            var count: usize = 0;
+            inline for (entries) |entry| {
+                if (entry.disposition != .blocked) continue;
+                if (entry.blocker_ref != null) {
+                    count += 1;
+                } else if (entry.static_treaty_plan_ref) |plan_ref| {
+                    const plan = staticTreatyPlanForRef(input.static_treaty_plans, plan_ref) orelse
+                        @compileError("BoundaryClosure.Elaboration blocked source entry references a missing static treaty plan");
+                    count += plan.blockers.len;
+                }
+            }
+            return count;
+        }
+
+        fn blockerRefsForSourceEntries(comptime input: Input, comptime entries: anytype) [sourceEntriesBlockerRefCount(input, entries)]Ref {
+            var refs: [sourceEntriesBlockerRefCount(input, entries)]Ref = undefined;
+            var index: usize = 0;
+            inline for (entries) |entry| {
+                if (entry.disposition != .blocked) continue;
+                if (entry.blocker_ref) |blocker_ref| {
+                    refs[index] = blocker_ref;
+                    index += 1;
+                } else if (entry.static_treaty_plan_ref) |plan_ref| {
+                    const plan = staticTreatyPlanForRef(input.static_treaty_plans, plan_ref) orelse
+                        @compileError("BoundaryClosure.Elaboration blocked source entry references a missing static treaty plan");
+                    inline for (plan.blockers) |blocker| {
+                        refs[index] = refForBoundaryClosureBlocker(blocker.toEvidenceBlocker());
+                        index += 1;
+                    }
+                }
+            }
+            return refs;
         }
 
         fn blockerSourceEntry(comptime blocker: anytype, comptime residual_ref: Ref) SourceMap.Entry {
@@ -9312,20 +9421,6 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
         fn residualWorldPortRefs(comptime input: Input) [input.closure_report.world_port_refs.len]Ref {
             var refs: [input.closure_report.world_port_refs.len]Ref = undefined;
             inline for (input.closure_report.world_port_refs, 0..) |ref, index| refs[index] = ref;
-            return refs;
-        }
-
-        fn blockerRefCount(comptime input: Input) usize {
-            return if (input.closure_certificate.blocker_refs.len != 0) input.closure_certificate.blocker_refs.len else input.closure_report.blockers.len;
-        }
-
-        fn blockerRefsFor(comptime input: Input) [blockerRefCount(input)]Ref {
-            var refs: [blockerRefCount(input)]Ref = undefined;
-            if (input.closure_certificate.blocker_refs.len != 0) {
-                inline for (input.closure_certificate.blocker_refs, 0..) |ref, index| refs[index] = ref;
-            } else {
-                inline for (input.closure_report.blockers, 0..) |blocker, index| refs[index] = refForBoundaryClosureBlocker(blocker);
-            }
             return refs;
         }
 
