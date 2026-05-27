@@ -1832,17 +1832,22 @@ test "certified boundary target world surface tables and certificate are determi
     const static_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
         .label = "target.static-plan",
         .source_shape = source_shape,
+        .selected_semantic_body = .declarative,
     });
     const static_plans = [_]Evidence.BoundaryStaticTreatyPlan{static_plan};
-    const world_port_ref = Evidence.refFor(Evidence.domains.boundary_world_port, 0xC781_0002, .{
-        .format_version = Evidence.domains.boundary_world_port.format_version,
+    const world_port = Evidence.BoundaryWorldPort.init(.{
         .label = "world-port",
+        .kind = .host_human,
+        .effect_shape_ref = source_ref,
+        .supported_site_indexes = &.{ 0, 5 },
+        .contract_summary = "approval request boundary",
     });
+    const world_ports = [_]Evidence.BoundaryWorldPort{world_port};
+    const world_port_ref = world_port.evidenceRef();
     const residual_program_ref = Evidence.refFor(Evidence.domains.program_plan, 0xC781_0003, .{ .label = "residual" });
-    const elaboration_certificate_ref = Evidence.refFor(Evidence.domains.boundary_elaboration_certificate, 0xC781_0004, .{
-        .format_version = Evidence.domains.boundary_elaboration_certificate.format_version,
-        .label = "elaboration",
-    });
+    const closure_graph_ref = Evidence.refFor(Evidence.domains.boundary_closure_graph, 0xC781_0004, .{ .label = "target.closure-graph" });
+    const closure_report_ref = Evidence.refFor(Evidence.domains.boundary_closure_report, 0xC781_0006, .{ .label = "target.closure-report" });
+    const closure_certificate_ref = Evidence.refFor(Evidence.domains.boundary_closure_certificate, 0xC781_0007, .{ .label = "target.closure-certificate" });
     const entries = [_]Elaboration.WorldPortTable.Entry{.{
         .world_port_id = 0,
         .residual_site_index = 0,
@@ -1904,6 +1909,34 @@ test "certified boundary target world surface tables and certificate are determi
         .source_effect_shapes = 1,
         .world_ports = 1,
     });
+    const normal_form = Elaboration.NormalForm.init("target.normal-form", .world_ports_only, closure_certificate_ref, effect_row.evidenceRef(), 0);
+    const policy = Elaboration.Target.Policy.worldBoundary();
+    const target_elaboration_policy = policy.toElaborationPolicy();
+    try std.testing.expect(target_elaboration_policy.closure_policy.allow_world_ports);
+    try std.testing.expect(!target_elaboration_policy.closure_policy.require_all_effect_shapes_closed);
+    try std.testing.expect(target_elaboration_policy.closure_policy.allowsWorldPortRef(world_port_ref));
+    const elaboration_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "target.elaboration",
+        .source_program_ref = residual_program_ref,
+        .residual_program_ref = residual_program_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = source_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .trace_map_ref = trace_map_ref,
+        .normal_form_ref = normal_form.evidenceRef(),
+        .policy = target_elaboration_policy,
+        .normal_form = .world_ports_only,
+        .selected_static_treaty_plan_refs = &.{static_plan.evidenceRef()},
+        .world_port_refs = &.{world_port_ref},
+        .residual_world_port_refs = &.{world_port_ref},
+        .summary_counts = .{
+            .root_effect_shapes = 1,
+            .world_ports_emitted = 1,
+        },
+    });
+    const elaboration_certificate_ref = elaboration_certificate.evidenceRef();
     const surface_scope = Elaboration.WorldSurface.init(.{
         .label = "target.surface",
         .residual_program_label = "residual",
@@ -1949,7 +1982,6 @@ test "certified boundary target world surface tables and certificate are determi
         .{ .role = .residual_program, .ref = residual_program_ref },
     };
     const evidence_map = Elaboration.TargetEvidenceMap.init("target.evidence", dependencies[0..]);
-    const policy = Elaboration.Target.Policy.worldBoundary();
     const certificate = Elaboration.Target.Certificate.init(.{
         .target_label = "target",
         .policy = policy,
@@ -1965,13 +1997,153 @@ test "certified boundary target world surface tables and certificate are determi
         .trace_map_ref = trace_map_ref,
         .dependencies = dependencies[0..],
     });
-    try certificate.check(policy, surface, source_map, effect_row, trace_map, port_table, value_table, dispatch_table, profile, replay, evidence_map, static_plans[0..]);
+    try certificate.check(policy, elaboration_certificate, surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, replay, evidence_map, static_plans[0..]);
     try std.testing.expectEqual(@as(usize, 1), surface.world_port_count);
     try std.testing.expectEqual(@as(u32, 0), port_table.entries[0].world_port_id);
     try std.testing.expectEqual(@as(usize, 3), value_table.entries.len);
     try std.testing.expectEqual(@as(u32, 0), dispatch_table.entries[0].world_port_id);
     try std.testing.expect(profile.no_search_hot_path);
     try std.testing.expect(certificate.evidenceView().certificate_ref.eql(certificate.evidenceRef()));
+    try std.testing.expectEqualStrings("target.surface", surface.evidenceRef().label.?);
+
+    var stale_elaboration_certificate = elaboration_certificate;
+    stale_elaboration_certificate.closure_certificate_ref = Evidence.refFor(Evidence.domains.boundary_closure_certificate, 0xC781_F0C1, .{ .label = "target.stale-closure-certificate" });
+    try std.testing.expectEqual(
+        error.BoundaryTargetCertificateMismatch,
+        certificate.check(policy, stale_elaboration_certificate, surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, replay, evidence_map, static_plans[0..]),
+    );
+
+    var forged_static_refs_elaboration_certificate = elaboration_certificate;
+    forged_static_refs_elaboration_certificate.selected_static_treaty_plan_refs = &.{};
+    forged_static_refs_elaboration_certificate.certificate_fingerprint = forged_static_refs_elaboration_certificate.computeFingerprint();
+    const forged_static_refs_elaboration_certificate_ref = forged_static_refs_elaboration_certificate.evidenceRef();
+    const forged_static_refs_surface_scope = Elaboration.WorldSurface.init(.{
+        .label = "target.forged-static-refs-surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_program_ref,
+        .elaboration_certificate_ref = forged_static_refs_elaboration_certificate_ref,
+        .source_map_ref = source_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = forged_static_refs_elaboration_certificate_ref,
+        .normal_form = .world_ports_only,
+        .world_port_count = 1,
+    });
+    const forged_static_refs_replay = Elaboration.ReplayKeyRecipe.init("target.forged-static-refs-replay", forged_static_refs_surface_scope.replayScopeRef(), replay.components);
+    const forged_static_refs_surface = Elaboration.WorldSurface.init(.{
+        .label = forged_static_refs_surface_scope.label,
+        .residual_program_label = forged_static_refs_surface_scope.residual_program_label,
+        .residual_program_ref = forged_static_refs_surface_scope.residual_program_ref,
+        .elaboration_certificate_ref = forged_static_refs_surface_scope.elaboration_certificate_ref,
+        .source_map_ref = forged_static_refs_surface_scope.source_map_ref,
+        .effect_row_ref = forged_static_refs_surface_scope.effect_row_ref,
+        .port_table_ref = forged_static_refs_surface_scope.port_table_ref,
+        .value_table_ref = forged_static_refs_surface_scope.value_table_ref,
+        .dispatch_table_ref = forged_static_refs_surface_scope.dispatch_table_ref,
+        .profile_ref = forged_static_refs_surface_scope.profile_ref,
+        .replay_key_recipe_ref = forged_static_refs_replay.evidenceRef(),
+        .normal_form = forged_static_refs_surface_scope.normal_form,
+        .world_port_count = forged_static_refs_surface_scope.world_port_count,
+    });
+    const forged_static_refs_dependencies = [_]Evidence.Dependency{
+        .{ .role = .elaboration_certificate, .ref = forged_static_refs_elaboration_certificate_ref },
+        .{ .role = .elaboration_source_map, .ref = forged_static_refs_surface.source_map_ref },
+        .{ .role = .elaboration_effect_row, .ref = forged_static_refs_surface.effect_row_ref },
+        .{ .role = .elaboration_trace_map, .ref = trace_map_ref },
+        .{ .role = .world_surface, .ref = forged_static_refs_surface.evidenceRef() },
+        .{ .role = .world_port_table, .ref = port_table.evidenceRef() },
+        .{ .role = .world_value_table, .ref = value_table.evidenceRef() },
+        .{ .role = .world_dispatch_table, .ref = dispatch_table.evidenceRef() },
+        .{ .role = .surface_profile, .ref = profile.evidenceRef() },
+        .{ .role = .replay_key_recipe, .ref = forged_static_refs_replay.evidenceRef() },
+        .{ .role = .residual_program, .ref = residual_program_ref },
+    };
+    const forged_static_refs_evidence_map = Elaboration.TargetEvidenceMap.init("target.forged-static-refs-evidence", forged_static_refs_dependencies[0..]);
+    const forged_static_refs_certificate = Elaboration.Target.Certificate.init(.{
+        .target_label = "target.forged-static-refs",
+        .policy = policy,
+        .elaboration_certificate_ref = forged_static_refs_elaboration_certificate_ref,
+        .residual_program_ref = residual_program_ref,
+        .world_surface_ref = forged_static_refs_surface.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = forged_static_refs_replay.evidenceRef(),
+        .evidence_map_ref = forged_static_refs_evidence_map.evidenceRef(),
+        .trace_map_ref = trace_map_ref,
+        .dependencies = forged_static_refs_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryTargetCertificateMismatch,
+        forged_static_refs_certificate.check(policy, forged_static_refs_elaboration_certificate, forged_static_refs_surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, forged_static_refs_replay, forged_static_refs_evidence_map, static_plans[0..]),
+    );
+
+    const forged_effect_row = Elaboration.EffectRow.init(.{
+        .label = "target.forged-effect-row",
+        .source_program_ref = residual_program_ref,
+        .residual_program_ref = residual_program_ref,
+        .normal_form = .world_ports_only,
+        .source_effect_shapes = 1,
+        .world_ports = 1,
+    });
+    const forged_normal_form = Elaboration.NormalForm.init("target.forged-normal-form", .world_ports_only, closure_certificate_ref, forged_effect_row.evidenceRef(), 0);
+    const forged_elaboration_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "target.forged-elaboration",
+        .source_program_ref = residual_program_ref,
+        .residual_program_ref = residual_program_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = source_map.evidenceRef(),
+        .effect_row_ref = forged_effect_row.evidenceRef(),
+        .trace_map_ref = trace_map_ref,
+        .normal_form_ref = forged_normal_form.evidenceRef(),
+        .policy = policy.toElaborationPolicy(),
+        .normal_form = .world_ports_only,
+        .selected_static_treaty_plan_refs = &.{static_plan.evidenceRef()},
+        .world_port_refs = &.{world_port_ref},
+        .residual_world_port_refs = &.{world_port_ref},
+        .summary_counts = .{
+            .root_effect_shapes = 1,
+            .world_ports_emitted = 1,
+        },
+    });
+    try std.testing.expectEqual(
+        error.BoundaryTargetCertificateMismatch,
+        certificate.check(policy, forged_elaboration_certificate, surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, replay, evidence_map, static_plans[0..]),
+    );
+
+    const forged_strict_normal_form = Elaboration.NormalForm.init("target.forged-strict-normal-form", .strict_closed, closure_certificate_ref, effect_row.evidenceRef(), 0);
+    const forged_normal_form_elaboration_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "target.forged-normal-form-elaboration",
+        .source_program_ref = residual_program_ref,
+        .residual_program_ref = residual_program_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = source_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .trace_map_ref = trace_map_ref,
+        .normal_form_ref = forged_strict_normal_form.evidenceRef(),
+        .policy = policy.toElaborationPolicy(),
+        .normal_form = .strict_closed,
+        .selected_static_treaty_plan_refs = &.{static_plan.evidenceRef()},
+        .world_port_refs = &.{world_port_ref},
+        .residual_world_port_refs = &.{world_port_ref},
+        .summary_counts = .{
+            .root_effect_shapes = 1,
+            .world_ports_emitted = 1,
+        },
+    });
+    try std.testing.expectEqual(
+        error.BoundaryTargetCertificateMismatch,
+        certificate.check(policy, forged_normal_form_elaboration_certificate, surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, replay, evidence_map, static_plans[0..]),
+    );
+
     var forged_port_entries = [_]Elaboration.WorldPortTable.Entry{port_table.entries[0]};
     forged_port_entries[0].source_ref = Evidence.refFor(Evidence.domains.boundary_effect_shape, 0xC781_F0A6, .{ .label = "target.forged-source" });
     const forged_port_table = Elaboration.WorldPortTable.init("target.forged-source-ports", forged_port_entries[0..]);
@@ -2037,7 +2209,7 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try std.testing.expectEqual(
         error.BoundaryTargetCertificateMismatch,
-        forged_certificate.check(policy, forged_surface, source_map, effect_row, trace_map, forged_port_table, value_table, dispatch_table, profile, forged_replay, forged_evidence_map, static_plans[0..]),
+        forged_certificate.check(policy, elaboration_certificate, forged_surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], forged_port_table, value_table, dispatch_table, profile, forged_replay, forged_evidence_map, static_plans[0..]),
     );
     const stale_conformance_replay = Elaboration.ReplayKeyRecipe.init("target.stale-conformance-replay", surface.replayScopeRef(), replay.components);
     try std.testing.expectEqual(
@@ -2054,7 +2226,7 @@ test "certified boundary target world surface tables and certificate are determi
     );
 
     var forged_schema_entries = [_]Elaboration.WorldPortTable.Entry{port_table.entries[0]};
-    forged_schema_entries[0].protocol_label = "forged-protocol";
+    forged_schema_entries[0].semantic_label = "forged.semantic-label";
     const forged_schema_port_table = Elaboration.WorldPortTable.init("target.forged-schema-ports", forged_schema_entries[0..]);
     const forged_schema_surface_scope = Elaboration.WorldSurface.init(.{
         .label = "target.forged-schema-surface",
@@ -2118,7 +2290,7 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try std.testing.expectEqual(
         error.BoundaryTargetCertificateMismatch,
-        forged_schema_certificate.check(policy, forged_schema_surface, source_map, effect_row, trace_map, forged_schema_port_table, value_table, dispatch_table, profile, forged_schema_replay, forged_schema_evidence_map, static_plans[0..]),
+        forged_schema_certificate.check(policy, elaboration_certificate, forged_schema_surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], forged_schema_port_table, value_table, dispatch_table, profile, forged_schema_replay, forged_schema_evidence_map, static_plans[0..]),
     );
 
     const malformed_replay = Elaboration.ReplayKeyRecipe.init("target.malformed-replay", surface_scope.replayScopeRef(), &.{ "world_port_id", "world_surface_scope_fingerprint", "request_fingerprint" });
@@ -2168,7 +2340,7 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try std.testing.expectEqual(
         error.BoundaryTargetCertificateMismatch,
-        malformed_certificate.check(policy, malformed_surface, source_map, effect_row, trace_map, port_table, value_table, dispatch_table, profile, malformed_replay, malformed_evidence_map, static_plans[0..]),
+        malformed_certificate.check(policy, elaboration_certificate, malformed_surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, malformed_replay, malformed_evidence_map, static_plans[0..]),
     );
 
     const zero_port_value_table = Elaboration.WorldValueTable.init("target.zero-port-values", value_entries[0..1]);
@@ -2244,7 +2416,7 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try std.testing.expectEqual(
         error.BoundaryTargetCertificateMismatch,
-        zero_port_certificate.check(policy, zero_port_surface, source_map, effect_row, trace_map, zero_port_table, zero_port_value_table, zero_port_dispatch_table, zero_port_profile, zero_port_replay, zero_port_evidence_map, static_plans[0..]),
+        zero_port_certificate.check(policy, elaboration_certificate, zero_port_surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], zero_port_table, zero_port_value_table, zero_port_dispatch_table, zero_port_profile, zero_port_replay, zero_port_evidence_map, static_plans[0..]),
     );
 
     const gapped_port_entries = [_]Elaboration.WorldPortTable.Entry{.{
@@ -2287,6 +2459,29 @@ test "certified boundary target world surface tables and certificate are determi
         .source_effect_shapes = 1,
         .world_ports = 1,
     });
+    const gapped_normal_form = Elaboration.NormalForm.init("target.gapped-normal-form", .world_ports_only, closure_certificate_ref, gapped_effect_row.evidenceRef(), 0);
+    const gapped_elaboration_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "target.gapped-elaboration",
+        .source_program_ref = residual_program_ref,
+        .residual_program_ref = residual_program_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = gapped_source_map.evidenceRef(),
+        .effect_row_ref = gapped_effect_row.evidenceRef(),
+        .trace_map_ref = gapped_trace_map.evidenceRef(),
+        .normal_form_ref = gapped_normal_form.evidenceRef(),
+        .policy = policy.toElaborationPolicy(),
+        .normal_form = .world_ports_only,
+        .selected_static_treaty_plan_refs = &.{static_plan.evidenceRef()},
+        .world_port_refs = &.{world_port_ref},
+        .residual_world_port_refs = &.{world_port_ref},
+        .summary_counts = .{
+            .root_effect_shapes = 1,
+            .world_ports_emitted = 1,
+        },
+    });
+    const gapped_elaboration_certificate_ref = gapped_elaboration_certificate.evidenceRef();
     const gapped_dispatch_entries = [_]Elaboration.WorldDispatchTable.Entry{
         .{ .residual_site_index = 0, .residual_site_fingerprint = 0, .world_port_id = Elaboration.WorldDispatchTable.missing_world_port_id },
         .{ .residual_site_index = 1, .residual_site_fingerprint = 0, .world_port_id = Elaboration.WorldDispatchTable.missing_world_port_id },
@@ -2308,7 +2503,7 @@ test "certified boundary target world surface tables and certificate are determi
         .label = "target.gapped-surface",
         .residual_program_label = "residual",
         .residual_program_ref = residual_program_ref,
-        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .elaboration_certificate_ref = gapped_elaboration_certificate_ref,
         .source_map_ref = gapped_source_map.evidenceRef(),
         .effect_row_ref = gapped_effect_row.evidenceRef(),
         .port_table_ref = gapped_port_table.evidenceRef(),
@@ -2336,7 +2531,7 @@ test "certified boundary target world surface tables and certificate are determi
         .world_port_count = gapped_surface_scope.world_port_count,
     });
     const gapped_dependencies = [_]Evidence.Dependency{
-        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
+        .{ .role = .elaboration_certificate, .ref = gapped_elaboration_certificate_ref },
         .{ .role = .elaboration_source_map, .ref = gapped_source_map.evidenceRef() },
         .{ .role = .elaboration_effect_row, .ref = gapped_effect_row.evidenceRef() },
         .{ .role = .elaboration_trace_map, .ref = gapped_trace_map.evidenceRef() },
@@ -2352,7 +2547,7 @@ test "certified boundary target world surface tables and certificate are determi
     const gapped_certificate = Elaboration.Target.Certificate.init(.{
         .target_label = "target.gapped",
         .policy = policy,
-        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .elaboration_certificate_ref = gapped_elaboration_certificate_ref,
         .residual_program_ref = residual_program_ref,
         .world_surface_ref = gapped_surface.evidenceRef(),
         .port_table_ref = gapped_port_table.evidenceRef(),
@@ -2364,7 +2559,7 @@ test "certified boundary target world surface tables and certificate are determi
         .trace_map_ref = gapped_trace_map.evidenceRef(),
         .dependencies = gapped_dependencies[0..],
     });
-    try gapped_certificate.check(policy, gapped_surface, gapped_source_map, gapped_effect_row, gapped_trace_map, gapped_port_table, value_table, gapped_dispatch_table, gapped_profile, gapped_replay, gapped_evidence_map, static_plans[0..]);
+    try gapped_certificate.check(policy, gapped_elaboration_certificate, gapped_surface, gapped_source_map, gapped_effect_row, gapped_trace_map, gapped_normal_form, world_ports[0..], gapped_port_table, value_table, gapped_dispatch_table, gapped_profile, gapped_replay, gapped_evidence_map, static_plans[0..]);
     try std.testing.expectEqual(null, gapped_dispatch_table.lookup(0));
     try std.testing.expectEqual(@as(u32, 0), gapped_dispatch_table.lookup(5).?);
 
@@ -2372,10 +2567,11 @@ test "certified boundary target world surface tables and certificate are determi
     bounded_gapped_policy.require_bounded_surface = true;
     bounded_gapped_policy.max_world_ports = 1;
     bounded_gapped_policy.max_value_descriptors = 3;
+    bounded_gapped_policy.max_dispatch_entries = 1;
     const bounded_gapped_certificate = Elaboration.Target.Certificate.init(.{
         .target_label = "target.gapped",
         .policy = bounded_gapped_policy,
-        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .elaboration_certificate_ref = gapped_elaboration_certificate_ref,
         .residual_program_ref = residual_program_ref,
         .world_surface_ref = gapped_surface.evidenceRef(),
         .port_table_ref = gapped_port_table.evidenceRef(),
@@ -2389,7 +2585,7 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try std.testing.expectEqual(
         error.BoundaryTargetCertificateMismatch,
-        bounded_gapped_certificate.check(bounded_gapped_policy, gapped_surface, gapped_source_map, gapped_effect_row, gapped_trace_map, gapped_port_table, value_table, gapped_dispatch_table, gapped_profile, gapped_replay, gapped_evidence_map, static_plans[0..]),
+        bounded_gapped_certificate.check(bounded_gapped_policy, gapped_elaboration_certificate, gapped_surface, gapped_source_map, gapped_effect_row, gapped_trace_map, gapped_normal_form, world_ports[0..], gapped_port_table, value_table, gapped_dispatch_table, gapped_profile, gapped_replay, gapped_evidence_map, static_plans[0..]),
     );
 
     const unbounded_gapped_profile = Elaboration.SurfaceProfile.init(.{
@@ -2404,7 +2600,7 @@ test "certified boundary target world surface tables and certificate are determi
         .label = "target.gapped-unbounded-surface",
         .residual_program_label = "residual",
         .residual_program_ref = residual_program_ref,
-        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .elaboration_certificate_ref = gapped_elaboration_certificate_ref,
         .source_map_ref = gapped_source_map.evidenceRef(),
         .effect_row_ref = gapped_effect_row.evidenceRef(),
         .port_table_ref = gapped_port_table.evidenceRef(),
@@ -2432,7 +2628,7 @@ test "certified boundary target world surface tables and certificate are determi
         .world_port_count = unbounded_gapped_surface_scope.world_port_count,
     });
     const unbounded_gapped_dependencies = [_]Evidence.Dependency{
-        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
+        .{ .role = .elaboration_certificate, .ref = gapped_elaboration_certificate_ref },
         .{ .role = .elaboration_source_map, .ref = gapped_source_map.evidenceRef() },
         .{ .role = .elaboration_effect_row, .ref = gapped_effect_row.evidenceRef() },
         .{ .role = .elaboration_trace_map, .ref = gapped_trace_map.evidenceRef() },
@@ -2450,10 +2646,11 @@ test "certified boundary target world surface tables and certificate are determi
     unbounded_gapped_policy.fail_on_unbounded_world_port_when_bounded_required = false;
     unbounded_gapped_policy.max_world_ports = 1;
     unbounded_gapped_policy.max_value_descriptors = 3;
+    unbounded_gapped_policy.max_dispatch_entries = 1;
     const unbounded_gapped_certificate = Elaboration.Target.Certificate.init(.{
         .target_label = "target.gapped-unbounded",
         .policy = unbounded_gapped_policy,
-        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .elaboration_certificate_ref = gapped_elaboration_certificate_ref,
         .residual_program_ref = residual_program_ref,
         .world_surface_ref = unbounded_gapped_surface.evidenceRef(),
         .port_table_ref = gapped_port_table.evidenceRef(),
@@ -2465,7 +2662,7 @@ test "certified boundary target world surface tables and certificate are determi
         .trace_map_ref = gapped_trace_map.evidenceRef(),
         .dependencies = unbounded_gapped_dependencies[0..],
     });
-    try unbounded_gapped_certificate.check(unbounded_gapped_policy, unbounded_gapped_surface, gapped_source_map, gapped_effect_row, gapped_trace_map, gapped_port_table, value_table, gapped_dispatch_table, unbounded_gapped_profile, unbounded_gapped_replay, unbounded_gapped_evidence_map, static_plans[0..]);
+    try unbounded_gapped_certificate.check(unbounded_gapped_policy, gapped_elaboration_certificate, unbounded_gapped_surface, gapped_source_map, gapped_effect_row, gapped_trace_map, gapped_normal_form, world_ports[0..], gapped_port_table, value_table, gapped_dispatch_table, unbounded_gapped_profile, unbounded_gapped_replay, unbounded_gapped_evidence_map, static_plans[0..]);
 
     var no_surface_policy = policy;
     no_surface_policy.emit_world_surface = false;
@@ -2486,7 +2683,7 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try std.testing.expectEqual(
         error.BoundaryTargetPolicyMismatch,
-        no_surface_certificate.check(no_surface_policy, surface, source_map, effect_row, trace_map, port_table, value_table, dispatch_table, profile, replay, evidence_map, static_plans[0..]),
+        no_surface_certificate.check(no_surface_policy, elaboration_certificate, surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, replay, evidence_map, static_plans[0..]),
     );
 
     var unsupported_surface = surface;
@@ -2523,7 +2720,11 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try std.testing.expectEqual(
         error.BoundaryTargetCertificateMismatch,
-        unsupported_certificate.check(policy, unsupported_surface, source_map, effect_row, trace_map, port_table, value_table, dispatch_table, profile, replay, unsupported_evidence_map, static_plans[0..]),
+        unsupported_certificate.check(policy, elaboration_certificate, unsupported_surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, replay, unsupported_evidence_map, static_plans[0..]),
+    );
+    try std.testing.expectEqual(
+        error.BoundaryTargetConformanceMismatch,
+        Elaboration.Target.Conformance.check(unsupported_surface, port_table, value_table, dispatch_table, profile, replay),
     );
 
     var wrong_source_surface_scope = surface;
@@ -2564,7 +2765,7 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try std.testing.expectEqual(
         error.BoundaryTargetCertificateMismatch,
-        wrong_source_certificate.check(policy, wrong_source_surface, source_map, effect_row, trace_map, port_table, value_table, dispatch_table, profile, wrong_source_replay, wrong_source_evidence_map, static_plans[0..]),
+        wrong_source_certificate.check(policy, elaboration_certificate, wrong_source_surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, wrong_source_replay, wrong_source_evidence_map, static_plans[0..]),
     );
 
     var wrong_effect_surface_scope = surface;
@@ -2605,7 +2806,7 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try std.testing.expectEqual(
         error.BoundaryTargetCertificateMismatch,
-        wrong_effect_certificate.check(policy, wrong_effect_surface, source_map, effect_row, trace_map, port_table, value_table, dispatch_table, profile, wrong_effect_replay, wrong_effect_evidence_map, static_plans[0..]),
+        wrong_effect_certificate.check(policy, elaboration_certificate, wrong_effect_surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, wrong_effect_replay, wrong_effect_evidence_map, static_plans[0..]),
     );
 
     const relaxed_profile = Elaboration.SurfaceProfile.init(.{
@@ -2616,11 +2817,34 @@ test "certified boundary target world surface tables and certificate are determi
         .no_search_hot_path = false,
         .bounded = true,
     });
+    const audit_policy = Elaboration.Target.Policy.auditOnly();
+    const audit_elaboration_certificate = Elaboration.Certificate.init(.{
+        .elaborated_program_label = "target.audit-elaboration",
+        .source_program_ref = residual_program_ref,
+        .residual_program_ref = residual_program_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .closure_graph_ref = closure_graph_ref,
+        .closure_report_ref = closure_report_ref,
+        .source_map_ref = source_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .trace_map_ref = trace_map_ref,
+        .normal_form_ref = normal_form.evidenceRef(),
+        .policy = audit_policy.toElaborationPolicy(),
+        .normal_form = .world_ports_only,
+        .selected_static_treaty_plan_refs = &.{static_plan.evidenceRef()},
+        .world_port_refs = &.{world_port_ref},
+        .residual_world_port_refs = &.{world_port_ref},
+        .summary_counts = .{
+            .root_effect_shapes = 1,
+            .world_ports_emitted = 1,
+        },
+    });
+    const audit_elaboration_certificate_ref = audit_elaboration_certificate.evidenceRef();
     const relaxed_surface_scope = Elaboration.WorldSurface.init(.{
         .label = "target.relaxed-surface",
         .residual_program_label = "residual",
         .residual_program_ref = residual_program_ref,
-        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .elaboration_certificate_ref = audit_elaboration_certificate_ref,
         .source_map_ref = surface.source_map_ref,
         .effect_row_ref = surface.effect_row_ref,
         .port_table_ref = port_table.evidenceRef(),
@@ -2647,9 +2871,8 @@ test "certified boundary target world surface tables and certificate are determi
         .normal_form = relaxed_surface_scope.normal_form,
         .world_port_count = relaxed_surface_scope.world_port_count,
     });
-    const audit_policy = Elaboration.Target.Policy.auditOnly();
     const relaxed_dependencies = [_]Evidence.Dependency{
-        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
+        .{ .role = .elaboration_certificate, .ref = audit_elaboration_certificate_ref },
         .{ .role = .elaboration_source_map, .ref = surface.source_map_ref },
         .{ .role = .elaboration_effect_row, .ref = surface.effect_row_ref },
         .{ .role = .elaboration_trace_map, .ref = trace_map_ref },
@@ -2665,7 +2888,7 @@ test "certified boundary target world surface tables and certificate are determi
     const relaxed_certificate = Elaboration.Target.Certificate.init(.{
         .target_label = "target.relaxed",
         .policy = audit_policy,
-        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .elaboration_certificate_ref = audit_elaboration_certificate_ref,
         .residual_program_ref = residual_program_ref,
         .world_surface_ref = relaxed_surface.evidenceRef(),
         .port_table_ref = port_table.evidenceRef(),
@@ -2677,7 +2900,7 @@ test "certified boundary target world surface tables and certificate are determi
         .trace_map_ref = trace_map_ref,
         .dependencies = relaxed_dependencies[0..],
     });
-    try relaxed_certificate.check(audit_policy, relaxed_surface, source_map, effect_row, trace_map, port_table, value_table, dispatch_table, relaxed_profile, relaxed_replay, relaxed_evidence_map, static_plans[0..]);
+    try relaxed_certificate.check(audit_policy, audit_elaboration_certificate, relaxed_surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, relaxed_profile, relaxed_replay, relaxed_evidence_map, static_plans[0..]);
 
     const strict_policy = Elaboration.Target.Policy.strictClosed();
     const strict_certificate = Elaboration.Target.Certificate.init(.{
@@ -2696,8 +2919,8 @@ test "certified boundary target world surface tables and certificate are determi
         .dependencies = dependencies[0..],
     });
     try std.testing.expectEqual(
-        error.BoundaryTargetSurfaceRejected,
-        strict_certificate.check(strict_policy, surface, source_map, effect_row, trace_map, port_table, value_table, dispatch_table, profile, replay, evidence_map, static_plans[0..]),
+        error.BoundaryTargetPolicyMismatch,
+        strict_certificate.check(strict_policy, elaboration_certificate, surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, replay, evidence_map, static_plans[0..]),
     );
 
     const inconsistent_surface_scope = Elaboration.WorldSurface.init(.{
@@ -2762,7 +2985,7 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try std.testing.expectEqual(
         error.BoundaryTargetCertificateMismatch,
-        inconsistent_certificate.check(policy, inconsistent_surface, source_map, effect_row, trace_map, port_table, value_table, dispatch_table, profile, inconsistent_replay, inconsistent_evidence_map, static_plans[0..]),
+        inconsistent_certificate.check(policy, elaboration_certificate, inconsistent_surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, inconsistent_replay, inconsistent_evidence_map, static_plans[0..]),
     );
     try std.testing.expectEqual(
         error.BoundaryTargetConformanceMismatch,
@@ -2846,7 +3069,7 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try std.testing.expectEqual(
         error.BoundaryTargetCertificateMismatch,
-        orphan_certificate.check(policy, orphan_surface, source_map, effect_row, trace_map, port_table, orphan_value_table, dispatch_table, orphan_profile, orphan_replay, orphan_evidence_map, static_plans[0..]),
+        orphan_certificate.check(policy, elaboration_certificate, orphan_surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, orphan_value_table, dispatch_table, orphan_profile, orphan_replay, orphan_evidence_map, static_plans[0..]),
     );
 
     const other_value_ref = Evidence.BoundaryValueRef.init("i64", null);
@@ -2918,7 +3141,7 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try std.testing.expectEqual(
         error.BoundaryTargetCertificateMismatch,
-        mismatched_certificate.check(policy, mismatched_surface, source_map, effect_row, trace_map, port_table, mismatched_value_table, dispatch_table, profile, mismatched_replay, mismatched_evidence_map, static_plans[0..]),
+        mismatched_certificate.check(policy, elaboration_certificate, mismatched_surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, mismatched_value_table, dispatch_table, profile, mismatched_replay, mismatched_evidence_map, static_plans[0..]),
     );
 
     const empty_evidence_map = Elaboration.TargetEvidenceMap.init("target.empty-evidence", &.{});
@@ -2939,7 +3162,7 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try std.testing.expectEqual(
         error.BoundaryTargetCertificateMismatch,
-        empty_dependency_certificate.check(policy, surface, source_map, effect_row, trace_map, port_table, value_table, dispatch_table, profile, replay, empty_evidence_map, static_plans[0..]),
+        empty_dependency_certificate.check(policy, elaboration_certificate, surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, replay, empty_evidence_map, static_plans[0..]),
     );
 }
 
@@ -4850,7 +5073,9 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .label = "target-world-boundary-policy-root",
         }};
         const world_graph = Closure.Graph.init("target-world-boundary-policy-graph", world_nodes[0..], &.{}, &.{});
-        const closure_policy = Closure.Policy.worldBoundary();
+        const target_policy = Elaboration.Target.Policy.worldBoundary();
+        const target_elaboration_policy = target_policy.toElaborationPolicy();
+        const closure_policy = target_elaboration_policy.closure_policy;
         const world_report = Closure.Report.init(.{
             .graph_fingerprint = world_graph.fingerprint,
             .policy_summary = closure_policy.policySummary(),
@@ -4863,13 +5088,13 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .closure_report = world_report,
             .closure_certificate = world_certificate,
             .source_program_ref = source_ref,
-            .policy = Elaboration.Policy.worldBoundary(),
+            .policy = target_elaboration_policy,
         };
         const Target = Elaboration.Target.compileComptime(.{
             .label = "target-world-boundary-policy-body",
             .input = world_input,
             .residual_program = Program,
-            .policy = Elaboration.Target.Policy.worldBoundary(),
+            .policy = target_policy,
         });
         Target.assertWorldSurfaceReady();
         Target.assertNoSearchHotPath();
@@ -6881,6 +7106,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .protocol_label = "approval",
             .protocol_op_fingerprint = source_protocol_fingerprint,
             .mode = "transform",
+            .semantic_label = "approval.request",
             .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.payload_ref),
             .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.resume_ref),
         });

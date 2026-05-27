@@ -538,7 +538,7 @@ pub fn refForBoundaryNormalForm(normal_form: anytype) Ref {
 pub fn refForBoundaryWorldSurface(surface: anytype) Ref {
     return refFor(domains.boundary_world_surface, surface.surface_fingerprint, .{
         .format_version = domains.boundary_world_surface.format_version,
-        .label = optionalLabel(surface, "residual_program_label"),
+        .label = optionalLabel(surface, "label"),
     });
 }
 
@@ -4006,6 +4006,7 @@ pub const BoundaryTargetPolicy = struct {
     fail_on_unbounded_world_port_when_bounded_required: bool = true,
     max_world_ports: usize = std.math.maxInt(usize),
     max_value_descriptors: usize = std.math.maxInt(usize),
+    max_dispatch_entries: usize = std.math.maxInt(usize),
 
     pub fn strictClosed() @This() {
         return .{ .label = "strict_closed_target" };
@@ -4051,6 +4052,10 @@ pub const BoundaryTargetPolicy = struct {
         return auditOnly();
     }
 
+    pub fn toElaborationPolicy(self: @This()) BoundaryElaborationPolicy {
+        return boundaryTargetElaborationPolicy(self);
+    }
+
     pub fn fingerprint(self: @This()) u64 {
         var builder = FingerprintBuilder.init(domains.boundary_target_policy);
         builder.fieldBytes("label", self.label);
@@ -4079,9 +4084,46 @@ pub const BoundaryTargetPolicy = struct {
         builder.fieldBool("fail_on_unbounded_world_port_when_bounded_required", self.fail_on_unbounded_world_port_when_bounded_required);
         builder.fieldUsize("max_world_ports", self.max_world_ports);
         builder.fieldUsize("max_value_descriptors", self.max_value_descriptors);
+        builder.fieldUsize("max_dispatch_entries", self.max_dispatch_entries);
         return builder.finish();
     }
 };
+
+fn boundaryTargetElaborationPolicy(policy: BoundaryTargetPolicy) BoundaryElaborationPolicy {
+    var elaboration_policy = policy.elaboration_policy;
+    elaboration_policy.allow_world_ports = policy.allow_world_ports;
+    elaboration_policy.allow_intrinsic_world_ports = !policy.reject_host_intrinsic_internal_routes;
+    elaboration_policy.closure_policy.allow_world_ports = policy.allow_world_ports;
+    if (policy.allow_world_ports) {
+        elaboration_policy.closure_policy.require_all_effect_shapes_closed = false;
+    }
+    elaboration_policy.closure_policy.allow_host_intrinsics = !policy.reject_host_intrinsic_internal_routes;
+    elaboration_policy.closure_policy.reject_host_intrinsics = policy.reject_host_intrinsic_internal_routes;
+    if (!policy.reject_host_intrinsic_internal_routes) {
+        elaboration_policy.closure_policy.defunctionalization_policy.allow_host_intrinsics = true;
+        elaboration_policy.closure_policy.defunctionalization_policy.maximum_intrinsic_count = null;
+    }
+    elaboration_policy.require_certificate_checked = policy.require_checked_closure_certificate;
+    elaboration_policy.require_checked_closure_certificate = policy.require_checked_closure_certificate;
+    elaboration_policy.allow_provider_program_linking = policy.allow_program_backed_providers;
+    elaboration_policy.allow_declarative_morphisms = policy.allow_declarative_morphisms;
+    elaboration_policy.allow_residualized_morphisms = policy.allow_residualized_morphisms;
+    elaboration_policy.allow_pipeline_adapters = policy.allow_pipeline_adapters;
+    elaboration_policy.require_program_backed_providers_for_internal_routes =
+        elaboration_policy.require_program_backed_providers_for_internal_routes or
+        (!policy.allow_declarative_morphisms and !policy.allow_residualized_morphisms and !policy.allow_pipeline_adapters);
+    elaboration_policy.reject_unknown_semantic_bodies = policy.reject_unknown_semantic_bodies;
+    elaboration_policy.closure_policy.reject_unknown_semantic_bodies = policy.reject_unknown_semantic_bodies;
+    elaboration_policy.closure_policy.defunctionalization_policy.reject_unknown = policy.reject_unknown_semantic_bodies;
+    const max_nested_provider_depth = if (policy.allow_nested_program_backed_providers) policy.max_nested_provider_depth else 0;
+    elaboration_policy.max_nested_provider_depth = max_nested_provider_depth;
+    elaboration_policy.closure_policy.max_nested_provider_depth = max_nested_provider_depth;
+    elaboration_policy.fail_on_unsupported_shape = policy.fail_on_unsupported_instruction;
+    elaboration_policy.allow_partial_with_blockers = !policy.fail_on_unsupported_instruction;
+    elaboration_policy.max_blockers = if (policy.fail_on_unsupported_instruction) 0 else std.math.maxInt(usize);
+    elaboration_policy.emit_trace_map = policy.emit_trace_map;
+    return elaboration_policy;
+}
 
 pub const BoundaryWorldPortTable = struct {
     label: []const u8,
@@ -4491,10 +4533,13 @@ pub const BoundaryTargetCertificate = struct {
     pub fn check(
         self: @This(),
         policy: BoundaryTargetPolicy,
+        elaboration_certificate: BoundaryElaborationCertificate,
         world_surface: BoundaryWorldSurface,
         source_map: BoundaryElaborationSourceMap,
         effect_row: BoundaryElaborationEffectRow,
         trace_map: BoundaryElaborationTraceMap,
+        normal_form: BoundaryNormalForm,
+        world_ports: []const BoundaryWorldPort,
         port_table: BoundaryWorldPortTable,
         value_table: BoundaryWorldValueTable,
         dispatch_table: BoundaryWorldDispatchTable,
@@ -4508,6 +4553,34 @@ pub const BoundaryTargetCertificate = struct {
         if (self.policy_fingerprint != policy.fingerprint()) return error.BoundaryTargetPolicyMismatch;
         if (!targetPolicyEmitsRequiredArtifacts(policy)) return error.BoundaryTargetPolicyMismatch;
         if (self.elaboration_certificate_ref.domain_id != domains.boundary_elaboration_certificate.id) return error.BoundaryTargetCertificateMismatch;
+        const expected_elaboration_policy = boundaryTargetElaborationPolicy(policy);
+        if (elaboration_certificate.certificate_format_version != domains.boundary_elaboration_certificate.format_version.?) return error.BoundaryTargetCertificateMismatch;
+        if (elaboration_certificate.certificate_fingerprint != elaboration_certificate.computeFingerprint()) return error.BoundaryTargetCertificateMismatch;
+        if (!policySummariesEqual(elaboration_certificate.policy_summary, expected_elaboration_policy.policySummary())) return error.BoundaryTargetPolicyMismatch;
+        if (elaboration_certificate.elaboration_policy_fingerprint != expected_elaboration_policy.fingerprint()) return error.BoundaryTargetPolicyMismatch;
+        elaboration_certificate.check(
+            expected_elaboration_policy,
+            elaboration_certificate.closure_graph_ref,
+            elaboration_certificate.closure_report_ref,
+            elaboration_certificate.closure_certificate_ref,
+            source_map,
+            effect_row,
+            trace_map,
+            normal_form,
+            static_treaty_plans,
+            world_ports,
+        ) catch |err| switch (err) {
+            error.BoundaryElaborationPolicyMismatch => return error.BoundaryTargetPolicyMismatch,
+            else => return error.BoundaryTargetCertificateMismatch,
+        };
+        if (!self.elaboration_certificate_ref.eql(elaboration_certificate.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
+        if (!elaboration_certificate.residual_program_ref.eql(self.residual_program_ref)) return error.BoundaryTargetCertificateMismatch;
+        if (!elaboration_certificate.source_map_ref.eql(source_map.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
+        if (!elaboration_certificate.effect_row_ref.eql(effect_row.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
+        if (elaboration_certificate.normal_form_ref.domain_id != domains.boundary_normal_form.id) return error.BoundaryTargetCertificateMismatch;
+        if (!elaboration_certificate.normal_form_ref.eql(normal_form.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
+        if (elaboration_certificate.normal_form != world_surface.normal_form) return error.BoundaryTargetCertificateMismatch;
+        if (elaboration_certificate.normal_form != effect_row.normal_form) return error.BoundaryTargetCertificateMismatch;
         if (self.residual_program_ref.domain_id != domains.program_plan.id) return error.BoundaryTargetCertificateMismatch;
         if (world_surface.surface_format_version != domains.boundary_world_surface.format_version.?) return error.BoundaryTargetCertificateMismatch;
         if (world_surface.surface_fingerprint != world_surface.computeFingerprint()) return error.BoundaryTargetCertificateMismatch;
@@ -4523,6 +4596,7 @@ pub const BoundaryTargetCertificate = struct {
         const trace_map_ref = self.trace_map_ref orelse return error.BoundaryTargetCertificateMismatch;
         if (trace_map_ref.domain_id != domains.boundary_elaboration_trace_map.id) return error.BoundaryTargetCertificateMismatch;
         if (!trace_map_ref.eql(trace_map.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
+        if (!trace_map_ref.eql(elaboration_certificate.trace_map_ref orelse return error.BoundaryTargetCertificateMismatch)) return error.BoundaryTargetCertificateMismatch;
         if (!traceMapMatchesSourceMap(trace_map, source_map)) return error.BoundaryTargetCertificateMismatch;
         if (!targetDependenciesMatch(self.dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, self.residual_program_ref, self.elaboration_certificate_ref, trace_map_ref)) return error.BoundaryTargetCertificateMismatch;
         if (!targetDependenciesMatch(evidence_map.dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, self.residual_program_ref, self.elaboration_certificate_ref, trace_map_ref)) return error.BoundaryTargetCertificateMismatch;
@@ -4615,7 +4689,7 @@ fn targetPolicyEmitsRequiredArtifacts(policy: BoundaryTargetPolicy) bool {
 fn boundaryTargetSurfaceBounded(policy: BoundaryTargetPolicy, world_port_count: usize, value_descriptor_count: usize, dispatch_entry_count: usize) bool {
     return world_port_count <= policy.max_world_ports and
         value_descriptor_count <= policy.max_value_descriptors and
-        dispatch_entry_count <= policy.max_world_ports;
+        dispatch_entry_count <= policy.max_dispatch_entries;
 }
 
 fn targetReplayKeyRecipeConforms(recipe: BoundaryReplayKeyRecipe) bool {
@@ -4738,6 +4812,13 @@ fn targetPortTableEntryMatchesSchemaWitness(
     if (shape.protocol_label.len == 0 or !std.mem.eql(u8, shape.protocol_label, port_entry.protocol_label)) return false;
     if (shape.name.len != 0 and !std.mem.eql(u8, shape.name, port_entry.op_name)) return false;
     if (shape.mode.len == 0 or !std.mem.eql(u8, shape.mode, port_entry.mode)) return false;
+    if (policy.preserve_semantic_labels) {
+        const expected_semantic_label = shape.semantic_label orelse return false;
+        const actual_semantic_label = port_entry.semantic_label orelse return false;
+        if (!std.mem.eql(u8, expected_semantic_label, actual_semantic_label)) return false;
+    } else if (port_entry.semantic_label != null) {
+        return false;
+    }
     if (shape.protocol_op_fingerprint) |protocol_op_fingerprint| {
         if (protocol_op_fingerprint != port_entry.residual_site_fingerprint) return false;
     } else if (shape.site_fingerprint == null) return false;
@@ -6195,6 +6276,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     profile: SurfaceProfile,
                     replay_key_recipe: ReplayKeyRecipe,
                 ) error{BoundaryTargetConformanceMismatch}!void {
+                    if (world_surface.surface_format_version != domains.boundary_world_surface.format_version.?) return error.BoundaryTargetConformanceMismatch;
                     if (world_surface.surface_fingerprint != world_surface.computeFingerprint()) return error.BoundaryTargetConformanceMismatch;
                     if (port_table.fingerprint != port_table.computeFingerprint()) return error.BoundaryTargetConformanceMismatch;
                     if (value_table.fingerprint != value_table.computeFingerprint()) return error.BoundaryTargetConformanceMismatch;
@@ -6222,7 +6304,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 const ResidualProgram = PlanBuilder.synthesizeResidualProgram(options);
                 const target_input = comptime blk: {
                     var copy = input;
-                    copy.policy = targetElaborationPolicy(policy);
+                    copy.policy = boundaryTargetElaborationPolicy(policy);
                     break :blk copy;
                 };
                 const Body = FromResidual(target_input, ResidualProgram, options);
@@ -6236,7 +6318,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 if (comptime !SourceBody.certificate.residual_program_ref.eql(residual_ref)) {
                     @compileError("Boundary Target residual Program does not match elaborated body certificate");
                 }
-                const expected_elaboration_policy = comptime targetElaborationPolicy(policy);
+                const expected_elaboration_policy = comptime boundaryTargetElaborationPolicy(policy);
                 if (comptime SourceBody.certificate.elaboration_policy_fingerprint != expected_elaboration_policy.fingerprint() or
                     !policySummariesEqual(SourceBody.certificate.policy_summary, expected_elaboration_policy.policySummary()))
                 {
@@ -6318,7 +6400,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     .trace_map_ref = SourceBody.trace_map.evidenceRef(),
                     .dependencies = DependenciesValue[0..],
                 });
-                comptime CertificateValue.check(policy, SurfaceValue, SourceBody.source_map, SourceBody.effect_row, SourceBody.trace_map, PortTableValue, ValueTableValue, DispatchTableValue, ProfileValue, ReplayKeyRecipeValue, EvidenceMapValue, options.input.static_treaty_plans) catch |err|
+                comptime CertificateValue.check(policy, SourceBody.certificate, SurfaceValue, SourceBody.source_map, SourceBody.effect_row, SourceBody.trace_map, SourceBody.normal_form, options.input.world_ports, PortTableValue, ValueTableValue, DispatchTableValue, ProfileValue, ReplayKeyRecipeValue, EvidenceMapValue, options.input.static_treaty_plans) catch |err|
                     @compileError("BoundaryClosure.Elaboration.Target certificate self-check failed: " ++ @errorName(err));
                 comptime Conformance.check(SurfaceValue, PortTableValue, ValueTableValue, DispatchTableValue, ProfileValue, ReplayKeyRecipeValue) catch |err|
                     @compileError("BoundaryClosure.Elaboration.Target conformance failed: " ++ @errorName(err));
@@ -6388,39 +6470,6 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 options.policy
             else
                 .{};
-        }
-
-        fn targetElaborationPolicy(comptime policy: TargetPolicy) BoundaryElaborationPolicy {
-            var elaboration_policy = policy.elaboration_policy;
-            const closure_policy_already_allows_world_ports = elaboration_policy.closure_policy.allow_world_ports;
-            elaboration_policy.allow_world_ports = policy.allow_world_ports;
-            elaboration_policy.allow_intrinsic_world_ports = !policy.reject_host_intrinsic_internal_routes;
-            elaboration_policy.closure_policy.allow_world_ports = policy.allow_world_ports;
-            if (policy.allow_world_ports and !closure_policy_already_allows_world_ports) {
-                elaboration_policy.closure_policy.require_all_effect_shapes_closed = false;
-            }
-            elaboration_policy.closure_policy.allow_host_intrinsics = !policy.reject_host_intrinsic_internal_routes;
-            elaboration_policy.closure_policy.reject_host_intrinsics = policy.reject_host_intrinsic_internal_routes;
-            if (!policy.reject_host_intrinsic_internal_routes) {
-                elaboration_policy.closure_policy.defunctionalization_policy.allow_host_intrinsics = true;
-                elaboration_policy.closure_policy.defunctionalization_policy.maximum_intrinsic_count = null;
-            }
-            elaboration_policy.require_certificate_checked = policy.require_checked_closure_certificate;
-            elaboration_policy.require_checked_closure_certificate = policy.require_checked_closure_certificate;
-            elaboration_policy.allow_provider_program_linking = policy.allow_program_backed_providers;
-            elaboration_policy.allow_declarative_morphisms = policy.allow_declarative_morphisms;
-            elaboration_policy.allow_residualized_morphisms = policy.allow_residualized_morphisms;
-            elaboration_policy.allow_pipeline_adapters = policy.allow_pipeline_adapters;
-            elaboration_policy.require_program_backed_providers_for_internal_routes =
-                elaboration_policy.require_program_backed_providers_for_internal_routes or
-                (!policy.allow_declarative_morphisms and !policy.allow_residualized_morphisms and !policy.allow_pipeline_adapters);
-            elaboration_policy.reject_unknown_semantic_bodies = policy.reject_unknown_semantic_bodies;
-            elaboration_policy.max_nested_provider_depth = if (policy.allow_nested_program_backed_providers) policy.max_nested_provider_depth else 0;
-            elaboration_policy.fail_on_unsupported_shape = policy.fail_on_unsupported_instruction;
-            elaboration_policy.allow_partial_with_blockers = !policy.fail_on_unsupported_instruction;
-            elaboration_policy.max_blockers = if (policy.fail_on_unsupported_instruction) 0 else std.math.maxInt(usize);
-            elaboration_policy.emit_trace_map = policy.emit_trace_map;
-            return elaboration_policy;
         }
 
         fn assertTargetPolicySupported(comptime policy: TargetPolicy, comptime ResidualProgram: type) void {
