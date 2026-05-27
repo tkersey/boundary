@@ -522,7 +522,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     try std.testing.expectEqual(Evidence.domains.boundary_normalization_step.id, step.evidenceRef().domain_id);
     try std.testing.expectEqual(Evidence.domains.boundary_normalization_trace.id, trace.evidenceRef().domain_id);
     try std.testing.expectEqual(Evidence.domains.boundary_normalization_certificate.id, certificate.evidenceView().domain);
-    try certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface);
+    try certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface, &.{});
 
     const morphism_ref = Evidence.refFor(Evidence.domains.morphism_offer, 0xC112, .{ .label = "normalization.morphism" });
     const residualized_plan_dependencies = [_]Evidence.Dependency{
@@ -655,7 +655,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
             .{ .role = .world_surface, .ref = residualized_world_surface.evidenceRef() },
         })[0..],
     });
-    try residualized_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), residualized_trace, residualized_redexes[0..], residualized_rules[0..], residualized_static_plans[0..], residualized_source_map, residualized_trace_map, evidence_map, residualized_effect_row, residualized_normal_form, residualized_world_surface);
+    try residualized_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), residualized_trace, residualized_redexes[0..], residualized_rules[0..], residualized_static_plans[0..], residualized_source_map, residualized_trace_map, evidence_map, residualized_effect_row, residualized_normal_form, residualized_world_surface, &.{});
 
     const unbound_residualized_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
         .label = "normalization.unbound_residualized_plan",
@@ -737,7 +737,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     });
     try std.testing.expectEqual(
         error.BoundaryNormalizationCertificateMismatch,
-        unbound_residualized_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), unbound_residualized_trace, unbound_residualized_redexes[0..], residualized_rules[0..], unbound_residualized_static_plans[0..], unbound_residualized_source_map, residualized_trace_map, evidence_map, residualized_effect_row, residualized_normal_form, unbound_residualized_world_surface),
+        unbound_residualized_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), unbound_residualized_trace, unbound_residualized_redexes[0..], residualized_rules[0..], unbound_residualized_static_plans[0..], unbound_residualized_source_map, residualized_trace_map, evidence_map, residualized_effect_row, residualized_normal_form, unbound_residualized_world_surface, &.{}),
     );
 
     const missing_resume_shape = Evidence.BoundaryEffectShape.init(.{
@@ -878,7 +878,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     });
     try std.testing.expectEqual(
         error.BoundaryNormalizationCertificateMismatch,
-        missing_resume_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), missing_resume_trace, missing_resume_redexes[0..], missing_resume_rules[0..], missing_resume_static_plans[0..], missing_resume_source_map, missing_resume_trace_map, evidence_map, effect_row, normal_form, missing_resume_world_surface),
+        missing_resume_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), missing_resume_trace, missing_resume_redexes[0..], missing_resume_rules[0..], missing_resume_static_plans[0..], missing_resume_source_map, missing_resume_trace_map, evidence_map, effect_row, normal_form, missing_resume_world_surface, &.{}),
     );
     var zero_rewrite_policy = Evidence.BoundaryTargetPolicy.strictClosed();
     zero_rewrite_policy.max_rewrite_steps = 0;
@@ -898,7 +898,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     });
     try std.testing.expectEqual(
         error.BoundaryNormalizationPolicyMismatch,
-        capped_certificate.check(zero_rewrite_policy, trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface),
+        capped_certificate.check(zero_rewrite_policy, trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface, &.{}),
     );
     var provider_rewrite_disabled_policy = Evidence.BoundaryTargetPolicy.strictClosed();
     provider_rewrite_disabled_policy.allow_program_backed_providers = false;
@@ -918,7 +918,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     });
     try std.testing.expectEqual(
         error.BoundaryNormalizationPolicyMismatch,
-        provider_rewrite_disabled_certificate.check(provider_rewrite_disabled_policy, trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface),
+        provider_rewrite_disabled_certificate.check(provider_rewrite_disabled_policy, trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface, &.{}),
     );
     var forged_surface = world_surface;
     forged_surface.source_map_ref = Evidence.refFor(Evidence.domains.boundary_elaboration_source_map, 0xBAD5_0A5E, .{ .label = "wrong-source-map" });
@@ -947,7 +947,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     });
     try std.testing.expectEqual(
         error.BoundaryNormalizationCertificateMismatch,
-        forged_surface_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, forged_surface),
+        forged_surface_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, forged_surface, &.{}),
     );
 
     const empty_world_ports_effect_row = Evidence.BoundaryElaborationEffectRow.init(.{
@@ -1034,6 +1034,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
             empty_world_ports_effect_row,
             empty_world_ports_normal_form,
             empty_world_ports_surface,
+            &.{},
         ),
     );
 
@@ -1121,6 +1122,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
             blockerless_partial_effect_row,
             blockerless_partial_normal_form,
             blockerless_partial_surface,
+            &.{},
         ),
     );
     const missing_dependency_trace = Evidence.BoundaryNormalizationTrace.init(.{
@@ -1156,7 +1158,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     });
     try std.testing.expectEqual(
         error.BoundaryNormalizationCertificateMismatch,
-        missing_dependency_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), missing_dependency_trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface),
+        missing_dependency_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), missing_dependency_trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface, &.{}),
     );
     const forged_builder_step = Evidence.BoundaryNormalizationRewriteStep.init(.{
         .step_index = 0,
@@ -1206,7 +1208,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     });
     try std.testing.expectEqual(
         error.BoundaryNormalizationCertificateMismatch,
-        forged_builder_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), forged_builder_trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface),
+        forged_builder_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), forged_builder_trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface, &.{}),
     );
     const forged_coordinate_redex = Evidence.BoundaryNormalizationRedex.init(.{
         .label = "approval.request",
@@ -1269,7 +1271,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     const forged_coordinate_redexes = [_]Evidence.BoundaryNormalizationRedex{forged_coordinate_redex};
     try std.testing.expectEqual(
         error.BoundaryNormalizationCertificateMismatch,
-        forged_coordinate_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), forged_coordinate_trace, forged_coordinate_redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface),
+        forged_coordinate_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), forged_coordinate_trace, forged_coordinate_redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface, &.{}),
     );
     const forged_semantic_redex = Evidence.BoundaryNormalizationRedex.init(.{
         .label = "approval.request",
@@ -1332,13 +1334,13 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     const forged_semantic_redexes = [_]Evidence.BoundaryNormalizationRedex{forged_semantic_redex};
     try std.testing.expectEqual(
         error.BoundaryNormalizationCertificateMismatch,
-        forged_semantic_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), forged_semantic_trace, forged_semantic_redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface),
+        forged_semantic_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), forged_semantic_trace, forged_semantic_redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface, &.{}),
     );
     var stale_view_certificate = certificate;
     stale_view_certificate.evidence_view.subject_ref = residual_ref;
     try std.testing.expectEqual(
         error.BoundaryNormalizationCertificateMismatch,
-        stale_view_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface),
+        stale_view_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface, &.{}),
     );
 
     var stale_source_map = source_map;
@@ -1357,6 +1359,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
             effect_row,
             normal_form,
             world_surface,
+            &.{},
         ),
     );
 
@@ -1407,6 +1410,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
             effect_row,
             normal_form,
             world_surface,
+            &.{},
         ),
     );
 
@@ -1568,6 +1572,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
             blocked_effect_row,
             blocked_normal_form,
             blocked_world_surface,
+            &.{},
         ),
     );
     try std.testing.expectEqual(
@@ -1584,6 +1589,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
             blocked_effect_row,
             blocked_normal_form,
             blocked_world_surface,
+            &.{},
         ),
     );
 }
@@ -3383,6 +3389,10 @@ test "certified boundary target world surface tables and certificate are determi
         .dependencies = certificate_dependencies[0..],
     });
     try certificate.check(policy, elaboration_certificate, surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, replay, evidence_map, normalization_certificate, normalization_trace, normalization_redexes[0..], normalization_rules[0..], static_plans[0..]);
+    try std.testing.expectEqual(
+        error.BoundaryNormalizationCertificateMismatch,
+        normalization_certificate.check(policy, normalization_trace, normalization_redexes[0..], normalization_rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, surface, &.{}),
+    );
 
     var unproved_world_policy = policy;
     unproved_world_policy.reject_unknown_semantic_bodies = false;
@@ -3506,7 +3516,7 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try std.testing.expectEqual(
         error.BoundaryNormalizationCertificateMismatch,
-        unproved_normalization_certificate.check(unproved_world_policy, unproved_normalization_trace, unproved_normalization_redexes[0..], unproved_normalization_rules[0..], static_plans[0..], unproved_source_map, unproved_trace_map, unproved_evidence_map, effect_row, normal_form, unproved_surface),
+        unproved_normalization_certificate.check(unproved_world_policy, unproved_normalization_trace, unproved_normalization_redexes[0..], unproved_normalization_rules[0..], static_plans[0..], unproved_source_map, unproved_trace_map, unproved_evidence_map, effect_row, normal_form, unproved_surface, world_ports[0..]),
     );
 
     var world_without_declarative_policy = policy;
@@ -3527,7 +3537,7 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try std.testing.expectEqual(
         error.BoundaryNormalizationPolicyMismatch,
-        world_without_declarative_normalization_certificate.check(world_without_declarative_policy, normalization_trace, normalization_redexes[0..], normalization_rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, surface),
+        world_without_declarative_normalization_certificate.check(world_without_declarative_policy, normalization_trace, normalization_redexes[0..], normalization_rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, surface, world_ports[0..]),
     );
 
     const missing_normalization_dependency = Elaboration.Target.Certificate.init(.{

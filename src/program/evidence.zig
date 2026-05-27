@@ -5042,6 +5042,7 @@ pub const BoundaryNormalizationCertificate = struct {
         effect_row: BoundaryElaborationEffectRow,
         normal_form: BoundaryNormalForm,
         world_surface: BoundaryWorldSurface,
+        world_ports: []const BoundaryWorldPort,
     ) error{ BoundaryNormalizationCertificateMismatch, BoundaryNormalizationPolicyMismatch, BoundaryNormalizationBlocked }!void {
         if (self.certificate_format_version != domains.boundary_normalization_certificate.format_version.?) return error.BoundaryNormalizationCertificateMismatch;
         if (self.certificate_fingerprint != self.computeFingerprint()) return error.BoundaryNormalizationCertificateMismatch;
@@ -5070,7 +5071,7 @@ pub const BoundaryNormalizationCertificate = struct {
             if (!normalizationRedexMatchesSourceEntry(redex, entry, static_treaty_plans, trace.root_program_ref, trace.final_program_plan_hash)) return error.BoundaryNormalizationCertificateMismatch;
             if (!normalizationRuleMatchesSourceEntry(rule, entry, static_treaty_plans, trace.root_program_ref)) return error.BoundaryNormalizationCertificateMismatch;
             const semantic_body = normalizationRedexSemanticBodyForSourceEntry(entry, static_treaty_plans) orelse return error.BoundaryNormalizationCertificateMismatch;
-            if (!normalizationRouteProofMatchesSourceEntry(entry, semantic_body, static_treaty_plans)) return error.BoundaryNormalizationCertificateMismatch;
+            if (!normalizationRouteProofMatchesSourceEntry(entry, semantic_body, static_treaty_plans, world_ports)) return error.BoundaryNormalizationCertificateMismatch;
             if (!normalizationPolicyAllowsRewrite(normalization_policy, rule.kind, semantic_body)) return error.BoundaryNormalizationPolicyMismatch;
             if (!normalizationStepRouteRefsMatch(step, entry, static_treaty_plans)) return error.BoundaryNormalizationCertificateMismatch;
             const expected_builder_fingerprint = boundaryNormalizationRouteLoweringFingerprint(entry, trace.final_program_plan_hash);
@@ -5356,7 +5357,7 @@ pub const BoundaryTargetCertificate = struct {
         if (!normalization_certificate.closure_certificate_ref.eql(elaboration_certificate.closure_certificate_ref)) return error.BoundaryTargetCertificateMismatch;
         if (!normalization_trace.closure_certificate_ref.eql(elaboration_certificate.closure_certificate_ref)) return error.BoundaryTargetCertificateMismatch;
         if (!normalization_trace.root_program_ref.eql(elaboration_certificate.source_program_ref)) return error.BoundaryTargetCertificateMismatch;
-        normalization_certificate.check(policy, normalization_trace, normalization_redexes, normalization_rules, static_treaty_plans, source_map, trace_map, evidence_map, effect_row, normal_form, world_surface) catch |err| switch (err) {
+        normalization_certificate.check(policy, normalization_trace, normalization_redexes, normalization_rules, static_treaty_plans, source_map, trace_map, evidence_map, effect_row, normal_form, world_surface, world_ports) catch |err| switch (err) {
             error.BoundaryNormalizationPolicyMismatch => return error.BoundaryTargetPolicyMismatch,
             error.BoundaryNormalizationBlocked => return error.BoundaryTargetSurfaceRejected,
             else => return error.BoundaryTargetCertificateMismatch,
@@ -5436,7 +5437,7 @@ fn normalizationRedexSemanticBodyForSourceEntry(entry: BoundaryElaborationSource
     return boundaryStaticTreatyPlanRouteSemanticBody(plan);
 }
 
-fn normalizationRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan) bool {
+fn normalizationRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan, world_ports: []const BoundaryWorldPort) bool {
     const expected_disposition: ?BoundaryElaborationSourceMap.Disposition = switch (semantic_body) {
         .boundary_program => .provider_program_linked,
         .declarative => .preserved,
@@ -5448,7 +5449,7 @@ fn normalizationRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap
         => null,
     };
     if (entry.disposition == .world_port_lowered) {
-        return normalizationWorldPortRouteProofMatchesSourceEntry(entry, semantic_body, static_treaty_plans);
+        return normalizationWorldPortRouteProofMatchesSourceEntry(entry, semantic_body, static_treaty_plans, world_ports);
     }
     if (expected_disposition == null or entry.disposition != expected_disposition.?) {
         return entry.disposition == .blocked;
@@ -5469,9 +5470,9 @@ fn normalizationRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap
     return entry.provider_program_ref == null;
 }
 
-fn normalizationWorldPortRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan) bool {
+fn normalizationWorldPortRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan, world_ports: []const BoundaryWorldPort) bool {
     const world_port_ref = entry.world_port_ref orelse return false;
-    if (world_port_ref.domain_id != domains.boundary_world_port.id) return false;
+    const world_port = worldPortForRef(world_ports, world_port_ref) orelse return false;
     if (entry.provider_program_ref != null) return false;
     const plan_ref = entry.static_treaty_plan_ref orelse return false;
     const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return false;
@@ -5481,13 +5482,34 @@ fn normalizationWorldPortRouteProofMatchesSourceEntry(entry: BoundaryElaboration
         .declarative,
         .residualized_program,
         .pipeline,
-        => staticTreatyPlanHasElaborationRouteProof(plan, semantic_body),
-        .host_intrinsic => staticTreatyPlanCanLowerToWorldPort(plan) and staticTreatyPlanWorldPortIntrinsicRef(plan) != null,
+        => staticTreatyPlanHasElaborationRouteProof(plan, semantic_body) and boundaryWorldPortMatchesShapeOnlyPlan(world_port, plan),
+        .host_intrinsic => staticTreatyPlanCanLowerToWorldPort(plan) and boundaryWorldPortMatchesIntrinsicPlan(world_port, plan),
         .boundary_program,
         .unknown,
         .kernel_primitive,
         => false,
     };
+}
+
+fn boundaryWorldPortMatchesShapeOnlyPlan(port: BoundaryWorldPort, plan: BoundaryStaticTreatyPlan) bool {
+    if (port.exposed_intrinsic_ref != null) return false;
+    const shape = boundaryStaticTreatyPlanWorldPortShape(plan) orelse return false;
+    if (shape.kind != .operation) return false;
+    return boundaryWorldPortMatchesShape(port, shape);
+}
+
+fn boundaryWorldPortMatchesIntrinsicPlan(port: BoundaryWorldPort, plan: BoundaryStaticTreatyPlan) bool {
+    const intrinsic_ref = staticTreatyPlanWorldPortIntrinsicRef(plan) orelse return false;
+    const exposed_ref = port.exposed_intrinsic_ref orelse return false;
+    if (!refSubjectsEqual(exposed_ref, intrinsic_ref)) return false;
+    const shape = boundaryStaticTreatyPlanWorldPortShape(plan) orelse return false;
+    if (shape.kind != .operation) return false;
+    return boundaryWorldPortMatchesShape(port, shape);
+}
+
+fn boundaryStaticTreatyPlanWorldPortShape(plan: BoundaryStaticTreatyPlan) ?BoundaryEffectShape {
+    if (plan.selected_morphism_ref != null) return plan.morphismTargetShapeWitness();
+    return plan.source_shape;
 }
 
 pub fn boundaryNormalizationRouteLoweringFingerprint(entry: BoundaryElaborationSourceMap.Entry, output_hash: u64) u64 {
@@ -8082,7 +8104,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     .blocker_refs = SourceBody.certificate.blocker_refs,
                     .dependencies = NormalizationCertificateDependenciesValue[0..],
                 });
-                comptime NormalizationCertificateValue.check(policy, NormalizationTraceValue, NormalizationRedexesValue[0..], NormalizationRulesValue[0..], options.input.static_treaty_plans, SourceBody.source_map, SourceBody.trace_map, EvidenceMapValue, SourceBody.effect_row, SourceBody.normal_form, SurfaceValue) catch |err|
+                comptime NormalizationCertificateValue.check(policy, NormalizationTraceValue, NormalizationRedexesValue[0..], NormalizationRulesValue[0..], options.input.static_treaty_plans, SourceBody.source_map, SourceBody.trace_map, EvidenceMapValue, SourceBody.effect_row, SourceBody.normal_form, SurfaceValue, options.input.world_ports) catch |err|
                     @compileError("BoundaryClosure.Elaboration.Target normalization certificate self-check failed: " ++ @errorName(err));
                 const TargetCertificateDependenciesValue = EvidenceMapDependenciesValue ++ [_]Dependency{
                     .{ .role = .normalization_certificate, .ref = NormalizationCertificateValue.evidenceRef() },
