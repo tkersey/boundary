@@ -6392,8 +6392,19 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
 
         fn targetElaborationPolicy(comptime policy: TargetPolicy) BoundaryElaborationPolicy {
             var elaboration_policy = policy.elaboration_policy;
+            const closure_policy_already_allows_world_ports = elaboration_policy.closure_policy.allow_world_ports;
             elaboration_policy.allow_world_ports = policy.allow_world_ports;
             elaboration_policy.allow_intrinsic_world_ports = !policy.reject_host_intrinsic_internal_routes;
+            elaboration_policy.closure_policy.allow_world_ports = policy.allow_world_ports;
+            if (policy.allow_world_ports and !closure_policy_already_allows_world_ports) {
+                elaboration_policy.closure_policy.require_all_effect_shapes_closed = false;
+            }
+            elaboration_policy.closure_policy.allow_host_intrinsics = !policy.reject_host_intrinsic_internal_routes;
+            elaboration_policy.closure_policy.reject_host_intrinsics = policy.reject_host_intrinsic_internal_routes;
+            if (!policy.reject_host_intrinsic_internal_routes) {
+                elaboration_policy.closure_policy.defunctionalization_policy.allow_host_intrinsics = true;
+                elaboration_policy.closure_policy.defunctionalization_policy.maximum_intrinsic_count = null;
+            }
             elaboration_policy.require_certificate_checked = policy.require_checked_closure_certificate;
             elaboration_policy.require_checked_closure_certificate = policy.require_checked_closure_certificate;
             elaboration_policy.allow_provider_program_linking = policy.allow_program_backed_providers;

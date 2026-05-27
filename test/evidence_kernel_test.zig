@@ -6938,12 +6938,26 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .residual_program = closure_source_program,
             .policy = label_elided_policy,
         });
+        var custom_world_policy = Elaboration.Target.Policy.strictClosed();
+        custom_world_policy.allow_world_ports = true;
+        custom_world_policy.reject_host_intrinsic_internal_routes = false;
+        custom_world_policy.require_checked_closure_certificate = false;
+        custom_world_policy.elaboration_policy.reject_dynamic_intrinsic_mappers = false;
+        const CustomWorldTarget = Elaboration.Target.compileComptime(.{
+            .label = "planned-world-port-custom-target-policy",
+            .input = world_input,
+            .residual_program = closure_source_program,
+            .policy = custom_world_policy,
+        });
         Target.assertNormalForm(.world_ports_only);
+        CustomWorldTarget.assertNormalForm(.world_ports_only);
         Target.assertWorldSurfaceReady();
+        CustomWorldTarget.assertWorldSurfaceReady();
         Target.assertNoSearchHotPath();
         const Wrapped = boundary.program("planned-world-port-wrapped", closure_fixture_handlers, Body);
         break :blk Body.source_map.entries.len == 1 and
             Target.Body.source_map.entries.len == Body.source_map.entries.len and
+            CustomWorldTarget.WorldPortTable.entries.len == 1 and
             Target.WorldSurface.world_port_count == 1 and
             Target.WorldPortTable.entries.len == 1 and
             Target.WorldPortTable.entries[0].world_port_id == 0 and
