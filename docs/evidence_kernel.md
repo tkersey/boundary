@@ -96,6 +96,15 @@ Current domains are registered in `Program.Evidence.domains`:
 | `boundary.evidence.elaboration.effect_row` | boundary_elaboration | - | 1 | no | yes | yes | yes | yes | yes | elaboration effects |
 | `boundary.evidence.elaboration.trace_map` | boundary_elaboration | - | 1 | no | yes | yes | yes | yes | yes | elaboration trace |
 | `boundary.evidence.elaboration.normal_form` | boundary_elaboration | - | 1 | no | yes | yes | yes | yes | yes | normal form |
+| `boundary.evidence.target.world_surface` | boundary_target | 1 | 1 | no | yes | yes | yes | yes | yes | world surface |
+| `boundary.evidence.target.world_port_table` | boundary_target | - | 1 | no | yes | yes | yes | yes | yes | world port table |
+| `boundary.evidence.target.world_value_table` | boundary_target | - | 1 | no | yes | yes | yes | yes | yes | world value table |
+| `boundary.evidence.target.world_dispatch_table` | boundary_target | - | 1 | no | yes | yes | yes | yes | yes | world dispatch |
+| `boundary.evidence.target.world_surface_profile` | boundary_target | - | 1 | no | yes | yes | yes | yes | yes | surface profile |
+| `boundary.evidence.target.world_replay_key_recipe` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | replay key |
+| `boundary.evidence.target.policy` | boundary_target | - | 1 | no | yes | yes | yes | yes | yes | boundary target policy |
+| `boundary.evidence.target.certificate` | boundary_target | 1 | 1 | no | yes | yes | yes | yes | yes | certified boundary target |
+| `boundary.evidence.target.evidence_map` | boundary_target | - | 1 | no | yes | yes | yes | yes | yes | evidence |
 
 The current journal format is v6 because provider-program execution adds
 provider-side started, parked, nested request/response, resumed, completed,

@@ -108,6 +108,23 @@ through the world-port declaration, and trace label.
 Strict elaboration rejects world ports. `world_boundary` permits only explicit
 world ports and still rejects implicit internal host intrinsics.
 
+## Certified Boundary Target
+
+`Elaboration.Target.compileComptime` produces a Certified Boundary Target. In V1
+it requires an explicit `.residual_program` or `.root` and packages that supplied
+residual program after `FromResidual` validation. The target-neutral
+`WorldSurface` binds the elaboration certificate, residual program ref, source
+map, effect row, normal form, port table, value table, dispatch table, profile,
+replay-key recipe, and evidence map. The target certificate binds and checks the
+`WorldSurface` ref.
+
+The dispatch table is the target boundary. It gives World a dense residual-site
+to world-port lookup, so a generated target does not need to search the source
+map on the hot path. The target certificate checks that every table ref and
+fingerprint matches the `WorldSurface`, that each world port has payload, resume,
+and result value descriptors, and that policy bounds such as `max_world_ports`
+and `max_value_descriptors` hold.
+
 ## Source, Residual, And Evidence Maps
 
 `Elaboration.SourceMap` records source shape refs, residual refs, source and

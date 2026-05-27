@@ -664,6 +664,34 @@ pub fn build(b: *std.Build) void {
             .path = "test/compile_fail/reinterpret_mapper_invalid_return_param.zig",
             .expected_error = "Program.Handler.reinterpret mapper returnNow parameter must match target protocol operation type",
         },
+        .{
+            .path = "test/compile_fail/boundary_target_schema_mismatch.zig",
+            .expected_error = "Boundary Target world-port schema mismatch",
+        },
+        .{
+            .path = "test/compile_fail/boundary_target_direct_world_port_schema_witness.zig",
+            .expected_error = "Boundary Target world-port source-map entry is missing schema witness",
+        },
+        .{
+            .path = "test/compile_fail/boundary_target_operation_identity_mismatch.zig",
+            .expected_error = "Boundary Target world-port schema mismatch",
+        },
+        .{
+            .path = "test/compile_fail/boundary_target_missing_residual_program.zig",
+            .expected_error = "Boundary Target requires .residual_program or .root; no residual target generation path is implemented",
+        },
+        .{
+            .path = "test/compile_fail/boundary_target_residual_program_mismatch.zig",
+            .expected_error = "Boundary Target residual Program does not match elaborated body certificate",
+        },
+        .{
+            .path = "test/compile_fail/boundary_target_body_policy_mismatch.zig",
+            .expected_error = "Boundary Target body policy does not match target policy",
+        },
+        .{
+            .path = "test/compile_fail/boundary_target_program_backed_requirement.zig",
+            .expected_error = "BoundaryClosure.Elaboration input rejected residual Program: BoundaryElaborationBlocked",
+        },
     };
     inline for (compile_fail_specs) |spec| {
         const compile_fail_mod = b.createModule(.{
@@ -711,6 +739,9 @@ pub fn build(b: *std.Build) void {
         .{ .name = "boundary-elaboration-strict", .path = "examples/boundary_elaboration_strict.zig", .step = "run-boundary-elaboration-strict", .desc = "Run the strict Boundary Closure Elaboration example." },
         .{ .name = "boundary-elaboration-nested", .path = "examples/boundary_elaboration_nested.zig", .step = "run-boundary-elaboration-nested", .desc = "Run the nested Boundary Closure Elaboration example." },
         .{ .name = "boundary-elaboration-world-port", .path = "examples/boundary_elaboration_world_port.zig", .step = "run-boundary-elaboration-world-port", .desc = "Run the world-port Boundary Closure Elaboration example." },
+        .{ .name = "boundary-world-surface-strict", .path = "examples/world_surface_strict.zig", .step = "run-world-surface-strict", .desc = "Run the strict Certified Boundary Target WorldSurface example." },
+        .{ .name = "boundary-world-surface-nested", .path = "examples/world_surface_nested.zig", .step = "run-world-surface-nested", .desc = "Run the scoped root-copy Certified Boundary Target WorldSurface example." },
+        .{ .name = "boundary-world-surface-ports", .path = "examples/world_surface_ports.zig", .step = "run-world-surface-ports", .desc = "Run the world-port Certified Boundary Target WorldSurface example." },
         .{ .name = "boundary-program-provider-direct", .path = "examples/program_provider_direct.zig", .step = "run-program-provider-direct", .desc = "Run the direct program-backed ProviderHarness example." },
         .{ .name = "boundary-program-provider-nested", .path = "examples/program_provider_nested.zig", .step = "run-program-provider-nested", .desc = "Run the nested program-backed ProviderHarness example." },
         .{ .name = "boundary-program-provider-resume", .path = "examples/program_provider_resume.zig", .step = "run-program-provider-resume", .desc = "Run the parked and resumed program-backed ProviderHarness example." },

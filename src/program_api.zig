@@ -1408,6 +1408,28 @@ pub fn program(
         pub const boundary_elaboration_trace_map_fingerprint_version: u32 = Evidence.domains.boundary_elaboration_trace_map.fingerprint_version;
         /// Stable fingerprint version for Boundary Normal Form evidence.
         pub const boundary_normal_form_fingerprint_version: u32 = Evidence.domains.boundary_normal_form.fingerprint_version;
+        /// Stable format version for target-neutral Boundary WorldSurface metadata.
+        pub const boundary_world_surface_format_version: u32 = Evidence.domains.boundary_world_surface.format_version.?;
+        /// Stable fingerprint version for target-neutral Boundary WorldSurface metadata.
+        pub const boundary_world_surface_fingerprint_version: u32 = Evidence.domains.boundary_world_surface.fingerprint_version;
+        /// Stable fingerprint version for Boundary WorldSurface port tables.
+        pub const boundary_world_port_table_fingerprint_version: u32 = Evidence.domains.boundary_world_port_table.fingerprint_version;
+        /// Stable fingerprint version for Boundary WorldSurface value tables.
+        pub const boundary_world_value_table_fingerprint_version: u32 = Evidence.domains.boundary_world_value_table.fingerprint_version;
+        /// Stable fingerprint version for Boundary WorldSurface dispatch tables.
+        pub const boundary_world_dispatch_table_fingerprint_version: u32 = Evidence.domains.boundary_world_dispatch_table.fingerprint_version;
+        /// Stable fingerprint version for Boundary WorldSurface profiles.
+        pub const boundary_world_surface_profile_fingerprint_version: u32 = Evidence.domains.boundary_world_surface_profile.fingerprint_version;
+        /// Stable fingerprint version for Boundary replay-key recipes.
+        pub const boundary_world_replay_key_recipe_fingerprint_version: u32 = Evidence.domains.boundary_world_replay_key_recipe.fingerprint_version;
+        /// Stable fingerprint version for Boundary target policies.
+        pub const boundary_target_policy_fingerprint_version: u32 = Evidence.domains.boundary_target_policy.fingerprint_version;
+        /// Stable format version for Boundary target certificates.
+        pub const boundary_target_certificate_format_version: u32 = Evidence.domains.boundary_target_certificate.format_version.?;
+        /// Stable fingerprint version for Boundary target certificates.
+        pub const boundary_target_certificate_fingerprint_version: u32 = Evidence.domains.boundary_target_certificate.fingerprint_version;
+        /// Stable fingerprint version for Boundary target evidence maps.
+        pub const boundary_target_evidence_map_fingerprint_version: u32 = Evidence.domains.boundary_target_evidence_map.fingerprint_version;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {
