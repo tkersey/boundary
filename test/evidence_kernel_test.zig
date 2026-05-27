@@ -3674,6 +3674,13 @@ test "certified boundary target world surface tables and certificate are determi
         .dependencies = unproved_normalization_certificate_dependencies[0..],
     });
     try unproved_normalization_certificate.check(unproved_world_policy, unproved_normalization_trace, unproved_normalization_redexes[0..], unproved_normalization_rules[0..], static_plans[0..], unproved_source_map, unproved_trace_map, unproved_evidence_map, effect_row, normal_form, unproved_surface, world_ports[0..]);
+    var stale_world_port = world_port;
+    stale_world_port.supported_site_indexes = &.{5};
+    const stale_world_ports = [_]Evidence.BoundaryWorldPort{stale_world_port};
+    try std.testing.expectEqual(
+        error.BoundaryNormalizationCertificateMismatch,
+        unproved_normalization_certificate.check(unproved_world_policy, unproved_normalization_trace, unproved_normalization_redexes[0..], unproved_normalization_rules[0..], static_plans[0..], unproved_source_map, unproved_trace_map, unproved_evidence_map, effect_row, normal_form, unproved_surface, stale_world_ports[0..]),
+    );
 
     var world_without_declarative_policy = policy;
     world_without_declarative_policy.allow_declarative_morphisms = false;
