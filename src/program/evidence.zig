@@ -7518,7 +7518,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                         };
                     }
                     if (routeSemanticBody(plan) == .boundary_program) {
-                        if (!inputAllowsProviderProgramLinking(input)) {
+                        if (!inputAllowsProviderProgramLinking(input) or !inputAllowsProviderProgramRoute(input, plan)) {
                             return .{
                                 .kind = .unsupported,
                                 .fallback_reason = .provider_program_policy_rejected,
@@ -7678,6 +7678,29 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     if (comptime @hasField(@TypeOf(input), "target_policy")) return input.target_policy.allow_program_backed_providers;
                     if (comptime @hasField(@TypeOf(input), "policy")) return input.policy.allow_provider_program_linking;
                     return false;
+                }
+
+                fn inputAllowsProviderProgramRoute(input: anytype, plan: Closure.StaticTreatyPlan) bool {
+                    if (!staticTreatyPlanSourceIsNested(input, plan)) return true;
+                    if (comptime @hasField(@TypeOf(input), "target_policy")) {
+                        return input.target_policy.allow_nested_program_backed_providers and input.target_policy.max_nested_provider_depth > 0;
+                    }
+                    if (comptime @hasField(@TypeOf(input), "policy")) return input.policy.max_nested_provider_depth > 0;
+                    if (comptime @hasField(@TypeOf(input), "max_nested_provider_depth")) return input.max_nested_provider_depth > 0;
+                    return false;
+                }
+
+                fn staticTreatyPlanSourceIsNested(input: anytype, plan: Closure.StaticTreatyPlan) bool {
+                    if (plan.source_shape.plan_hash == 0) return false;
+                    const root_program_ref = inputRootProgramRef(input) orelse return true;
+                    const source_program_ref = refFor(domains.program_plan, plan.source_shape.plan_hash, .{ .label = plan.source_shape.program_label });
+                    return !source_program_ref.eql(root_program_ref);
+                }
+
+                fn inputRootProgramRef(input: anytype) ?Ref {
+                    if (comptime @hasField(@TypeOf(input), "root_program_ref")) return input.root_program_ref;
+                    if (comptime @hasField(@TypeOf(input), "source_program_ref")) return input.source_program_ref;
+                    return null;
                 }
 
                 fn inputAllowsRouteForSemanticBody(input: anytype, plan: Closure.StaticTreatyPlan, body: SemanticBody) bool {

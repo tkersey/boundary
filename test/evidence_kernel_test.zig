@@ -15464,6 +15464,40 @@ test "boundary target normalization selects provider proofs and reports fallback
     const provider_normalization_route = Elaboration.Target.Normalization.routeForPlan(normalization_input, result.static_treaty_plans[0]);
     try std.testing.expectEqual(Elaboration.Target.Normalization.RouteKind.provider_program, provider_normalization_route.kind);
     try std.testing.expectEqual(Elaboration.Target.Normalization.FallbackReason.none, provider_normalization_route.fallback_reason);
+    const nested_provider_shape = Closure.EffectShape.init(.{
+        .program_label = closure_handler_program.contract.label,
+        .plan_hash = provider_program_ref.fingerprint,
+        .kind = .operation,
+        .site_index = closure_approval_request.index,
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = closure_approval_request.fingerprint,
+        .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
+    });
+    const nested_provider_plan = Closure.StaticTreatyPlan.init(.{
+        .label = "normalization.nested-provider",
+        .source_shape = nested_provider_shape,
+        .selected_provider_ref = catalog.provider_manifest.evidenceRef(),
+        .selected_provider_offer_ref = catalog.provider_offers[0].evidenceRef(),
+        .selected_capability_ref = capability.evidenceRef(),
+        .selected_semantic_body = .boundary_program,
+        .selected_provider_program_ref = provider_program_ref,
+        .selected_provider_program_mapping_fingerprint = closure_approval_decl.provider_program_mapping_fingerprint,
+        .selected_provider_program_mapping_support_fingerprint = provider_programs[0].provider_program_mapping_support_fingerprint,
+        .selected_provider_program_request_mapping_tag = "payload_to_args",
+        .selected_provider_program_result_mapping_tag = "result_to_resume",
+        .selected_provider_program_effect_shape_count = 0,
+        .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
+    });
+    var nested_forbidden_input = normalization_input;
+    nested_forbidden_input.target_policy.allow_nested_program_backed_providers = false;
+    const nested_forbidden_route = Elaboration.Target.Normalization.routeForPlan(nested_forbidden_input, nested_provider_plan);
+    try std.testing.expectEqual(Elaboration.Target.Normalization.RouteKind.unsupported, nested_forbidden_route.kind);
+    try std.testing.expectEqual(Elaboration.Target.Normalization.FallbackReason.provider_program_policy_rejected, nested_forbidden_route.fallback_reason);
+    var nested_allowed_input = normalization_input;
+    nested_allowed_input.target_policy.allow_nested_program_backed_providers = true;
+    const nested_allowed_route = Elaboration.Target.Normalization.routeForPlan(nested_allowed_input, nested_provider_plan);
+    try std.testing.expectEqual(Elaboration.Target.Normalization.RouteKind.provider_program, nested_allowed_route.kind);
+    try std.testing.expectEqual(Elaboration.Target.Normalization.FallbackReason.none, nested_allowed_route.fallback_reason);
     const provider_selection = provider_route.provider_program orelse return error.ExpectedProviderProgramSelection;
     try std.testing.expect(provider_selection.provider_ref.eql(catalog.provider_manifest.evidenceRef()));
     try std.testing.expect(provider_selection.provider_offer_ref.eql(catalog.provider_offers[0].evidenceRef()));
