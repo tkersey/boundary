@@ -137,6 +137,7 @@ const root_shape = Closure.EffectShape.init(.{
     .site_index = ApprovalRequest.index,
     .protocol_label = "approval",
     .protocol_op_fingerprint = ApprovalRequest.fingerprint,
+    .value_ref = Evidence.BoundaryValueRef.fromValueRef(ApprovalRequest.payload_ref),
     .expected_resume_ref = Evidence.BoundaryValueRef.init("i32", null),
 });
 const nested_shape = Closure.EffectShape.init(.{
@@ -146,6 +147,7 @@ const nested_shape = Closure.EffectShape.init(.{
     .site_index = PolicyCheck.index,
     .protocol_label = "policy",
     .protocol_op_fingerprint = PolicyCheck.fingerprint,
+    .value_ref = Evidence.BoundaryValueRef.fromValueRef(PolicyCheck.payload_ref),
     .expected_resume_ref = Evidence.BoundaryValueRef.init("i32", null),
 });
 const root_plan = blk: {

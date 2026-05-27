@@ -6715,7 +6715,7 @@ fn staticTreatyPlanProviderProgramMappingTagsMatchShape(plan: BoundaryStaticTrea
 }
 
 fn providerProgramMappingRequestTagMatchesShape(shape: BoundaryEffectShape, tag: []const u8) bool {
-    if (std.mem.eql(u8, tag, "payload_to_args")) return true;
+    if (std.mem.eql(u8, tag, "payload_to_args")) return shape.value_ref != null;
     if (std.mem.eql(u8, tag, "unit_args")) {
         const ref = shape.value_ref orelse return false;
         return boundaryValueRefIsUnit(ref);
@@ -6883,7 +6883,7 @@ fn providerProgramMappingShapeForPlan(plan: BoundaryStaticTreatyPlan) ?BoundaryE
 
 fn providerProgramMappingTagsCompatibleWithShape(shape: BoundaryEffectShape, request_mapping: anytype, result_mapping: anytype) bool {
     switch (request_mapping) {
-        .payload_to_args => {},
+        .payload_to_args => if (shape.value_ref == null) return false,
         .unit_args => {
             const ref = shape.value_ref orelse return false;
             if (!boundaryValueRefIsUnit(ref)) return false;

@@ -99,6 +99,7 @@ const source_shape = Closure.EffectShape.init(.{
     .site_index = ApprovalRequest.index,
     .protocol_label = "approval",
     .protocol_op_fingerprint = ApprovalRequest.fingerprint,
+    .value_ref = Evidence.BoundaryValueRef.fromValueRef(ApprovalRequest.payload_ref),
     .expected_resume_ref = Evidence.BoundaryValueRef.init("i32", null),
 });
 const static_plan = blk: {

@@ -341,6 +341,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     const provider_ref = Evidence.refFor(Evidence.domains.provider_manifest, 0xC10E, .{ .label = "normalization.provider_manifest" });
     const offer_ref = Evidence.refFor(Evidence.domains.provider_offer, 0xC10F, .{ .label = "normalization.provider_offer" });
     const capability_ref = Evidence.refFor(Evidence.domains.capability, 0xC110, .{ .label = "normalization.capability" });
+    const payload_ref = Evidence.BoundaryValueRef.init("string", null);
     const resume_ref = Evidence.BoundaryValueRef.init("i32", null);
     const shape = Evidence.BoundaryEffectShape.init(.{
         .program_label = "normalization-source",
@@ -349,6 +350,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
         .site_fingerprint = 0xB011_DA7A,
         .protocol_label = "approval",
         .protocol_op_fingerprint = 0xB011_DA7A,
+        .value_ref = payload_ref,
         .expected_resume_ref = resume_ref,
     });
     const static_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
@@ -885,6 +887,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
         .site_fingerprint = 0xB011_DA7A,
         .protocol_label = "approval",
         .protocol_op_fingerprint = 0xB011_DA7A,
+        .expected_resume_ref = resume_ref,
     });
     const missing_resume_static_plan = Evidence.BoundaryStaticTreatyPlan.init(.{
         .label = "normalization.provider_plan.missing_resume",
@@ -5125,6 +5128,7 @@ test "elaboration certificate source map world port lowering boundary normal for
     const provider_morphism_ref = Evidence.refFor(Evidence.domains.morphism_offer, 0xE1B00D, .{ .label = "approval.provider.morphism" });
     const provider_pipeline_ref = Evidence.refFor(Evidence.domains.pipeline, 0xE1B00C, .{ .label = "provider-program-pipeline-proof" });
     const source_resume_ref = Evidence.BoundaryValueRef.init("i32", null);
+    const source_payload_ref = Evidence.BoundaryValueRef.init("unit", null);
     const provider_static_plan_deps = [_]Evidence.Dependency{.{
         .role = .residual_program,
         .ref = residual_ref,
@@ -5134,6 +5138,7 @@ test "elaboration certificate source map world port lowering boundary normal for
         .kind = .operation,
         .site_index = 4,
         .protocol_label = "approval",
+        .value_ref = source_payload_ref,
         .expected_resume_ref = source_resume_ref,
     });
     const source_shape_ref = source_shape.evidenceRef();
@@ -6748,6 +6753,7 @@ test "boundary elaboration input validation rejects duplicate provider proof ref
             .kind = .operation,
             .site_index = 0,
             .protocol_label = "approval",
+            .value_ref = Evidence.BoundaryValueRef.init("unit", null),
             .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
         });
         const morphism_target_shape = Closure.EffectShape.init(.{
@@ -6756,6 +6762,7 @@ test "boundary elaboration input validation rejects duplicate provider proof ref
             .site_index = 0,
             .protocol_label = "approval",
             .protocol_op_fingerprint = 0xE1D1_0D01,
+            .value_ref = Evidence.BoundaryValueRef.init("unit", null),
             .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
             .usage_summary = "copyable",
         });
@@ -7221,6 +7228,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .kind = .operation,
             .site_index = 0,
             .protocol_label = "approval",
+            .value_ref = Evidence.BoundaryValueRef.init("unit", null),
             .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
         });
         const wrong_residual_ref = Evidence.refFor(Evidence.domains.program_plan, 0xE1D214, .{ .label = "wrong-residual-program" });
@@ -7266,10 +7274,12 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .closure_certificate = forged_certificate,
             .static_treaty_plans = &.{forged_plan},
             .source_program_ref = source_ref,
+            .residual_program_ref = wrong_residual_ref,
             .provider_programs = forged_provider_programs[0..],
             .policy = Elaboration.Policy.auditOnly(),
         };
-        forged_input.validateResidualProgram(Program) catch |err| break :blk err == error.BoundaryElaborationResidualProgramMismatch;
+        forged_input.validateResidualProgram(Program) catch |err| break :blk err == error.BoundaryElaborationResidualProgramMismatch or
+            err == error.BoundaryElaborationProviderProgramRefMismatch;
         break :blk false;
     };
     try std.testing.expect(forged_residual_rejected);
@@ -7286,6 +7296,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .kind = .operation,
             .site_index = 0,
             .protocol_label = "approval",
+            .value_ref = Evidence.BoundaryValueRef.init("unit", null),
             .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
         });
         const unbound_plan = Closure.StaticTreatyPlan.init(.{
@@ -7384,6 +7395,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .kind = .operation,
             .site_index = 0,
             .protocol_label = "approval",
+            .value_ref = Evidence.BoundaryValueRef.init("unit", null),
             .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
         });
         const rebind_plan = Closure.StaticTreatyPlan.init(.{
@@ -7648,6 +7660,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .site_index = closure_approval_request.index,
             .protocol_label = "approval",
             .protocol_op_fingerprint = closure_approval_request.fingerprint,
+            .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.payload_ref),
             .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
         });
         const first_nested_shape = Closure.EffectShape.init(.{
@@ -7756,6 +7769,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .kind = .operation,
             .site_index = 0,
             .protocol_label = "approval",
+            .value_ref = Evidence.BoundaryValueRef.init("unit", null),
             .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
         });
         const second_shape = Closure.EffectShape.init(.{
@@ -7763,6 +7777,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .kind = .operation,
             .site_index = 1,
             .protocol_label = "approval",
+            .value_ref = Evidence.BoundaryValueRef.init("unit", null),
             .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
         });
         const first_plan = Closure.StaticTreatyPlan.init(.{
@@ -15637,6 +15652,7 @@ test "boundary target normalization selects provider proofs and reports fallback
         .site_index = closure_approval_request.index,
         .protocol_label = "approval",
         .protocol_op_fingerprint = closure_approval_request.fingerprint,
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.payload_ref),
         .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
     });
     const nested_provider_plan = Closure.StaticTreatyPlan.init(.{
