@@ -5447,8 +5447,11 @@ fn normalizationRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap
         .kernel_primitive,
         => null,
     };
+    if (entry.disposition == .world_port_lowered) {
+        return normalizationWorldPortRouteProofMatchesSourceEntry(entry, semantic_body, static_treaty_plans);
+    }
     if (expected_disposition == null or entry.disposition != expected_disposition.?) {
-        return entry.disposition == .world_port_lowered or entry.disposition == .blocked;
+        return entry.disposition == .blocked;
     }
     const plan_ref = entry.static_treaty_plan_ref orelse return false;
     const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return false;
@@ -5464,6 +5467,27 @@ fn normalizationRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap
         return optionalRefValuesEqual(plan.selected_provider_program_ref, provider_program_ref);
     }
     return entry.provider_program_ref == null;
+}
+
+fn normalizationWorldPortRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan) bool {
+    const world_port_ref = entry.world_port_ref orelse return false;
+    if (world_port_ref.domain_id != domains.boundary_world_port.id) return false;
+    if (entry.provider_program_ref != null) return false;
+    const plan_ref = entry.static_treaty_plan_ref orelse return false;
+    const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return false;
+    if (!staticTreatyPlanIntegrityMatches(plan)) return false;
+    if (boundaryStaticTreatyPlanRouteSemanticBody(plan) != semantic_body) return false;
+    return switch (semantic_body) {
+        .declarative,
+        .residualized_program,
+        .pipeline,
+        => staticTreatyPlanHasElaborationRouteProof(plan, semantic_body),
+        .host_intrinsic => staticTreatyPlanCanLowerToWorldPort(plan) and staticTreatyPlanWorldPortIntrinsicRef(plan) != null,
+        .boundary_program,
+        .unknown,
+        .kernel_primitive,
+        => false,
+    };
 }
 
 pub fn boundaryNormalizationRouteLoweringFingerprint(entry: BoundaryElaborationSourceMap.Entry, output_hash: u64) u64 {

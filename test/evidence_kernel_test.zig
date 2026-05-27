@@ -3384,6 +3384,131 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try certificate.check(policy, elaboration_certificate, surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, replay, evidence_map, normalization_certificate, normalization_trace, normalization_redexes[0..], normalization_rules[0..], static_plans[0..]);
 
+    var unproved_world_policy = policy;
+    unproved_world_policy.reject_unknown_semantic_bodies = false;
+    const unproved_source_entries = [_]Elaboration.SourceMap.Entry{.{
+        .source_ref = source_ref,
+        .residual_ref = residual_program_ref,
+        .source_site_index = 0,
+        .residual_site_index = 0,
+        .world_port_ref = world_port_ref,
+        .disposition = .world_port_lowered,
+        .label = "target.unproved-world-port-entry",
+    }};
+    const unproved_source_map = Elaboration.SourceMap.init("target.unproved-world-port-source-map", unproved_source_entries[0..], &.{});
+    const unproved_trace_entries = [_]Elaboration.TraceMap.Entry{.{
+        .source_ref = source_ref,
+        .residual_ref = world_port_ref,
+        .trace_label = "target.unproved-world-port-entry",
+    }};
+    const unproved_trace_map = Elaboration.TraceMap.init("target.unproved-world-port-trace-map", unproved_trace_entries[0..]);
+    const unproved_surface = Elaboration.WorldSurface.init(.{
+        .label = "target.unproved-world-port-surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_program_ref,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .source_map_ref = unproved_source_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = replay.evidenceRef(),
+        .normal_form = .world_ports_only,
+        .world_port_count = 1,
+    });
+    const unproved_dependencies = [_]Evidence.Dependency{
+        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
+        .{ .role = .elaboration_source_map, .ref = unproved_surface.source_map_ref },
+        .{ .role = .elaboration_effect_row, .ref = unproved_surface.effect_row_ref },
+        .{ .role = .elaboration_trace_map, .ref = unproved_trace_map.evidenceRef() },
+        .{ .role = .world_surface, .ref = unproved_surface.evidenceRef() },
+        .{ .role = .world_port_table, .ref = port_table.evidenceRef() },
+        .{ .role = .world_value_table, .ref = value_table.evidenceRef() },
+        .{ .role = .world_dispatch_table, .ref = dispatch_table.evidenceRef() },
+        .{ .role = .surface_profile, .ref = profile.evidenceRef() },
+        .{ .role = .replay_key_recipe, .ref = replay.evidenceRef() },
+        .{ .role = .residual_program, .ref = residual_program_ref },
+    };
+    const unproved_evidence_map = Elaboration.TargetEvidenceMap.init("target.unproved-world-port-evidence", unproved_dependencies[0..]);
+    const unproved_normalization_redex = Elaboration.Target.Normalization.Redex.init(.{
+        .label = "target.unproved-world-port-entry",
+        .source_effect_shape_ref = source_ref,
+        .coordinates = .{ .function_index = 0, .block_index = 0, .instruction_index = 0, .site_index = 0 },
+        .kind = .world_port_site,
+        .current_program_plan_ref = residual_program_ref,
+        .semantic_body = .unknown,
+        .expected_lowering_kind = .residual_world_port,
+        .evidence_dependencies = normalization_redex_dependencies[0..],
+    });
+    const unproved_normalization_rule = Elaboration.Target.Normalization.RewriteRule.init(.{
+        .label = "target.unproved-world-port-entry",
+        .kind = .residual_world_port,
+        .evidence_dependencies = normalization_rule_dependencies[0..],
+        .produced_source_map_entries = 1,
+        .produced_trace_map_entries = 1,
+        .produced_effect_row_entries = 1,
+    });
+    const unproved_route_lowering_fingerprint = Evidence.boundaryNormalizationRouteLoweringFingerprint(unproved_source_entries[0], residual_program_ref.fingerprint);
+    const unproved_normalization_step = Elaboration.Target.Normalization.RewriteStep.init(.{
+        .step_index = 0,
+        .redex_ref = unproved_normalization_redex.evidenceRef(),
+        .rewrite_rule_ref = unproved_normalization_rule.evidenceRef(),
+        .source_effect_shape_ref = source_ref,
+        .input_program_plan_hash = residual_program_ref.fingerprint,
+        .output_program_plan_hash = residual_program_ref.fingerprint,
+        .builder_state_fingerprint = unproved_route_lowering_fingerprint,
+        .world_port_ref = world_port_ref,
+        .summary = "residual_world_port",
+    });
+    const unproved_normalization_redexes = [_]Elaboration.Target.Normalization.Redex{unproved_normalization_redex};
+    const unproved_normalization_rules = [_]Elaboration.Target.Normalization.RewriteRule{unproved_normalization_rule};
+    const unproved_normalization_steps = [_]Elaboration.Target.Normalization.RewriteStep{unproved_normalization_step};
+    const unproved_trace_dependencies = [_]Evidence.Dependency{
+        .{ .role = .closure_certificate, .ref = closure_certificate_ref },
+        .{ .role = .residual_program, .ref = residual_program_ref },
+        .{ .role = .elaboration_source_map, .ref = unproved_source_map.evidenceRef() },
+        .{ .role = .elaboration_effect_row, .ref = effect_row.evidenceRef() },
+        .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
+    };
+    const unproved_normalization_trace = Elaboration.Target.Normalization.Trace.init(.{
+        .label = "target.unproved-world-port-normalization.trace",
+        .root_program_ref = residual_program_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .rewrite_steps = unproved_normalization_steps[0..],
+        .residual_world_port_refs = normalization_world_ports[0..],
+        .final_program_plan_hash = residual_program_ref.fingerprint,
+        .final_normal_form = .world_ports_only,
+        .evidence_dependencies = unproved_trace_dependencies[0..],
+    });
+    const unproved_normalization_certificate_dependencies = [_]Evidence.Dependency{
+        .{ .role = .normalization_trace, .ref = unproved_normalization_trace.evidenceRef() },
+        .{ .role = .elaboration_source_map, .ref = unproved_source_map.evidenceRef() },
+        .{ .role = .elaboration_trace_map, .ref = unproved_trace_map.evidenceRef() },
+        .{ .role = .target_evidence_map, .ref = unproved_evidence_map.evidenceRef() },
+        .{ .role = .elaboration_effect_row, .ref = effect_row.evidenceRef() },
+        .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
+        .{ .role = .world_surface, .ref = unproved_surface.evidenceRef() },
+    };
+    const unproved_normalization_certificate = Elaboration.Target.Normalization.Certificate.init(.{
+        .label = "target.unproved-world-port-normalization.certificate",
+        .closure_certificate_ref = closure_certificate_ref,
+        .target_policy_fingerprint = unproved_world_policy.fingerprint(),
+        .normalization_trace_ref = unproved_normalization_trace.evidenceRef(),
+        .final_program_plan_hash = residual_program_ref.fingerprint,
+        .source_map_ref = unproved_source_map.evidenceRef(),
+        .trace_map_ref = unproved_trace_map.evidenceRef(),
+        .evidence_map_ref = unproved_evidence_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .normal_form_ref = normal_form.evidenceRef(),
+        .world_surface_ref = unproved_surface.evidenceRef(),
+        .dependencies = unproved_normalization_certificate_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryNormalizationCertificateMismatch,
+        unproved_normalization_certificate.check(unproved_world_policy, unproved_normalization_trace, unproved_normalization_redexes[0..], unproved_normalization_rules[0..], static_plans[0..], unproved_source_map, unproved_trace_map, unproved_evidence_map, effect_row, normal_form, unproved_surface),
+    );
+
     var world_without_declarative_policy = policy;
     world_without_declarative_policy.allow_declarative_morphisms = false;
     const world_without_declarative_normalization_certificate = Elaboration.Target.Normalization.Certificate.init(.{
@@ -9090,7 +9215,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
     try std.testing.expect(duplicate_world_ports_rejected);
 
     const broad_port_rejected = comptime blk: {
-        @setEvalBranchQuota(200_000);
+        @setEvalBranchQuota(8_000_000);
         const shape_ref = Evidence.refFor(Evidence.domains.boundary_effect_shape, 0xE1D207, .{ .label = "approval.request" });
         const broad_port = Closure.WorldPort.init(.{
             .label = "broad-approval-world-port",
