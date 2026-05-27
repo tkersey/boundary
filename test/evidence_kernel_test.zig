@@ -362,8 +362,8 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
         .selected_provider_program_mapping_fingerprint = 0xC111,
         .selected_provider_program_request_mapping_tag = "payload_to_args",
         .selected_provider_program_result_mapping_tag = "result_to_resume",
-        .selected_provider_program_effect_shape_count = 1,
-        .selected_provider_program_effect_shape_fingerprint = shape.fingerprint,
+        .selected_provider_program_effect_shape_count = 0,
+        .selected_provider_program_effect_shape_fingerprint = Evidence.fingerprintBoundaryEffectShapeSet(&.{}),
     });
     const static_plans = [_]Evidence.BoundaryStaticTreatyPlan{static_plan};
     const redex_dependencies = [_]Evidence.Dependency{
@@ -449,8 +449,6 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
         .source_effect_shapes = 1,
         .closed_effect_shapes = 1,
         .provider_program_links = 1,
-        .nested_provider_shapes_linked = 1,
-        .nested_provider_depth = 1,
     });
     const trace_map_entries = [_]Evidence.BoundaryElaborationTraceMap.Entry{.{
         .source_ref = shape.evidenceRef(),
@@ -527,8 +525,8 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     try certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface, &.{});
 
     var forged_nested_effect_row = effect_row;
-    forged_nested_effect_row.nested_provider_shapes_linked = 0;
-    forged_nested_effect_row.nested_provider_depth = 0;
+    forged_nested_effect_row.nested_provider_shapes_linked = 1;
+    forged_nested_effect_row.nested_provider_depth = 1;
     forged_nested_effect_row.fingerprint = forged_nested_effect_row.computeFingerprint();
     const forged_nested_normal_form = Evidence.BoundaryNormalForm.init("normalization.forged_nested.normal_form", .strict_closed, closure_certificate_ref, forged_nested_effect_row.evidenceRef(), 0);
     const forged_nested_trace_deps = [_]Evidence.Dependency{

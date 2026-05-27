@@ -6085,12 +6085,34 @@ fn sourceMapEffectRowCountsMatch(source_map: BoundaryElaborationSourceMap, stati
 
 fn sourceMapNestedProviderShapesLinkedCount(source_map: BoundaryElaborationSourceMap, static_treaty_plans: []const BoundaryStaticTreatyPlan) ?usize {
     var count: usize = 0;
-    for (source_map.entries) |entry| {
+    for (source_map.entries, 0..) |entry, index| {
         if (entry.disposition != .provider_program_linked) continue;
         const plan_ref = entry.static_treaty_plan_ref orelse return null;
         const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return null;
-        if (plan.selected_provider_program_ref == null) return null;
-        count += plan.selected_provider_program_effect_shape_count orelse return null;
+        const program_ref = plan.selected_provider_program_ref orelse return null;
+        if (sourceMapEntrySliceProviderProgramRefCount(source_map.entries[0..index], program_ref) != 0) continue;
+        const shape_count = plan.selected_provider_program_effect_shape_count orelse return null;
+        if ((sourceMapNestedProviderChildEntryCount(source_map, static_treaty_plans, program_ref) orelse return null) != shape_count) return null;
+        count += shape_count;
+    }
+    return count;
+}
+
+fn sourceMapEntrySliceProviderProgramRefCount(entries: []const BoundaryElaborationSourceMap.Entry, program_ref: Ref) usize {
+    var count: usize = 0;
+    for (entries) |entry| {
+        const entry_program_ref = entry.provider_program_ref orelse continue;
+        if (entry_program_ref.eql(program_ref)) count += 1;
+    }
+    return count;
+}
+
+fn sourceMapNestedProviderChildEntryCount(source_map: BoundaryElaborationSourceMap, static_treaty_plans: []const BoundaryStaticTreatyPlan, program_ref: Ref) ?usize {
+    var count: usize = 0;
+    for (source_map.entries) |entry| {
+        const plan_ref = entry.static_treaty_plan_ref orelse continue;
+        const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return null;
+        if (plan.source_shape.plan_hash == program_ref.fingerprint) count += 1;
     }
     return count;
 }
@@ -6111,6 +6133,7 @@ fn sourceMapNestedProviderDepthFromPlan(source_map: BoundaryElaborationSourceMap
     const shape_count = plan.selected_provider_program_effect_shape_count orelse return null;
     if (shape_count == 0) return 0;
     if (seen_count >= static_treaty_plans.len) return null;
+    if ((sourceMapNestedProviderChildEntryCount(source_map, static_treaty_plans, program_ref) orelse return null) != shape_count) return null;
     var child_depth: usize = 0;
     for (source_map.entries) |entry| {
         if (entry.disposition != .provider_program_linked) continue;
