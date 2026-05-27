@@ -3384,6 +3384,27 @@ test "certified boundary target world surface tables and certificate are determi
     });
     try certificate.check(policy, elaboration_certificate, surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, replay, evidence_map, normalization_certificate, normalization_trace, normalization_redexes[0..], normalization_rules[0..], static_plans[0..]);
 
+    var world_without_declarative_policy = policy;
+    world_without_declarative_policy.allow_declarative_morphisms = false;
+    const world_without_declarative_normalization_certificate = Elaboration.Target.Normalization.Certificate.init(.{
+        .label = "target.normalization.world-without-declarative.certificate",
+        .closure_certificate_ref = closure_certificate_ref,
+        .target_policy_fingerprint = world_without_declarative_policy.fingerprint(),
+        .normalization_trace_ref = normalization_trace.evidenceRef(),
+        .final_program_plan_hash = residual_program_ref.fingerprint,
+        .source_map_ref = source_map.evidenceRef(),
+        .trace_map_ref = trace_map.evidenceRef(),
+        .evidence_map_ref = evidence_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .normal_form_ref = normal_form.evidenceRef(),
+        .world_surface_ref = surface.evidenceRef(),
+        .dependencies = normalization_certificate_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryNormalizationPolicyMismatch,
+        world_without_declarative_normalization_certificate.check(world_without_declarative_policy, normalization_trace, normalization_redexes[0..], normalization_rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, surface),
+    );
+
     const missing_normalization_dependency = Elaboration.Target.Certificate.init(.{
         .target_label = "target.missing-normalization-dependency",
         .policy = policy,

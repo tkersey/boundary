@@ -5498,7 +5498,7 @@ fn normalizationPolicyAllowsRewrite(policy: BoundaryNormalizationPolicy, kind: B
         .already_normal => normalizationPolicyAllowsSemanticBody(policy, semantic_body),
         .provider_program_call => policy.allow_program_provider_rewrites,
         .nested_provider_program_call => policy.allow_program_provider_rewrites and policy.allow_nested_provider_rewrites,
-        .residual_world_port => policy.allow_world_port_residualization,
+        .residual_world_port => policy.allow_world_port_residualization and normalizationPolicyAllowsSemanticBody(policy, semantic_body),
         .residualized_morphism => policy.allow_residualized_morphism_rewrites,
         .pipeline_adapter => policy.allow_pipeline_rewrites,
         .unsupported => true,
