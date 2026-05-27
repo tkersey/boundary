@@ -5123,7 +5123,7 @@ pub const BoundaryNormalizationCertificate = struct {
         if (evidence_map.fingerprint != evidence_map.computeFingerprint()) return error.BoundaryNormalizationCertificateMismatch;
         if (effect_row.fingerprint != effect_row.computeFingerprint()) return error.BoundaryNormalizationCertificateMismatch;
         if (!effectRowAliasesMatchCanonicalFields(effect_row)) return error.BoundaryNormalizationCertificateMismatch;
-        if (!sourceMapEffectRowCountsMatch(source_map, effect_row)) return error.BoundaryNormalizationCertificateMismatch;
+        if (!sourceMapEffectRowCountsMatch(source_map, static_treaty_plans, effect_row)) return error.BoundaryNormalizationCertificateMismatch;
         if (sourceMapBlockedUnsupportedShapeCount(source_map, static_treaty_plans) != effect_row.unsupported_shapes) return error.BoundaryNormalizationCertificateMismatch;
         if (normal_form.fingerprint != normal_form.computeFingerprint()) return error.BoundaryNormalizationCertificateMismatch;
         if (world_surface.surface_fingerprint != world_surface.computeFingerprint()) return error.BoundaryNormalizationCertificateMismatch;
@@ -6068,15 +6068,58 @@ fn effectRowAliasesMatchCanonicalFields(effect_row: BoundaryElaborationEffectRow
         effect_row.world_ports_only == (effect_row.normal_form == .world_ports_only);
 }
 
-fn sourceMapEffectRowCountsMatch(source_map: BoundaryElaborationSourceMap, effect_row: BoundaryElaborationEffectRow) bool {
+fn sourceMapEffectRowCountsMatch(source_map: BoundaryElaborationSourceMap, static_treaty_plans: []const BoundaryStaticTreatyPlan, effect_row: BoundaryElaborationEffectRow) bool {
+    const nested_provider_shapes = sourceMapNestedProviderShapesLinkedCount(source_map, static_treaty_plans) orelse return false;
+    const nested_provider_depth = sourceMapNestedProviderDepth(source_map, static_treaty_plans) orelse return false;
     return effect_row.source_effect_shapes == sourceMapEffectShapeEntryCount(source_map) and
         effect_row.closed_effect_shapes == sourceMapClosedEffectShapeCount(source_map) and
         effect_row.world_ports == sourceMapWorldPortCount(source_map) and
         effect_row.residual_world_ports == sourceMapWorldPortCount(source_map) and
         effect_row.provider_program_links == sourceMapProviderProgramCount(source_map) and
         effect_row.linked_provider_programs == sourceMapProviderProgramUniqueCount(source_map) and
+        effect_row.nested_provider_shapes_linked == nested_provider_shapes and
+        effect_row.nested_provider_depth == nested_provider_depth and
         effect_row.residualized_routes == sourceMapDispositionCount(source_map, .residualized) and
         effect_row.pipeline_routes == sourceMapDispositionCount(source_map, .pipeline_adapter);
+}
+
+fn sourceMapNestedProviderShapesLinkedCount(source_map: BoundaryElaborationSourceMap, static_treaty_plans: []const BoundaryStaticTreatyPlan) ?usize {
+    var count: usize = 0;
+    for (source_map.entries) |entry| {
+        if (entry.disposition != .provider_program_linked) continue;
+        const plan_ref = entry.static_treaty_plan_ref orelse return null;
+        const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return null;
+        if (plan.selected_provider_program_ref == null) return null;
+        count += plan.selected_provider_program_effect_shape_count orelse return null;
+    }
+    return count;
+}
+
+fn sourceMapNestedProviderDepth(source_map: BoundaryElaborationSourceMap, static_treaty_plans: []const BoundaryStaticTreatyPlan) ?usize {
+    var depth: usize = 0;
+    for (source_map.entries) |entry| {
+        if (entry.disposition != .provider_program_linked) continue;
+        const plan_ref = entry.static_treaty_plan_ref orelse return null;
+        const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return null;
+        depth = @max(depth, sourceMapNestedProviderDepthFromPlan(source_map, static_treaty_plans, plan, 0) orelse return null);
+    }
+    return depth;
+}
+
+fn sourceMapNestedProviderDepthFromPlan(source_map: BoundaryElaborationSourceMap, static_treaty_plans: []const BoundaryStaticTreatyPlan, plan: BoundaryStaticTreatyPlan, seen_count: usize) ?usize {
+    const program_ref = plan.selected_provider_program_ref orelse return 0;
+    const shape_count = plan.selected_provider_program_effect_shape_count orelse return null;
+    if (shape_count == 0) return 0;
+    if (seen_count >= static_treaty_plans.len) return null;
+    var child_depth: usize = 0;
+    for (source_map.entries) |entry| {
+        if (entry.disposition != .provider_program_linked) continue;
+        const child_plan_ref = entry.static_treaty_plan_ref orelse return null;
+        const child_plan = staticTreatyPlanForRef(static_treaty_plans, child_plan_ref) orelse return null;
+        if (child_plan.source_shape.plan_hash != program_ref.fingerprint) continue;
+        child_depth = @max(child_depth, sourceMapNestedProviderDepthFromPlan(source_map, static_treaty_plans, child_plan, seen_count + 1) orelse return null);
+    }
+    return 1 + child_depth;
 }
 
 fn certificateViewsEqual(left: CertificateView, right: CertificateView) bool {
@@ -7473,6 +7516,16 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                         if (!worldPortRefsMatch(self.world_ports, elaboration_input.closure_report.world_port_refs)) return error.BoundaryElaborationWorldPortRefMismatch;
                         if (self.max_nested_provider_depth != self.target_policy.max_nested_provider_depth) return error.BoundaryElaborationBlocked;
                     }
+
+                    pub fn validateForTrace(comptime self: @This()) ValidationError!void {
+                        if (self.closure_certificate.evidenceRef().domain_id != domains.boundary_closure_certificate.id) return error.BoundaryElaborationCertificateMismatch;
+                        if (self.closure_graph.evidenceRef().domain_id != domains.boundary_closure_graph.id) return error.BoundaryElaborationCertificateMismatch;
+                        if (self.root_program_ref.domain_id != domains.program_plan.id) return error.BoundaryElaborationRootRefMismatch;
+                        if (refSliceCount(self.closure_certificate.root_refs, self.root_program_ref) == 0) return error.BoundaryElaborationRootRefMismatch;
+                        if (!staticPlanRefsMatch(self.static_treaty_plans, self.closure_certificate.selected_static_treaty_plan_refs)) return error.BoundaryElaborationStaticTreatyPlanRefMismatch;
+                        if (!refsEqual(self.provider_program_refs, self.closure_certificate.provider_program_refs)) return error.BoundaryElaborationProviderProgramRefMismatch;
+                        if (self.max_nested_provider_depth != self.target_policy.max_nested_provider_depth) return error.BoundaryElaborationBlocked;
+                    }
                 };
 
                 pub const RouteKind = enum {
@@ -7749,8 +7802,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     return false;
                 }
 
-                pub fn redexesFor(comptime SourceBody: type, comptime ResidualProgram: type, comptime input: TargetElaborationInput, comptime target_policy: TargetPolicy) [SourceBody.source_map.entries.len]Redex {
-                    _ = target_policy;
+                pub fn redexesFor(comptime SourceBody: type, comptime ResidualProgram: type, comptime input: @This().Input) [SourceBody.source_map.entries.len]Redex {
                     var redexes: [SourceBody.source_map.entries.len]Redex = undefined;
                     inline for (SourceBody.source_map.entries, 0..) |entry, index| {
                         const plan = if (entry.static_treaty_plan_ref) |plan_ref| staticTreatyPlanForRef(input.static_treaty_plans, plan_ref) else null;
@@ -7778,7 +7830,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     return redexes;
                 }
 
-                pub fn rulesFor(comptime SourceBody: type, comptime input: TargetElaborationInput) [SourceBody.source_map.entries.len]RewriteRule {
+                pub fn rulesFor(comptime SourceBody: type, comptime input: @This().Input) [SourceBody.source_map.entries.len]RewriteRule {
                     var rules: [SourceBody.source_map.entries.len]RewriteRule = undefined;
                     inline for (SourceBody.source_map.entries, 0..) |entry, index| {
                         rules[index] = RewriteRule.init(.{
@@ -7794,7 +7846,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     return rules;
                 }
 
-                pub fn stepsFor(comptime SourceBody: type, comptime ResidualProgram: type, comptime input: TargetElaborationInput, comptime redexes: anytype, comptime rules: anytype) [SourceBody.source_map.entries.len]RewriteStep {
+                pub fn stepsFor(comptime SourceBody: type, comptime ResidualProgram: type, comptime input: @This().Input, comptime redexes: anytype, comptime rules: anytype) [SourceBody.source_map.entries.len]RewriteStep {
                     var steps: [SourceBody.source_map.entries.len]RewriteStep = undefined;
                     inline for (SourceBody.source_map.entries, 0..) |entry, index| {
                         const plan = if (entry.static_treaty_plan_ref) |plan_ref| staticTreatyPlanForRef(input.static_treaty_plans, plan_ref) else null;
@@ -7831,10 +7883,10 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     return final_refs[0..];
                 }
 
-                pub fn traceFor(comptime SourceBody: type, comptime ResidualProgram: type, comptime input: TargetElaborationInput, comptime target_policy: TargetPolicy, comptime label: []const u8) Trace {
-                    comptime input.validate() catch |err|
+                pub fn traceFor(comptime SourceBody: type, comptime ResidualProgram: type, comptime input: @This().Input, comptime label: []const u8) Trace {
+                    comptime input.validateForTrace() catch |err|
                         @compileError("Boundary Target Normalization input rejected: " ++ @errorName(err));
-                    const RedexesValue = comptime redexesFor(SourceBody, ResidualProgram, input, target_policy);
+                    const RedexesValue = comptime redexesFor(SourceBody, ResidualProgram, input);
                     const RulesValue = comptime rulesFor(SourceBody, input);
                     const StepsValue = comptime stepsFor(SourceBody, ResidualProgram, input, RedexesValue, RulesValue);
                     const eliminated = comptime eliminatedRedexRefs(SourceBody, RedexesValue);
@@ -8000,11 +8052,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 {
                     @compileError("Boundary Target body policy does not match target policy");
                 }
-                const normalization_input = comptime blk: {
-                    var copy = options.input;
-                    copy.policy = expected_elaboration_policy;
-                    break :blk copy;
-                };
+                const normalization_input = comptime Normalization.Input.fromElaboration(options.input, policy);
                 const port_entries = comptime targetWorldPortEntries(SourceBody, ResidualProgram, options.input.static_treaty_plans, policy);
                 const value_entries = comptime targetWorldValueEntries(port_entries);
                 const dispatch_entry_count = comptime targetWorldDispatchEntryCount(port_entries);
@@ -8070,14 +8118,12 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     SourceBody,
                     ResidualProgram,
                     normalization_input,
-                    policy,
                 );
                 const NormalizationRulesValue = comptime Normalization.rulesFor(SourceBody, normalization_input);
                 const NormalizationTraceValue = comptime Normalization.traceFor(
                     SourceBody,
                     ResidualProgram,
                     normalization_input,
-                    policy,
                     targetOption(options, "normalization_trace_label", target_label ++ ".normalization_trace"),
                 );
                 const NormalizationCertificateDependenciesValue = [_]Dependency{

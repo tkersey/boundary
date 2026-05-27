@@ -449,6 +449,8 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
         .source_effect_shapes = 1,
         .closed_effect_shapes = 1,
         .provider_program_links = 1,
+        .nested_provider_shapes_linked = 1,
+        .nested_provider_depth = 1,
     });
     const trace_map_entries = [_]Evidence.BoundaryElaborationTraceMap.Entry{.{
         .source_ref = shape.evidenceRef(),
@@ -523,6 +525,70 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     try std.testing.expectEqual(Evidence.domains.boundary_normalization_trace.id, trace.evidenceRef().domain_id);
     try std.testing.expectEqual(Evidence.domains.boundary_normalization_certificate.id, certificate.evidenceView().domain);
     try certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface, &.{});
+
+    var forged_nested_effect_row = effect_row;
+    forged_nested_effect_row.nested_provider_shapes_linked = 0;
+    forged_nested_effect_row.nested_provider_depth = 0;
+    forged_nested_effect_row.fingerprint = forged_nested_effect_row.computeFingerprint();
+    const forged_nested_normal_form = Evidence.BoundaryNormalForm.init("normalization.forged_nested.normal_form", .strict_closed, closure_certificate_ref, forged_nested_effect_row.evidenceRef(), 0);
+    const forged_nested_trace_deps = [_]Evidence.Dependency{
+        .{ .role = .closure_certificate, .ref = closure_certificate_ref },
+        .{ .role = .residual_program, .ref = residual_ref },
+        .{ .role = .elaboration_source_map, .ref = source_map.evidenceRef() },
+        .{ .role = .elaboration_effect_row, .ref = forged_nested_effect_row.evidenceRef() },
+        .{ .role = .normal_form, .ref = forged_nested_normal_form.evidenceRef() },
+    };
+    const forged_nested_trace = Evidence.BoundaryNormalizationTrace.init(.{
+        .label = "normalization.forged_nested.trace",
+        .root_program_ref = source_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .rewrite_steps = steps[0..],
+        .eliminated_redex_refs = eliminated[0..],
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .final_normal_form = .strict_closed,
+        .evidence_dependencies = forged_nested_trace_deps[0..],
+    });
+    const forged_nested_world_surface = Evidence.BoundaryWorldSurface.init(.{
+        .label = "normalization.forged_nested.world_surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_ref,
+        .elaboration_certificate_ref = Evidence.refFor(Evidence.domains.boundary_elaboration_certificate, 0xE1AB, .{ .label = "elaboration" }),
+        .source_map_ref = source_map.evidenceRef(),
+        .effect_row_ref = forged_nested_effect_row.evidenceRef(),
+        .port_table_ref = Evidence.refFor(Evidence.domains.boundary_world_port_table, 0x7100, .{}),
+        .value_table_ref = Evidence.refFor(Evidence.domains.boundary_world_value_table, 0x7101, .{}),
+        .dispatch_table_ref = Evidence.refFor(Evidence.domains.boundary_world_dispatch_table, 0x7102, .{}),
+        .profile_ref = Evidence.refFor(Evidence.domains.boundary_world_surface_profile, 0x7103, .{}),
+        .replay_key_recipe_ref = Evidence.refFor(Evidence.domains.boundary_world_replay_key_recipe, 0x7104, .{}),
+        .normal_form = .strict_closed,
+        .world_port_count = 0,
+    });
+    const forged_nested_certificate = Evidence.BoundaryNormalizationCertificate.init(.{
+        .label = "normalization.forged_nested.certificate",
+        .closure_certificate_ref = closure_certificate_ref,
+        .target_policy_fingerprint = Evidence.BoundaryTargetPolicy.strictClosed().fingerprint(),
+        .normalization_trace_ref = forged_nested_trace.evidenceRef(),
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .source_map_ref = source_map.evidenceRef(),
+        .trace_map_ref = trace_map.evidenceRef(),
+        .evidence_map_ref = evidence_map.evidenceRef(),
+        .effect_row_ref = forged_nested_effect_row.evidenceRef(),
+        .normal_form_ref = forged_nested_normal_form.evidenceRef(),
+        .world_surface_ref = forged_nested_world_surface.evidenceRef(),
+        .dependencies = (&[_]Evidence.Dependency{
+            .{ .role = .normalization_trace, .ref = forged_nested_trace.evidenceRef() },
+            .{ .role = .elaboration_source_map, .ref = source_map.evidenceRef() },
+            .{ .role = .elaboration_trace_map, .ref = trace_map.evidenceRef() },
+            .{ .role = .target_evidence_map, .ref = evidence_map.evidenceRef() },
+            .{ .role = .elaboration_effect_row, .ref = forged_nested_effect_row.evidenceRef() },
+            .{ .role = .normal_form, .ref = forged_nested_normal_form.evidenceRef() },
+            .{ .role = .world_surface, .ref = forged_nested_world_surface.evidenceRef() },
+        })[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryNormalizationCertificateMismatch,
+        forged_nested_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), forged_nested_trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, forged_nested_effect_row, forged_nested_normal_form, forged_nested_world_surface, &.{}),
+    );
 
     const morphism_ref = Evidence.refFor(Evidence.domains.morphism_offer, 0xC112, .{ .label = "normalization.morphism" });
     const residualized_plan_dependencies = [_]Evidence.Dependency{
@@ -1616,6 +1682,7 @@ test "boundary normalization input validates checked closure and target policy c
         };
         const normalization_input = Elaboration.Target.Normalization.Input.fromElaboration(input, target_policy);
         normalization_input.validate(input) catch break :blk false;
+        normalization_input.validateForTrace() catch break :blk false;
         const routes = Elaboration.Target.Normalization.routesFor(normalization_input);
         if (routes.len != 0) break :blk false;
         var mismatched_policy = normalization_input;
@@ -1624,6 +1691,8 @@ test "boundary normalization input validates checked closure and target policy c
         if (!policy_mismatch_rejected) break :blk false;
         var mismatched = normalization_input;
         mismatched.root_program_ref = Evidence.refFor(Evidence.domains.program_plan, 0xBAD, .{ .label = "wrong-root" });
+        const trace_root_mismatch_rejected = mismatched.validateForTrace() catch |err| err == error.BoundaryElaborationRootRefMismatch;
+        if (!trace_root_mismatch_rejected) break :blk false;
         mismatched.validate(input) catch |err| break :blk err == error.BoundaryElaborationRootRefMismatch;
         break :blk false;
     };
