@@ -1430,6 +1430,22 @@ pub fn program(
         pub const boundary_target_certificate_fingerprint_version: u32 = Evidence.domains.boundary_target_certificate.fingerprint_version;
         /// Stable fingerprint version for Boundary target evidence maps.
         pub const boundary_target_evidence_map_fingerprint_version: u32 = Evidence.domains.boundary_target_evidence_map.fingerprint_version;
+        /// Stable fingerprint version for Boundary Normalization redex witnesses.
+        pub const boundary_normalization_redex_fingerprint_version: u32 = Evidence.domains.boundary_normalization_redex.fingerprint_version;
+        /// Stable fingerprint version for Boundary Normalization rewrite rules.
+        pub const boundary_normalization_rule_fingerprint_version: u32 = Evidence.domains.boundary_normalization_rule.fingerprint_version;
+        /// Stable fingerprint version for Boundary Normalization rewrite steps.
+        pub const boundary_normalization_step_fingerprint_version: u32 = Evidence.domains.boundary_normalization_step.fingerprint_version;
+        /// Stable fingerprint version for Boundary Normalization traces.
+        pub const boundary_normalization_trace_fingerprint_version: u32 = Evidence.domains.boundary_normalization_trace.fingerprint_version;
+        /// Stable format version for Boundary Normalization certificates.
+        pub const boundary_normalization_certificate_format_version: u32 = Evidence.domains.boundary_normalization_certificate.format_version.?;
+        /// Stable fingerprint version for Boundary Normalization certificates.
+        pub const boundary_normalization_certificate_fingerprint_version: u32 = Evidence.domains.boundary_normalization_certificate.fingerprint_version;
+        /// Stable fingerprint version for route-lowering witnesses.
+        pub const boundary_route_lowering_fingerprint_version: u32 = Evidence.domains.boundary_route_lowering.fingerprint_version;
+        /// Stable fingerprint version for internal Boundary plan-builder witnesses.
+        pub const boundary_plan_builder_fingerprint_version: u32 = Evidence.domains.boundary_plan_builder.fingerprint_version;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {

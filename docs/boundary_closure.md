@@ -49,9 +49,11 @@ is closed; `Program.BoundaryClosure.Elaboration` binds a residual `ProgramPlan`,
 maps, effect row, Boundary Normal Form metadata, and an elaboration certificate
 for the supported internal routes. See
 [boundary_elaboration.md](boundary_elaboration.md). `Elaboration.Target` adds
-the Certified Boundary Target layer: a validated residual body plus a
-target-neutral `WorldSurface`, dense world-port ids, value/dispatch tables,
-profile metadata, replay recipe, and target certificate for World.
+the Certified Boundary Target layer: a validated residual body plus
+normalization trace/certificate evidence, a target-neutral `WorldSurface`, dense
+world-port ids, value/dispatch tables, profile metadata, replay recipe, and
+target certificate for World. See
+[boundary_normalization.md](boundary_normalization.md).
 
 ## EffectShape Vs RequestEnvelope
 

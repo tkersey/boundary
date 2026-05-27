@@ -102,9 +102,16 @@ Current domains are registered in `Program.Evidence.domains`:
 | `boundary.evidence.target.world_dispatch_table` | boundary_target | - | 1 | no | yes | yes | yes | yes | yes | world dispatch |
 | `boundary.evidence.target.world_surface_profile` | boundary_target | - | 1 | no | yes | yes | yes | yes | yes | surface profile |
 | `boundary.evidence.target.world_replay_key_recipe` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | replay key |
-| `boundary.evidence.target.policy` | boundary_target | - | 1 | no | yes | yes | yes | yes | yes | boundary target policy |
-| `boundary.evidence.target.certificate` | boundary_target | 1 | 1 | no | yes | yes | yes | yes | yes | certified boundary target |
+| `boundary.evidence.target.policy` | boundary_target | - | 2 | no | yes | yes | yes | yes | yes | boundary target policy |
+| `boundary.evidence.target.certificate` | boundary_target | 2 | 2 | no | yes | yes | yes | yes | yes | certified boundary target |
 | `boundary.evidence.target.evidence_map` | boundary_target | - | 1 | no | yes | yes | yes | yes | yes | evidence |
+| `boundary.evidence.target.normalization.redex` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | redex |
+| `boundary.evidence.target.normalization.rule` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | rewrite rule |
+| `boundary.evidence.target.normalization.step` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | rewrite step |
+| `boundary.evidence.target.normalization.trace` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | normalization trace |
+| `boundary.evidence.target.normalization.certificate` | boundary_target | 1 | 1 | no | yes | yes | yes | no | yes | normalization |
+| `boundary.evidence.target.normalization.route_lowering` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | route lowering |
+| `boundary.evidence.target.normalization.plan_builder` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | plan builder |
 
 The current journal format is v6 because provider-program execution adds
 provider-side started, parked, nested request/response, resumed, completed,

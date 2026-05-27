@@ -32,6 +32,7 @@ target-neutral `WorldSurface`, dense world-port dispatch table, value table,
 profile, replay recipe, and target certificate. See
 [docs/boundary_closure.md](docs/boundary_closure.md) and
 [docs/boundary_elaboration.md](docs/boundary_elaboration.md), plus
+[docs/boundary_normalization.md](docs/boundary_normalization.md) and
 [docs/world_surface.md](docs/world_surface.md).
 
 ## Program

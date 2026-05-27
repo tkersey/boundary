@@ -14,8 +14,9 @@ elaborated program is consumed through normal `Program.contract`,
 `Program.protocol`, `Program.Session`, and `Program.run`; no TreatyResolver or
 ProviderHarness is needed for internal routes that were elaborated.
 `BoundaryClosure.Elaboration.Target` adds the target-neutral `WorldSurface`
-metadata an adjacent World interpreter can use to dispatch residual world ports
-by dense id without re-running treaty or provider search.
+metadata and normalization trace/certificate evidence an adjacent World
+interpreter can use to dispatch residual world ports by dense id without
+re-running treaty or provider search.
 
 ## Scalar body
 
