@@ -4362,7 +4362,7 @@ test "certified boundary target world surface tables and certificate are determi
     const gapped_normalization_redex = Elaboration.Target.Normalization.Redex.init(.{
         .label = "target.gapped-source-entry",
         .source_effect_shape_ref = source_ref,
-        .coordinates = .{ .site_index = 0 },
+        .coordinates = .{ .site_index = 5 },
         .kind = .world_port_site,
         .selected_static_treaty_plan_ref = static_plan.evidenceRef(),
         .current_program_plan_ref = residual_program_ref,

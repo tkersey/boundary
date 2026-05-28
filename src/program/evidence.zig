@@ -5467,6 +5467,7 @@ fn normalizationRouteProofMatchesSourceEntry(policy: BoundaryTargetPolicy, entry
     const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return false;
     if (!staticTreatyPlanIntegrityMatches(plan)) return false;
     if (boundaryStaticTreatyPlanRouteSemanticBody(plan) != semantic_body) return false;
+    if (!normalizationEntryMatchesPlanSource(entry, plan.source_shape)) return false;
     if (!staticTreatyPlanHasElaborationRouteProof(plan, semantic_body)) return false;
     if (entry.residual_ref) |residual_ref| {
         if (staticTreatyPlanNeedsResidualDependencyInCertificate(plan) and !staticTreatyPlanHasDependencyRef(plan, .residual_program, residual_ref)) return false;
@@ -5491,6 +5492,10 @@ fn normalizationWorldPortRouteProofMatchesSourceEntry(policy: BoundaryTargetPoli
     const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return false;
     if (!staticTreatyPlanIntegrityMatches(plan)) return false;
     if (boundaryStaticTreatyPlanRouteSemanticBody(plan) != semantic_body) return false;
+    const plan_shape = boundaryStaticTreatyPlanWorldPortShape(plan) orelse return false;
+    if (!normalizationEntryMatchesPlanSource(entry, plan_shape)) return false;
+    const residual_site_index = entry.residual_site_index orelse return false;
+    if (!boundaryWorldPortSupportsSiteIndex(world_port, residual_site_index)) return false;
     return switch (semantic_body) {
         .declarative,
         .residualized_program,
@@ -5513,6 +5518,12 @@ fn normalizationDirectWorldPortProofMatchesSourceEntry(entry: BoundaryElaboratio
     if (!shape.evidenceRef().eql(effect_shape_ref)) return false;
     if (!boundaryWorldPortMatchesShape(port, shape)) return false;
     return boundaryOperationShapeCarriesSchema(shape);
+}
+
+fn normalizationEntryMatchesPlanSource(entry: BoundaryElaborationSourceMap.Entry, shape: BoundaryEffectShape) bool {
+    if (!entry.source_ref.eql(shape.evidenceRef())) return false;
+    if (entry.source_site_index != shape.site_index) return false;
+    return true;
 }
 
 fn boundaryOperationShapeCarriesSchema(shape: BoundaryEffectShape) bool {
@@ -5641,7 +5652,12 @@ fn normalizationRedexCoordinatesMatchSourceEntry(coordinates: BoundaryNormalizat
     return coordinates.function_index == null and
         coordinates.block_index == null and
         coordinates.instruction_index == null and
-        coordinates.site_index == entry.source_site_index;
+        coordinates.site_index == normalizationRedexSiteIndexForEntry(entry);
+}
+
+fn normalizationRedexSiteIndexForEntry(entry: BoundaryElaborationSourceMap.Entry) ?usize {
+    if (entry.disposition == .world_port_lowered) return entry.residual_site_index;
+    return entry.source_site_index;
 }
 
 fn normalizationBlockerRefsMatchSourceEntry(refs: []const Ref, entry: BoundaryElaborationSourceMap.Entry, static_treaty_plans: []const BoundaryStaticTreatyPlan) bool {
@@ -6304,7 +6320,7 @@ test "source map nested provider proof binds child shape fingerprint" {
     const provider_program_ref = refFor(domains.program_plan, 0xC1D1_1001, .{ .label = "nested-proof-provider-program" });
     const provider_ref = refFor(domains.provider_manifest, 0xC1D1_1002, .{ .label = "nested-proof-provider" });
     const offer_ref = refFor(domains.provider_offer, 0xC1D1_1003, .{ .label = "nested-proof-offer" });
-    const capability_ref = refFor(domains.capability_grant, 0xC1D1_1004, .{ .label = "nested-proof-capability" });
+    const capability_ref = refFor(domains.capability, 0xC1D1_1004, .{ .label = "nested-proof-capability" });
 
     const parent_shape = BoundaryEffectShape.init(.{
         .program_label = "nested-proof-root",
@@ -8129,7 +8145,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                         redexes[index] = Redex.init(.{
                             .label = entry.label,
                             .source_effect_shape_ref = entry.source_ref,
-                            .coordinates = .{ .site_index = entry.source_site_index },
+                            .coordinates = .{ .site_index = normalizationRedexSiteIndexForSourceEntry(entry) },
                             .origin = normalizationRedexOriginForSourceEntry(entry, input.static_treaty_plans, SourceBody.certificate.source_program_ref),
                             .kind = redexKindForSourceEntry(entry, input.static_treaty_plans),
                             .selected_static_treaty_plan_ref = entry.static_treaty_plan_ref,
@@ -8143,6 +8159,11 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                         });
                     }
                     return redexes;
+                }
+
+                fn normalizationRedexSiteIndexForSourceEntry(comptime entry: SourceMap.Entry) ?usize {
+                    if (entry.disposition == .world_port_lowered) return entry.residual_site_index;
+                    return entry.source_site_index;
                 }
 
                 pub fn rulesFor(comptime SourceBody: type, comptime input: @This().Input) [SourceBody.source_map.entries.len]RewriteRule {
@@ -8667,7 +8688,10 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             if (!boundaryWorldPortSupportsOperationFingerprint(port, site.fingerprint)) return false;
             if (policy.preserve_source_coordinates) {
                 const source_site_index = entry.source_site_index orelse return false;
-                const expected_source_site_index = effect_shape_ref.site_index orelse return false;
+                const expected_source_site_index = if (port.effect_shape_witness) |shape|
+                    shape.site_index orelse (effect_shape_ref.site_index orelse return false)
+                else
+                    effect_shape_ref.site_index orelse return false;
                 if (source_site_index != expected_source_site_index) return false;
             }
             return true;
