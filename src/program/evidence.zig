@@ -5487,7 +5487,7 @@ fn normalizationWorldPortRouteProofMatchesSourceEntry(policy: BoundaryTargetPoli
     if (!worldPortAllowedByElaborationPolicy(boundaryTargetElaborationPolicy(policy), world_port)) return false;
     if (entry.provider_program_ref != null) return false;
     const plan_ref = entry.static_treaty_plan_ref orelse {
-        return semantic_body == .unknown and normalizationDirectWorldPortProofMatchesSourceEntry(entry, world_port);
+        return semantic_body == .unknown and normalizationDirectWorldPortProofMatchesSourceEntry(policy, entry, world_port);
     };
     const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return false;
     if (!staticTreatyPlanIntegrityMatches(plan)) return false;
@@ -5509,8 +5509,9 @@ fn normalizationWorldPortRouteProofMatchesSourceEntry(policy: BoundaryTargetPoli
     };
 }
 
-fn normalizationDirectWorldPortProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap.Entry, port: BoundaryWorldPort) bool {
+fn normalizationDirectWorldPortProofMatchesSourceEntry(policy: BoundaryTargetPolicy, entry: BoundaryElaborationSourceMap.Entry, port: BoundaryWorldPort) bool {
     if (!sourceMapWorldPortEntryMatchesPort(entry, port)) return false;
+    if (!policy.fail_on_schema_mismatch) return true;
     const effect_shape_ref = port.effect_shape_ref orelse return false;
     if (!entry.source_ref.eql(effect_shape_ref)) return false;
     const shape = port.effect_shape_witness orelse return false;
@@ -6584,7 +6585,10 @@ fn sourceMapWorldPortLoweringsValid(source_map: BoundaryElaborationSourceMap) bo
             .residualized,
             .pipeline_adapter,
             .blocked,
-            => if (entry.world_port_ref != null) return false,
+            => {
+                if (entry.world_port_ref != null) return false;
+                if (entry.residual_site_index != null) return false;
+            },
         }
     }
     return true;

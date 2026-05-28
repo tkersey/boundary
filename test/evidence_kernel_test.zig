@@ -419,7 +419,6 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
         .source_ref = shape.evidenceRef(),
         .residual_ref = residual_ref,
         .source_site_index = 0,
-        .residual_site_index = 0,
         .provider_program_ref = provider_program_ref,
         .static_treaty_plan_ref = static_plan.evidenceRef(),
         .disposition = .provider_program_linked,
@@ -526,6 +525,69 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     try std.testing.expectEqual(Evidence.domains.boundary_normalization_trace.id, trace.evidenceRef().domain_id);
     try std.testing.expectEqual(Evidence.domains.boundary_normalization_certificate.id, certificate.evidenceView().domain);
     try certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, world_surface, &.{});
+
+    var forged_non_world_residual_site_entry = source_map_entry;
+    forged_non_world_residual_site_entry.residual_site_index = 0;
+    const forged_non_world_residual_site_entries = [_]Evidence.BoundaryElaborationSourceMap.Entry{forged_non_world_residual_site_entry};
+    const forged_non_world_residual_site_source_map = Evidence.BoundaryElaborationSourceMap.init("normalization.forged_non_world_residual_site.source_map", forged_non_world_residual_site_entries[0..], &.{});
+    const forged_non_world_residual_site_world_surface = Evidence.BoundaryWorldSurface.init(.{
+        .label = "normalization.forged_non_world_residual_site.world_surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_ref,
+        .elaboration_certificate_ref = Evidence.refFor(Evidence.domains.boundary_elaboration_certificate, 0xE1AB, .{ .label = "elaboration" }),
+        .source_map_ref = forged_non_world_residual_site_source_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .port_table_ref = Evidence.refFor(Evidence.domains.boundary_world_port_table, 0x7100, .{}),
+        .value_table_ref = Evidence.refFor(Evidence.domains.boundary_world_value_table, 0x7101, .{}),
+        .dispatch_table_ref = Evidence.refFor(Evidence.domains.boundary_world_dispatch_table, 0x7102, .{}),
+        .profile_ref = Evidence.refFor(Evidence.domains.boundary_world_surface_profile, 0x7103, .{}),
+        .replay_key_recipe_ref = Evidence.refFor(Evidence.domains.boundary_world_replay_key_recipe, 0x7104, .{}),
+        .normal_form = .strict_closed,
+        .world_port_count = 0,
+    });
+    const forged_non_world_residual_site_trace_deps = [_]Evidence.Dependency{
+        .{ .role = .closure_certificate, .ref = closure_certificate_ref },
+        .{ .role = .residual_program, .ref = residual_ref },
+        .{ .role = .elaboration_source_map, .ref = forged_non_world_residual_site_source_map.evidenceRef() },
+        .{ .role = .elaboration_effect_row, .ref = effect_row.evidenceRef() },
+        .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
+    };
+    const forged_non_world_residual_site_trace = Evidence.BoundaryNormalizationTrace.init(.{
+        .label = "normalization.forged_non_world_residual_site.trace",
+        .root_program_ref = source_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .rewrite_steps = steps[0..],
+        .eliminated_redex_refs = eliminated[0..],
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .final_normal_form = .strict_closed,
+        .evidence_dependencies = forged_non_world_residual_site_trace_deps[0..],
+    });
+    const forged_non_world_residual_site_certificate = Evidence.BoundaryNormalizationCertificate.init(.{
+        .label = "normalization.forged_non_world_residual_site.certificate",
+        .closure_certificate_ref = closure_certificate_ref,
+        .target_policy_fingerprint = Evidence.BoundaryTargetPolicy.strictClosed().fingerprint(),
+        .normalization_trace_ref = forged_non_world_residual_site_trace.evidenceRef(),
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .source_map_ref = forged_non_world_residual_site_source_map.evidenceRef(),
+        .trace_map_ref = trace_map.evidenceRef(),
+        .evidence_map_ref = evidence_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .normal_form_ref = normal_form.evidenceRef(),
+        .world_surface_ref = forged_non_world_residual_site_world_surface.evidenceRef(),
+        .dependencies = (&[_]Evidence.Dependency{
+            .{ .role = .normalization_trace, .ref = forged_non_world_residual_site_trace.evidenceRef() },
+            .{ .role = .elaboration_source_map, .ref = forged_non_world_residual_site_source_map.evidenceRef() },
+            .{ .role = .elaboration_trace_map, .ref = trace_map.evidenceRef() },
+            .{ .role = .target_evidence_map, .ref = evidence_map.evidenceRef() },
+            .{ .role = .elaboration_effect_row, .ref = effect_row.evidenceRef() },
+            .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
+            .{ .role = .world_surface, .ref = forged_non_world_residual_site_world_surface.evidenceRef() },
+        })[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryNormalizationCertificateMismatch,
+        forged_non_world_residual_site_certificate.check(Evidence.BoundaryTargetPolicy.strictClosed(), forged_non_world_residual_site_trace, redexes[0..], rules[0..], static_plans[0..], forged_non_world_residual_site_source_map, trace_map, evidence_map, effect_row, normal_form, forged_non_world_residual_site_world_surface, &.{}),
+    );
 
     const forged_residual_ref = Evidence.refFor(Evidence.domains.provider_manifest, residual_ref.fingerprint, .{ .label = "not-a-program-plan" });
     var forged_residual_entry = source_map_entry;
@@ -682,7 +744,6 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
         .source_ref = shape.evidenceRef(),
         .residual_ref = residual_ref,
         .source_site_index = 0,
-        .residual_site_index = 0,
         .static_treaty_plan_ref = residualized_plan.evidenceRef(),
         .disposition = .residualized,
         .label = "approval.residualized",
@@ -932,7 +993,6 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
         .source_ref = missing_resume_shape.evidenceRef(),
         .residual_ref = residual_ref,
         .source_site_index = 0,
-        .residual_site_index = 0,
         .provider_program_ref = provider_program_ref,
         .static_treaty_plan_ref = missing_resume_static_plan.evidenceRef(),
         .disposition = .provider_program_linked,
@@ -8343,7 +8403,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
     };
     try std.testing.expect(blocked_provider_unlinked);
 
-    const wildcard_world_port_matches_residual_site = comptime blk: {
+    const wild_world_port_site_match = comptime blk: {
         @setEvalBranchQuota(200_000);
         const shape_ref = Evidence.refFor(Evidence.domains.boundary_effect_shape, 0xE1D205, .{ .label = "approval.request" });
         const wildcard_port = Closure.WorldPort.init(.{
@@ -8371,9 +8431,17 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .policy = Elaboration.Policy.auditOnly(),
         };
         const Body = Elaboration.FromResidual(wildcard_input, closure_source_program, .{ .label = "wildcard-world-port-body" });
-        break :blk Body.source_map.worldPortForResidualSite(closure_approval_request.index).?.eql(wildcard_port.evidenceRef());
+        const Target = Elaboration.Target.compileComptime(.{
+            .label = "wildcard-world-port-audit-target",
+            .input = wildcard_input,
+            .residual_program = closure_source_program,
+            .policy = Elaboration.Target.Policy.auditOnly(),
+        });
+        break :blk Body.source_map.worldPortForResidualSite(closure_approval_request.index).?.eql(wildcard_port.evidenceRef()) and
+            Target.NormalizationTrace.residual_world_port_refs.len == 1 and
+            Target.normalization_certificate.evidenceView().domain == Evidence.domains.boundary_normalization_certificate.id;
     };
-    try std.testing.expect(wildcard_world_port_matches_residual_site);
+    try std.testing.expect(wild_world_port_site_match);
 
     const direct_world_port_source_site = comptime blk: {
         @setEvalBranchQuota(200_000);
