@@ -282,6 +282,7 @@ test "evidence domain registry is unique and mirrors public version constants" {
     try std.testing.expectEqual(Program.boundary_closure_certificate_fingerprint_version, Evidence.domains.boundary_closure_certificate.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_world_port_format_version, Evidence.domains.boundary_world_port.format_version.?);
     try std.testing.expectEqual(Program.boundary_world_port_fingerprint_version, Evidence.domains.boundary_world_port.fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 2), Program.boundary_world_port_fingerprint_version);
     try std.testing.expectEqual(Program.boundary_elaboration_policy_fingerprint_version, Evidence.domains.boundary_elaboration_policy.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_elaboration_certificate_format_version, Evidence.domains.boundary_elaboration_certificate.format_version.?);
     try std.testing.expectEqual(Program.boundary_elaboration_certificate_fingerprint_version, Evidence.domains.boundary_elaboration_certificate.fingerprint_version);
