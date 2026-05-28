@@ -58,6 +58,7 @@ comptime {
         .protocol_label = "approval",
         .protocol_op_fingerprint = source_site.fingerprint,
     });
+    _ = source_shape;
     const world_port = Closure.WorldPort.init(.{
         .label = "target-direct-world-port",
         .kind = .test_fixture,
