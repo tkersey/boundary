@@ -5869,9 +5869,16 @@ fn targetCertificateDependenciesMatch(
     trace_map_ref: Ref,
     normalization_certificate_ref: Ref,
 ) bool {
-    return dependencies.len == 12 and
-        targetBaseDependenciesContain(dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, residual_program_ref, elaboration_certificate_ref, trace_map_ref) and
-        dependenciesContainRef(dependencies, .normalization_certificate, normalization_certificate_ref);
+    if (!targetBaseDependenciesContain(dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, residual_program_ref, elaboration_certificate_ref, trace_map_ref)) return false;
+    if (!dependenciesContainRef(dependencies, .normalization_certificate, normalization_certificate_ref)) return false;
+    var provider_mapping_count: usize = 0;
+    for (dependencies) |dependency| {
+        if (targetEvidenceMapBaseRole(dependency.role)) continue;
+        if (dependency.role == .normalization_certificate) continue;
+        if (dependency.role != .provider_program_mapping) return false;
+        provider_mapping_count += 1;
+    }
+    return dependencies.len == 12 + provider_mapping_count;
 }
 
 fn targetPolicyEmitsRequiredArtifacts(policy: BoundaryTargetPolicy) bool {
