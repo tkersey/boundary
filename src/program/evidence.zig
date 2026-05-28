@@ -2191,6 +2191,7 @@ pub const BoundaryWorldPort = struct {
     label: []const u8,
     kind: Kind,
     effect_shape_ref: ?Ref = null,
+    effect_shape_witness: ?BoundaryEffectShape = null,
     exposed_intrinsic_ref: ?Ref = null,
     supported_protocol_labels: []const []const u8 = &.{},
     supported_site_indexes: []const usize = &.{},
@@ -2205,6 +2206,7 @@ pub const BoundaryWorldPort = struct {
         label: []const u8,
         kind: Kind,
         effect_shape_ref: ?Ref = null,
+        effect_shape_witness: ?BoundaryEffectShape = null,
         exposed_intrinsic_ref: ?Ref = null,
         supported_protocol_labels: []const []const u8 = &.{},
         supported_site_indexes: []const usize = &.{},
@@ -2220,6 +2222,7 @@ pub const BoundaryWorldPort = struct {
             .label = options.label,
             .kind = options.kind,
             .effect_shape_ref = options.effect_shape_ref,
+            .effect_shape_witness = options.effect_shape_witness,
             .exposed_intrinsic_ref = options.exposed_intrinsic_ref,
             .supported_protocol_labels = options.supported_protocol_labels,
             .supported_site_indexes = options.supported_site_indexes,
@@ -2239,6 +2242,7 @@ pub const BoundaryWorldPort = struct {
         builder.fieldBytes("label", self.label);
         builder.fieldBytes("kind", @tagName(self.kind));
         builder.fieldOptionalRef("effect_shape", self.effect_shape_ref);
+        builder.fieldOptionalRef("effect_shape_witness", if (self.effect_shape_witness) |shape| shape.evidenceRef() else null);
         builder.fieldOptionalRef("exposed_intrinsic", self.exposed_intrinsic_ref);
         for (self.supported_protocol_labels) |protocol_label| builder.fieldBytes("supported_protocol", protocol_label);
         for (self.supported_site_indexes) |site| builder.fieldUsize("supported_site", site);
@@ -5617,7 +5621,6 @@ fn normalizationRedexCoordinatesMatchSourceEntry(coordinates: BoundaryNormalizat
 fn normalizationBlockerRefsMatchSourceEntry(refs: []const Ref, entry: BoundaryElaborationSourceMap.Entry, static_treaty_plans: []const BoundaryStaticTreatyPlan) bool {
     if (entry.disposition != .blocked) return refs.len == 0;
     if (entry.blocker_ref) |blocker_ref| {
-        if (entry.static_treaty_plan_ref != null) return false;
         return refs.len == 1 and refs[0].eql(blocker_ref);
     }
     const plan_ref = entry.static_treaty_plan_ref orelse return false;
@@ -5954,6 +5957,42 @@ fn targetPortTableEntryMatchesDescriptorWitness(
         const source_site_index = source_entry.source_site_index orelse return false;
         const expected_source_site_index = effect_shape_ref.site_index orelse return false;
         if (source_site_index != expected_source_site_index) return false;
+    }
+    const shape = port.effect_shape_witness orelse return false;
+    if (shape.fingerprint != shape.computeFingerprint()) return false;
+    if (!shape.evidenceRef().eql(effect_shape_ref)) return false;
+    if (shape.kind != .operation) return false;
+    if (policy.preserve_source_coordinates) {
+        const expected_site_index = shape.site_index orelse return false;
+        if (source_entry.source_site_index != expected_site_index) return false;
+    }
+    if (shape.protocol_label.len == 0 or !std.mem.eql(u8, shape.protocol_label, port_entry.protocol_label)) return false;
+    if (shape.name.len != 0 and !std.mem.eql(u8, shape.name, port_entry.op_name)) return false;
+    if (shape.mode.len == 0 or !std.mem.eql(u8, shape.mode, port_entry.mode)) return false;
+    if (policy.preserve_semantic_labels) {
+        const expected_semantic_label = shape.semantic_label orelse return false;
+        const actual_semantic_label = port_entry.semantic_label orelse return false;
+        if (!std.mem.eql(u8, expected_semantic_label, actual_semantic_label)) return false;
+    } else if (port_entry.semantic_label != null) {
+        return false;
+    }
+    if (shape.protocol_op_fingerprint) |protocol_op_fingerprint| {
+        if (protocol_op_fingerprint != port_entry.residual_site_fingerprint) return false;
+    } else if (shape.site_fingerprint == null) return false;
+    if (shape.site_fingerprint) |site_fingerprint| {
+        if (site_fingerprint != port_entry.residual_site_fingerprint) return false;
+    }
+    const expected_payload_ref = shape.value_ref orelse return false;
+    if (!expected_payload_ref.eql(port_entry.payload_ref)) return false;
+    if (shape.expected_resume_ref) |expected_resume_ref| {
+        if (!expected_resume_ref.eql(port_entry.resume_ref)) return false;
+    } else if (!std.mem.eql(u8, shape.mode, "abort")) {
+        return false;
+    }
+    if (shape.result_ref) |expected_result_ref| {
+        if (!expected_result_ref.eql(port_entry.result_ref)) return false;
+    } else if (!std.mem.eql(u8, shape.mode, "transform")) {
+        return false;
     }
     return true;
 }
@@ -8557,7 +8596,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 {
                     @compileError("Boundary Target world-port source-map entry is missing schema witness");
                 }
-                if (!targetWorldPortEntrySchemaMatches(entry, site, static_treaty_plans, policy)) {
+                if (!targetWorldPortEntrySchemaMatches(entry, site, static_treaty_plans, world_ports, policy)) {
                     @compileError("Boundary Target world-port schema mismatch");
                 }
                 if (index >= WorldDispatchTable.missing_world_port_id) @compileError("Boundary Target supports at most 4294967295 world ports in one surface");
@@ -8607,19 +8646,49 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             comptime entry: SourceMap.Entry,
             comptime site: lowering_api.SessionOperationYieldSite,
             comptime static_treaty_plans: []const BoundaryStaticTreatyPlan,
+            comptime world_ports: []const Closure.WorldPort,
             comptime policy: TargetPolicy,
         ) bool {
             if (!policy.fail_on_schema_mismatch) return true;
-            const plan_ref = entry.static_treaty_plan_ref orelse return true;
+            const plan_ref = entry.static_treaty_plan_ref orelse {
+                const world_port_ref = entry.world_port_ref orelse return false;
+                const port = worldPortForOccurrenceRef(world_ports, world_port_ref) orelse return false;
+                return targetDirectWorldPortEntrySchemaMatches(entry, site, port, policy);
+            };
             const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return false;
             const shape = if (plan.selected_morphism_ref != null)
                 plan.morphismTargetShapeWitness() orelse return false
             else
                 plan.source_shape;
+            return targetEffectShapeMatchesWorldPortSite(entry, site, shape, plan.selected_morphism_ref != null, policy);
+        }
+
+        fn targetDirectWorldPortEntrySchemaMatches(
+            comptime entry: SourceMap.Entry,
+            comptime site: lowering_api.SessionOperationYieldSite,
+            comptime port: Closure.WorldPort,
+            comptime policy: TargetPolicy,
+        ) bool {
+            if (entry.static_treaty_plan_ref != null) return true;
+            const expected_ref = port.effect_shape_ref orelse return false;
+            if (!entry.source_ref.eql(expected_ref)) return false;
+            const shape = port.effect_shape_witness orelse return false;
+            if (shape.fingerprint != shape.computeFingerprint()) return false;
+            if (!shape.evidenceRef().eql(expected_ref)) return false;
+            return targetEffectShapeMatchesWorldPortSite(entry, site, shape, false, policy);
+        }
+
+        fn targetEffectShapeMatchesWorldPortSite(
+            comptime entry: SourceMap.Entry,
+            comptime site: lowering_api.SessionOperationYieldSite,
+            comptime shape: Closure.EffectShape,
+            comptime shape_site_is_residual: bool,
+            comptime policy: TargetPolicy,
+        ) bool {
             if (shape.kind != .operation) return false;
             if (policy.preserve_source_coordinates) {
                 const expected_site_index = shape.site_index orelse return false;
-                if (plan.selected_morphism_ref != null) {
+                if (shape_site_is_residual) {
                     if (expected_site_index != site.index) return false;
                 } else if (entry.source_site_index != expected_site_index) return false;
             }
@@ -8632,7 +8701,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             }
             const expected_payload_ref = shape.value_ref orelse return false;
             if (!expected_payload_ref.eql(BoundaryValueRef.fromValueRef(site.payload_ref))) return false;
-            if (shape.mode.len != 0 and !std.mem.eql(u8, shape.mode, @tagName(site.op_mode))) return false;
+            if (shape.mode.len == 0 or !std.mem.eql(u8, shape.mode, @tagName(site.op_mode))) return false;
             if (shape.expected_resume_ref) |expected_resume_ref| {
                 if (!expected_resume_ref.eql(BoundaryValueRef.fromValueRef(site.resume_ref))) return false;
             } else if (site.op_mode != .abort) {

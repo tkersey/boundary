@@ -1572,7 +1572,7 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     blocked_source_entry.disposition = .blocked;
     blocked_source_entry.provider_program_ref = null;
     blocked_source_entry.static_treaty_plan_ref = blocked_static_plan.evidenceRef();
-    blocked_source_entry.blocker_ref = null;
+    blocked_source_entry.blocker_ref = blocked_blocker_ref;
     const blocked_source_map_entries = [_]Evidence.BoundaryElaborationSourceMap.Entry{blocked_source_entry};
     const blocked_source_map = Evidence.BoundaryElaborationSourceMap.init("normalization.blocked_source_map", blocked_source_map_entries[0..], &.{});
     const blocked_route_lowering_fingerprint = Evidence.boundaryNormalizationRouteLoweringFingerprint(blocked_source_entry, residual_ref.fingerprint);
@@ -3304,6 +3304,7 @@ test "certified boundary target world surface tables and certificate are determi
         .label = "world-port",
         .kind = .host_human,
         .effect_shape_ref = source_ref,
+        .effect_shape_witness = source_shape,
         .supported_site_indexes = &.{ 0, 5 },
         .contract_summary = "approval request boundary",
     });
@@ -8354,11 +8355,17 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .site_index = source_site_index,
             .protocol_label = "approval",
             .protocol_op_fingerprint = closure_approval_request.fingerprint,
+            .semantic_label = "approval.request",
+            .name = "request",
+            .mode = "transform",
+            .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.payload_ref),
+            .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.resume_ref),
         });
         const direct_port = Closure.WorldPort.init(.{
             .label = "direct-world-port",
             .kind = .test_fixture,
             .effect_shape_ref = direct_shape.evidenceRef(),
+            .effect_shape_witness = direct_shape,
             .supported_protocol_labels = &.{"approval"},
             .supported_site_indexes = &.{ source_site_index, closure_approval_request.index },
             .supported_protocol_op_fingerprints = &.{closure_approval_request.fingerprint},
