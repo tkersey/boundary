@@ -5467,7 +5467,7 @@ fn normalizationRouteProofMatchesSourceEntry(policy: BoundaryTargetPolicy, entry
     const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return false;
     if (!staticTreatyPlanIntegrityMatches(plan)) return false;
     if (boundaryStaticTreatyPlanRouteSemanticBody(plan) != semantic_body) return false;
-    if (!normalizationEntryMatchesPlanSource(entry, plan.source_shape)) return false;
+    if (!normalizationEntryMatchesPlanSource(entry, plan.source_shape, plan.source_shape)) return false;
     if (!staticTreatyPlanHasElaborationRouteProof(plan, semantic_body)) return false;
     if (entry.residual_ref) |residual_ref| {
         if (staticTreatyPlanNeedsResidualDependencyInCertificate(plan) and !staticTreatyPlanHasDependencyRef(plan, .residual_program, residual_ref)) return false;
@@ -5493,7 +5493,7 @@ fn normalizationWorldPortRouteProofMatchesSourceEntry(policy: BoundaryTargetPoli
     if (!staticTreatyPlanIntegrityMatches(plan)) return false;
     if (boundaryStaticTreatyPlanRouteSemanticBody(plan) != semantic_body) return false;
     const plan_shape = boundaryStaticTreatyPlanWorldPortShape(plan) orelse return false;
-    if (!normalizationEntryMatchesPlanSource(entry, plan_shape)) return false;
+    if (!normalizationEntryMatchesPlanSource(entry, plan_shape, plan.source_shape)) return false;
     const residual_site_index = entry.residual_site_index orelse return false;
     if (!boundaryWorldPortSupportsSiteIndex(world_port, residual_site_index)) return false;
     return switch (semantic_body) {
@@ -5521,9 +5521,9 @@ fn normalizationDirectWorldPortProofMatchesSourceEntry(policy: BoundaryTargetPol
     return boundaryOperationShapeCarriesSchema(shape);
 }
 
-fn normalizationEntryMatchesPlanSource(entry: BoundaryElaborationSourceMap.Entry, shape: BoundaryEffectShape) bool {
-    if (!entry.source_ref.eql(shape.evidenceRef())) return false;
-    if (entry.source_site_index != shape.site_index) return false;
+fn normalizationEntryMatchesPlanSource(entry: BoundaryElaborationSourceMap.Entry, ref_shape: BoundaryEffectShape, source_shape: BoundaryEffectShape) bool {
+    if (!entry.source_ref.eql(ref_shape.evidenceRef())) return false;
+    if (entry.source_site_index != source_shape.site_index) return false;
     return true;
 }
 
