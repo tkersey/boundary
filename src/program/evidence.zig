@@ -6062,11 +6062,6 @@ fn targetPortTableEntryMatchesDescriptorWitness(
     if (!boundaryWorldPortSupportsRequirement(port, port_entry.protocol_label)) return false;
     if (!boundaryWorldPortSupportsSiteIndex(port, port_entry.residual_site_index)) return false;
     if (!boundaryWorldPortSupportsOperationFingerprint(port, port_entry.residual_site_fingerprint)) return false;
-    if (policy.preserve_source_coordinates) {
-        const source_site_index = source_entry.source_site_index orelse return false;
-        const expected_source_site_index = effect_shape_ref.site_index orelse return false;
-        if (source_site_index != expected_source_site_index) return false;
-    }
     const shape = port.effect_shape_witness orelse return false;
     if (shape.fingerprint != shape.computeFingerprint()) return false;
     if (!shape.evidenceRef().eql(effect_shape_ref)) return false;
