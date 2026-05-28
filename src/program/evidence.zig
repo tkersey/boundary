@@ -5485,7 +5485,7 @@ fn normalizationWorldPortRouteProofMatchesSourceEntry(entry: BoundaryElaboration
     if (worldPortDescriptorCount(world_ports, world_port_ref) != 1) return false;
     if (entry.provider_program_ref != null) return false;
     const plan_ref = entry.static_treaty_plan_ref orelse {
-        return semantic_body == .unknown and sourceMapWorldPortEntryMatchesPort(entry, world_port);
+        return semantic_body == .unknown and normalizationDirectWorldPortProofMatchesSourceEntry(entry, world_port);
     };
     const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return false;
     if (!staticTreatyPlanIntegrityMatches(plan)) return false;
@@ -5501,6 +5501,31 @@ fn normalizationWorldPortRouteProofMatchesSourceEntry(entry: BoundaryElaboration
         .kernel_primitive,
         => false,
     };
+}
+
+fn normalizationDirectWorldPortProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap.Entry, port: BoundaryWorldPort) bool {
+    if (!sourceMapWorldPortEntryMatchesPort(entry, port)) return false;
+    const effect_shape_ref = port.effect_shape_ref orelse return false;
+    if (!entry.source_ref.eql(effect_shape_ref)) return false;
+    const shape = port.effect_shape_witness orelse return false;
+    if (shape.fingerprint != shape.computeFingerprint()) return false;
+    if (!shape.evidenceRef().eql(effect_shape_ref)) return false;
+    if (!boundaryWorldPortMatchesShape(port, shape)) return false;
+    return boundaryOperationShapeCarriesSchema(shape);
+}
+
+fn boundaryOperationShapeCarriesSchema(shape: BoundaryEffectShape) bool {
+    if (shape.kind != .operation) return false;
+    if (shape.protocol_label.len == 0) return false;
+    if (shape.protocol_op_fingerprint == null and shape.site_fingerprint == null) return false;
+    if (shape.mode.len == 0) return false;
+    if (shape.value_ref == null) return false;
+    if (std.mem.eql(u8, shape.mode, "abort")) {
+        return shape.expected_resume_ref == null and shape.result_ref != null;
+    }
+    if (shape.expected_resume_ref == null) return false;
+    if (std.mem.eql(u8, shape.mode, "transform")) return true;
+    return shape.result_ref != null;
 }
 
 fn boundaryWorldPortMatchesShapeOnlyPlan(port: BoundaryWorldPort, plan: BoundaryStaticTreatyPlan) bool {
