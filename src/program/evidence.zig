@@ -5075,7 +5075,7 @@ pub const BoundaryNormalizationCertificate = struct {
             if (!normalizationRedexMatchesSourceEntry(redex, entry, static_treaty_plans, trace.root_program_ref, trace.final_program_plan_hash)) return error.BoundaryNormalizationCertificateMismatch;
             if (!normalizationRuleMatchesSourceEntry(rule, entry, static_treaty_plans, trace.root_program_ref)) return error.BoundaryNormalizationCertificateMismatch;
             const semantic_body = normalizationRedexSemanticBodyForSourceEntry(entry, static_treaty_plans) orelse return error.BoundaryNormalizationCertificateMismatch;
-            if (!normalizationRouteProofMatchesSourceEntry(entry, semantic_body, static_treaty_plans, world_ports)) return error.BoundaryNormalizationCertificateMismatch;
+            if (!normalizationRouteProofMatchesSourceEntry(policy, entry, semantic_body, static_treaty_plans, world_ports)) return error.BoundaryNormalizationCertificateMismatch;
             if (!normalizationPolicyAllowsRewrite(normalization_policy, rule.kind, semantic_body, entry)) return error.BoundaryNormalizationPolicyMismatch;
             if (!normalizationStepRouteRefsMatch(step, entry, static_treaty_plans)) return error.BoundaryNormalizationCertificateMismatch;
             const expected_builder_fingerprint = boundaryNormalizationRouteLoweringFingerprint(entry, trace.final_program_plan_hash);
@@ -5446,7 +5446,7 @@ fn normalizationRedexSemanticBodyForSourceEntry(entry: BoundaryElaborationSource
     return boundaryStaticTreatyPlanRouteSemanticBody(plan);
 }
 
-fn normalizationRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan, world_ports: []const BoundaryWorldPort) bool {
+fn normalizationRouteProofMatchesSourceEntry(policy: BoundaryTargetPolicy, entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan, world_ports: []const BoundaryWorldPort) bool {
     const expected_disposition: ?BoundaryElaborationSourceMap.Disposition = switch (semantic_body) {
         .boundary_program => .provider_program_linked,
         .declarative => .preserved,
@@ -5458,7 +5458,7 @@ fn normalizationRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap
         => null,
     };
     if (entry.disposition == .world_port_lowered) {
-        return normalizationWorldPortRouteProofMatchesSourceEntry(entry, semantic_body, static_treaty_plans, world_ports);
+        return normalizationWorldPortRouteProofMatchesSourceEntry(policy, entry, semantic_body, static_treaty_plans, world_ports);
     }
     if (expected_disposition == null or entry.disposition != expected_disposition.?) {
         return entry.disposition == .blocked;
@@ -5479,10 +5479,11 @@ fn normalizationRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap
     return entry.provider_program_ref == null;
 }
 
-fn normalizationWorldPortRouteProofMatchesSourceEntry(entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan, world_ports: []const BoundaryWorldPort) bool {
+fn normalizationWorldPortRouteProofMatchesSourceEntry(policy: BoundaryTargetPolicy, entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan, world_ports: []const BoundaryWorldPort) bool {
     const world_port_ref = entry.world_port_ref orelse return false;
     const world_port = worldPortForRef(world_ports, world_port_ref) orelse return false;
     if (worldPortDescriptorCount(world_ports, world_port_ref) != 1) return false;
+    if (!worldPortAllowedByElaborationPolicy(boundaryTargetElaborationPolicy(policy), world_port)) return false;
     if (entry.provider_program_ref != null) return false;
     const plan_ref = entry.static_treaty_plan_ref orelse {
         return semantic_body == .unknown and normalizationDirectWorldPortProofMatchesSourceEntry(entry, world_port);
@@ -7227,10 +7228,15 @@ fn sourceMapWorldPortEntryMatchesPort(entry: BoundaryElaborationSourceMap.Entry,
 
 fn worldPortsAllowedByElaborationPolicy(policy: BoundaryElaborationPolicy, ports: []const BoundaryWorldPort) bool {
     for (ports) |port| {
-        if (!policy.closure_policy.allowsWorldPortRef(port.evidenceRef())) return false;
-        if (port.exposed_intrinsic_ref) |intrinsic_ref| {
-            if (!elaborationPolicyAllowsWorldPortIntrinsic(policy, intrinsic_ref)) return false;
-        }
+        if (!worldPortAllowedByElaborationPolicy(policy, port)) return false;
+    }
+    return true;
+}
+
+fn worldPortAllowedByElaborationPolicy(policy: BoundaryElaborationPolicy, port: BoundaryWorldPort) bool {
+    if (!policy.closure_policy.allowsWorldPortRef(port.evidenceRef())) return false;
+    if (port.exposed_intrinsic_ref) |intrinsic_ref| {
+        if (!elaborationPolicyAllowsWorldPortIntrinsic(policy, intrinsic_ref)) return false;
     }
     return true;
 }

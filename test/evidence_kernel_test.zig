@@ -3795,6 +3795,27 @@ test "certified boundary target world surface tables and certificate are determi
         error.BoundaryNormalizationCertificateMismatch,
         unproved_normalization_certificate.check(unproved_world_policy, unproved_normalization_trace, unproved_normalization_redexes[0..], unproved_normalization_rules[0..], static_plans[0..], unproved_source_map, unproved_trace_map, unproved_evidence_map, effect_row, normal_form, unproved_surface, unwitnessed_world_ports[0..]),
     );
+    var disallowed_world_policy = unproved_world_policy;
+    const disallowed_port_fps = [_]u64{world_port_ref.fingerprint +% 1};
+    disallowed_world_policy.elaboration_policy.closure_policy.allowed_world_port_fingerprints = disallowed_port_fps[0..];
+    const disallowed_world_normalization_certificate = Elaboration.Target.Normalization.Certificate.init(.{
+        .label = "target.disallowed-world-port-normalization.certificate",
+        .closure_certificate_ref = closure_certificate_ref,
+        .target_policy_fingerprint = disallowed_world_policy.fingerprint(),
+        .normalization_trace_ref = unproved_normalization_trace.evidenceRef(),
+        .final_program_plan_hash = residual_program_ref.fingerprint,
+        .source_map_ref = unproved_source_map.evidenceRef(),
+        .trace_map_ref = unproved_trace_map.evidenceRef(),
+        .evidence_map_ref = unproved_evidence_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .normal_form_ref = normal_form.evidenceRef(),
+        .world_surface_ref = unproved_surface.evidenceRef(),
+        .dependencies = unproved_normalization_certificate_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryNormalizationCertificateMismatch,
+        disallowed_world_normalization_certificate.check(disallowed_world_policy, unproved_normalization_trace, unproved_normalization_redexes[0..], unproved_normalization_rules[0..], static_plans[0..], unproved_source_map, unproved_trace_map, unproved_evidence_map, effect_row, normal_form, unproved_surface, world_ports[0..]),
+    );
     var stale_world_port = world_port;
     stale_world_port.supported_site_indexes = &.{5};
     const stale_world_ports = [_]Evidence.BoundaryWorldPort{stale_world_port};
