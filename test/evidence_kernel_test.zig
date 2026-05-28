@@ -554,6 +554,34 @@ test "boundary normalization redex rule step trace and certificate fingerprints 
     });
     try std.testing.expectEqual(error.BoundaryNormalizationCertificateMismatch, missing_bind_cert.check(Evidence.BoundaryTargetPolicy.strictClosed(), trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, empty_ev_map, effect_row, normal_form, world_surface, &.{}));
 
+    var bad_surface = world_surface;
+    bad_surface.surface_format_version = world_surface.surface_format_version + 1;
+    bad_surface.surface_fingerprint = bad_surface.computeFingerprint();
+    const bad_surface_deps = [_]Evidence.Dependency{
+        .{ .role = .normalization_trace, .ref = trace.evidenceRef() },
+        .{ .role = .elaboration_source_map, .ref = source_map.evidenceRef() },
+        .{ .role = .elaboration_trace_map, .ref = trace_map.evidenceRef() },
+        .{ .role = .target_evidence_map, .ref = evidence_map.evidenceRef() },
+        .{ .role = .elaboration_effect_row, .ref = effect_row.evidenceRef() },
+        .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
+        .{ .role = .world_surface, .ref = bad_surface.evidenceRef() },
+    };
+    const bad_surface_cert = Evidence.BoundaryNormalizationCertificate.init(.{
+        .label = "normalization.bad_surface_version",
+        .closure_certificate_ref = closure_certificate_ref,
+        .target_policy_fingerprint = Evidence.BoundaryTargetPolicy.strictClosed().fingerprint(),
+        .normalization_trace_ref = trace.evidenceRef(),
+        .final_program_plan_hash = residual_ref.fingerprint,
+        .source_map_ref = source_map.evidenceRef(),
+        .trace_map_ref = trace_map.evidenceRef(),
+        .evidence_map_ref = evidence_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .normal_form_ref = normal_form.evidenceRef(),
+        .world_surface_ref = bad_surface.evidenceRef(),
+        .dependencies = bad_surface_deps[0..],
+    });
+    try std.testing.expectEqual(error.BoundaryNormalizationCertificateMismatch, bad_surface_cert.check(Evidence.BoundaryTargetPolicy.strictClosed(), trace, redexes[0..], rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, bad_surface, &.{}));
+
     const unsupported_blocker_ref = Evidence.refFor(Evidence.domains.boundary_closure_report, 0xB10C, .{ .kind_tag = @tagName(Evidence.BoundaryClosureBlockerTag.runtime_guard_required) });
     const unsupported_blocker_refs = [_]Evidence.Ref{unsupported_blocker_ref};
     var forged_unblocked_entry = source_map_entry;

@@ -5131,6 +5131,7 @@ pub const BoundaryNormalizationCertificate = struct {
         if (!sourceMapEffectRowCountsMatch(source_map, static_treaty_plans, effect_row)) return error.BoundaryNormalizationCertificateMismatch;
         if (sourceMapBlockedUnsupportedShapeCount(source_map, static_treaty_plans) != effect_row.unsupported_shapes) return error.BoundaryNormalizationCertificateMismatch;
         if (normal_form.fingerprint != normal_form.computeFingerprint()) return error.BoundaryNormalizationCertificateMismatch;
+        if (world_surface.surface_format_version != domains.boundary_world_surface.format_version.?) return error.BoundaryNormalizationCertificateMismatch;
         if (world_surface.surface_fingerprint != world_surface.computeFingerprint()) return error.BoundaryNormalizationCertificateMismatch;
         if (trace.root_program_ref.domain_id != domains.program_plan.id) return error.BoundaryNormalizationCertificateMismatch;
         if (effect_row.source_program_ref.domain_id != domains.program_plan.id) return error.BoundaryNormalizationCertificateMismatch;
