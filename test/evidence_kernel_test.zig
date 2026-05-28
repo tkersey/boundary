@@ -7446,6 +7446,59 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
     };
     try std.testing.expect(target_policy_unlocks_blockers);
 
+    const target_policy_preserves_unsupported_host_intrinsic = comptime blk: {
+        @setEvalBranchQuota(300_000);
+        const host_shape = Closure.EffectShape.init(.{
+            .program_label = "target-unsupported-host-intrinsic-source",
+            .kind = .operation,
+            .site_index = 0,
+            .protocol_label = "approval",
+            .protocol_op_fingerprint = 0xE1D2_7711,
+            .value_ref = Evidence.BoundaryValueRef.init("unit", null),
+            .expected_resume_ref = Evidence.BoundaryValueRef.init("unit", null),
+        });
+        const host_intrinsic_ref = Evidence.refFor(Evidence.domains.host_intrinsic, 0xE1D2_7712, .{
+            .label = "target-unsupported-host-intrinsic",
+            .kind_tag = @tagName(Evidence.HostIntrinsic.Kind.host_tool),
+        });
+        const host_plan = Closure.StaticTreatyPlan.init(.{
+            .label = "target-unsupported-host-intrinsic-plan",
+            .source_shape = host_shape,
+            .selected_semantic_body = .host_intrinsic,
+            .selected_intrinsic_ref = host_intrinsic_ref,
+            .host_intrinsic = true,
+        });
+        const host_graph = Closure.Graph.init("target-unsupported-host-intrinsic-graph", &.{}, &.{}, &.{});
+        const host_report = Closure.Report.init(.{
+            .graph_fingerprint = host_graph.fingerprint,
+            .root_program_refs = &.{source_ref},
+            .effect_shape_count = 1,
+        });
+        const host_closure_policy = Closure.Policy.auditOnly();
+        const host_input = Elaboration.Input{
+            .closure_graph = host_graph,
+            .closure_report = host_report,
+            .closure_certificate = Closure.Certificate.init(host_report, host_graph, host_closure_policy, &.{host_plan.evidenceRef()}),
+            .static_treaty_plans = &.{host_plan},
+            .source_program_ref = source_ref,
+            .policy = Elaboration.Policy.auditOnly(),
+        };
+        var target_policy = Elaboration.Target.Policy.auditOnly();
+        target_policy.elaboration_policy = Elaboration.Policy.auditOnly();
+        const Target = Elaboration.Target.compileComptime(.{
+            .label = "target-unsupported-host-intrinsic-body",
+            .input = host_input,
+            .residual_program = Program,
+            .policy = target_policy,
+        });
+        Target.assertNormalForm(.partial_with_blockers);
+        break :blk Target.Body.source_map.entries.len == 1 and
+            Target.Body.source_map.entries[0].disposition == .blocked and
+            Target.Body.source_map.entries[0].blocker_ref.?.eql(Evidence.SemanticBody.host_intrinsic.evidenceRef()) and
+            Target.NormalizationTrace.unsupported_redex_refs.len == 1;
+    };
+    try std.testing.expect(target_policy_preserves_unsupported_host_intrinsic);
+
     const target_root_copy = comptime blk: {
         @setEvalBranchQuota(300_000);
         const residual_graph = Closure.Graph.init("target-root-copy-graph", &.{}, &.{}, &.{});

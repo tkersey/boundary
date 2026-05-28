@@ -7571,14 +7571,20 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     .residualized_program => if (!input.policy.allow_residualized_morphisms) return false,
                     .pipeline => if (!input.policy.allow_pipeline_adapters) return false,
                     .host_intrinsic,
-                    => if (!input.policy.allow_world_ports or
-                        input.closure_report.open_world_port_count == 0 or
-                        worldPortForPlan(input, ProgramType, plan) == null) return false,
+                    => if (!input.policy.allow_world_ports or input.closure_report.open_world_port_count == 0 or worldPortForPlan(input, ProgramType, plan) == null) {
+                        if (!routeCanEmitUnsupportedBlocker(input, .host_intrinsic)) return false;
+                    },
                     .unknown => return false,
                     .kernel_primitive => return false,
                 }
             }
             return true;
+        }
+
+        fn routeCanEmitUnsupportedBlocker(input: Input, comptime body: SemanticBody) bool {
+            return input.policy.allow_partial_with_blockers and
+                !input.policy.fail_on_unsupported_shape and
+                sourceMapDispositionForRouteBody(body) == null;
         }
 
         fn staticTreatyPlansDoNotForgeResidualProgram(comptime input: Input, comptime residual_ref: Ref) bool {
@@ -9799,7 +9805,8 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 const intrinsic_ref = staticTreatyPlanWorldPortIntrinsicRef(plan) orelse return false;
                 var target_response_refs_buffer: [3]BoundaryValueRef = undefined;
                 const shape = worldPortShapeForPlan(input, plan, &target_response_refs_buffer) orelse return false;
-                if (!worldPortForIntrinsicPlanExists(shape, intrinsic_ref, input.world_ports)) return false;
+                if (!worldPortForIntrinsicPlanExists(shape, intrinsic_ref, input.world_ports) and
+                    !routeCanEmitUnsupportedBlocker(input, .host_intrinsic)) return false;
             }
             return true;
         }
