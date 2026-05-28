@@ -9035,10 +9035,14 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 .residual_ref = residual_ref,
                 .source_site_index = plan.source_shape.site_index,
                 .static_treaty_plan_ref = plan.evidenceRef(),
-                .blocker_ref = body.evidenceRef(),
+                .blocker_ref = semanticBodyEvidenceRef(body),
                 .disposition = .blocked,
                 .label = @tagName(body),
             };
+        }
+
+        fn semanticBodyEvidenceRef(comptime body: SemanticBody) Ref {
+            return refFor(domains.semantic_body, body.fingerprint(), .{ .kind_tag = @tagName(body) });
         }
 
         fn directWorldPortSourceEntry(
