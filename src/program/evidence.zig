@@ -5461,7 +5461,7 @@ fn normalizationRouteProofMatchesSourceEntry(policy: BoundaryTargetPolicy, entry
         return normalizationWorldPortRouteProofMatchesSourceEntry(policy, entry, semantic_body, static_treaty_plans, world_ports);
     }
     if (expected_disposition == null or entry.disposition != expected_disposition.?) {
-        return entry.disposition == .blocked;
+        return normalizationBlockedRouteProofMatchesSourceEntry(policy, entry, semantic_body, static_treaty_plans);
     }
     const plan_ref = entry.static_treaty_plan_ref orelse return false;
     const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return false;
@@ -5478,6 +5478,19 @@ fn normalizationRouteProofMatchesSourceEntry(policy: BoundaryTargetPolicy, entry
         return optionalRefValuesEqual(plan.selected_provider_program_ref, provider_program_ref);
     }
     return entry.provider_program_ref == null;
+}
+
+fn normalizationBlockedRouteProofMatchesSourceEntry(policy: BoundaryTargetPolicy, entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan) bool {
+    if (entry.disposition != .blocked) return false;
+    if (entry.world_port_ref != null or entry.provider_program_ref != null) return false;
+    const plan_ref = entry.static_treaty_plan_ref orelse return entry.blocker_ref != null;
+    const plan = staticTreatyPlanForRef(static_treaty_plans, plan_ref) orelse return false;
+    if (!staticTreatyPlanIntegrityMatches(plan)) return false;
+    if (boundaryStaticTreatyPlanRouteSemanticBody(plan) != semantic_body) return false;
+    if (!normalizationEntryMatchesPlanSource(entry, plan.source_shape, plan.source_shape)) return false;
+    if (!staticTreatyPlanBlockedUnderElaborationPolicy(boundaryTargetElaborationPolicy(policy), plan)) return false;
+    if (entry.blocker_ref) |blocker_ref| return staticTreatyPlanHasBlockerRef(plan, blocker_ref);
+    return true;
 }
 
 fn normalizationWorldPortRouteProofMatchesSourceEntry(policy: BoundaryTargetPolicy, entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan, world_ports: []const BoundaryWorldPort) bool {
@@ -7053,6 +7066,13 @@ fn staticTreatyPlanHasProviderProgramMorphismProof(plan: BoundaryStaticTreatyPla
 fn staticTreatyPlanHasUnsupportedShapeBlocker(plan: BoundaryStaticTreatyPlan) bool {
     for (plan.blockers) |blocker| {
         if (closureBlockerTagIsUnsupportedShape(blocker.tag)) return true;
+    }
+    return false;
+}
+
+fn staticTreatyPlanHasBlockerRef(plan: BoundaryStaticTreatyPlan, blocker_ref: Ref) bool {
+    for (plan.blockers) |blocker| {
+        if (refForBoundaryClosureBlocker(blocker.toEvidenceBlocker()).eql(blocker_ref)) return true;
     }
     return false;
 }
