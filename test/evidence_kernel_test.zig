@@ -9251,6 +9251,74 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
     };
     try std.testing.expect(planned_shared_world_port_ok);
 
+    const mixed_world_port_ok = comptime blk: {
+        @setEvalBranchQuota(200_000);
+        const MultiClosure = closure_multi_yield_program.BoundaryClosure;
+        const MultiElaboration = MultiClosure.Elaboration;
+        const MultiEvidence = closure_multi_yield_program.Evidence;
+        const first_site = closure_multi_yield_program.contract.session.yield_sites[0];
+        const second_site = closure_multi_yield_program.contract.session.yield_sites[1];
+        const multi_source_ref = MultiEvidence.refFor(
+            MultiEvidence.domains.program_plan,
+            closure_multi_yield_program.compiled_plan.hash(),
+            .{ .label = closure_multi_yield_program.contract.label },
+        );
+        const intrinsic_ref = MultiEvidence.refFor(MultiEvidence.domains.host_intrinsic, 0xE1D2_2A02, .{ .label = "mixed-planned-world-port-intrinsic" });
+        const second_shape = MultiClosure.EffectShape.init(.{
+            .program_label = closure_multi_yield_program.contract.label,
+            .plan_hash = closure_multi_yield_program.compiled_plan.hash(),
+            .kind = .operation,
+            .site_index = second_site.index,
+            .protocol_label = "approval",
+        });
+        const second_plan = MultiClosure.StaticTreatyPlan.init(.{
+            .label = "mixed-second-shared-world-port-plan",
+            .source_shape = second_shape,
+            .selected_semantic_body = .host_intrinsic,
+            .selected_intrinsic_ref = intrinsic_ref,
+            .host_intrinsic = true,
+        });
+        const shared_port = MultiClosure.WorldPort.init(.{
+            .label = "mixed-shared-world-port",
+            .kind = .test_fixture,
+            .exposed_intrinsic_ref = intrinsic_ref,
+            .supported_protocol_labels = &.{"approval"},
+            .supported_site_indexes = &.{ first_site.index, second_site.index },
+        });
+        const shared_port_refs = [_]MultiEvidence.Ref{ shared_port.evidenceRef(), shared_port.evidenceRef() };
+        const multi_graph = MultiClosure.Graph.init("mixed-shared-world-port-graph", &.{}, &.{}, &.{});
+        const multi_report = MultiClosure.Report.init(.{
+            .graph_fingerprint = multi_graph.fingerprint,
+            .root_program_refs = &.{multi_source_ref},
+            .effect_shape_count = 2,
+            .world_port_refs = shared_port_refs[0..],
+            .open_world_port_count = 2,
+        });
+        const multi_certificate = MultiClosure.Certificate.init(multi_report, multi_graph, MultiClosure.Policy.auditOnly(), &.{second_plan.evidenceRef()});
+        const multi_input = MultiElaboration.Input{
+            .closure_graph = multi_graph,
+            .closure_report = multi_report,
+            .closure_certificate = multi_certificate,
+            .static_treaty_plans = &.{second_plan},
+            .source_program_ref = multi_source_ref,
+            .world_ports = &.{shared_port},
+            .policy = MultiElaboration.Policy.auditOnly(),
+        };
+        const Body = MultiElaboration.FromResidual(multi_input, closure_multi_yield_program, .{ .label = "mixed-shared-world-port-body" });
+        var direct_first = false;
+        var planned_second = false;
+        for (Body.source_map.entries) |entry| {
+            if (entry.residual_site_index == first_site.index) {
+                direct_first = entry.static_treaty_plan_ref == null;
+            }
+            if (entry.residual_site_index == second_site.index) {
+                planned_second = entry.static_treaty_plan_ref != null and entry.static_treaty_plan_ref.?.eql(second_plan.evidenceRef());
+            }
+        }
+        break :blk direct_first and planned_second;
+    };
+    try std.testing.expect(mixed_world_port_ok);
+
     const merged_world_port_site = comptime blk: {
         @setEvalBranchQuota(4_000_000);
         const source_site_index = closure_approval_request.index + 7;

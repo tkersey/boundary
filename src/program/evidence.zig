@@ -9404,6 +9404,20 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
         }
 
         fn worldPortPlanOccurrenceRank(comptime input: Input, comptime ResidualProgram: type, comptime ref: Ref, comptime plan_index: usize) usize {
+            const plan = input.static_treaty_plans[plan_index];
+            if (comptime worldPortForPlan(input, ResidualProgram, plan)) |port| {
+                var target_response_refs_buffer: [3]BoundaryValueRef = undefined;
+                const shape = worldPortShapeForPlan(input, plan, &target_response_refs_buffer) orelse
+                    return worldPortPlanOrderOccurrenceRank(input, ResidualProgram, ref, plan_index);
+                if (shape.site_index != null or shape.site_fingerprint != null or shape.protocol_op_fingerprint != null) {
+                    return residualWorldPortOccurrenceRankForShape(ResidualProgram, port, shape) orelse
+                        worldPortPlanOrderOccurrenceRank(input, ResidualProgram, ref, plan_index);
+                }
+            }
+            return worldPortPlanOrderOccurrenceRank(input, ResidualProgram, ref, plan_index);
+        }
+
+        fn worldPortPlanOrderOccurrenceRank(comptime input: Input, comptime ResidualProgram: type, comptime ref: Ref, comptime plan_index: usize) usize {
             var rank: usize = 0;
             inline for (input.static_treaty_plans[0..plan_index]) |prior_plan| {
                 if (comptime worldPortForPlan(input, ResidualProgram, prior_plan)) |prior_port| {
@@ -9411,6 +9425,24 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 }
             }
             return rank;
+        }
+
+        fn residualWorldPortOccurrenceRankForShape(comptime ResidualProgram: type, comptime port: Closure.WorldPort, comptime shape: Closure.EffectShape) ?usize {
+            var rank: usize = 0;
+            inline for (ResidualProgram.contract.session.yield_sites) |site| {
+                if (!residualWorldPortSupportsSite(port, site)) continue;
+                if (shape.site_index) |site_index| {
+                    if (site.index == site_index) return rank;
+                }
+                if (shape.site_fingerprint) |fingerprint| {
+                    if (site.fingerprint == fingerprint) return rank;
+                }
+                if (shape.protocol_op_fingerprint) |fingerprint| {
+                    if (site.fingerprint == fingerprint) return rank;
+                }
+                rank += 1;
+            }
+            return null;
         }
 
         fn residualWorldPortSiteCount(comptime ResidualProgram: type, comptime port: Closure.WorldPort) usize {
