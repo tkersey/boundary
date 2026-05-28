@@ -7446,7 +7446,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
     };
     try std.testing.expect(target_policy_unlocks_blockers);
 
-    const target_policy_preserves_unsupported_host_intrinsic = comptime blk: {
+    const unsupported_host_target_ok = comptime blk: {
         @setEvalBranchQuota(300_000);
         const host_shape = Closure.EffectShape.init(.{
             .program_label = "target-unsupported-host-intrinsic-source",
@@ -7497,7 +7497,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             Target.Body.source_map.entries[0].blocker_ref.?.eql(Evidence.SemanticBody.host_intrinsic.evidenceRef()) and
             Target.NormalizationTrace.unsupported_redex_refs.len == 1;
     };
-    try std.testing.expect(target_policy_preserves_unsupported_host_intrinsic);
+    try std.testing.expect(unsupported_host_target_ok);
 
     const target_root_copy = comptime blk: {
         @setEvalBranchQuota(300_000);
