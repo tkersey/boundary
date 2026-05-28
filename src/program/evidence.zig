@@ -5118,6 +5118,7 @@ pub const BoundaryNormalizationCertificate = struct {
         }
         if (residual_world_port_index != trace.residual_world_port_refs.len) return error.BoundaryNormalizationCertificateMismatch;
         if (source_map.fingerprint != source_map.computeFingerprint()) return error.BoundaryNormalizationCertificateMismatch;
+        if (!sourceMapWorldPortLoweringsValid(source_map)) return error.BoundaryNormalizationCertificateMismatch;
         if (trace_map.fingerprint != trace_map.computeFingerprint()) return error.BoundaryNormalizationCertificateMismatch;
         if (!traceMapMatchesSourceMap(trace_map, source_map)) return error.BoundaryNormalizationCertificateMismatch;
         if (evidence_map.fingerprint != evidence_map.computeFingerprint()) return error.BoundaryNormalizationCertificateMismatch;
@@ -6484,6 +6485,25 @@ fn sourceMapWorldPortSitesValid(source_map: BoundaryElaborationSourceMap) bool {
                 if (entry.world_port_ref != null) return false;
                 if (entry.residual_site_index != null) return false;
             },
+        }
+    }
+    return true;
+}
+
+fn sourceMapWorldPortLoweringsValid(source_map: BoundaryElaborationSourceMap) bool {
+    for (source_map.entries) |entry| {
+        switch (entry.disposition) {
+            .world_port_lowered => {
+                if (entry.world_port_ref == null) return false;
+                const residual_site_index = entry.residual_site_index orelse return false;
+                if (sourceMapResidualSiteIndexCount(source_map, residual_site_index) != 1) return false;
+            },
+            .preserved,
+            .provider_program_linked,
+            .residualized,
+            .pipeline_adapter,
+            .blocked,
+            => if (entry.world_port_ref != null) return false,
         }
     }
     return true;

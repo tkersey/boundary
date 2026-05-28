@@ -3548,6 +3548,119 @@ test "certified boundary target world surface tables and certificate are determi
         .dependencies = certificate_dependencies[0..],
     });
     try certificate.check(policy, elaboration_certificate, surface, source_map, effect_row, trace_map, normal_form, world_ports[0..], port_table, value_table, dispatch_table, profile, replay, evidence_map, normalization_certificate, normalization_trace, normalization_redexes[0..], normalization_rules[0..], static_plans[0..]);
+
+    var blocked_world_port_entries = source_entries;
+    blocked_world_port_entries[0].disposition = .blocked;
+    const blocked_world_port_source_map = Elaboration.SourceMap.init("target.blocked-world-port-source-map", blocked_world_port_entries[0..], &.{});
+    const blocked_world_port_surface = Elaboration.WorldSurface.init(.{
+        .label = "target.blocked-world-port-surface",
+        .residual_program_label = "residual",
+        .residual_program_ref = residual_program_ref,
+        .elaboration_certificate_ref = elaboration_certificate_ref,
+        .source_map_ref = blocked_world_port_source_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .port_table_ref = port_table.evidenceRef(),
+        .value_table_ref = value_table.evidenceRef(),
+        .dispatch_table_ref = dispatch_table.evidenceRef(),
+        .profile_ref = profile.evidenceRef(),
+        .replay_key_recipe_ref = replay.evidenceRef(),
+        .normal_form = .world_ports_only,
+        .world_port_count = 1,
+    });
+    const blocked_world_port_dependencies = [_]Evidence.Dependency{
+        .{ .role = .elaboration_certificate, .ref = elaboration_certificate_ref },
+        .{ .role = .elaboration_source_map, .ref = blocked_world_port_surface.source_map_ref },
+        .{ .role = .elaboration_effect_row, .ref = blocked_world_port_surface.effect_row_ref },
+        .{ .role = .elaboration_trace_map, .ref = trace_map_ref },
+        .{ .role = .world_surface, .ref = blocked_world_port_surface.evidenceRef() },
+        .{ .role = .world_port_table, .ref = port_table.evidenceRef() },
+        .{ .role = .world_value_table, .ref = value_table.evidenceRef() },
+        .{ .role = .world_dispatch_table, .ref = dispatch_table.evidenceRef() },
+        .{ .role = .surface_profile, .ref = profile.evidenceRef() },
+        .{ .role = .replay_key_recipe, .ref = replay.evidenceRef() },
+        .{ .role = .residual_program, .ref = residual_program_ref },
+    };
+    const blocked_world_port_evidence_map = Elaboration.TargetEvidenceMap.init("target.blocked-world-port-evidence", blocked_world_port_dependencies[0..]);
+    const blocked_world_port_redex = Elaboration.Target.Normalization.Redex.init(.{
+        .label = "target.source-entry",
+        .source_effect_shape_ref = source_ref,
+        .coordinates = .{ .site_index = 0 },
+        .kind = .world_port_site,
+        .selected_static_treaty_plan_ref = static_plan.evidenceRef(),
+        .current_program_plan_ref = residual_program_ref,
+        .semantic_body = .declarative,
+        .expected_lowering_kind = .unsupported,
+        .evidence_dependencies = normalization_redex_dependencies[0..],
+    });
+    const blocked_world_port_rule = Elaboration.Target.Normalization.RewriteRule.init(.{
+        .label = "target.source-entry",
+        .kind = .unsupported,
+        .evidence_dependencies = normalization_rule_dependencies[0..],
+        .produced_source_map_entries = 1,
+        .produced_trace_map_entries = 1,
+        .produced_effect_row_entries = 1,
+    });
+    const blocked_world_port_lowering_fingerprint = Evidence.boundaryNormalizationRouteLoweringFingerprint(blocked_world_port_entries[0], residual_program_ref.fingerprint);
+    const blocked_world_port_step = Elaboration.Target.Normalization.RewriteStep.init(.{
+        .step_index = 0,
+        .redex_ref = blocked_world_port_redex.evidenceRef(),
+        .rewrite_rule_ref = blocked_world_port_rule.evidenceRef(),
+        .selected_static_treaty_plan_ref = static_plan.evidenceRef(),
+        .source_effect_shape_ref = source_ref,
+        .input_program_plan_hash = residual_program_ref.fingerprint,
+        .output_program_plan_hash = residual_program_ref.fingerprint,
+        .builder_state_fingerprint = blocked_world_port_lowering_fingerprint,
+        .world_port_ref = world_port_ref,
+        .summary = "unsupported",
+    });
+    const blocked_world_port_redexes = [_]Elaboration.Target.Normalization.Redex{blocked_world_port_redex};
+    const blocked_world_port_rules = [_]Elaboration.Target.Normalization.RewriteRule{blocked_world_port_rule};
+    const blocked_world_port_steps = [_]Elaboration.Target.Normalization.RewriteStep{blocked_world_port_step};
+    const blocked_world_port_trace_dependencies = [_]Evidence.Dependency{
+        .{ .role = .closure_certificate, .ref = closure_certificate_ref },
+        .{ .role = .residual_program, .ref = residual_program_ref },
+        .{ .role = .elaboration_source_map, .ref = blocked_world_port_source_map.evidenceRef() },
+        .{ .role = .elaboration_effect_row, .ref = effect_row.evidenceRef() },
+        .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
+    };
+    const blocked_world_port_trace = Elaboration.Target.Normalization.Trace.init(.{
+        .label = "target.blocked-world-port-normalization.trace",
+        .root_program_ref = residual_program_ref,
+        .closure_certificate_ref = closure_certificate_ref,
+        .rewrite_steps = blocked_world_port_steps[0..],
+        .residual_world_port_refs = normalization_world_ports[0..],
+        .final_program_plan_hash = residual_program_ref.fingerprint,
+        .final_normal_form = .world_ports_only,
+        .evidence_dependencies = blocked_world_port_trace_dependencies[0..],
+    });
+    const blocked_world_port_certificate_dependencies = [_]Evidence.Dependency{
+        .{ .role = .normalization_trace, .ref = blocked_world_port_trace.evidenceRef() },
+        .{ .role = .elaboration_source_map, .ref = blocked_world_port_source_map.evidenceRef() },
+        .{ .role = .elaboration_trace_map, .ref = trace_map.evidenceRef() },
+        .{ .role = .target_evidence_map, .ref = blocked_world_port_evidence_map.evidenceRef() },
+        .{ .role = .elaboration_effect_row, .ref = effect_row.evidenceRef() },
+        .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
+        .{ .role = .world_surface, .ref = blocked_world_port_surface.evidenceRef() },
+    };
+    const blocked_world_port_normalization_certificate = Elaboration.Target.Normalization.Certificate.init(.{
+        .label = "target.blocked-world-port-normalization.certificate",
+        .closure_certificate_ref = closure_certificate_ref,
+        .target_policy_fingerprint = policy.fingerprint(),
+        .normalization_trace_ref = blocked_world_port_trace.evidenceRef(),
+        .final_program_plan_hash = residual_program_ref.fingerprint,
+        .source_map_ref = blocked_world_port_source_map.evidenceRef(),
+        .trace_map_ref = trace_map.evidenceRef(),
+        .evidence_map_ref = blocked_world_port_evidence_map.evidenceRef(),
+        .effect_row_ref = effect_row.evidenceRef(),
+        .normal_form_ref = normal_form.evidenceRef(),
+        .world_surface_ref = blocked_world_port_surface.evidenceRef(),
+        .dependencies = blocked_world_port_certificate_dependencies[0..],
+    });
+    try std.testing.expectEqual(
+        error.BoundaryNormalizationCertificateMismatch,
+        blocked_world_port_normalization_certificate.check(policy, blocked_world_port_trace, blocked_world_port_redexes[0..], blocked_world_port_rules[0..], static_plans[0..], blocked_world_port_source_map, trace_map, blocked_world_port_evidence_map, effect_row, normal_form, blocked_world_port_surface, world_ports[0..]),
+    );
+
     try std.testing.expectEqual(
         error.BoundaryNormalizationCertificateMismatch,
         normalization_certificate.check(policy, normalization_trace, normalization_redexes[0..], normalization_rules[0..], static_plans[0..], source_map, trace_map, evidence_map, effect_row, normal_form, surface, &.{}),
