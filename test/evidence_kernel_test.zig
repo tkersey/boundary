@@ -1947,8 +1947,13 @@ test "boundary closure foundational refs use static shape metadata" {
         .tags = &.{"approval"},
     });
     try std.testing.expectEqual(Evidence.domains.boundary_world_port.id, port.evidenceRef().domain_id);
+    try std.testing.expectEqual(Evidence.domains.boundary_world_port.format_version.?, port.format_version);
+    try std.testing.expectEqual(Evidence.domains.boundary_world_port.fingerprint_version, port.fingerprint_version);
     try std.testing.expectEqualStrings("host_tool", port.evidenceRef().kind_tag.?);
     try std.testing.expect(Evidence.refForBoundaryWorldPort(port).eql(port.evidenceRef()));
+    var stale_version_port = port;
+    stale_version_port.fingerprint_version = 1;
+    try std.testing.expect(stale_version_port.computeFingerprint() != port.fingerprint);
     const closure_port = Evidence.BoundaryWorldPort.init(.{
         .label = "approval-closure-world",
         .kind = .host_tool,

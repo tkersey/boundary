@@ -2281,8 +2281,8 @@ pub const BoundaryClosureBlocker = struct {
 };
 
 pub const WorldPort = struct {
-    format_version: u32 = 1,
-    fingerprint_version: u32 = 1,
+    format_version: u32 = domains.boundary_world_port.format_version.?,
+    fingerprint_version: u32 = domains.boundary_world_port.fingerprint_version,
     fingerprint: u64,
     label: []const u8,
     kind: Kind,

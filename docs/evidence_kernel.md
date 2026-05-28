@@ -90,7 +90,7 @@ Current domains are registered in `Program.Evidence.domains`:
 | `boundary.evidence.closure.graph` | boundary_closure | - | 1 | no | yes | yes | yes | yes | yes | closure graph |
 | `boundary.evidence.closure.report` | boundary_closure | - | 1 | no | yes | yes | yes | yes | yes | boundary closure |
 | `boundary.evidence.closure.certificate` | boundary_closure | 1 | 1 | no | yes | yes | yes | yes | yes | closure certificate |
-| `boundary.evidence.closure.world_port` | boundary_closure | 1 | 1 | no | yes | yes | yes | yes | yes | world port |
+| `boundary.evidence.closure.world_port` | boundary_closure | 1 | 2 | no | yes | yes | yes | yes | yes | world port |
 | `boundary.evidence.elaboration.certificate` | boundary_elaboration | 1 | 1 | no | yes | yes | yes | yes | yes | elaboration certificate |
 | `boundary.evidence.elaboration.source_map` | boundary_elaboration | - | 1 | no | yes | yes | yes | yes | yes | elaboration map |
 | `boundary.evidence.elaboration.effect_row` | boundary_elaboration | - | 1 | no | yes | yes | yes | yes | yes | elaboration effects |
