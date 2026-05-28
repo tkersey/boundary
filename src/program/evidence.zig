@@ -7259,6 +7259,7 @@ fn worldPortAllowedByElaborationPolicy(policy: BoundaryElaborationPolicy, port: 
 
 fn worldPortForRef(ports: []const BoundaryWorldPort, ref: Ref) ?BoundaryWorldPort {
     for (ports) |port| {
+        if (port.fingerprint != port.computeFingerprint()) continue;
         if (port.evidenceRef().eql(ref)) return port;
     }
     return null;
