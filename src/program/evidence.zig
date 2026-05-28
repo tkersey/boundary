@@ -5447,16 +5447,7 @@ fn normalizationRedexSemanticBodyForSourceEntry(entry: BoundaryElaborationSource
 }
 
 fn normalizationRouteProofMatchesSourceEntry(policy: BoundaryTargetPolicy, entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan, world_ports: []const BoundaryWorldPort) bool {
-    const expected_disposition: ?BoundaryElaborationSourceMap.Disposition = switch (semantic_body) {
-        .boundary_program => .provider_program_linked,
-        .declarative => .preserved,
-        .residualized_program => .residualized,
-        .pipeline => .pipeline_adapter,
-        .host_intrinsic,
-        .unknown,
-        .kernel_primitive,
-        => null,
-    };
+    const expected_disposition = sourceMapDispositionForSemanticBody(semantic_body);
     if (entry.disposition == .world_port_lowered) {
         return normalizationWorldPortRouteProofMatchesSourceEntry(policy, entry, semantic_body, static_treaty_plans, world_ports);
     }
@@ -5488,9 +5479,39 @@ fn normalizationBlockedRouteProofMatchesSourceEntry(policy: BoundaryTargetPolicy
     if (!staticTreatyPlanIntegrityMatches(plan)) return false;
     if (boundaryStaticTreatyPlanRouteSemanticBody(plan) != semantic_body) return false;
     if (!normalizationEntryMatchesPlanSource(entry, plan.source_shape, plan.source_shape)) return false;
-    if (!staticTreatyPlanBlockedUnderElaborationPolicy(boundaryTargetElaborationPolicy(policy), plan)) return false;
-    if (entry.blocker_ref) |blocker_ref| return staticTreatyPlanHasBlockerRef(plan, blocker_ref);
-    return true;
+    const elaboration_policy = boundaryTargetElaborationPolicy(policy);
+    const plan_blocked = staticTreatyPlanBlockedUnderElaborationPolicy(elaboration_policy, plan);
+    const unsupported_blocked = staticTreatyPlanAllowsUnsupportedRouteBlocker(elaboration_policy, entry, semantic_body);
+    if (!plan_blocked and !unsupported_blocked) return false;
+    if (entry.blocker_ref) |blocker_ref| {
+        if (plan_blocked and staticTreatyPlanHasBlockerRef(plan, blocker_ref)) return true;
+        return unsupported_blocked and blocker_ref.eql(semantic_body.evidenceRef());
+    }
+    return plan_blocked;
+}
+
+fn sourceMapDispositionForSemanticBody(body: SemanticBody) ?BoundaryElaborationSourceMap.Disposition {
+    return switch (body) {
+        .boundary_program => .provider_program_linked,
+        .declarative => .preserved,
+        .residualized_program => .residualized,
+        .pipeline => .pipeline_adapter,
+        .host_intrinsic,
+        .unknown,
+        .kernel_primitive,
+        => null,
+    };
+}
+
+fn staticTreatyPlanAllowsUnsupportedRouteBlocker(policy: BoundaryElaborationPolicy, entry: BoundaryElaborationSourceMap.Entry, body: SemanticBody) bool {
+    const blocker_ref = entry.blocker_ref orelse return false;
+    return entry.disposition == .blocked and
+        entry.world_port_ref == null and
+        entry.provider_program_ref == null and
+        policy.allow_partial_with_blockers and
+        !policy.fail_on_unsupported_shape and
+        sourceMapDispositionForSemanticBody(body) == null and
+        blocker_ref.eql(body.evidenceRef());
 }
 
 fn normalizationWorldPortRouteProofMatchesSourceEntry(policy: BoundaryTargetPolicy, entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan, world_ports: []const BoundaryWorldPort) bool {
@@ -6940,9 +6961,13 @@ fn sourceMapEntryMatchesStaticTreatyPlan(policy: BoundaryElaborationPolicy, depe
             if (!optionalRefSubjectsEqual(world_port.exposed_intrinsic_ref, intrinsic_ref)) return false;
             return boundaryWorldPortMatchesShape(world_port, plan.source_shape);
         },
-        .blocked => return entry.world_port_ref == null and
-            entry.provider_program_ref == null and
-            staticTreatyPlanBlockedUnderElaborationPolicy(policy, plan),
+        .blocked => {
+            const body = boundaryStaticTreatyPlanRouteSemanticBody(plan);
+            return entry.world_port_ref == null and
+                entry.provider_program_ref == null and
+                (staticTreatyPlanBlockedUnderElaborationPolicy(policy, plan) or
+                    staticTreatyPlanAllowsUnsupportedRouteBlocker(policy, entry, body));
+        },
         .preserved,
         .provider_program_linked,
         .residualized,
@@ -7584,6 +7609,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
         fn routeCanEmitUnsupportedBlocker(input: Input, comptime body: SemanticBody) bool {
             return input.policy.allow_partial_with_blockers and
                 !input.policy.fail_on_unsupported_shape and
+                input.closure_report.effect_shape_count != 0 and
                 sourceMapDispositionForRouteBody(body) == null;
         }
 
@@ -9051,13 +9077,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
         }
 
         fn sourceMapDispositionForRouteBody(comptime body: SemanticBody) ?SourceMap.Disposition {
-            return switch (body) {
-                .boundary_program => .provider_program_linked,
-                .declarative => .preserved,
-                .residualized_program => .residualized,
-                .pipeline => .pipeline_adapter,
-                .kernel_primitive, .host_intrinsic, .unknown => null,
-            };
+            return sourceMapDispositionForSemanticBody(body);
         }
 
         fn unsupportedRouteSourceEntry(comptime plan: Closure.StaticTreatyPlan, comptime body: SemanticBody, comptime residual_ref: Ref) SourceMap.Entry {

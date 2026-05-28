@@ -9425,7 +9425,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
     try std.testing.expect(multi_site_descriptor_ok);
 
     const planned_shared_world_port_ok = comptime blk: {
-        @setEvalBranchQuota(200_000);
+        @setEvalBranchQuota(6_000_000);
         const MultiClosure = closure_multi_yield_program.BoundaryClosure;
         const MultiElaboration = MultiClosure.Elaboration;
         const MultiEvidence = closure_multi_yield_program.Evidence;
