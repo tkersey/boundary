@@ -5075,7 +5075,7 @@ pub const BoundaryNormalizationCertificate = struct {
             if (!normalizationRedexMatchesSourceEntry(redex, entry, static_treaty_plans, trace.root_program_ref, trace.final_program_plan_hash)) return error.BoundaryNormalizationCertificateMismatch;
             if (!normalizationRuleMatchesSourceEntry(rule, entry, static_treaty_plans, trace.root_program_ref)) return error.BoundaryNormalizationCertificateMismatch;
             const semantic_body = normalizationRedexSemanticBodyForSourceEntry(entry, static_treaty_plans) orelse return error.BoundaryNormalizationCertificateMismatch;
-            if (!normalizationRouteProofMatchesSourceEntry(policy, entry, semantic_body, static_treaty_plans, world_ports)) return error.BoundaryNormalizationCertificateMismatch;
+            if (!normalizationRouteProofMatchesSourceEntry(policy, entry, semantic_body, static_treaty_plans, evidence_map.dependencies, world_ports)) return error.BoundaryNormalizationCertificateMismatch;
             if (!normalizationPolicyAllowsRewrite(normalization_policy, rule.kind, semantic_body, entry)) return error.BoundaryNormalizationPolicyMismatch;
             if (!normalizationStepRouteRefsMatch(step, entry, static_treaty_plans)) return error.BoundaryNormalizationCertificateMismatch;
             const expected_builder_fingerprint = boundaryNormalizationRouteLoweringFingerprint(entry, trace.final_program_plan_hash);
@@ -5446,7 +5446,7 @@ fn normalizationRedexSemanticBodyForSourceEntry(entry: BoundaryElaborationSource
     return boundaryStaticTreatyPlanRouteSemanticBody(plan);
 }
 
-fn normalizationRouteProofMatchesSourceEntry(policy: BoundaryTargetPolicy, entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan, world_ports: []const BoundaryWorldPort) bool {
+fn normalizationRouteProofMatchesSourceEntry(policy: BoundaryTargetPolicy, entry: BoundaryElaborationSourceMap.Entry, semantic_body: SemanticBody, static_treaty_plans: []const BoundaryStaticTreatyPlan, evidence_dependencies: []const Dependency, world_ports: []const BoundaryWorldPort) bool {
     const expected_disposition = sourceMapDispositionForSemanticBody(semantic_body);
     if (entry.disposition == .world_port_lowered) {
         return normalizationWorldPortRouteProofMatchesSourceEntry(policy, entry, semantic_body, static_treaty_plans, world_ports);
@@ -5466,6 +5466,11 @@ fn normalizationRouteProofMatchesSourceEntry(policy: BoundaryTargetPolicy, entry
     }
     if (entry.disposition == .provider_program_linked) {
         const provider_program_ref = entry.provider_program_ref orelse return false;
+        const residual_ref = entry.residual_ref orelse return false;
+        if (!staticTreatyPlanHasDependencyRef(plan, .residual_program, residual_ref)) {
+            const binding_ref = refForProviderProgramResidualBinding(plan, residual_ref) orelse return false;
+            if (!dependenciesContainRef(evidence_dependencies, .provider_program_mapping, binding_ref)) return false;
+        }
         return optionalRefValuesEqual(plan.selected_provider_program_ref, provider_program_ref);
     }
     return entry.provider_program_ref == null;
@@ -5802,8 +5807,28 @@ fn targetEvidenceMapDependenciesMatch(
     elaboration_certificate_ref: Ref,
     trace_map_ref: Ref,
 ) bool {
-    return dependencies.len == 11 and
-        targetBaseDependenciesContain(dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, residual_program_ref, elaboration_certificate_ref, trace_map_ref);
+    if (!targetBaseDependenciesContain(dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, residual_program_ref, elaboration_certificate_ref, trace_map_ref)) return false;
+    var provider_mapping_count: usize = 0;
+    for (dependencies) |dependency| {
+        if (targetEvidenceMapBaseRole(dependency.role)) continue;
+        if (dependency.role != .provider_program_mapping) return false;
+        provider_mapping_count += 1;
+    }
+    return dependencies.len == 11 + provider_mapping_count;
+}
+
+fn targetEvidenceMapBaseRole(role: Role) bool {
+    return role == .elaboration_certificate or
+        role == .elaboration_source_map or
+        role == .elaboration_effect_row or
+        role == .elaboration_trace_map or
+        role == .world_surface or
+        role == .world_port_table or
+        role == .world_value_table or
+        role == .world_dispatch_table or
+        role == .surface_profile or
+        role == .replay_key_recipe or
+        role == .residual_program;
 }
 
 fn targetBaseDependenciesContain(
@@ -8889,20 +8914,35 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             comptime dispatch_table: WorldDispatchTable,
             comptime profile: SurfaceProfile,
             comptime replay_key_recipe: ReplayKeyRecipe,
-        ) [11]Dependency {
-            return .{
-                .{ .role = .elaboration_certificate, .ref = Body.certificate.evidenceRef() },
-                .{ .role = .elaboration_source_map, .ref = Body.source_map.evidenceRef() },
-                .{ .role = .elaboration_effect_row, .ref = Body.effect_row.evidenceRef() },
-                .{ .role = .elaboration_trace_map, .ref = Body.trace_map.evidenceRef() },
-                .{ .role = .world_surface, .ref = surface.evidenceRef() },
-                .{ .role = .world_port_table, .ref = port_table.evidenceRef() },
-                .{ .role = .world_value_table, .ref = value_table.evidenceRef() },
-                .{ .role = .world_dispatch_table, .ref = dispatch_table.evidenceRef() },
-                .{ .role = .surface_profile, .ref = profile.evidenceRef() },
-                .{ .role = .replay_key_recipe, .ref = replay_key_recipe.evidenceRef() },
-                .{ .role = .residual_program, .ref = Body.certificate.residual_program_ref },
-            };
+        ) [targetDependencyCount(Body)]Dependency {
+            var dependencies: [targetDependencyCount(Body)]Dependency = undefined;
+            dependencies[0] = .{ .role = .elaboration_certificate, .ref = Body.certificate.evidenceRef() };
+            dependencies[1] = .{ .role = .elaboration_source_map, .ref = Body.source_map.evidenceRef() };
+            dependencies[2] = .{ .role = .elaboration_effect_row, .ref = Body.effect_row.evidenceRef() };
+            dependencies[3] = .{ .role = .elaboration_trace_map, .ref = Body.trace_map.evidenceRef() };
+            dependencies[4] = .{ .role = .world_surface, .ref = surface.evidenceRef() };
+            dependencies[5] = .{ .role = .world_port_table, .ref = port_table.evidenceRef() };
+            dependencies[6] = .{ .role = .world_value_table, .ref = value_table.evidenceRef() };
+            dependencies[7] = .{ .role = .world_dispatch_table, .ref = dispatch_table.evidenceRef() };
+            dependencies[8] = .{ .role = .surface_profile, .ref = profile.evidenceRef() };
+            dependencies[9] = .{ .role = .replay_key_recipe, .ref = replay_key_recipe.evidenceRef() };
+            dependencies[10] = .{ .role = .residual_program, .ref = Body.certificate.residual_program_ref };
+            comptime var index: usize = 11;
+            inline for (Body.certificate.dependencies) |dependency| {
+                if (dependency.role == .provider_program_mapping) {
+                    dependencies[index] = dependency;
+                    index += 1;
+                }
+            }
+            return dependencies;
+        }
+
+        fn targetDependencyCount(comptime Body: type) usize {
+            comptime var count: usize = 11;
+            inline for (Body.certificate.dependencies) |dependency| {
+                if (dependency.role == .provider_program_mapping) count += 1;
+            }
+            return count;
         }
 
         fn normalFormKindFor(comptime input: Input, comptime blocker_count: usize) NormalFormKind {
