@@ -8915,6 +8915,78 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
     };
     try std.testing.expect(wildcard_shape_port_lowers);
 
+    const blocked_plan_world_port = comptime blk: {
+        @setEvalBranchQuota(200_000);
+        const shape = Closure.EffectShape.init(.{
+            .program_label = "blocked-shape-only-static-plan-source",
+            .kind = .operation,
+            .site_index = closure_approval_request.index,
+            .protocol_label = "approval",
+            .protocol_op_fingerprint = closure_approval_request.fingerprint,
+        });
+        const plan_blocker = Evidence.BoundaryClosureBlocker{
+            .tag = .unsupported_shape_planning,
+            .subject = shape.evidenceRef(),
+            .summary = "blocked static treaty plan must not lower through a world port",
+        };
+        const blocked_plan = Closure.StaticTreatyPlan.init(.{
+            .label = "blocked-shape-only-static-plan",
+            .source_shape = shape,
+            .selected_semantic_body = .declarative,
+            .blockers = &.{plan_blocker},
+        });
+        const port = Closure.WorldPort.init(.{
+            .label = "blocked-shape-only-static-plan-world-port",
+            .kind = .test_fixture,
+            .effect_shape_ref = shape.evidenceRef(),
+            .supported_protocol_labels = &.{"approval"},
+            .supported_site_indexes = &.{closure_approval_request.index},
+            .supported_protocol_op_fingerprints = &.{closure_approval_request.fingerprint},
+        });
+        const blocked_port_graph = Closure.Graph.init("blocked-shape-only-static-plan-world-graph", &.{}, &.{}, &.{});
+        const blocker = plan_blocker.toEvidenceBlocker();
+        const blocked_port_report = Closure.Report.init(.{
+            .graph_fingerprint = blocked_port_graph.fingerprint,
+            .root_program_refs = &.{source_ref},
+            .effect_shape_count = 2,
+            .world_port_refs = &.{port.evidenceRef()},
+            .open_world_port_count = 1,
+            .blockers = &.{blocker},
+        });
+        const blocked_port_certificate = Closure.Certificate.init(blocked_port_report, blocked_port_graph, Closure.Policy.auditOnly(), &.{blocked_plan.evidenceRef()});
+        const blocked_port_input = Elaboration.Input{
+            .closure_graph = blocked_port_graph,
+            .closure_report = blocked_port_report,
+            .closure_certificate = blocked_port_certificate,
+            .static_treaty_plans = &.{blocked_plan},
+            .source_program_ref = source_ref,
+            .world_ports = &.{port},
+            .policy = Elaboration.Policy.auditOnly(),
+        };
+        const Body = Elaboration.FromResidual(blocked_port_input, closure_source_program, .{ .label = "blocked-shape-only-static-plan-world-body" });
+        Body.certificate.check(
+            blocked_port_input.policy,
+            blocked_port_graph.evidenceRef(),
+            blocked_port_report.evidenceRef(),
+            blocked_port_certificate.evidenceRef(),
+            Body.source_map,
+            Body.effect_row,
+            Body.trace_map,
+            Body.normal_form,
+            &.{blocked_plan},
+            &.{port},
+        ) catch break :blk false;
+        break :blk Body.source_map.entries.len == 2 and
+            Body.source_map.entries[0].disposition == .blocked and
+            Body.source_map.entries[0].static_treaty_plan_ref.?.eql(blocked_plan.evidenceRef()) and
+            Body.source_map.entries[1].disposition == .world_port_lowered and
+            Body.source_map.entries[1].static_treaty_plan_ref == null and
+            Body.effect_row.world_ports == 1 and
+            Body.effect_row.blockers == 1 and
+            Body.normal_form.kind == .partial_with_blockers;
+    };
+    try std.testing.expect(blocked_plan_world_port);
+
     const static_direct_blocker_bound = comptime blk: {
         @setEvalBranchQuota(200_000);
         const shape = Closure.EffectShape.init(.{
@@ -9396,7 +9468,7 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
     try std.testing.expect(morphism_intrinsic_targets);
 
     const site_index_ports_ok = comptime blk: {
-        @setEvalBranchQuota(200_000);
+        @setEvalBranchQuota(6_000_000);
         const MultiClosure = closure_multi_yield_program.BoundaryClosure;
         const MultiElaboration = MultiClosure.Elaboration;
         const first_site = closure_multi_yield_program.contract.session.yield_sites[0];

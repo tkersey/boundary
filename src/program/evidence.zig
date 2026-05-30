@@ -9009,6 +9009,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
         ) bool {
             const occurrence_rank = worldPortOccurrenceRank(input.closure_report.world_port_refs, world_port_ref, occurrence_index);
             inline for (input.static_treaty_plans, 0..) |plan, plan_index| {
+                if (comptime planBlockedForElaboration(input, plan)) continue;
                 if (comptime worldPortForPlan(input, ResidualProgram, plan)) |port| {
                     if (!port.evidenceRef().eql(world_port_ref)) continue;
                     if (worldPortPlanOccurrenceRank(input, ResidualProgram, world_port_ref, plan_index) == occurrence_rank) return true;
@@ -9041,7 +9042,16 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             var index: usize = 0;
             if (input.static_treaty_plans.len != 0) {
                 inline for (input.static_treaty_plans, 0..) |plan, plan_index| {
-                    if (comptime worldPortForPlan(input, ResidualProgram, plan)) |port| {
+                    if (comptime planBlockedForElaboration(input, plan)) {
+                        entries[index] = .{
+                            .source_ref = plan.source_shape.evidenceRef(),
+                            .residual_ref = residual_ref,
+                            .source_site_index = plan.source_shape.site_index,
+                            .static_treaty_plan_ref = plan.evidenceRef(),
+                            .disposition = .blocked,
+                            .label = plan.label,
+                        };
+                    } else if (comptime worldPortForPlan(input, ResidualProgram, plan)) |port| {
                         const residual_site_index = comptime residualWorldPortSiteIndexForOccurrence(
                             ResidualProgram,
                             port,
@@ -9056,15 +9066,6 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                             .static_treaty_plan_ref = plan.evidenceRef(),
                             .world_port_ref = port.evidenceRef(),
                             .disposition = .world_port_lowered,
-                            .label = plan.label,
-                        };
-                    } else if (comptime planBlockedForElaboration(input, plan)) {
-                        entries[index] = .{
-                            .source_ref = plan.source_shape.evidenceRef(),
-                            .residual_ref = residual_ref,
-                            .source_site_index = plan.source_shape.site_index,
-                            .static_treaty_plan_ref = plan.evidenceRef(),
-                            .disposition = .blocked,
                             .label = plan.label,
                         };
                     } else {
@@ -9569,6 +9570,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
         fn worldPortPlanOrderOccurrenceRank(comptime input: Input, comptime ResidualProgram: type, comptime ref: Ref, comptime plan_index: usize) usize {
             var rank: usize = 0;
             inline for (input.static_treaty_plans[0..plan_index]) |prior_plan| {
+                if (comptime planBlockedForElaboration(input, prior_plan)) continue;
                 if (comptime worldPortForPlan(input, ResidualProgram, prior_plan)) |prior_port| {
                     if (prior_port.evidenceRef().eql(ref)) rank += 1;
                 }
