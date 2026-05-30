@@ -12,8 +12,8 @@ fn compiled() boundary.ir.ProgramPlan {
     const rows = Protocol.Rows(Handlers, .{ .requirement_index = 0, .first_op = 0 });
     const request = rows.op("request");
     const result = semantic.finish(.{
-        .label = "target-direct-world-port-source",
-        .ir_hash = 0xC781_F101,
+        .label = "world-port-absent-coordinate",
+        .ir_hash = 0xC781_F401,
         .entry = "run",
         .requirements = &.{rows.requirement},
         .ops = &rows.ops,
@@ -39,34 +39,40 @@ fn compiled() boundary.ir.ProgramPlan {
     return result.plan;
 }
 
-const SourceProgram = boundary.program("target-direct-world-port-source", Handlers, struct {
+const Program = boundary.program("world-port-absent-coordinate", Handlers, struct {
     pub const compiled_plan = compiled();
 });
 
-const Evidence = SourceProgram.Evidence;
-const Closure = SourceProgram.BoundaryClosure;
+const Evidence = Program.Evidence;
+const Closure = Program.BoundaryClosure;
 const Elaboration = Closure.Elaboration;
-const source_site = SourceProgram.protocol.operationSite("approval", "request", 0);
+const request_site = Program.protocol.operationSite("approval", "request", 0);
 
 comptime {
-    @setEvalBranchQuota(200_000);
-    const source_ref = Evidence.refFor(Evidence.domains.program_plan, SourceProgram.compiled_plan.hash(), .{ .label = SourceProgram.contract.label });
-    const source_shape = Closure.EffectShape.init(.{
-        .program_label = "target-direct-world-port-source",
+    @setEvalBranchQuota(300_000);
+    const source_ref = Evidence.refFor(Evidence.domains.program_plan, Program.compiled_plan.hash(), .{ .label = Program.contract.label });
+    const intrinsic_ref = Evidence.refFor(Evidence.domains.host_intrinsic, 0xC781_F402, .{ .label = "absent-coordinate-intrinsic" });
+    const absent_shape = Closure.EffectShape.init(.{
+        .program_label = Program.contract.label,
+        .plan_hash = Program.compiled_plan.hash(),
         .kind = .operation,
-        .site_index = source_site.index,
+        .site_index = request_site.index + 99,
         .protocol_label = "approval",
-        .protocol_op_fingerprint = source_site.fingerprint,
     });
-    _ = source_shape;
+    const plan = Closure.StaticTreatyPlan.init(.{
+        .label = "absent-coordinate-plan",
+        .source_shape = absent_shape,
+        .selected_semantic_body = .host_intrinsic,
+        .selected_intrinsic_ref = intrinsic_ref,
+        .host_intrinsic = true,
+    });
     const world_port = Closure.WorldPort.init(.{
-        .label = "target-direct-world-port",
+        .label = "absent-coordinate-world-port",
         .kind = .test_fixture,
+        .exposed_intrinsic_ref = intrinsic_ref,
         .supported_protocol_labels = &.{"approval"},
-        .supported_site_indexes = &.{source_site.index},
-        .supported_protocol_op_fingerprints = &.{source_site.fingerprint},
     });
-    const graph = Closure.Graph.init("target-direct-world-port-graph", &.{}, &.{}, &.{});
+    const graph = Closure.Graph.init("absent-coordinate-graph", &.{}, &.{}, &.{});
     const report = Closure.Report.init(.{
         .graph_fingerprint = graph.fingerprint,
         .root_program_refs = &.{source_ref},
@@ -74,21 +80,20 @@ comptime {
         .world_port_refs = &.{world_port.evidenceRef()},
         .open_world_port_count = 1,
     });
-    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{plan.evidenceRef()});
     const input = Elaboration.Input{
         .closure_graph = graph,
         .closure_report = report,
         .closure_certificate = certificate,
+        .static_treaty_plans = &.{plan},
         .source_program_ref = source_ref,
         .world_ports = &.{world_port},
         .policy = Elaboration.Policy.auditOnly(),
     };
-    var target_policy = Elaboration.Target.Policy.auditOnly();
-    target_policy.fail_on_schema_mismatch = true;
     _ = Elaboration.Target.compileComptime(.{
-        .label = "target-direct-world-port-schema-witness",
+        .label = "absent-coordinate-target",
         .input = input,
-        .residual_program = SourceProgram,
-        .policy = target_policy,
+        .residual_program = Program,
+        .policy = Elaboration.Target.Policy.auditOnly(),
     });
 }

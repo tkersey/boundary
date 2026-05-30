@@ -677,6 +677,14 @@ pub fn build(b: *std.Build) void {
             .expected_error = "Boundary Target world-port schema mismatch",
         },
         .{
+            .path = "test/compile_fail/boundary_target_world_port_absent_coordinate.zig",
+            .expected_error = "BoundaryClosure.Elaboration world port shape coordinates do not match a residual Program site",
+        },
+        .{
+            .path = "test/compile_fail/boundary_target_world_port_coordinate_mismatch.zig",
+            .expected_error = "BoundaryClosure.Elaboration world port shape coordinates do not match a residual Program site",
+        },
+        .{
             .path = "test/compile_fail/boundary_target_missing_residual_program.zig",
             .expected_error = "Boundary Target requires .residual_program or .root; no residual target generation path is implemented",
         },
@@ -742,6 +750,9 @@ pub fn build(b: *std.Build) void {
         .{ .name = "boundary-world-surface-strict", .path = "examples/world_surface_strict.zig", .step = "run-world-surface-strict", .desc = "Run the strict Certified Boundary Target WorldSurface example." },
         .{ .name = "boundary-world-surface-nested", .path = "examples/world_surface_nested.zig", .step = "run-world-surface-nested", .desc = "Run the scoped root-copy Certified Boundary Target WorldSurface example." },
         .{ .name = "boundary-world-surface-ports", .path = "examples/world_surface_ports.zig", .step = "run-world-surface-ports", .desc = "Run the world-port Certified Boundary Target WorldSurface example." },
+        .{ .name = "boundary-normalization-provider", .path = "examples/boundary_normalization_provider.zig", .step = "run-boundary-normalization-provider", .desc = "Run the provider Boundary Normalization Calculus example." },
+        .{ .name = "boundary-normalization-nested", .path = "examples/boundary_normalization_nested.zig", .step = "run-boundary-normalization-nested", .desc = "Run the nested Boundary Normalization Calculus example." },
+        .{ .name = "boundary-normalization-ports", .path = "examples/boundary_normalization_ports.zig", .step = "run-boundary-normalization-ports", .desc = "Run the WorldPort Boundary Normalization Calculus example." },
         .{ .name = "boundary-program-provider-direct", .path = "examples/program_provider_direct.zig", .step = "run-program-provider-direct", .desc = "Run the direct program-backed ProviderHarness example." },
         .{ .name = "boundary-program-provider-nested", .path = "examples/program_provider_nested.zig", .step = "run-program-provider-nested", .desc = "Run the nested program-backed ProviderHarness example." },
         .{ .name = "boundary-program-provider-resume", .path = "examples/program_provider_resume.zig", .step = "run-program-provider-resume", .desc = "Run the parked and resumed program-backed ProviderHarness example." },

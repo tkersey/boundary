@@ -10,9 +10,10 @@ for an adjacent `world` interpreter. It packages a residual `ProgramPlan` body,
 Boundary Normal Form, dense world-port dispatch metadata, source/trace/evidence
 maps, replay-key recipe metadata, and a target certificate.
 
-`FromResidual` remains the validation path for a supplied residual plan.
-`Target.compileComptime` requires `.residual_program` or `.root`, builds the
-target-neutral surface, and validates the body through `FromResidual`.
+`FromResidual` remains the validation path for a supplied or generated residual
+plan. `Target.compileComptime` requires `.residual_program` or `.root`, builds
+the target-neutral surface, validates the body through `FromResidual`, and binds
+normalization trace/certificate evidence into the target certificate.
 
 ## WorldSurface
 
@@ -32,6 +33,9 @@ Boundary targets report:
 - `strict_closed`: no residual effects remain.
 - `world_ports_only`: only explicit residual world ports remain.
 - `partial_with_blockers`: unsupported shapes remain as blockers.
+
+Boundary Normalization produces the proof-carrying rewrite trace behind that
+classification. See [boundary_normalization.md](boundary_normalization.md).
 
 ## Hot Path
 
