@@ -7356,6 +7356,9 @@ fn boundaryWorldPortMatchesShape(port: BoundaryWorldPort, shape: BoundaryEffectS
     if (shape.protocol_op_fingerprint) |fingerprint| {
         if (!boundaryWorldPortSupportsOperationFingerprint(port, fingerprint)) return false;
     }
+    if (shape.site_fingerprint) |fingerprint| {
+        if (!boundaryWorldPortSupportsOperationFingerprint(port, fingerprint)) return false;
+    }
     return true;
 }
 
