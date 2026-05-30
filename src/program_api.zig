@@ -1430,6 +1430,8 @@ pub fn program(
         pub const boundary_target_certificate_fingerprint_version: u32 = Evidence.domains.boundary_target_certificate.fingerprint_version;
         /// Stable fingerprint version for Boundary target evidence maps.
         pub const boundary_target_evidence_map_fingerprint_version: u32 = Evidence.domains.boundary_target_evidence_map.fingerprint_version;
+        /// Stable fingerprint version for Boundary Normalization policies.
+        pub const boundary_normalization_policy_fingerprint_version: u32 = Evidence.domains.boundary_normalization_policy.fingerprint_version;
         /// Stable fingerprint version for Boundary Normalization redex witnesses.
         pub const boundary_normalization_redex_fingerprint_version: u32 = Evidence.domains.boundary_normalization_redex.fingerprint_version;
         /// Stable fingerprint version for Boundary Normalization rewrite rules.

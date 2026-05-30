@@ -301,6 +301,7 @@ test "evidence domain registry is unique and mirrors public version constants" {
     try std.testing.expectEqual(Program.boundary_target_certificate_format_version, Evidence.domains.boundary_target_certificate.format_version.?);
     try std.testing.expectEqual(Program.boundary_target_certificate_fingerprint_version, Evidence.domains.boundary_target_certificate.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_target_evidence_map_fingerprint_version, Evidence.domains.boundary_target_evidence_map.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_normalization_policy_fingerprint_version, Evidence.domains.boundary_normalization_policy.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_normalization_redex_fingerprint_version, Evidence.domains.boundary_normalization_redex.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_normalization_rule_fingerprint_version, Evidence.domains.boundary_normalization_rule.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_normalization_step_fingerprint_version, Evidence.domains.boundary_normalization_step.fingerprint_version);
@@ -2024,6 +2025,7 @@ test "boundary normalization input validates checked closure and target policy c
         break :blk false;
     };
     try std.testing.expect(validates_and_rejects_mismatch);
+    try std.testing.expect(Evidence.BoundaryNormalizationPolicy.fromTargetPolicy(Evidence.BoundaryTargetPolicy.strictClosed()).fingerprint() != Evidence.BoundaryTargetPolicy.strictClosed().fingerprint());
     try std.testing.expect(Evidence.BoundaryNormalizationPolicy.strictClosed().fingerprint() != Evidence.BoundaryNormalizationPolicy.worldBoundary().fingerprint());
 }
 

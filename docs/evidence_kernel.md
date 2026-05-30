@@ -105,6 +105,7 @@ Current domains are registered in `Program.Evidence.domains`:
 | `boundary.evidence.target.policy` | boundary_target | - | 2 | no | yes | yes | yes | yes | yes | boundary target policy |
 | `boundary.evidence.target.certificate` | boundary_target | 2 | 2 | no | yes | yes | yes | yes | yes | certified boundary target |
 | `boundary.evidence.target.evidence_map` | boundary_target | - | 1 | no | yes | yes | yes | yes | yes | evidence |
+| `boundary.evidence.target.normalization.policy` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | normalization policy |
 | `boundary.evidence.target.normalization.redex` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | redex |
 | `boundary.evidence.target.normalization.rule` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | rewrite rule |
 | `boundary.evidence.target.normalization.step` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | rewrite step |

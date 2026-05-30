@@ -95,6 +95,7 @@ pub const Domain = struct {
         boundary_target_evidence_map,
         boundary_elaboration_compiler,
         boundary_elaboration_generated_plan,
+        boundary_normalization_policy,
         boundary_normalization_redex,
         boundary_normalization_rule,
         boundary_normalization_step,
@@ -220,6 +221,7 @@ pub const domains = struct {
     pub const boundary_target_evidence_map = Domain{ .id = .boundary_target_evidence_map, .name = "boundary.evidence.target.evidence_map", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "evidence" };
     pub const boundary_elaboration_compiler = Domain{ .id = .boundary_elaboration_compiler, .name = "boundary.evidence.target.compiler", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "elaboration compiler" };
     pub const boundary_elaboration_generated_plan = Domain{ .id = .boundary_elaboration_generated_plan, .name = "boundary.evidence.target.generated_plan", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "automatic elaboration" };
+    pub const boundary_normalization_policy = Domain{ .id = .boundary_normalization_policy, .name = "boundary.evidence.target.normalization.policy", .fingerprint_version = 1, .owner = .boundary_target, .kind = .fingerprint, .certificate_referenced = true, .tests = "normalization policy" };
     pub const boundary_normalization_redex = Domain{ .id = .boundary_normalization_redex, .name = "boundary.evidence.target.normalization.redex", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "redex" };
     pub const boundary_normalization_rule = Domain{ .id = .boundary_normalization_rule, .name = "boundary.evidence.target.normalization.rule", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "rewrite rule" };
     pub const boundary_normalization_step = Domain{ .id = .boundary_normalization_step, .name = "boundary.evidence.target.normalization.step", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "rewrite step" };
@@ -305,6 +307,7 @@ pub const all_domains = &[_]Domain{
     domains.boundary_target_evidence_map,
     domains.boundary_elaboration_compiler,
     domains.boundary_elaboration_generated_plan,
+    domains.boundary_normalization_policy,
     domains.boundary_normalization_redex,
     domains.boundary_normalization_rule,
     domains.boundary_normalization_step,
@@ -4633,7 +4636,7 @@ pub const BoundaryNormalizationPolicy = struct {
     }
 
     pub fn fingerprint(self: @This()) u64 {
-        var builder = FingerprintBuilder.init(domains.boundary_target_policy);
+        var builder = FingerprintBuilder.init(domains.boundary_normalization_policy);
         builder.fieldBytes("normalization.label", self.label);
         builder.fieldBool("allow_program_provider_rewrites", self.allow_program_provider_rewrites);
         builder.fieldBool("allow_nested_provider_rewrites", self.allow_nested_provider_rewrites);
