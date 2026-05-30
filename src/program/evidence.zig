@@ -9567,11 +9567,13 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
         fn residualWorldPortOccurrenceRankForShape(comptime ResidualProgram: type, comptime port: Closure.WorldPort, comptime shape: Closure.EffectShape) WorldPortShapeOccurrence {
             var matched_rank: ?usize = null;
             var saw_absent_coordinate = false;
+            var saw_unsupported_coordinate = false;
             if (shape.site_index) |site_index| {
                 if (!mergeWorldPortCoordinateOccurrence(
                     residualWorldPortOccurrenceRankForSiteIndex(ResidualProgram, port, site_index),
                     &matched_rank,
                     &saw_absent_coordinate,
+                    &saw_unsupported_coordinate,
                 )) return .mismatched;
             }
             if (shape.site_fingerprint) |fingerprint| {
@@ -9579,6 +9581,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     residualWorldPortOccurrenceRankForFingerprint(ResidualProgram, port, fingerprint),
                     &matched_rank,
                     &saw_absent_coordinate,
+                    &saw_unsupported_coordinate,
                 )) return .mismatched;
             }
             if (shape.protocol_op_fingerprint) |fingerprint| {
@@ -9586,8 +9589,10 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     residualWorldPortOccurrenceRankForFingerprint(ResidualProgram, port, fingerprint),
                     &matched_rank,
                     &saw_absent_coordinate,
+                    &saw_unsupported_coordinate,
                 )) return .mismatched;
             }
+            if (saw_unsupported_coordinate) return .mismatched;
             if (matched_rank) |matched| return .{ .matched = matched };
             if (saw_absent_coordinate) return .mismatched;
             return .ambiguous;
@@ -9604,6 +9609,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             comptime occurrence: WorldPortCoordinateOccurrence,
             matched_rank: *?usize,
             saw_absent_coordinate: *bool,
+            saw_unsupported_coordinate: *bool,
         ) bool {
             switch (occurrence) {
                 .matched => |rank| {
@@ -9615,7 +9621,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 },
                 .ambiguous => {},
                 .absent => saw_absent_coordinate.* = true,
-                .unsupported => {},
+                .unsupported => saw_unsupported_coordinate.* = true,
             }
             return true;
         }

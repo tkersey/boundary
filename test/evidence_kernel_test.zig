@@ -9753,11 +9753,18 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
             .site_index = source_site_index,
             .protocol_label = "approval-dual",
         });
+        const other_shape = DualClosure.EffectShape.init(.{
+            .program_label = closure_dual_world_port_program.contract.label,
+            .plan_hash = closure_dual_world_port_program.compiled_plan.hash(),
+            .kind = .operation,
+            .site_index = closure_dual_first.index,
+            .protocol_label = "approval-dual",
+        });
         const selected_intrinsic_ref = DualEvidence.refFor(DualEvidence.domains.host_intrinsic, 0xE1D21D, .{ .label = "selected-direct-world-intrinsic" });
         const other_intrinsic_ref = DualEvidence.refFor(DualEvidence.domains.host_intrinsic, 0xE1D21E, .{ .label = "other-direct-world-intrinsic" });
         const other_plan = DualClosure.StaticTreatyPlan.init(.{
             .label = "other-direct-host-world-plan",
-            .source_shape = direct_shape,
+            .source_shape = other_shape,
             .selected_semantic_body = .host_intrinsic,
             .selected_intrinsic_ref = other_intrinsic_ref,
             .host_intrinsic = true,
@@ -9772,10 +9779,10 @@ test "boundary elaboration residual validation rejects uncovered effects and dis
         const other_port = DualClosure.WorldPort.init(.{
             .label = "other-direct-world-port",
             .kind = .test_fixture,
-            .effect_shape_ref = direct_shape.evidenceRef(),
+            .effect_shape_ref = other_shape.evidenceRef(),
             .exposed_intrinsic_ref = other_intrinsic_ref,
             .supported_protocol_labels = &.{"approval-dual"},
-            .supported_site_indexes = &.{ source_site_index, closure_dual_first.index },
+            .supported_site_indexes = &.{closure_dual_first.index},
             .supported_protocol_op_fingerprints = &.{closure_dual_first.fingerprint},
         });
         const selected_port = DualClosure.WorldPort.init(.{
