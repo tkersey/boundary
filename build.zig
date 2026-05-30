@@ -677,6 +677,10 @@ pub fn build(b: *std.Build) void {
             .expected_error = "Boundary Target world-port schema mismatch",
         },
         .{
+            .path = "test/compile_fail/boundary_target_world_port_absent_coordinate.zig",
+            .expected_error = "BoundaryClosure.Elaboration world port shape coordinates do not match a residual Program site",
+        },
+        .{
             .path = "test/compile_fail/boundary_target_world_port_coordinate_mismatch.zig",
             .expected_error = "BoundaryClosure.Elaboration world port shape coordinates do not match a residual Program site",
         },

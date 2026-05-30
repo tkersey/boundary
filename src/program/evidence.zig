@@ -9563,25 +9563,30 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
 
         fn residualWorldPortOccurrenceRankForShape(comptime ResidualProgram: type, comptime port: Closure.WorldPort, comptime shape: Closure.EffectShape) WorldPortShapeOccurrence {
             var matched_rank: ?usize = null;
+            var saw_absent_coordinate = false;
             if (shape.site_index) |site_index| {
                 if (!mergeWorldPortCoordinateOccurrence(
                     residualWorldPortOccurrenceRankForSiteIndex(ResidualProgram, port, site_index),
                     &matched_rank,
+                    &saw_absent_coordinate,
                 )) return .mismatched;
             }
             if (shape.site_fingerprint) |fingerprint| {
                 if (!mergeWorldPortCoordinateOccurrence(
                     residualWorldPortOccurrenceRankForFingerprint(ResidualProgram, port, fingerprint),
                     &matched_rank,
+                    &saw_absent_coordinate,
                 )) return .mismatched;
             }
             if (shape.protocol_op_fingerprint) |fingerprint| {
                 if (!mergeWorldPortCoordinateOccurrence(
                     residualWorldPortOccurrenceRankForFingerprint(ResidualProgram, port, fingerprint),
                     &matched_rank,
+                    &saw_absent_coordinate,
                 )) return .mismatched;
             }
             if (matched_rank) |matched| return .{ .matched = matched };
+            if (saw_absent_coordinate) return .mismatched;
             return .ambiguous;
         }
 
@@ -9589,11 +9594,13 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             matched: usize,
             ambiguous,
             absent,
+            unsupported,
         };
 
         fn mergeWorldPortCoordinateOccurrence(
             comptime occurrence: WorldPortCoordinateOccurrence,
             matched_rank: *?usize,
+            saw_absent_coordinate: *bool,
         ) bool {
             switch (occurrence) {
                 .matched => |rank| {
@@ -9604,7 +9611,8 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     }
                 },
                 .ambiguous => {},
-                .absent => {},
+                .absent => saw_absent_coordinate.* = true,
+                .unsupported => {},
             }
             return true;
         }
@@ -9612,10 +9620,14 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
         fn residualWorldPortOccurrenceRankForSiteIndex(comptime ResidualProgram: type, comptime port: Closure.WorldPort, comptime site_index: usize) WorldPortCoordinateOccurrence {
             var rank: usize = 0;
             var matched_rank: ?usize = null;
+            var found_unsupported = false;
             inline for (ResidualProgram.contract.session.yield_sites) |site| {
-                if (!residualWorldPortSupportsSite(port, site)) continue;
                 if (site.index != site_index) {
-                    rank += 1;
+                    if (residualWorldPortSupportsSite(port, site)) rank += 1;
+                    continue;
+                }
+                if (!residualWorldPortSupportsSite(port, site)) {
+                    found_unsupported = true;
                     continue;
                 }
                 if (matched_rank != null) return .ambiguous;
@@ -9623,16 +9635,21 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 rank += 1;
             }
             if (matched_rank) |matched| return .{ .matched = matched };
+            if (found_unsupported) return .unsupported;
             return .absent;
         }
 
         fn residualWorldPortOccurrenceRankForFingerprint(comptime ResidualProgram: type, comptime port: Closure.WorldPort, comptime fingerprint: u64) WorldPortCoordinateOccurrence {
             var rank: usize = 0;
             var matched_rank: ?usize = null;
+            var found_unsupported = false;
             inline for (ResidualProgram.contract.session.yield_sites) |site| {
-                if (!residualWorldPortSupportsSite(port, site)) continue;
                 if (site.fingerprint != fingerprint) {
-                    rank += 1;
+                    if (residualWorldPortSupportsSite(port, site)) rank += 1;
+                    continue;
+                }
+                if (!residualWorldPortSupportsSite(port, site)) {
+                    found_unsupported = true;
                     continue;
                 }
                 if (matched_rank != null) return .ambiguous;
@@ -9640,6 +9657,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 rank += 1;
             }
             if (matched_rank) |matched| return .{ .matched = matched };
+            if (found_unsupported) return .unsupported;
             return .absent;
         }
 
