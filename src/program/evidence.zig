@@ -5353,8 +5353,8 @@ pub const BoundaryTargetCertificate = struct {
         if (!trace_map_ref.eql(elaboration_certificate.trace_map_ref orelse return error.BoundaryTargetCertificateMismatch)) return error.BoundaryTargetCertificateMismatch;
         if (!traceMapMatchesSourceMap(trace_map, source_map)) return error.BoundaryTargetCertificateMismatch;
         const normalization_ref = self.normalization_certificate_ref orelse return error.BoundaryTargetCertificateMismatch;
-        if (!targetCertificateDependenciesMatch(self.dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, self.residual_program_ref, self.elaboration_certificate_ref, trace_map_ref, normalization_ref)) return error.BoundaryTargetCertificateMismatch;
         if (!targetEvidenceMapDependenciesMatch(evidence_map.dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, self.residual_program_ref, self.elaboration_certificate_ref, trace_map_ref)) return error.BoundaryTargetCertificateMismatch;
+        if (!targetCertificateDependenciesMatch(self.dependencies, evidence_map.dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, self.residual_program_ref, self.elaboration_certificate_ref, trace_map_ref, normalization_ref)) return error.BoundaryTargetCertificateMismatch;
         if (!self.world_surface_ref.eql(world_surface.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!self.port_table_ref.eql(port_table.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!self.value_table_ref.eql(value_table.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
@@ -5862,6 +5862,7 @@ fn targetBaseDependenciesContain(
 
 fn targetCertificateDependenciesMatch(
     dependencies: []const Dependency,
+    evidence_dependencies: []const Dependency,
     world_surface: BoundaryWorldSurface,
     port_table: BoundaryWorldPortTable,
     value_table: BoundaryWorldValueTable,
@@ -5882,7 +5883,24 @@ fn targetCertificateDependenciesMatch(
         if (dependency.role != .provider_program_mapping) return false;
         provider_mapping_count += 1;
     }
-    return dependencies.len == 12 + provider_mapping_count;
+    return dependencies.len == 12 + provider_mapping_count and
+        providerMappingDependenciesMatch(dependencies, evidence_dependencies);
+}
+
+fn providerMappingDependenciesMatch(target_dependencies: []const Dependency, evidence_dependencies: []const Dependency) bool {
+    var target_count: usize = 0;
+    for (target_dependencies) |dependency| {
+        if (dependency.role != .provider_program_mapping) continue;
+        if (!dependenciesContainRef(evidence_dependencies, .provider_program_mapping, dependency.ref)) return false;
+        target_count += 1;
+    }
+    var evidence_count: usize = 0;
+    for (evidence_dependencies) |dependency| {
+        if (dependency.role != .provider_program_mapping) continue;
+        if (!dependenciesContainRef(target_dependencies, .provider_program_mapping, dependency.ref)) return false;
+        evidence_count += 1;
+    }
+    return target_count == evidence_count;
 }
 
 fn targetPolicyEmitsRequiredArtifacts(policy: BoundaryTargetPolicy) bool {
