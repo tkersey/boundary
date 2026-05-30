@@ -9535,8 +9535,11 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                 const shape = worldPortShapeForPlan(input, plan, &target_response_refs_buffer) orelse
                     return worldPortPlanOrderOccurrenceRank(input, ResidualProgram, ref, plan_index);
                 if (shape.site_index != null or shape.site_fingerprint != null or shape.protocol_op_fingerprint != null) {
-                    return residualWorldPortOccurrenceRankForShape(ResidualProgram, port, shape) orelse
-                        worldPortPlanOrderOccurrenceRank(input, ResidualProgram, ref, plan_index);
+                    switch (residualWorldPortOccurrenceRankForShape(ResidualProgram, port, shape)) {
+                        .matched => |rank| return rank,
+                        .ambiguous => return worldPortPlanOrderOccurrenceRank(input, ResidualProgram, ref, plan_index),
+                        .mismatched => @compileError("BoundaryClosure.Elaboration world port shape coordinates do not match a residual Program site"),
+                    }
                 }
             }
             return worldPortPlanOrderOccurrenceRank(input, ResidualProgram, ref, plan_index);
@@ -9552,22 +9555,92 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             return rank;
         }
 
-        fn residualWorldPortOccurrenceRankForShape(comptime ResidualProgram: type, comptime port: Closure.WorldPort, comptime shape: Closure.EffectShape) ?usize {
+        const WorldPortShapeOccurrence = union(enum) {
+            matched: usize,
+            ambiguous,
+            mismatched,
+        };
+
+        fn residualWorldPortOccurrenceRankForShape(comptime ResidualProgram: type, comptime port: Closure.WorldPort, comptime shape: Closure.EffectShape) WorldPortShapeOccurrence {
+            var matched_rank: ?usize = null;
+            if (shape.site_index) |site_index| {
+                if (!mergeWorldPortCoordinateOccurrence(
+                    residualWorldPortOccurrenceRankForSiteIndex(ResidualProgram, port, site_index),
+                    &matched_rank,
+                )) return .mismatched;
+            }
+            if (shape.site_fingerprint) |fingerprint| {
+                if (!mergeWorldPortCoordinateOccurrence(
+                    residualWorldPortOccurrenceRankForFingerprint(ResidualProgram, port, fingerprint),
+                    &matched_rank,
+                )) return .mismatched;
+            }
+            if (shape.protocol_op_fingerprint) |fingerprint| {
+                if (!mergeWorldPortCoordinateOccurrence(
+                    residualWorldPortOccurrenceRankForFingerprint(ResidualProgram, port, fingerprint),
+                    &matched_rank,
+                )) return .mismatched;
+            }
+            if (matched_rank) |matched| return .{ .matched = matched };
+            return .ambiguous;
+        }
+
+        const WorldPortCoordinateOccurrence = union(enum) {
+            matched: usize,
+            ambiguous,
+            absent,
+        };
+
+        fn mergeWorldPortCoordinateOccurrence(
+            comptime occurrence: WorldPortCoordinateOccurrence,
+            matched_rank: *?usize,
+        ) bool {
+            switch (occurrence) {
+                .matched => |rank| {
+                    if (matched_rank.*) |existing| {
+                        if (existing != rank) return false;
+                    } else {
+                        matched_rank.* = rank;
+                    }
+                },
+                .ambiguous => {},
+                .absent => {},
+            }
+            return true;
+        }
+
+        fn residualWorldPortOccurrenceRankForSiteIndex(comptime ResidualProgram: type, comptime port: Closure.WorldPort, comptime site_index: usize) WorldPortCoordinateOccurrence {
             var rank: usize = 0;
+            var matched_rank: ?usize = null;
             inline for (ResidualProgram.contract.session.yield_sites) |site| {
                 if (!residualWorldPortSupportsSite(port, site)) continue;
-                if (shape.site_index) |site_index| {
-                    if (site.index == site_index) return rank;
+                if (site.index != site_index) {
+                    rank += 1;
+                    continue;
                 }
-                if (shape.site_fingerprint) |fingerprint| {
-                    if (site.fingerprint == fingerprint) return rank;
-                }
-                if (shape.protocol_op_fingerprint) |fingerprint| {
-                    if (site.fingerprint == fingerprint) return rank;
-                }
+                if (matched_rank != null) return .ambiguous;
+                matched_rank = rank;
                 rank += 1;
             }
-            return null;
+            if (matched_rank) |matched| return .{ .matched = matched };
+            return .absent;
+        }
+
+        fn residualWorldPortOccurrenceRankForFingerprint(comptime ResidualProgram: type, comptime port: Closure.WorldPort, comptime fingerprint: u64) WorldPortCoordinateOccurrence {
+            var rank: usize = 0;
+            var matched_rank: ?usize = null;
+            inline for (ResidualProgram.contract.session.yield_sites) |site| {
+                if (!residualWorldPortSupportsSite(port, site)) continue;
+                if (site.fingerprint != fingerprint) {
+                    rank += 1;
+                    continue;
+                }
+                if (matched_rank != null) return .ambiguous;
+                matched_rank = rank;
+                rank += 1;
+            }
+            if (matched_rank) |matched| return .{ .matched = matched };
+            return .absent;
         }
 
         fn residualWorldPortSiteCount(comptime ResidualProgram: type, comptime port: Closure.WorldPort) usize {
