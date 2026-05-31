@@ -6707,6 +6707,7 @@ pub const BoundaryTargetModule = struct {
             const end = start + len;
             if (end > total_len) return error.SectionOutOfBounds;
             if (start < previous_end) return error.SectionOverlap;
+            if (start != previous_end) return error.TrailingJunk;
             previous_end = end;
             const section_kind = parseSectionKind(raw_kind) orelse {
                 if (required) return error.UnknownRequiredSection;
@@ -6740,6 +6741,7 @@ pub const BoundaryTargetModule = struct {
                 => {},
             }
         }
+        if (previous_end != total_len) return error.TrailingJunk;
 
         const manifest_bytes = manifest_payload orelse return error.MissingManifest;
         var manifest = try parseManifest(manifest_bytes, bytes, section_count);
@@ -7337,6 +7339,7 @@ pub const BoundaryTargetModule = struct {
                 const ref = try reader.readRef();
                 const semantic_fingerprint = try reader.readU64();
                 if (!reader.done()) return error.MalformedManifest;
+                if (ref.domain_id != sectionDomain(kind).id) return error.ManifestFingerprintMismatch;
                 if (semantic_fingerprint != ref.fingerprint) return error.ManifestFingerprintMismatch;
                 if (kind == .world_surface and semantic_fingerprint != manifest.world_surface_fingerprint) return error.ManifestFingerprintMismatch;
                 if (kind == .target_certificate and semantic_fingerprint != manifest.target_certificate_fingerprint) return error.ManifestFingerprintMismatch;

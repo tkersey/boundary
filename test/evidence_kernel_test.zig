@@ -16529,7 +16529,7 @@ test "certified boundary module reference full image and loaded module projectio
     const truncated_len = retained_import.start + retained_import.len;
     boundaryModuleWriteU32(missing_required_sections, 20, 2);
     boundaryModuleWriteU64(missing_required_sections, 40, truncated_len);
-    try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(missing_required_sections[0..truncated_len], .{ .require_full_module = true }));
+    try std.testing.expectError(error.TrailingJunk, Target.Module.validate(missing_required_sections[0..truncated_len], .{ .require_full_module = true }));
 
     const huge_import_count = try allocator.dupe(u8, full);
     defer allocator.free(huge_import_count);
