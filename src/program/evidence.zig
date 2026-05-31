@@ -5586,6 +5586,7 @@ pub const BoundaryTargetModule = struct {
         ir_hash: u64,
         entry_function_index: u16,
         entry_argument_count: u16,
+        entry_argument_refs: []const BoundaryValueRef = &.{},
         entry_result_ref: BoundaryValueRef,
         entry_result_schema_ref: ?BoundaryValueRef = null,
         function_count: usize,
@@ -5604,6 +5605,7 @@ pub const BoundaryTargetModule = struct {
             const plan = Program.compiled_plan;
             const entry = plan.functions[plan.entry_index];
             const result_ref = BoundaryValueRef.init(if (entry.result_codec) |codec| @tagName(codec) else "unit", entry.result_schema_index);
+            const argument_refs = comptime argumentRefsForProgram(Program);
             var image = @This(){
                 .image_fingerprint = 0,
                 .plan_label = plan.label,
@@ -5611,6 +5613,7 @@ pub const BoundaryTargetModule = struct {
                 .ir_hash = plan.ir_hash,
                 .entry_function_index = plan.entry_index,
                 .entry_argument_count = entry.parameter_count,
+                .entry_argument_refs = argument_refs[0..],
                 .entry_result_ref = result_ref,
                 .entry_result_schema_ref = if (entry.result_schema_index != null) result_ref else null,
                 .function_count = plan.functions.len,
@@ -5648,6 +5651,7 @@ pub const BoundaryTargetModule = struct {
             builder.fieldUsize("terminator_count", self.terminator_count);
             builder.fieldUsize("instruction_count", self.instruction_count);
             builder.fieldUsize("value_schema_count", self.value_schema_count);
+            for (self.entry_argument_refs) |ref| builder.fieldValueRef("entry_argument_ref", ref);
             builder.fieldUsize("product_field_count", self.product_field_count);
             builder.fieldUsize("sum_variant_count", self.sum_variant_count);
             return builder.finish();
@@ -6961,7 +6965,8 @@ pub const BoundaryTargetModule = struct {
         errdefer allocator.free(required_section_refs);
         const imports = try parseImports(allocator, owned, parsed.import_surface_payload, parsed.manifest, decode_options);
         errdefer allocator.free(imports);
-        const argument_refs = try allocator.alloc(BoundaryValueRef, 0);
+        const program_plan_payload = sectionPayloadForKind(owned, @intCast(parsed.section_count), .program_plan_image) orelse return error.MissingRequiredSection;
+        const argument_refs = try parseProgramPlanEntryArgumentRefs(allocator, program_plan_payload);
         errdefer allocator.free(argument_refs);
         const replay_key_recipe_ref = try fullModuleReplayKeyRecipeRef(owned, @intCast(parsed.section_count));
         var manifest = parsed.manifest;
@@ -7197,9 +7202,9 @@ pub const BoundaryTargetModule = struct {
                 errdefer loaded.deinit();
                 try validateTargetModuleIdentity(loaded.manifest(), loaded.mainExport());
                 try validateTargetImports(loaded.imports());
-                const argument_refs = try argumentRefsForTarget(Target, allocator);
-                loaded.allocator.free(loaded.argument_refs);
-                loaded.argument_refs = argument_refs;
+                const expected_argument_refs = try argumentRefsForTarget(Target, allocator);
+                defer allocator.free(expected_argument_refs);
+                if (!boundaryValueRefSlicesEql(loaded.argument_refs, expected_argument_refs)) return error.ModuleFingerprintMismatch;
                 return loaded;
             }
 
@@ -7540,11 +7545,18 @@ pub const BoundaryTargetModule = struct {
     }
 
     fn argumentRefsForTarget(comptime Target: type, allocator: std.mem.Allocator) ![]BoundaryValueRef {
-        const plan = Target.Program.compiled_plan;
-        const entry = plan.functions[plan.entry_index];
-        const refs = try allocator.alloc(BoundaryValueRef, entry.parameter_count);
+        const refs_value = comptime argumentRefsForProgram(Target.Program);
+        const refs = try allocator.alloc(BoundaryValueRef, refs_value.len);
         errdefer allocator.free(refs);
-        for (refs, 0..) |*ref, index| {
+        @memcpy(refs, refs_value[0..]);
+        return refs;
+    }
+
+    fn argumentRefsForProgram(comptime Program: type) [Program.compiled_plan.functions[Program.compiled_plan.entry_index].parameter_count]BoundaryValueRef {
+        const plan = Program.compiled_plan;
+        const entry = plan.functions[plan.entry_index];
+        var refs: [entry.parameter_count]BoundaryValueRef = undefined;
+        for (&refs, 0..) |*ref, index| {
             const local = plan.locals[entry.first_local + index];
             ref.* = BoundaryValueRef.fromValueRef(.{
                 .codec = local.codec,
@@ -7552,6 +7564,14 @@ pub const BoundaryTargetModule = struct {
             });
         }
         return refs;
+    }
+
+    fn boundaryValueRefSlicesEql(left: []const BoundaryValueRef, right: []const BoundaryValueRef) bool {
+        if (left.len != right.len) return false;
+        for (left, right) |left_ref, right_ref| {
+            if (!left_ref.eql(right_ref)) return false;
+        }
+        return true;
     }
 
     fn encodeForTarget(comptime Target: type, allocator: std.mem.Allocator, kind: Kind) ![]u8 {
@@ -7767,6 +7787,7 @@ pub const BoundaryTargetModule = struct {
         try writer.writeU64(image.terminator_count);
         try writer.writeU64(image.instruction_count);
         try writer.writeU64(image.value_schema_count);
+        for (image.entry_argument_refs) |ref| try writer.writeValueRef(ref);
         try writer.writeU64(image.product_field_count);
         try writer.writeU64(image.sum_variant_count);
         return writer.toOwnedSlice();
@@ -8686,6 +8707,36 @@ pub const BoundaryTargetModule = struct {
         return try reader.readRef();
     }
 
+    fn parseProgramPlanEntryArgumentRefs(allocator: std.mem.Allocator, payload: []const u8) ![]BoundaryValueRef {
+        var reader = PayloadReader.init(payload);
+        const format_version = try reader.readU32();
+        if (format_version != domains.boundary_program_plan_image.format_version.?) return error.InvalidVersion;
+        _ = try reader.readU64();
+        _ = try reader.readBytes();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU16();
+        const argument_count = try reader.readU16();
+        _ = try reader.readValueRef();
+        _ = try reader.readOptionalValueRef();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        const refs = try allocator.alloc(BoundaryValueRef, argument_count);
+        errdefer allocator.free(refs);
+        for (refs) |*ref| ref.* = try reader.readValueRef();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        if (!reader.done()) return error.MalformedManifest;
+        return refs;
+    }
+
     fn validateExportSurfacePlanBinding(bytes: []const u8, section_count: u32) ValidationError!void {
         const program_payload = sectionPayloadForKind(bytes, section_count, .program_plan_image) orelse return error.MissingRequiredSection;
         var program_reader = PayloadReader.init(program_payload);
@@ -8708,6 +8759,10 @@ pub const BoundaryTargetModule = struct {
         _ = try program_reader.readU64();
         _ = try program_reader.readU64();
         const plan_value_schema_count = try program_reader.readU64();
+        for (0..plan_argument_count) |_| {
+            const argument_ref = try program_reader.readValueRef();
+            if (!boundaryValueRefWithinSchema(argument_ref, plan_value_schema_count)) return error.MalformedManifest;
+        }
         const plan_product_field_count = try program_reader.readU64();
         const plan_sum_variant_count = try program_reader.readU64();
         if (!program_reader.done()) return error.MalformedManifest;
@@ -8818,6 +8873,12 @@ pub const BoundaryTargetModule = struct {
                 const terminator_count = try reader.readU64();
                 const instruction_count = try reader.readU64();
                 const value_schema_count = try reader.readU64();
+                const entry_argument_refs = try options.allocator.alloc(BoundaryValueRef, entry_argument_count);
+                defer options.allocator.free(entry_argument_refs);
+                for (entry_argument_refs) |*ref| {
+                    ref.* = try reader.readValueRef();
+                    if (!boundaryValueRefWithinSchema(ref.*, value_schema_count)) return error.MalformedManifest;
+                }
                 const product_field_count = try reader.readU64();
                 const sum_variant_count = try reader.readU64();
                 if (!reader.done()) return error.MalformedManifest;
@@ -8860,6 +8921,7 @@ pub const BoundaryTargetModule = struct {
                     .terminator_count = @intCast(terminator_count),
                     .instruction_count = @intCast(instruction_count),
                     .value_schema_count = @intCast(value_schema_count),
+                    .entry_argument_refs = entry_argument_refs,
                     .product_field_count = @intCast(product_field_count),
                     .sum_variant_count = @intCast(sum_variant_count),
                 };

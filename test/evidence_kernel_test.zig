@@ -16472,6 +16472,36 @@ fn ModuleWorldPortTarget(comptime label: []const u8) type {
     });
 }
 
+fn ModuleParameterizedTarget(comptime label: []const u8) type {
+    const Closure = closure_handler_program.BoundaryClosure;
+    const Elaboration = Closure.Elaboration;
+    @setEvalBranchQuota(2_000_000);
+    const source_ref = closure_handler_program.Evidence.refFor(
+        closure_handler_program.Evidence.domains.program_plan,
+        closure_handler_program.compiled_plan.hash(),
+        .{ .label = closure_handler_program.contract.label },
+    );
+    const graph = Closure.Graph.init("module-parameterized-graph", &.{}, &.{}, &.{});
+    const report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+    });
+    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+    const input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = report,
+        .closure_certificate = certificate,
+        .source_program_ref = source_ref,
+        .policy = Elaboration.Policy.auditOnly(),
+    };
+    return Elaboration.Target.compileComptime(.{
+        .label = label,
+        .input = input,
+        .residual_program = closure_handler_program,
+        .policy = Elaboration.Target.Policy.auditOnly(),
+    });
+}
+
 test "certified boundary module reference full image and loaded module projections validate" {
     const allocator = std.testing.allocator;
     const Target = comptime ModuleWorldPortTarget("module-world-port-target");
@@ -16782,6 +16812,31 @@ test "certified boundary module reference full image and loaded module projectio
     boundaryModuleRefreshSectionFingerprint(huge_import_count, Target.Module.SectionKind.import_surface);
     try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(huge_import_count, .{ .require_full_module = true }));
     try std.testing.expectError(error.MissingRequiredSection, Target.Module.decode(allocator, huge_import_count));
+}
+
+test "certified boundary module generic decode preserves entry argument refs" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleParameterizedTarget("module-parameterized-target");
+
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var generic_loaded = try Evidence.BoundaryTargetModule.decode(allocator, full, .{});
+    defer generic_loaded.deinit();
+    var typed_loaded = try Target.Module.decode(allocator, full);
+    defer typed_loaded.deinit();
+
+    const plan = Target.Program.compiled_plan;
+    const entry = plan.functions[plan.entry_index];
+    const expected_ref = Evidence.BoundaryValueRef.fromValueRef(.{
+        .codec = plan.locals[entry.first_local].codec,
+        .schema_index = plan.locals[entry.first_local].schema_index,
+    });
+
+    try std.testing.expectEqual(@as(u16, 1), generic_loaded.mainExport().argument_count);
+    try std.testing.expectEqual(@as(usize, 1), generic_loaded.argumentValueRefs().len);
+    try std.testing.expect(generic_loaded.argumentValueRefs()[0].eql(expected_ref));
+    try std.testing.expectEqual(generic_loaded.argumentValueRefs().len, typed_loaded.argumentValueRefs().len);
+    try std.testing.expect(generic_loaded.argumentValueRefs()[0].eql(typed_loaded.argumentValueRefs()[0]));
 }
 
 const BoundaryModuleSection = struct {
