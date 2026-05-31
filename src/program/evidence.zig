@@ -6351,6 +6351,14 @@ pub const BoundaryTargetModule = struct {
         return builder.finish();
     }
 
+    fn unknownSectionPayloadFingerprint(raw_kind: u16, format_version: u32, payload: []const u8) u64 {
+        var builder = FingerprintBuilder.init(domains.boundary_module);
+        builder.fieldU64("unknown_section.kind", raw_kind);
+        builder.fieldU32("unknown_section.format_version", format_version);
+        builder.fieldBytes("payload", payload);
+        return builder.finish();
+    }
+
     fn moduleFingerprintForTarget(comptime Target: type, kind: Kind, section_refs: []const SectionRef) u64 {
         var builder = FingerprintBuilder.init(domains.boundary_module);
         builder.fieldU32("format_version", domains.boundary_module.format_version.?);
@@ -6764,9 +6772,12 @@ pub const BoundaryTargetModule = struct {
             previous_end = end;
             const section_kind = parseSectionKind(raw_kind) orelse {
                 if (required) return error.UnknownRequiredSection;
-                return error.UnknownSection;
+                if (options.reject_unknown_sections and !options.allow_forward_optional_sections) return error.UnknownSection;
+                const payload = bytes[start..end];
+                if (unknownSectionPayloadFingerprint(raw_kind, format_version, payload) != fingerprint) return error.SectionFingerprintMismatch;
+                continue;
             };
-            if (!required) return error.UnknownSection;
+            if (!required and options.reject_unknown_sections and !options.allow_forward_optional_sections) return error.UnknownSection;
             const domain = sectionDomain(section_kind);
             if (format_version != (domain.format_version orelse 1)) return error.InvalidVersion;
             const payload = bytes[start..end];
@@ -6868,6 +6879,7 @@ pub const BoundaryTargetModule = struct {
         module_builder.fieldU64("target_certificate_fingerprint", target_certificate_fingerprint);
         module_builder.fieldU64("normalization_certificate_fingerprint", normalization_certificate_fingerprint orelse 0);
         try reader.validateSectionRefs(required_count, image_bytes, section_count, kind, &module_builder);
+        writeOptionalSectionTableRefs(image_bytes, section_count, &module_builder);
         if (kind == .full_module and required_count != requiredManifestBoundSectionCount(image_bytes, section_count)) return error.MissingRequiredSection;
         if (module_fingerprint != module_builder.finish()) return error.ModuleFingerprintMismatch;
         const external_count = try reader.readU64();
@@ -7319,6 +7331,41 @@ pub const BoundaryTargetModule = struct {
         return false;
     }
 
+    fn writeOptionalSectionTableRefs(bytes: []const u8, section_count: u32, module_builder: *FingerprintBuilder) void {
+        for (0..@intCast(section_count)) |index| {
+            const entry_offset = header_len + index * section_table_entry_len;
+            const required = bytes[entry_offset + 2] != 0;
+            if (required) continue;
+            const raw_kind = readU16At(bytes, entry_offset);
+            const format_version = readU32At(bytes, entry_offset + 4);
+            const offset = readU64At(bytes, entry_offset + 8);
+            const length = readU64At(bytes, entry_offset + 16);
+            const fingerprint = readU64At(bytes, entry_offset + 24);
+            if (parseSectionKind(raw_kind)) |kind| {
+                writeSectionRef(module_builder, .{
+                    .kind = kind,
+                    .format_version = format_version,
+                    .byte_offset = offset,
+                    .byte_length = length,
+                    .section_fingerprint = fingerprint,
+                    .required = false,
+                });
+            } else {
+                writeRawSectionRef(module_builder, raw_kind, format_version, offset, length, fingerprint, false);
+            }
+        }
+    }
+
+    fn writeRawSectionRef(builder: *FingerprintBuilder, raw_kind: u16, format_version: u32, byte_offset: u64, byte_length: u64, section_fingerprint: u64, required: bool) void {
+        builder.fieldBytes("section.kind", "unknown");
+        builder.fieldU64("section.raw_kind", raw_kind);
+        builder.fieldU32("section.format_version", format_version);
+        builder.fieldU64("section.byte_offset", byte_offset);
+        builder.fieldU64("section.byte_length", byte_length);
+        builder.fieldU64("section.fingerprint", section_fingerprint);
+        builder.fieldBool("section.required", required);
+    }
+
     fn validateFullModuleSections(bytes: []const u8, section_count: u32, manifest: Manifest, options: ValidationOptions) ValidationError!void {
         const required = [_]SectionKind{
             .import_surface,
@@ -7389,7 +7436,10 @@ pub const BoundaryTargetModule = struct {
                     local_count > options.max_plan_rows or
                     block_count > options.max_plan_rows or
                     terminator_count > options.max_plan_rows or
-                    instruction_count > options.max_plan_rows)
+                    instruction_count > options.max_plan_rows or
+                    value_schema_count > options.max_schema_count or
+                    product_field_count > options.max_schema_count or
+                    sum_variant_count > options.max_schema_count)
                 {
                     return error.LimitExceeded;
                 }
