@@ -16504,6 +16504,7 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expectEqual(Target.NormalForm.kind, loaded.normalFormKind());
     try std.testing.expectEqual(Target.Program.compiled_plan.hash(), loaded.programPlanHash());
     try std.testing.expectEqual(full_report.section_count, loaded.sectionCount());
+    try std.testing.expectEqual(loaded.mainExport().argument_count, loaded.argumentValueRefs().len);
     try std.testing.expect(!loaded.isReferenceOnly());
     try std.testing.expect(loaded.isFullModule());
     try std.testing.expect(!loaded.isPartialModule());
@@ -16633,10 +16634,12 @@ test "certified boundary module reference full image and loaded module projectio
     const wrong_target_report = Target.Module.validationReport(wrong_target_full, .{ .require_full_module = true });
     try std.testing.expect(!wrong_target_report.valid);
     try std.testing.expect(!wrong_target_report.compatibility.compatible);
+    try std.testing.expectEqual(wrong_target_report.compatibility.report_fingerprint, wrong_target_report.compatibility.computeFingerprint());
     try std.testing.expectEqual(@as(usize, 1), wrong_target_report.blocker_count);
     try std.testing.expectEqual(error.ModuleFingerprintMismatch, wrong_target_report.diagnosticSlice()[0].error_tag.?);
     const wrong_target_compatibility = Target.Module.compatibility(wrong_target_full, .{ .require_full_module = true });
     try std.testing.expect(!wrong_target_compatibility.compatible);
+    try std.testing.expectEqual(wrong_target_report.compatibility.report_fingerprint, wrong_target_compatibility.report_fingerprint);
     var session = Target.Module.LoadedModule.Session.start(&loaded);
     try std.testing.expectError(error.UnsupportedLoadedExecution, session.next());
 

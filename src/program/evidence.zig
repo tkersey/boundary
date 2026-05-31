@@ -6359,11 +6359,13 @@ pub const BoundaryTargetModule = struct {
         manifest_value: Manifest,
         validation_report: ValidationReport,
         import_entries: []ImportSurface.Import = &.{},
+        argument_refs: []BoundaryValueRef = &.{},
         main_export_surface: ExportSurface,
         replay_key_recipe_ref: Ref,
 
         pub fn deinit(self: *@This()) void {
             self.allocator.free(self.import_entries);
+            self.allocator.free(self.argument_refs);
             self.allocator.free(self.manifest_value.required_section_refs);
             self.allocator.free(self.bytes);
             self.* = undefined;
@@ -6559,8 +6561,7 @@ pub const BoundaryTargetModule = struct {
         }
 
         pub fn argumentValueRefs(self: @This()) []const BoundaryValueRef {
-            _ = self;
-            return &.{};
+            return self.argument_refs;
         }
 
         pub fn entryFunctionRef(self: @This()) u16 {
@@ -6960,6 +6961,8 @@ pub const BoundaryTargetModule = struct {
         errdefer allocator.free(required_section_refs);
         const imports = try parseImports(allocator, owned, parsed.import_surface_payload, parsed.manifest, decode_options);
         errdefer allocator.free(imports);
+        const argument_refs = try allocator.alloc(BoundaryValueRef, 0);
+        errdefer allocator.free(argument_refs);
         const replay_key_recipe_ref = try fullModuleReplayKeyRecipeRef(owned, @intCast(parsed.section_count));
         var manifest = parsed.manifest;
         manifest.required_section_refs = required_section_refs;
@@ -6969,6 +6972,7 @@ pub const BoundaryTargetModule = struct {
             .manifest_value = manifest,
             .validation_report = try validate(owned, decode_options),
             .import_entries = imports,
+            .argument_refs = argument_refs,
             .main_export_surface = parsed.export_surface,
             .replay_key_recipe_ref = replay_key_recipe_ref,
         };
@@ -7193,6 +7197,9 @@ pub const BoundaryTargetModule = struct {
                 errdefer loaded.deinit();
                 try validateTargetModuleIdentity(loaded.manifest(), loaded.mainExport());
                 try validateTargetImports(loaded.imports());
+                const argument_refs = try argumentRefsForTarget(Target, allocator);
+                loaded.allocator.free(loaded.argument_refs);
+                loaded.argument_refs = argument_refs;
                 return loaded;
             }
 
@@ -7244,6 +7251,7 @@ pub const BoundaryTargetModule = struct {
                 report.compatibility.compatible = false;
                 report.compatibility.can_decode = false;
                 report.compatibility.blocker_count += 1;
+                report.compatibility.finish();
                 report.addDiagnostic(diagnosticForValidationError(bytes, err));
                 report.finish();
                 return report;
@@ -7529,6 +7537,21 @@ pub const BoundaryTargetModule = struct {
             .result_schema_ref = if (entry.result_schema_index != null) result_ref else null,
             .normal_form = normal_form,
         });
+    }
+
+    fn argumentRefsForTarget(comptime Target: type, allocator: std.mem.Allocator) ![]BoundaryValueRef {
+        const plan = Target.Program.compiled_plan;
+        const entry = plan.functions[plan.entry_index];
+        const refs = try allocator.alloc(BoundaryValueRef, entry.parameter_count);
+        errdefer allocator.free(refs);
+        for (refs, 0..) |*ref, index| {
+            const local = plan.locals[entry.first_local + index];
+            ref.* = BoundaryValueRef.fromValueRef(.{
+                .codec = local.codec,
+                .schema_index = local.schema_index,
+            });
+        }
+        return refs;
     }
 
     fn encodeForTarget(comptime Target: type, allocator: std.mem.Allocator, kind: Kind) ![]u8 {
