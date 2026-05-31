@@ -5658,7 +5658,7 @@ pub const BoundaryTargetModule = struct {
                 .schema_count = plan.value_schemas.len,
                 .product_field_count = plan.value_fields.len,
                 .sum_variant_count = plan.value_variants.len,
-                .scalar_codec_count = 5,
+                .scalar_codec_count = valueSchemaImageScalarCodecCount(),
             };
             image.image_fingerprint = image.computeFingerprint();
             return image;
@@ -5679,6 +5679,21 @@ pub const BoundaryTargetModule = struct {
             return refForBoundaryValueSchemaImage(self);
         }
     };
+
+    fn valueSchemaImageScalarCodec(comptime codec: lowering_api.ValueCodec) bool {
+        return switch (codec) {
+            .unit, .bool, .i32, .usize, .string, .string_list => true,
+            .product, .sum => false,
+        };
+    }
+
+    fn valueSchemaImageScalarCodecCount() usize {
+        comptime var count: usize = 0;
+        inline for (@typeInfo(lowering_api.ValueCodec).@"enum".fields) |field| {
+            if (comptime valueSchemaImageScalarCodec(@as(lowering_api.ValueCodec, @enumFromInt(field.value)))) count += 1;
+        }
+        return count;
+    }
 
     pub const ImportSurface = struct {
         format_version: u32 = domains.boundary_module_import_surface.format_version.?,
@@ -7956,6 +7971,27 @@ test "boundary module import refs reject foreign domains" {
     var forged_replay_key = replay_key_recipe_ref;
     forged_replay_key.domain_id = domains.boundary_world_port.id;
     try std.testing.expectError(error.MalformedImportSurface, BoundaryTargetModule.validateModuleImportRefs(world_port_ref, null, effect_shape_ref, forged_replay_key));
+}
+
+test "value schema image scalar codec count follows ValueCodec schema boundary" {
+    const TestProgram = struct {
+        pub const compiled_plan = lowering_api.ProgramPlan{
+            .label = "value-schema-image-codec-count",
+            .ir_hash = 0,
+            .entry_index = 0,
+            .functions = &.{},
+            .requirements = &.{},
+            .ops = &.{},
+            .outputs = &.{},
+            .instructions = &.{},
+        };
+    };
+
+    const image = BoundaryTargetModule.ValueSchemaImage.fromProgram(TestProgram);
+    try std.testing.expect(BoundaryTargetModule.valueSchemaImageScalarCodec(.string_list));
+    try std.testing.expect(!BoundaryTargetModule.valueSchemaImageScalarCodec(.product));
+    try std.testing.expect(!BoundaryTargetModule.valueSchemaImageScalarCodec(.sum));
+    try std.testing.expectEqual(@as(usize, 6), image.scalar_codec_count);
 }
 
 test "target certificate dependency roles require paired module surfaces" {
