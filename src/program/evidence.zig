@@ -7239,9 +7239,19 @@ pub const BoundaryTargetModule = struct {
                 decode_options.allow_reference_only = false;
                 const parsed = try parseImage(bytes, decode_options);
                 try validateTargetModuleIdentity(parsed.manifest, parsed.export_surface);
+                try validateTargetProgramPlanArgumentRefs(bytes, @intCast(parsed.section_count), decode_options.allocator);
                 const imports = try parseImports(decode_options.allocator, bytes, parsed.import_surface_payload, parsed.manifest, decode_options);
                 defer decode_options.allocator.free(imports);
                 try validateTargetImports(imports);
+            }
+
+            fn validateTargetProgramPlanArgumentRefs(bytes: []const u8, section_count: u32, allocator: std.mem.Allocator) ValidationError!void {
+                const program_plan_payload = sectionPayloadForKind(bytes, section_count, .program_plan_image) orelse return error.MissingRequiredSection;
+                const actual_refs = try parseProgramPlanEntryArgumentRefs(allocator, program_plan_payload);
+                defer allocator.free(actual_refs);
+                const expected_refs = try argumentRefsForTarget(Target, allocator);
+                defer allocator.free(expected_refs);
+                if (!boundaryValueRefSlicesEql(actual_refs, expected_refs)) return error.ModuleFingerprintMismatch;
             }
 
             fn validateTargetReferenceReport(report: BoundaryTargetModule.ValidationReport) ValidationError!void {

@@ -16820,6 +16820,8 @@ test "certified boundary module generic decode preserves entry argument refs" {
 
     const full = try Target.Module.fullImage(allocator);
     defer allocator.free(full);
+    const full_report = try Target.Module.validate(full, .{ .require_full_module = true });
+    try std.testing.expect(full_report.valid);
     var generic_loaded = try Evidence.BoundaryTargetModule.decode(allocator, full, .{});
     defer generic_loaded.deinit();
     var typed_loaded = try Target.Module.decode(allocator, full);
