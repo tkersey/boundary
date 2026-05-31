@@ -6880,7 +6880,7 @@ pub const BoundaryTargetModule = struct {
         const target_label = try reader.readBytes();
         if (!std.mem.eql(u8, target_label, manifest.target_label)) return error.ModuleFingerprintMismatch;
         const world_surface_ref = try reader.readRef();
-        if (world_surface_ref.fingerprint != manifest.world_surface_fingerprint) return error.ModuleFingerprintMismatch;
+        if (!refMatchesDomainFingerprint(world_surface_ref, domains.boundary_world_surface, manifest.world_surface_fingerprint)) return error.ModuleFingerprintMismatch;
         const count = try reader.readU64();
         if (count > options.max_world_ports or count != manifest.world_port_count) return error.LimitExceeded;
         const imports = try allocator.alloc(ImportSurface.Import, @intCast(count));
@@ -6889,13 +6889,18 @@ pub const BoundaryTargetModule = struct {
             const import_id = try reader.readU32();
             const world_port_id = try reader.readU32();
             if (world_port_id >= manifest.world_port_count) return error.MalformedImportSurface;
+            const world_port_ref = try reader.readRef();
+            const host_intrinsic_ref = try reader.readOptionalRef();
+            const source_effect_shape_ref = try reader.readRef();
+            const residual_site_index = try reader.readU64();
+            if (!u64FitsUsize(residual_site_index)) return error.MalformedImportSurface;
             import.* = .{
                 .import_id = import_id,
                 .world_port_id = world_port_id,
-                .world_port_ref = try reader.readRef(),
-                .host_intrinsic_ref = try reader.readOptionalRef(),
-                .source_effect_shape_ref = try reader.readRef(),
-                .residual_site_index = @intCast(try reader.readU64()),
+                .world_port_ref = world_port_ref,
+                .host_intrinsic_ref = host_intrinsic_ref,
+                .source_effect_shape_ref = source_effect_shape_ref,
+                .residual_site_index = @intCast(residual_site_index),
                 .residual_site_fingerprint = try reader.readU64(),
                 .payload_value_table_id = try reader.readU32(),
                 .response_value_table_id = try reader.readU32(),
@@ -6928,7 +6933,7 @@ pub const BoundaryTargetModule = struct {
         const target_label = try reader.readBytes();
         if (!std.mem.eql(u8, target_label, manifest.target_label)) return error.ModuleFingerprintMismatch;
         const world_surface_ref = try reader.readRef();
-        if (world_surface_ref.fingerprint != manifest.world_surface_fingerprint) return error.ModuleFingerprintMismatch;
+        if (!refMatchesDomainFingerprint(world_surface_ref, domains.boundary_world_surface, manifest.world_surface_fingerprint)) return error.ModuleFingerprintMismatch;
         var builder = FingerprintBuilder.init(domains.boundary_module_import_surface);
         builder.fieldU32("format_version", format_version);
         builder.fieldBytes("target_label", target_label);
@@ -6949,6 +6954,7 @@ pub const BoundaryTargetModule = struct {
             const host_intrinsic_ref = try reader.readOptionalRef();
             const source_effect_shape_ref = try reader.readRef();
             const residual_site_index = try reader.readU64();
+            if (!u64FitsUsize(residual_site_index)) return error.MalformedImportSurface;
             const residual_site_fingerprint = try reader.readU64();
             const payload_value_table_id = try reader.readU32();
             const response_value_table_id = try reader.readU32();
@@ -6979,6 +6985,12 @@ pub const BoundaryTargetModule = struct {
         if (!reader.done()) return error.MalformedImportSurface;
         const computed = builder.finish();
         if (surface_fingerprint != computed or manifest.import_surface_fingerprint != computed) return error.ManifestFingerprintMismatch;
+    }
+
+    fn refMatchesDomainFingerprint(ref: Ref, domain: Domain, fingerprint: u64) bool {
+        return ref.domain_id == domain.id and
+            ref.fingerprint == fingerprint and
+            ref.format_version == domain.format_version;
     }
 
     fn markDenseId(seen: *[1024]u64, id: u32) bool {
