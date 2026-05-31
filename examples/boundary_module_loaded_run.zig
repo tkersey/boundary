@@ -44,8 +44,8 @@ pub fn run(writer: anytype) !void {
     const final = try runLocalGeneratedTarget(allocator);
 
     try writer.print("loaded_session={s}\n", .{loaded_status});
-    try writer.print("world_port_id={d}\n", .{loaded.imports[0].world_port_id});
-    try writer.print("request_site_fingerprint={x}\n", .{loaded.imports[0].residual_site_fingerprint});
+    try writer.print("world_port_id={d}\n", .{loaded.imports()[0].world_port_id});
+    try writer.print("request_site_fingerprint={x}\n", .{loaded.imports()[0].residual_site_fingerprint});
     try writer.print("local_generated_final_result={d}\n", .{final});
 }
 

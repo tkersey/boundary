@@ -326,6 +326,11 @@ test "evidence domain registry is unique and mirrors public version constants" {
     try std.testing.expectEqual(Program.boundary_value_schema_image_fingerprint_version, Evidence.domains.boundary_value_schema_image.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_loaded_module_fingerprint_version, Evidence.domains.boundary_loaded_module.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_loaded_session_fingerprint_version, Evidence.domains.boundary_loaded_session.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_compatibility_report_fingerprint_version, Evidence.domains.boundary_module_compatibility_report.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_validation_report_fingerprint_version, Evidence.domains.boundary_module_validation_report.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_validation_diagnostic_fingerprint_version, Evidence.domains.boundary_module_validation_diagnostic.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_dependency_report_fingerprint_version, Evidence.domains.boundary_module_dependency_report.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_import_binding_report_fingerprint_version, Evidence.domains.boundary_module_import_binding_report.fingerprint_version);
     try std.testing.expectEqual(@as(u32, 3), Evidence.domains.treaty_authorization_legacy_v3.format_version.?);
     try std.testing.expectEqual(@as(u32, 2), Evidence.domains.treaty_authorization_legacy_v2.format_version.?);
     try std.testing.expectEqual(Program.pipeline_fingerprint_version, Evidence.domains.pipeline.fingerprint_version);
@@ -16410,66 +16415,101 @@ test "boundary target normalization selects provider proofs and reports fallback
     try std.testing.expect(world_route.world_port.?.world_port_ref.eql(world_port.evidenceRef()));
 }
 
-test "certified boundary module reference full image and loaded module projections validate" {
-    const allocator = std.testing.allocator;
+fn ModuleWorldPortTarget(comptime label: []const u8) type {
     const Closure = closure_source_program.BoundaryClosure;
     const Elaboration = Closure.Elaboration;
-    const Target = comptime blk: {
-        @setEvalBranchQuota(2_000_000);
-        const source_ref = closure_source_program.Evidence.refFor(
-            closure_source_program.Evidence.domains.program_plan,
-            closure_source_program.compiled_plan.hash(),
-            .{ .label = closure_source_program.contract.label },
-        );
-        const source_shape = Closure.EffectShape.init(.{
-            .program_label = closure_source_program.contract.label,
-            .plan_hash = closure_source_program.compiled_plan.hash(),
-            .kind = .operation,
-            .site_index = closure_approval_request.index,
-            .protocol_label = "approval",
-            .protocol_op_fingerprint = closure_approval_request.fingerprint,
-            .semantic_label = "approval.request",
-            .name = "request",
-            .mode = "transform",
-            .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.payload_ref),
-            .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.resume_ref),
-            .result_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.result_ref),
-        });
-        const port = Closure.WorldPort.init(.{
-            .label = "module-approval-port",
-            .kind = .test_fixture,
-            .effect_shape_ref = source_shape.evidenceRef(),
-            .effect_shape_witness = source_shape,
-            .supported_protocol_labels = &.{"approval"},
-            .supported_site_indexes = &.{closure_approval_request.index},
-            .supported_protocol_op_fingerprints = &.{closure_approval_request.fingerprint},
-        });
-        const graph = Closure.Graph.init("module-world-port-graph", &.{}, &.{}, &.{});
-        const report = Closure.Report.init(.{
-            .graph_fingerprint = graph.fingerprint,
-            .root_program_refs = &.{source_ref},
-            .effect_shape_count = 1,
-            .world_port_refs = &.{port.evidenceRef()},
-            .open_world_port_count = 1,
-        });
-        const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
-        const input = Elaboration.Input{
-            .closure_graph = graph,
-            .closure_report = report,
-            .closure_certificate = certificate,
-            .source_program_ref = source_ref,
-            .world_ports = &.{port},
-            .policy = Elaboration.Policy.auditOnly(),
-        };
-        break :blk Elaboration.Target.compileComptime(.{
-            .label = "module-world-port-target",
-            .input = input,
-            .residual_program = closure_source_program,
-            .policy = Elaboration.Target.Policy.auditOnly(),
-        });
+    @setEvalBranchQuota(2_000_000);
+    const source_ref = closure_source_program.Evidence.refFor(
+        closure_source_program.Evidence.domains.program_plan,
+        closure_source_program.compiled_plan.hash(),
+        .{ .label = closure_source_program.contract.label },
+    );
+    const source_shape = Closure.EffectShape.init(.{
+        .program_label = closure_source_program.contract.label,
+        .plan_hash = closure_source_program.compiled_plan.hash(),
+        .kind = .operation,
+        .site_index = closure_approval_request.index,
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = closure_approval_request.fingerprint,
+        .semantic_label = "approval.request",
+        .name = "request",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.resume_ref),
+        .result_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.result_ref),
+    });
+    const port = Closure.WorldPort.init(.{
+        .label = "module-approval-port",
+        .kind = .test_fixture,
+        .effect_shape_ref = source_shape.evidenceRef(),
+        .effect_shape_witness = source_shape,
+        .supported_protocol_labels = &.{"approval"},
+        .supported_site_indexes = &.{closure_approval_request.index},
+        .supported_protocol_op_fingerprints = &.{closure_approval_request.fingerprint},
+    });
+    const graph = Closure.Graph.init("module-world-port-graph", &.{}, &.{}, &.{});
+    const report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+        .effect_shape_count = 1,
+        .world_port_refs = &.{port.evidenceRef()},
+        .open_world_port_count = 1,
+    });
+    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+    const input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = report,
+        .closure_certificate = certificate,
+        .source_program_ref = source_ref,
+        .world_ports = &.{port},
+        .policy = Elaboration.Policy.auditOnly(),
     };
+    return Elaboration.Target.compileComptime(.{
+        .label = label,
+        .input = input,
+        .residual_program = closure_source_program,
+        .policy = Elaboration.Target.Policy.auditOnly(),
+    });
+}
+
+fn ModuleParameterizedTarget(comptime label: []const u8) type {
+    const Closure = closure_handler_program.BoundaryClosure;
+    const Elaboration = Closure.Elaboration;
+    @setEvalBranchQuota(2_000_000);
+    const source_ref = closure_handler_program.Evidence.refFor(
+        closure_handler_program.Evidence.domains.program_plan,
+        closure_handler_program.compiled_plan.hash(),
+        .{ .label = closure_handler_program.contract.label },
+    );
+    const graph = Closure.Graph.init("module-parameterized-graph", &.{}, &.{}, &.{});
+    const report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+    });
+    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+    const input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = report,
+        .closure_certificate = certificate,
+        .source_program_ref = source_ref,
+        .policy = Elaboration.Policy.auditOnly(),
+    };
+    return Elaboration.Target.compileComptime(.{
+        .label = label,
+        .input = input,
+        .residual_program = closure_handler_program,
+        .policy = Elaboration.Target.Policy.auditOnly(),
+    });
+}
+
+test "certified boundary module reference full image and loaded module projections validate" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleWorldPortTarget("module-world-port-target");
+    const OtherTarget = comptime ModuleWorldPortTarget("module-world-port-other-target");
 
     try Target.Module.validateSelf();
+    try std.testing.expect(Target.Module.ValidationLimits.large_local.max_world_ports > Evidence.BoundaryTargetModule.dense_world_port_cap);
+    try std.testing.expect(Target.Module.ValidationLimits.audit_only.max_world_ports > Evidence.BoundaryTargetModule.dense_world_port_cap);
     const reference = try Target.Module.reference(allocator);
     defer allocator.free(reference);
     const reference_report = try Target.Module.validate(reference, .{ .allow_reference_only = true });
@@ -16486,46 +16526,160 @@ test "certified boundary module reference full image and loaded module projectio
     var loaded = try Target.Module.decode(allocator, full);
     defer loaded.deinit();
     try std.testing.expectError(error.ImageTooLarge, Evidence.BoundaryTargetModule.decode(allocator, full, .{ .max_image_bytes = full.len - 1 }));
-    try std.testing.expectEqual(@as(usize, 1), loaded.imports.len);
-    try std.testing.expectEqual(full_report.section_count - 1, loaded.manifest.required_section_refs.len);
-    try std.testing.expectEqual(Target.Module.SectionKind.import_surface, loaded.manifest.required_section_refs[0].kind);
+    try std.testing.expectError(error.ImageTooLarge, Evidence.BoundaryTargetModule.decode(allocator, full, .{ .limits = .{ .max_image_bytes = full.len - 1 } }));
+    try std.testing.expectEqual(Target.Module.Kind.full_module, loaded.kind());
+    try std.testing.expectEqual(full_report.module_fingerprint, loaded.moduleFingerprint());
+    try std.testing.expectEqual(Target.Certificate.certificate_fingerprint, loaded.targetCertificateFingerprint());
+    try std.testing.expectEqual(Target.WorldSurface.surface_fingerprint, loaded.worldSurfaceFingerprint());
+    try std.testing.expectEqual(Target.NormalForm.kind, loaded.normalFormKind());
+    try std.testing.expectEqual(Target.Program.compiled_plan.hash(), loaded.programPlanHash());
+    try std.testing.expectEqual(full_report.section_count, loaded.sectionCount());
+    try std.testing.expectEqual(loaded.mainExport().argument_count, loaded.argumentValueRefs().len);
+    try std.testing.expect(!loaded.isReferenceOnly());
+    try std.testing.expect(loaded.isFullModule());
+    try std.testing.expect(!loaded.isPartialModule());
+    try std.testing.expectEqual(@as(usize, 1), loaded.imports().len);
+    try std.testing.expectEqual(@as(usize, 1), loaded.importCount());
+    try std.testing.expectEqual(@as(usize, 1), loaded.requiredImports().len);
+    try std.testing.expectEqual(@as(usize, 0), loaded.optionalImports().len);
+    try std.testing.expectEqual(full_report.section_count - 1, loaded.manifest().required_section_refs.len);
+    try std.testing.expectEqual(loaded.manifest().required_section_refs.len, loaded.dependencyCount());
+    try std.testing.expectEqual(Target.Module.SectionKind.import_surface, loaded.manifest().required_section_refs[0].kind);
     try std.testing.expectEqual(
         @as(u64, @intCast(boundaryModuleSection(full, Target.Module.SectionKind.import_surface).start)),
-        loaded.manifest.required_section_refs[0].byte_offset,
+        loaded.manifest().required_section_refs[0].byte_offset,
     );
     _ = boundaryModuleSection(full, Target.Module.SectionKind.replay_key_recipe);
     try std.testing.expectEqual(@as(u32, 0), loaded.worldPortForSite(closure_approval_request.index).?);
+    try std.testing.expectEqual(@as(u32, 0), loaded.dispatchForSite(closure_approval_request.index).?);
+    try std.testing.expect(loaded.worldPortForId(0).?.world_port_ref.eql(loaded.imports()[0].world_port_ref));
+    try std.testing.expect(loaded.importForWorldPortId(0).?.world_port_ref.eql(loaded.imports()[0].world_port_ref));
+    try std.testing.expect(loaded.importForResidualSite(closure_approval_request.index).?.world_port_ref.eql(loaded.imports()[0].world_port_ref));
+    try std.testing.expect(loaded.importForWorldPortRef(loaded.imports()[0].world_port_ref).?.world_port_id == 0);
+    try std.testing.expectEqualStrings(loaded.imports()[0].suggested_symbolic_name, loaded.importSymbolicName(0).?);
+    try std.testing.expect(loaded.importValueRefs(0).?.payload.eql(loaded.imports()[0].payload_ref));
+    try std.testing.expect(loaded.importSourceShapeRef(0).?.eql(loaded.imports()[0].source_effect_shape_ref));
+    try std.testing.expect(loaded.importWorldPortRef(0).?.eql(loaded.imports()[0].world_port_ref));
+    try std.testing.expect(loaded.valueDescriptor(loaded.imports()[0].payload_value_table_id).?.eql(loaded.imports()[0].payload_ref));
+    try std.testing.expect(loaded.valueDescriptor(loaded.imports()[0].response_value_table_id).?.eql(loaded.imports()[0].response_ref));
+    try std.testing.expect(loaded.valueDescriptor(loaded.imports()[0].result_value_table_id).?.eql(loaded.imports()[0].result_ref));
+    try std.testing.expect(loaded.sourceForPort(0).?.eql(loaded.imports()[0].source_effect_shape_ref));
+    try std.testing.expectEqual(loaded.imports()[0].residual_site_fingerprint, loaded.traceForWorldPort(0).?);
+    try std.testing.expect(loaded.evidenceForWorldPort(0).?.eql(loaded.imports()[0].world_port_ref));
+    try std.testing.expect(loaded.replayKeyRecipe(0).?.eql(Target.replay_key_recipe.evidenceRef()));
     try std.testing.expect(loaded.validateWorldSurfaceScope());
     try std.testing.expect(loaded.exportMain().export_surface_fingerprint != 0);
+    try std.testing.expect(loaded.mainExport().export_surface_fingerprint != 0);
+    try std.testing.expectEqual(loaded.mainExport().export_surface_fingerprint, loaded.exports()[0].export_surface_fingerprint);
+    try std.testing.expect(loaded.resultValueRef().eql(loaded.mainExport().result_ref));
+    try std.testing.expectEqual(@as(usize, 0), loaded.argumentValueRefs().len);
+    try std.testing.expectEqual(loaded.mainExport().entry_function_index, loaded.entryFunctionRef());
+    try std.testing.expectEqual(Target.NormalForm.kind, loaded.exportNormalFormKind());
     try std.testing.expect(loaded.replay_key_recipe_ref.eql(Target.replay_key_recipe.evidenceRef()));
     const request_fingerprint: u64 = 0x1234;
     const response_fingerprint: u64 = 0x5678;
     var replay_seed_builder = Evidence.FingerprintBuilder.init(Evidence.domains.boundary_world_replay_key_recipe);
     replay_seed_builder.fieldU64("world_surface_scope_fingerprint", Target.WorldSurface.replayScopeRef().fingerprint);
-    replay_seed_builder.fieldU64("world_port_id", loaded.imports[0].world_port_id);
+    replay_seed_builder.fieldU64("world_port_id", loaded.imports()[0].world_port_id);
     replay_seed_builder.fieldU64("request_fingerprint", request_fingerprint);
     replay_seed_builder.fieldU64("response_fingerprint", response_fingerprint);
     try std.testing.expectEqual(
         replay_seed_builder.finish(),
-        loaded.replayKeySeedForScope(Target.WorldSurface.replayScopeRef().fingerprint, loaded.imports[0].world_port_id, request_fingerprint, response_fingerprint).?,
+        loaded.replayKeySeedForScope(Target.WorldSurface.replayScopeRef().fingerprint, loaded.imports()[0].world_port_id, request_fingerprint, response_fingerprint).?,
     );
     try std.testing.expectEqual(null, loaded.replayKeySeedForScope(Target.WorldSurface.replayScopeRef().fingerprint, 999, request_fingerprint, response_fingerprint));
     const binding = Target.Module.ImportBinding{
-        .world_port_id = loaded.imports[0].world_port_id,
-        .world_port_ref = loaded.imports[0].world_port_ref,
-        .payload_ref = loaded.imports[0].payload_ref,
-        .response_ref = loaded.imports[0].response_ref,
+        .world_port_id = loaded.imports()[0].world_port_id,
+        .world_port_ref = loaded.imports()[0].world_port_ref,
+        .payload_ref = loaded.imports()[0].payload_ref,
+        .response_ref = loaded.imports()[0].response_ref,
     };
-    try Target.Module.validateImportBindings(loaded.imports, &.{binding}, .{});
-    try std.testing.expectError(error.MissingRequiredImport, Target.Module.validateImportBindings(loaded.imports, &.{}, .{}));
+    try Target.Module.validateImportBindings(loaded.imports(), &.{binding}, .{});
+    const valid_binding_report = loaded.checkImportBindings(&.{binding});
+    try std.testing.expect(valid_binding_report.valid);
+    try std.testing.expect(valid_binding_report.report_fingerprint != 0);
+    var wrong_ref_binding = binding;
+    wrong_ref_binding.world_port_ref = Evidence.refFor(Evidence.domains.boundary_world_port, binding.world_port_ref.?.fingerprint ^ 0x1, .{});
+    try std.testing.expectError(error.WrongImportBinding, Target.Module.validateImportBindings(loaded.imports(), &.{wrong_ref_binding}, .{}));
+    const wrong_ref_binding_report = loaded.checkImportBindings(&.{wrong_ref_binding});
+    try std.testing.expect(!wrong_ref_binding_report.valid);
+    try std.testing.expectEqual(@as(usize, 1), wrong_ref_binding_report.world_port_ref_mismatch_count);
+    try std.testing.expectEqual(@as(usize, 0), wrong_ref_binding_report.mode_mismatch_count);
+    var missing_ref_binding = binding;
+    missing_ref_binding.world_port_ref = null;
+    try std.testing.expectError(error.WrongImportBinding, Target.Module.validateImportBindings(loaded.imports(), &.{missing_ref_binding}, .{}));
+    const missing_ref_binding_report = loaded.checkImportBindings(&.{missing_ref_binding});
+    try std.testing.expect(!missing_ref_binding_report.valid);
+    try std.testing.expectEqual(@as(usize, 1), missing_ref_binding_report.world_port_ref_mismatch_count);
+    try std.testing.expectError(error.MissingRequiredImport, Target.Module.validateImportBindings(loaded.imports(), &.{}, .{}));
+    const invalid_binding_report = loaded.checkImportBindings(&.{});
+    try std.testing.expect(!invalid_binding_report.valid);
+    try std.testing.expectEqual(@as(usize, 1), invalid_binding_report.missing_required_count);
     const extra_binding = Target.Module.ImportBinding{
         .world_port_id = 999,
         .world_port_ref = binding.world_port_ref,
         .payload_ref = binding.payload_ref,
         .response_ref = binding.response_ref,
     };
-    try std.testing.expectError(error.ExtraImportBinding, Target.Module.validateImportBindings(loaded.imports, &.{ binding, extra_binding }, .{}));
-    try std.testing.expectError(error.ExtraImportBinding, Target.Module.validateImportBindings(loaded.imports, &.{ binding, binding }, .{}));
+    try std.testing.expectError(error.ExtraImportBinding, Target.Module.validateImportBindings(loaded.imports(), &.{ binding, extra_binding }, .{}));
+    try std.testing.expectError(error.ExtraImportBinding, Target.Module.validateImportBindings(loaded.imports(), &.{ binding, binding }, .{}));
+    try std.testing.expect(loaded.compatibilityReport().report_fingerprint != 0);
+    try std.testing.expect(loaded.dependencyReport().dependency_closure_complete);
+    try std.testing.expect(Target.Module.matchesReferenceImage(reference));
+    try std.testing.expect(Target.Module.referenceSummary().compatible());
+    const reference_summary = Target.Module.referenceSummaryForBytes(reference);
+    try std.testing.expect(reference_summary.compatible());
+    try std.testing.expect(reference_summary.module_fingerprint_match);
+    try std.testing.expect(reference_summary.manifest_fingerprint_match);
+    try std.testing.expect(reference_summary.target_label_match);
+    const full_reference_summary = Target.Module.referenceSummaryForBytes(full);
+    try std.testing.expect(!full_reference_summary.compatible());
+    try std.testing.expect(!full_reference_summary.reference_kind_match);
+    try std.testing.expect(full_reference_summary.world_port_table_match);
+    try std.testing.expect(full_reference_summary.world_value_table_match);
+    try std.testing.expect(full_reference_summary.world_dispatch_table_match);
+    const forged_reference_identity = try allocator.dupe(u8, reference);
+    defer allocator.free(forged_reference_identity);
+    const forged_reference_manifest = boundaryModuleSection(forged_reference_identity, Target.Module.SectionKind.manifest);
+    const forged_import_surface_offset = boundaryModuleManifestImportSurfaceFingerprintOffset(forged_reference_identity, forged_reference_manifest.start);
+    boundaryModuleWriteU64(
+        forged_reference_identity,
+        forged_import_surface_offset,
+        boundaryModuleReadU64(forged_reference_identity, forged_import_surface_offset) ^ 0x1,
+    );
+    boundaryModuleRefreshManifestFingerprint(Target, forged_reference_identity);
+    const forged_reference_summary = Target.Module.referenceSummaryForBytes(forged_reference_identity);
+    try std.testing.expect(!forged_reference_summary.compatible());
+    try std.testing.expect(forged_reference_summary.module_fingerprint_match);
+    try std.testing.expect(!forged_reference_summary.manifest_fingerprint_match);
+    try std.testing.expect(forged_reference_summary.reference_kind_match);
+    try std.testing.expect(forged_reference_summary.target_label_match);
+    try std.testing.expect(forged_reference_summary.target_certificate_match);
+    try std.testing.expect(forged_reference_summary.world_surface_match);
+    try std.testing.expect(forged_reference_summary.program_plan_hash_match);
+    try std.testing.expect(forged_reference_summary.normal_form_match);
+    try std.testing.expectError(error.ManifestFingerprintMismatch, Target.Module.validateReferenceAgainst(forged_reference_identity));
+    try std.testing.expect(Target.Module.compatibility(reference, .{ .allow_reference_only = true }).report_fingerprint != 0);
+    const byte_dependency_report = Target.Module.dependencyReport(full, &.{});
+    try std.testing.expect(byte_dependency_report.dependency_closure_complete);
+    try std.testing.expectEqual(loaded.manifest().required_section_refs.len, byte_dependency_report.embedded_dependency_count);
+    const wrong_target_full = try OtherTarget.Module.fullImage(allocator);
+    defer allocator.free(wrong_target_full);
+    const wrong_target_summary = Target.Module.referenceSummaryForBytes(wrong_target_full);
+    try std.testing.expect(!wrong_target_summary.compatible());
+    try std.testing.expect(!wrong_target_summary.world_port_table_match);
+    try std.testing.expect(!wrong_target_summary.world_value_table_match);
+    try std.testing.expect(!wrong_target_summary.world_dispatch_table_match);
+    try std.testing.expectError(error.ModuleFingerprintMismatch, Target.Module.validate(wrong_target_full, .{ .require_full_module = true }));
+    const wrong_target_report = Target.Module.validationReport(wrong_target_full, .{ .require_full_module = true });
+    try std.testing.expect(!wrong_target_report.valid);
+    try std.testing.expect(!wrong_target_report.compatibility.compatible);
+    try std.testing.expectEqual(wrong_target_report.compatibility.report_fingerprint, wrong_target_report.compatibility.computeFingerprint());
+    try std.testing.expectEqual(@as(usize, 1), wrong_target_report.blocker_count);
+    try std.testing.expectEqual(error.ModuleFingerprintMismatch, wrong_target_report.diagnosticSlice()[0].error_tag.?);
+    const wrong_target_compatibility = Target.Module.compatibility(wrong_target_full, .{ .require_full_module = true });
+    try std.testing.expect(!wrong_target_compatibility.compatible);
+    try std.testing.expectEqual(wrong_target_report.compatibility.report_fingerprint, wrong_target_compatibility.report_fingerprint);
     var session = Target.Module.LoadedModule.Session.start(&loaded);
     try std.testing.expectError(error.UnsupportedLoadedExecution, session.next());
 
@@ -16533,6 +16687,10 @@ test "certified boundary module reference full image and loaded module projectio
     defer allocator.free(malformed);
     malformed[0] = 'X';
     try std.testing.expectError(error.InvalidMagic, Target.Module.validate(malformed, .{}));
+    const malformed_report = Target.Module.validationReport(malformed, .{});
+    try std.testing.expect(!malformed_report.valid);
+    try std.testing.expectEqual(@as(usize, 1), malformed_report.blocker_count);
+    try std.testing.expectEqual(error.InvalidMagic, malformed_report.diagnosticSlice()[0].error_tag.?);
     try std.testing.expectError(error.TruncatedHeader, Target.Module.validate(full[0..12], .{}));
     try std.testing.expectError(error.FullModuleRequired, Target.Module.validate(reference, .{ .require_full_module = true }));
 
@@ -16555,6 +16713,39 @@ test "certified boundary module reference full image and loaded module projectio
     defer allocator.free(bad_fingerprint);
     bad_fingerprint[bad_fingerprint.len - 1] ^= 0x1;
     try std.testing.expectError(error.SectionFingerprintMismatch, Target.Module.validate(bad_fingerprint, .{}));
+
+    const forward_import_surface_version = try allocator.dupe(u8, full);
+    defer allocator.free(forward_import_surface_version);
+    const forward_import_surface = boundaryModuleSection(forward_import_surface_version, Target.Module.SectionKind.import_surface);
+    boundaryModuleWriteU32(forward_import_surface_version, forward_import_surface.entry_offset + 4, Evidence.domains.boundary_module_import_surface.format_version.? + 1);
+    const forward_import_surface_report = Target.Module.validationReport(forward_import_surface_version, .{ .require_full_module = true });
+    try std.testing.expect(!forward_import_surface_report.valid);
+    try std.testing.expectEqual(@as(usize, 1), forward_import_surface_report.compatibility.unsupported_section_versions);
+    try std.testing.expect(!forward_import_surface_report.compatibility.unsupported_module_version);
+    try std.testing.expect(!forward_import_surface_report.compatibility.unsupported_program_plan_image_version);
+    try std.testing.expect(!forward_import_surface_report.compatibility.unsupported_value_schema_image_version);
+    try std.testing.expectEqual(Target.Module.SectionKind.import_surface, forward_import_surface_report.diagnosticSlice()[0].section_kind.?);
+
+    const forward_program_plan_version = try allocator.dupe(u8, full);
+    defer allocator.free(forward_program_plan_version);
+    const forward_program_plan = boundaryModuleSection(forward_program_plan_version, Target.Module.SectionKind.program_plan_image);
+    boundaryModuleWriteU32(forward_program_plan_version, forward_program_plan.entry_offset + 4, Evidence.domains.boundary_program_plan_image.format_version.? + 1);
+    const forward_program_plan_report = Target.Module.validationReport(forward_program_plan_version, .{ .require_full_module = true });
+    try std.testing.expect(!forward_program_plan_report.valid);
+    try std.testing.expect(!forward_program_plan_report.compatibility.unsupported_module_version);
+    try std.testing.expect(forward_program_plan_report.compatibility.unsupported_program_plan_image_version);
+    try std.testing.expect(!forward_program_plan_report.compatibility.unsupported_value_schema_image_version);
+    try std.testing.expectEqual(Target.Module.SectionKind.program_plan_image, forward_program_plan_report.diagnosticSlice()[0].section_kind.?);
+
+    const forward_module_header_version = try allocator.dupe(u8, full);
+    defer allocator.free(forward_module_header_version);
+    boundaryModuleWriteU32(forward_module_header_version, 8, Evidence.domains.boundary_module.format_version.? + 1);
+    const forward_module_header_report = Target.Module.validationReport(forward_module_header_version, .{ .require_full_module = true });
+    try std.testing.expect(!forward_module_header_report.valid);
+    try std.testing.expectEqual(@as(usize, 0), forward_module_header_report.compatibility.unsupported_section_versions);
+    try std.testing.expect(forward_module_header_report.compatibility.unsupported_module_version);
+    try std.testing.expect(!forward_module_header_report.compatibility.unsupported_program_plan_image_version);
+    try std.testing.expect(!forward_module_header_report.compatibility.unsupported_value_schema_image_version);
 
     const forged_import_surface = try allocator.dupe(u8, full);
     defer allocator.free(forged_import_surface);
@@ -16588,6 +16779,7 @@ test "certified boundary module reference full image and loaded module projectio
     boundaryModuleRefreshSectionFingerprint(forged_port_table_ref, Target.Module.SectionKind.world_port_table);
     boundaryModuleRefreshManifestRequiredRef(forged_port_table_ref, Target.Module.SectionKind.world_port_table);
     boundaryModuleRefreshModuleFingerprint(Target, forged_port_table_ref);
+    boundaryModuleRefreshManifestFingerprint(Target, forged_port_table_ref);
     try std.testing.expectError(error.ManifestFingerprintMismatch, Target.Module.validate(forged_port_table_ref, .{ .require_full_module = true }));
 
     const forged_normalization_trace_ref = try allocator.dupe(u8, full);
@@ -16631,6 +16823,33 @@ test "certified boundary module reference full image and loaded module projectio
     boundaryModuleRefreshSectionFingerprint(huge_import_count, Target.Module.SectionKind.import_surface);
     try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(huge_import_count, .{ .require_full_module = true }));
     try std.testing.expectError(error.MissingRequiredSection, Target.Module.decode(allocator, huge_import_count));
+}
+
+test "certified boundary module generic decode preserves entry argument refs" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleParameterizedTarget("module-parameterized-target");
+
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    const full_report = try Target.Module.validate(full, .{ .require_full_module = true });
+    try std.testing.expect(full_report.valid);
+    var generic_loaded = try Evidence.BoundaryTargetModule.decode(allocator, full, .{});
+    defer generic_loaded.deinit();
+    var typed_loaded = try Target.Module.decode(allocator, full);
+    defer typed_loaded.deinit();
+
+    const plan = Target.Program.compiled_plan;
+    const entry = plan.functions[plan.entry_index];
+    const expected_ref = Evidence.BoundaryValueRef.fromValueRef(.{
+        .codec = plan.locals[entry.first_local].codec,
+        .schema_index = plan.locals[entry.first_local].schema_index,
+    });
+
+    try std.testing.expectEqual(@as(u16, 1), generic_loaded.mainExport().argument_count);
+    try std.testing.expectEqual(@as(usize, 1), generic_loaded.argumentValueRefs().len);
+    try std.testing.expect(generic_loaded.argumentValueRefs()[0].eql(expected_ref));
+    try std.testing.expectEqual(generic_loaded.argumentValueRefs().len, typed_loaded.argumentValueRefs().len);
+    try std.testing.expect(generic_loaded.argumentValueRefs()[0].eql(typed_loaded.argumentValueRefs()[0]));
 }
 
 const BoundaryModuleSection = struct {

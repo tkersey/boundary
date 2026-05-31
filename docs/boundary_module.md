@@ -5,9 +5,13 @@ serializes execution timelines and supplies the world.
 
 `Program.BoundaryClosure.Elaboration.Target.Module` is the module namespace for a
 Certified Boundary Target. It exposes `reference`, `fullImage`, `encode`,
-`decode`, `validate`, `validateSelf`, `asLoadedModule`, and
-`validateReferenceAgainst` helpers on generated targets. The public package root
-does not widen.
+`decode`, `validate`, `validationReport`, `compatibility`, `dependencyReport`,
+`validateSelf`, `asLoadedModule`, `matchesReferenceImage`, `referenceSummary`,
+and `validateReferenceAgainst` helpers on generated targets. The public package
+root does not widen.
+
+Boundary should make modules easy to inspect and validate. World should decide
+how to bind and run them.
 
 ## Module Kinds
 
@@ -48,11 +52,11 @@ fingerprint.
 ## ImportSurface
 
 `Target.Module.ImportSurface` lists semantic requirements the receiving World
-must supply. V1 imports are residual WorldPorts. Each import carries import id,
+must supply. V2 imports are residual WorldPorts. Each import carries import id,
 dense `world_port_id`, `WorldPort` ref, optional host-intrinsic ref, source
-effect-shape ref, residual site index/fingerprint, payload and response value
-table ids, payload/response refs, mode, response kind, replay-key recipe ref,
-symbolic name, required flag, and metadata hooks.
+effect-shape ref, residual site index/fingerprint, payload, response, and result
+value table ids, payload/response/result refs, mode, response kind, replay-key
+recipe ref, symbolic name, required flag, and metadata hooks.
 
 Imports are not implementations. They never serialize handlers, function
 pointers, credentials, URLs, model clients, files, network endpoints, runtime
@@ -102,8 +106,22 @@ without turning Boundary into a package manager.
 
 `Target.Module.decode` returns a `LoadedModule`: a decoded, validated,
 target-neutral inspection object with the manifest, validation report, import
-surface entries, export surface, and projection helpers:
+surface entries, export surface, and projection helpers. Consumers should use
+helpers instead of reading section tables manually.
 
+- `kind`
+- `manifest`
+- `moduleFingerprint`
+- `targetLabel`
+- `targetCertificateFingerprint`
+- `worldSurfaceFingerprint`
+- `normalFormKind`
+- `programPlanHash`
+- `sectionCount`
+- `dependencyCount`
+- `isReferenceOnly`
+- `isFullModule`
+- `isPartialModule`
 - `matchRequest`
 - `worldPortForSite`
 - `worldPortForId`
@@ -115,16 +133,97 @@ surface entries, export surface, and projection helpers:
 - `importForWorldPort`
 - `exportMain`
 
+## ImportSurface Projection Helpers
+
+`loaded.imports()` returns the decoded import projection. `requiredImports`,
+`optionalImports`, `importCount`, `importForWorldPortId`,
+`importForResidualSite`, `importForWorldPortRef`, `importSymbolicName`,
+`importValueRefs`, `importSourceShapeRef`, and `importWorldPortRef` expose the
+World-facing binding data without requiring raw section parsing.
+
+Each import projection carries import id, dense `world_port_id`, `WorldPort`
+ref, source EffectShape ref, residual site index/fingerprint, payload, response,
+and result value table ids, payload/response/result value refs, mode, response
+kind, required/optional status, symbolic name, and replay-key recipe ref when
+present.
+
+## ExportSurface Projection Helpers
+
+V1 has one main export. `mainExport`, `resultValueRef`, `argumentValueRefs`,
+`entryFunctionRef`, and `exportNormalFormKind` expose the entry/result shape
+directly from the loaded export surface.
+
+## WorldSurface Projection Helpers
+
+`worldPortForSite`, `worldPortForId`, `valueDescriptor`, `dispatchForSite`,
+`sourceForPort`, `traceForWorldPort`, `evidenceForWorldPort`, and
+`replayKeyRecipe` project facts already present in the module image. Missing
+facts return absence; Boundary does not fabricate World table rows from a ref.
+
 `LoadedModule.Session` is present but fail-closed in V1. It reports
 `error.UnsupportedLoadedExecution` rather than exposing raw mutable VM internals
 or pretending that arbitrary loaded ProgramPlan execution is supported.
 
-## Import Binding Check
+## ModuleCompatibilityReport
+
+`Target.Module.compatibility(bytes, options)` and
+`loaded.compatibilityReport()` summarize whether the image is compatible with
+the current Boundary module validator. The report records module kind,
+compatible status, unknown required/optional sections, unsupported versions,
+loaded-execution blockers, dependency blockers, limit blockers, warnings, and
+blockers. It is deterministic validation metadata, not a trust claim.
+
+## ValidationReport And Diagnostics
+
+`Target.Module.validationReport(bytes, options)` is the non-throwing diagnostic
+surface. Validation remains fail-closed: `validate` still rejects malformed
+images, while `validationReport` explains the blocker with deterministic
+`ValidationDiagnostic` entries. Diagnostics carry severity, error tag, optional
+section kind/index/offset, expected/actual fingerprint where available,
+optional dependency ref, diagnostic code, and summary.
+
+## ValidationLimits
+
+`Target.Module.ValidationLimits` defines reusable limit profiles:
+`small_test`, `default_safe`, `large_local`, and `audit_only`. Options can pass
+a profile or keep individual legacy limit fields. Exceeding a limit produces a
+deterministic blocker instead of best-effort parsing.
+
+## DependencyReport
+
+`Target.Module.dependencyReport(bytes, provided_deps)` and
+`loaded.dependencyReport()` report embedded, external, missing, satisfied, and
+cyclic dependency counts plus whether the dependency closure is complete. V1
+does not resolve dependencies from storage or a registry.
+
+## ImportBindingReport
 
 `Target.Module.validateImportBindings` checks that every required WorldPort
 import has a matching World binding by dense id/ref and payload/response refs.
 Extra bindings are rejected unless policy permits them. The actual handler table
 and ABI remain World-owned.
+
+`loaded.checkImportBindings(bindings)` returns an `ImportBindingReport` instead
+of throwing. Bindings are target-neutral descriptors: world port id/ref,
+payload/response refs, mode/response-kind hints, and required handling. They do
+not contain handlers, credentials, URLs, file handles, model clients, or ABI
+details.
+
+## Why LoadedModule.Session Remains Fail-Closed
+
+Loaded execution is intentionally not part of this pass. `LoadedModule.Session`
+has no public mutable VM internals and still returns
+`UnsupportedLoadedExecution`. The supported path today is inspect, validate,
+project imports/exports, preflight bindings, then let World run the generated
+target or its chosen ABI/runtime.
+
+## What Still Belongs To World
+
+World owns port handlers, concrete ABI, transport, storage, timeline
+serialization, service discovery, scheduling, async runtime, host intrinsic
+execution, signing/encryption, package management, and loaded execution
+runtime. Boundary emits the normalized semantic boundary and explains the
+semantic surface.
 
 ## Wire Transfer Scenarios
 

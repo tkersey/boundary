@@ -204,6 +204,13 @@ Reports are not durable certificates by default. They are validation outputs.
 Use `Report.ok`, `Report.withBlockers`, `hasErrors`, `assertOk`,
 `blockerCount`, and `dependencyFingerprint` for common report handling.
 
+Certified Boundary Module consumption reports have dedicated evidence domains:
+compatibility report, validation report, validation diagnostic, dependency
+report, and import-binding report. They fingerprint deterministic
+validation/projection facts without changing module bytes, ProgramPlan image
+bytes, ValueSchema image bytes, target certificates, request tokens, session
+semantics, or World-owned execution state.
+
 ## Certificates And Authorizations
 
 `Evidence.CertificateView` and `Evidence.AuthorizationView` are shared snapshot

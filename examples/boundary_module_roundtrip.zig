@@ -15,10 +15,10 @@ pub fn run(writer: anytype) !void {
 
     try writer.print("module_kind={s}\n", .{@tagName(report.module_kind)});
     try writer.print("module_fingerprint={x}\n", .{report.module_fingerprint});
-    try writer.print("manifest_fingerprint={x}\n", .{loaded.manifest.manifest_fingerprint});
-    try writer.print("world_surface_fingerprint={x}\n", .{loaded.manifest.world_surface_fingerprint});
-    try writer.print("world_port_count={d}\n", .{loaded.manifest.world_port_count});
-    try writer.print("import_count={d}\n", .{loaded.imports.len});
+    try writer.print("manifest_fingerprint={x}\n", .{loaded.manifest().manifest_fingerprint});
+    try writer.print("world_surface_fingerprint={x}\n", .{loaded.manifest().world_surface_fingerprint});
+    try writer.print("world_port_count={d}\n", .{loaded.manifest().world_port_count});
+    try writer.print("import_count={d}\n", .{loaded.imports().len});
     try writer.print("export_result_codec={s}\n", .{loaded.exportMain().result_ref.codec});
     try writer.print("full_module_bytes={d}\n", .{bytes.len});
 }

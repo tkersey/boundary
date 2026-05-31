@@ -766,4 +766,8 @@ zig build run-program-provider-direct
 zig build run-program-provider-nested
 zig build run-program-provider-resume
 zig build run-custom-approval-workflow
+zig build run-boundary-module-inspect
+zig build run-boundary-module-imports
+zig build run-boundary-module-diagnostics
+zig build run-boundary-module-compatibility
 ```

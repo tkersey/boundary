@@ -102,6 +102,12 @@ still chooses how to bind implementations, encode host calls, store module
 bytes, and persist execution timelines. See
 [boundary_module.md](boundary_module.md).
 
+Loaded module projection helpers expose the same surface for receivers:
+`worldPortForSite`, `worldPortForId`, `valueDescriptor`, `dispatchForSite`,
+`sourceForPort`, `traceForWorldPort`, `evidenceForWorldPort`, and
+`replayKeyRecipe`. These helpers inspect validated module bytes; they do not
+install handlers or define a World ABI.
+
 ## World v0 Contract
 
 World v0 can rely on Boundary to provide:

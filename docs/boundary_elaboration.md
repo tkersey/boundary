@@ -135,6 +135,12 @@ section graphs and fingerprints, decode a `LoadedModule` for inspection, and
 check WorldPort import bindings without adding World, storage, transport, ABI,
 or host execution behavior. See [boundary_module.md](boundary_module.md).
 
+The module consumption surface reports module kind, target label, target
+certificate and WorldSurface fingerprints, normal-form kind, ProgramPlan hash,
+import/export projections, structured diagnostics, compatibility, dependencies,
+and target-neutral import-binding reports. World still supplies ports and
+chooses ABI, transport, storage, and timeline serialization.
+
 ## Source, Residual, And Evidence Maps
 
 `Elaboration.SourceMap` records source shape refs, residual refs, source and

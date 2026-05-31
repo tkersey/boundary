@@ -50,6 +50,10 @@ examples/residualized_approval_policy.zig
 examples/state_basic.zig
 examples/typed_program_plan.zig
 examples/boundary_module_agent_transfer.zig
+examples/boundary_module_compatibility.zig
+examples/boundary_module_diagnostics.zig
+examples/boundary_module_imports.zig
+examples/boundary_module_inspect.zig
 examples/boundary_module_loaded_run.zig
 examples/boundary_module_reference.zig
 examples/boundary_module_roundtrip.zig
