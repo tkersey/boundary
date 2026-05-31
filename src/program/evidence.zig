@@ -5555,7 +5555,7 @@ pub const BoundaryTargetModule = struct {
 
         pub fn evidenceRef(self: @This()) Ref {
             return refFor(sectionDomain(self.kind), self.section_fingerprint, .{
-                .format_version = self.format_version,
+                .format_version = sectionDomain(self.kind).format_version,
                 .kind_tag = @tagName(self.kind),
             });
         }
@@ -5699,6 +5699,23 @@ pub const BoundaryTargetModule = struct {
 
     fn valueSchemaImageScalarCodecCountMatches(count: u64) bool {
         return count == @as(u64, @intCast(valueSchemaImageScalarCodecCount()));
+    }
+
+    fn boundaryValueRefCodecKnown(codec: []const u8) bool {
+        inline for (@typeInfo(lowering_api.ValueCodec).@"enum".fields) |field| {
+            if (std.mem.eql(u8, codec, field.name)) return true;
+        }
+        return false;
+    }
+
+    fn boundaryValueRefWithinSchema(ref: BoundaryValueRef, schema_count: u64) bool {
+        if (!boundaryValueRefCodecKnown(ref.codec)) return false;
+        if (ref.schema_index) |schema_index| return @as(u64, schema_index) < schema_count;
+        return true;
+    }
+
+    fn optionalBoundaryValueRefWithinSchema(ref: ?BoundaryValueRef, schema_count: u64) bool {
+        return if (ref) |actual| boundaryValueRefWithinSchema(actual, schema_count) else true;
     }
 
     pub const ImportSurface = struct {
@@ -6025,6 +6042,7 @@ pub const BoundaryTargetModule = struct {
         max_image_bytes: usize = 16 * 1024 * 1024,
         max_section_count: usize = 128,
         max_plan_rows: usize = 1_000_000,
+        max_dependency_count: usize = 256,
         max_world_ports: usize = 65_536,
         max_schema_count: usize = 65_536,
     };
@@ -6055,6 +6073,11 @@ pub const BoundaryTargetModule = struct {
         LimitExceeded,
         MalformedManifest,
         MalformedImportSurface,
+    };
+
+    const FullModuleImportBindings = struct {
+        schema_count: u64,
+        replay_key_recipe_ref: Ref,
     };
 
     pub const ValidationReport = struct {
@@ -6906,7 +6929,7 @@ pub const BoundaryTargetModule = struct {
         if (manifest.module_kind == .reference_only and section_count != 1) return error.MalformedManifest;
         if (manifest.module_kind == .full_module and import_payload.len == 0) return error.MissingRequiredSection;
         if (manifest.module_kind == .full_module) try validateFullModuleSections(bytes, section_count, manifest, options);
-        try validateImportSurfacePayload(import_payload, manifest, options);
+        try validateImportSurfacePayload(import_payload, manifest, options, null);
         const export_surface = if (export_payload.len == 0) emptyExportSurface(manifest) else try parseExportSurface(export_payload);
         try validateExportSurface(export_surface, manifest, export_payload.len != 0);
         return .{
@@ -7053,9 +7076,9 @@ pub const BoundaryTargetModule = struct {
         return imports;
     }
 
-    fn validateImportSurfacePayload(payload: []const u8, manifest: Manifest, options: ValidationOptions) ValidationError!void {
+    fn validateImportSurfacePayload(payload: []const u8, manifest: Manifest, options: ValidationOptions, full_module_bindings: ?FullModuleImportBindings) ValidationError!void {
         if (payload.len == 0) {
-            if (manifest.module_kind == .full_module and manifest.world_port_count != 0) return error.MissingRequiredSection;
+            if (manifest.module_kind == .full_module) return error.MissingRequiredSection;
             return;
         }
         var reader = PayloadReader.init(payload);
@@ -7101,12 +7124,22 @@ pub const BoundaryTargetModule = struct {
             const response_value_table_id = try reader.readU32();
             const payload_ref = try reader.readValueRef();
             const response_ref = try reader.readValueRef();
+            if (full_module_bindings) |bindings| {
+                const max_import_value_ids = count * 2;
+                if (payload_value_table_id >= max_import_value_ids or response_value_table_id >= max_import_value_ids) return error.MalformedImportSurface;
+                if (!boundaryValueRefWithinSchema(payload_ref, bindings.schema_count)) return error.MalformedImportSurface;
+                if (!boundaryValueRefWithinSchema(response_ref, bindings.schema_count)) return error.MalformedImportSurface;
+            }
             const mode = try reader.readBytes();
             const response_kind = try reader.readBytes();
             const replay_key_recipe_ref = try reader.readRef();
             const suggested_symbolic_name = try reader.readBytes();
             const required = try reader.readBool();
             try validateModuleImportRefs(world_port_ref, host_intrinsic_ref, source_effect_shape_ref, replay_key_recipe_ref);
+            if (full_module_bindings) |bindings| {
+                if (!replay_key_recipe_ref.eql(bindings.replay_key_recipe_ref)) return error.ManifestFingerprintMismatch;
+                if (!required) return error.MalformedImportSurface;
+            }
             builder.fieldU64("import.import_id", import_id);
             builder.fieldU64("import.world_port_id", world_port_id);
             builder.fieldRef("import.world_port", world_port_ref);
@@ -7204,6 +7237,9 @@ pub const BoundaryTargetModule = struct {
         if (surface.module_fingerprint != 0) return error.ModuleFingerprintMismatch;
         if (!std.mem.eql(u8, surface.target_label, manifest.target_label)) return error.ModuleFingerprintMismatch;
         if (surface.normal_form != manifest.normal_form) return error.ModuleFingerprintMismatch;
+        if (surface.result_schema_ref) |schema_ref| {
+            if (!schema_ref.eql(surface.result_ref)) return error.MalformedManifest;
+        }
         const computed = surface.computeFingerprint();
         if (surface.export_surface_fingerprint != computed or manifest.export_surface_fingerprint != computed) return error.ManifestFingerprintMismatch;
     }
@@ -7410,6 +7446,7 @@ pub const BoundaryTargetModule = struct {
 
         fn readValueRef(self: *@This()) ValidationError!BoundaryValueRef {
             const codec = try self.readBytes();
+            if (!boundaryValueRefCodecKnown(codec)) return error.MalformedManifest;
             const schema_index = try self.readOptionalU64();
             if (schema_index != null and schema_index.? > std.math.maxInt(u16)) return error.MalformedManifest;
             return BoundaryValueRef.init(codec, if (schema_index) |value| @as(u16, @intCast(value)) else null);
@@ -7533,8 +7570,19 @@ pub const BoundaryTargetModule = struct {
         for (required) |kind| {
             if (!sectionTableContainsKind(bytes, section_count, kind)) return error.MissingRequiredSection;
         }
+        const schema_count = try fullModuleValueSchemaCount(bytes, section_count);
+        const replay_key_recipe_ref = try fullModuleReplayKeyRecipeRef(bytes, section_count);
         try validateTargetCertificateSectionBindings(bytes, section_count, manifest, options);
         try validateImportSurfaceReplayRecipeBinding(bytes, section_count);
+        try validateImportSurfacePayload(
+            sectionPayloadForKind(bytes, section_count, .import_surface) orelse return error.MissingRequiredSection,
+            manifest,
+            options,
+            .{
+                .schema_count = schema_count,
+                .replay_key_recipe_ref = replay_key_recipe_ref,
+            },
+        );
         for (0..@intCast(section_count)) |index| {
             const entry_offset = header_len + index * section_table_entry_len;
             const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
@@ -7546,6 +7594,22 @@ pub const BoundaryTargetModule = struct {
             try validateFullModuleSectionPayload(kind, bytes[start .. start + len], manifest, options);
         }
         try validateExportSurfacePlanBinding(bytes, section_count);
+    }
+
+    fn fullModuleValueSchemaCount(bytes: []const u8, section_count: u32) ValidationError!u64 {
+        const payload = sectionPayloadForKind(bytes, section_count, .value_schema_image) orelse return error.MissingRequiredSection;
+        var reader = PayloadReader.init(payload);
+        const format_version = try reader.readU32();
+        if (format_version != domains.boundary_value_schema_image.format_version.?) return error.InvalidVersion;
+        _ = try reader.readU64();
+        _ = try reader.readBytes();
+        return try reader.readU64();
+    }
+
+    fn fullModuleReplayKeyRecipeRef(bytes: []const u8, section_count: u32) ValidationError!Ref {
+        const payload = sectionPayloadForKind(bytes, section_count, .replay_key_recipe) orelse return error.MissingRequiredSection;
+        var reader = PayloadReader.init(payload);
+        return try reader.readRef();
     }
 
     fn validateExportSurfacePlanBinding(bytes: []const u8, section_count: u32) ValidationError!void {
@@ -7574,6 +7638,11 @@ pub const BoundaryTargetModule = struct {
         const plan_sum_variant_count = try program_reader.readU64();
         if (!program_reader.done()) return error.MalformedManifest;
         if (plan_entry_index >= function_count) return error.MalformedManifest;
+        if (!boundaryValueRefWithinSchema(plan_result_ref, plan_value_schema_count)) return error.MalformedManifest;
+        if (!optionalBoundaryValueRefWithinSchema(plan_result_schema_ref, plan_value_schema_count)) return error.MalformedManifest;
+        if (plan_result_schema_ref) |schema_ref| {
+            if (!schema_ref.eql(plan_result_ref)) return error.MalformedManifest;
+        }
 
         const export_payload = sectionPayloadForKind(bytes, section_count, .export_surface) orelse return error.MissingRequiredSection;
         const export_surface = try parseExportSurface(export_payload);
@@ -7581,6 +7650,11 @@ pub const BoundaryTargetModule = struct {
         if (export_surface.argument_count != plan_argument_count) return error.ModuleFingerprintMismatch;
         if (!export_surface.result_ref.eql(plan_result_ref)) return error.ModuleFingerprintMismatch;
         if (!optionalBoundaryValueRefEql(export_surface.result_schema_ref, plan_result_schema_ref)) return error.ModuleFingerprintMismatch;
+        if (!boundaryValueRefWithinSchema(export_surface.result_ref, plan_value_schema_count)) return error.MalformedManifest;
+        if (!optionalBoundaryValueRefWithinSchema(export_surface.result_schema_ref, plan_value_schema_count)) return error.MalformedManifest;
+        if (export_surface.result_schema_ref) |schema_ref| {
+            if (!schema_ref.eql(export_surface.result_ref)) return error.MalformedManifest;
+        }
 
         const schema_payload = sectionPayloadForKind(bytes, section_count, .value_schema_image) orelse return error.MissingRequiredSection;
         var schema_reader = PayloadReader.init(schema_payload);
@@ -7668,6 +7742,12 @@ pub const BoundaryTargetModule = struct {
                 const product_field_count = try reader.readU64();
                 const sum_variant_count = try reader.readU64();
                 if (!reader.done()) return error.MalformedManifest;
+                if (entry_function_index >= function_count) return error.MalformedManifest;
+                if (!boundaryValueRefWithinSchema(entry_result_ref, value_schema_count)) return error.MalformedManifest;
+                if (!optionalBoundaryValueRefWithinSchema(entry_result_schema_ref, value_schema_count)) return error.MalformedManifest;
+                if (entry_result_schema_ref) |schema_ref| {
+                    if (!schema_ref.eql(entry_result_ref)) return error.MalformedManifest;
+                }
                 if (plan_hash != manifest.program_plan_hash) return error.ManifestFingerprintMismatch;
                 if (function_count > options.max_plan_rows or
                     requirement_count > options.max_plan_rows or
@@ -7719,7 +7799,8 @@ pub const BoundaryTargetModule = struct {
                 if (!reader.done()) return error.MalformedManifest;
                 if (schema_count > options.max_schema_count or
                     product_field_count > options.max_schema_count or
-                    sum_variant_count > options.max_schema_count)
+                    sum_variant_count > options.max_schema_count or
+                    scalar_codec_count > options.max_schema_count)
                 {
                     return error.LimitExceeded;
                 }
@@ -7783,7 +7864,7 @@ pub const BoundaryTargetModule = struct {
         const policy_fingerprint = try reader.readU64();
         const summary = try reader.readBytes();
         const dependency_count = try reader.readU64();
-        if (!u64FitsUsize(dependency_count) or dependency_count > options.max_plan_rows) return error.LimitExceeded;
+        if (!u64FitsUsize(dependency_count) or dependency_count > options.max_dependency_count) return error.LimitExceeded;
         const min_encoded_dependency_bytes = 8 + 2 + 8 + 1 + 1 + 1 + 1 + 1;
         const remaining_dependency_bytes = reader.bytes.len - reader.index;
         if (dependency_count > remaining_dependency_bytes / min_encoded_dependency_bytes) return error.MalformedManifest;
@@ -7815,6 +7896,7 @@ pub const BoundaryTargetModule = struct {
         if (certificate_fingerprint != manifest.target_certificate_fingerprint) return error.ManifestFingerprintMismatch;
         if (certificate_fingerprint != certificate.computeFingerprint()) return error.ManifestFingerprintMismatch;
         if (!std.mem.eql(u8, target_label, manifest.target_label)) return error.ModuleFingerprintMismatch;
+        if (!refMatchesDomain(elaboration_certificate_ref, domains.boundary_elaboration_certificate)) return error.ManifestFingerprintMismatch;
         if (residual_program_ref.domain_id != domains.program_plan.id or residual_program_ref.fingerprint != manifest.program_plan_hash) return error.ModuleFingerprintMismatch;
         try validateRefSectionMatches(bytes, section_count, .world_surface, world_surface_ref);
         try validateRefSectionMatches(bytes, section_count, .world_port_table, port_table_ref);
@@ -7827,6 +7909,9 @@ pub const BoundaryTargetModule = struct {
         try validateRefSectionMatches(bytes, section_count, .normalization_certificate, normalization_certificate_ref orelse return error.ManifestFingerprintMismatch);
 
         const dependency_graph = DependencyGraph{ .dependencies = dependency_slice };
+        const elaboration_dependency_ref = dependency_graph.lookup(.elaboration_certificate) orelse return error.ManifestFingerprintMismatch;
+        if (!elaboration_certificate_ref.eql(elaboration_dependency_ref)) return error.ManifestFingerprintMismatch;
+        if (dependency_graph.containsRole(.provider_program_mapping)) return error.ManifestFingerprintMismatch;
         const import_surface_ref = dependency_graph.lookup(.import_surface) orelse return error.ManifestFingerprintMismatch;
         if (!refMatchesDomainFingerprint(import_surface_ref, domains.boundary_module_import_surface, manifest.import_surface_fingerprint)) return error.ManifestFingerprintMismatch;
         const export_surface_ref = dependency_graph.lookup(.export_surface) orelse return error.ManifestFingerprintMismatch;
