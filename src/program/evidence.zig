@@ -7508,6 +7508,17 @@ pub const BoundaryTargetModule = struct {
         const plan_result_ref = try program_reader.readValueRef();
         const plan_result_schema_ref = try program_reader.readOptionalValueRef();
         const function_count = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        const plan_value_schema_count = try program_reader.readU64();
+        const plan_product_field_count = try program_reader.readU64();
+        const plan_sum_variant_count = try program_reader.readU64();
+        if (!program_reader.done()) return error.MalformedManifest;
         if (plan_entry_index >= function_count) return error.MalformedManifest;
 
         const export_payload = sectionPayloadForKind(bytes, section_count, .export_surface) orelse return error.MissingRequiredSection;
@@ -7516,6 +7527,21 @@ pub const BoundaryTargetModule = struct {
         if (export_surface.argument_count != plan_argument_count) return error.ModuleFingerprintMismatch;
         if (!export_surface.result_ref.eql(plan_result_ref)) return error.ModuleFingerprintMismatch;
         if (!optionalBoundaryValueRefEql(export_surface.result_schema_ref, plan_result_schema_ref)) return error.ModuleFingerprintMismatch;
+
+        const schema_payload = sectionPayloadForKind(bytes, section_count, .value_schema_image) orelse return error.MissingRequiredSection;
+        var schema_reader = PayloadReader.init(schema_payload);
+        const schema_format_version = try schema_reader.readU32();
+        if (schema_format_version != domains.boundary_value_schema_image.format_version.?) return error.InvalidVersion;
+        _ = try schema_reader.readU64();
+        _ = try schema_reader.readBytes();
+        const schema_count = try schema_reader.readU64();
+        const product_field_count = try schema_reader.readU64();
+        const sum_variant_count = try schema_reader.readU64();
+        _ = try schema_reader.readU64();
+        if (!schema_reader.done()) return error.MalformedManifest;
+        if (schema_count != plan_value_schema_count) return error.ModuleFingerprintMismatch;
+        if (product_field_count != plan_product_field_count) return error.ModuleFingerprintMismatch;
+        if (sum_variant_count != plan_sum_variant_count) return error.ModuleFingerprintMismatch;
     }
 
     fn validateFullModuleSectionPayload(kind: SectionKind, payload: []const u8, manifest: Manifest, options: ValidationOptions) ValidationError!void {
@@ -7664,6 +7690,9 @@ pub const BoundaryTargetModule = struct {
         const summary = try reader.readBytes();
         const dependency_count = try reader.readU64();
         if (!u64FitsUsize(dependency_count) or dependency_count > options.max_plan_rows) return error.LimitExceeded;
+        const min_encoded_dependency_bytes = 8 + 2 + 8 + 1 + 1 + 1 + 1 + 1;
+        const remaining_dependency_bytes = reader.bytes.len - reader.index;
+        if (dependency_count > remaining_dependency_bytes / min_encoded_dependency_bytes) return error.MalformedManifest;
         const dependency_slice = try options.allocator.alloc(Dependency, @intCast(dependency_count));
         defer options.allocator.free(dependency_slice);
         for (dependency_slice) |*dependency| {
