@@ -16492,6 +16492,7 @@ test "certified boundary module reference full image and loaded module projectio
         .response_ref = binding.response_ref,
     };
     try std.testing.expectError(error.ExtraImportBinding, Evidence.BoundaryTargetModule.validateImportBindings(loaded.imports, &.{ binding, extra_binding }, .{}));
+    try std.testing.expectError(error.ExtraImportBinding, Evidence.BoundaryTargetModule.validateImportBindings(loaded.imports, &.{ binding, binding }, .{}));
     var session = Target.Module.LoadedModule.Session.start(&loaded);
     try std.testing.expectError(error.UnsupportedLoadedExecution, session.next());
 

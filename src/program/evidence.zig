@@ -6143,6 +6143,7 @@ pub const BoundaryTargetModule = struct {
     };
 
     pub fn validateImportBindings(imports: []const ImportSurface.Import, bindings: []const ImportBinding, policy: ImportBindingPolicy) ImportBindingError!void {
+        try validateUniqueImportBindings(bindings);
         for (imports) |import| {
             const binding = bindingForWorldPort(bindings, import.world_port_id);
             if (binding == null) {
@@ -6160,6 +6161,14 @@ pub const BoundaryTargetModule = struct {
                     if (import.world_port_id == binding.world_port_id) found = true;
                 }
                 if (!found) return error.ExtraImportBinding;
+            }
+        }
+    }
+
+    fn validateUniqueImportBindings(bindings: []const ImportBinding) ImportBindingError!void {
+        for (bindings, 0..) |binding, index| {
+            for (bindings[index + 1 ..]) |candidate| {
+                if (candidate.world_port_id == binding.world_port_id) return error.ExtraImportBinding;
             }
         }
     }
@@ -6779,6 +6788,7 @@ pub const BoundaryTargetModule = struct {
         module_builder.fieldU64("target_certificate_fingerprint", target_certificate_fingerprint);
         module_builder.fieldU64("normalization_certificate_fingerprint", normalization_certificate_fingerprint orelse 0);
         try reader.validateSectionRefs(required_count, image_bytes, section_count, &module_builder);
+        if (kind == .full_module and required_count != requiredManifestBoundSectionCount(image_bytes, section_count)) return error.MissingRequiredSection;
         if (module_fingerprint != module_builder.finish()) return error.ModuleFingerprintMismatch;
         const external_count = try reader.readU64();
         if (external_count != 0) return error.PartialModuleRejected;
@@ -6822,9 +6832,12 @@ pub const BoundaryTargetModule = struct {
         const imports = try allocator.alloc(ImportSurface.Import, @intCast(count));
         errdefer allocator.free(imports);
         for (imports) |*import| {
+            const import_id = try reader.readU32();
+            const world_port_id = try reader.readU32();
+            if (world_port_id >= manifest.world_port_count) return error.MalformedImportSurface;
             import.* = .{
-                .import_id = try reader.readU32(),
-                .world_port_id = try reader.readU32(),
+                .import_id = import_id,
+                .world_port_id = world_port_id,
                 .world_port_ref = try reader.readRef(),
                 .host_intrinsic_ref = try reader.readOptionalRef(),
                 .source_effect_shape_ref = try reader.readRef(),
@@ -6871,6 +6884,7 @@ pub const BoundaryTargetModule = struct {
         for (0..@intCast(count)) |_| {
             const import_id = try reader.readU32();
             const world_port_id = try reader.readU32();
+            if (world_port_id >= manifest.world_port_count) return error.MalformedImportSurface;
             const world_port_ref = try reader.readRef();
             const host_intrinsic_ref = try reader.readOptionalRef();
             const source_effect_shape_ref = try reader.readRef();
@@ -7197,6 +7211,16 @@ pub const BoundaryTargetModule = struct {
             if (kind == expected and bytes[entry_offset + 2] != 0) return true;
         }
         return false;
+    }
+
+    fn requiredManifestBoundSectionCount(bytes: []const u8, section_count: u32) u64 {
+        var count: u64 = 0;
+        for (0..@intCast(section_count)) |index| {
+            const entry_offset = header_len + index * section_table_entry_len;
+            const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
+            if (kind != .manifest and bytes[entry_offset + 2] != 0) count += 1;
+        }
+        return count;
     }
 
     fn parseKind(value: u8) ?Kind {
