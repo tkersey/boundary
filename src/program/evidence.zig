@@ -6192,7 +6192,7 @@ pub const BoundaryTargetModule = struct {
         const owned = try allocator.dupe(u8, bytes);
         errdefer allocator.free(owned);
         const parsed = try parseImage(owned, options);
-        const imports = try parseImports(allocator, owned, parsed.import_surface_payload);
+        const imports = try parseImports(allocator, owned, parsed.import_surface_payload, parsed.manifest, options);
         errdefer allocator.free(imports);
         return .{
             .allocator = allocator,
@@ -6730,14 +6730,16 @@ pub const BoundaryTargetModule = struct {
         }
 
         const manifest_bytes = manifest_payload orelse return error.MissingManifest;
-        var manifest = try parseManifest(manifest_bytes);
+        var manifest = try parseManifest(manifest_bytes, bytes, section_count);
         if (manifest.manifest_fingerprint != manifest_fingerprint) return error.ManifestFingerprintMismatch;
         if (manifest.manifest_fingerprint != manifest.computeFingerprint()) return error.ManifestFingerprintMismatch;
         if (manifest.module_fingerprint != module_fingerprint) return error.ModuleFingerprintMismatch;
         if (manifest.module_kind != image_kind) return error.ModuleFingerprintMismatch;
         if (manifest.world_port_count > options.max_world_ports) return error.LimitExceeded;
         if (manifest.module_kind == .full_module and import_payload.len == 0) return error.MissingRequiredSection;
+        try validateImportSurfacePayload(import_payload, manifest, options);
         const export_surface = if (export_payload.len == 0) emptyExportSurface(manifest) else try parseExportSurface(export_payload);
+        try validateExportSurface(export_surface, manifest, export_payload.len != 0);
         return .{
             .manifest = manifest,
             .export_surface = export_surface,
@@ -6746,7 +6748,7 @@ pub const BoundaryTargetModule = struct {
         };
     }
 
-    fn parseManifest(payload: []const u8) ValidationError!Manifest {
+    fn parseManifest(payload: []const u8, image_bytes: []const u8, section_count: u32) ValidationError!Manifest {
         var reader = PayloadReader.init(payload);
         const format_version = try reader.readU32();
         if (format_version != domains.boundary_module_manifest.format_version.?) return error.InvalidVersion;
@@ -6764,7 +6766,16 @@ pub const BoundaryTargetModule = struct {
         const normal_form = parseNormalForm(try reader.readU8()) orelse return error.MalformedManifest;
         const required_count = try reader.readU64();
         if (required_count > 128) return error.LimitExceeded;
-        const required = try reader.readSectionRefs(required_count);
+        var module_builder = FingerprintBuilder.init(domains.boundary_module);
+        module_builder.fieldU32("format_version", domains.boundary_module.format_version.?);
+        module_builder.fieldBytes("module_kind", @tagName(kind));
+        module_builder.fieldBytes("target_label", target_label);
+        module_builder.fieldU64("program_plan_hash", program_plan_hash);
+        module_builder.fieldU64("world_surface_fingerprint", world_surface_fingerprint);
+        module_builder.fieldU64("target_certificate_fingerprint", target_certificate_fingerprint);
+        module_builder.fieldU64("normalization_certificate_fingerprint", normalization_certificate_fingerprint orelse 0);
+        try reader.validateSectionRefs(required_count, image_bytes, section_count, &module_builder);
+        if (module_fingerprint != module_builder.finish()) return error.ModuleFingerprintMismatch;
         const external_count = try reader.readU64();
         if (external_count != 0) return error.PartialModuleRejected;
         if (!reader.done()) return error.MalformedManifest;
@@ -6781,21 +6792,29 @@ pub const BoundaryTargetModule = struct {
             .export_surface_fingerprint = export_surface_fingerprint,
             .world_port_count = world_port_count,
             .normal_form = normal_form,
-            .required_section_refs = required,
+            .required_section_refs = &.{},
         };
     }
 
-    fn parseImports(allocator: std.mem.Allocator, image_bytes: []const u8, payload: []const u8) ![]ImportSurface.Import {
+    fn parseImports(allocator: std.mem.Allocator, image_bytes: []const u8, payload: []const u8, manifest: Manifest, options: ValidationOptions) ![]ImportSurface.Import {
         _ = image_bytes;
         if (payload.len == 0) return allocator.alloc(ImportSurface.Import, 0);
         var reader = PayloadReader.init(payload);
         const format_version = try reader.readU32();
         if (format_version != domains.boundary_module_import_surface.format_version.?) return error.InvalidVersion;
-        _ = try reader.readU64();
-        _ = try reader.readU64();
-        _ = try reader.readBytes();
-        _ = try reader.readRef();
+        const surface_fingerprint = try reader.readU64();
+        const module_fingerprint = try reader.readU64();
+        // The module fingerprint includes section payload fingerprints, so
+        // import/export payloads carry a zero sentinel and are bound by the
+        // manifest surface fingerprint plus required section refs.
+        if (module_fingerprint != 0) return error.ModuleFingerprintMismatch;
+        _ = surface_fingerprint;
+        const target_label = try reader.readBytes();
+        if (!std.mem.eql(u8, target_label, manifest.target_label)) return error.ModuleFingerprintMismatch;
+        const world_surface_ref = try reader.readRef();
+        if (world_surface_ref.fingerprint != manifest.world_surface_fingerprint) return error.ModuleFingerprintMismatch;
         const count = try reader.readU64();
+        if (count > options.max_world_ports or count != manifest.world_port_count) return error.LimitExceeded;
         const imports = try allocator.alloc(ImportSurface.Import, @intCast(count));
         errdefer allocator.free(imports);
         for (imports) |*import| {
@@ -6822,6 +6841,68 @@ pub const BoundaryTargetModule = struct {
         return imports;
     }
 
+    fn validateImportSurfacePayload(payload: []const u8, manifest: Manifest, options: ValidationOptions) ValidationError!void {
+        if (payload.len == 0) {
+            if (manifest.module_kind == .full_module and manifest.world_port_count != 0) return error.MissingRequiredSection;
+            return;
+        }
+        var reader = PayloadReader.init(payload);
+        const format_version = try reader.readU32();
+        if (format_version != domains.boundary_module_import_surface.format_version.?) return error.InvalidVersion;
+        const surface_fingerprint = try reader.readU64();
+        const module_fingerprint = try reader.readU64();
+        // See parseImports: module identity is bound outside the payload to
+        // avoid a self-referential module fingerprint.
+        if (module_fingerprint != 0) return error.ModuleFingerprintMismatch;
+        const target_label = try reader.readBytes();
+        if (!std.mem.eql(u8, target_label, manifest.target_label)) return error.ModuleFingerprintMismatch;
+        const world_surface_ref = try reader.readRef();
+        if (world_surface_ref.fingerprint != manifest.world_surface_fingerprint) return error.ModuleFingerprintMismatch;
+        var builder = FingerprintBuilder.init(domains.boundary_module_import_surface);
+        builder.fieldU32("format_version", format_version);
+        builder.fieldBytes("target_label", target_label);
+        builder.fieldRef("world_surface", world_surface_ref);
+        const count = try reader.readU64();
+        if (count > options.max_world_ports or count != manifest.world_port_count) return error.LimitExceeded;
+        for (0..@intCast(count)) |_| {
+            const import_id = try reader.readU32();
+            const world_port_id = try reader.readU32();
+            const world_port_ref = try reader.readRef();
+            const host_intrinsic_ref = try reader.readOptionalRef();
+            const source_effect_shape_ref = try reader.readRef();
+            const residual_site_index = try reader.readU64();
+            const residual_site_fingerprint = try reader.readU64();
+            const payload_value_table_id = try reader.readU32();
+            const response_value_table_id = try reader.readU32();
+            const payload_ref = try reader.readValueRef();
+            const response_ref = try reader.readValueRef();
+            const mode = try reader.readBytes();
+            const response_kind = try reader.readBytes();
+            const replay_key_recipe_ref = try reader.readRef();
+            const suggested_symbolic_name = try reader.readBytes();
+            const required = (try reader.readU8()) != 0;
+            builder.fieldU64("import.import_id", import_id);
+            builder.fieldU64("import.world_port_id", world_port_id);
+            builder.fieldRef("import.world_port", world_port_ref);
+            builder.fieldOptionalRef("import.host_intrinsic", host_intrinsic_ref);
+            builder.fieldRef("import.source_effect_shape", source_effect_shape_ref);
+            builder.fieldUsize("import.residual_site_index", @intCast(residual_site_index));
+            builder.fieldU64("import.residual_site_fingerprint", residual_site_fingerprint);
+            builder.fieldU64("import.payload_value_table_id", payload_value_table_id);
+            builder.fieldU64("import.response_value_table_id", response_value_table_id);
+            builder.fieldValueRef("import.payload_ref", payload_ref);
+            builder.fieldValueRef("import.response_ref", response_ref);
+            builder.fieldBytes("import.mode", mode);
+            builder.fieldBytes("import.response_kind", response_kind);
+            builder.fieldRef("import.replay_key_recipe", replay_key_recipe_ref);
+            builder.fieldBytes("import.suggested_symbolic_name", suggested_symbolic_name);
+            builder.fieldBool("import.required", required);
+        }
+        if (!reader.done()) return error.MalformedImportSurface;
+        const computed = builder.finish();
+        if (surface_fingerprint != computed or manifest.import_surface_fingerprint != computed) return error.ManifestFingerprintMismatch;
+    }
+
     fn parseExportSurface(payload: []const u8) ValidationError!ExportSurface {
         var reader = PayloadReader.init(payload);
         const format_version = try reader.readU32();
@@ -6845,6 +6926,18 @@ pub const BoundaryTargetModule = struct {
             .result_schema_ref = result_schema_ref,
             .normal_form = normal_form,
         };
+    }
+
+    fn validateExportSurface(surface: ExportSurface, manifest: Manifest, present: bool) ValidationError!void {
+        if (!present) {
+            if (manifest.module_kind == .full_module) return error.MissingRequiredSection;
+            return;
+        }
+        if (surface.module_fingerprint != 0) return error.ModuleFingerprintMismatch;
+        if (!std.mem.eql(u8, surface.target_label, manifest.target_label)) return error.ModuleFingerprintMismatch;
+        if (surface.normal_form != manifest.normal_form) return error.ModuleFingerprintMismatch;
+        const computed = surface.computeFingerprint();
+        if (surface.export_surface_fingerprint != computed or manifest.export_surface_fingerprint != computed) return error.ManifestFingerprintMismatch;
     }
 
     fn emptyExportSurface(manifest: Manifest) ExportSurface {
@@ -7027,18 +7120,46 @@ pub const BoundaryTargetModule = struct {
             return if ((try self.readU8()) == 0) null else try self.readValueRef();
         }
 
-        fn readSectionRefs(self: *@This(), count: u64) ValidationError![]const SectionRef {
+        fn readSectionRef(self: *@This()) ValidationError!SectionRef {
+            const kind = parseSectionKind(try self.readU16()) orelse return error.MalformedManifest;
+            return .{
+                .kind = kind,
+                .format_version = try self.readU32(),
+                .byte_offset = try self.readU64(),
+                .byte_length = try self.readU64(),
+                .section_fingerprint = try self.readU64(),
+                .required = (try self.readU8()) != 0,
+            };
+        }
+
+        fn validateSectionRefs(self: *@This(), count: u64, image_bytes: []const u8, section_count: u32, module_builder: *FingerprintBuilder) ValidationError!void {
             for (0..@intCast(count)) |_| {
-                _ = parseSectionKind(try self.readU16()) orelse return error.MalformedManifest;
-                _ = try self.readU32();
-                _ = try self.readU64();
-                _ = try self.readU64();
-                _ = try self.readU64();
-                _ = try self.readU8();
+                const section = try self.readSectionRef();
+                writeSectionRef(module_builder, section);
+                if (!sectionTableContainsManifestRef(image_bytes, section_count, section)) return error.MissingRequiredSection;
             }
-            return &.{};
         }
     };
+
+    fn sectionTableContainsManifestRef(bytes: []const u8, section_count: u32, expected: SectionRef) bool {
+        for (0..@intCast(section_count)) |index| {
+            const entry_offset = header_len + index * section_table_entry_len;
+            const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
+            const required = bytes[entry_offset + 2] != 0;
+            const format_version = readU32At(bytes, entry_offset + 4);
+            const length = readU64At(bytes, entry_offset + 16);
+            const fingerprint = readU64At(bytes, entry_offset + 24);
+            if (kind == expected.kind and
+                required == expected.required and
+                format_version == expected.format_version and
+                length == expected.byte_length and
+                fingerprint == expected.section_fingerprint)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     fn parseKind(value: u8) ?Kind {
         return switch (value) {

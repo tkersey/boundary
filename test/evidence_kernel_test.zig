@@ -16505,6 +16505,140 @@ test "certified boundary module reference full image and loaded module projectio
     defer allocator.free(bad_fingerprint);
     bad_fingerprint[bad_fingerprint.len - 1] ^= 0x1;
     try std.testing.expectError(error.SectionFingerprintMismatch, Target.Module.validate(bad_fingerprint, .{}));
+
+    const forged_import_surface = try allocator.dupe(u8, full);
+    defer allocator.free(forged_import_surface);
+    const import_surface = boundaryModuleSection(forged_import_surface, Target.Module.SectionKind.import_surface);
+    boundaryModuleWriteU64(forged_import_surface, import_surface.start + 4, 0);
+    boundaryModuleRefreshSectionFingerprint(forged_import_surface, Target.Module.SectionKind.import_surface);
+    try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(forged_import_surface, .{ .require_full_module = true }));
+
+    const forged_export_surface = try allocator.dupe(u8, full);
+    defer allocator.free(forged_export_surface);
+    const export_surface = boundaryModuleSection(forged_export_surface, Target.Module.SectionKind.export_surface);
+    boundaryModuleWriteU64(forged_export_surface, export_surface.start + 4, 0);
+    boundaryModuleRefreshSectionFingerprint(forged_export_surface, Target.Module.SectionKind.export_surface);
+    try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(forged_export_surface, .{ .require_full_module = true }));
+
+    const missing_required_sections = try allocator.dupe(u8, full);
+    defer allocator.free(missing_required_sections);
+    const retained_import = boundaryModuleSection(missing_required_sections, Target.Module.SectionKind.import_surface);
+    const truncated_len = retained_import.start + retained_import.len;
+    boundaryModuleWriteU32(missing_required_sections, 20, 2);
+    boundaryModuleWriteU64(missing_required_sections, 40, truncated_len);
+    try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(missing_required_sections[0..truncated_len], .{ .require_full_module = true }));
+
+    const huge_import_count = try allocator.dupe(u8, full);
+    defer allocator.free(huge_import_count);
+    const count_offset = boundaryModuleImportCountOffset(huge_import_count, import_surface.start);
+    boundaryModuleWriteU64(huge_import_count, count_offset, std.math.maxInt(u64));
+    boundaryModuleRefreshSectionFingerprint(huge_import_count, Target.Module.SectionKind.import_surface);
+    try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(huge_import_count, .{ .require_full_module = true }));
+    try std.testing.expectError(error.MissingRequiredSection, Target.Module.decode(allocator, huge_import_count));
+}
+
+const BoundaryModuleSection = struct {
+    entry_offset: usize,
+    start: usize,
+    len: usize,
+};
+
+fn boundaryModuleSection(bytes: []const u8, kind: Evidence.BoundaryTargetModule.SectionKind) BoundaryModuleSection {
+    const section_count = boundaryModuleReadU32(bytes, 20);
+    for (0..@intCast(section_count)) |index| {
+        const entry_offset = 48 + index * 32;
+        const section_kind: Evidence.BoundaryTargetModule.SectionKind = @enumFromInt(boundaryModuleReadU16(bytes, entry_offset));
+        if (section_kind == kind) {
+            return .{
+                .entry_offset = entry_offset,
+                .start = @intCast(boundaryModuleReadU64(bytes, entry_offset + 8)),
+                .len = @intCast(boundaryModuleReadU64(bytes, entry_offset + 16)),
+            };
+        }
+    }
+    unreachable;
+}
+
+fn boundaryModuleImportCountOffset(bytes: []const u8, payload_start: usize) usize {
+    var index = payload_start + 4 + 8 + 8;
+    index = boundaryModuleSkipBytes(bytes, index);
+    index = boundaryModuleSkipRef(bytes, index);
+    return index;
+}
+
+fn boundaryModuleRefreshSectionFingerprint(bytes: []u8, kind: Evidence.BoundaryTargetModule.SectionKind) void {
+    const section = boundaryModuleSection(bytes, kind);
+    const payload = bytes[section.start .. section.start + section.len];
+    var builder = Evidence.FingerprintBuilder.init(boundaryModuleSectionDomain(kind));
+    builder.fieldBytes("payload", payload);
+    boundaryModuleWriteU64(bytes, section.entry_offset + 24, builder.finish());
+}
+
+fn boundaryModuleSectionDomain(kind: Evidence.BoundaryTargetModule.SectionKind) @TypeOf(Evidence.domains.boundary_module) {
+    return switch (kind) {
+        .manifest => Evidence.domains.boundary_module_manifest,
+        .import_surface => Evidence.domains.boundary_module_import_surface,
+        .export_surface => Evidence.domains.boundary_module_export_surface,
+        .program_plan_image => Evidence.domains.boundary_program_plan_image,
+        .value_schema_image => Evidence.domains.boundary_value_schema_image,
+        .world_surface => Evidence.domains.boundary_world_surface,
+        .world_port_table => Evidence.domains.boundary_world_port_table,
+        .world_value_table => Evidence.domains.boundary_world_value_table,
+        .world_dispatch_table => Evidence.domains.boundary_world_dispatch_table,
+        .surface_profile => Evidence.domains.boundary_world_surface_profile,
+        .source_map => Evidence.domains.boundary_elaboration_source_map,
+        .trace_map => Evidence.domains.boundary_elaboration_trace_map,
+        .evidence_map => Evidence.domains.boundary_target_evidence_map,
+        .effect_row => Evidence.domains.boundary_elaboration_effect_row,
+        .normal_form => Evidence.domains.boundary_normal_form,
+        .target_certificate => Evidence.domains.boundary_target_certificate,
+        .normalization_trace => Evidence.domains.boundary_normalization_trace,
+        .normalization_certificate => Evidence.domains.boundary_normalization_certificate,
+        .metadata => Evidence.domains.boundary_module,
+    };
+}
+
+fn boundaryModuleSkipRef(bytes: []const u8, start: usize) usize {
+    var index = start + 2 + 8;
+    index = boundaryModuleSkipOptionalU64(bytes, index);
+    index = boundaryModuleSkipOptionalBytes(bytes, index);
+    index = boundaryModuleSkipOptionalU64(bytes, index);
+    index = boundaryModuleSkipOptionalU64(bytes, index);
+    index = boundaryModuleSkipOptionalBytes(bytes, index);
+    return index;
+}
+
+fn boundaryModuleSkipOptionalU64(bytes: []const u8, start: usize) usize {
+    return if (bytes[start] == 0) start + 1 else start + 1 + 8;
+}
+
+fn boundaryModuleSkipOptionalBytes(bytes: []const u8, start: usize) usize {
+    return if (bytes[start] == 0) start + 1 else boundaryModuleSkipBytes(bytes, start + 1);
+}
+
+fn boundaryModuleSkipBytes(bytes: []const u8, start: usize) usize {
+    const len: usize = @intCast(boundaryModuleReadU64(bytes, start));
+    return start + 8 + len;
+}
+
+fn boundaryModuleReadU16(bytes: []const u8, offset: usize) u16 {
+    return std.mem.readInt(u16, bytes[offset..][0..2], .little);
+}
+
+fn boundaryModuleReadU32(bytes: []const u8, offset: usize) u32 {
+    return std.mem.readInt(u32, bytes[offset..][0..4], .little);
+}
+
+fn boundaryModuleReadU64(bytes: []const u8, offset: usize) u64 {
+    return std.mem.readInt(u64, bytes[offset..][0..8], .little);
+}
+
+fn boundaryModuleWriteU32(bytes: []u8, offset: usize, value: u32) void {
+    std.mem.writeInt(u32, bytes[offset..][0..4], value, .little);
+}
+
+fn boundaryModuleWriteU64(bytes: []u8, offset: usize, value: u64) void {
+    std.mem.writeInt(u64, bytes[offset..][0..8], value, .little);
 }
 
 test "semantic body classifications expose stable evidence refs" {
