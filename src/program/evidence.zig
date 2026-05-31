@@ -5697,6 +5697,10 @@ pub const BoundaryTargetModule = struct {
         return count;
     }
 
+    fn valueSchemaImageScalarCodecCountMatches(count: u64) bool {
+        return count == @as(u64, @intCast(valueSchemaImageScalarCodecCount()));
+    }
+
     pub const ImportSurface = struct {
         format_version: u32 = domains.boundary_module_import_surface.format_version.?,
         fingerprint_version: u32 = domains.boundary_module_import_surface.fingerprint_version,
@@ -7723,6 +7727,7 @@ pub const BoundaryTargetModule = struct {
                 {
                     return error.LimitExceeded;
                 }
+                if (!valueSchemaImageScalarCodecCountMatches(scalar_codec_count)) return error.MalformedManifest;
                 const image = ValueSchemaImage{
                     .image_fingerprint = image_fingerprint,
                     .plan_label = plan_label,
@@ -8048,6 +8053,8 @@ test "value schema image scalar codec count follows ValueCodec schema boundary" 
     try std.testing.expect(!BoundaryTargetModule.valueSchemaImageScalarCodec(.product));
     try std.testing.expect(!BoundaryTargetModule.valueSchemaImageScalarCodec(.sum));
     try std.testing.expectEqual(@as(usize, 6), image.scalar_codec_count);
+    try std.testing.expect(BoundaryTargetModule.valueSchemaImageScalarCodecCountMatches(6));
+    try std.testing.expect(!BoundaryTargetModule.valueSchemaImageScalarCodecCountMatches(5));
 }
 
 test "forward optional known section versions require opt-in and newer format" {
