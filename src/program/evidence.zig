@@ -5938,6 +5938,12 @@ pub const BoundaryTargetModule = struct {
             builder.fieldU64("export_surface_fingerprint", self.export_surface_fingerprint);
             builder.fieldUsize("world_port_count", self.world_port_count);
             builder.fieldBytes("normal_form", @tagName(self.normal_form));
+            builder.fieldUsize("required_section_count", self.required_section_refs.len);
+            for (self.required_section_refs) |section| writeSectionRef(&builder, section);
+            builder.fieldUsize("optional_section_count", self.optional_section_refs.len);
+            for (self.optional_section_refs) |section| writeSectionRef(&builder, section);
+            builder.fieldUsize("external_dependency_count", self.external_dependency_refs.len);
+            for (self.external_dependency_refs) |ref| builder.fieldRef("external_dependency", ref);
             builder.fieldBytes("producer", self.producer);
             builder.fieldBytes("compatibility", self.compatibility);
             return builder.finish();
@@ -6933,9 +6939,8 @@ pub const BoundaryTargetModule = struct {
         if (previous_end != total_len) return error.TrailingJunk;
 
         const manifest_bytes = manifest_payload orelse return error.MissingManifest;
-        var manifest = try parseManifest(manifest_bytes, bytes, section_count);
+        const manifest = try parseManifest(manifest_bytes, bytes, section_count);
         if (manifest.manifest_fingerprint != manifest_fingerprint) return error.ManifestFingerprintMismatch;
-        if (manifest.manifest_fingerprint != manifest.computeFingerprint()) return error.ManifestFingerprintMismatch;
         if (manifest.module_fingerprint != module_fingerprint) return error.ModuleFingerprintMismatch;
         if (manifest.module_kind != image_kind) return error.ModuleFingerprintMismatch;
         if (manifest.world_port_count > options.max_world_ports) return error.LimitExceeded;
@@ -6995,6 +7000,20 @@ pub const BoundaryTargetModule = struct {
         const normal_form = parseNormalForm(try reader.readU8()) orelse return error.MalformedManifest;
         const required_count = try reader.readU64();
         if (required_count > 128) return error.LimitExceeded;
+        var manifest_builder = FingerprintBuilder.init(domains.boundary_module_manifest);
+        manifest_builder.fieldU32("format_version", format_version);
+        manifest_builder.fieldU64("module_fingerprint", module_fingerprint);
+        manifest_builder.fieldBytes("module_kind", @tagName(kind));
+        manifest_builder.fieldBytes("target_label", target_label);
+        manifest_builder.fieldU64("program_plan_hash", program_plan_hash);
+        manifest_builder.fieldU64("world_surface_fingerprint", world_surface_fingerprint);
+        manifest_builder.fieldU64("target_certificate_fingerprint", target_certificate_fingerprint);
+        manifest_builder.fieldOptionalU64("normalization_certificate_fingerprint", normalization_certificate_fingerprint);
+        manifest_builder.fieldU64("import_surface_fingerprint", import_surface_fingerprint);
+        manifest_builder.fieldU64("export_surface_fingerprint", export_surface_fingerprint);
+        manifest_builder.fieldUsize("world_port_count", @intCast(world_port_count));
+        manifest_builder.fieldBytes("normal_form", @tagName(normal_form));
+        manifest_builder.fieldUsize("required_section_count", @intCast(required_count));
         var module_builder = FingerprintBuilder.init(domains.boundary_module);
         module_builder.fieldU32("format_version", domains.boundary_module.format_version.?);
         module_builder.fieldBytes("module_kind", @tagName(kind));
@@ -7003,12 +7022,17 @@ pub const BoundaryTargetModule = struct {
         module_builder.fieldU64("world_surface_fingerprint", world_surface_fingerprint);
         module_builder.fieldU64("target_certificate_fingerprint", target_certificate_fingerprint);
         module_builder.fieldU64("normalization_certificate_fingerprint", normalization_certificate_fingerprint orelse 0);
-        try reader.validateSectionRefs(required_count, image_bytes, section_count, kind, &module_builder);
+        try reader.validateSectionRefs(required_count, image_bytes, section_count, kind, &module_builder, &manifest_builder);
         writeOptionalSectionTableRefs(image_bytes, section_count, &module_builder);
         if (kind == .full_module and required_count != requiredManifestBoundSectionCount(image_bytes, section_count)) return error.MissingRequiredSection;
         if (module_fingerprint != module_builder.finish()) return error.ModuleFingerprintMismatch;
         const external_count = try reader.readU64();
         if (external_count != 0) return error.PartialModuleRejected;
+        manifest_builder.fieldUsize("optional_section_count", 0);
+        manifest_builder.fieldUsize("external_dependency_count", @intCast(external_count));
+        manifest_builder.fieldBytes("producer", "boundary");
+        manifest_builder.fieldBytes("compatibility", "boundary-module-v1");
+        if (manifest_fingerprint != manifest_builder.finish()) return error.ManifestFingerprintMismatch;
         if (!reader.done()) return error.MalformedManifest;
         return .{
             .manifest_fingerprint = manifest_fingerprint,
@@ -7487,7 +7511,7 @@ pub const BoundaryTargetModule = struct {
             };
         }
 
-        fn validateSectionRefs(self: *@This(), count: u64, image_bytes: []const u8, section_count: u32, manifest_kind: Kind, module_builder: *FingerprintBuilder) ValidationError!void {
+        fn validateSectionRefs(self: *@This(), count: u64, image_bytes: []const u8, section_count: u32, manifest_kind: Kind, module_builder: *FingerprintBuilder, manifest_builder: *FingerprintBuilder) ValidationError!void {
             var seen_kinds: u32 = 0;
             for (0..@intCast(count)) |_| {
                 const section = try self.readSectionRef();
@@ -7496,6 +7520,7 @@ pub const BoundaryTargetModule = struct {
                 if ((seen_kinds & kind_bit) != 0) return error.MissingRequiredSection;
                 seen_kinds |= kind_bit;
                 writeSectionRef(module_builder, section);
+                writeSectionRef(manifest_builder, section);
                 if (!sectionTableContainsManifestRef(image_bytes, section_count, section)) return error.MissingRequiredSection;
             }
             if (manifest_kind == .full_module and seen_kinds != fullModuleRequiredSectionMask()) return error.MissingRequiredSection;

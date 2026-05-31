@@ -16720,6 +16720,24 @@ fn boundaryModuleRefreshModuleFingerprint(comptime Target: type, bytes: []u8) vo
 fn boundaryModuleRefreshManifestFingerprint(comptime Target: type, bytes: []u8) void {
     const manifest = boundaryModuleSection(bytes, .manifest);
     const import_fingerprint_offset = boundaryModuleManifestImportSurfaceFingerprintOffset(bytes, manifest.start);
+    const refs_start = boundaryModuleManifestRequiredRefsOffset(bytes, manifest.start);
+    const ref_count = boundaryModuleReadU64(bytes, refs_start - 8);
+    var required_refs: [128]Evidence.BoundaryTargetModule.SectionRef = [_]Evidence.BoundaryTargetModule.SectionRef{.{
+        .kind = .manifest,
+        .format_version = 0,
+        .section_fingerprint = 0,
+    }} ** 128;
+    for (0..@intCast(ref_count)) |index| {
+        const ref_offset = refs_start + index * 31;
+        required_refs[index] = .{
+            .kind = @enumFromInt(boundaryModuleReadU16(bytes, ref_offset)),
+            .format_version = boundaryModuleReadU32(bytes, ref_offset + 2),
+            .byte_offset = boundaryModuleReadU64(bytes, ref_offset + 6),
+            .byte_length = boundaryModuleReadU64(bytes, ref_offset + 14),
+            .section_fingerprint = boundaryModuleReadU64(bytes, ref_offset + 22),
+            .required = bytes[ref_offset + 30] != 0,
+        };
+    }
     const refreshed = Evidence.BoundaryTargetModule.Manifest.init(.{
         .module_fingerprint = boundaryModuleReadU64(bytes, 24),
         .module_kind = @enumFromInt(bytes[16]),
@@ -16732,6 +16750,7 @@ fn boundaryModuleRefreshManifestFingerprint(comptime Target: type, bytes: []u8) 
         .export_surface_fingerprint = boundaryModuleReadU64(bytes, import_fingerprint_offset + 8),
         .world_port_count = Target.WorldPortTable.entries.len,
         .normal_form = Target.NormalForm.kind,
+        .required_section_refs = required_refs[0..@intCast(ref_count)],
     });
     boundaryModuleWriteU64(bytes, 32, refreshed.manifest_fingerprint);
     boundaryModuleWriteU64(bytes, manifest.start + 4, refreshed.manifest_fingerprint);
