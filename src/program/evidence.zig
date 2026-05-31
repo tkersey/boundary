@@ -6998,6 +6998,7 @@ pub const BoundaryTargetModule = struct {
         const module_kind = parseImageKindForReport(bytes) orelse .partial_module;
         const invalid_version_section = if (err == error.InvalidVersion) invalidVersionSectionKind(bytes, options) else null;
         const invalid_module_version = err == error.InvalidVersion and invalid_version_section == null;
+        const invalid_section_version = err == error.InvalidVersion and invalid_version_section != null;
         const invalid_program_plan_version = invalid_version_section == .program_plan_image;
         const invalid_value_schema_version = invalid_version_section == .value_schema_image;
         return .{
@@ -7007,7 +7008,7 @@ pub const BoundaryTargetModule = struct {
             .known_required_sections = err != error.UnknownRequiredSection,
             .unknown_required_sections = if (err == error.UnknownRequiredSection) 1 else 0,
             .unknown_optional_sections = if (err == error.UnknownSection) 1 else 0,
-            .unsupported_section_versions = if (err == error.InvalidVersion) 1 else 0,
+            .unsupported_section_versions = if (invalid_section_version) 1 else 0,
             .unsupported_module_version = invalid_module_version,
             .unsupported_program_plan_image_version = invalid_program_plan_version,
             .unsupported_value_schema_image_version = invalid_value_schema_version,

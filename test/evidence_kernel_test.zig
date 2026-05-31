@@ -16699,6 +16699,7 @@ test "certified boundary module reference full image and loaded module projectio
     boundaryModuleWriteU32(forward_module_header_version, 8, Evidence.domains.boundary_module.format_version.? + 1);
     const forward_module_header_report = Target.Module.validationReport(forward_module_header_version, .{ .require_full_module = true });
     try std.testing.expect(!forward_module_header_report.valid);
+    try std.testing.expectEqual(@as(usize, 0), forward_module_header_report.compatibility.unsupported_section_versions);
     try std.testing.expect(forward_module_header_report.compatibility.unsupported_module_version);
     try std.testing.expect(!forward_module_header_report.compatibility.unsupported_program_plan_image_version);
     try std.testing.expect(!forward_module_header_report.compatibility.unsupported_value_schema_image_version);
