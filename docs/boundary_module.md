@@ -86,8 +86,9 @@ NormalizationTrace, and NormalizationCertificate where present.
 
 Validation checks section fingerprints, manifest bindings, dependency closure,
 required sections, and policy limits. Target certificates bind the residual plan
-hash, `WorldSurface`, maps, normal form, effect row, and module import/export
-surface fingerprints where present.
+hash, `WorldSurface`, maps, normal form, and effect row. Module import/export
+surface fingerprints are module-owned and are bound by the manifest plus section
+refs rather than by the target certificate.
 
 ## ModuleGraph
 
