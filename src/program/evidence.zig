@@ -6891,7 +6891,7 @@ pub const BoundaryTargetModule = struct {
             previous_end = end;
             const section_kind = parseSectionKind(raw_kind) orelse {
                 if (required) return error.UnknownRequiredSection;
-                if (options.reject_unknown_sections and !options.allow_forward_optional_sections) return error.UnknownSection;
+                if (options.reject_unknown_sections) return error.UnknownSection;
                 const payload = bytes[start..end];
                 if (unknownSectionPayloadFingerprint(raw_kind, format_version, payload) != fingerprint) return error.SectionFingerprintMismatch;
                 continue;
@@ -7886,7 +7886,8 @@ pub const BoundaryTargetModule = struct {
             dependency.* = try reader.readDependency();
         }
         if (!reader.done()) return error.MalformedManifest;
-        if (!targetCertificateDependencyRolesValid(dependency_slice, true)) return error.ManifestFingerprintMismatch;
+        if (!targetCertificateDependencyRolesValid(dependency_slice, false)) return error.ManifestFingerprintMismatch;
+        if (!targetCertificateModuleSurfaceRefsValid(dependency_slice)) return error.ManifestFingerprintMismatch;
         const certificate = BoundaryTargetCertificate{
             .certificate_fingerprint = certificate_fingerprint,
             .target_label = target_label,
@@ -7923,11 +7924,6 @@ pub const BoundaryTargetModule = struct {
         const dependency_graph = DependencyGraph{ .dependencies = dependency_slice };
         const elaboration_dependency_ref = dependency_graph.lookup(.elaboration_certificate) orelse return error.ManifestFingerprintMismatch;
         if (!elaboration_certificate_ref.eql(elaboration_dependency_ref)) return error.ManifestFingerprintMismatch;
-        if (dependency_graph.containsRole(.provider_program_mapping)) return error.ManifestFingerprintMismatch;
-        const import_surface_ref = dependency_graph.lookup(.import_surface) orelse return error.ManifestFingerprintMismatch;
-        if (!refMatchesDomainFingerprint(import_surface_ref, domains.boundary_module_import_surface, manifest.import_surface_fingerprint)) return error.ManifestFingerprintMismatch;
-        const export_surface_ref = dependency_graph.lookup(.export_surface) orelse return error.ManifestFingerprintMismatch;
-        if (!refMatchesDomainFingerprint(export_surface_ref, domains.boundary_module_export_surface, manifest.export_surface_fingerprint)) return error.ManifestFingerprintMismatch;
         try validateRefSectionMatches(bytes, section_count, .source_map, dependency_graph.lookup(.elaboration_source_map) orelse return error.ManifestFingerprintMismatch);
         try validateRefSectionMatches(bytes, section_count, .effect_row, dependency_graph.lookup(.elaboration_effect_row) orelse return error.ManifestFingerprintMismatch);
         try validateRefSectionMatches(bytes, section_count, .normal_form, dependency_graph.lookup(.normal_form) orelse return error.ManifestFingerprintMismatch);
@@ -8195,7 +8191,7 @@ test "target certificate dependency roles require paired module surfaces" {
         .{ .role = .export_surface, .ref = refFor(domains.boundary_module_export_surface, 3, .{}) },
     };
     try std.testing.expect(targetCertificateDependencyRolesValid(&paired_module_surface_dependencies, true));
-    try std.testing.expect(targetCertificateModuleSurfaceRefsValid(&paired_module_surface_dependencies));
+    try std.testing.expect(!targetCertificateModuleSurfaceRefsValid(&paired_module_surface_dependencies));
 
     const duplicated_import_surface_dependencies = base_dependencies ++ [_]Dependency{
         .{ .role = .import_surface, .ref = ref },
@@ -8693,12 +8689,8 @@ fn targetCertificateDependenciesMatch(
 }
 
 fn targetCertificateModuleSurfaceRefsValid(dependencies: []const Dependency) bool {
-    if (dependencyRoleCount(dependencies, .import_surface) == 0 and dependencyRoleCount(dependencies, .export_surface) == 0) return true;
-    const graph = DependencyGraph{ .dependencies = dependencies };
-    const import_surface_ref = graph.lookup(.import_surface) orelse return false;
-    const export_surface_ref = graph.lookup(.export_surface) orelse return false;
-    return refMatchesDomainVersion(import_surface_ref, domains.boundary_module_import_surface) and
-        refMatchesDomainVersion(export_surface_ref, domains.boundary_module_export_surface);
+    return dependencyRoleCount(dependencies, .import_surface) == 0 and
+        dependencyRoleCount(dependencies, .export_surface) == 0;
 }
 
 fn targetCertificateDependencyRolesValid(dependencies: []const Dependency, require_module_surfaces: bool) bool {
@@ -11432,8 +11424,6 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     targetOption(options, "evidence_map_label", target_label ++ ".target_evidence_map"),
                     EvidenceMapDependenciesValue[0..],
                 );
-                const ModuleImportSurfaceValue = comptime BoundaryTargetModule.importSurfaceForComponents(target_label, SurfaceValue.evidenceRef(), PortTableValue, ValueTableValue, ReplayKeyRecipeValue.evidenceRef(), 0);
-                const ModuleExportSurfaceValue = comptime BoundaryTargetModule.exportSurfaceForComponents(target_label, ResidualProgram, SourceBody.normal_form.kind, 0);
                 const NormalizationRedexesValue = comptime Normalization.redexesFor(
                     SourceBody,
                     ResidualProgram,
@@ -11476,8 +11466,6 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     .{ .role = .normalization_certificate, .ref = NormalizationCertificateValue.evidenceRef() },
                     .{ .role = .normalization_trace, .ref = NormalizationTraceValue.evidenceRef() },
                     .{ .role = .normal_form, .ref = SourceBody.normal_form.evidenceRef() },
-                    .{ .role = .import_surface, .ref = ModuleImportSurfaceValue.evidenceRef() },
-                    .{ .role = .export_surface, .ref = ModuleExportSurfaceValue.evidenceRef() },
                 };
                 const CertificateValue = comptime TargetCertificate.init(.{
                     .target_label = target_label,
