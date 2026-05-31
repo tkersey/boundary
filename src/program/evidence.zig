@@ -226,7 +226,7 @@ pub const domains = struct {
     pub const boundary_world_surface_profile = Domain{ .id = .boundary_world_surface_profile, .name = "boundary.evidence.target.world_surface_profile", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "surface profile" };
     pub const boundary_world_replay_key_recipe = Domain{ .id = .boundary_world_replay_key_recipe, .name = "boundary.evidence.target.world_replay_key_recipe", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "replay key" };
     pub const boundary_target_policy = Domain{ .id = .boundary_target_policy, .name = "boundary.evidence.target.policy", .fingerprint_version = 2, .owner = .boundary_target, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "boundary target policy" };
-    pub const boundary_target_certificate = Domain{ .id = .boundary_target_certificate, .name = "boundary.evidence.target.certificate", .format_version = 2, .fingerprint_version = 2, .owner = .boundary_target, .kind = .certificate, .journal_referenced = true, .certificate_referenced = true, .tests = "certified boundary target" };
+    pub const boundary_target_certificate = Domain{ .id = .boundary_target_certificate, .name = "boundary.evidence.target.certificate", .format_version = 3, .fingerprint_version = 3, .owner = .boundary_target, .kind = .certificate, .journal_referenced = true, .certificate_referenced = true, .tests = "certified boundary target" };
     pub const boundary_target_evidence_map = Domain{ .id = .boundary_target_evidence_map, .name = "boundary.evidence.target.evidence_map", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "evidence" };
     pub const boundary_elaboration_compiler = Domain{ .id = .boundary_elaboration_compiler, .name = "boundary.evidence.target.compiler", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "elaboration compiler" };
     pub const boundary_elaboration_generated_plan = Domain{ .id = .boundary_elaboration_generated_plan, .name = "boundary.evidence.target.generated_plan", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "automatic elaboration" };
@@ -6394,7 +6394,7 @@ pub const BoundaryTargetModule = struct {
     }
 
     fn importSurfaceForTarget(comptime Target: type, module_fingerprint: u64) ImportSurface {
-        const imports = comptime importsForTarget(Target);
+        const imports = comptime importsForComponents(Target.WorldPortTable, Target.WorldValueTable, Target.replay_key_recipe.evidenceRef());
         return ImportSurface.init(.{
             .module_fingerprint = module_fingerprint,
             .target_label = Target.Certificate.target_label,
@@ -6404,8 +6404,22 @@ pub const BoundaryTargetModule = struct {
     }
 
     fn importsForTarget(comptime Target: type) [Target.WorldPortTable.entries.len]ImportSurface.Import {
-        var imports: [Target.WorldPortTable.entries.len]ImportSurface.Import = undefined;
-        inline for (Target.WorldPortTable.entries, 0..) |entry, index| {
+        return importsForComponents(Target.WorldPortTable, Target.WorldValueTable, Target.replay_key_recipe.evidenceRef());
+    }
+
+    fn importSurfaceForComponents(comptime target_label: []const u8, comptime world_surface_ref: Ref, comptime WorldPortTable: BoundaryWorldPortTable, comptime WorldValueTable: BoundaryWorldValueTable, comptime replay_key_recipe_ref: Ref, module_fingerprint: u64) ImportSurface {
+        const imports = comptime importsForComponents(WorldPortTable, WorldValueTable, replay_key_recipe_ref);
+        return ImportSurface.init(.{
+            .module_fingerprint = module_fingerprint,
+            .target_label = target_label,
+            .world_surface_ref = world_surface_ref,
+            .imports = imports[0..],
+        });
+    }
+
+    fn importsForComponents(comptime WorldPortTable: BoundaryWorldPortTable, comptime WorldValueTable: BoundaryWorldValueTable, comptime replay_key_recipe_ref: Ref) [WorldPortTable.entries.len]ImportSurface.Import {
+        var imports: [WorldPortTable.entries.len]ImportSurface.Import = undefined;
+        inline for (WorldPortTable.entries, 0..) |entry, index| {
             imports[index] = .{
                 .import_id = @intCast(index),
                 .world_port_id = entry.world_port_id,
@@ -6414,13 +6428,13 @@ pub const BoundaryTargetModule = struct {
                 .source_effect_shape_ref = entry.source_ref,
                 .residual_site_index = entry.residual_site_index,
                 .residual_site_fingerprint = entry.residual_site_fingerprint,
-                .payload_value_table_id = valueTableId(Target.WorldValueTable, entry.world_port_id, .payload),
-                .response_value_table_id = valueTableId(Target.WorldValueTable, entry.world_port_id, .@"resume"),
+                .payload_value_table_id = valueTableId(WorldValueTable, entry.world_port_id, .payload),
+                .response_value_table_id = valueTableId(WorldValueTable, entry.world_port_id, .@"resume"),
                 .payload_ref = entry.payload_ref,
                 .response_ref = entry.resume_ref,
                 .mode = entry.mode,
                 .response_kind = "resume",
-                .replay_key_recipe_ref = Target.replay_key_recipe.evidenceRef(),
+                .replay_key_recipe_ref = replay_key_recipe_ref,
                 .suggested_symbolic_name = entry.semantic_label orelse entry.op_name,
                 .required = true,
             };
@@ -6436,16 +6450,20 @@ pub const BoundaryTargetModule = struct {
     }
 
     fn exportSurfaceForTarget(comptime Target: type, module_fingerprint: u64) ExportSurface {
-        const entry = Target.Program.compiled_plan.functions[Target.Program.compiled_plan.entry_index];
+        return exportSurfaceForComponents(Target.Certificate.target_label, Target.Program, Target.NormalForm.kind, module_fingerprint);
+    }
+
+    fn exportSurfaceForComponents(comptime target_label: []const u8, comptime Program: type, comptime normal_form: BoundaryNormalFormKind, module_fingerprint: u64) ExportSurface {
+        const entry = Program.compiled_plan.functions[Program.compiled_plan.entry_index];
         const result_ref = BoundaryValueRef.init(if (entry.result_codec) |codec| @tagName(codec) else "unit", entry.result_schema_index);
         return ExportSurface.init(.{
             .module_fingerprint = module_fingerprint,
-            .target_label = Target.Certificate.target_label,
-            .entry_function_index = Target.Program.compiled_plan.entry_index,
+            .target_label = target_label,
+            .entry_function_index = Program.compiled_plan.entry_index,
             .argument_count = entry.parameter_count,
             .result_ref = result_ref,
             .result_schema_ref = if (entry.result_schema_index != null) result_ref else null,
-            .normal_form = Target.NormalForm.kind,
+            .normal_form = normal_form,
         });
     }
 
@@ -7612,6 +7630,10 @@ pub const BoundaryTargetModule = struct {
         try validateRefSectionMatches(bytes, section_count, .normalization_certificate, normalization_certificate_ref orelse return error.ManifestFingerprintMismatch);
 
         const dependency_graph = DependencyGraph{ .dependencies = dependency_slice };
+        const import_surface_ref = dependency_graph.lookup(.import_surface) orelse return error.ManifestFingerprintMismatch;
+        if (!refMatchesDomainFingerprint(import_surface_ref, domains.boundary_module_import_surface, manifest.import_surface_fingerprint)) return error.ManifestFingerprintMismatch;
+        const export_surface_ref = dependency_graph.lookup(.export_surface) orelse return error.ManifestFingerprintMismatch;
+        if (!refMatchesDomainFingerprint(export_surface_ref, domains.boundary_module_export_surface, manifest.export_surface_fingerprint)) return error.ManifestFingerprintMismatch;
         try validateRefSectionMatches(bytes, section_count, .source_map, dependency_graph.lookup(.elaboration_source_map) orelse return error.ManifestFingerprintMismatch);
         try validateRefSectionMatches(bytes, section_count, .effect_row, dependency_graph.lookup(.elaboration_effect_row) orelse return error.ManifestFingerprintMismatch);
         try validateRefSectionMatches(bytes, section_count, .normal_form, dependency_graph.lookup(.normal_form) orelse return error.ManifestFingerprintMismatch);
@@ -8221,15 +8243,21 @@ fn targetCertificateDependenciesMatch(
     if (!dependenciesContainRef(dependencies, .normalization_trace, normalization_trace_ref)) return false;
     if (!dependenciesContainRef(dependencies, .normal_form, normal_form_ref)) return false;
     var provider_mapping_count: usize = 0;
+    var module_surface_count: usize = 0;
     for (dependencies) |dependency| {
         if (targetEvidenceMapBaseRole(dependency.role)) continue;
         if (dependency.role == .normalization_certificate) continue;
         if (dependency.role == .normalization_trace) continue;
         if (dependency.role == .normal_form) continue;
+        if (dependency.role == .import_surface or dependency.role == .export_surface) {
+            module_surface_count += 1;
+            continue;
+        }
         if (dependency.role != .provider_program_mapping) return false;
         provider_mapping_count += 1;
     }
-    return dependencies.len == 14 + provider_mapping_count and
+    if (module_surface_count != 0 and module_surface_count != 2) return false;
+    return dependencies.len == 14 + module_surface_count + provider_mapping_count and
         providerMappingDependenciesMatch(dependencies, evidence_dependencies);
 }
 
@@ -10906,6 +10934,8 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     targetOption(options, "evidence_map_label", target_label ++ ".target_evidence_map"),
                     EvidenceMapDependenciesValue[0..],
                 );
+                const ModuleImportSurfaceValue = comptime BoundaryTargetModule.importSurfaceForComponents(target_label, SurfaceValue.evidenceRef(), PortTableValue, ValueTableValue, ReplayKeyRecipeValue.evidenceRef(), 0);
+                const ModuleExportSurfaceValue = comptime BoundaryTargetModule.exportSurfaceForComponents(target_label, ResidualProgram, SourceBody.normal_form.kind, 0);
                 const NormalizationRedexesValue = comptime Normalization.redexesFor(
                     SourceBody,
                     ResidualProgram,
@@ -10948,6 +10978,8 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     .{ .role = .normalization_certificate, .ref = NormalizationCertificateValue.evidenceRef() },
                     .{ .role = .normalization_trace, .ref = NormalizationTraceValue.evidenceRef() },
                     .{ .role = .normal_form, .ref = SourceBody.normal_form.evidenceRef() },
+                    .{ .role = .import_surface, .ref = ModuleImportSurfaceValue.evidenceRef() },
+                    .{ .role = .export_surface, .ref = ModuleExportSurfaceValue.evidenceRef() },
                 };
                 const CertificateValue = comptime TargetCertificate.init(.{
                     .target_label = target_label,
