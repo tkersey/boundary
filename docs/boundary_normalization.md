@@ -106,3 +106,13 @@ lifecycle.
 
 Residual effects are valid only when they are explicit certified WorldPorts.
 Dense `world_port_id` values are scoped to one `WorldSurface.fingerprint`.
+
+## Module Images
+
+Certified Boundary Module images package the post-normalization semantic surface:
+the residual ProgramPlan image, value schema image, WorldSurface sections, maps,
+normal form, effect row, target certificate, normalization trace/certificate
+refs, and import/export surfaces. Validation checks these fingerprints without
+executing host code. Boundary still does not serialize request tokens, host
+functions, host context, runtime pointers, allocators, threads, timelines,
+transport, storage, or ABI choices. See [boundary_module.md](boundary_module.md).

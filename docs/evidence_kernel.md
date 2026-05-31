@@ -103,7 +103,7 @@ Current domains are registered in `Program.Evidence.domains`:
 | `boundary.evidence.target.world_surface_profile` | boundary_target | - | 1 | no | yes | yes | yes | yes | yes | surface profile |
 | `boundary.evidence.target.world_replay_key_recipe` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | replay key |
 | `boundary.evidence.target.policy` | boundary_target | - | 2 | no | yes | yes | yes | yes | yes | boundary target policy |
-| `boundary.evidence.target.certificate` | boundary_target | 2 | 2 | no | yes | yes | yes | yes | yes | certified boundary target |
+| `boundary.evidence.target.certificate` | boundary_target | 3 | 3 | no | yes | yes | yes | yes | yes | certified boundary target |
 | `boundary.evidence.target.evidence_map` | boundary_target | - | 1 | no | yes | yes | yes | yes | yes | evidence |
 | `boundary.evidence.target.normalization.policy` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | normalization policy |
 | `boundary.evidence.target.normalization.redex` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | redex |
@@ -113,11 +113,25 @@ Current domains are registered in `Program.Evidence.domains`:
 | `boundary.evidence.target.normalization.certificate` | boundary_target | 1 | 1 | no | yes | yes | yes | no | yes | normalization |
 | `boundary.evidence.target.normalization.route_lowering` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | route lowering |
 | `boundary.evidence.target.normalization.plan_builder` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | plan builder |
+| `boundary.evidence.target.module` | boundary_target | 1 | 1 | yes | yes | yes | yes | no | yes | certified boundary module |
+| `boundary.evidence.target.module.manifest` | boundary_target | 1 | 1 | yes | yes | yes | yes | no | yes | module manifest |
+| `boundary.evidence.target.module.import_surface` | boundary_target | 1 | 1 | yes | yes | yes | yes | no | yes | import surface |
+| `boundary.evidence.target.module.export_surface` | boundary_target | 1 | 1 | yes | yes | yes | yes | no | yes | export surface |
+| `boundary.evidence.target.module.graph` | boundary_target | 1 | 1 | yes | yes | yes | yes | no | yes | module graph |
+| `boundary.evidence.target.module.program_plan_image` | boundary_target | 2 | 2 | yes | yes | yes | yes | no | yes | program plan image |
+| `boundary.evidence.target.module.value_schema_image` | boundary_target | 1 | 1 | yes | yes | yes | yes | no | yes | value schema image |
+| `boundary.evidence.target.module.loaded` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | loaded module |
+| `boundary.evidence.target.module.loaded_session` | boundary_target | - | 1 | no | yes | yes | yes | no | yes | loaded session |
 
 The current journal format is v6 because provider-program execution adds
 provider-side started, parked, nested request/response, resumed, completed,
 rejected, and failed events. The v4 domain remains registered because legacy v4
 decode is still part of the compatibility contract.
+
+The module domains cover deterministic Certified Boundary Module bytes,
+manifest/import/export surfaces, the section dependency graph, ProgramPlan and
+value-schema image summaries, and loaded inspection/session witnesses. They are
+semantic witnesses, not cryptographic signatures.
 
 ## Evidence Refs
 

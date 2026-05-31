@@ -310,6 +310,22 @@ test "evidence domain registry is unique and mirrors public version constants" {
     try std.testing.expectEqual(Program.boundary_normalization_certificate_fingerprint_version, Evidence.domains.boundary_normalization_certificate.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_route_lowering_fingerprint_version, Evidence.domains.boundary_route_lowering.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_plan_builder_fingerprint_version, Evidence.domains.boundary_plan_builder.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_format_version, Evidence.domains.boundary_module.format_version.?);
+    try std.testing.expectEqual(Program.boundary_module_fingerprint_version, Evidence.domains.boundary_module.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_manifest_format_version, Evidence.domains.boundary_module_manifest.format_version.?);
+    try std.testing.expectEqual(Program.boundary_module_manifest_fingerprint_version, Evidence.domains.boundary_module_manifest.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_import_surface_format_version, Evidence.domains.boundary_module_import_surface.format_version.?);
+    try std.testing.expectEqual(Program.boundary_module_import_surface_fingerprint_version, Evidence.domains.boundary_module_import_surface.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_export_surface_format_version, Evidence.domains.boundary_module_export_surface.format_version.?);
+    try std.testing.expectEqual(Program.boundary_module_export_surface_fingerprint_version, Evidence.domains.boundary_module_export_surface.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_graph_format_version, Evidence.domains.boundary_module_graph.format_version.?);
+    try std.testing.expectEqual(Program.boundary_module_graph_fingerprint_version, Evidence.domains.boundary_module_graph.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_program_plan_image_format_version, Evidence.domains.boundary_program_plan_image.format_version.?);
+    try std.testing.expectEqual(Program.boundary_program_plan_image_fingerprint_version, Evidence.domains.boundary_program_plan_image.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_value_schema_image_format_version, Evidence.domains.boundary_value_schema_image.format_version.?);
+    try std.testing.expectEqual(Program.boundary_value_schema_image_fingerprint_version, Evidence.domains.boundary_value_schema_image.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_loaded_module_fingerprint_version, Evidence.domains.boundary_loaded_module.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_loaded_session_fingerprint_version, Evidence.domains.boundary_loaded_session.fingerprint_version);
     try std.testing.expectEqual(@as(u32, 3), Evidence.domains.treaty_authorization_legacy_v3.format_version.?);
     try std.testing.expectEqual(@as(u32, 2), Evidence.domains.treaty_authorization_legacy_v2.format_version.?);
     try std.testing.expectEqual(Program.pipeline_fingerprint_version, Evidence.domains.pipeline.fingerprint_version);
@@ -3775,6 +3791,8 @@ test "certified boundary target world surface tables and certificate are determi
     });
     const certificate_dependencies = dependencies ++ [_]Evidence.Dependency{
         .{ .role = .normalization_certificate, .ref = normalization_certificate.evidenceRef() },
+        .{ .role = .normalization_trace, .ref = normalization_trace.evidenceRef() },
+        .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
     };
     const certificate = Elaboration.Target.Certificate.init(.{
         .target_label = "target",
@@ -4778,6 +4796,8 @@ test "certified boundary target world surface tables and certificate are determi
     });
     const gapped_certificate_dependencies = gapped_dependencies ++ [_]Evidence.Dependency{
         .{ .role = .normalization_certificate, .ref = gapped_normalization_certificate.evidenceRef() },
+        .{ .role = .normalization_trace, .ref = gapped_normalization_trace.evidenceRef() },
+        .{ .role = .normal_form, .ref = gapped_normal_form.evidenceRef() },
     };
     const gapped_certificate = Elaboration.Target.Certificate.init(.{
         .target_label = "target.gapped",
@@ -4828,6 +4848,8 @@ test "certified boundary target world surface tables and certificate are determi
     });
     const bounded_gapped_certificate_dependencies = gapped_dependencies ++ [_]Evidence.Dependency{
         .{ .role = .normalization_certificate, .ref = bounded_gapped_normalization_certificate.evidenceRef() },
+        .{ .role = .normalization_trace, .ref = gapped_normalization_trace.evidenceRef() },
+        .{ .role = .normal_form, .ref = gapped_normal_form.evidenceRef() },
     };
     const bounded_gapped_certificate = Elaboration.Target.Certificate.init(.{
         .target_label = "target.gapped",
@@ -4943,6 +4965,8 @@ test "certified boundary target world surface tables and certificate are determi
     });
     const unbounded_gapped_certificate_dependencies = unbounded_gapped_dependencies ++ [_]Evidence.Dependency{
         .{ .role = .normalization_certificate, .ref = unbounded_gapped_normalization_certificate.evidenceRef() },
+        .{ .role = .normalization_trace, .ref = unbounded_gapped_normalization_trace.evidenceRef() },
+        .{ .role = .normal_form, .ref = gapped_normal_form.evidenceRef() },
     };
     const unbounded_gapped_certificate = Elaboration.Target.Certificate.init(.{
         .target_label = "target.gapped-unbounded",
@@ -5224,6 +5248,8 @@ test "certified boundary target world surface tables and certificate are determi
     });
     const relaxed_certificate_dependencies = relaxed_dependencies ++ [_]Evidence.Dependency{
         .{ .role = .normalization_certificate, .ref = relaxed_normalization_certificate.evidenceRef() },
+        .{ .role = .normalization_trace, .ref = relaxed_normalization_trace.evidenceRef() },
+        .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
     };
     const relaxed_certificate = Elaboration.Target.Certificate.init(.{
         .target_label = "target.relaxed",
@@ -16382,6 +16408,446 @@ test "boundary target normalization selects provider proofs and reports fallback
     try std.testing.expectEqual(Elaboration.Target.Normalization.RouteKind.world_port, world_route.kind);
     try std.testing.expectEqual(Elaboration.Target.Normalization.FallbackReason.world_port_selected, world_route.fallback_reason);
     try std.testing.expect(world_route.world_port.?.world_port_ref.eql(world_port.evidenceRef()));
+}
+
+test "certified boundary module reference full image and loaded module projections validate" {
+    const allocator = std.testing.allocator;
+    const Closure = closure_source_program.BoundaryClosure;
+    const Elaboration = Closure.Elaboration;
+    const Target = comptime blk: {
+        @setEvalBranchQuota(2_000_000);
+        const source_ref = closure_source_program.Evidence.refFor(
+            closure_source_program.Evidence.domains.program_plan,
+            closure_source_program.compiled_plan.hash(),
+            .{ .label = closure_source_program.contract.label },
+        );
+        const source_shape = Closure.EffectShape.init(.{
+            .program_label = closure_source_program.contract.label,
+            .plan_hash = closure_source_program.compiled_plan.hash(),
+            .kind = .operation,
+            .site_index = closure_approval_request.index,
+            .protocol_label = "approval",
+            .protocol_op_fingerprint = closure_approval_request.fingerprint,
+            .semantic_label = "approval.request",
+            .name = "request",
+            .mode = "transform",
+            .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.payload_ref),
+            .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.resume_ref),
+            .result_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.result_ref),
+        });
+        const port = Closure.WorldPort.init(.{
+            .label = "module-approval-port",
+            .kind = .test_fixture,
+            .effect_shape_ref = source_shape.evidenceRef(),
+            .effect_shape_witness = source_shape,
+            .supported_protocol_labels = &.{"approval"},
+            .supported_site_indexes = &.{closure_approval_request.index},
+            .supported_protocol_op_fingerprints = &.{closure_approval_request.fingerprint},
+        });
+        const graph = Closure.Graph.init("module-world-port-graph", &.{}, &.{}, &.{});
+        const report = Closure.Report.init(.{
+            .graph_fingerprint = graph.fingerprint,
+            .root_program_refs = &.{source_ref},
+            .effect_shape_count = 1,
+            .world_port_refs = &.{port.evidenceRef()},
+            .open_world_port_count = 1,
+        });
+        const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+        const input = Elaboration.Input{
+            .closure_graph = graph,
+            .closure_report = report,
+            .closure_certificate = certificate,
+            .source_program_ref = source_ref,
+            .world_ports = &.{port},
+            .policy = Elaboration.Policy.auditOnly(),
+        };
+        break :blk Elaboration.Target.compileComptime(.{
+            .label = "module-world-port-target",
+            .input = input,
+            .residual_program = closure_source_program,
+            .policy = Elaboration.Target.Policy.auditOnly(),
+        });
+    };
+
+    try Target.Module.validateSelf();
+    const reference = try Target.Module.reference(allocator);
+    defer allocator.free(reference);
+    const reference_report = try Target.Module.validate(reference, .{ .allow_reference_only = true });
+    try std.testing.expectEqual(Target.Module.Kind.reference_only, reference_report.module_kind);
+    try std.testing.expect(!reference_report.compatibility.can_decode);
+    try Target.Module.validateReferenceAgainst(reference);
+    try std.testing.expectError(error.FullModuleRequired, Target.Module.decode(allocator, reference));
+
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    const full_report = try Target.Module.validate(full, .{ .require_full_module = true });
+    try std.testing.expectEqual(Target.Module.Kind.full_module, full_report.module_kind);
+    try std.testing.expect(full_report.manifest_fingerprint != 0);
+    var loaded = try Target.Module.decode(allocator, full);
+    defer loaded.deinit();
+    try std.testing.expectError(error.ImageTooLarge, Evidence.BoundaryTargetModule.decode(allocator, full, .{ .max_image_bytes = full.len - 1 }));
+    try std.testing.expectEqual(@as(usize, 1), loaded.imports.len);
+    try std.testing.expectEqual(full_report.section_count - 1, loaded.manifest.required_section_refs.len);
+    try std.testing.expectEqual(Target.Module.SectionKind.import_surface, loaded.manifest.required_section_refs[0].kind);
+    try std.testing.expectEqual(
+        @as(u64, @intCast(boundaryModuleSection(full, Target.Module.SectionKind.import_surface).start)),
+        loaded.manifest.required_section_refs[0].byte_offset,
+    );
+    _ = boundaryModuleSection(full, Target.Module.SectionKind.replay_key_recipe);
+    try std.testing.expectEqual(@as(u32, 0), loaded.worldPortForSite(closure_approval_request.index).?);
+    try std.testing.expect(loaded.validateWorldSurfaceScope());
+    try std.testing.expect(loaded.exportMain().export_surface_fingerprint != 0);
+    try std.testing.expect(loaded.replay_key_recipe_ref.eql(Target.replay_key_recipe.evidenceRef()));
+    const request_fingerprint: u64 = 0x1234;
+    const response_fingerprint: u64 = 0x5678;
+    var replay_seed_builder = Evidence.FingerprintBuilder.init(Evidence.domains.boundary_world_replay_key_recipe);
+    replay_seed_builder.fieldU64("world_surface_scope_fingerprint", Target.WorldSurface.replayScopeRef().fingerprint);
+    replay_seed_builder.fieldU64("world_port_id", loaded.imports[0].world_port_id);
+    replay_seed_builder.fieldU64("request_fingerprint", request_fingerprint);
+    replay_seed_builder.fieldU64("response_fingerprint", response_fingerprint);
+    try std.testing.expectEqual(
+        replay_seed_builder.finish(),
+        loaded.replayKeySeedForScope(Target.WorldSurface.replayScopeRef().fingerprint, loaded.imports[0].world_port_id, request_fingerprint, response_fingerprint).?,
+    );
+    try std.testing.expectEqual(null, loaded.replayKeySeedForScope(Target.WorldSurface.replayScopeRef().fingerprint, 999, request_fingerprint, response_fingerprint));
+    const binding = Target.Module.ImportBinding{
+        .world_port_id = loaded.imports[0].world_port_id,
+        .world_port_ref = loaded.imports[0].world_port_ref,
+        .payload_ref = loaded.imports[0].payload_ref,
+        .response_ref = loaded.imports[0].response_ref,
+    };
+    try Target.Module.validateImportBindings(loaded.imports, &.{binding}, .{});
+    try std.testing.expectError(error.MissingRequiredImport, Target.Module.validateImportBindings(loaded.imports, &.{}, .{}));
+    const extra_binding = Target.Module.ImportBinding{
+        .world_port_id = 999,
+        .world_port_ref = binding.world_port_ref,
+        .payload_ref = binding.payload_ref,
+        .response_ref = binding.response_ref,
+    };
+    try std.testing.expectError(error.ExtraImportBinding, Target.Module.validateImportBindings(loaded.imports, &.{ binding, extra_binding }, .{}));
+    try std.testing.expectError(error.ExtraImportBinding, Target.Module.validateImportBindings(loaded.imports, &.{ binding, binding }, .{}));
+    var session = Target.Module.LoadedModule.Session.start(&loaded);
+    try std.testing.expectError(error.UnsupportedLoadedExecution, session.next());
+
+    var malformed = try allocator.dupe(u8, full);
+    defer allocator.free(malformed);
+    malformed[0] = 'X';
+    try std.testing.expectError(error.InvalidMagic, Target.Module.validate(malformed, .{}));
+    try std.testing.expectError(error.TruncatedHeader, Target.Module.validate(full[0..12], .{}));
+    try std.testing.expectError(error.FullModuleRequired, Target.Module.validate(reference, .{ .require_full_module = true }));
+
+    const non_required_section = try allocator.dupe(u8, full);
+    defer allocator.free(non_required_section);
+    non_required_section[boundaryModuleSection(non_required_section, Target.Module.SectionKind.manifest).entry_offset + 2] = 0;
+    try std.testing.expectError(error.ModuleFingerprintMismatch, Target.Module.validate(non_required_section, .{ .require_full_module = true }));
+
+    const noncanonical_required_flag = try allocator.dupe(u8, full);
+    defer allocator.free(noncanonical_required_flag);
+    noncanonical_required_flag[boundaryModuleSection(noncanonical_required_flag, Target.Module.SectionKind.manifest).entry_offset + 2] = 2;
+    try std.testing.expectError(error.MalformedManifest, Target.Module.validate(noncanonical_required_flag, .{ .require_full_module = true }));
+
+    const noncanonical_reserved_byte = try allocator.dupe(u8, full);
+    defer allocator.free(noncanonical_reserved_byte);
+    noncanonical_reserved_byte[boundaryModuleSection(noncanonical_reserved_byte, Target.Module.SectionKind.manifest).entry_offset + 3] = 1;
+    try std.testing.expectError(error.MalformedManifest, Target.Module.validate(noncanonical_reserved_byte, .{ .require_full_module = true }));
+
+    var bad_fingerprint = try allocator.dupe(u8, full);
+    defer allocator.free(bad_fingerprint);
+    bad_fingerprint[bad_fingerprint.len - 1] ^= 0x1;
+    try std.testing.expectError(error.SectionFingerprintMismatch, Target.Module.validate(bad_fingerprint, .{}));
+
+    const forged_import_surface = try allocator.dupe(u8, full);
+    defer allocator.free(forged_import_surface);
+    const import_surface = boundaryModuleSection(forged_import_surface, Target.Module.SectionKind.import_surface);
+    boundaryModuleWriteU64(forged_import_surface, import_surface.start + 4, 0);
+    boundaryModuleRefreshSectionFingerprint(forged_import_surface, Target.Module.SectionKind.import_surface);
+    try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(forged_import_surface, .{ .require_full_module = true }));
+
+    const reference_with_extra_sections = try allocator.dupe(u8, full);
+    defer allocator.free(reference_with_extra_sections);
+    const reference_extra_manifest = boundaryModuleSection(reference_with_extra_sections, Target.Module.SectionKind.manifest);
+    reference_with_extra_sections[16] = @intFromEnum(Target.Module.Kind.reference_only);
+    reference_with_extra_sections[reference_extra_manifest.start + 4 + 8 + 8] = @intFromEnum(Target.Module.Kind.reference_only);
+    boundaryModuleRefreshModuleFingerprint(Target, reference_with_extra_sections);
+    boundaryModuleRefreshManifestFingerprint(Target, reference_with_extra_sections);
+    try std.testing.expectError(error.MalformedManifest, Target.Module.validate(reference_with_extra_sections, .{ .allow_reference_only = true }));
+
+    const forged_export_surface = try allocator.dupe(u8, full);
+    defer allocator.free(forged_export_surface);
+    const export_surface = boundaryModuleSection(forged_export_surface, Target.Module.SectionKind.export_surface);
+    boundaryModuleWriteU64(forged_export_surface, export_surface.start + 4, 0);
+    boundaryModuleRefreshSectionFingerprint(forged_export_surface, Target.Module.SectionKind.export_surface);
+    try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(forged_export_surface, .{ .require_full_module = true }));
+
+    const forged_port_table_ref = try allocator.dupe(u8, full);
+    defer allocator.free(forged_port_table_ref);
+    const port_table = boundaryModuleSection(forged_port_table_ref, Target.Module.SectionKind.world_port_table);
+    const forged_port_table_fingerprint = Target.WorldPortTable.fingerprint ^ 0x1;
+    boundaryModuleWriteU64(forged_port_table_ref, port_table.start + 2, forged_port_table_fingerprint);
+    boundaryModuleWriteU64(forged_port_table_ref, boundaryModuleSkipRef(forged_port_table_ref, port_table.start), forged_port_table_fingerprint);
+    boundaryModuleRefreshSectionFingerprint(forged_port_table_ref, Target.Module.SectionKind.world_port_table);
+    boundaryModuleRefreshManifestRequiredRef(forged_port_table_ref, Target.Module.SectionKind.world_port_table);
+    boundaryModuleRefreshModuleFingerprint(Target, forged_port_table_ref);
+    try std.testing.expectError(error.ManifestFingerprintMismatch, Target.Module.validate(forged_port_table_ref, .{ .require_full_module = true }));
+
+    const forged_normalization_trace_ref = try allocator.dupe(u8, full);
+    defer allocator.free(forged_normalization_trace_ref);
+    const normalization_trace = boundaryModuleSection(forged_normalization_trace_ref, Target.Module.SectionKind.normalization_trace);
+    const forged_normalization_trace_fingerprint = Target.NormalizationTrace.trace_fingerprint ^ 0x1;
+    boundaryModuleWriteU64(forged_normalization_trace_ref, normalization_trace.start + 2, forged_normalization_trace_fingerprint);
+    boundaryModuleWriteU64(forged_normalization_trace_ref, boundaryModuleSkipRef(forged_normalization_trace_ref, normalization_trace.start), forged_normalization_trace_fingerprint);
+    boundaryModuleRefreshSectionFingerprint(forged_normalization_trace_ref, Target.Module.SectionKind.normalization_trace);
+    boundaryModuleRefreshManifestRequiredRef(forged_normalization_trace_ref, Target.Module.SectionKind.normalization_trace);
+    boundaryModuleRefreshModuleFingerprint(Target, forged_normalization_trace_ref);
+    try std.testing.expectError(error.ManifestFingerprintMismatch, Target.Module.validate(forged_normalization_trace_ref, .{ .require_full_module = true }));
+
+    const duplicate_manifest_ref = try allocator.dupe(u8, full);
+    defer allocator.free(duplicate_manifest_ref);
+    const manifest = boundaryModuleSection(duplicate_manifest_ref, Target.Module.SectionKind.manifest);
+    const required_refs = boundaryModuleManifestRequiredRefsOffset(duplicate_manifest_ref, manifest.start);
+    boundaryModuleWriteU16(duplicate_manifest_ref, required_refs + 31, @intFromEnum(Target.Module.SectionKind.import_surface));
+    boundaryModuleRefreshSectionFingerprint(duplicate_manifest_ref, Target.Module.SectionKind.manifest);
+    try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(duplicate_manifest_ref, .{ .require_full_module = true }));
+
+    const oversized_manifest_label = try allocator.dupe(u8, full);
+    defer allocator.free(oversized_manifest_label);
+    const manifest_with_oversized_label = boundaryModuleSection(oversized_manifest_label, Target.Module.SectionKind.manifest);
+    boundaryModuleWriteU64(oversized_manifest_label, manifest_with_oversized_label.start + 4 + 8 + 8 + 1, std.math.maxInt(u64));
+    boundaryModuleRefreshSectionFingerprint(oversized_manifest_label, Target.Module.SectionKind.manifest);
+    try std.testing.expectError(error.MalformedManifest, Target.Module.validate(oversized_manifest_label, .{ .require_full_module = true }));
+
+    const missing_required_sections = try allocator.dupe(u8, full);
+    defer allocator.free(missing_required_sections);
+    const retained_import = boundaryModuleSection(missing_required_sections, Target.Module.SectionKind.import_surface);
+    const truncated_len = retained_import.start + retained_import.len;
+    boundaryModuleWriteU32(missing_required_sections, 20, 2);
+    boundaryModuleWriteU64(missing_required_sections, 40, truncated_len);
+    try std.testing.expectError(error.TrailingJunk, Target.Module.validate(missing_required_sections[0..truncated_len], .{ .require_full_module = true }));
+
+    const huge_import_count = try allocator.dupe(u8, full);
+    defer allocator.free(huge_import_count);
+    const count_offset = boundaryModuleImportCountOffset(huge_import_count, import_surface.start);
+    boundaryModuleWriteU64(huge_import_count, count_offset, std.math.maxInt(u64));
+    boundaryModuleRefreshSectionFingerprint(huge_import_count, Target.Module.SectionKind.import_surface);
+    try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(huge_import_count, .{ .require_full_module = true }));
+    try std.testing.expectError(error.MissingRequiredSection, Target.Module.decode(allocator, huge_import_count));
+}
+
+const BoundaryModuleSection = struct {
+    entry_offset: usize,
+    start: usize,
+    len: usize,
+};
+
+fn boundaryModuleSection(bytes: []const u8, kind: Evidence.BoundaryTargetModule.SectionKind) BoundaryModuleSection {
+    const section_count = boundaryModuleReadU32(bytes, 20);
+    for (0..@intCast(section_count)) |index| {
+        const entry_offset = 48 + index * 32;
+        const section_kind: Evidence.BoundaryTargetModule.SectionKind = @enumFromInt(boundaryModuleReadU16(bytes, entry_offset));
+        if (section_kind == kind) {
+            return .{
+                .entry_offset = entry_offset,
+                .start = @intCast(boundaryModuleReadU64(bytes, entry_offset + 8)),
+                .len = @intCast(boundaryModuleReadU64(bytes, entry_offset + 16)),
+            };
+        }
+    }
+    unreachable;
+}
+
+fn boundaryModuleImportCountOffset(bytes: []const u8, payload_start: usize) usize {
+    var index = payload_start + 4 + 8 + 8;
+    index = boundaryModuleSkipBytes(bytes, index);
+    index = boundaryModuleSkipRef(bytes, index);
+    return index;
+}
+
+fn boundaryModuleManifestImportSurfaceFingerprintOffset(bytes: []const u8, payload_start: usize) usize {
+    var index = payload_start + 4 + 8 + 8 + 1;
+    index = boundaryModuleSkipBytes(bytes, index);
+    index += 8 + 8 + 8;
+    index = boundaryModuleSkipOptionalU64(bytes, index);
+    return index;
+}
+
+fn boundaryModuleManifestRequiredRefsOffset(bytes: []const u8, payload_start: usize) usize {
+    var index = payload_start + 4 + 8 + 8 + 1;
+    index = boundaryModuleSkipBytes(bytes, index);
+    index += 8 + 8 + 8;
+    index = boundaryModuleSkipOptionalU64(bytes, index);
+    index += 8 + 8 + 8 + 1;
+    return index + 8;
+}
+
+fn boundaryModuleManifestRequiredRefOffset(bytes: []const u8, kind: Evidence.BoundaryTargetModule.SectionKind) usize {
+    const manifest = boundaryModuleSection(bytes, .manifest);
+    const refs_start = boundaryModuleManifestRequiredRefsOffset(bytes, manifest.start);
+    const count = boundaryModuleReadU64(bytes, refs_start - 8);
+    for (0..@intCast(count)) |index| {
+        const ref_offset = refs_start + index * 31;
+        const section_kind: Evidence.BoundaryTargetModule.SectionKind = @enumFromInt(boundaryModuleReadU16(bytes, ref_offset));
+        if (section_kind == kind) return ref_offset;
+    }
+    unreachable;
+}
+
+fn boundaryModuleRefreshManifestRequiredRef(bytes: []u8, kind: Evidence.BoundaryTargetModule.SectionKind) void {
+    const section = boundaryModuleSection(bytes, kind);
+    const ref_offset = boundaryModuleManifestRequiredRefOffset(bytes, kind);
+    boundaryModuleWriteU32(bytes, ref_offset + 2, boundaryModuleReadU32(bytes, section.entry_offset + 4));
+    boundaryModuleWriteU64(bytes, ref_offset + 6, boundaryModuleReadU64(bytes, section.entry_offset + 8));
+    boundaryModuleWriteU64(bytes, ref_offset + 14, boundaryModuleReadU64(bytes, section.entry_offset + 16));
+    boundaryModuleWriteU64(bytes, ref_offset + 22, boundaryModuleReadU64(bytes, section.entry_offset + 24));
+    bytes[ref_offset + 30] = bytes[section.entry_offset + 2];
+}
+
+fn boundaryModuleRefreshModuleFingerprint(comptime Target: type, bytes: []u8) void {
+    const manifest = boundaryModuleSection(bytes, .manifest);
+    const refs_start = boundaryModuleManifestRequiredRefsOffset(bytes, manifest.start);
+    const count = boundaryModuleReadU64(bytes, refs_start - 8);
+    const kind: Evidence.BoundaryTargetModule.Kind = @enumFromInt(bytes[16]);
+    var builder = Evidence.FingerprintBuilder.init(Evidence.domains.boundary_module);
+    builder.fieldU32("format_version", Evidence.domains.boundary_module.format_version.?);
+    builder.fieldBytes("module_kind", @tagName(kind));
+    builder.fieldBytes("target_label", Target.Certificate.target_label);
+    builder.fieldU64("program_plan_hash", Target.Program.compiled_plan.hash());
+    builder.fieldU64("world_surface_fingerprint", Target.WorldSurface.surface_fingerprint);
+    builder.fieldU64("target_certificate_fingerprint", Target.Certificate.certificate_fingerprint);
+    builder.fieldU64("normalization_certificate_fingerprint", Target.NormalizationCertificate.certificate_fingerprint);
+    for (0..@intCast(count)) |index| {
+        const ref_offset = refs_start + index * 31;
+        const section_kind: Evidence.BoundaryTargetModule.SectionKind = @enumFromInt(boundaryModuleReadU16(bytes, ref_offset));
+        builder.fieldBytes("section.kind", @tagName(section_kind));
+        builder.fieldU32("section.format_version", boundaryModuleReadU32(bytes, ref_offset + 2));
+        builder.fieldU64("section.byte_offset", boundaryModuleReadU64(bytes, ref_offset + 6));
+        builder.fieldU64("section.byte_length", boundaryModuleReadU64(bytes, ref_offset + 14));
+        builder.fieldU64("section.fingerprint", boundaryModuleReadU64(bytes, ref_offset + 22));
+        builder.fieldBool("section.required", bytes[ref_offset + 30] != 0);
+    }
+    const module_fingerprint = builder.finish();
+    boundaryModuleWriteU64(bytes, 24, module_fingerprint);
+    boundaryModuleWriteU64(bytes, manifest.start + 12, module_fingerprint);
+    boundaryModuleRefreshSectionFingerprint(bytes, .manifest);
+}
+
+fn boundaryModuleRefreshManifestFingerprint(comptime Target: type, bytes: []u8) void {
+    const manifest = boundaryModuleSection(bytes, .manifest);
+    const import_fingerprint_offset = boundaryModuleManifestImportSurfaceFingerprintOffset(bytes, manifest.start);
+    const refs_start = boundaryModuleManifestRequiredRefsOffset(bytes, manifest.start);
+    const ref_count = boundaryModuleReadU64(bytes, refs_start - 8);
+    var required_refs: [128]Evidence.BoundaryTargetModule.SectionRef = [_]Evidence.BoundaryTargetModule.SectionRef{.{
+        .kind = .manifest,
+        .format_version = 0,
+        .section_fingerprint = 0,
+    }} ** 128;
+    for (0..@intCast(ref_count)) |index| {
+        const ref_offset = refs_start + index * 31;
+        required_refs[index] = .{
+            .kind = @enumFromInt(boundaryModuleReadU16(bytes, ref_offset)),
+            .format_version = boundaryModuleReadU32(bytes, ref_offset + 2),
+            .byte_offset = boundaryModuleReadU64(bytes, ref_offset + 6),
+            .byte_length = boundaryModuleReadU64(bytes, ref_offset + 14),
+            .section_fingerprint = boundaryModuleReadU64(bytes, ref_offset + 22),
+            .required = bytes[ref_offset + 30] != 0,
+        };
+    }
+    const refreshed = Evidence.BoundaryTargetModule.Manifest.init(.{
+        .module_fingerprint = boundaryModuleReadU64(bytes, 24),
+        .module_kind = @enumFromInt(bytes[16]),
+        .target_label = Target.Certificate.target_label,
+        .program_plan_hash = Target.Program.compiled_plan.hash(),
+        .world_surface_fingerprint = Target.WorldSurface.surface_fingerprint,
+        .target_certificate_fingerprint = Target.Certificate.certificate_fingerprint,
+        .normalization_certificate_fingerprint = Target.NormalizationCertificate.certificate_fingerprint,
+        .import_surface_fingerprint = boundaryModuleReadU64(bytes, import_fingerprint_offset),
+        .export_surface_fingerprint = boundaryModuleReadU64(bytes, import_fingerprint_offset + 8),
+        .world_port_count = Target.WorldPortTable.entries.len,
+        .normal_form = Target.NormalForm.kind,
+        .required_section_refs = required_refs[0..@intCast(ref_count)],
+    });
+    boundaryModuleWriteU64(bytes, 32, refreshed.manifest_fingerprint);
+    boundaryModuleWriteU64(bytes, manifest.start + 4, refreshed.manifest_fingerprint);
+    boundaryModuleRefreshSectionFingerprint(bytes, .manifest);
+}
+
+fn boundaryModuleRefreshSectionFingerprint(bytes: []u8, kind: Evidence.BoundaryTargetModule.SectionKind) void {
+    const section = boundaryModuleSection(bytes, kind);
+    const payload = bytes[section.start .. section.start + section.len];
+    var builder = Evidence.FingerprintBuilder.init(boundaryModuleSectionDomain(kind));
+    builder.fieldBytes("payload", payload);
+    boundaryModuleWriteU64(bytes, section.entry_offset + 24, builder.finish());
+}
+
+fn boundaryModuleSectionDomain(kind: Evidence.BoundaryTargetModule.SectionKind) @TypeOf(Evidence.domains.boundary_module) {
+    return switch (kind) {
+        .manifest => Evidence.domains.boundary_module_manifest,
+        .import_surface => Evidence.domains.boundary_module_import_surface,
+        .export_surface => Evidence.domains.boundary_module_export_surface,
+        .program_plan_image => Evidence.domains.boundary_program_plan_image,
+        .value_schema_image => Evidence.domains.boundary_value_schema_image,
+        .world_surface => Evidence.domains.boundary_world_surface,
+        .world_port_table => Evidence.domains.boundary_world_port_table,
+        .world_value_table => Evidence.domains.boundary_world_value_table,
+        .world_dispatch_table => Evidence.domains.boundary_world_dispatch_table,
+        .surface_profile => Evidence.domains.boundary_world_surface_profile,
+        .source_map => Evidence.domains.boundary_elaboration_source_map,
+        .trace_map => Evidence.domains.boundary_elaboration_trace_map,
+        .evidence_map => Evidence.domains.boundary_target_evidence_map,
+        .effect_row => Evidence.domains.boundary_elaboration_effect_row,
+        .normal_form => Evidence.domains.boundary_normal_form,
+        .target_certificate => Evidence.domains.boundary_target_certificate,
+        .normalization_trace => Evidence.domains.boundary_normalization_trace,
+        .normalization_certificate => Evidence.domains.boundary_normalization_certificate,
+        .metadata => Evidence.domains.boundary_module,
+        .replay_key_recipe => Evidence.domains.boundary_world_replay_key_recipe,
+    };
+}
+
+fn boundaryModuleSkipRef(bytes: []const u8, start: usize) usize {
+    var index = start + 2 + 8;
+    index = boundaryModuleSkipOptionalU64(bytes, index);
+    index = boundaryModuleSkipOptionalBytes(bytes, index);
+    index = boundaryModuleSkipOptionalU64(bytes, index);
+    index = boundaryModuleSkipOptionalU64(bytes, index);
+    index = boundaryModuleSkipOptionalBytes(bytes, index);
+    return index;
+}
+
+fn boundaryModuleSkipOptionalU64(bytes: []const u8, start: usize) usize {
+    return if (bytes[start] == 0) start + 1 else start + 1 + 8;
+}
+
+fn boundaryModuleSkipOptionalBytes(bytes: []const u8, start: usize) usize {
+    return if (bytes[start] == 0) start + 1 else boundaryModuleSkipBytes(bytes, start + 1);
+}
+
+fn boundaryModuleSkipBytes(bytes: []const u8, start: usize) usize {
+    const len: usize = @intCast(boundaryModuleReadU64(bytes, start));
+    return start + 8 + len;
+}
+
+fn boundaryModuleReadU16(bytes: []const u8, offset: usize) u16 {
+    return std.mem.readInt(u16, bytes[offset..][0..2], .little);
+}
+
+fn boundaryModuleReadU32(bytes: []const u8, offset: usize) u32 {
+    return std.mem.readInt(u32, bytes[offset..][0..4], .little);
+}
+
+fn boundaryModuleReadU64(bytes: []const u8, offset: usize) u64 {
+    return std.mem.readInt(u64, bytes[offset..][0..8], .little);
+}
+
+fn boundaryModuleWriteU16(bytes: []u8, offset: usize, value: u16) void {
+    std.mem.writeInt(u16, bytes[offset..][0..2], value, .little);
+}
+
+fn boundaryModuleWriteU32(bytes: []u8, offset: usize, value: u32) void {
+    std.mem.writeInt(u32, bytes[offset..][0..4], value, .little);
+}
+
+fn boundaryModuleWriteU64(bytes: []u8, offset: usize, value: u64) void {
+    std.mem.writeInt(u64, bytes[offset..][0..8], value, .little);
 }
 
 test "semantic body classifications expose stable evidence refs" {

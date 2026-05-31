@@ -35,6 +35,14 @@ profile, replay recipe, and target certificate. See
 [docs/boundary_normalization.md](docs/boundary_normalization.md) and
 [docs/world_surface.md](docs/world_surface.md).
 
+`Target.Module` packages that normalized semantic surface as a deterministic
+Certified Boundary Module image. Reference modules support compact same-target
+transfer; full modules support validation and inspection without the original
+comptime Target type; partial modules are fail-closed around explicit external
+dependencies. Boundary serializes the normalized semantic boundary as a module.
+World serializes execution timelines and supplies the world. See
+[docs/boundary_module.md](docs/boundary_module.md).
+
 ## Program
 
 `boundary.program` executes a `Body.compiled_plan`. The plan is built at comptime

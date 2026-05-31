@@ -1448,6 +1448,38 @@ pub fn program(
         pub const boundary_route_lowering_fingerprint_version: u32 = Evidence.domains.boundary_route_lowering.fingerprint_version;
         /// Stable fingerprint version for internal Boundary plan-builder witnesses.
         pub const boundary_plan_builder_fingerprint_version: u32 = Evidence.domains.boundary_plan_builder.fingerprint_version;
+        /// Stable format version for Certified Boundary Module images.
+        pub const boundary_module_format_version: u32 = Evidence.domains.boundary_module.format_version.?;
+        /// Stable fingerprint version for Certified Boundary Module images.
+        pub const boundary_module_fingerprint_version: u32 = Evidence.domains.boundary_module.fingerprint_version;
+        /// Stable format version for Certified Boundary Module manifests.
+        pub const boundary_module_manifest_format_version: u32 = Evidence.domains.boundary_module_manifest.format_version.?;
+        /// Stable fingerprint version for Certified Boundary Module manifests.
+        pub const boundary_module_manifest_fingerprint_version: u32 = Evidence.domains.boundary_module_manifest.fingerprint_version;
+        /// Stable format version for Boundary module import surfaces.
+        pub const boundary_module_import_surface_format_version: u32 = Evidence.domains.boundary_module_import_surface.format_version.?;
+        /// Stable fingerprint version for Boundary module import surfaces.
+        pub const boundary_module_import_surface_fingerprint_version: u32 = Evidence.domains.boundary_module_import_surface.fingerprint_version;
+        /// Stable format version for Boundary module export surfaces.
+        pub const boundary_module_export_surface_format_version: u32 = Evidence.domains.boundary_module_export_surface.format_version.?;
+        /// Stable fingerprint version for Boundary module export surfaces.
+        pub const boundary_module_export_surface_fingerprint_version: u32 = Evidence.domains.boundary_module_export_surface.fingerprint_version;
+        /// Stable format version for Boundary module dependency graphs.
+        pub const boundary_module_graph_format_version: u32 = Evidence.domains.boundary_module_graph.format_version.?;
+        /// Stable fingerprint version for Boundary module dependency graphs.
+        pub const boundary_module_graph_fingerprint_version: u32 = Evidence.domains.boundary_module_graph.fingerprint_version;
+        /// Stable format version for ProgramPlan images embedded in Boundary modules.
+        pub const boundary_program_plan_image_format_version: u32 = Evidence.domains.boundary_program_plan_image.format_version.?;
+        /// Stable fingerprint version for ProgramPlan images embedded in Boundary modules.
+        pub const boundary_program_plan_image_fingerprint_version: u32 = Evidence.domains.boundary_program_plan_image.fingerprint_version;
+        /// Stable format version for ValueSchema images embedded in Boundary modules.
+        pub const boundary_value_schema_image_format_version: u32 = Evidence.domains.boundary_value_schema_image.format_version.?;
+        /// Stable fingerprint version for ValueSchema images embedded in Boundary modules.
+        pub const boundary_value_schema_image_fingerprint_version: u32 = Evidence.domains.boundary_value_schema_image.fingerprint_version;
+        /// Stable fingerprint version for decoded LoadedModule witnesses.
+        pub const boundary_loaded_module_fingerprint_version: u32 = Evidence.domains.boundary_loaded_module.fingerprint_version;
+        /// Stable fingerprint version for fail-closed loaded session witnesses.
+        pub const boundary_loaded_session_fingerprint_version: u32 = Evidence.domains.boundary_loaded_session.fingerprint_version;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {

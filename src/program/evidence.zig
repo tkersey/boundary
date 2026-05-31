@@ -103,6 +103,15 @@ pub const Domain = struct {
         boundary_normalization_certificate,
         boundary_route_lowering,
         boundary_plan_builder,
+        boundary_module,
+        boundary_module_manifest,
+        boundary_module_import_surface,
+        boundary_module_export_surface,
+        boundary_module_graph,
+        boundary_program_plan_image,
+        boundary_value_schema_image,
+        boundary_loaded_module,
+        boundary_loaded_session,
     };
 
     pub const Owner = enum {
@@ -217,7 +226,7 @@ pub const domains = struct {
     pub const boundary_world_surface_profile = Domain{ .id = .boundary_world_surface_profile, .name = "boundary.evidence.target.world_surface_profile", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "surface profile" };
     pub const boundary_world_replay_key_recipe = Domain{ .id = .boundary_world_replay_key_recipe, .name = "boundary.evidence.target.world_replay_key_recipe", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "replay key" };
     pub const boundary_target_policy = Domain{ .id = .boundary_target_policy, .name = "boundary.evidence.target.policy", .fingerprint_version = 2, .owner = .boundary_target, .kind = .fingerprint, .journal_referenced = true, .certificate_referenced = true, .tests = "boundary target policy" };
-    pub const boundary_target_certificate = Domain{ .id = .boundary_target_certificate, .name = "boundary.evidence.target.certificate", .format_version = 2, .fingerprint_version = 2, .owner = .boundary_target, .kind = .certificate, .journal_referenced = true, .certificate_referenced = true, .tests = "certified boundary target" };
+    pub const boundary_target_certificate = Domain{ .id = .boundary_target_certificate, .name = "boundary.evidence.target.certificate", .format_version = 3, .fingerprint_version = 3, .owner = .boundary_target, .kind = .certificate, .journal_referenced = true, .certificate_referenced = true, .tests = "certified boundary target" };
     pub const boundary_target_evidence_map = Domain{ .id = .boundary_target_evidence_map, .name = "boundary.evidence.target.evidence_map", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .journal_referenced = true, .certificate_referenced = true, .tests = "evidence" };
     pub const boundary_elaboration_compiler = Domain{ .id = .boundary_elaboration_compiler, .name = "boundary.evidence.target.compiler", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "elaboration compiler" };
     pub const boundary_elaboration_generated_plan = Domain{ .id = .boundary_elaboration_generated_plan, .name = "boundary.evidence.target.generated_plan", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "automatic elaboration" };
@@ -229,6 +238,15 @@ pub const domains = struct {
     pub const boundary_normalization_certificate = Domain{ .id = .boundary_normalization_certificate, .name = "boundary.evidence.target.normalization.certificate", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .certificate, .certificate_referenced = true, .tests = "normalization" };
     pub const boundary_route_lowering = Domain{ .id = .boundary_route_lowering, .name = "boundary.evidence.target.normalization.route_lowering", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "route lowering" };
     pub const boundary_plan_builder = Domain{ .id = .boundary_plan_builder, .name = "boundary.evidence.target.normalization.plan_builder", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "plan builder" };
+    pub const boundary_module = Domain{ .id = .boundary_module, .name = "boundary.evidence.target.module", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "certified boundary module" };
+    pub const boundary_module_manifest = Domain{ .id = .boundary_module_manifest, .name = "boundary.evidence.target.module.manifest", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "module manifest" };
+    pub const boundary_module_import_surface = Domain{ .id = .boundary_module_import_surface, .name = "boundary.evidence.target.module.import_surface", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "import surface" };
+    pub const boundary_module_export_surface = Domain{ .id = .boundary_module_export_surface, .name = "boundary.evidence.target.module.export_surface", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "export surface" };
+    pub const boundary_module_graph = Domain{ .id = .boundary_module_graph, .name = "boundary.evidence.target.module.graph", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "module graph" };
+    pub const boundary_program_plan_image = Domain{ .id = .boundary_program_plan_image, .name = "boundary.evidence.target.module.program_plan_image", .format_version = 2, .fingerprint_version = 2, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "program plan image" };
+    pub const boundary_value_schema_image = Domain{ .id = .boundary_value_schema_image, .name = "boundary.evidence.target.module.value_schema_image", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "value schema image" };
+    pub const boundary_loaded_module = Domain{ .id = .boundary_loaded_module, .name = "boundary.evidence.target.module.loaded", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "loaded module" };
+    pub const boundary_loaded_session = Domain{ .id = .boundary_loaded_session, .name = "boundary.evidence.target.module.loaded_session", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "loaded session" };
 };
 
 pub const all_domains = &[_]Domain{
@@ -315,6 +333,15 @@ pub const all_domains = &[_]Domain{
     domains.boundary_normalization_certificate,
     domains.boundary_route_lowering,
     domains.boundary_plan_builder,
+    domains.boundary_module,
+    domains.boundary_module_manifest,
+    domains.boundary_module_import_surface,
+    domains.boundary_module_export_surface,
+    domains.boundary_module_graph,
+    domains.boundary_program_plan_image,
+    domains.boundary_value_schema_image,
+    domains.boundary_loaded_module,
+    domains.boundary_loaded_session,
 };
 
 pub fn domainById(id: Domain.Id) ?Domain {
@@ -593,6 +620,56 @@ pub fn refForBoundaryTargetCertificate(certificate: anytype) Ref {
     });
 }
 
+pub fn refForBoundaryModule(module: anytype) Ref {
+    return refFor(domains.boundary_module, module.module_fingerprint, .{
+        .format_version = domains.boundary_module.format_version,
+        .label = optionalLabel(module, "target_label"),
+        .kind_tag = if (comptime @hasField(@TypeOf(module), "kind")) @tagName(module.kind) else null,
+    });
+}
+
+pub fn refForBoundaryModuleManifest(manifest: anytype) Ref {
+    return refFor(domains.boundary_module_manifest, manifest.manifest_fingerprint, .{
+        .format_version = domains.boundary_module_manifest.format_version,
+        .label = optionalLabel(manifest, "target_label"),
+        .kind_tag = if (comptime @hasField(@TypeOf(manifest), "module_kind")) @tagName(manifest.module_kind) else null,
+    });
+}
+
+pub fn refForBoundaryModuleImportSurface(surface: anytype) Ref {
+    return refFor(domains.boundary_module_import_surface, surface.import_surface_fingerprint, .{
+        .format_version = domains.boundary_module_import_surface.format_version,
+        .label = optionalLabel(surface, "target_label"),
+    });
+}
+
+pub fn refForBoundaryModuleExportSurface(surface: anytype) Ref {
+    return refFor(domains.boundary_module_export_surface, surface.export_surface_fingerprint, .{
+        .format_version = domains.boundary_module_export_surface.format_version,
+        .label = optionalLabel(surface, "target_label"),
+    });
+}
+
+pub fn refForBoundaryModuleGraph(graph: anytype) Ref {
+    return refFor(domains.boundary_module_graph, graph.graph_fingerprint, .{
+        .format_version = domains.boundary_module_graph.format_version,
+    });
+}
+
+pub fn refForBoundaryProgramPlanImage(image: anytype) Ref {
+    return refFor(domains.boundary_program_plan_image, image.image_fingerprint, .{
+        .format_version = domains.boundary_program_plan_image.format_version,
+        .label = optionalLabel(image, "plan_label"),
+    });
+}
+
+pub fn refForBoundaryValueSchemaImage(image: anytype) Ref {
+    return refFor(domains.boundary_value_schema_image, image.image_fingerprint, .{
+        .format_version = domains.boundary_value_schema_image.format_version,
+        .label = optionalLabel(image, "plan_label"),
+    });
+}
+
 pub fn refForBoundaryTargetEvidenceMap(map: anytype) Ref {
     return refFor(domains.boundary_target_evidence_map, map.fingerprint, .{ .label = optionalLabel(map, "label") });
 }
@@ -813,6 +890,14 @@ pub const Role = enum {
     plan_builder,
     target_certificate,
     target_evidence_map,
+    module_manifest,
+    module_section,
+    module_dependency,
+    import_surface,
+    export_surface,
+    module_graph,
+    program_plan_image,
+    value_schema_image,
     generated_plan,
     compiler,
     blocker,
@@ -1852,6 +1937,11 @@ pub const BoundaryValueRef = struct {
         return std.mem.eql(u8, self.codec, other.codec) and self.schema_index == other.schema_index;
     }
 };
+
+fn optionalBoundaryValueRefEql(left: ?BoundaryValueRef, right: ?BoundaryValueRef) bool {
+    if (left == null or right == null) return left == null and right == null;
+    return left.?.eql(right.?);
+}
 
 fn copyBoundaryValueRefs(dest: []BoundaryValueRef, refs: []const BoundaryValueRef) u8 {
     var count: u8 = 0;
@@ -5354,7 +5444,7 @@ pub const BoundaryTargetCertificate = struct {
         if (!traceMapMatchesSourceMap(trace_map, source_map)) return error.BoundaryTargetCertificateMismatch;
         const normalization_ref = self.normalization_certificate_ref orelse return error.BoundaryTargetCertificateMismatch;
         if (!targetEvidenceMapDependenciesMatch(evidence_map.dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, self.residual_program_ref, self.elaboration_certificate_ref, trace_map_ref)) return error.BoundaryTargetCertificateMismatch;
-        if (!targetCertificateDependenciesMatch(self.dependencies, evidence_map.dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, self.residual_program_ref, self.elaboration_certificate_ref, trace_map_ref, normalization_ref)) return error.BoundaryTargetCertificateMismatch;
+        if (!targetCertificateDependenciesMatch(self.dependencies, evidence_map.dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, self.residual_program_ref, self.elaboration_certificate_ref, trace_map_ref, normalization_ref, normalization_trace.evidenceRef(), normal_form.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!self.world_surface_ref.eql(world_surface.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!self.port_table_ref.eql(port_table.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!self.value_table_ref.eql(value_table.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
@@ -5420,6 +5510,2821 @@ pub const BoundaryTargetCertificate = struct {
         };
     }
 };
+
+pub const BoundaryTargetModule = struct {
+    pub const magic = "BCBMOD1\x00";
+    const header_len: usize = 48;
+    const section_table_entry_len: usize = 32;
+
+    pub const Kind = enum(u8) {
+        reference_only = 0,
+        full_module = 1,
+        partial_module = 2,
+    };
+
+    pub const SectionKind = enum(u16) {
+        manifest = 1,
+        import_surface = 2,
+        export_surface = 3,
+        program_plan_image = 4,
+        value_schema_image = 5,
+        world_surface = 6,
+        world_port_table = 7,
+        world_value_table = 8,
+        world_dispatch_table = 9,
+        surface_profile = 10,
+        source_map = 11,
+        trace_map = 12,
+        evidence_map = 13,
+        effect_row = 14,
+        normal_form = 15,
+        target_certificate = 16,
+        normalization_trace = 17,
+        normalization_certificate = 18,
+        metadata = 19,
+        replay_key_recipe = 20,
+    };
+
+    pub const SectionRef = struct {
+        kind: SectionKind,
+        format_version: u32,
+        byte_offset: u64 = 0,
+        byte_length: u64 = 0,
+        section_fingerprint: u64,
+        required: bool = true,
+
+        pub fn evidenceRef(self: @This()) Ref {
+            return refFor(sectionDomain(self.kind), self.section_fingerprint, .{
+                .format_version = sectionDomain(self.kind).format_version,
+                .kind_tag = @tagName(self.kind),
+            });
+        }
+    };
+
+    pub const ProgramPlanImage = struct {
+        format_version: u32 = domains.boundary_program_plan_image.format_version.?,
+        fingerprint_version: u32 = domains.boundary_program_plan_image.fingerprint_version,
+        image_fingerprint: u64,
+        plan_label: []const u8,
+        plan_hash: u64,
+        ir_hash: u64,
+        entry_function_index: u16,
+        entry_argument_count: u16,
+        entry_result_ref: BoundaryValueRef,
+        entry_result_schema_ref: ?BoundaryValueRef = null,
+        function_count: usize,
+        requirement_count: usize,
+        op_count: usize,
+        output_count: usize,
+        local_count: usize,
+        block_count: usize,
+        terminator_count: usize,
+        instruction_count: usize,
+        value_schema_count: usize,
+        product_field_count: usize,
+        sum_variant_count: usize,
+
+        pub fn fromProgram(comptime Program: type) @This() {
+            const plan = Program.compiled_plan;
+            const entry = plan.functions[plan.entry_index];
+            const result_ref = BoundaryValueRef.init(if (entry.result_codec) |codec| @tagName(codec) else "unit", entry.result_schema_index);
+            var image = @This(){
+                .image_fingerprint = 0,
+                .plan_label = plan.label,
+                .plan_hash = plan.hash(),
+                .ir_hash = plan.ir_hash,
+                .entry_function_index = plan.entry_index,
+                .entry_argument_count = entry.parameter_count,
+                .entry_result_ref = result_ref,
+                .entry_result_schema_ref = if (entry.result_schema_index != null) result_ref else null,
+                .function_count = plan.functions.len,
+                .requirement_count = plan.requirements.len,
+                .op_count = plan.ops.len,
+                .output_count = plan.outputs.len,
+                .local_count = plan.locals.len,
+                .block_count = plan.blocks.len,
+                .terminator_count = plan.terminators.len,
+                .instruction_count = plan.instructions.len,
+                .value_schema_count = plan.value_schemas.len,
+                .product_field_count = plan.value_fields.len,
+                .sum_variant_count = plan.value_variants.len,
+            };
+            image.image_fingerprint = image.computeFingerprint();
+            return image;
+        }
+
+        pub fn computeFingerprint(self: @This()) u64 {
+            var builder = FingerprintBuilder.init(domains.boundary_program_plan_image);
+            builder.fieldU32("format_version", self.format_version);
+            builder.fieldBytes("plan_label", self.plan_label);
+            builder.fieldU64("plan_hash", self.plan_hash);
+            builder.fieldU64("ir_hash", self.ir_hash);
+            builder.fieldU16("entry_function_index", self.entry_function_index);
+            builder.fieldU16("entry_argument_count", self.entry_argument_count);
+            builder.fieldValueRef("entry_result_ref", self.entry_result_ref);
+            builder.fieldOptionalValueRef("entry_result_schema_ref", self.entry_result_schema_ref);
+            builder.fieldUsize("function_count", self.function_count);
+            builder.fieldUsize("requirement_count", self.requirement_count);
+            builder.fieldUsize("op_count", self.op_count);
+            builder.fieldUsize("output_count", self.output_count);
+            builder.fieldUsize("local_count", self.local_count);
+            builder.fieldUsize("block_count", self.block_count);
+            builder.fieldUsize("terminator_count", self.terminator_count);
+            builder.fieldUsize("instruction_count", self.instruction_count);
+            builder.fieldUsize("value_schema_count", self.value_schema_count);
+            builder.fieldUsize("product_field_count", self.product_field_count);
+            builder.fieldUsize("sum_variant_count", self.sum_variant_count);
+            return builder.finish();
+        }
+
+        pub fn evidenceRef(self: @This()) Ref {
+            return refForBoundaryProgramPlanImage(self);
+        }
+    };
+
+    pub const ValueSchemaImage = struct {
+        format_version: u32 = domains.boundary_value_schema_image.format_version.?,
+        fingerprint_version: u32 = domains.boundary_value_schema_image.fingerprint_version,
+        image_fingerprint: u64,
+        plan_label: []const u8,
+        schema_count: usize,
+        product_field_count: usize,
+        sum_variant_count: usize,
+        scalar_codec_count: usize,
+
+        pub fn fromProgram(comptime Program: type) @This() {
+            const plan = Program.compiled_plan;
+            var image = @This(){
+                .image_fingerprint = 0,
+                .plan_label = plan.label,
+                .schema_count = plan.value_schemas.len,
+                .product_field_count = plan.value_fields.len,
+                .sum_variant_count = plan.value_variants.len,
+                .scalar_codec_count = valueSchemaImageScalarCodecCount(),
+            };
+            image.image_fingerprint = image.computeFingerprint();
+            return image;
+        }
+
+        pub fn computeFingerprint(self: @This()) u64 {
+            var builder = FingerprintBuilder.init(domains.boundary_value_schema_image);
+            builder.fieldU32("format_version", self.format_version);
+            builder.fieldBytes("plan_label", self.plan_label);
+            builder.fieldUsize("schema_count", self.schema_count);
+            builder.fieldUsize("product_field_count", self.product_field_count);
+            builder.fieldUsize("sum_variant_count", self.sum_variant_count);
+            builder.fieldUsize("scalar_codec_count", self.scalar_codec_count);
+            return builder.finish();
+        }
+
+        pub fn evidenceRef(self: @This()) Ref {
+            return refForBoundaryValueSchemaImage(self);
+        }
+    };
+
+    fn valueSchemaImageScalarCodec(comptime codec: lowering_api.ValueCodec) bool {
+        return switch (codec) {
+            .unit, .bool, .i32, .usize, .string, .string_list => true,
+            .product, .sum => false,
+        };
+    }
+
+    fn valueSchemaImageScalarCodecCount() usize {
+        comptime var count: usize = 0;
+        inline for (@typeInfo(lowering_api.ValueCodec).@"enum".fields) |field| {
+            if (comptime valueSchemaImageScalarCodec(@as(lowering_api.ValueCodec, @enumFromInt(field.value)))) count += 1;
+        }
+        return count;
+    }
+
+    fn valueSchemaImageScalarCodecCountMatches(count: u64) bool {
+        return count == @as(u64, @intCast(valueSchemaImageScalarCodecCount()));
+    }
+
+    fn boundaryValueRefCodecKnown(codec: []const u8) bool {
+        inline for (@typeInfo(lowering_api.ValueCodec).@"enum".fields) |field| {
+            if (std.mem.eql(u8, codec, field.name)) return true;
+        }
+        return false;
+    }
+
+    fn boundaryValueRefCodecRequiresSchema(codec: []const u8) ?bool {
+        inline for (@typeInfo(lowering_api.ValueCodec).@"enum".fields) |field| {
+            if (std.mem.eql(u8, codec, field.name)) {
+                const value: lowering_api.ValueCodec = @enumFromInt(field.value);
+                return !valueSchemaImageScalarCodec(value);
+            }
+        }
+        return null;
+    }
+
+    fn boundaryValueRefWithinSchema(ref: BoundaryValueRef, schema_count: u64) bool {
+        const requires_schema = boundaryValueRefCodecRequiresSchema(ref.codec) orelse return false;
+        if (ref.schema_index) |schema_index| {
+            return requires_schema and @as(u64, schema_index) < schema_count;
+        }
+        return !requires_schema;
+    }
+
+    fn optionalBoundaryValueRefWithinSchema(ref: ?BoundaryValueRef, schema_count: u64) bool {
+        return if (ref) |actual| boundaryValueRefWithinSchema(actual, schema_count) else true;
+    }
+
+    pub const ImportSurface = struct {
+        format_version: u32 = domains.boundary_module_import_surface.format_version.?,
+        fingerprint_version: u32 = domains.boundary_module_import_surface.fingerprint_version,
+        import_surface_fingerprint: u64,
+        module_fingerprint: u64 = 0,
+        target_label: []const u8,
+        world_surface_ref: Ref,
+        imports: []const Import = &.{},
+
+        pub const Import = struct {
+            import_id: u32,
+            world_port_id: u32,
+            world_port_ref: Ref,
+            host_intrinsic_ref: ?Ref = null,
+            source_effect_shape_ref: Ref,
+            residual_site_index: usize,
+            residual_site_fingerprint: u64,
+            payload_value_table_id: u32,
+            response_value_table_id: u32,
+            payload_ref: BoundaryValueRef,
+            response_ref: BoundaryValueRef,
+            mode: []const u8,
+            response_kind: []const u8 = "resume",
+            replay_key_recipe_ref: Ref,
+            suggested_symbolic_name: []const u8 = "",
+            required: bool = true,
+
+            pub fn payloadValueRef(self: @This()) BoundaryValueRef {
+                return self.payload_ref;
+            }
+
+            pub fn responseValueRef(self: @This()) BoundaryValueRef {
+                return self.response_ref;
+            }
+        };
+
+        pub fn init(options: struct {
+            module_fingerprint: u64 = 0,
+            target_label: []const u8,
+            world_surface_ref: Ref,
+            imports: []const Import,
+        }) @This() {
+            var surface = @This(){
+                .import_surface_fingerprint = 0,
+                .module_fingerprint = options.module_fingerprint,
+                .target_label = options.target_label,
+                .world_surface_ref = options.world_surface_ref,
+                .imports = options.imports,
+            };
+            surface.import_surface_fingerprint = surface.computeFingerprint();
+            return surface;
+        }
+
+        pub fn computeFingerprint(self: @This()) u64 {
+            var builder = FingerprintBuilder.init(domains.boundary_module_import_surface);
+            builder.fieldU32("format_version", self.format_version);
+            builder.fieldBytes("target_label", self.target_label);
+            builder.fieldRef("world_surface", self.world_surface_ref);
+            for (self.imports) |entry| {
+                builder.fieldU64("import.import_id", entry.import_id);
+                builder.fieldU64("import.world_port_id", entry.world_port_id);
+                builder.fieldRef("import.world_port", entry.world_port_ref);
+                builder.fieldOptionalRef("import.host_intrinsic", entry.host_intrinsic_ref);
+                builder.fieldRef("import.source_effect_shape", entry.source_effect_shape_ref);
+                builder.fieldUsize("import.residual_site_index", entry.residual_site_index);
+                builder.fieldU64("import.residual_site_fingerprint", entry.residual_site_fingerprint);
+                builder.fieldU64("import.payload_value_table_id", entry.payload_value_table_id);
+                builder.fieldU64("import.response_value_table_id", entry.response_value_table_id);
+                builder.fieldValueRef("import.payload_ref", entry.payload_ref);
+                builder.fieldValueRef("import.response_ref", entry.response_ref);
+                builder.fieldBytes("import.mode", entry.mode);
+                builder.fieldBytes("import.response_kind", entry.response_kind);
+                builder.fieldRef("import.replay_key_recipe", entry.replay_key_recipe_ref);
+                builder.fieldBytes("import.suggested_symbolic_name", entry.suggested_symbolic_name);
+                builder.fieldBool("import.required", entry.required);
+            }
+            return builder.finish();
+        }
+
+        pub fn evidenceRef(self: @This()) Ref {
+            return refForBoundaryModuleImportSurface(self);
+        }
+    };
+
+    pub const ExportSurface = struct {
+        format_version: u32 = domains.boundary_module_export_surface.format_version.?,
+        fingerprint_version: u32 = domains.boundary_module_export_surface.fingerprint_version,
+        export_surface_fingerprint: u64,
+        module_fingerprint: u64 = 0,
+        target_label: []const u8,
+        entry_function_index: u16,
+        argument_count: u16,
+        result_ref: BoundaryValueRef,
+        result_schema_ref: ?BoundaryValueRef = null,
+        normal_form: BoundaryNormalFormKind,
+
+        pub fn init(options: struct {
+            module_fingerprint: u64 = 0,
+            target_label: []const u8,
+            entry_function_index: u16,
+            argument_count: u16,
+            result_ref: BoundaryValueRef,
+            result_schema_ref: ?BoundaryValueRef = null,
+            normal_form: BoundaryNormalFormKind,
+        }) @This() {
+            var surface = @This(){
+                .export_surface_fingerprint = 0,
+                .module_fingerprint = options.module_fingerprint,
+                .target_label = options.target_label,
+                .entry_function_index = options.entry_function_index,
+                .argument_count = options.argument_count,
+                .result_ref = options.result_ref,
+                .result_schema_ref = options.result_schema_ref,
+                .normal_form = options.normal_form,
+            };
+            surface.export_surface_fingerprint = surface.computeFingerprint();
+            return surface;
+        }
+
+        pub fn computeFingerprint(self: @This()) u64 {
+            var builder = FingerprintBuilder.init(domains.boundary_module_export_surface);
+            builder.fieldU32("format_version", self.format_version);
+            builder.fieldBytes("target_label", self.target_label);
+            builder.fieldU16("entry_function_index", self.entry_function_index);
+            builder.fieldU16("argument_count", self.argument_count);
+            builder.fieldValueRef("result_ref", self.result_ref);
+            builder.fieldOptionalValueRef("result_schema_ref", self.result_schema_ref);
+            builder.fieldBytes("normal_form", @tagName(self.normal_form));
+            return builder.finish();
+        }
+
+        pub fn evidenceRef(self: @This()) Ref {
+            return refForBoundaryModuleExportSurface(self);
+        }
+    };
+
+    pub const Manifest = struct {
+        format_version: u32 = domains.boundary_module_manifest.format_version.?,
+        fingerprint_version: u32 = domains.boundary_module_manifest.fingerprint_version,
+        manifest_fingerprint: u64,
+        module_fingerprint: u64,
+        module_kind: Kind,
+        target_label: []const u8,
+        program_plan_hash: u64,
+        world_surface_fingerprint: u64,
+        target_certificate_fingerprint: u64,
+        normalization_certificate_fingerprint: ?u64 = null,
+        import_surface_fingerprint: u64,
+        export_surface_fingerprint: u64,
+        world_port_count: usize,
+        normal_form: BoundaryNormalFormKind,
+        required_section_refs: []const SectionRef = &.{},
+        optional_section_refs: []const SectionRef = &.{},
+        external_dependency_refs: []const Ref = &.{},
+        producer: []const u8 = "boundary",
+        compatibility: []const u8 = "boundary-module-v1",
+
+        pub fn init(options: struct {
+            module_fingerprint: u64,
+            module_kind: Kind,
+            target_label: []const u8,
+            program_plan_hash: u64,
+            world_surface_fingerprint: u64,
+            target_certificate_fingerprint: u64,
+            normalization_certificate_fingerprint: ?u64 = null,
+            import_surface_fingerprint: u64,
+            export_surface_fingerprint: u64,
+            world_port_count: usize,
+            normal_form: BoundaryNormalFormKind,
+            required_section_refs: []const SectionRef = &.{},
+            optional_section_refs: []const SectionRef = &.{},
+            external_dependency_refs: []const Ref = &.{},
+        }) @This() {
+            var manifest = @This(){
+                .manifest_fingerprint = 0,
+                .module_fingerprint = options.module_fingerprint,
+                .module_kind = options.module_kind,
+                .target_label = options.target_label,
+                .program_plan_hash = options.program_plan_hash,
+                .world_surface_fingerprint = options.world_surface_fingerprint,
+                .target_certificate_fingerprint = options.target_certificate_fingerprint,
+                .normalization_certificate_fingerprint = options.normalization_certificate_fingerprint,
+                .import_surface_fingerprint = options.import_surface_fingerprint,
+                .export_surface_fingerprint = options.export_surface_fingerprint,
+                .world_port_count = options.world_port_count,
+                .normal_form = options.normal_form,
+                .required_section_refs = options.required_section_refs,
+                .optional_section_refs = options.optional_section_refs,
+                .external_dependency_refs = options.external_dependency_refs,
+            };
+            manifest.manifest_fingerprint = manifest.computeFingerprint();
+            return manifest;
+        }
+
+        pub fn computeFingerprint(self: @This()) u64 {
+            var builder = FingerprintBuilder.init(domains.boundary_module_manifest);
+            builder.fieldU32("format_version", self.format_version);
+            builder.fieldU64("module_fingerprint", self.module_fingerprint);
+            builder.fieldBytes("module_kind", @tagName(self.module_kind));
+            builder.fieldBytes("target_label", self.target_label);
+            builder.fieldU64("program_plan_hash", self.program_plan_hash);
+            builder.fieldU64("world_surface_fingerprint", self.world_surface_fingerprint);
+            builder.fieldU64("target_certificate_fingerprint", self.target_certificate_fingerprint);
+            builder.fieldOptionalU64("normalization_certificate_fingerprint", self.normalization_certificate_fingerprint);
+            builder.fieldU64("import_surface_fingerprint", self.import_surface_fingerprint);
+            builder.fieldU64("export_surface_fingerprint", self.export_surface_fingerprint);
+            builder.fieldUsize("world_port_count", self.world_port_count);
+            builder.fieldBytes("normal_form", @tagName(self.normal_form));
+            builder.fieldUsize("required_section_count", self.required_section_refs.len);
+            for (self.required_section_refs) |section| writeSectionRef(&builder, section);
+            builder.fieldUsize("optional_section_count", self.optional_section_refs.len);
+            for (self.optional_section_refs) |section| writeSectionRef(&builder, section);
+            builder.fieldUsize("external_dependency_count", self.external_dependency_refs.len);
+            for (self.external_dependency_refs) |ref| builder.fieldRef("external_dependency", ref);
+            builder.fieldBytes("producer", self.producer);
+            builder.fieldBytes("compatibility", self.compatibility);
+            return builder.finish();
+        }
+
+        pub fn evidenceRef(self: @This()) Ref {
+            return refForBoundaryModuleManifest(self);
+        }
+    };
+
+    pub const Graph = struct {
+        graph_fingerprint: u64,
+        root_module_ref: Ref,
+        section_refs: []const SectionRef = &.{},
+        dependency_refs: []const Ref = &.{},
+        external_dependency_refs: []const Ref = &.{},
+        import_surface_ref: Ref,
+        export_surface_ref: Ref,
+        certificate_ref: Ref,
+        missing_dependency_blockers: usize = 0,
+
+        pub fn init(options: struct {
+            root_module_ref: Ref,
+            section_refs: []const SectionRef,
+            dependency_refs: []const Ref = &.{},
+            external_dependency_refs: []const Ref = &.{},
+            import_surface_ref: Ref,
+            export_surface_ref: Ref,
+            certificate_ref: Ref,
+            missing_dependency_blockers: usize = 0,
+        }) @This() {
+            var graph = @This(){
+                .graph_fingerprint = 0,
+                .root_module_ref = options.root_module_ref,
+                .section_refs = options.section_refs,
+                .dependency_refs = options.dependency_refs,
+                .external_dependency_refs = options.external_dependency_refs,
+                .import_surface_ref = options.import_surface_ref,
+                .export_surface_ref = options.export_surface_ref,
+                .certificate_ref = options.certificate_ref,
+                .missing_dependency_blockers = options.missing_dependency_blockers,
+            };
+            graph.graph_fingerprint = graph.computeFingerprint();
+            return graph;
+        }
+
+        pub fn computeFingerprint(self: @This()) u64 {
+            var builder = FingerprintBuilder.init(domains.boundary_module_graph);
+            builder.fieldRef("root_module", self.root_module_ref);
+            for (self.section_refs) |section| writeSectionRef(&builder, section);
+            for (self.dependency_refs) |dependency| builder.fieldRef("dependency", dependency);
+            for (self.external_dependency_refs) |dependency| builder.fieldRef("external_dependency", dependency);
+            builder.fieldRef("import_surface", self.import_surface_ref);
+            builder.fieldRef("export_surface", self.export_surface_ref);
+            builder.fieldRef("certificate", self.certificate_ref);
+            builder.fieldUsize("missing_dependency_blockers", self.missing_dependency_blockers);
+            return builder.finish();
+        }
+
+        pub fn evidenceRef(self: @This()) Ref {
+            return refForBoundaryModuleGraph(self);
+        }
+    };
+
+    pub const CertifiedBoundaryModule = struct {
+        format_version: u32 = domains.boundary_module.format_version.?,
+        fingerprint_version: u32 = domains.boundary_module.fingerprint_version,
+        module_fingerprint: u64,
+        kind: Kind,
+        target_label: []const u8,
+        manifest_ref: Ref,
+        import_surface_ref: Ref,
+        export_surface_ref: Ref,
+        program_plan_image_ref: Ref,
+        value_schema_image_ref: Ref,
+        world_surface_ref: Ref,
+        target_certificate_ref: Ref,
+        graph_ref: Ref,
+        section_table: []const SectionRef = &.{},
+        dependency_table: []const Ref = &.{},
+        metadata: []const u8 = "",
+
+        pub fn computeFingerprint(self: @This()) u64 {
+            var builder = FingerprintBuilder.init(domains.boundary_module);
+            builder.fieldU32("format_version", self.format_version);
+            builder.fieldBytes("kind", @tagName(self.kind));
+            builder.fieldBytes("target_label", self.target_label);
+            builder.fieldRef("manifest", self.manifest_ref);
+            builder.fieldRef("import_surface", self.import_surface_ref);
+            builder.fieldRef("export_surface", self.export_surface_ref);
+            builder.fieldRef("program_plan_image", self.program_plan_image_ref);
+            builder.fieldRef("value_schema_image", self.value_schema_image_ref);
+            builder.fieldRef("world_surface", self.world_surface_ref);
+            builder.fieldRef("target_certificate", self.target_certificate_ref);
+            builder.fieldRef("graph", self.graph_ref);
+            for (self.section_table) |section| writeSectionRef(&builder, section);
+            for (self.dependency_table) |dependency| builder.fieldRef("dependency", dependency);
+            builder.fieldBytes("metadata", self.metadata);
+            return builder.finish();
+        }
+
+        pub fn evidenceRef(self: @This()) Ref {
+            return refForBoundaryModule(self);
+        }
+    };
+
+    pub const ValidationOptions = struct {
+        require_full_module: bool = false,
+        allow_reference_only: bool = true,
+        reject_unknown_sections: bool = true,
+        allow_forward_optional_sections: bool = false,
+        allow_trailing_junk: bool = false,
+        allocator: std.mem.Allocator = std.heap.page_allocator,
+        max_image_bytes: usize = 16 * 1024 * 1024,
+        max_section_count: usize = 128,
+        max_plan_rows: usize = 1_000_000,
+        max_dependency_count: usize = 256,
+        max_world_ports: usize = 65_536,
+        max_schema_count: usize = 65_536,
+    };
+
+    pub const ValidationError = error{
+        TruncatedHeader,
+        InvalidMagic,
+        InvalidVersion,
+        ImageTooLarge,
+        SectionCountTooLarge,
+        SectionTableOutOfBounds,
+        OutOfMemory,
+        UnknownRequiredSection,
+        UnknownSection,
+        DuplicateSection,
+        InvalidSectionOrder,
+        SectionOutOfBounds,
+        SectionOverlap,
+        SectionFingerprintMismatch,
+        MissingManifest,
+        ManifestFingerprintMismatch,
+        ModuleFingerprintMismatch,
+        ReferenceOnlyRejected,
+        FullModuleRequired,
+        PartialModuleRejected,
+        MissingRequiredSection,
+        TrailingJunk,
+        LimitExceeded,
+        MalformedManifest,
+        MalformedImportSurface,
+    };
+
+    const FullModuleImportBindings = struct {
+        schema_count: u64,
+        replay_key_recipe_ref: Ref,
+    };
+
+    pub const ValidationReport = struct {
+        success: bool,
+        module_kind: Kind,
+        module_fingerprint: u64,
+        manifest_fingerprint: u64,
+        section_count: usize,
+        world_port_count: usize,
+        compatibility: CompatibilityReport,
+    };
+
+    pub const CompatibilityReport = struct {
+        can_decode: bool,
+        known_required_sections: bool,
+        ignored_optional_sections: usize = 0,
+        requires_loaded_execution: bool = false,
+        module_kind: Kind,
+    };
+
+    pub const LoadedModule = struct {
+        allocator: std.mem.Allocator,
+        bytes: []u8,
+        manifest: Manifest,
+        validation_report: ValidationReport,
+        imports: []ImportSurface.Import = &.{},
+        main_export: ExportSurface,
+        replay_key_recipe_ref: Ref,
+
+        pub fn deinit(self: *@This()) void {
+            self.allocator.free(self.imports);
+            self.allocator.free(self.manifest.required_section_refs);
+            self.allocator.free(self.bytes);
+            self.* = undefined;
+        }
+
+        pub fn matchRequest(self: @This(), residual_site_index: usize, residual_site_fingerprint: u64) ?ImportSurface.Import {
+            for (self.imports) |import| {
+                if (import.residual_site_index == residual_site_index and import.residual_site_fingerprint == residual_site_fingerprint) return import;
+            }
+            return null;
+        }
+
+        pub fn worldPortForSite(self: @This(), site_index: usize) ?u32 {
+            for (self.imports) |import| {
+                if (import.residual_site_index == site_index) return import.world_port_id;
+            }
+            return null;
+        }
+
+        pub fn worldPortForId(self: @This(), world_port_id: u32) ?ImportSurface.Import {
+            return self.importForWorldPort(world_port_id);
+        }
+
+        pub fn importForWorldPort(self: @This(), world_port_id: u32) ?ImportSurface.Import {
+            for (self.imports) |import| {
+                if (import.world_port_id == world_port_id) return import;
+            }
+            return null;
+        }
+
+        pub fn replayKeySeedForScope(self: @This(), world_surface_scope_fingerprint: u64, world_port_id: u32, request_fingerprint: u64, response_fingerprint: u64) ?u64 {
+            const import = self.importForWorldPort(world_port_id) orelse return null;
+            if (!import.replay_key_recipe_ref.eql(self.replay_key_recipe_ref)) return null;
+            return replayKeySeedForComponents(
+                world_surface_scope_fingerprint,
+                world_port_id,
+                request_fingerprint,
+                response_fingerprint,
+            );
+        }
+
+        pub fn sourceForPort(self: @This(), world_port_id: u32) ?Ref {
+            return if (self.importForWorldPort(world_port_id)) |import| import.source_effect_shape_ref else null;
+        }
+
+        pub fn traceForPortRequest(self: @This(), world_port_id: u32) ?u64 {
+            return if (self.importForWorldPort(world_port_id)) |import| import.residual_site_fingerprint else null;
+        }
+
+        pub fn evidenceForPort(self: @This(), world_port_id: u32) ?Ref {
+            return if (self.importForWorldPort(world_port_id)) |import| import.world_port_ref else null;
+        }
+
+        pub fn validateWorldSurfaceScope(self: @This()) bool {
+            for (self.imports) |import| {
+                if (import.world_port_id >= self.manifest.world_port_count) return false;
+            }
+            return true;
+        }
+
+        pub fn exportMain(self: @This()) ExportSurface {
+            return self.main_export;
+        }
+
+        pub const Session = struct {
+            module: *const LoadedModule,
+
+            pub fn start(module: *const LoadedModule) @This() {
+                return .{ .module = module };
+            }
+
+            pub fn next(self: *@This()) error{UnsupportedLoadedExecution}!void {
+                _ = self;
+                return error.UnsupportedLoadedExecution;
+            }
+        };
+    };
+
+    fn replayKeySeedForComponents(world_surface_scope_fingerprint: u64, world_port_id: u32, request_fingerprint: u64, response_fingerprint: u64) u64 {
+        var builder = FingerprintBuilder.init(domains.boundary_world_replay_key_recipe);
+        builder.fieldU64("world_surface_scope_fingerprint", world_surface_scope_fingerprint);
+        builder.fieldU64("world_port_id", world_port_id);
+        builder.fieldU64("request_fingerprint", request_fingerprint);
+        builder.fieldU64("response_fingerprint", response_fingerprint);
+        return builder.finish();
+    }
+
+    pub const ImportBinding = struct {
+        world_port_id: u32,
+        world_port_ref: Ref,
+        payload_ref: BoundaryValueRef,
+        response_ref: BoundaryValueRef,
+        required: bool = true,
+    };
+
+    pub const ImportBindingPolicy = struct {
+        allow_extra_bindings: bool = false,
+        require_optional_bindings: bool = false,
+    };
+
+    pub const ImportBindingError = error{
+        MissingRequiredImport,
+        WrongImportBinding,
+        ExtraImportBinding,
+    };
+
+    pub fn validateImportBindings(imports: []const ImportSurface.Import, bindings: []const ImportBinding, policy: ImportBindingPolicy) ImportBindingError!void {
+        try validateUniqueImportBindings(bindings);
+        for (imports) |import| {
+            const binding = bindingForWorldPort(bindings, import.world_port_id);
+            if (binding == null) {
+                if (import.required or policy.require_optional_bindings) return error.MissingRequiredImport;
+                continue;
+            }
+            if (!binding.?.world_port_ref.eql(import.world_port_ref)) return error.WrongImportBinding;
+            if (!binding.?.payload_ref.eql(import.payloadValueRef())) return error.WrongImportBinding;
+            if (!binding.?.response_ref.eql(import.responseValueRef())) return error.WrongImportBinding;
+        }
+        if (!policy.allow_extra_bindings) {
+            for (bindings) |binding| {
+                var found = false;
+                for (imports) |import| {
+                    if (import.world_port_id == binding.world_port_id) found = true;
+                }
+                if (!found) return error.ExtraImportBinding;
+            }
+        }
+    }
+
+    fn validateUniqueImportBindings(bindings: []const ImportBinding) ImportBindingError!void {
+        for (bindings, 0..) |binding, index| {
+            for (bindings[index + 1 ..]) |candidate| {
+                if (candidate.world_port_id == binding.world_port_id) return error.ExtraImportBinding;
+            }
+        }
+    }
+
+    fn bindingForWorldPort(bindings: []const ImportBinding, world_port_id: u32) ?ImportBinding {
+        for (bindings) |binding| {
+            if (binding.world_port_id == world_port_id) return binding;
+        }
+        return null;
+    }
+
+    pub fn validate(bytes: []const u8, options: ValidationOptions) ValidationError!ValidationReport {
+        const parsed = try parseImage(bytes, options);
+        return .{
+            .success = true,
+            .module_kind = parsed.manifest.module_kind,
+            .module_fingerprint = parsed.manifest.module_fingerprint,
+            .manifest_fingerprint = parsed.manifest.manifest_fingerprint,
+            .section_count = parsed.section_count,
+            .world_port_count = parsed.manifest.world_port_count,
+            .compatibility = .{
+                .can_decode = parsed.manifest.module_kind == .full_module,
+                .known_required_sections = true,
+                .ignored_optional_sections = parsed.ignored_optional_sections,
+                .requires_loaded_execution = parsed.manifest.module_kind == .full_module,
+                .module_kind = parsed.manifest.module_kind,
+            },
+        };
+    }
+
+    pub fn decode(allocator: std.mem.Allocator, bytes: []const u8, options: ValidationOptions) !LoadedModule {
+        var decode_options = options;
+        decode_options.require_full_module = true;
+        decode_options.allow_reference_only = false;
+        decode_options.allocator = allocator;
+        if (bytes.len > decode_options.max_image_bytes) return error.ImageTooLarge;
+        const owned = try allocator.dupe(u8, bytes);
+        errdefer allocator.free(owned);
+        const parsed = try parseImage(owned, decode_options);
+        const required_section_refs = try parseManifestRequiredSectionRefs(allocator, parsed.manifest_payload);
+        errdefer allocator.free(required_section_refs);
+        const imports = try parseImports(allocator, owned, parsed.import_surface_payload, parsed.manifest, decode_options);
+        errdefer allocator.free(imports);
+        const replay_key_recipe_ref = try fullModuleReplayKeyRecipeRef(owned, @intCast(parsed.section_count));
+        var manifest = parsed.manifest;
+        manifest.required_section_refs = required_section_refs;
+        return .{
+            .allocator = allocator,
+            .bytes = owned,
+            .manifest = manifest,
+            .validation_report = try validate(owned, decode_options),
+            .imports = imports,
+            .main_export = parsed.export_surface,
+            .replay_key_recipe_ref = replay_key_recipe_ref,
+        };
+    }
+
+    pub fn referenceForTarget(comptime Target: type, allocator: std.mem.Allocator) ![]u8 {
+        return encodeForTarget(Target, allocator, .reference_only);
+    }
+
+    pub fn fullImageForTarget(comptime Target: type, allocator: std.mem.Allocator) ![]u8 {
+        return encodeForTarget(Target, allocator, .full_module);
+    }
+
+    pub fn ForTarget(comptime Target: type) type {
+        @setEvalBranchQuota(2_000_000);
+        const ManifestValue = comptime manifestForTarget(Target, .reference_only, &.{});
+        return struct {
+            pub const CertifiedBoundaryModule = BoundaryTargetModule.CertifiedBoundaryModule;
+            pub const Kind = BoundaryTargetModule.Kind;
+            pub const SectionKind = BoundaryTargetModule.SectionKind;
+            pub const SectionRef = BoundaryTargetModule.SectionRef;
+            pub const Manifest = BoundaryTargetModule.Manifest;
+            pub const ImportSurface = BoundaryTargetModule.ImportSurface;
+            pub const ExportSurface = BoundaryTargetModule.ExportSurface;
+            pub const Graph = BoundaryTargetModule.Graph;
+            pub const LoadedModule = BoundaryTargetModule.LoadedModule;
+            pub const ImportBinding = BoundaryTargetModule.ImportBinding;
+            pub const ImportBindingPolicy = BoundaryTargetModule.ImportBindingPolicy;
+            pub const ImportBindingError = BoundaryTargetModule.ImportBindingError;
+            pub const ValidationOptions = BoundaryTargetModule.ValidationOptions;
+            pub const ValidationReport = BoundaryTargetModule.ValidationReport;
+            pub const ProgramPlanImage = BoundaryTargetModule.ProgramPlanImage;
+            pub const ValueSchemaImage = BoundaryTargetModule.ValueSchemaImage;
+            pub const manifest = ManifestValue;
+            pub const fingerprint = ManifestValue.module_fingerprint;
+
+            pub fn reference(allocator: std.mem.Allocator) ![]u8 {
+                return BoundaryTargetModule.referenceForTarget(Target, allocator);
+            }
+
+            pub fn fullImage(allocator: std.mem.Allocator) ![]u8 {
+                return BoundaryTargetModule.fullImageForTarget(Target, allocator);
+            }
+
+            pub fn encode(allocator: std.mem.Allocator) ![]u8 {
+                return fullImage(allocator);
+            }
+
+            pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !BoundaryTargetModule.LoadedModule {
+                var loaded = try BoundaryTargetModule.decode(allocator, bytes, .{});
+                errdefer loaded.deinit();
+                try validateTargetModuleIdentity(loaded.manifest, loaded.main_export);
+                try validateTargetImports(loaded.imports);
+                return loaded;
+            }
+
+            pub fn validate(bytes: []const u8, options: BoundaryTargetModule.ValidationOptions) !BoundaryTargetModule.ValidationReport {
+                const report = try BoundaryTargetModule.validate(bytes, options);
+                if (report.module_kind == .full_module) try validateTargetImportSurface(bytes, options);
+                if (report.module_kind == .reference_only) try validateTargetReferenceReport(report);
+                return report;
+            }
+
+            pub fn validateImportBindings(imports: []const BoundaryTargetModule.ImportSurface.Import, bindings: []const BoundaryTargetModule.ImportBinding, policy: BoundaryTargetModule.ImportBindingPolicy) BoundaryTargetModule.ImportBindingError!void {
+                return BoundaryTargetModule.validateImportBindings(imports, bindings, policy);
+            }
+
+            fn validateTargetImportSurface(bytes: []const u8, options: BoundaryTargetModule.ValidationOptions) !void {
+                var decode_options = options;
+                decode_options.require_full_module = true;
+                decode_options.allow_reference_only = false;
+                const parsed = try parseImage(bytes, decode_options);
+                try validateTargetModuleIdentity(parsed.manifest, parsed.export_surface);
+                const imports = try parseImports(decode_options.allocator, bytes, parsed.import_surface_payload, parsed.manifest, decode_options);
+                defer decode_options.allocator.free(imports);
+                try validateTargetImports(imports);
+            }
+
+            fn validateTargetReferenceReport(report: BoundaryTargetModule.ValidationReport) ValidationError!void {
+                if (report.module_fingerprint != fingerprint) return error.ModuleFingerprintMismatch;
+                if (report.manifest_fingerprint != manifest.manifest_fingerprint) return error.ManifestFingerprintMismatch;
+            }
+
+            fn validateTargetModuleIdentity(manifest_value: BoundaryTargetModule.Manifest, export_surface: BoundaryTargetModule.ExportSurface) ValidationError!void {
+                @setEvalBranchQuota(2_000_000);
+                const expected_import_surface = comptime importSurfaceForTarget(Target, 0);
+                const expected_export_surface = comptime exportSurfaceForTarget(Target, 0);
+                if (manifest_value.module_kind != .full_module) return error.FullModuleRequired;
+                if (!std.mem.eql(u8, manifest_value.target_label, Target.Certificate.target_label)) return error.ModuleFingerprintMismatch;
+                if (manifest_value.program_plan_hash != Target.Program.compiled_plan.hash()) return error.ModuleFingerprintMismatch;
+                if (manifest_value.world_surface_fingerprint != Target.WorldSurface.surface_fingerprint) return error.ModuleFingerprintMismatch;
+                if (manifest_value.target_certificate_fingerprint != Target.Certificate.certificate_fingerprint) return error.ModuleFingerprintMismatch;
+                if (manifest_value.normalization_certificate_fingerprint != Target.NormalizationCertificate.certificate_fingerprint) return error.ModuleFingerprintMismatch;
+                if (manifest_value.import_surface_fingerprint != expected_import_surface.import_surface_fingerprint) return error.ModuleFingerprintMismatch;
+                if (manifest_value.export_surface_fingerprint != expected_export_surface.export_surface_fingerprint) return error.ModuleFingerprintMismatch;
+                if (manifest_value.world_port_count != Target.WorldPortTable.entries.len) return error.ModuleFingerprintMismatch;
+                if (manifest_value.normal_form != Target.NormalForm.kind) return error.ModuleFingerprintMismatch;
+                if (export_surface.export_surface_fingerprint != expected_export_surface.export_surface_fingerprint) return error.ModuleFingerprintMismatch;
+            }
+
+            fn validateTargetImports(imports: []const BoundaryTargetModule.ImportSurface.Import) ValidationError!void {
+                const expected = comptime importsForTarget(Target);
+                if (imports.len != expected.len) return error.MalformedImportSurface;
+                for (expected, imports) |expected_import, actual_import| {
+                    if (!targetImportMatches(expected_import, actual_import)) return error.MalformedImportSurface;
+                }
+            }
+
+            fn targetImportMatches(expected: BoundaryTargetModule.ImportSurface.Import, actual: BoundaryTargetModule.ImportSurface.Import) bool {
+                return expected.import_id == actual.import_id and
+                    expected.world_port_id == actual.world_port_id and
+                    expected.world_port_ref.eql(actual.world_port_ref) and
+                    optionalRefValuesEqual(expected.host_intrinsic_ref, actual.host_intrinsic_ref) and
+                    expected.source_effect_shape_ref.eql(actual.source_effect_shape_ref) and
+                    expected.residual_site_index == actual.residual_site_index and
+                    expected.residual_site_fingerprint == actual.residual_site_fingerprint and
+                    expected.payload_value_table_id == actual.payload_value_table_id and
+                    expected.response_value_table_id == actual.response_value_table_id and
+                    expected.payload_ref.eql(actual.payload_ref) and
+                    expected.response_ref.eql(actual.response_ref) and
+                    std.mem.eql(u8, expected.mode, actual.mode) and
+                    std.mem.eql(u8, expected.response_kind, actual.response_kind) and
+                    expected.replay_key_recipe_ref.eql(actual.replay_key_recipe_ref) and
+                    std.mem.eql(u8, expected.suggested_symbolic_name, actual.suggested_symbolic_name) and
+                    expected.required == actual.required;
+            }
+
+            pub fn validateSelf() !void {
+                if (manifest.manifest_fingerprint != manifest.computeFingerprint()) return error.ManifestFingerprintMismatch;
+            }
+
+            pub fn asLoadedModule(allocator: std.mem.Allocator) !BoundaryTargetModule.LoadedModule {
+                const bytes = try fullImage(allocator);
+                defer allocator.free(bytes);
+                return BoundaryTargetModule.decode(allocator, bytes, .{});
+            }
+
+            pub fn validateReferenceAgainst(bytes: []const u8) !void {
+                const report = try BoundaryTargetModule.validate(bytes, .{ .require_full_module = false, .allow_reference_only = true });
+                if (report.module_fingerprint != fingerprint) return error.ModuleFingerprintMismatch;
+                if (report.manifest_fingerprint != manifest.manifest_fingerprint) return error.ManifestFingerprintMismatch;
+                if (report.module_kind != .reference_only) return error.ReferenceOnlyRejected;
+            }
+        };
+    }
+
+    const SectionPayload = struct {
+        kind: SectionKind,
+        required: bool = true,
+        format_version: u32,
+        bytes: []u8,
+        fingerprint: u64,
+    };
+
+    const ParsedImage = struct {
+        manifest: Manifest,
+        manifest_payload: []const u8,
+        export_surface: ExportSurface,
+        import_surface_payload: []const u8,
+        section_count: usize,
+        ignored_optional_sections: usize,
+    };
+
+    fn sectionDomain(kind: SectionKind) Domain {
+        return switch (kind) {
+            .manifest => domains.boundary_module_manifest,
+            .import_surface => domains.boundary_module_import_surface,
+            .export_surface => domains.boundary_module_export_surface,
+            .program_plan_image => domains.boundary_program_plan_image,
+            .value_schema_image => domains.boundary_value_schema_image,
+            .world_surface => domains.boundary_world_surface,
+            .world_port_table => domains.boundary_world_port_table,
+            .world_value_table => domains.boundary_world_value_table,
+            .world_dispatch_table => domains.boundary_world_dispatch_table,
+            .surface_profile => domains.boundary_world_surface_profile,
+            .source_map => domains.boundary_elaboration_source_map,
+            .trace_map => domains.boundary_elaboration_trace_map,
+            .evidence_map => domains.boundary_target_evidence_map,
+            .effect_row => domains.boundary_elaboration_effect_row,
+            .normal_form => domains.boundary_normal_form,
+            .target_certificate => domains.boundary_target_certificate,
+            .normalization_trace => domains.boundary_normalization_trace,
+            .normalization_certificate => domains.boundary_normalization_certificate,
+            .metadata => domains.boundary_module,
+            .replay_key_recipe => domains.boundary_world_replay_key_recipe,
+        };
+    }
+
+    fn writeSectionRef(builder: *FingerprintBuilder, section: SectionRef) void {
+        builder.fieldBytes("section.kind", @tagName(section.kind));
+        builder.fieldU32("section.format_version", section.format_version);
+        builder.fieldU64("section.byte_offset", section.byte_offset);
+        builder.fieldU64("section.byte_length", section.byte_length);
+        builder.fieldU64("section.fingerprint", section.section_fingerprint);
+        builder.fieldBool("section.required", section.required);
+    }
+
+    fn sectionPayloadFingerprint(kind: SectionKind, payload: []const u8) u64 {
+        var builder = FingerprintBuilder.init(sectionDomain(kind));
+        builder.fieldBytes("payload", payload);
+        return builder.finish();
+    }
+
+    fn sectionExpectedFormatVersion(kind: SectionKind) u32 {
+        return sectionDomain(kind).format_version orelse 1;
+    }
+
+    fn sectionHasForwardOptionalVersion(kind: SectionKind, required: bool, format_version: u32, options: ValidationOptions) bool {
+        return !required and options.allow_forward_optional_sections and format_version > sectionExpectedFormatVersion(kind);
+    }
+
+    fn unknownSectionPayloadFingerprint(raw_kind: u16, format_version: u32, payload: []const u8) u64 {
+        var builder = FingerprintBuilder.init(domains.boundary_module);
+        builder.fieldU64("unknown_section.kind", raw_kind);
+        builder.fieldU32("unknown_section.format_version", format_version);
+        builder.fieldBytes("payload", payload);
+        return builder.finish();
+    }
+
+    fn moduleFingerprintForTarget(comptime Target: type, kind: Kind, section_refs: []const SectionRef) u64 {
+        var builder = FingerprintBuilder.init(domains.boundary_module);
+        builder.fieldU32("format_version", domains.boundary_module.format_version.?);
+        builder.fieldBytes("module_kind", @tagName(kind));
+        builder.fieldBytes("target_label", Target.Certificate.target_label);
+        builder.fieldU64("program_plan_hash", Target.Program.compiled_plan.hash());
+        builder.fieldU64("world_surface_fingerprint", Target.WorldSurface.surface_fingerprint);
+        builder.fieldU64("target_certificate_fingerprint", Target.Certificate.certificate_fingerprint);
+        builder.fieldU64("normalization_certificate_fingerprint", Target.NormalizationCertificate.certificate_fingerprint);
+        for (section_refs) |section| writeSectionRef(&builder, section);
+        return builder.finish();
+    }
+
+    fn manifestForTarget(comptime Target: type, comptime kind: Kind, comptime section_refs: []const SectionRef) Manifest {
+        const import_surface = importSurfaceForTarget(Target, 0);
+        const export_surface = exportSurfaceForTarget(Target, 0);
+        const module_fingerprint = moduleFingerprintForTarget(Target, kind, section_refs);
+        return Manifest.init(.{
+            .module_fingerprint = module_fingerprint,
+            .module_kind = kind,
+            .target_label = Target.Certificate.target_label,
+            .program_plan_hash = Target.Program.compiled_plan.hash(),
+            .world_surface_fingerprint = Target.WorldSurface.surface_fingerprint,
+            .target_certificate_fingerprint = Target.Certificate.certificate_fingerprint,
+            .normalization_certificate_fingerprint = Target.NormalizationCertificate.certificate_fingerprint,
+            .import_surface_fingerprint = import_surface.import_surface_fingerprint,
+            .export_surface_fingerprint = export_surface.export_surface_fingerprint,
+            .world_port_count = Target.WorldPortTable.entries.len,
+            .normal_form = Target.NormalForm.kind,
+            .required_section_refs = section_refs,
+            .external_dependency_refs = if (kind == .partial_module) &.{Target.Certificate.evidenceRef()} else &.{},
+        });
+    }
+
+    fn importSurfaceForTarget(comptime Target: type, module_fingerprint: u64) ImportSurface {
+        const imports = comptime importsForComponents(Target.WorldPortTable, Target.WorldValueTable, Target.replay_key_recipe.evidenceRef());
+        return ImportSurface.init(.{
+            .module_fingerprint = module_fingerprint,
+            .target_label = Target.Certificate.target_label,
+            .world_surface_ref = Target.WorldSurface.evidenceRef(),
+            .imports = imports[0..],
+        });
+    }
+
+    fn importsForTarget(comptime Target: type) [Target.WorldPortTable.entries.len]ImportSurface.Import {
+        return importsForComponents(Target.WorldPortTable, Target.WorldValueTable, Target.replay_key_recipe.evidenceRef());
+    }
+
+    fn importSurfaceForComponents(comptime target_label: []const u8, comptime world_surface_ref: Ref, comptime WorldPortTable: BoundaryWorldPortTable, comptime WorldValueTable: BoundaryWorldValueTable, comptime replay_key_recipe_ref: Ref, module_fingerprint: u64) ImportSurface {
+        const imports = comptime importsForComponents(WorldPortTable, WorldValueTable, replay_key_recipe_ref);
+        return ImportSurface.init(.{
+            .module_fingerprint = module_fingerprint,
+            .target_label = target_label,
+            .world_surface_ref = world_surface_ref,
+            .imports = imports[0..],
+        });
+    }
+
+    fn importsForComponents(comptime WorldPortTable: BoundaryWorldPortTable, comptime WorldValueTable: BoundaryWorldValueTable, comptime replay_key_recipe_ref: Ref) [WorldPortTable.entries.len]ImportSurface.Import {
+        var imports: [WorldPortTable.entries.len]ImportSurface.Import = undefined;
+        inline for (WorldPortTable.entries, 0..) |entry, index| {
+            imports[index] = .{
+                .import_id = @intCast(index),
+                .world_port_id = entry.world_port_id,
+                .world_port_ref = entry.world_port_ref,
+                .host_intrinsic_ref = null,
+                .source_effect_shape_ref = entry.source_ref,
+                .residual_site_index = entry.residual_site_index,
+                .residual_site_fingerprint = entry.residual_site_fingerprint,
+                .payload_value_table_id = valueTableId(WorldValueTable, entry.world_port_id, .payload),
+                .response_value_table_id = valueTableId(WorldValueTable, entry.world_port_id, .@"resume"),
+                .payload_ref = entry.payload_ref,
+                .response_ref = entry.resume_ref,
+                .mode = entry.mode,
+                .response_kind = "resume",
+                .replay_key_recipe_ref = replay_key_recipe_ref,
+                .suggested_symbolic_name = entry.semantic_label orelse entry.op_name,
+                .required = true,
+            };
+        }
+        return imports;
+    }
+
+    fn valueTableId(comptime table: BoundaryWorldValueTable, comptime world_port_id: u32, comptime kind: BoundaryWorldValueTable.Kind) u32 {
+        inline for (table.entries) |entry| {
+            if (entry.world_port_id == world_port_id and entry.kind == kind) return entry.value_id;
+        }
+        return std.math.maxInt(u32);
+    }
+
+    fn exportSurfaceForTarget(comptime Target: type, module_fingerprint: u64) ExportSurface {
+        return exportSurfaceForComponents(Target.Certificate.target_label, Target.Program, Target.NormalForm.kind, module_fingerprint);
+    }
+
+    fn exportSurfaceForComponents(comptime target_label: []const u8, comptime Program: type, comptime normal_form: BoundaryNormalFormKind, module_fingerprint: u64) ExportSurface {
+        const entry = Program.compiled_plan.functions[Program.compiled_plan.entry_index];
+        const result_ref = BoundaryValueRef.init(if (entry.result_codec) |codec| @tagName(codec) else "unit", entry.result_schema_index);
+        return ExportSurface.init(.{
+            .module_fingerprint = module_fingerprint,
+            .target_label = target_label,
+            .entry_function_index = Program.compiled_plan.entry_index,
+            .argument_count = entry.parameter_count,
+            .result_ref = result_ref,
+            .result_schema_ref = if (entry.result_schema_index != null) result_ref else null,
+            .normal_form = normal_form,
+        });
+    }
+
+    fn encodeForTarget(comptime Target: type, allocator: std.mem.Allocator, kind: Kind) ![]u8 {
+        var sections = std.ArrayList(SectionPayload).empty;
+        defer {
+            for (sections.items) |section| allocator.free(section.bytes);
+            sections.deinit(allocator);
+        }
+        if (kind != .reference_only) {
+            try appendSection(&sections, allocator, .import_surface, true, try encodeImportSurfacePayload(Target, allocator, 0));
+            try appendSection(&sections, allocator, .export_surface, true, try encodeExportSurfacePayload(Target, allocator, 0));
+            try appendSection(&sections, allocator, .program_plan_image, true, try encodeProgramPlanImagePayload(Target, allocator));
+            try appendSection(&sections, allocator, .value_schema_image, true, try encodeValueSchemaImagePayload(Target, allocator));
+            try appendRefSection(&sections, allocator, .world_surface, Target.WorldSurface.evidenceRef(), Target.WorldSurface.surface_fingerprint);
+            try appendRefSection(&sections, allocator, .world_port_table, Target.WorldPortTable.evidenceRef(), Target.WorldPortTable.fingerprint);
+            try appendRefSection(&sections, allocator, .world_value_table, Target.WorldValueTable.evidenceRef(), Target.WorldValueTable.fingerprint);
+            try appendRefSection(&sections, allocator, .world_dispatch_table, Target.WorldDispatchTable.evidenceRef(), Target.WorldDispatchTable.fingerprint);
+            try appendRefSection(&sections, allocator, .surface_profile, Target.surface_profile.evidenceRef(), Target.surface_profile.fingerprint);
+            try appendRefSection(&sections, allocator, .source_map, Target.SourceMap.evidenceRef(), Target.SourceMap.fingerprint);
+            try appendRefSection(&sections, allocator, .trace_map, Target.TraceMap.evidenceRef(), Target.TraceMap.fingerprint);
+            try appendRefSection(&sections, allocator, .evidence_map, Target.EvidenceMap.evidenceRef(), Target.EvidenceMap.fingerprint);
+            try appendRefSection(&sections, allocator, .effect_row, Target.EffectRow.evidenceRef(), Target.EffectRow.fingerprint);
+            try appendRefSection(&sections, allocator, .normal_form, Target.NormalForm.evidenceRef(), Target.NormalForm.fingerprint);
+            try appendSection(&sections, allocator, .target_certificate, true, try encodeTargetCertificatePayload(Target, allocator));
+            try appendRefSection(&sections, allocator, .normalization_trace, Target.NormalizationTrace.evidenceRef(), Target.NormalizationTrace.trace_fingerprint);
+            try appendRefSection(&sections, allocator, .normalization_certificate, Target.NormalizationCertificate.evidenceRef(), Target.NormalizationCertificate.certificate_fingerprint);
+            try appendRefSection(&sections, allocator, .replay_key_recipe, Target.replay_key_recipe.evidenceRef(), Target.replay_key_recipe.fingerprint);
+        }
+
+        const provisional_refs = try sectionRefsFromPayloads(allocator, sections.items);
+        defer allocator.free(provisional_refs);
+        const manifest_len_probe = try encodeManifestPayload(Target, allocator, kind, 0, provisional_refs);
+        defer allocator.free(manifest_len_probe);
+        populateSectionRefOffsets(provisional_refs, header_len + (sections.items.len + 1) * section_table_entry_len + manifest_len_probe.len);
+        const module_fingerprint = moduleFingerprintForTarget(Target, kind, provisional_refs);
+        const manifest_payload = try encodeManifestPayload(Target, allocator, kind, module_fingerprint, provisional_refs);
+        defer allocator.free(manifest_payload);
+        try prependManifestSection(&sections, allocator, manifest_payload);
+
+        const section_refs = try sectionRefsFromPayloads(allocator, sections.items);
+        defer allocator.free(section_refs);
+        return encodeImage(allocator, kind, module_fingerprint, sections.items, section_refs);
+    }
+
+    fn appendSection(sections: *std.ArrayList(SectionPayload), allocator: std.mem.Allocator, kind: SectionKind, required: bool, payload: []u8) !void {
+        errdefer allocator.free(payload);
+        try sections.append(allocator, .{
+            .kind = kind,
+            .required = required,
+            .format_version = sectionDomain(kind).format_version orelse 1,
+            .bytes = payload,
+            .fingerprint = sectionPayloadFingerprint(kind, payload),
+        });
+    }
+
+    fn prependManifestSection(sections: *std.ArrayList(SectionPayload), allocator: std.mem.Allocator, payload: []const u8) !void {
+        const owned = try allocator.dupe(u8, payload);
+        errdefer allocator.free(owned);
+        try sections.insert(allocator, 0, .{
+            .kind = .manifest,
+            .required = true,
+            .format_version = domains.boundary_module_manifest.format_version.?,
+            .bytes = owned,
+            .fingerprint = sectionPayloadFingerprint(.manifest, owned),
+        });
+    }
+
+    fn appendRefSection(sections: *std.ArrayList(SectionPayload), allocator: std.mem.Allocator, kind: SectionKind, ref: Ref, semantic_fingerprint: u64) !void {
+        var writer = PayloadWriter.init(allocator);
+        errdefer writer.deinit();
+        try writer.writeRef(ref);
+        try writer.writeU64(semantic_fingerprint);
+        try appendSection(sections, allocator, kind, true, try writer.toOwnedSlice());
+    }
+
+    fn encodeTargetCertificatePayload(comptime Target: type, allocator: std.mem.Allocator) ![]u8 {
+        const certificate = Target.Certificate;
+        var writer = PayloadWriter.init(allocator);
+        errdefer writer.deinit();
+        try writer.writeU32(certificate.certificate_format_version);
+        try writer.writeU64(certificate.certificate_fingerprint);
+        try writer.writeBytes(certificate.target_label);
+        try writer.writeRef(certificate.elaboration_certificate_ref);
+        try writer.writeRef(certificate.residual_program_ref);
+        try writer.writeRef(certificate.world_surface_ref);
+        try writer.writeRef(certificate.port_table_ref);
+        try writer.writeRef(certificate.value_table_ref);
+        try writer.writeRef(certificate.dispatch_table_ref);
+        try writer.writeRef(certificate.profile_ref);
+        try writer.writeRef(certificate.replay_key_recipe_ref);
+        try writer.writeRef(certificate.evidence_map_ref);
+        try writer.writeOptionalRef(certificate.trace_map_ref);
+        try writer.writeOptionalRef(certificate.normalization_certificate_ref);
+        try writer.writeU64(certificate.policy_fingerprint);
+        try writer.writeBytes(certificate.summary);
+        try writer.writeU64(certificate.dependencies.len);
+        for (certificate.dependencies) |dependency| try writer.writeDependency(dependency);
+        return writer.toOwnedSlice();
+    }
+
+    fn sectionRefsFromPayloads(allocator: std.mem.Allocator, sections: []const SectionPayload) ![]SectionRef {
+        const refs = try allocator.alloc(SectionRef, sections.len);
+        for (sections, 0..) |section, index| {
+            refs[index] = .{
+                .kind = section.kind,
+                .format_version = section.format_version,
+                .byte_offset = 0,
+                .byte_length = section.bytes.len,
+                .section_fingerprint = section.fingerprint,
+                .required = section.required,
+            };
+        }
+        return refs;
+    }
+
+    fn populateSectionRefOffsets(refs: []SectionRef, first_payload_offset: usize) void {
+        var payload_offset = first_payload_offset;
+        for (refs) |*ref| {
+            ref.byte_offset = payload_offset;
+            payload_offset += @intCast(ref.byte_length);
+        }
+    }
+
+    fn encodeImage(allocator: std.mem.Allocator, kind: Kind, module_fingerprint: u64, sections: []const SectionPayload, section_refs: []SectionRef) ![]u8 {
+        var total_len: usize = header_len + sections.len * section_table_entry_len;
+        for (sections) |section| total_len += section.bytes.len;
+        var bytes = try allocator.alloc(u8, total_len);
+        errdefer allocator.free(bytes);
+        @memset(bytes, 0);
+        @memcpy(bytes[0..magic.len], magic);
+        writeU32At(bytes, 8, domains.boundary_module.format_version.?);
+        writeU32At(bytes, 12, domains.boundary_module.fingerprint_version);
+        bytes[16] = @intFromEnum(kind);
+        writeU32At(bytes, 20, @intCast(sections.len));
+        writeU64At(bytes, 24, module_fingerprint);
+        writeU64At(bytes, 32, readU64At(sections[0].bytes, 4));
+        writeU64At(bytes, 40, total_len);
+
+        var payload_offset: usize = header_len + sections.len * section_table_entry_len;
+        for (sections, 0..) |section, index| {
+            section_refs[index].byte_offset = payload_offset;
+            section_refs[index].byte_length = section.bytes.len;
+            const table_offset = header_len + index * section_table_entry_len;
+            writeU16At(bytes, table_offset, @intFromEnum(section.kind));
+            bytes[table_offset + 2] = @intFromBool(section.required);
+            writeU32At(bytes, table_offset + 4, section.format_version);
+            writeU64At(bytes, table_offset + 8, payload_offset);
+            writeU64At(bytes, table_offset + 16, section.bytes.len);
+            writeU64At(bytes, table_offset + 24, section.fingerprint);
+            @memcpy(bytes[payload_offset .. payload_offset + section.bytes.len], section.bytes);
+            payload_offset += section.bytes.len;
+        }
+        return bytes;
+    }
+
+    fn encodeManifestPayload(comptime Target: type, allocator: std.mem.Allocator, kind: Kind, module_fingerprint: u64, section_refs: []const SectionRef) ![]u8 {
+        const import_surface = importSurfaceForTarget(Target, module_fingerprint);
+        const export_surface = exportSurfaceForTarget(Target, module_fingerprint);
+        const manifest = Manifest.init(.{
+            .module_fingerprint = module_fingerprint,
+            .module_kind = kind,
+            .target_label = Target.Certificate.target_label,
+            .program_plan_hash = Target.Program.compiled_plan.hash(),
+            .world_surface_fingerprint = Target.WorldSurface.surface_fingerprint,
+            .target_certificate_fingerprint = Target.Certificate.certificate_fingerprint,
+            .normalization_certificate_fingerprint = Target.NormalizationCertificate.certificate_fingerprint,
+            .import_surface_fingerprint = import_surface.import_surface_fingerprint,
+            .export_surface_fingerprint = export_surface.export_surface_fingerprint,
+            .world_port_count = Target.WorldPortTable.entries.len,
+            .normal_form = Target.NormalForm.kind,
+            .required_section_refs = section_refs,
+        });
+        var writer = PayloadWriter.init(allocator);
+        errdefer writer.deinit();
+        try writer.writeU32(manifest.format_version);
+        try writer.writeU64(manifest.manifest_fingerprint);
+        try writer.writeU64(manifest.module_fingerprint);
+        try writer.writeU8(@intFromEnum(manifest.module_kind));
+        try writer.writeBytes(manifest.target_label);
+        try writer.writeU64(manifest.program_plan_hash);
+        try writer.writeU64(manifest.world_surface_fingerprint);
+        try writer.writeU64(manifest.target_certificate_fingerprint);
+        try writer.writeOptionalU64(manifest.normalization_certificate_fingerprint);
+        try writer.writeU64(manifest.import_surface_fingerprint);
+        try writer.writeU64(manifest.export_surface_fingerprint);
+        try writer.writeU64(manifest.world_port_count);
+        try writer.writeU8(@intFromEnum(manifest.normal_form));
+        try writer.writeU64(manifest.required_section_refs.len);
+        for (manifest.required_section_refs) |section| try writer.writeSectionRef(section);
+        try writer.writeU64(0);
+        return writer.toOwnedSlice();
+    }
+
+    fn encodeProgramPlanImagePayload(comptime Target: type, allocator: std.mem.Allocator) ![]u8 {
+        const image = ProgramPlanImage.fromProgram(Target.Program);
+        var writer = PayloadWriter.init(allocator);
+        errdefer writer.deinit();
+        try writer.writeU32(image.format_version);
+        try writer.writeU64(image.image_fingerprint);
+        try writer.writeBytes(image.plan_label);
+        try writer.writeU64(image.plan_hash);
+        try writer.writeU64(image.ir_hash);
+        try writer.writeU16(image.entry_function_index);
+        try writer.writeU16(image.entry_argument_count);
+        try writer.writeValueRef(image.entry_result_ref);
+        try writer.writeOptionalValueRef(image.entry_result_schema_ref);
+        try writer.writeU64(image.function_count);
+        try writer.writeU64(image.requirement_count);
+        try writer.writeU64(image.op_count);
+        try writer.writeU64(image.output_count);
+        try writer.writeU64(image.local_count);
+        try writer.writeU64(image.block_count);
+        try writer.writeU64(image.terminator_count);
+        try writer.writeU64(image.instruction_count);
+        try writer.writeU64(image.value_schema_count);
+        try writer.writeU64(image.product_field_count);
+        try writer.writeU64(image.sum_variant_count);
+        return writer.toOwnedSlice();
+    }
+
+    fn encodeValueSchemaImagePayload(comptime Target: type, allocator: std.mem.Allocator) ![]u8 {
+        const image = ValueSchemaImage.fromProgram(Target.Program);
+        var writer = PayloadWriter.init(allocator);
+        errdefer writer.deinit();
+        try writer.writeU32(image.format_version);
+        try writer.writeU64(image.image_fingerprint);
+        try writer.writeBytes(image.plan_label);
+        try writer.writeU64(image.schema_count);
+        try writer.writeU64(image.product_field_count);
+        try writer.writeU64(image.sum_variant_count);
+        try writer.writeU64(image.scalar_codec_count);
+        return writer.toOwnedSlice();
+    }
+
+    fn encodeImportSurfacePayload(comptime Target: type, allocator: std.mem.Allocator, module_fingerprint: u64) ![]u8 {
+        const surface = importSurfaceForTarget(Target, module_fingerprint);
+        var writer = PayloadWriter.init(allocator);
+        errdefer writer.deinit();
+        try writer.writeU32(surface.format_version);
+        try writer.writeU64(surface.import_surface_fingerprint);
+        try writer.writeU64(surface.module_fingerprint);
+        try writer.writeBytes(surface.target_label);
+        try writer.writeRef(surface.world_surface_ref);
+        try writer.writeU64(surface.imports.len);
+        for (surface.imports) |import| {
+            try writer.writeU32(import.import_id);
+            try writer.writeU32(import.world_port_id);
+            try writer.writeRef(import.world_port_ref);
+            try writer.writeOptionalRef(import.host_intrinsic_ref);
+            try writer.writeRef(import.source_effect_shape_ref);
+            try writer.writeU64(import.residual_site_index);
+            try writer.writeU64(import.residual_site_fingerprint);
+            try writer.writeU32(import.payload_value_table_id);
+            try writer.writeU32(import.response_value_table_id);
+            try writer.writeValueRef(import.payload_ref);
+            try writer.writeValueRef(import.response_ref);
+            try writer.writeBytes(import.mode);
+            try writer.writeBytes(import.response_kind);
+            try writer.writeRef(import.replay_key_recipe_ref);
+            try writer.writeBytes(import.suggested_symbolic_name);
+            try writer.writeU8(@intFromBool(import.required));
+        }
+        return writer.toOwnedSlice();
+    }
+
+    fn encodeExportSurfacePayload(comptime Target: type, allocator: std.mem.Allocator, module_fingerprint: u64) ![]u8 {
+        const surface = exportSurfaceForTarget(Target, module_fingerprint);
+        var writer = PayloadWriter.init(allocator);
+        errdefer writer.deinit();
+        try writer.writeU32(surface.format_version);
+        try writer.writeU64(surface.export_surface_fingerprint);
+        try writer.writeU64(surface.module_fingerprint);
+        try writer.writeBytes(surface.target_label);
+        try writer.writeU16(surface.entry_function_index);
+        try writer.writeU16(surface.argument_count);
+        try writer.writeValueRef(surface.result_ref);
+        try writer.writeOptionalValueRef(surface.result_schema_ref);
+        try writer.writeU8(@intFromEnum(surface.normal_form));
+        return writer.toOwnedSlice();
+    }
+
+    fn parseImage(bytes: []const u8, options: ValidationOptions) ValidationError!ParsedImage {
+        if (bytes.len < header_len) return error.TruncatedHeader;
+        if (bytes.len > options.max_image_bytes) return error.ImageTooLarge;
+        if (!std.mem.eql(u8, bytes[0..magic.len], magic)) return error.InvalidMagic;
+        if (readU32At(bytes, 8) != domains.boundary_module.format_version.?) return error.InvalidVersion;
+        if (readU32At(bytes, 12) != domains.boundary_module.fingerprint_version) return error.InvalidVersion;
+        const image_kind = parseKind(bytes[16]) orelse return error.InvalidVersion;
+        if (bytes[17] != 0 or bytes[18] != 0 or bytes[19] != 0) return error.MalformedManifest;
+        if (options.require_full_module and image_kind != .full_module) return error.FullModuleRequired;
+        if (!options.allow_reference_only and image_kind == .reference_only) return error.ReferenceOnlyRejected;
+        if (image_kind == .partial_module) return error.PartialModuleRejected;
+        const section_count = readU32At(bytes, 20);
+        if (section_count == 0) return error.MissingManifest;
+        if (section_count > options.max_section_count) return error.SectionCountTooLarge;
+        const module_fingerprint = readU64At(bytes, 24);
+        const manifest_fingerprint = readU64At(bytes, 32);
+        const total_len = readU64At(bytes, 40);
+        if (total_len > bytes.len) return error.SectionOutOfBounds;
+        if (!options.allow_trailing_junk and total_len != bytes.len) return error.TrailingJunk;
+        const table_end = header_len + @as(usize, @intCast(section_count)) * section_table_entry_len;
+        if (table_end > bytes.len) return error.SectionTableOutOfBounds;
+
+        var previous_kind: u16 = 0;
+        var previous_end: usize = table_end;
+        var manifest_payload: ?[]const u8 = null;
+        var import_payload: []const u8 = &.{};
+        var export_payload: []const u8 = &.{};
+        var ignored_optional_sections: usize = 0;
+        for (0..@intCast(section_count)) |index| {
+            const entry_offset = header_len + index * section_table_entry_len;
+            const raw_kind = readU16At(bytes, entry_offset);
+            const required_byte = bytes[entry_offset + 2];
+            if (required_byte > 1) return error.MalformedManifest;
+            if (bytes[entry_offset + 3] != 0) return error.MalformedManifest;
+            const required = required_byte != 0;
+            if (raw_kind <= previous_kind) return error.InvalidSectionOrder;
+            previous_kind = raw_kind;
+            const format_version = readU32At(bytes, entry_offset + 4);
+            const offset = readU64At(bytes, entry_offset + 8);
+            const length = readU64At(bytes, entry_offset + 16);
+            const fingerprint = readU64At(bytes, entry_offset + 24);
+            if (!u64FitsUsize(offset) or !u64FitsUsize(length)) return error.SectionOutOfBounds;
+            const start: usize = @intCast(offset);
+            const len: usize = @intCast(length);
+            if (len > bytes.len or start > bytes.len - len) return error.SectionOutOfBounds;
+            const end = start + len;
+            if (end > total_len) return error.SectionOutOfBounds;
+            if (start < previous_end) return error.SectionOverlap;
+            if (start != previous_end) return error.TrailingJunk;
+            previous_end = end;
+            const section_kind = parseSectionKind(raw_kind) orelse {
+                if (required) return error.UnknownRequiredSection;
+                if (options.reject_unknown_sections) return error.UnknownSection;
+                const payload = bytes[start..end];
+                if (unknownSectionPayloadFingerprint(raw_kind, format_version, payload) != fingerprint) return error.SectionFingerprintMismatch;
+                ignored_optional_sections += 1;
+                continue;
+            };
+            const payload = bytes[start..end];
+            if (format_version != sectionExpectedFormatVersion(section_kind)) {
+                if (sectionHasForwardOptionalVersion(section_kind, required, format_version, options)) {
+                    if (sectionPayloadFingerprint(section_kind, payload) != fingerprint) return error.SectionFingerprintMismatch;
+                    ignored_optional_sections += 1;
+                    continue;
+                }
+                return error.InvalidVersion;
+            }
+            if (sectionPayloadFingerprint(section_kind, payload) != fingerprint) return error.SectionFingerprintMismatch;
+            switch (section_kind) {
+                .manifest => manifest_payload = payload,
+                .import_surface => import_payload = payload,
+                .export_surface => export_payload = payload,
+                .program_plan_image,
+                .value_schema_image,
+                .world_surface,
+                .world_port_table,
+                .world_value_table,
+                .world_dispatch_table,
+                .surface_profile,
+                .source_map,
+                .trace_map,
+                .evidence_map,
+                .effect_row,
+                .normal_form,
+                .target_certificate,
+                .normalization_trace,
+                .normalization_certificate,
+                .metadata,
+                .replay_key_recipe,
+                => {},
+            }
+        }
+        if (previous_end != total_len) return error.TrailingJunk;
+
+        const manifest_bytes = manifest_payload orelse return error.MissingManifest;
+        const manifest = try parseManifest(manifest_bytes, bytes, section_count);
+        if (manifest.manifest_fingerprint != manifest_fingerprint) return error.ManifestFingerprintMismatch;
+        if (manifest.module_fingerprint != module_fingerprint) return error.ModuleFingerprintMismatch;
+        if (manifest.module_kind != image_kind) return error.ModuleFingerprintMismatch;
+        if (manifest.world_port_count > options.max_world_ports) return error.LimitExceeded;
+        if (manifest.module_kind == .reference_only and section_count != 1) return error.MalformedManifest;
+        if (manifest.module_kind == .full_module and import_payload.len == 0) return error.MissingRequiredSection;
+        if (manifest.module_kind == .full_module) try validateFullModuleSections(bytes, section_count, manifest, options);
+        try validateImportSurfacePayload(import_payload, manifest, options, null);
+        const export_surface = if (export_payload.len == 0) emptyExportSurface(manifest) else try parseExportSurface(export_payload);
+        try validateExportSurface(export_surface, manifest, export_payload.len != 0);
+        return .{
+            .manifest = manifest,
+            .manifest_payload = manifest_bytes,
+            .export_surface = export_surface,
+            .import_surface_payload = import_payload,
+            .section_count = section_count,
+            .ignored_optional_sections = ignored_optional_sections,
+        };
+    }
+
+    fn parseManifestRequiredSectionRefs(allocator: std.mem.Allocator, payload: []const u8) ![]SectionRef {
+        var reader = PayloadReader.init(payload);
+        _ = try reader.readU32();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU8();
+        _ = try reader.readBytes();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readOptionalU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU8();
+        const required_count = try reader.readU64();
+        if (required_count > 128 or !u64FitsUsize(required_count)) return error.LimitExceeded;
+        const refs = try allocator.alloc(SectionRef, @intCast(required_count));
+        errdefer allocator.free(refs);
+        for (refs) |*ref| ref.* = try reader.readSectionRef();
+        return refs;
+    }
+
+    fn parseManifest(payload: []const u8, image_bytes: []const u8, section_count: u32) ValidationError!Manifest {
+        var reader = PayloadReader.init(payload);
+        const format_version = try reader.readU32();
+        if (format_version != domains.boundary_module_manifest.format_version.?) return error.InvalidVersion;
+        const manifest_fingerprint = try reader.readU64();
+        const module_fingerprint = try reader.readU64();
+        const kind = parseKind(try reader.readU8()) orelse return error.MalformedManifest;
+        const target_label = try reader.readBytes();
+        const program_plan_hash = try reader.readU64();
+        const world_surface_fingerprint = try reader.readU64();
+        const target_certificate_fingerprint = try reader.readU64();
+        const normalization_certificate_fingerprint = try reader.readOptionalU64();
+        const import_surface_fingerprint = try reader.readU64();
+        const export_surface_fingerprint = try reader.readU64();
+        const world_port_count = try reader.readU64();
+        if (!u64FitsUsize(world_port_count)) return error.LimitExceeded;
+        const world_port_count_usize: usize = @intCast(world_port_count);
+        const normal_form = parseNormalForm(try reader.readU8()) orelse return error.MalformedManifest;
+        const required_count = try reader.readU64();
+        if (required_count > 128) return error.LimitExceeded;
+        var manifest_builder = FingerprintBuilder.init(domains.boundary_module_manifest);
+        manifest_builder.fieldU32("format_version", format_version);
+        manifest_builder.fieldU64("module_fingerprint", module_fingerprint);
+        manifest_builder.fieldBytes("module_kind", @tagName(kind));
+        manifest_builder.fieldBytes("target_label", target_label);
+        manifest_builder.fieldU64("program_plan_hash", program_plan_hash);
+        manifest_builder.fieldU64("world_surface_fingerprint", world_surface_fingerprint);
+        manifest_builder.fieldU64("target_certificate_fingerprint", target_certificate_fingerprint);
+        manifest_builder.fieldOptionalU64("normalization_certificate_fingerprint", normalization_certificate_fingerprint);
+        manifest_builder.fieldU64("import_surface_fingerprint", import_surface_fingerprint);
+        manifest_builder.fieldU64("export_surface_fingerprint", export_surface_fingerprint);
+        manifest_builder.fieldUsize("world_port_count", world_port_count_usize);
+        manifest_builder.fieldBytes("normal_form", @tagName(normal_form));
+        manifest_builder.fieldUsize("required_section_count", @intCast(required_count));
+        var module_builder = FingerprintBuilder.init(domains.boundary_module);
+        module_builder.fieldU32("format_version", domains.boundary_module.format_version.?);
+        module_builder.fieldBytes("module_kind", @tagName(kind));
+        module_builder.fieldBytes("target_label", target_label);
+        module_builder.fieldU64("program_plan_hash", program_plan_hash);
+        module_builder.fieldU64("world_surface_fingerprint", world_surface_fingerprint);
+        module_builder.fieldU64("target_certificate_fingerprint", target_certificate_fingerprint);
+        module_builder.fieldU64("normalization_certificate_fingerprint", normalization_certificate_fingerprint orelse 0);
+        try reader.validateSectionRefs(required_count, image_bytes, section_count, kind, &module_builder, &manifest_builder);
+        writeOptionalSectionTableRefs(image_bytes, section_count, &module_builder);
+        if (kind == .full_module and required_count != requiredManifestBoundSectionCount(image_bytes, section_count)) return error.MissingRequiredSection;
+        if (module_fingerprint != module_builder.finish()) return error.ModuleFingerprintMismatch;
+        const external_count = try reader.readU64();
+        if (external_count != 0) return error.PartialModuleRejected;
+        manifest_builder.fieldUsize("optional_section_count", 0);
+        manifest_builder.fieldUsize("external_dependency_count", @intCast(external_count));
+        manifest_builder.fieldBytes("producer", "boundary");
+        manifest_builder.fieldBytes("compatibility", "boundary-module-v1");
+        if (manifest_fingerprint != manifest_builder.finish()) return error.ManifestFingerprintMismatch;
+        if (!reader.done()) return error.MalformedManifest;
+        return .{
+            .manifest_fingerprint = manifest_fingerprint,
+            .module_fingerprint = module_fingerprint,
+            .module_kind = kind,
+            .target_label = target_label,
+            .program_plan_hash = program_plan_hash,
+            .world_surface_fingerprint = world_surface_fingerprint,
+            .target_certificate_fingerprint = target_certificate_fingerprint,
+            .normalization_certificate_fingerprint = normalization_certificate_fingerprint,
+            .import_surface_fingerprint = import_surface_fingerprint,
+            .export_surface_fingerprint = export_surface_fingerprint,
+            .world_port_count = world_port_count_usize,
+            .normal_form = normal_form,
+            .required_section_refs = &.{},
+        };
+    }
+
+    fn parseImports(allocator: std.mem.Allocator, image_bytes: []const u8, payload: []const u8, manifest: Manifest, options: ValidationOptions) ![]ImportSurface.Import {
+        _ = image_bytes;
+        if (payload.len == 0) return allocator.alloc(ImportSurface.Import, 0);
+        var reader = PayloadReader.init(payload);
+        const format_version = try reader.readU32();
+        if (format_version != domains.boundary_module_import_surface.format_version.?) return error.InvalidVersion;
+        const surface_fingerprint = try reader.readU64();
+        const module_fingerprint = try reader.readU64();
+        // The module fingerprint includes section payload fingerprints, so
+        // import/export payloads carry a zero sentinel and are bound by the
+        // manifest surface fingerprint plus required section refs.
+        if (module_fingerprint != 0) return error.ModuleFingerprintMismatch;
+        _ = surface_fingerprint;
+        const target_label = try reader.readBytes();
+        if (!std.mem.eql(u8, target_label, manifest.target_label)) return error.ModuleFingerprintMismatch;
+        const world_surface_ref = try reader.readRef();
+        if (!refMatchesDomainFingerprint(world_surface_ref, domains.boundary_world_surface, manifest.world_surface_fingerprint)) return error.ModuleFingerprintMismatch;
+        const count = try reader.readU64();
+        if (count > options.max_world_ports or count != manifest.world_port_count) return error.LimitExceeded;
+        const imports = try allocator.alloc(ImportSurface.Import, @intCast(count));
+        errdefer allocator.free(imports);
+        for (imports) |*import| {
+            const import_id = try reader.readU32();
+            const world_port_id = try reader.readU32();
+            if (world_port_id >= manifest.world_port_count) return error.MalformedImportSurface;
+            const world_port_ref = try reader.readRef();
+            const host_intrinsic_ref = try reader.readOptionalRef();
+            const source_effect_shape_ref = try reader.readRef();
+            const residual_site_index = try reader.readU64();
+            if (!u64FitsUsize(residual_site_index)) return error.MalformedImportSurface;
+            const residual_site_fingerprint = try reader.readU64();
+            const payload_value_table_id = try reader.readU32();
+            const response_value_table_id = try reader.readU32();
+            const payload_ref = try reader.readValueRef();
+            const response_ref = try reader.readValueRef();
+            const mode = try reader.readBytes();
+            const response_kind = try reader.readBytes();
+            const replay_key_recipe_ref = try reader.readRef();
+            try validateModuleImportRefs(world_port_ref, host_intrinsic_ref, source_effect_shape_ref, replay_key_recipe_ref);
+            import.* = .{
+                .import_id = import_id,
+                .world_port_id = world_port_id,
+                .world_port_ref = world_port_ref,
+                .host_intrinsic_ref = host_intrinsic_ref,
+                .source_effect_shape_ref = source_effect_shape_ref,
+                .residual_site_index = @intCast(residual_site_index),
+                .residual_site_fingerprint = residual_site_fingerprint,
+                .payload_value_table_id = payload_value_table_id,
+                .response_value_table_id = response_value_table_id,
+                .payload_ref = payload_ref,
+                .response_ref = response_ref,
+                .mode = mode,
+                .response_kind = response_kind,
+                .replay_key_recipe_ref = replay_key_recipe_ref,
+                .suggested_symbolic_name = try reader.readBytes(),
+                .required = try reader.readBool(),
+            };
+        }
+        if (!reader.done()) return error.MalformedImportSurface;
+        return imports;
+    }
+
+    fn validateImportSurfacePayload(payload: []const u8, manifest: Manifest, options: ValidationOptions, full_module_bindings: ?FullModuleImportBindings) ValidationError!void {
+        if (payload.len == 0) {
+            if (manifest.module_kind == .full_module) return error.MissingRequiredSection;
+            return;
+        }
+        var reader = PayloadReader.init(payload);
+        const format_version = try reader.readU32();
+        if (format_version != domains.boundary_module_import_surface.format_version.?) return error.InvalidVersion;
+        const surface_fingerprint = try reader.readU64();
+        const module_fingerprint = try reader.readU64();
+        // See parseImports: module identity is bound outside the payload to
+        // avoid a self-referential module fingerprint.
+        if (module_fingerprint != 0) return error.ModuleFingerprintMismatch;
+        const target_label = try reader.readBytes();
+        if (!std.mem.eql(u8, target_label, manifest.target_label)) return error.ModuleFingerprintMismatch;
+        const world_surface_ref = try reader.readRef();
+        if (!refMatchesDomainFingerprint(world_surface_ref, domains.boundary_world_surface, manifest.world_surface_fingerprint)) return error.ModuleFingerprintMismatch;
+        var builder = FingerprintBuilder.init(domains.boundary_module_import_surface);
+        builder.fieldU32("format_version", format_version);
+        builder.fieldBytes("target_label", target_label);
+        builder.fieldRef("world_surface", world_surface_ref);
+        const count = try reader.readU64();
+        if (count > options.max_world_ports or count != manifest.world_port_count) return error.LimitExceeded;
+        if (count > 65_536) return error.LimitExceeded;
+        var seen_import_ids = [_]u64{0} ** 1024;
+        var seen_world_port_ids = [_]u64{0} ** 1024;
+        const residual_site_indexes = try options.allocator.alloc(u64, @intCast(count));
+        defer options.allocator.free(residual_site_indexes);
+        var seen_residual_site_count: usize = 0;
+        for (0..@intCast(count)) |_| {
+            const import_id = try reader.readU32();
+            const world_port_id = try reader.readU32();
+            if (world_port_id >= manifest.world_port_count) return error.MalformedImportSurface;
+            if (import_id >= count) return error.MalformedImportSurface;
+            if (!markDenseId(&seen_import_ids, import_id)) return error.MalformedImportSurface;
+            if (!markDenseId(&seen_world_port_ids, world_port_id)) return error.MalformedImportSurface;
+            const world_port_ref = try reader.readRef();
+            const host_intrinsic_ref = try reader.readOptionalRef();
+            const source_effect_shape_ref = try reader.readRef();
+            const residual_site_index = try reader.readU64();
+            if (!u64FitsUsize(residual_site_index)) return error.MalformedImportSurface;
+            const residual_site_fingerprint = try reader.readU64();
+            residual_site_indexes[seen_residual_site_count] = residual_site_index;
+            seen_residual_site_count += 1;
+            const payload_value_table_id = try reader.readU32();
+            const response_value_table_id = try reader.readU32();
+            const payload_ref = try reader.readValueRef();
+            const response_ref = try reader.readValueRef();
+            if (full_module_bindings) |bindings| {
+                if (payload_value_table_id != canonicalImportPayloadValueTableId(world_port_id) or
+                    response_value_table_id != canonicalImportResponseValueTableId(world_port_id)) return error.MalformedImportSurface;
+                if (!boundaryValueRefWithinSchema(payload_ref, bindings.schema_count)) return error.MalformedImportSurface;
+                if (!boundaryValueRefWithinSchema(response_ref, bindings.schema_count)) return error.MalformedImportSurface;
+            }
+            const mode = try reader.readBytes();
+            const response_kind = try reader.readBytes();
+            const replay_key_recipe_ref = try reader.readRef();
+            const suggested_symbolic_name = try reader.readBytes();
+            const required = try reader.readBool();
+            try validateModuleImportRefs(world_port_ref, host_intrinsic_ref, source_effect_shape_ref, replay_key_recipe_ref);
+            if (full_module_bindings) |bindings| {
+                if (!replay_key_recipe_ref.eql(bindings.replay_key_recipe_ref)) return error.ManifestFingerprintMismatch;
+                if (!required) return error.MalformedImportSurface;
+            }
+            builder.fieldU64("import.import_id", import_id);
+            builder.fieldU64("import.world_port_id", world_port_id);
+            builder.fieldRef("import.world_port", world_port_ref);
+            builder.fieldOptionalRef("import.host_intrinsic", host_intrinsic_ref);
+            builder.fieldRef("import.source_effect_shape", source_effect_shape_ref);
+            builder.fieldUsize("import.residual_site_index", @intCast(residual_site_index));
+            builder.fieldU64("import.residual_site_fingerprint", residual_site_fingerprint);
+            builder.fieldU64("import.payload_value_table_id", payload_value_table_id);
+            builder.fieldU64("import.response_value_table_id", response_value_table_id);
+            builder.fieldValueRef("import.payload_ref", payload_ref);
+            builder.fieldValueRef("import.response_ref", response_ref);
+            builder.fieldBytes("import.mode", mode);
+            builder.fieldBytes("import.response_kind", response_kind);
+            builder.fieldRef("import.replay_key_recipe", replay_key_recipe_ref);
+            builder.fieldBytes("import.suggested_symbolic_name", suggested_symbolic_name);
+            builder.fieldBool("import.required", required);
+        }
+        if (!reader.done()) return error.MalformedImportSurface;
+        if (!residualSiteIndexesUnique(residual_site_indexes[0..seen_residual_site_count])) return error.MalformedImportSurface;
+        const computed = builder.finish();
+        if (surface_fingerprint != computed or manifest.import_surface_fingerprint != computed) return error.ManifestFingerprintMismatch;
+    }
+
+    fn canonicalImportPayloadValueTableId(world_port_id: u32) u32 {
+        return world_port_id * 3;
+    }
+
+    fn canonicalImportResponseValueTableId(world_port_id: u32) u32 {
+        return world_port_id * 3 + 1;
+    }
+
+    fn refMatchesDomainFingerprint(ref: Ref, domain: Domain, fingerprint: u64) bool {
+        return ref.domain_id == domain.id and
+            ref.fingerprint == fingerprint and
+            ref.format_version == domain.format_version;
+    }
+
+    fn refMatchesDomain(ref: Ref, domain: Domain) bool {
+        return refMatchesDomainVersion(ref, domain);
+    }
+
+    fn validateModuleImportRefs(world_port_ref: Ref, host_intrinsic_ref: ?Ref, source_effect_shape_ref: Ref, replay_key_recipe_ref: Ref) ValidationError!void {
+        if (!refMatchesDomain(world_port_ref, domains.boundary_world_port)) return error.MalformedImportSurface;
+        if (host_intrinsic_ref) |ref| {
+            if (!refMatchesDomain(ref, domains.host_intrinsic)) return error.MalformedImportSurface;
+        }
+        if (!refMatchesDomain(source_effect_shape_ref, domains.boundary_effect_shape)) return error.MalformedImportSurface;
+        if (!refMatchesDomain(replay_key_recipe_ref, domains.boundary_world_replay_key_recipe)) return error.MalformedImportSurface;
+    }
+
+    fn markDenseId(seen: *[1024]u64, id: u32) bool {
+        const word_index: usize = @intCast(id / 64);
+        const bit_index: u6 = @intCast(id % 64);
+        const bit = @as(u64, 1) << bit_index;
+        if ((seen[word_index] & bit) != 0) return false;
+        seen[word_index] |= bit;
+        return true;
+    }
+
+    fn residualSiteIndexesUnique(indexes: []u64) bool {
+        if (indexes.len <= 1) return true;
+        std.mem.sort(u64, indexes, {}, u64LessThan);
+        for (indexes[1..], 1..) |index, offset| {
+            if (indexes[offset - 1] == index) return false;
+        }
+        return true;
+    }
+
+    fn u64LessThan(_: void, left: u64, right: u64) bool {
+        return left < right;
+    }
+
+    fn parseExportSurface(payload: []const u8) ValidationError!ExportSurface {
+        var reader = PayloadReader.init(payload);
+        const format_version = try reader.readU32();
+        if (format_version != domains.boundary_module_export_surface.format_version.?) return error.InvalidVersion;
+        const fingerprint = try reader.readU64();
+        const module_fingerprint = try reader.readU64();
+        const target_label = try reader.readBytes();
+        const entry_function_index = try reader.readU16();
+        const argument_count = try reader.readU16();
+        const result_ref = try reader.readValueRef();
+        const result_schema_ref = try reader.readOptionalValueRef();
+        const normal_form = parseNormalForm(try reader.readU8()) orelse return error.MalformedManifest;
+        if (!reader.done()) return error.MalformedManifest;
+        return .{
+            .export_surface_fingerprint = fingerprint,
+            .module_fingerprint = module_fingerprint,
+            .target_label = target_label,
+            .entry_function_index = entry_function_index,
+            .argument_count = argument_count,
+            .result_ref = result_ref,
+            .result_schema_ref = result_schema_ref,
+            .normal_form = normal_form,
+        };
+    }
+
+    fn validateExportSurface(surface: ExportSurface, manifest: Manifest, present: bool) ValidationError!void {
+        if (!present) {
+            if (manifest.module_kind == .full_module) return error.MissingRequiredSection;
+            return;
+        }
+        if (surface.module_fingerprint != 0) return error.ModuleFingerprintMismatch;
+        if (!std.mem.eql(u8, surface.target_label, manifest.target_label)) return error.ModuleFingerprintMismatch;
+        if (surface.normal_form != manifest.normal_form) return error.ModuleFingerprintMismatch;
+        if (surface.result_schema_ref) |schema_ref| {
+            if (!schema_ref.eql(surface.result_ref)) return error.MalformedManifest;
+        }
+        const computed = surface.computeFingerprint();
+        if (surface.export_surface_fingerprint != computed or manifest.export_surface_fingerprint != computed) return error.ManifestFingerprintMismatch;
+    }
+
+    fn emptyExportSurface(manifest: Manifest) ExportSurface {
+        return ExportSurface.init(.{
+            .module_fingerprint = manifest.module_fingerprint,
+            .target_label = manifest.target_label,
+            .entry_function_index = 0,
+            .argument_count = 0,
+            .result_ref = BoundaryValueRef.init("unit", null),
+            .normal_form = manifest.normal_form,
+        });
+    }
+
+    const PayloadWriter = struct {
+        allocator: std.mem.Allocator,
+        bytes: std.ArrayList(u8) = .empty,
+
+        fn init(allocator: std.mem.Allocator) @This() {
+            return .{ .allocator = allocator };
+        }
+
+        fn deinit(self: *@This()) void {
+            self.bytes.deinit(self.allocator);
+        }
+
+        fn toOwnedSlice(self: *@This()) ![]u8 {
+            return self.bytes.toOwnedSlice(self.allocator);
+        }
+
+        fn writeU8(self: *@This(), value: u8) !void {
+            try self.bytes.append(self.allocator, value);
+        }
+
+        fn writeU16(self: *@This(), value: anytype) !void {
+            var out: [2]u8 = undefined;
+            std.mem.writeInt(u16, &out, @intCast(value), .little);
+            try self.bytes.appendSlice(self.allocator, &out);
+        }
+
+        fn writeU32(self: *@This(), value: anytype) !void {
+            var out: [4]u8 = undefined;
+            std.mem.writeInt(u32, &out, @intCast(value), .little);
+            try self.bytes.appendSlice(self.allocator, &out);
+        }
+
+        fn writeU64(self: *@This(), value: anytype) !void {
+            var out: [8]u8 = undefined;
+            std.mem.writeInt(u64, &out, @intCast(value), .little);
+            try self.bytes.appendSlice(self.allocator, &out);
+        }
+
+        fn writeOptionalU64(self: *@This(), value: ?u64) !void {
+            try self.writeU8(@intFromBool(value != null));
+            if (value) |actual| try self.writeU64(actual);
+        }
+
+        fn writeBytes(self: *@This(), value: []const u8) !void {
+            try self.writeU64(value.len);
+            try self.bytes.appendSlice(self.allocator, value);
+        }
+
+        fn writeOptionalBytes(self: *@This(), value: ?[]const u8) !void {
+            try self.writeU8(@intFromBool(value != null));
+            if (value) |actual| try self.writeBytes(actual);
+        }
+
+        fn writeRef(self: *@This(), ref: Ref) !void {
+            try self.writeU16(@intFromEnum(ref.domain_id));
+            try self.writeU64(ref.fingerprint);
+            try self.writeOptionalU64(if (ref.format_version) |value| value else null);
+            try self.writeOptionalBytes(ref.label);
+            try self.writeOptionalU64(ref.branch_id);
+            try self.writeOptionalU64(if (ref.site_index) |value| @as(u64, @intCast(value)) else null);
+            try self.writeOptionalBytes(ref.kind_tag);
+        }
+
+        fn writeOptionalRef(self: *@This(), ref: ?Ref) !void {
+            try self.writeU8(@intFromBool(ref != null));
+            if (ref) |actual| try self.writeRef(actual);
+        }
+
+        fn writeDependency(self: *@This(), dependency: Dependency) !void {
+            try self.writeBytes(@tagName(dependency.role));
+            try self.writeRef(dependency.ref);
+        }
+
+        fn writeValueRef(self: *@This(), ref: BoundaryValueRef) !void {
+            try self.writeBytes(ref.codec);
+            try self.writeOptionalU64(if (ref.schema_index) |value| value else null);
+        }
+
+        fn writeOptionalValueRef(self: *@This(), value: ?BoundaryValueRef) !void {
+            try self.writeU8(@intFromBool(value != null));
+            if (value) |actual| try self.writeValueRef(actual);
+        }
+
+        fn writeSectionRef(self: *@This(), section: SectionRef) !void {
+            try self.writeU16(@intFromEnum(section.kind));
+            try self.writeU32(section.format_version);
+            try self.writeU64(section.byte_offset);
+            try self.writeU64(section.byte_length);
+            try self.writeU64(section.section_fingerprint);
+            try self.writeU8(@intFromBool(section.required));
+        }
+    };
+
+    const PayloadReader = struct {
+        bytes: []const u8,
+        index: usize = 0,
+
+        fn init(bytes: []const u8) @This() {
+            return .{ .bytes = bytes };
+        }
+
+        fn done(self: @This()) bool {
+            return self.index == self.bytes.len;
+        }
+
+        fn readU8(self: *@This()) ValidationError!u8 {
+            if (self.index + 1 > self.bytes.len) return error.MalformedManifest;
+            const value = self.bytes[self.index];
+            self.index += 1;
+            return value;
+        }
+
+        fn readU16(self: *@This()) ValidationError!u16 {
+            if (self.index + 2 > self.bytes.len) return error.MalformedManifest;
+            const value = std.mem.readInt(u16, self.bytes[self.index..][0..2], .little);
+            self.index += 2;
+            return value;
+        }
+
+        fn readU32(self: *@This()) ValidationError!u32 {
+            if (self.index + 4 > self.bytes.len) return error.MalformedManifest;
+            const value = std.mem.readInt(u32, self.bytes[self.index..][0..4], .little);
+            self.index += 4;
+            return value;
+        }
+
+        fn readU64(self: *@This()) ValidationError!u64 {
+            if (self.index + 8 > self.bytes.len) return error.MalformedManifest;
+            const value = std.mem.readInt(u64, self.bytes[self.index..][0..8], .little);
+            self.index += 8;
+            return value;
+        }
+
+        fn readBool(self: *@This()) ValidationError!bool {
+            const value = try self.readU8();
+            if (value > 1) return error.MalformedManifest;
+            return value != 0;
+        }
+
+        fn readOptionalU64(self: *@This()) ValidationError!?u64 {
+            return if (!(try self.readBool())) null else try self.readU64();
+        }
+
+        fn readBytes(self: *@This()) ValidationError![]const u8 {
+            const wire_len = try self.readU64();
+            if (!u64FitsUsize(wire_len)) return error.MalformedManifest;
+            const len: usize = @intCast(wire_len);
+            if (len > self.bytes.len or self.index > self.bytes.len - len) return error.MalformedManifest;
+            const value = self.bytes[self.index .. self.index + len];
+            self.index += len;
+            return value;
+        }
+
+        fn readOptionalBytes(self: *@This()) ValidationError!?[]const u8 {
+            return if (!(try self.readBool())) null else try self.readBytes();
+        }
+
+        fn readRef(self: *@This()) ValidationError!Ref {
+            const domain_id = domainIdFromInt(try self.readU16()) orelse return error.MalformedManifest;
+            const fingerprint = try self.readU64();
+            const format_version = try self.readOptionalU64();
+            if (format_version != null and format_version.? > std.math.maxInt(u32)) return error.MalformedManifest;
+            const label = try self.readOptionalBytes();
+            const branch_id = try self.readOptionalU64();
+            const site_index = try self.readOptionalU64();
+            if (site_index != null and !u64FitsUsize(site_index.?)) return error.MalformedManifest;
+            return .{
+                .domain_id = domain_id,
+                .fingerprint = fingerprint,
+                .format_version = if (format_version) |value| @as(u32, @intCast(value)) else null,
+                .label = label,
+                .branch_id = branch_id,
+                .site_index = if (site_index) |value| @as(usize, @intCast(value)) else null,
+                .kind_tag = try self.readOptionalBytes(),
+            };
+        }
+
+        fn readOptionalRef(self: *@This()) ValidationError!?Ref {
+            return if (!(try self.readBool())) null else try self.readRef();
+        }
+
+        fn readDependency(self: *@This()) ValidationError!Dependency {
+            const role_name = try self.readBytes();
+            return .{
+                .role = parseRoleName(role_name) orelse return error.MalformedManifest,
+                .ref = try self.readRef(),
+            };
+        }
+
+        fn readValueRef(self: *@This()) ValidationError!BoundaryValueRef {
+            const codec = try self.readBytes();
+            if (!boundaryValueRefCodecKnown(codec)) return error.MalformedManifest;
+            const schema_index = try self.readOptionalU64();
+            if (schema_index != null and schema_index.? > std.math.maxInt(u16)) return error.MalformedManifest;
+            return BoundaryValueRef.init(codec, if (schema_index) |value| @as(u16, @intCast(value)) else null);
+        }
+
+        fn readOptionalValueRef(self: *@This()) ValidationError!?BoundaryValueRef {
+            return if (!(try self.readBool())) null else try self.readValueRef();
+        }
+
+        fn readSectionRef(self: *@This()) ValidationError!SectionRef {
+            const kind = parseSectionKind(try self.readU16()) orelse return error.MalformedManifest;
+            const format_version = try self.readU32();
+            const byte_offset = try self.readU64();
+            const byte_length = try self.readU64();
+            const section_fingerprint = try self.readU64();
+            const required_byte = try self.readU8();
+            if (required_byte > 1) return error.MalformedManifest;
+            return .{
+                .kind = kind,
+                .format_version = format_version,
+                .byte_offset = byte_offset,
+                .byte_length = byte_length,
+                .section_fingerprint = section_fingerprint,
+                .required = required_byte != 0,
+            };
+        }
+
+        fn validateSectionRefs(self: *@This(), count: u64, image_bytes: []const u8, section_count: u32, manifest_kind: Kind, module_builder: *FingerprintBuilder, manifest_builder: *FingerprintBuilder) ValidationError!void {
+            var seen_kinds: u32 = 0;
+            for (0..@intCast(count)) |_| {
+                const section = try self.readSectionRef();
+                if (manifest_kind == .full_module and (!section.required or !sectionKindRequiredForFullModule(section.kind))) return error.MissingRequiredSection;
+                const kind_bit = @as(u32, 1) << @as(u5, @intCast(@intFromEnum(section.kind)));
+                if ((seen_kinds & kind_bit) != 0) return error.MissingRequiredSection;
+                seen_kinds |= kind_bit;
+                writeSectionRef(module_builder, section);
+                writeSectionRef(manifest_builder, section);
+                if (!sectionTableContainsManifestRef(image_bytes, section_count, section)) return error.MissingRequiredSection;
+            }
+            if (manifest_kind == .full_module and seen_kinds != fullModuleRequiredSectionMask()) return error.MissingRequiredSection;
+        }
+    };
+
+    fn sectionTableContainsManifestRef(bytes: []const u8, section_count: u32, expected: SectionRef) bool {
+        for (0..@intCast(section_count)) |index| {
+            const entry_offset = header_len + index * section_table_entry_len;
+            const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
+            const required = bytes[entry_offset + 2] != 0;
+            const format_version = readU32At(bytes, entry_offset + 4);
+            const offset = readU64At(bytes, entry_offset + 8);
+            const length = readU64At(bytes, entry_offset + 16);
+            const fingerprint = readU64At(bytes, entry_offset + 24);
+            if (kind == expected.kind and
+                required == expected.required and
+                format_version == expected.format_version and
+                offset == expected.byte_offset and
+                length == expected.byte_length and
+                fingerprint == expected.section_fingerprint)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn writeOptionalSectionTableRefs(bytes: []const u8, section_count: u32, module_builder: *FingerprintBuilder) void {
+        for (0..@intCast(section_count)) |index| {
+            const entry_offset = header_len + index * section_table_entry_len;
+            const required = bytes[entry_offset + 2] != 0;
+            if (required) continue;
+            const raw_kind = readU16At(bytes, entry_offset);
+            const format_version = readU32At(bytes, entry_offset + 4);
+            const offset = readU64At(bytes, entry_offset + 8);
+            const length = readU64At(bytes, entry_offset + 16);
+            const fingerprint = readU64At(bytes, entry_offset + 24);
+            if (parseSectionKind(raw_kind)) |kind| {
+                writeSectionRef(module_builder, .{
+                    .kind = kind,
+                    .format_version = format_version,
+                    .byte_offset = offset,
+                    .byte_length = length,
+                    .section_fingerprint = fingerprint,
+                    .required = false,
+                });
+            } else {
+                writeRawSectionRef(module_builder, raw_kind, format_version, offset, length, fingerprint, false);
+            }
+        }
+    }
+
+    fn writeRawSectionRef(builder: *FingerprintBuilder, raw_kind: u16, format_version: u32, byte_offset: u64, byte_length: u64, section_fingerprint: u64, required: bool) void {
+        builder.fieldBytes("section.kind", "unknown");
+        builder.fieldU64("section.raw_kind", raw_kind);
+        builder.fieldU32("section.format_version", format_version);
+        builder.fieldU64("section.byte_offset", byte_offset);
+        builder.fieldU64("section.byte_length", byte_length);
+        builder.fieldU64("section.fingerprint", section_fingerprint);
+        builder.fieldBool("section.required", required);
+    }
+
+    fn validateFullModuleSections(bytes: []const u8, section_count: u32, manifest: Manifest, options: ValidationOptions) ValidationError!void {
+        const required = [_]SectionKind{
+            .import_surface,
+            .export_surface,
+            .program_plan_image,
+            .value_schema_image,
+            .world_surface,
+            .world_port_table,
+            .world_value_table,
+            .world_dispatch_table,
+            .surface_profile,
+            .source_map,
+            .trace_map,
+            .evidence_map,
+            .effect_row,
+            .normal_form,
+            .target_certificate,
+            .normalization_trace,
+            .normalization_certificate,
+            .replay_key_recipe,
+        };
+        for (required) |kind| {
+            if (!sectionTableContainsKind(bytes, section_count, kind)) return error.MissingRequiredSection;
+        }
+        const schema_count = try fullModuleValueSchemaCount(bytes, section_count);
+        const replay_key_recipe_ref = try fullModuleReplayKeyRecipeRef(bytes, section_count);
+        try validateTargetCertificateSectionBindings(bytes, section_count, manifest, options);
+        try validateImportSurfaceReplayRecipeBinding(bytes, section_count);
+        try validateImportSurfacePayload(
+            sectionPayloadForKind(bytes, section_count, .import_surface) orelse return error.MissingRequiredSection,
+            manifest,
+            options,
+            .{
+                .schema_count = schema_count,
+                .replay_key_recipe_ref = replay_key_recipe_ref,
+            },
+        );
+        for (0..@intCast(section_count)) |index| {
+            const entry_offset = header_len + index * section_table_entry_len;
+            const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
+            const section_required = bytes[entry_offset + 2] != 0;
+            const format_version = readU32At(bytes, entry_offset + 4);
+            const start: usize = @intCast(readU64At(bytes, entry_offset + 8));
+            const len: usize = @intCast(readU64At(bytes, entry_offset + 16));
+            if (sectionHasForwardOptionalVersion(kind, section_required, format_version, options)) continue;
+            try validateFullModuleSectionPayload(kind, bytes[start .. start + len], manifest, options);
+        }
+        try validateExportSurfacePlanBinding(bytes, section_count);
+    }
+
+    fn fullModuleValueSchemaCount(bytes: []const u8, section_count: u32) ValidationError!u64 {
+        const payload = sectionPayloadForKind(bytes, section_count, .value_schema_image) orelse return error.MissingRequiredSection;
+        var reader = PayloadReader.init(payload);
+        const format_version = try reader.readU32();
+        if (format_version != domains.boundary_value_schema_image.format_version.?) return error.InvalidVersion;
+        _ = try reader.readU64();
+        _ = try reader.readBytes();
+        return try reader.readU64();
+    }
+
+    fn fullModuleReplayKeyRecipeRef(bytes: []const u8, section_count: u32) ValidationError!Ref {
+        const payload = sectionPayloadForKind(bytes, section_count, .replay_key_recipe) orelse return error.MissingRequiredSection;
+        var reader = PayloadReader.init(payload);
+        return try reader.readRef();
+    }
+
+    fn validateExportSurfacePlanBinding(bytes: []const u8, section_count: u32) ValidationError!void {
+        const program_payload = sectionPayloadForKind(bytes, section_count, .program_plan_image) orelse return error.MissingRequiredSection;
+        var program_reader = PayloadReader.init(program_payload);
+        const program_format_version = try program_reader.readU32();
+        if (program_format_version != domains.boundary_program_plan_image.format_version.?) return error.InvalidVersion;
+        _ = try program_reader.readU64();
+        _ = try program_reader.readBytes();
+        _ = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        const plan_entry_index = try program_reader.readU16();
+        const plan_argument_count = try program_reader.readU16();
+        const plan_result_ref = try program_reader.readValueRef();
+        const plan_result_schema_ref = try program_reader.readOptionalValueRef();
+        const function_count = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        const plan_value_schema_count = try program_reader.readU64();
+        const plan_product_field_count = try program_reader.readU64();
+        const plan_sum_variant_count = try program_reader.readU64();
+        if (!program_reader.done()) return error.MalformedManifest;
+        if (plan_entry_index >= function_count) return error.MalformedManifest;
+        if (!boundaryValueRefWithinSchema(plan_result_ref, plan_value_schema_count)) return error.MalformedManifest;
+        if (!optionalBoundaryValueRefWithinSchema(plan_result_schema_ref, plan_value_schema_count)) return error.MalformedManifest;
+        if (plan_result_schema_ref) |schema_ref| {
+            if (!schema_ref.eql(plan_result_ref)) return error.MalformedManifest;
+        }
+
+        const export_payload = sectionPayloadForKind(bytes, section_count, .export_surface) orelse return error.MissingRequiredSection;
+        const export_surface = try parseExportSurface(export_payload);
+        if (export_surface.entry_function_index != plan_entry_index) return error.ModuleFingerprintMismatch;
+        if (export_surface.argument_count != plan_argument_count) return error.ModuleFingerprintMismatch;
+        if (!export_surface.result_ref.eql(plan_result_ref)) return error.ModuleFingerprintMismatch;
+        if (!optionalBoundaryValueRefEql(export_surface.result_schema_ref, plan_result_schema_ref)) return error.ModuleFingerprintMismatch;
+        if (!boundaryValueRefWithinSchema(export_surface.result_ref, plan_value_schema_count)) return error.MalformedManifest;
+        if (!optionalBoundaryValueRefWithinSchema(export_surface.result_schema_ref, plan_value_schema_count)) return error.MalformedManifest;
+        if (export_surface.result_schema_ref) |schema_ref| {
+            if (!schema_ref.eql(export_surface.result_ref)) return error.MalformedManifest;
+        }
+
+        const schema_payload = sectionPayloadForKind(bytes, section_count, .value_schema_image) orelse return error.MissingRequiredSection;
+        var schema_reader = PayloadReader.init(schema_payload);
+        const schema_format_version = try schema_reader.readU32();
+        if (schema_format_version != domains.boundary_value_schema_image.format_version.?) return error.InvalidVersion;
+        _ = try schema_reader.readU64();
+        _ = try schema_reader.readBytes();
+        const schema_count = try schema_reader.readU64();
+        const product_field_count = try schema_reader.readU64();
+        const sum_variant_count = try schema_reader.readU64();
+        _ = try schema_reader.readU64();
+        if (!schema_reader.done()) return error.MalformedManifest;
+        if (schema_count != plan_value_schema_count) return error.ModuleFingerprintMismatch;
+        if (product_field_count != plan_product_field_count) return error.ModuleFingerprintMismatch;
+        if (sum_variant_count != plan_sum_variant_count) return error.ModuleFingerprintMismatch;
+    }
+
+    fn validateImportSurfaceReplayRecipeBinding(bytes: []const u8, section_count: u32) ValidationError!void {
+        const replay_payload = sectionPayloadForKind(bytes, section_count, .replay_key_recipe) orelse return error.MissingRequiredSection;
+        var replay_reader = PayloadReader.init(replay_payload);
+        const expected_replay_ref = try replay_reader.readRef();
+        _ = try replay_reader.readU64();
+        if (!replay_reader.done()) return error.MalformedManifest;
+
+        const import_payload = sectionPayloadForKind(bytes, section_count, .import_surface) orelse return error.MissingRequiredSection;
+        var import_reader = PayloadReader.init(import_payload);
+        const format_version = try import_reader.readU32();
+        if (format_version != domains.boundary_module_import_surface.format_version.?) return error.InvalidVersion;
+        _ = try import_reader.readU64();
+        _ = try import_reader.readU64();
+        _ = try import_reader.readBytes();
+        _ = try import_reader.readRef();
+        const count = try import_reader.readU64();
+        if (count > 65_536) return error.LimitExceeded;
+        for (0..@intCast(count)) |_| {
+            _ = try import_reader.readU32();
+            _ = try import_reader.readU32();
+            _ = try import_reader.readRef();
+            _ = try import_reader.readOptionalRef();
+            _ = try import_reader.readRef();
+            _ = try import_reader.readU64();
+            _ = try import_reader.readU64();
+            _ = try import_reader.readU32();
+            _ = try import_reader.readU32();
+            _ = try import_reader.readValueRef();
+            _ = try import_reader.readValueRef();
+            _ = try import_reader.readBytes();
+            _ = try import_reader.readBytes();
+            const replay_key_recipe_ref = try import_reader.readRef();
+            if (!replay_key_recipe_ref.eql(expected_replay_ref)) return error.ManifestFingerprintMismatch;
+            _ = try import_reader.readBytes();
+            _ = try import_reader.readBool();
+        }
+        if (!import_reader.done()) return error.MalformedImportSurface;
+    }
+
+    fn validateFullModuleSectionPayload(kind: SectionKind, payload: []const u8, manifest: Manifest, options: ValidationOptions) ValidationError!void {
+        switch (kind) {
+            .manifest,
+            .import_surface,
+            .export_surface,
+            .metadata,
+            => return,
+            .program_plan_image => {
+                var reader = PayloadReader.init(payload);
+                const format_version = try reader.readU32();
+                if (format_version != domains.boundary_program_plan_image.format_version.?) return error.InvalidVersion;
+                const image_fingerprint = try reader.readU64();
+                const plan_label = try reader.readBytes();
+                const plan_hash = try reader.readU64();
+                const ir_hash = try reader.readU64();
+                const entry_function_index = try reader.readU16();
+                const entry_argument_count = try reader.readU16();
+                const entry_result_ref = try reader.readValueRef();
+                const entry_result_schema_ref = try reader.readOptionalValueRef();
+                const function_count = try reader.readU64();
+                const requirement_count = try reader.readU64();
+                const op_count = try reader.readU64();
+                const output_count = try reader.readU64();
+                const local_count = try reader.readU64();
+                const block_count = try reader.readU64();
+                const terminator_count = try reader.readU64();
+                const instruction_count = try reader.readU64();
+                const value_schema_count = try reader.readU64();
+                const product_field_count = try reader.readU64();
+                const sum_variant_count = try reader.readU64();
+                if (!reader.done()) return error.MalformedManifest;
+                if (entry_function_index >= function_count) return error.MalformedManifest;
+                if (!boundaryValueRefWithinSchema(entry_result_ref, value_schema_count)) return error.MalformedManifest;
+                if (!optionalBoundaryValueRefWithinSchema(entry_result_schema_ref, value_schema_count)) return error.MalformedManifest;
+                if (entry_result_schema_ref) |schema_ref| {
+                    if (!schema_ref.eql(entry_result_ref)) return error.MalformedManifest;
+                }
+                if (plan_hash != manifest.program_plan_hash) return error.ManifestFingerprintMismatch;
+                if (function_count > options.max_plan_rows or
+                    requirement_count > options.max_plan_rows or
+                    op_count > options.max_plan_rows or
+                    output_count > options.max_plan_rows or
+                    local_count > options.max_plan_rows or
+                    block_count > options.max_plan_rows or
+                    terminator_count > options.max_plan_rows or
+                    instruction_count > options.max_plan_rows or
+                    value_schema_count > options.max_schema_count or
+                    product_field_count > options.max_schema_count or
+                    sum_variant_count > options.max_schema_count)
+                {
+                    return error.LimitExceeded;
+                }
+                const image = ProgramPlanImage{
+                    .image_fingerprint = image_fingerprint,
+                    .plan_label = plan_label,
+                    .plan_hash = plan_hash,
+                    .ir_hash = ir_hash,
+                    .entry_function_index = entry_function_index,
+                    .entry_argument_count = entry_argument_count,
+                    .entry_result_ref = entry_result_ref,
+                    .entry_result_schema_ref = entry_result_schema_ref,
+                    .function_count = @intCast(function_count),
+                    .requirement_count = @intCast(requirement_count),
+                    .op_count = @intCast(op_count),
+                    .output_count = @intCast(output_count),
+                    .local_count = @intCast(local_count),
+                    .block_count = @intCast(block_count),
+                    .terminator_count = @intCast(terminator_count),
+                    .instruction_count = @intCast(instruction_count),
+                    .value_schema_count = @intCast(value_schema_count),
+                    .product_field_count = @intCast(product_field_count),
+                    .sum_variant_count = @intCast(sum_variant_count),
+                };
+                if (image_fingerprint != image.computeFingerprint()) return error.ManifestFingerprintMismatch;
+            },
+            .value_schema_image => {
+                var reader = PayloadReader.init(payload);
+                const format_version = try reader.readU32();
+                if (format_version != domains.boundary_value_schema_image.format_version.?) return error.InvalidVersion;
+                const image_fingerprint = try reader.readU64();
+                const plan_label = try reader.readBytes();
+                const schema_count = try reader.readU64();
+                const product_field_count = try reader.readU64();
+                const sum_variant_count = try reader.readU64();
+                const scalar_codec_count = try reader.readU64();
+                if (!reader.done()) return error.MalformedManifest;
+                if (schema_count > options.max_schema_count or
+                    product_field_count > options.max_schema_count or
+                    sum_variant_count > options.max_schema_count or
+                    scalar_codec_count > options.max_schema_count)
+                {
+                    return error.LimitExceeded;
+                }
+                if (!valueSchemaImageScalarCodecCountMatches(scalar_codec_count)) return error.MalformedManifest;
+                const image = ValueSchemaImage{
+                    .image_fingerprint = image_fingerprint,
+                    .plan_label = plan_label,
+                    .schema_count = @intCast(schema_count),
+                    .product_field_count = @intCast(product_field_count),
+                    .sum_variant_count = @intCast(sum_variant_count),
+                    .scalar_codec_count = @intCast(scalar_codec_count),
+                };
+                if (image_fingerprint != image.computeFingerprint()) return error.ManifestFingerprintMismatch;
+            },
+            .world_surface,
+            .world_port_table,
+            .world_value_table,
+            .world_dispatch_table,
+            .surface_profile,
+            .source_map,
+            .trace_map,
+            .evidence_map,
+            .effect_row,
+            .normal_form,
+            .normalization_trace,
+            .normalization_certificate,
+            .replay_key_recipe,
+            => {
+                var reader = PayloadReader.init(payload);
+                const ref = try reader.readRef();
+                const semantic_fingerprint = try reader.readU64();
+                if (!reader.done()) return error.MalformedManifest;
+                if (!refMatchesDomainVersion(ref, sectionDomain(kind))) return error.ManifestFingerprintMismatch;
+                if (semantic_fingerprint != ref.fingerprint) return error.ManifestFingerprintMismatch;
+                if (kind == .world_surface and semantic_fingerprint != manifest.world_surface_fingerprint) return error.ManifestFingerprintMismatch;
+                if (kind == .target_certificate and semantic_fingerprint != manifest.target_certificate_fingerprint) return error.ManifestFingerprintMismatch;
+                if (kind == .normalization_certificate and semantic_fingerprint != (manifest.normalization_certificate_fingerprint orelse return error.ManifestFingerprintMismatch)) return error.ManifestFingerprintMismatch;
+                if (kind == .normal_form) {
+                    const kind_tag = ref.kind_tag orelse return error.ManifestFingerprintMismatch;
+                    if (!std.mem.eql(u8, kind_tag, @tagName(manifest.normal_form))) return error.ManifestFingerprintMismatch;
+                }
+            },
+            .target_certificate => {},
+        }
+    }
+
+    fn validateTargetCertificateSectionBindings(bytes: []const u8, section_count: u32, manifest: Manifest, options: ValidationOptions) ValidationError!void {
+        const payload = sectionPayloadForKind(bytes, section_count, .target_certificate) orelse return error.MissingRequiredSection;
+        var reader = PayloadReader.init(payload);
+        const format_version = try reader.readU32();
+        if (format_version != domains.boundary_target_certificate.format_version.?) return error.InvalidVersion;
+        const certificate_fingerprint = try reader.readU64();
+        const target_label = try reader.readBytes();
+        const elaboration_certificate_ref = try reader.readRef();
+        const residual_program_ref = try reader.readRef();
+        const world_surface_ref = try reader.readRef();
+        const port_table_ref = try reader.readRef();
+        const value_table_ref = try reader.readRef();
+        const dispatch_table_ref = try reader.readRef();
+        const profile_ref = try reader.readRef();
+        const replay_key_recipe_ref = try reader.readRef();
+        const evidence_map_ref = try reader.readRef();
+        const trace_map_ref = try reader.readOptionalRef();
+        const normalization_certificate_ref = try reader.readOptionalRef();
+        const policy_fingerprint = try reader.readU64();
+        const summary = try reader.readBytes();
+        const dependency_count = try reader.readU64();
+        if (!u64FitsUsize(dependency_count) or dependency_count > options.max_dependency_count) return error.LimitExceeded;
+        const min_encoded_dependency_bytes = 8 + 2 + 8 + 1 + 1 + 1 + 1 + 1;
+        const remaining_dependency_bytes = reader.bytes.len - reader.index;
+        if (dependency_count > remaining_dependency_bytes / min_encoded_dependency_bytes) return error.MalformedManifest;
+        const dependency_slice = try options.allocator.alloc(Dependency, @intCast(dependency_count));
+        defer options.allocator.free(dependency_slice);
+        for (dependency_slice) |*dependency| {
+            dependency.* = try reader.readDependency();
+        }
+        if (!reader.done()) return error.MalformedManifest;
+        if (!targetCertificateDependencyRolesValid(dependency_slice, false)) return error.ManifestFingerprintMismatch;
+        if (!targetCertificateModuleSurfaceRefsValid(dependency_slice)) return error.ManifestFingerprintMismatch;
+        const certificate = BoundaryTargetCertificate{
+            .certificate_fingerprint = certificate_fingerprint,
+            .target_label = target_label,
+            .elaboration_certificate_ref = elaboration_certificate_ref,
+            .residual_program_ref = residual_program_ref,
+            .world_surface_ref = world_surface_ref,
+            .port_table_ref = port_table_ref,
+            .value_table_ref = value_table_ref,
+            .dispatch_table_ref = dispatch_table_ref,
+            .profile_ref = profile_ref,
+            .replay_key_recipe_ref = replay_key_recipe_ref,
+            .evidence_map_ref = evidence_map_ref,
+            .trace_map_ref = trace_map_ref,
+            .normalization_certificate_ref = normalization_certificate_ref,
+            .policy_fingerprint = policy_fingerprint,
+            .dependencies = dependency_slice,
+            .summary = summary,
+        };
+        if (certificate_fingerprint != manifest.target_certificate_fingerprint) return error.ManifestFingerprintMismatch;
+        if (certificate_fingerprint != certificate.computeFingerprint()) return error.ManifestFingerprintMismatch;
+        if (!std.mem.eql(u8, target_label, manifest.target_label)) return error.ModuleFingerprintMismatch;
+        if (!refMatchesDomain(elaboration_certificate_ref, domains.boundary_elaboration_certificate)) return error.ManifestFingerprintMismatch;
+        if (residual_program_ref.domain_id != domains.program_plan.id or residual_program_ref.fingerprint != manifest.program_plan_hash) return error.ModuleFingerprintMismatch;
+        try validateRefSectionMatches(bytes, section_count, .world_surface, world_surface_ref);
+        try validateRefSectionMatches(bytes, section_count, .world_port_table, port_table_ref);
+        try validateRefSectionMatches(bytes, section_count, .world_value_table, value_table_ref);
+        try validateRefSectionMatches(bytes, section_count, .world_dispatch_table, dispatch_table_ref);
+        try validateRefSectionMatches(bytes, section_count, .surface_profile, profile_ref);
+        try validateRefSectionMatches(bytes, section_count, .replay_key_recipe, replay_key_recipe_ref);
+        try validateRefSectionMatches(bytes, section_count, .evidence_map, evidence_map_ref);
+        try validateRefSectionMatches(bytes, section_count, .trace_map, trace_map_ref orelse return error.ManifestFingerprintMismatch);
+        try validateRefSectionMatches(bytes, section_count, .normalization_certificate, normalization_certificate_ref orelse return error.ManifestFingerprintMismatch);
+
+        const dependency_graph = DependencyGraph{ .dependencies = dependency_slice };
+        const elaboration_dependency_ref = dependency_graph.lookup(.elaboration_certificate) orelse return error.ManifestFingerprintMismatch;
+        if (!elaboration_certificate_ref.eql(elaboration_dependency_ref)) return error.ManifestFingerprintMismatch;
+        try validateRefSectionMatches(bytes, section_count, .source_map, dependency_graph.lookup(.elaboration_source_map) orelse return error.ManifestFingerprintMismatch);
+        try validateRefSectionMatches(bytes, section_count, .effect_row, dependency_graph.lookup(.elaboration_effect_row) orelse return error.ManifestFingerprintMismatch);
+        try validateRefSectionMatches(bytes, section_count, .normal_form, dependency_graph.lookup(.normal_form) orelse return error.ManifestFingerprintMismatch);
+        try validateRefSectionMatches(bytes, section_count, .normalization_trace, dependency_graph.lookup(.normalization_trace) orelse return error.ManifestFingerprintMismatch);
+    }
+
+    fn validateRefSectionMatches(bytes: []const u8, section_count: u32, kind: SectionKind, expected: Ref) ValidationError!void {
+        const payload = sectionPayloadForKind(bytes, section_count, kind) orelse return error.MissingRequiredSection;
+        var reader = PayloadReader.init(payload);
+        const actual = try reader.readRef();
+        const semantic_fingerprint = try reader.readU64();
+        if (!reader.done()) return error.MalformedManifest;
+        if (!actual.eql(expected)) return error.ManifestFingerprintMismatch;
+        if (semantic_fingerprint != expected.fingerprint) return error.ManifestFingerprintMismatch;
+    }
+
+    fn sectionPayloadForKind(bytes: []const u8, section_count: u32, expected: SectionKind) ?[]const u8 {
+        for (0..@intCast(section_count)) |index| {
+            const entry_offset = header_len + index * section_table_entry_len;
+            const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
+            if (kind != expected) continue;
+            const start: usize = @intCast(readU64At(bytes, entry_offset + 8));
+            const len: usize = @intCast(readU64At(bytes, entry_offset + 16));
+            return bytes[start .. start + len];
+        }
+        return null;
+    }
+
+    fn sectionTableContainsKind(bytes: []const u8, section_count: u32, expected: SectionKind) bool {
+        for (0..@intCast(section_count)) |index| {
+            const entry_offset = header_len + index * section_table_entry_len;
+            const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
+            if (kind == expected and bytes[entry_offset + 2] != 0) return true;
+        }
+        return false;
+    }
+
+    fn sectionKindRequiredForFullModule(kind: SectionKind) bool {
+        return switch (kind) {
+            .import_surface,
+            .export_surface,
+            .program_plan_image,
+            .value_schema_image,
+            .world_surface,
+            .world_port_table,
+            .world_value_table,
+            .world_dispatch_table,
+            .surface_profile,
+            .source_map,
+            .trace_map,
+            .evidence_map,
+            .effect_row,
+            .normal_form,
+            .target_certificate,
+            .normalization_trace,
+            .normalization_certificate,
+            .replay_key_recipe,
+            => true,
+            .manifest,
+            .metadata,
+            => false,
+        };
+    }
+
+    fn fullModuleRequiredSectionMask() u32 {
+        var mask: u32 = 0;
+        inline for (std.meta.fields(SectionKind)) |field| {
+            const kind: SectionKind = @enumFromInt(field.value);
+            if (sectionKindRequiredForFullModule(kind)) mask |= @as(u32, 1) << @as(u5, @intCast(field.value));
+        }
+        return mask;
+    }
+
+    fn requiredManifestBoundSectionCount(bytes: []const u8, section_count: u32) u64 {
+        var count: u64 = 0;
+        for (0..@intCast(section_count)) |index| {
+            const entry_offset = header_len + index * section_table_entry_len;
+            const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
+            if (kind != .manifest and bytes[entry_offset + 2] != 0) count += 1;
+        }
+        return count;
+    }
+
+    fn parseKind(value: u8) ?Kind {
+        return switch (value) {
+            @intFromEnum(Kind.reference_only) => .reference_only,
+            @intFromEnum(Kind.full_module) => .full_module,
+            @intFromEnum(Kind.partial_module) => .partial_module,
+            else => null,
+        };
+    }
+
+    fn parseNormalForm(value: u8) ?BoundaryNormalFormKind {
+        inline for (std.meta.fields(BoundaryNormalFormKind)) |field| {
+            if (field.value == value) return @enumFromInt(field.value);
+        }
+        return null;
+    }
+
+    fn parseSectionKind(value: u16) ?SectionKind {
+        inline for (std.meta.fields(SectionKind)) |field| {
+            if (field.value == value) return @enumFromInt(field.value);
+        }
+        return null;
+    }
+
+    fn parseRoleName(name: []const u8) ?Role {
+        inline for (std.meta.fields(Role)) |field| {
+            if (std.mem.eql(u8, name, field.name)) return @enumFromInt(field.value);
+        }
+        return null;
+    }
+
+    fn domainIdFromInt(value: u16) ?Domain.Id {
+        inline for (std.meta.fields(Domain.Id)) |field| {
+            if (field.value == value) return @enumFromInt(field.value);
+        }
+        return null;
+    }
+
+    fn writeU16At(bytes: []u8, offset: usize, value: u16) void {
+        std.mem.writeInt(u16, bytes[offset..][0..2], value, .little);
+    }
+
+    fn writeU32At(bytes: []u8, offset: usize, value: u32) void {
+        std.mem.writeInt(u32, bytes[offset..][0..4], value, .little);
+    }
+
+    fn writeU64At(bytes: []u8, offset: usize, value: anytype) void {
+        std.mem.writeInt(u64, bytes[offset..][0..8], @intCast(value), .little);
+    }
+
+    fn readU16At(bytes: []const u8, offset: usize) u16 {
+        return std.mem.readInt(u16, bytes[offset..][0..2], .little);
+    }
+
+    fn readU32At(bytes: []const u8, offset: usize) u32 {
+        return std.mem.readInt(u32, bytes[offset..][0..4], .little);
+    }
+
+    fn readU64At(bytes: []const u8, offset: usize) u64 {
+        return std.mem.readInt(u64, bytes[offset..][0..8], .little);
+    }
+
+    fn u64FitsUsize(value: u64) bool {
+        return if (@bitSizeOf(usize) >= 64) true else value <= std.math.maxInt(usize);
+    }
+};
+
+test "boundary module import refs reject foreign domains" {
+    const world_port_ref = refFor(domains.boundary_world_port, 1, .{});
+    const effect_shape_ref = refFor(domains.boundary_effect_shape, 2, .{});
+    const replay_key_recipe_ref = refFor(domains.boundary_world_replay_key_recipe, 3, .{});
+    const host_intrinsic_ref = refFor(domains.host_intrinsic, 4, .{});
+
+    try BoundaryTargetModule.validateModuleImportRefs(world_port_ref, null, effect_shape_ref, replay_key_recipe_ref);
+    try BoundaryTargetModule.validateModuleImportRefs(world_port_ref, host_intrinsic_ref, effect_shape_ref, replay_key_recipe_ref);
+
+    var forged_world_port = world_port_ref;
+    forged_world_port.domain_id = domains.boundary_effect_shape.id;
+    try std.testing.expectError(error.MalformedImportSurface, BoundaryTargetModule.validateModuleImportRefs(forged_world_port, null, effect_shape_ref, replay_key_recipe_ref));
+
+    var forged_world_port_format = world_port_ref;
+    forged_world_port_format.format_version = null;
+    try std.testing.expectError(error.MalformedImportSurface, BoundaryTargetModule.validateModuleImportRefs(forged_world_port_format, null, effect_shape_ref, replay_key_recipe_ref));
+
+    var forged_host_intrinsic = host_intrinsic_ref;
+    forged_host_intrinsic.domain_id = domains.boundary_world_port.id;
+    try std.testing.expectError(error.MalformedImportSurface, BoundaryTargetModule.validateModuleImportRefs(world_port_ref, forged_host_intrinsic, effect_shape_ref, replay_key_recipe_ref));
+
+    var forged_effect_shape = effect_shape_ref;
+    forged_effect_shape.domain_id = domains.boundary_world_port.id;
+    try std.testing.expectError(error.MalformedImportSurface, BoundaryTargetModule.validateModuleImportRefs(world_port_ref, null, forged_effect_shape, replay_key_recipe_ref));
+
+    var forged_replay_key = replay_key_recipe_ref;
+    forged_replay_key.domain_id = domains.boundary_world_port.id;
+    try std.testing.expectError(error.MalformedImportSurface, BoundaryTargetModule.validateModuleImportRefs(world_port_ref, null, effect_shape_ref, forged_replay_key));
+}
+
+test "boundary module graph refs preserve graph format version" {
+    const ref = refForBoundaryModuleGraph(.{ .graph_fingerprint = 0xB0A7D });
+    try std.testing.expectEqual(domains.boundary_module_graph.id, ref.domain_id);
+    try std.testing.expectEqual(domains.boundary_module_graph.format_version, ref.format_version);
+}
+
+test "residual site duplicate tracking sorts once" {
+    var unique = [_]u64{ 4, 1, 9, 2 };
+    var duplicate = [_]u64{ 7, 3, 7, 1 };
+
+    try std.testing.expect(BoundaryTargetModule.residualSiteIndexesUnique(unique[0..]));
+    try std.testing.expect(!BoundaryTargetModule.residualSiteIndexesUnique(duplicate[0..]));
+}
+
+test "loaded module replay key seed includes response fingerprint" {
+    const first = BoundaryTargetModule.replayKeySeedForComponents(1, 2, 3, 4);
+    const second = BoundaryTargetModule.replayKeySeedForComponents(1, 2, 3, 5);
+    try std.testing.expect(first != second);
+}
+
+test "value schema image scalar codec count follows ValueCodec schema boundary" {
+    const TestProgram = struct {
+        pub const compiled_plan = lowering_api.ProgramPlan{
+            .label = "value-schema-image-codec-count",
+            .ir_hash = 0,
+            .entry_index = 0,
+            .functions = &.{},
+            .requirements = &.{},
+            .ops = &.{},
+            .outputs = &.{},
+            .instructions = &.{},
+        };
+    };
+
+    const image = BoundaryTargetModule.ValueSchemaImage.fromProgram(TestProgram);
+    try std.testing.expect(BoundaryTargetModule.valueSchemaImageScalarCodec(.string_list));
+    try std.testing.expect(!BoundaryTargetModule.valueSchemaImageScalarCodec(.product));
+    try std.testing.expect(!BoundaryTargetModule.valueSchemaImageScalarCodec(.sum));
+    try std.testing.expectEqual(@as(usize, 6), image.scalar_codec_count);
+    try std.testing.expect(BoundaryTargetModule.valueSchemaImageScalarCodecCountMatches(6));
+    try std.testing.expect(!BoundaryTargetModule.valueSchemaImageScalarCodecCountMatches(5));
+}
+
+test "forward optional known section versions require opt-in and newer format" {
+    const current = BoundaryTargetModule.sectionExpectedFormatVersion(.metadata);
+    const options = BoundaryTargetModule.ValidationOptions{ .allow_forward_optional_sections = true };
+
+    try std.testing.expect(BoundaryTargetModule.sectionHasForwardOptionalVersion(.metadata, false, current + 1, options));
+    try std.testing.expect(!BoundaryTargetModule.sectionHasForwardOptionalVersion(.metadata, false, current, options));
+    try std.testing.expect(!BoundaryTargetModule.sectionHasForwardOptionalVersion(.metadata, false, current - 1, options));
+    try std.testing.expect(!BoundaryTargetModule.sectionHasForwardOptionalVersion(.metadata, true, current + 1, options));
+    try std.testing.expect(!BoundaryTargetModule.sectionHasForwardOptionalVersion(.metadata, false, current + 1, .{}));
+}
+
+test "target certificate dependency roles require paired module surfaces" {
+    const ref = refFor(domains.program_plan, 1, .{});
+    const base_dependencies = [_]Dependency{
+        .{ .role = .elaboration_certificate, .ref = ref },
+        .{ .role = .elaboration_source_map, .ref = ref },
+        .{ .role = .elaboration_effect_row, .ref = ref },
+        .{ .role = .elaboration_trace_map, .ref = ref },
+        .{ .role = .world_surface, .ref = ref },
+        .{ .role = .world_port_table, .ref = ref },
+        .{ .role = .world_value_table, .ref = ref },
+        .{ .role = .world_dispatch_table, .ref = ref },
+        .{ .role = .surface_profile, .ref = ref },
+        .{ .role = .replay_key_recipe, .ref = ref },
+        .{ .role = .residual_program, .ref = ref },
+        .{ .role = .normalization_certificate, .ref = ref },
+        .{ .role = .normalization_trace, .ref = ref },
+        .{ .role = .normal_form, .ref = ref },
+    };
+    try std.testing.expect(targetCertificateDependencyRolesValid(&base_dependencies, false));
+    try std.testing.expect(!targetCertificateDependencyRolesValid(&base_dependencies, true));
+
+    const paired_surface_dependencies = base_dependencies ++ [_]Dependency{
+        .{ .role = .import_surface, .ref = ref },
+        .{ .role = .export_surface, .ref = ref },
+    };
+    try std.testing.expect(targetCertificateDependencyRolesValid(&paired_surface_dependencies, false));
+    try std.testing.expect(targetCertificateDependencyRolesValid(&paired_surface_dependencies, true));
+    try std.testing.expect(!targetCertificateModuleSurfaceRefsValid(&paired_surface_dependencies));
+
+    const paired_module_surface_dependencies = base_dependencies ++ [_]Dependency{
+        .{ .role = .import_surface, .ref = refFor(domains.boundary_module_import_surface, 2, .{}) },
+        .{ .role = .export_surface, .ref = refFor(domains.boundary_module_export_surface, 3, .{}) },
+    };
+    try std.testing.expect(targetCertificateDependencyRolesValid(&paired_module_surface_dependencies, true));
+    try std.testing.expect(!targetCertificateModuleSurfaceRefsValid(&paired_module_surface_dependencies));
+
+    const duplicated_import_surface_dependencies = base_dependencies ++ [_]Dependency{
+        .{ .role = .import_surface, .ref = ref },
+        .{ .role = .import_surface, .ref = refFor(domains.boundary_module_import_surface, 2, .{}) },
+    };
+    try std.testing.expect(!targetCertificateDependencyRolesValid(&duplicated_import_surface_dependencies, false));
+    try std.testing.expect(!targetCertificateDependencyRolesValid(&duplicated_import_surface_dependencies, true));
+
+    const unrelated_role_dependencies = paired_surface_dependencies ++ [_]Dependency{
+        .{ .role = .subject, .ref = ref },
+    };
+    try std.testing.expect(!targetCertificateDependencyRolesValid(&unrelated_role_dependencies, true));
+
+    const duplicate_singleton_dependencies = paired_surface_dependencies ++ [_]Dependency{
+        .{ .role = .normal_form, .ref = refFor(domains.boundary_normal_form, 2, .{}) },
+    };
+    try std.testing.expect(!targetCertificateDependencyRolesValid(&duplicate_singleton_dependencies, true));
+}
 
 fn normalizationRedexMatchesSourceEntry(
     redex: BoundaryNormalizationRedex,
@@ -5873,18 +8778,92 @@ fn targetCertificateDependenciesMatch(
     elaboration_certificate_ref: Ref,
     trace_map_ref: Ref,
     normalization_certificate_ref: Ref,
+    normalization_trace_ref: Ref,
+    normal_form_ref: Ref,
 ) bool {
+    if (!targetCertificateDependencyRolesValid(dependencies, false)) return false;
+    if (!targetCertificateModuleSurfaceRefsValid(dependencies)) return false;
     if (!targetBaseDependenciesContain(dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, residual_program_ref, elaboration_certificate_ref, trace_map_ref)) return false;
     if (!dependenciesContainRef(dependencies, .normalization_certificate, normalization_certificate_ref)) return false;
+    if (!dependenciesContainRef(dependencies, .normalization_trace, normalization_trace_ref)) return false;
+    if (!dependenciesContainRef(dependencies, .normal_form, normal_form_ref)) return false;
     var provider_mapping_count: usize = 0;
+    const import_surface_count = dependencyRoleCount(dependencies, .import_surface);
+    const export_surface_count = dependencyRoleCount(dependencies, .export_surface);
     for (dependencies) |dependency| {
         if (targetEvidenceMapBaseRole(dependency.role)) continue;
         if (dependency.role == .normalization_certificate) continue;
+        if (dependency.role == .normalization_trace) continue;
+        if (dependency.role == .normal_form) continue;
+        if (dependency.role == .import_surface or dependency.role == .export_surface) continue;
         if (dependency.role != .provider_program_mapping) return false;
         provider_mapping_count += 1;
     }
-    return dependencies.len == 12 + provider_mapping_count and
+    return dependencies.len == 14 + import_surface_count + export_surface_count + provider_mapping_count and
         providerMappingDependenciesMatch(dependencies, evidence_dependencies);
+}
+
+fn targetCertificateModuleSurfaceRefsValid(dependencies: []const Dependency) bool {
+    return dependencyRoleCount(dependencies, .import_surface) == 0 and
+        dependencyRoleCount(dependencies, .export_surface) == 0;
+}
+
+fn targetCertificateDependencyRolesValid(dependencies: []const Dependency, require_module_surfaces: bool) bool {
+    if ((DependencyGraph{ .dependencies = dependencies }).hasDuplicate()) return false;
+    const required_singleton_roles = [_]Role{
+        .elaboration_certificate,
+        .elaboration_source_map,
+        .elaboration_effect_row,
+        .elaboration_trace_map,
+        .world_surface,
+        .world_port_table,
+        .world_value_table,
+        .world_dispatch_table,
+        .surface_profile,
+        .replay_key_recipe,
+        .residual_program,
+        .normalization_certificate,
+        .normalization_trace,
+        .normal_form,
+    };
+    for (required_singleton_roles) |role| {
+        if (dependencyRoleCount(dependencies, role) != 1) return false;
+    }
+    const import_surface_count = dependencyRoleCount(dependencies, .import_surface);
+    const export_surface_count = dependencyRoleCount(dependencies, .export_surface);
+    if (require_module_surfaces) {
+        if (import_surface_count != 1 or export_surface_count != 1) return false;
+    } else {
+        if (import_surface_count != export_surface_count) return false;
+        if (import_surface_count > 1) return false;
+    }
+    for (dependencies) |dependency| {
+        if (targetEvidenceMapBaseRole(dependency.role)) continue;
+        if (targetCertificateExtraRoleAllowed(dependency.role)) continue;
+        return false;
+    }
+    return true;
+}
+
+fn targetCertificateExtraRoleAllowed(role: Role) bool {
+    return role == .normalization_certificate or
+        role == .normalization_trace or
+        role == .normal_form or
+        role == .import_surface or
+        role == .export_surface or
+        role == .provider_program_mapping;
+}
+
+fn dependencyRoleCount(dependencies: []const Dependency, role: Role) usize {
+    var count: usize = 0;
+    for (dependencies) |dependency| {
+        if (dependency.role == role) count += 1;
+    }
+    return count;
+}
+
+fn refMatchesDomainVersion(ref: Ref, domain: Domain) bool {
+    return ref.domain_id == domain.id and ref.format_version == domain.format_version;
 }
 
 fn providerMappingDependenciesMatch(target_dependencies: []const Dependency, evidence_dependencies: []const Dependency) bool {
@@ -7868,6 +10847,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
             pub const Policy = TargetPolicy;
             pub const Certificate = TargetCertificate;
             pub const EvidenceMap = TargetEvidenceMap;
+            pub const Module = BoundaryTargetModule;
             const TargetElaborationInput = Input;
             pub const PlanBuilder = struct {
                 pub fn synthesizeResidualProgram(comptime options: anytype) type {
@@ -8599,6 +11579,8 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     @compileError("BoundaryClosure.Elaboration.Target normalization certificate self-check failed: " ++ @errorName(err));
                 const TargetCertificateDependenciesValue = EvidenceMapDependenciesValue ++ [_]Dependency{
                     .{ .role = .normalization_certificate, .ref = NormalizationCertificateValue.evidenceRef() },
+                    .{ .role = .normalization_trace, .ref = NormalizationTraceValue.evidenceRef() },
+                    .{ .role = .normal_form, .ref = SourceBody.normal_form.evidenceRef() },
                 };
                 const CertificateValue = comptime TargetCertificate.init(.{
                     .target_label = target_label,
@@ -8635,6 +11617,7 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     pub const NormalForm = SourceBody.normal_form;
                     pub const NormalizationTrace = NormalizationTraceValue;
                     pub const NormalizationCertificate = NormalizationCertificateValue;
+                    pub const Module = BoundaryTargetModule.ForTarget(@This());
                     pub const RewriteSteps = NormalizationTraceValue.rewrite_steps;
                     pub const Redexes = NormalizationRedexesValue;
                     pub const Rules = NormalizationRulesValue;
