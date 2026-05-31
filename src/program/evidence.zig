@@ -6046,6 +6046,7 @@ pub const BoundaryTargetModule = struct {
 
         pub fn deinit(self: *@This()) void {
             self.allocator.free(self.imports);
+            self.allocator.free(self.manifest.required_section_refs);
             self.allocator.free(self.bytes);
             self.* = undefined;
         }
@@ -6203,12 +6204,16 @@ pub const BoundaryTargetModule = struct {
         const owned = try allocator.dupe(u8, bytes);
         errdefer allocator.free(owned);
         const parsed = try parseImage(owned, decode_options);
+        const required_section_refs = try parseManifestRequiredSectionRefs(allocator, parsed.manifest_payload);
+        errdefer allocator.free(required_section_refs);
         const imports = try parseImports(allocator, owned, parsed.import_surface_payload, parsed.manifest, decode_options);
         errdefer allocator.free(imports);
+        var manifest = parsed.manifest;
+        manifest.required_section_refs = required_section_refs;
         return .{
             .allocator = allocator,
             .bytes = owned,
-            .manifest = parsed.manifest,
+            .manifest = manifest,
             .validation_report = try validate(owned, decode_options),
             .imports = imports,
             .main_export = parsed.export_surface,
@@ -6292,6 +6297,7 @@ pub const BoundaryTargetModule = struct {
 
     const ParsedImage = struct {
         manifest: Manifest,
+        manifest_payload: []const u8,
         export_surface: ExportSurface,
         import_surface_payload: []const u8,
         section_count: usize,
@@ -6701,6 +6707,7 @@ pub const BoundaryTargetModule = struct {
             const offset = readU64At(bytes, entry_offset + 8);
             const length = readU64At(bytes, entry_offset + 16);
             const fingerprint = readU64At(bytes, entry_offset + 24);
+            if (!u64FitsUsize(offset) or !u64FitsUsize(length)) return error.SectionOutOfBounds;
             const start: usize = @intCast(offset);
             const len: usize = @intCast(length);
             if (len > bytes.len or start > bytes.len - len) return error.SectionOutOfBounds;
@@ -6757,10 +6764,34 @@ pub const BoundaryTargetModule = struct {
         try validateExportSurface(export_surface, manifest, export_payload.len != 0);
         return .{
             .manifest = manifest,
+            .manifest_payload = manifest_bytes,
             .export_surface = export_surface,
             .import_surface_payload = import_payload,
             .section_count = section_count,
         };
+    }
+
+    fn parseManifestRequiredSectionRefs(allocator: std.mem.Allocator, payload: []const u8) ![]SectionRef {
+        var reader = PayloadReader.init(payload);
+        _ = try reader.readU32();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU8();
+        _ = try reader.readBytes();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readOptionalU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU8();
+        const required_count = try reader.readU64();
+        if (required_count > 128 or !u64FitsUsize(required_count)) return error.LimitExceeded;
+        const refs = try allocator.alloc(SectionRef, @intCast(required_count));
+        errdefer allocator.free(refs);
+        for (refs) |*ref| ref.* = try reader.readSectionRef();
+        return refs;
     }
 
     fn parseManifest(payload: []const u8, image_bytes: []const u8, section_count: u32) ValidationError!Manifest {
@@ -7119,7 +7150,9 @@ pub const BoundaryTargetModule = struct {
         }
 
         fn readBytes(self: *@This()) ValidationError![]const u8 {
-            const len: usize = @intCast(try self.readU64());
+            const wire_len = try self.readU64();
+            if (!u64FitsUsize(wire_len)) return error.MalformedManifest;
+            const len: usize = @intCast(wire_len);
             if (len > self.bytes.len or self.index > self.bytes.len - len) return error.MalformedManifest;
             const value = self.bytes[self.index .. self.index + len];
             self.index += len;
@@ -7423,6 +7456,10 @@ pub const BoundaryTargetModule = struct {
 
     fn readU64At(bytes: []const u8, offset: usize) u64 {
         return std.mem.readInt(u64, bytes[offset..][0..8], .little);
+    }
+
+    fn u64FitsUsize(value: u64) bool {
+        return if (@bitSizeOf(usize) >= 64) true else value <= std.math.maxInt(usize);
     }
 };
 

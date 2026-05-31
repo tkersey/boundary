@@ -16476,6 +16476,8 @@ test "certified boundary module reference full image and loaded module projectio
     var loaded = try Target.Module.decode(allocator, full);
     defer loaded.deinit();
     try std.testing.expectEqual(@as(usize, 1), loaded.imports.len);
+    try std.testing.expectEqual(full_report.section_count - 1, loaded.manifest.required_section_refs.len);
+    try std.testing.expectEqual(Target.Module.SectionKind.import_surface, loaded.manifest.required_section_refs[0].kind);
     try std.testing.expectEqual(@as(u32, 0), loaded.worldPortForSite(closure_approval_request.index).?);
     try std.testing.expect(loaded.validateWorldSurfaceScope());
     try std.testing.expect(loaded.exportMain().export_surface_fingerprint != 0);
@@ -16531,6 +16533,13 @@ test "certified boundary module reference full image and loaded module projectio
     boundaryModuleWriteU16(duplicate_manifest_ref, required_refs + 31, @intFromEnum(Target.Module.SectionKind.import_surface));
     boundaryModuleRefreshSectionFingerprint(duplicate_manifest_ref, Target.Module.SectionKind.manifest);
     try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(duplicate_manifest_ref, .{ .require_full_module = true }));
+
+    const oversized_manifest_label = try allocator.dupe(u8, full);
+    defer allocator.free(oversized_manifest_label);
+    const manifest_with_oversized_label = boundaryModuleSection(oversized_manifest_label, Target.Module.SectionKind.manifest);
+    boundaryModuleWriteU64(oversized_manifest_label, manifest_with_oversized_label.start + 4 + 8 + 8 + 1, std.math.maxInt(u64));
+    boundaryModuleRefreshSectionFingerprint(oversized_manifest_label, Target.Module.SectionKind.manifest);
+    try std.testing.expectError(error.MalformedManifest, Target.Module.validate(oversized_manifest_label, .{ .require_full_module = true }));
 
     const missing_required_sections = try allocator.dupe(u8, full);
     defer allocator.free(missing_required_sections);
