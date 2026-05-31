@@ -6867,7 +6867,7 @@ pub const BoundaryTargetModule = struct {
         module_builder.fieldU64("world_surface_fingerprint", world_surface_fingerprint);
         module_builder.fieldU64("target_certificate_fingerprint", target_certificate_fingerprint);
         module_builder.fieldU64("normalization_certificate_fingerprint", normalization_certificate_fingerprint orelse 0);
-        try reader.validateSectionRefs(required_count, image_bytes, section_count, &module_builder);
+        try reader.validateSectionRefs(required_count, image_bytes, section_count, kind, &module_builder);
         if (kind == .full_module and required_count != requiredManifestBoundSectionCount(image_bytes, section_count)) return error.MissingRequiredSection;
         if (module_fingerprint != module_builder.finish()) return error.ModuleFingerprintMismatch;
         const external_count = try reader.readU64();
@@ -7282,16 +7282,18 @@ pub const BoundaryTargetModule = struct {
             };
         }
 
-        fn validateSectionRefs(self: *@This(), count: u64, image_bytes: []const u8, section_count: u32, module_builder: *FingerprintBuilder) ValidationError!void {
+        fn validateSectionRefs(self: *@This(), count: u64, image_bytes: []const u8, section_count: u32, manifest_kind: Kind, module_builder: *FingerprintBuilder) ValidationError!void {
             var seen_kinds: u32 = 0;
             for (0..@intCast(count)) |_| {
                 const section = try self.readSectionRef();
+                if (manifest_kind == .full_module and (!section.required or !sectionKindRequiredForFullModule(section.kind))) return error.MissingRequiredSection;
                 const kind_bit = @as(u32, 1) << @as(u5, @intCast(@intFromEnum(section.kind)));
                 if ((seen_kinds & kind_bit) != 0) return error.MissingRequiredSection;
                 seen_kinds |= kind_bit;
                 writeSectionRef(module_builder, section);
                 if (!sectionTableContainsManifestRef(image_bytes, section_count, section)) return error.MissingRequiredSection;
             }
+            if (manifest_kind == .full_module and seen_kinds != fullModuleRequiredSectionMask()) return error.MissingRequiredSection;
         }
     };
 
@@ -7562,6 +7564,42 @@ pub const BoundaryTargetModule = struct {
             if (kind == expected and bytes[entry_offset + 2] != 0) return true;
         }
         return false;
+    }
+
+    fn sectionKindRequiredForFullModule(kind: SectionKind) bool {
+        return switch (kind) {
+            .import_surface,
+            .export_surface,
+            .program_plan_image,
+            .value_schema_image,
+            .world_surface,
+            .world_port_table,
+            .world_value_table,
+            .world_dispatch_table,
+            .surface_profile,
+            .source_map,
+            .trace_map,
+            .evidence_map,
+            .effect_row,
+            .normal_form,
+            .target_certificate,
+            .normalization_trace,
+            .normalization_certificate,
+            .replay_key_recipe,
+            => true,
+            .manifest,
+            .metadata,
+            => false,
+        };
+    }
+
+    fn fullModuleRequiredSectionMask() u32 {
+        var mask: u32 = 0;
+        inline for (std.meta.fields(SectionKind)) |field| {
+            const kind: SectionKind = @enumFromInt(field.value);
+            if (sectionKindRequiredForFullModule(kind)) mask |= @as(u32, 1) << @as(u5, @intCast(field.value));
+        }
+        return mask;
     }
 
     fn requiredManifestBoundSectionCount(bytes: []const u8, section_count: u32) u64 {
