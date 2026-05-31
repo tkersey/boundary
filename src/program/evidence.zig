@@ -6241,6 +6241,9 @@ pub const BoundaryTargetModule = struct {
             pub const ExportSurface = BoundaryTargetModule.ExportSurface;
             pub const Graph = BoundaryTargetModule.Graph;
             pub const LoadedModule = BoundaryTargetModule.LoadedModule;
+            pub const ImportBinding = BoundaryTargetModule.ImportBinding;
+            pub const ImportBindingPolicy = BoundaryTargetModule.ImportBindingPolicy;
+            pub const ImportBindingError = BoundaryTargetModule.ImportBindingError;
             pub const ValidationOptions = BoundaryTargetModule.ValidationOptions;
             pub const ValidationReport = BoundaryTargetModule.ValidationReport;
             pub const ProgramPlanImage = BoundaryTargetModule.ProgramPlanImage;
@@ -6266,6 +6269,10 @@ pub const BoundaryTargetModule = struct {
 
             pub fn validate(bytes: []const u8, options: BoundaryTargetModule.ValidationOptions) !BoundaryTargetModule.ValidationReport {
                 return BoundaryTargetModule.validate(bytes, options);
+            }
+
+            pub fn validateImportBindings(imports: []const BoundaryTargetModule.ImportSurface.Import, bindings: []const BoundaryTargetModule.ImportBinding, policy: BoundaryTargetModule.ImportBindingPolicy) BoundaryTargetModule.ImportBindingError!void {
+                return BoundaryTargetModule.validateImportBindings(imports, bindings, policy);
             }
 
             pub fn validateSelf() !void {
@@ -7182,13 +7189,17 @@ pub const BoundaryTargetModule = struct {
             const fingerprint = try self.readU64();
             const format_version = try self.readOptionalU64();
             if (format_version != null and format_version.? > std.math.maxInt(u32)) return error.MalformedManifest;
+            const label = try self.readOptionalBytes();
+            const branch_id = try self.readOptionalU64();
+            const site_index = try self.readOptionalU64();
+            if (site_index != null and !u64FitsUsize(site_index.?)) return error.MalformedManifest;
             return .{
                 .domain_id = domain_id,
                 .fingerprint = fingerprint,
                 .format_version = if (format_version) |value| @as(u32, @intCast(value)) else null,
-                .label = try self.readOptionalBytes(),
-                .branch_id = try self.readOptionalU64(),
-                .site_index = if (try self.readOptionalU64()) |value| @as(usize, @intCast(value)) else null,
+                .label = label,
+                .branch_id = branch_id,
+                .site_index = if (site_index) |value| @as(usize, @intCast(value)) else null,
                 .kind_tag = try self.readOptionalBytes(),
             };
         }

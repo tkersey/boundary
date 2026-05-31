@@ -16486,22 +16486,22 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expectEqual(@as(u32, 0), loaded.worldPortForSite(closure_approval_request.index).?);
     try std.testing.expect(loaded.validateWorldSurfaceScope());
     try std.testing.expect(loaded.exportMain().export_surface_fingerprint != 0);
-    const binding = Evidence.BoundaryTargetModule.ImportBinding{
+    const binding = Target.Module.ImportBinding{
         .world_port_id = loaded.imports[0].world_port_id,
         .world_port_ref = loaded.imports[0].world_port_ref,
         .payload_ref = loaded.imports[0].payload_ref,
         .response_ref = loaded.imports[0].response_ref,
     };
-    try Evidence.BoundaryTargetModule.validateImportBindings(loaded.imports, &.{binding}, .{});
-    try std.testing.expectError(error.MissingRequiredImport, Evidence.BoundaryTargetModule.validateImportBindings(loaded.imports, &.{}, .{}));
-    const extra_binding = Evidence.BoundaryTargetModule.ImportBinding{
+    try Target.Module.validateImportBindings(loaded.imports, &.{binding}, .{});
+    try std.testing.expectError(error.MissingRequiredImport, Target.Module.validateImportBindings(loaded.imports, &.{}, .{}));
+    const extra_binding = Target.Module.ImportBinding{
         .world_port_id = 999,
         .world_port_ref = binding.world_port_ref,
         .payload_ref = binding.payload_ref,
         .response_ref = binding.response_ref,
     };
-    try std.testing.expectError(error.ExtraImportBinding, Evidence.BoundaryTargetModule.validateImportBindings(loaded.imports, &.{ binding, extra_binding }, .{}));
-    try std.testing.expectError(error.ExtraImportBinding, Evidence.BoundaryTargetModule.validateImportBindings(loaded.imports, &.{ binding, binding }, .{}));
+    try std.testing.expectError(error.ExtraImportBinding, Target.Module.validateImportBindings(loaded.imports, &.{ binding, extra_binding }, .{}));
+    try std.testing.expectError(error.ExtraImportBinding, Target.Module.validateImportBindings(loaded.imports, &.{ binding, binding }, .{}));
     var session = Target.Module.LoadedModule.Session.start(&loaded);
     try std.testing.expectError(error.UnsupportedLoadedExecution, session.next());
 
