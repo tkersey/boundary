@@ -16464,6 +16464,7 @@ test "certified boundary module reference full image and loaded module projectio
     const reference_report = try Target.Module.validate(reference, .{ .allow_reference_only = true });
     try std.testing.expectEqual(Target.Module.Kind.reference_only, reference_report.module_kind);
     try Target.Module.validateReferenceAgainst(reference);
+    try std.testing.expectError(error.FullModuleRequired, Target.Module.decode(allocator, reference));
 
     const full = try Target.Module.fullImage(allocator);
     defer allocator.free(full);

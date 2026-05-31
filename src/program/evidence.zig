@@ -6189,16 +6189,19 @@ pub const BoundaryTargetModule = struct {
     }
 
     pub fn decode(allocator: std.mem.Allocator, bytes: []const u8, options: ValidationOptions) !LoadedModule {
+        var decode_options = options;
+        decode_options.require_full_module = true;
+        decode_options.allow_reference_only = false;
         const owned = try allocator.dupe(u8, bytes);
         errdefer allocator.free(owned);
-        const parsed = try parseImage(owned, options);
-        const imports = try parseImports(allocator, owned, parsed.import_surface_payload, parsed.manifest, options);
+        const parsed = try parseImage(owned, decode_options);
+        const imports = try parseImports(allocator, owned, parsed.import_surface_payload, parsed.manifest, decode_options);
         errdefer allocator.free(imports);
         return .{
             .allocator = allocator,
             .bytes = owned,
             .manifest = parsed.manifest,
-            .validation_report = try validate(owned, options),
+            .validation_report = try validate(owned, decode_options),
             .imports = imports,
             .main_export = parsed.export_surface,
         };
@@ -6737,6 +6740,7 @@ pub const BoundaryTargetModule = struct {
         if (manifest.module_kind != image_kind) return error.ModuleFingerprintMismatch;
         if (manifest.world_port_count > options.max_world_ports) return error.LimitExceeded;
         if (manifest.module_kind == .full_module and import_payload.len == 0) return error.MissingRequiredSection;
+        if (manifest.module_kind == .full_module) try validateFullModuleSections(bytes, section_count);
         try validateImportSurfacePayload(import_payload, manifest, options);
         const export_surface = if (export_payload.len == 0) emptyExportSurface(manifest) else try parseExportSurface(export_payload);
         try validateExportSurface(export_surface, manifest, export_payload.len != 0);
@@ -7157,6 +7161,40 @@ pub const BoundaryTargetModule = struct {
             {
                 return true;
             }
+        }
+        return false;
+    }
+
+    fn validateFullModuleSections(bytes: []const u8, section_count: u32) ValidationError!void {
+        const required = [_]SectionKind{
+            .import_surface,
+            .export_surface,
+            .program_plan_image,
+            .value_schema_image,
+            .world_surface,
+            .world_port_table,
+            .world_value_table,
+            .world_dispatch_table,
+            .surface_profile,
+            .source_map,
+            .trace_map,
+            .evidence_map,
+            .effect_row,
+            .normal_form,
+            .target_certificate,
+            .normalization_trace,
+            .normalization_certificate,
+        };
+        for (required) |kind| {
+            if (!sectionTableContainsKind(bytes, section_count, kind)) return error.MissingRequiredSection;
+        }
+    }
+
+    fn sectionTableContainsKind(bytes: []const u8, section_count: u32, expected: SectionKind) bool {
+        for (0..@intCast(section_count)) |index| {
+            const entry_offset = header_len + index * section_table_entry_len;
+            const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
+            if (kind == expected and bytes[entry_offset + 2] != 0) return true;
         }
         return false;
     }
