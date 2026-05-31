@@ -5708,10 +5708,22 @@ pub const BoundaryTargetModule = struct {
         return false;
     }
 
+    fn boundaryValueRefCodecRequiresSchema(codec: []const u8) ?bool {
+        inline for (@typeInfo(lowering_api.ValueCodec).@"enum".fields) |field| {
+            if (std.mem.eql(u8, codec, field.name)) {
+                const value: lowering_api.ValueCodec = @enumFromInt(field.value);
+                return !valueSchemaImageScalarCodec(value);
+            }
+        }
+        return null;
+    }
+
     fn boundaryValueRefWithinSchema(ref: BoundaryValueRef, schema_count: u64) bool {
-        if (!boundaryValueRefCodecKnown(ref.codec)) return false;
-        if (ref.schema_index) |schema_index| return @as(u64, schema_index) < schema_count;
-        return true;
+        const requires_schema = boundaryValueRefCodecRequiresSchema(ref.codec) orelse return false;
+        if (ref.schema_index) |schema_index| {
+            return requires_schema and @as(u64, schema_index) < schema_count;
+        }
+        return !requires_schema;
     }
 
     fn optionalBoundaryValueRefWithinSchema(ref: ?BoundaryValueRef, schema_count: u64) bool {
