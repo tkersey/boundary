@@ -6406,7 +6406,7 @@ pub const BoundaryTargetModule = struct {
         }
 
         pub fn dependencyCount(self: @This()) usize {
-            return self.manifest_value.external_dependency_refs.len;
+            return self.manifest_value.required_section_refs.len + self.manifest_value.external_dependency_refs.len;
         }
 
         pub fn isReferenceOnly(self: @This()) bool {
@@ -6882,7 +6882,7 @@ pub const BoundaryTargetModule = struct {
             .can_decode = parsed.manifest.module_kind == .full_module,
             .known_required_sections = true,
             .ignored_optional_sections = parsed.ignored_optional_sections,
-            .unknown_optional_sections = parsed.ignored_optional_sections,
+            .unknown_optional_sections = parsed.unknown_optional_sections,
             .requires_loaded_execution = parsed.manifest.module_kind == .full_module,
             .unsupported_loaded_execution_features = parsed.manifest.module_kind == .full_module,
             .warning_count = parsed.ignored_optional_sections,
@@ -6995,8 +6995,11 @@ pub const BoundaryTargetModule = struct {
     }
 
     fn compatibilityForFailure(bytes: []const u8, options: ValidationOptions, err: ValidationError) CompatibilityReport {
-        _ = options;
         const module_kind = parseImageKindForReport(bytes) orelse .partial_module;
+        const invalid_version_section = if (err == error.InvalidVersion) invalidVersionSectionKind(bytes, options) else null;
+        const invalid_module_version = err == error.InvalidVersion and invalid_version_section == null;
+        const invalid_program_plan_version = invalid_version_section == .program_plan_image;
+        const invalid_value_schema_version = invalid_version_section == .value_schema_image;
         return .{
             .module_fingerprint = parseModuleFingerprintForReport(bytes) orelse 0,
             .compatible = false,
@@ -7005,15 +7008,37 @@ pub const BoundaryTargetModule = struct {
             .unknown_required_sections = if (err == error.UnknownRequiredSection) 1 else 0,
             .unknown_optional_sections = if (err == error.UnknownSection) 1 else 0,
             .unsupported_section_versions = if (err == error.InvalidVersion) 1 else 0,
-            .unsupported_module_version = err == error.InvalidVersion,
-            .unsupported_program_plan_image_version = err == error.InvalidVersion,
-            .unsupported_value_schema_image_version = err == error.InvalidVersion,
+            .unsupported_module_version = invalid_module_version,
+            .unsupported_program_plan_image_version = invalid_program_plan_version,
+            .unsupported_value_schema_image_version = invalid_value_schema_version,
             .requires_external_dependencies = err == error.PartialModuleRejected,
             .missing_external_dependencies = if (err == error.PartialModuleRejected) 1 else 0,
             .max_limit_blockers = if (err == error.ImageTooLarge or err == error.SectionCountTooLarge or err == error.LimitExceeded) 1 else 0,
             .blocker_count = 1,
             .module_kind = module_kind,
         };
+    }
+
+    fn invalidVersionSectionKind(bytes: []const u8, options: ValidationOptions) ?SectionKind {
+        if (bytes.len < header_len) return null;
+        if (readU32At(bytes, 8) != domains.boundary_module.format_version.?) return null;
+        if (readU32At(bytes, 12) != domains.boundary_module.fingerprint_version) return null;
+        if (parseKind(bytes[16]) == null) return null;
+        const section_count = readU32At(bytes, 20);
+        const table_end = header_len + @as(usize, @intCast(section_count)) * section_table_entry_len;
+        if (table_end > bytes.len) return null;
+        for (0..@intCast(section_count)) |index| {
+            const entry_offset = header_len + index * section_table_entry_len;
+            const raw_kind = readU16At(bytes, entry_offset);
+            const kind = parseSectionKind(raw_kind) orelse continue;
+            const required_byte = bytes[entry_offset + 2];
+            if (required_byte > 1) return null;
+            const format_version = readU32At(bytes, entry_offset + 4);
+            if (format_version == sectionExpectedFormatVersion(kind)) continue;
+            if (sectionHasForwardOptionalVersion(kind, required_byte != 0, format_version, options)) continue;
+            return kind;
+        }
+        return null;
     }
 
     fn diagnosticForValidationError(bytes: []const u8, err: ValidationError) ValidationDiagnostic {
@@ -7069,6 +7094,14 @@ pub const BoundaryTargetModule = struct {
                     .byte_offset = start,
                     .expected_fingerprint = recorded,
                     .actual_fingerprint = actual,
+                };
+            }
+            if (err == error.InvalidVersion and kind != null) {
+                const format_version = readU32At(bytes, entry_offset + 4);
+                if (format_version != sectionExpectedFormatVersion(kind.?)) return .{
+                    .section_kind = kind,
+                    .section_index = index,
+                    .byte_offset = start,
                 };
             }
         }
@@ -7330,6 +7363,7 @@ pub const BoundaryTargetModule = struct {
         import_surface_payload: []const u8,
         section_count: usize,
         ignored_optional_sections: usize,
+        unknown_optional_sections: usize,
     };
 
     fn sectionDomain(kind: SectionKind) Domain {
@@ -7804,6 +7838,7 @@ pub const BoundaryTargetModule = struct {
         var import_payload: []const u8 = &.{};
         var export_payload: []const u8 = &.{};
         var ignored_optional_sections: usize = 0;
+        var unknown_optional_sections: usize = 0;
         for (0..@intCast(section_count)) |index| {
             const entry_offset = header_len + index * section_table_entry_len;
             const raw_kind = readU16At(bytes, entry_offset);
@@ -7832,6 +7867,7 @@ pub const BoundaryTargetModule = struct {
                 const payload = bytes[start..end];
                 if (unknownSectionPayloadFingerprint(raw_kind, format_version, payload) != fingerprint) return error.SectionFingerprintMismatch;
                 ignored_optional_sections += 1;
+                unknown_optional_sections += 1;
                 continue;
             };
             const payload = bytes[start..end];
@@ -7889,6 +7925,7 @@ pub const BoundaryTargetModule = struct {
             .import_surface_payload = import_payload,
             .section_count = section_count,
             .ignored_optional_sections = ignored_optional_sections,
+            .unknown_optional_sections = unknown_optional_sections,
         };
     }
 

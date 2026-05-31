@@ -16512,6 +16512,7 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expectEqual(@as(usize, 1), loaded.requiredImports().len);
     try std.testing.expectEqual(@as(usize, 0), loaded.optionalImports().len);
     try std.testing.expectEqual(full_report.section_count - 1, loaded.manifest().required_section_refs.len);
+    try std.testing.expectEqual(loaded.manifest().required_section_refs.len, loaded.dependencyCount());
     try std.testing.expectEqual(Target.Module.SectionKind.import_surface, loaded.manifest().required_section_refs[0].kind);
     try std.testing.expectEqual(
         @as(u64, @intCast(boundaryModuleSection(full, Target.Module.SectionKind.import_surface).start)),
@@ -16669,6 +16670,38 @@ test "certified boundary module reference full image and loaded module projectio
     defer allocator.free(bad_fingerprint);
     bad_fingerprint[bad_fingerprint.len - 1] ^= 0x1;
     try std.testing.expectError(error.SectionFingerprintMismatch, Target.Module.validate(bad_fingerprint, .{}));
+
+    const forward_import_surface_version = try allocator.dupe(u8, full);
+    defer allocator.free(forward_import_surface_version);
+    const forward_import_surface = boundaryModuleSection(forward_import_surface_version, Target.Module.SectionKind.import_surface);
+    boundaryModuleWriteU32(forward_import_surface_version, forward_import_surface.entry_offset + 4, Evidence.domains.boundary_module_import_surface.format_version.? + 1);
+    const forward_import_surface_report = Target.Module.validationReport(forward_import_surface_version, .{ .require_full_module = true });
+    try std.testing.expect(!forward_import_surface_report.valid);
+    try std.testing.expectEqual(@as(usize, 1), forward_import_surface_report.compatibility.unsupported_section_versions);
+    try std.testing.expect(!forward_import_surface_report.compatibility.unsupported_module_version);
+    try std.testing.expect(!forward_import_surface_report.compatibility.unsupported_program_plan_image_version);
+    try std.testing.expect(!forward_import_surface_report.compatibility.unsupported_value_schema_image_version);
+    try std.testing.expectEqual(Target.Module.SectionKind.import_surface, forward_import_surface_report.diagnosticSlice()[0].section_kind.?);
+
+    const forward_program_plan_version = try allocator.dupe(u8, full);
+    defer allocator.free(forward_program_plan_version);
+    const forward_program_plan = boundaryModuleSection(forward_program_plan_version, Target.Module.SectionKind.program_plan_image);
+    boundaryModuleWriteU32(forward_program_plan_version, forward_program_plan.entry_offset + 4, Evidence.domains.boundary_program_plan_image.format_version.? + 1);
+    const forward_program_plan_report = Target.Module.validationReport(forward_program_plan_version, .{ .require_full_module = true });
+    try std.testing.expect(!forward_program_plan_report.valid);
+    try std.testing.expect(!forward_program_plan_report.compatibility.unsupported_module_version);
+    try std.testing.expect(forward_program_plan_report.compatibility.unsupported_program_plan_image_version);
+    try std.testing.expect(!forward_program_plan_report.compatibility.unsupported_value_schema_image_version);
+    try std.testing.expectEqual(Target.Module.SectionKind.program_plan_image, forward_program_plan_report.diagnosticSlice()[0].section_kind.?);
+
+    const forward_module_header_version = try allocator.dupe(u8, full);
+    defer allocator.free(forward_module_header_version);
+    boundaryModuleWriteU32(forward_module_header_version, 8, Evidence.domains.boundary_module.format_version.? + 1);
+    const forward_module_header_report = Target.Module.validationReport(forward_module_header_version, .{ .require_full_module = true });
+    try std.testing.expect(!forward_module_header_report.valid);
+    try std.testing.expect(forward_module_header_report.compatibility.unsupported_module_version);
+    try std.testing.expect(!forward_module_header_report.compatibility.unsupported_program_plan_image_version);
+    try std.testing.expect(!forward_module_header_report.compatibility.unsupported_value_schema_image_version);
 
     const forged_import_surface = try allocator.dupe(u8, full);
     defer allocator.free(forged_import_surface);
