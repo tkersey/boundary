@@ -6944,7 +6944,7 @@ pub const BoundaryTargetModule = struct {
         if (count > options.max_world_ports or count != manifest.world_port_count) return error.LimitExceeded;
         const imports = try allocator.alloc(ImportSurface.Import, @intCast(count));
         errdefer allocator.free(imports);
-        for (imports) |*import| {
+        for (imports, 0..) |*import, import_index| {
             const import_id = try reader.readU32();
             const world_port_id = try reader.readU32();
             if (world_port_id >= manifest.world_port_count) return error.MalformedImportSurface;
@@ -6954,6 +6954,10 @@ pub const BoundaryTargetModule = struct {
             const residual_site_index = try reader.readU64();
             if (!u64FitsUsize(residual_site_index)) return error.MalformedImportSurface;
             const residual_site_fingerprint = try reader.readU64();
+            const residual_site_index_usize: usize = @intCast(residual_site_index);
+            for (imports[0..import_index]) |previous| {
+                if (previous.residual_site_index == residual_site_index_usize) return error.MalformedImportSurface;
+            }
             const payload_value_table_id = try reader.readU32();
             const response_value_table_id = try reader.readU32();
             const payload_ref = try reader.readValueRef();
@@ -7011,6 +7015,8 @@ pub const BoundaryTargetModule = struct {
         if (count > 65_536) return error.LimitExceeded;
         var seen_import_ids = [_]u64{0} ** 1024;
         var seen_world_port_ids = [_]u64{0} ** 1024;
+        var seen_residual_site_indexes: [65_536]u64 = undefined;
+        var seen_residual_site_count: usize = 0;
         for (0..@intCast(count)) |_| {
             const import_id = try reader.readU32();
             const world_port_id = try reader.readU32();
@@ -7024,6 +7030,9 @@ pub const BoundaryTargetModule = struct {
             const residual_site_index = try reader.readU64();
             if (!u64FitsUsize(residual_site_index)) return error.MalformedImportSurface;
             const residual_site_fingerprint = try reader.readU64();
+            if (residualSiteIndexSeen(seen_residual_site_indexes[0..seen_residual_site_count], residual_site_index)) return error.MalformedImportSurface;
+            seen_residual_site_indexes[seen_residual_site_count] = residual_site_index;
+            seen_residual_site_count += 1;
             const payload_value_table_id = try reader.readU32();
             const response_value_table_id = try reader.readU32();
             const payload_ref = try reader.readValueRef();
@@ -7082,6 +7091,13 @@ pub const BoundaryTargetModule = struct {
         if ((seen[word_index] & bit) != 0) return false;
         seen[word_index] |= bit;
         return true;
+    }
+
+    fn residualSiteIndexSeen(seen: []const u64, residual_site_index: u64) bool {
+        for (seen) |seen_index| {
+            if (seen_index == residual_site_index) return true;
+        }
+        return false;
     }
 
     fn parseExportSurface(payload: []const u8) ValidationError!ExportSurface {
@@ -7583,7 +7599,7 @@ pub const BoundaryTargetModule = struct {
                 const ref = try reader.readRef();
                 const semantic_fingerprint = try reader.readU64();
                 if (!reader.done()) return error.MalformedManifest;
-                if (ref.domain_id != sectionDomain(kind).id) return error.ManifestFingerprintMismatch;
+                if (!refMatchesDomainVersion(ref, sectionDomain(kind))) return error.ManifestFingerprintMismatch;
                 if (semantic_fingerprint != ref.fingerprint) return error.ManifestFingerprintMismatch;
                 if (kind == .world_surface and semantic_fingerprint != manifest.world_surface_fingerprint) return error.ManifestFingerprintMismatch;
                 if (kind == .target_certificate and semantic_fingerprint != manifest.target_certificate_fingerprint) return error.ManifestFingerprintMismatch;
