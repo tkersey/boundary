@@ -7012,7 +7012,7 @@ pub const BoundaryTargetModule = struct {
         if (count > options.max_world_ports or count != manifest.world_port_count) return error.LimitExceeded;
         const imports = try allocator.alloc(ImportSurface.Import, @intCast(count));
         errdefer allocator.free(imports);
-        for (imports, 0..) |*import, import_index| {
+        for (imports) |*import| {
             const import_id = try reader.readU32();
             const world_port_id = try reader.readU32();
             if (world_port_id >= manifest.world_port_count) return error.MalformedImportSurface;
@@ -7022,10 +7022,6 @@ pub const BoundaryTargetModule = struct {
             const residual_site_index = try reader.readU64();
             if (!u64FitsUsize(residual_site_index)) return error.MalformedImportSurface;
             const residual_site_fingerprint = try reader.readU64();
-            const residual_site_index_usize: usize = @intCast(residual_site_index);
-            for (imports[0..import_index]) |previous| {
-                if (previous.residual_site_index == residual_site_index_usize) return error.MalformedImportSurface;
-            }
             const payload_value_table_id = try reader.readU32();
             const response_value_table_id = try reader.readU32();
             const payload_ref = try reader.readValueRef();
