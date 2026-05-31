@@ -6363,6 +6363,7 @@ pub const BoundaryTargetModule = struct {
             pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !BoundaryTargetModule.LoadedModule {
                 var loaded = try BoundaryTargetModule.decode(allocator, bytes, .{});
                 errdefer loaded.deinit();
+                try validateTargetModuleIdentity(loaded.manifest, loaded.main_export);
                 try validateTargetImports(loaded.imports);
                 return loaded;
             }
@@ -6382,9 +6383,27 @@ pub const BoundaryTargetModule = struct {
                 decode_options.require_full_module = true;
                 decode_options.allow_reference_only = false;
                 const parsed = try parseImage(bytes, decode_options);
+                try validateTargetModuleIdentity(parsed.manifest, parsed.export_surface);
                 const imports = try parseImports(decode_options.allocator, bytes, parsed.import_surface_payload, parsed.manifest, decode_options);
                 defer decode_options.allocator.free(imports);
                 try validateTargetImports(imports);
+            }
+
+            fn validateTargetModuleIdentity(manifest_value: BoundaryTargetModule.Manifest, export_surface: BoundaryTargetModule.ExportSurface) ValidationError!void {
+                @setEvalBranchQuota(2_000_000);
+                const expected_import_surface = comptime importSurfaceForTarget(Target, 0);
+                const expected_export_surface = comptime exportSurfaceForTarget(Target, 0);
+                if (manifest_value.module_kind != .full_module) return error.FullModuleRequired;
+                if (!std.mem.eql(u8, manifest_value.target_label, Target.Certificate.target_label)) return error.ModuleFingerprintMismatch;
+                if (manifest_value.program_plan_hash != Target.Program.compiled_plan.hash()) return error.ModuleFingerprintMismatch;
+                if (manifest_value.world_surface_fingerprint != Target.WorldSurface.surface_fingerprint) return error.ModuleFingerprintMismatch;
+                if (manifest_value.target_certificate_fingerprint != Target.Certificate.certificate_fingerprint) return error.ModuleFingerprintMismatch;
+                if (manifest_value.normalization_certificate_fingerprint != Target.NormalizationCertificate.certificate_fingerprint) return error.ModuleFingerprintMismatch;
+                if (manifest_value.import_surface_fingerprint != expected_import_surface.import_surface_fingerprint) return error.ModuleFingerprintMismatch;
+                if (manifest_value.export_surface_fingerprint != expected_export_surface.export_surface_fingerprint) return error.ModuleFingerprintMismatch;
+                if (manifest_value.world_port_count != Target.WorldPortTable.entries.len) return error.ModuleFingerprintMismatch;
+                if (manifest_value.normal_form != Target.NormalForm.kind) return error.ModuleFingerprintMismatch;
+                if (export_surface.export_surface_fingerprint != expected_export_surface.export_surface_fingerprint) return error.ModuleFingerprintMismatch;
             }
 
             fn validateTargetImports(imports: []const BoundaryTargetModule.ImportSurface.Import) ValidationError!void {
