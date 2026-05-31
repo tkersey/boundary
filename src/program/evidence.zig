@@ -7621,6 +7621,7 @@ pub const BoundaryTargetModule = struct {
         }
         if (!reader.done()) return error.MalformedManifest;
         const dependency_slice = dependencies[0..@intCast(dependency_count)];
+        if (!targetCertificateDependencyRolesValid(dependency_slice, true)) return error.ManifestFingerprintMismatch;
         const certificate = BoundaryTargetCertificate{
             .certificate_fingerprint = certificate_fingerprint,
             .target_label = target_label,
@@ -7835,6 +7836,52 @@ test "boundary module import refs reject foreign domains" {
     var forged_replay_key = replay_key_recipe_ref;
     forged_replay_key.domain_id = domains.boundary_world_port.id;
     try std.testing.expectError(error.MalformedImportSurface, BoundaryTargetModule.validateModuleImportRefs(world_port_ref, null, effect_shape_ref, forged_replay_key));
+}
+
+test "target certificate dependency roles require paired module surfaces" {
+    const ref = refFor(domains.program_plan, 1, .{});
+    const base_dependencies = [_]Dependency{
+        .{ .role = .elaboration_certificate, .ref = ref },
+        .{ .role = .elaboration_source_map, .ref = ref },
+        .{ .role = .elaboration_effect_row, .ref = ref },
+        .{ .role = .elaboration_trace_map, .ref = ref },
+        .{ .role = .world_surface, .ref = ref },
+        .{ .role = .world_port_table, .ref = ref },
+        .{ .role = .world_value_table, .ref = ref },
+        .{ .role = .world_dispatch_table, .ref = ref },
+        .{ .role = .surface_profile, .ref = ref },
+        .{ .role = .replay_key_recipe, .ref = ref },
+        .{ .role = .residual_program, .ref = ref },
+        .{ .role = .normalization_certificate, .ref = ref },
+        .{ .role = .normalization_trace, .ref = ref },
+        .{ .role = .normal_form, .ref = ref },
+    };
+    try std.testing.expect(targetCertificateDependencyRolesValid(&base_dependencies, false));
+    try std.testing.expect(!targetCertificateDependencyRolesValid(&base_dependencies, true));
+
+    const paired_surface_dependencies = base_dependencies ++ [_]Dependency{
+        .{ .role = .import_surface, .ref = ref },
+        .{ .role = .export_surface, .ref = ref },
+    };
+    try std.testing.expect(targetCertificateDependencyRolesValid(&paired_surface_dependencies, false));
+    try std.testing.expect(targetCertificateDependencyRolesValid(&paired_surface_dependencies, true));
+
+    const duplicated_import_surface_dependencies = base_dependencies ++ [_]Dependency{
+        .{ .role = .import_surface, .ref = ref },
+        .{ .role = .import_surface, .ref = refFor(domains.boundary_module_import_surface, 2, .{}) },
+    };
+    try std.testing.expect(!targetCertificateDependencyRolesValid(&duplicated_import_surface_dependencies, false));
+    try std.testing.expect(!targetCertificateDependencyRolesValid(&duplicated_import_surface_dependencies, true));
+
+    const unrelated_role_dependencies = paired_surface_dependencies ++ [_]Dependency{
+        .{ .role = .subject, .ref = ref },
+    };
+    try std.testing.expect(!targetCertificateDependencyRolesValid(&unrelated_role_dependencies, true));
+
+    const duplicate_singleton_dependencies = paired_surface_dependencies ++ [_]Dependency{
+        .{ .role = .normal_form, .ref = refFor(domains.boundary_normal_form, 2, .{}) },
+    };
+    try std.testing.expect(!targetCertificateDependencyRolesValid(&duplicate_singleton_dependencies, true));
 }
 
 fn normalizationRedexMatchesSourceEntry(
@@ -8292,27 +8339,79 @@ fn targetCertificateDependenciesMatch(
     normalization_trace_ref: Ref,
     normal_form_ref: Ref,
 ) bool {
+    if (!targetCertificateDependencyRolesValid(dependencies, false)) return false;
     if (!targetBaseDependenciesContain(dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, residual_program_ref, elaboration_certificate_ref, trace_map_ref)) return false;
     if (!dependenciesContainRef(dependencies, .normalization_certificate, normalization_certificate_ref)) return false;
     if (!dependenciesContainRef(dependencies, .normalization_trace, normalization_trace_ref)) return false;
     if (!dependenciesContainRef(dependencies, .normal_form, normal_form_ref)) return false;
     var provider_mapping_count: usize = 0;
-    var module_surface_count: usize = 0;
+    const import_surface_count = dependencyRoleCount(dependencies, .import_surface);
+    const export_surface_count = dependencyRoleCount(dependencies, .export_surface);
     for (dependencies) |dependency| {
         if (targetEvidenceMapBaseRole(dependency.role)) continue;
         if (dependency.role == .normalization_certificate) continue;
         if (dependency.role == .normalization_trace) continue;
         if (dependency.role == .normal_form) continue;
-        if (dependency.role == .import_surface or dependency.role == .export_surface) {
-            module_surface_count += 1;
-            continue;
-        }
+        if (dependency.role == .import_surface or dependency.role == .export_surface) continue;
         if (dependency.role != .provider_program_mapping) return false;
         provider_mapping_count += 1;
     }
-    if (module_surface_count != 0 and module_surface_count != 2) return false;
-    return dependencies.len == 14 + module_surface_count + provider_mapping_count and
+    return dependencies.len == 14 + import_surface_count + export_surface_count + provider_mapping_count and
         providerMappingDependenciesMatch(dependencies, evidence_dependencies);
+}
+
+fn targetCertificateDependencyRolesValid(dependencies: []const Dependency, require_module_surfaces: bool) bool {
+    if ((DependencyGraph{ .dependencies = dependencies }).hasDuplicate()) return false;
+    const required_singleton_roles = [_]Role{
+        .elaboration_certificate,
+        .elaboration_source_map,
+        .elaboration_effect_row,
+        .elaboration_trace_map,
+        .world_surface,
+        .world_port_table,
+        .world_value_table,
+        .world_dispatch_table,
+        .surface_profile,
+        .replay_key_recipe,
+        .residual_program,
+        .normalization_certificate,
+        .normalization_trace,
+        .normal_form,
+    };
+    for (required_singleton_roles) |role| {
+        if (dependencyRoleCount(dependencies, role) != 1) return false;
+    }
+    const import_surface_count = dependencyRoleCount(dependencies, .import_surface);
+    const export_surface_count = dependencyRoleCount(dependencies, .export_surface);
+    if (require_module_surfaces) {
+        if (import_surface_count != 1 or export_surface_count != 1) return false;
+    } else {
+        if (import_surface_count != export_surface_count) return false;
+        if (import_surface_count > 1) return false;
+    }
+    for (dependencies) |dependency| {
+        if (targetEvidenceMapBaseRole(dependency.role)) continue;
+        if (targetCertificateExtraRoleAllowed(dependency.role)) continue;
+        return false;
+    }
+    return true;
+}
+
+fn targetCertificateExtraRoleAllowed(role: Role) bool {
+    return role == .normalization_certificate or
+        role == .normalization_trace or
+        role == .normal_form or
+        role == .import_surface or
+        role == .export_surface or
+        role == .provider_program_mapping;
+}
+
+fn dependencyRoleCount(dependencies: []const Dependency, role: Role) usize {
+    var count: usize = 0;
+    for (dependencies) |dependency| {
+        if (dependency.role == role) count += 1;
+    }
+    return count;
 }
 
 fn providerMappingDependenciesMatch(target_dependencies: []const Dependency, evidence_dependencies: []const Dependency) bool {
