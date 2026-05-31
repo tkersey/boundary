@@ -6835,6 +6835,7 @@ pub const BoundaryTargetModule = struct {
         if (manifest.module_fingerprint != module_fingerprint) return error.ModuleFingerprintMismatch;
         if (manifest.module_kind != image_kind) return error.ModuleFingerprintMismatch;
         if (manifest.world_port_count > options.max_world_ports) return error.LimitExceeded;
+        if (manifest.module_kind == .reference_only and section_count != 1) return error.MalformedManifest;
         if (manifest.module_kind == .full_module and import_payload.len == 0) return error.MissingRequiredSection;
         if (manifest.module_kind == .full_module) try validateFullModuleSections(bytes, section_count, manifest, options);
         try validateImportSurfacePayload(import_payload, manifest, options);
@@ -7805,6 +7806,36 @@ pub const BoundaryTargetModule = struct {
         return if (@bitSizeOf(usize) >= 64) true else value <= std.math.maxInt(usize);
     }
 };
+
+test "boundary module import refs reject foreign domains" {
+    const world_port_ref = refFor(domains.boundary_world_port, 1, .{});
+    const effect_shape_ref = refFor(domains.boundary_effect_shape, 2, .{});
+    const replay_key_recipe_ref = refFor(domains.boundary_world_replay_key_recipe, 3, .{});
+    const host_intrinsic_ref = refFor(domains.host_intrinsic, 4, .{});
+
+    try BoundaryTargetModule.validateModuleImportRefs(world_port_ref, null, effect_shape_ref, replay_key_recipe_ref);
+    try BoundaryTargetModule.validateModuleImportRefs(world_port_ref, host_intrinsic_ref, effect_shape_ref, replay_key_recipe_ref);
+
+    var forged_world_port = world_port_ref;
+    forged_world_port.domain_id = domains.boundary_effect_shape.id;
+    try std.testing.expectError(error.MalformedImportSurface, BoundaryTargetModule.validateModuleImportRefs(forged_world_port, null, effect_shape_ref, replay_key_recipe_ref));
+
+    var forged_world_port_format = world_port_ref;
+    forged_world_port_format.format_version = null;
+    try std.testing.expectError(error.MalformedImportSurface, BoundaryTargetModule.validateModuleImportRefs(forged_world_port_format, null, effect_shape_ref, replay_key_recipe_ref));
+
+    var forged_host_intrinsic = host_intrinsic_ref;
+    forged_host_intrinsic.domain_id = domains.boundary_world_port.id;
+    try std.testing.expectError(error.MalformedImportSurface, BoundaryTargetModule.validateModuleImportRefs(world_port_ref, forged_host_intrinsic, effect_shape_ref, replay_key_recipe_ref));
+
+    var forged_effect_shape = effect_shape_ref;
+    forged_effect_shape.domain_id = domains.boundary_world_port.id;
+    try std.testing.expectError(error.MalformedImportSurface, BoundaryTargetModule.validateModuleImportRefs(world_port_ref, null, forged_effect_shape, replay_key_recipe_ref));
+
+    var forged_replay_key = replay_key_recipe_ref;
+    forged_replay_key.domain_id = domains.boundary_world_port.id;
+    try std.testing.expectError(error.MalformedImportSurface, BoundaryTargetModule.validateModuleImportRefs(world_port_ref, null, effect_shape_ref, forged_replay_key));
+}
 
 fn normalizationRedexMatchesSourceEntry(
     redex: BoundaryNormalizationRedex,

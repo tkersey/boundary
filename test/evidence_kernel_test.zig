@@ -16545,37 +16545,14 @@ test "certified boundary module reference full image and loaded module projectio
     boundaryModuleRefreshSectionFingerprint(forged_import_surface, Target.Module.SectionKind.import_surface);
     try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(forged_import_surface, .{ .require_full_module = true }));
 
-    const forged_import_ref_domain = try allocator.dupe(u8, full);
-    defer allocator.free(forged_import_ref_domain);
-    var forged_imports = try allocator.dupe(Evidence.BoundaryTargetModule.ImportSurface.Import, loaded.imports);
-    defer allocator.free(forged_imports);
-    forged_imports[0].world_port_ref.domain_id = Evidence.domains.boundary_effect_shape.id;
-    const forged_ref_surface = Evidence.BoundaryTargetModule.ImportSurface.init(.{
-        .module_fingerprint = 0,
-        .target_label = Target.Certificate.target_label,
-        .world_surface_ref = Target.WorldSurface.evidenceRef(),
-        .imports = forged_imports,
-    });
-    const forged_ref_import_surface = boundaryModuleSection(forged_import_ref_domain, Target.Module.SectionKind.import_surface);
-    const forged_ref_manifest = boundaryModuleSection(forged_import_ref_domain, Target.Module.SectionKind.manifest);
-    boundaryModuleWriteU16(
-        forged_import_ref_domain,
-        boundaryModuleFirstImportWorldPortRefOffset(forged_import_ref_domain, forged_ref_import_surface.start),
-        @intFromEnum(Evidence.domains.boundary_effect_shape.id),
-    );
-    boundaryModuleWriteU64(forged_import_ref_domain, forged_ref_import_surface.start + 4, forged_ref_surface.import_surface_fingerprint);
-    boundaryModuleWriteU64(
-        forged_import_ref_domain,
-        boundaryModuleManifestImportSurfaceFingerprintOffset(forged_import_ref_domain, forged_ref_manifest.start),
-        forged_ref_surface.import_surface_fingerprint,
-    );
-    forged_import_ref_domain[16] = @intFromEnum(Target.Module.Kind.reference_only);
-    forged_import_ref_domain[forged_ref_manifest.start + 4 + 8 + 8] = @intFromEnum(Target.Module.Kind.reference_only);
-    boundaryModuleRefreshSectionFingerprint(forged_import_ref_domain, Target.Module.SectionKind.import_surface);
-    boundaryModuleRefreshManifestRequiredRef(forged_import_ref_domain, Target.Module.SectionKind.import_surface);
-    boundaryModuleRefreshModuleFingerprint(Target, forged_import_ref_domain);
-    boundaryModuleRefreshManifestFingerprint(Target, forged_import_ref_domain);
-    try std.testing.expectError(error.MalformedImportSurface, Target.Module.validate(forged_import_ref_domain, .{ .allow_reference_only = true }));
+    const reference_with_extra_sections = try allocator.dupe(u8, full);
+    defer allocator.free(reference_with_extra_sections);
+    const reference_extra_manifest = boundaryModuleSection(reference_with_extra_sections, Target.Module.SectionKind.manifest);
+    reference_with_extra_sections[16] = @intFromEnum(Target.Module.Kind.reference_only);
+    reference_with_extra_sections[reference_extra_manifest.start + 4 + 8 + 8] = @intFromEnum(Target.Module.Kind.reference_only);
+    boundaryModuleRefreshModuleFingerprint(Target, reference_with_extra_sections);
+    boundaryModuleRefreshManifestFingerprint(Target, reference_with_extra_sections);
+    try std.testing.expectError(error.MalformedManifest, Target.Module.validate(reference_with_extra_sections, .{ .allow_reference_only = true }));
 
     const forged_export_surface = try allocator.dupe(u8, full);
     defer allocator.free(forged_export_surface);
@@ -16664,13 +16641,6 @@ fn boundaryModuleImportCountOffset(bytes: []const u8, payload_start: usize) usiz
     var index = payload_start + 4 + 8 + 8;
     index = boundaryModuleSkipBytes(bytes, index);
     index = boundaryModuleSkipRef(bytes, index);
-    return index;
-}
-
-fn boundaryModuleFirstImportWorldPortRefOffset(bytes: []const u8, payload_start: usize) usize {
-    var index = boundaryModuleImportCountOffset(bytes, payload_start);
-    index += 8;
-    index += 4 + 4;
     return index;
 }
 
