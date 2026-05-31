@@ -16545,6 +16545,38 @@ test "certified boundary module reference full image and loaded module projectio
     boundaryModuleRefreshSectionFingerprint(forged_import_surface, Target.Module.SectionKind.import_surface);
     try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(forged_import_surface, .{ .require_full_module = true }));
 
+    const forged_import_ref_domain = try allocator.dupe(u8, full);
+    defer allocator.free(forged_import_ref_domain);
+    var forged_imports = try allocator.dupe(Evidence.BoundaryTargetModule.ImportSurface.Import, loaded.imports);
+    defer allocator.free(forged_imports);
+    forged_imports[0].world_port_ref.domain_id = Evidence.domains.boundary_effect_shape.id;
+    const forged_ref_surface = Evidence.BoundaryTargetModule.ImportSurface.init(.{
+        .module_fingerprint = 0,
+        .target_label = Target.Certificate.target_label,
+        .world_surface_ref = Target.WorldSurface.evidenceRef(),
+        .imports = forged_imports,
+    });
+    const forged_ref_import_surface = boundaryModuleSection(forged_import_ref_domain, Target.Module.SectionKind.import_surface);
+    const forged_ref_manifest = boundaryModuleSection(forged_import_ref_domain, Target.Module.SectionKind.manifest);
+    boundaryModuleWriteU16(
+        forged_import_ref_domain,
+        boundaryModuleFirstImportWorldPortRefOffset(forged_import_ref_domain, forged_ref_import_surface.start),
+        @intFromEnum(Evidence.domains.boundary_effect_shape.id),
+    );
+    boundaryModuleWriteU64(forged_import_ref_domain, forged_ref_import_surface.start + 4, forged_ref_surface.import_surface_fingerprint);
+    boundaryModuleWriteU64(
+        forged_import_ref_domain,
+        boundaryModuleManifestImportSurfaceFingerprintOffset(forged_import_ref_domain, forged_ref_manifest.start),
+        forged_ref_surface.import_surface_fingerprint,
+    );
+    forged_import_ref_domain[16] = @intFromEnum(Target.Module.Kind.reference_only);
+    forged_import_ref_domain[forged_ref_manifest.start + 4 + 8 + 8] = @intFromEnum(Target.Module.Kind.reference_only);
+    boundaryModuleRefreshSectionFingerprint(forged_import_ref_domain, Target.Module.SectionKind.import_surface);
+    boundaryModuleRefreshManifestRequiredRef(forged_import_ref_domain, Target.Module.SectionKind.import_surface);
+    boundaryModuleRefreshModuleFingerprint(Target, forged_import_ref_domain);
+    boundaryModuleRefreshManifestFingerprint(Target, forged_import_ref_domain);
+    try std.testing.expectError(error.MalformedImportSurface, Target.Module.validate(forged_import_ref_domain, .{ .allow_reference_only = true }));
+
     const forged_export_surface = try allocator.dupe(u8, full);
     defer allocator.free(forged_export_surface);
     const export_surface = boundaryModuleSection(forged_export_surface, Target.Module.SectionKind.export_surface);
@@ -16635,6 +16667,21 @@ fn boundaryModuleImportCountOffset(bytes: []const u8, payload_start: usize) usiz
     return index;
 }
 
+fn boundaryModuleFirstImportWorldPortRefOffset(bytes: []const u8, payload_start: usize) usize {
+    var index = boundaryModuleImportCountOffset(bytes, payload_start);
+    index += 8;
+    index += 4 + 4;
+    return index;
+}
+
+fn boundaryModuleManifestImportSurfaceFingerprintOffset(bytes: []const u8, payload_start: usize) usize {
+    var index = payload_start + 4 + 8 + 8 + 1;
+    index = boundaryModuleSkipBytes(bytes, index);
+    index += 8 + 8 + 8;
+    index = boundaryModuleSkipOptionalU64(bytes, index);
+    return index;
+}
+
 fn boundaryModuleManifestRequiredRefsOffset(bytes: []const u8, payload_start: usize) usize {
     var index = payload_start + 4 + 8 + 8 + 1;
     index = boundaryModuleSkipBytes(bytes, index);
@@ -16670,9 +16717,10 @@ fn boundaryModuleRefreshModuleFingerprint(comptime Target: type, bytes: []u8) vo
     const manifest = boundaryModuleSection(bytes, .manifest);
     const refs_start = boundaryModuleManifestRequiredRefsOffset(bytes, manifest.start);
     const count = boundaryModuleReadU64(bytes, refs_start - 8);
+    const kind: Evidence.BoundaryTargetModule.Kind = @enumFromInt(bytes[16]);
     var builder = Evidence.FingerprintBuilder.init(Evidence.domains.boundary_module);
     builder.fieldU32("format_version", Evidence.domains.boundary_module.format_version.?);
-    builder.fieldBytes("module_kind", "full_module");
+    builder.fieldBytes("module_kind", @tagName(kind));
     builder.fieldBytes("target_label", Target.Certificate.target_label);
     builder.fieldU64("program_plan_hash", Target.Program.compiled_plan.hash());
     builder.fieldU64("world_surface_fingerprint", Target.WorldSurface.surface_fingerprint);
@@ -16691,6 +16739,27 @@ fn boundaryModuleRefreshModuleFingerprint(comptime Target: type, bytes: []u8) vo
     const module_fingerprint = builder.finish();
     boundaryModuleWriteU64(bytes, 24, module_fingerprint);
     boundaryModuleWriteU64(bytes, manifest.start + 12, module_fingerprint);
+    boundaryModuleRefreshSectionFingerprint(bytes, .manifest);
+}
+
+fn boundaryModuleRefreshManifestFingerprint(comptime Target: type, bytes: []u8) void {
+    const manifest = boundaryModuleSection(bytes, .manifest);
+    const import_fingerprint_offset = boundaryModuleManifestImportSurfaceFingerprintOffset(bytes, manifest.start);
+    const refreshed = Evidence.BoundaryTargetModule.Manifest.init(.{
+        .module_fingerprint = boundaryModuleReadU64(bytes, 24),
+        .module_kind = @enumFromInt(bytes[16]),
+        .target_label = Target.Certificate.target_label,
+        .program_plan_hash = Target.Program.compiled_plan.hash(),
+        .world_surface_fingerprint = Target.WorldSurface.surface_fingerprint,
+        .target_certificate_fingerprint = Target.Certificate.certificate_fingerprint,
+        .normalization_certificate_fingerprint = Target.NormalizationCertificate.certificate_fingerprint,
+        .import_surface_fingerprint = boundaryModuleReadU64(bytes, import_fingerprint_offset),
+        .export_surface_fingerprint = boundaryModuleReadU64(bytes, import_fingerprint_offset + 8),
+        .world_port_count = Target.WorldPortTable.entries.len,
+        .normal_form = Target.NormalForm.kind,
+    });
+    boundaryModuleWriteU64(bytes, 32, refreshed.manifest_fingerprint);
+    boundaryModuleWriteU64(bytes, manifest.start + 4, refreshed.manifest_fingerprint);
     boundaryModuleRefreshSectionFingerprint(bytes, .manifest);
 }
 

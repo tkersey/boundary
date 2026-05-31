@@ -6952,6 +6952,15 @@ pub const BoundaryTargetModule = struct {
             const source_effect_shape_ref = try reader.readRef();
             const residual_site_index = try reader.readU64();
             if (!u64FitsUsize(residual_site_index)) return error.MalformedImportSurface;
+            const residual_site_fingerprint = try reader.readU64();
+            const payload_value_table_id = try reader.readU32();
+            const response_value_table_id = try reader.readU32();
+            const payload_ref = try reader.readValueRef();
+            const response_ref = try reader.readValueRef();
+            const mode = try reader.readBytes();
+            const response_kind = try reader.readBytes();
+            const replay_key_recipe_ref = try reader.readRef();
+            try validateModuleImportRefs(world_port_ref, host_intrinsic_ref, source_effect_shape_ref, replay_key_recipe_ref);
             import.* = .{
                 .import_id = import_id,
                 .world_port_id = world_port_id,
@@ -6959,14 +6968,14 @@ pub const BoundaryTargetModule = struct {
                 .host_intrinsic_ref = host_intrinsic_ref,
                 .source_effect_shape_ref = source_effect_shape_ref,
                 .residual_site_index = @intCast(residual_site_index),
-                .residual_site_fingerprint = try reader.readU64(),
-                .payload_value_table_id = try reader.readU32(),
-                .response_value_table_id = try reader.readU32(),
-                .payload_ref = try reader.readValueRef(),
-                .response_ref = try reader.readValueRef(),
-                .mode = try reader.readBytes(),
-                .response_kind = try reader.readBytes(),
-                .replay_key_recipe_ref = try reader.readRef(),
+                .residual_site_fingerprint = residual_site_fingerprint,
+                .payload_value_table_id = payload_value_table_id,
+                .response_value_table_id = response_value_table_id,
+                .payload_ref = payload_ref,
+                .response_ref = response_ref,
+                .mode = mode,
+                .response_kind = response_kind,
+                .replay_key_recipe_ref = replay_key_recipe_ref,
                 .suggested_symbolic_name = try reader.readBytes(),
                 .required = try reader.readBool(),
             };
@@ -7023,6 +7032,7 @@ pub const BoundaryTargetModule = struct {
             const replay_key_recipe_ref = try reader.readRef();
             const suggested_symbolic_name = try reader.readBytes();
             const required = try reader.readBool();
+            try validateModuleImportRefs(world_port_ref, host_intrinsic_ref, source_effect_shape_ref, replay_key_recipe_ref);
             builder.fieldU64("import.import_id", import_id);
             builder.fieldU64("import.world_port_id", world_port_id);
             builder.fieldRef("import.world_port", world_port_ref);
@@ -7049,6 +7059,19 @@ pub const BoundaryTargetModule = struct {
         return ref.domain_id == domain.id and
             ref.fingerprint == fingerprint and
             ref.format_version == domain.format_version;
+    }
+
+    fn refMatchesDomain(ref: Ref, domain: Domain) bool {
+        return ref.domain_id == domain.id and ref.format_version == domain.format_version;
+    }
+
+    fn validateModuleImportRefs(world_port_ref: Ref, host_intrinsic_ref: ?Ref, source_effect_shape_ref: Ref, replay_key_recipe_ref: Ref) ValidationError!void {
+        if (!refMatchesDomain(world_port_ref, domains.boundary_world_port)) return error.MalformedImportSurface;
+        if (host_intrinsic_ref) |ref| {
+            if (!refMatchesDomain(ref, domains.host_intrinsic)) return error.MalformedImportSurface;
+        }
+        if (!refMatchesDomain(source_effect_shape_ref, domains.boundary_effect_shape)) return error.MalformedImportSurface;
+        if (!refMatchesDomain(replay_key_recipe_ref, domains.boundary_world_replay_key_recipe)) return error.MalformedImportSurface;
     }
 
     fn markDenseId(seen: *[1024]u64, id: u32) bool {
