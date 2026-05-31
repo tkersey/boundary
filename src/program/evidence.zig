@@ -7174,8 +7174,12 @@ pub const BoundaryTargetModule = struct {
         }
 
         fn validateSectionRefs(self: *@This(), count: u64, image_bytes: []const u8, section_count: u32, module_builder: *FingerprintBuilder) ValidationError!void {
+            var seen_kinds: u32 = 0;
             for (0..@intCast(count)) |_| {
                 const section = try self.readSectionRef();
+                const kind_bit = @as(u32, 1) << @as(u5, @intCast(@intFromEnum(section.kind)));
+                if ((seen_kinds & kind_bit) != 0) return error.MissingRequiredSection;
+                seen_kinds |= kind_bit;
                 writeSectionRef(module_builder, section);
                 if (!sectionTableContainsManifestRef(image_bytes, section_count, section)) return error.MissingRequiredSection;
             }

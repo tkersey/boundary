@@ -318,6 +318,7 @@ test "evidence domain registry is unique and mirrors public version constants" {
     try std.testing.expectEqual(Program.boundary_module_import_surface_fingerprint_version, Evidence.domains.boundary_module_import_surface.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_module_export_surface_format_version, Evidence.domains.boundary_module_export_surface.format_version.?);
     try std.testing.expectEqual(Program.boundary_module_export_surface_fingerprint_version, Evidence.domains.boundary_module_export_surface.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_graph_format_version, Evidence.domains.boundary_module_graph.format_version.?);
     try std.testing.expectEqual(Program.boundary_module_graph_fingerprint_version, Evidence.domains.boundary_module_graph.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_program_plan_image_format_version, Evidence.domains.boundary_program_plan_image.format_version.?);
     try std.testing.expectEqual(Program.boundary_program_plan_image_fingerprint_version, Evidence.domains.boundary_program_plan_image.fingerprint_version);
@@ -16523,6 +16524,14 @@ test "certified boundary module reference full image and loaded module projectio
     boundaryModuleRefreshSectionFingerprint(forged_export_surface, Target.Module.SectionKind.export_surface);
     try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(forged_export_surface, .{ .require_full_module = true }));
 
+    const duplicate_manifest_ref = try allocator.dupe(u8, full);
+    defer allocator.free(duplicate_manifest_ref);
+    const manifest = boundaryModuleSection(duplicate_manifest_ref, Target.Module.SectionKind.manifest);
+    const required_refs = boundaryModuleManifestRequiredRefsOffset(duplicate_manifest_ref, manifest.start);
+    boundaryModuleWriteU16(duplicate_manifest_ref, required_refs + 31, @intFromEnum(Target.Module.SectionKind.import_surface));
+    boundaryModuleRefreshSectionFingerprint(duplicate_manifest_ref, Target.Module.SectionKind.manifest);
+    try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(duplicate_manifest_ref, .{ .require_full_module = true }));
+
     const missing_required_sections = try allocator.dupe(u8, full);
     defer allocator.free(missing_required_sections);
     const retained_import = boundaryModuleSection(missing_required_sections, Target.Module.SectionKind.import_surface);
@@ -16567,6 +16576,15 @@ fn boundaryModuleImportCountOffset(bytes: []const u8, payload_start: usize) usiz
     index = boundaryModuleSkipBytes(bytes, index);
     index = boundaryModuleSkipRef(bytes, index);
     return index;
+}
+
+fn boundaryModuleManifestRequiredRefsOffset(bytes: []const u8, payload_start: usize) usize {
+    var index = payload_start + 4 + 8 + 8 + 1;
+    index = boundaryModuleSkipBytes(bytes, index);
+    index += 8 + 8 + 8;
+    index = boundaryModuleSkipOptionalU64(bytes, index);
+    index += 8 + 8 + 8 + 1;
+    return index + 8;
 }
 
 fn boundaryModuleRefreshSectionFingerprint(bytes: []u8, kind: Evidence.BoundaryTargetModule.SectionKind) void {
@@ -16634,6 +16652,10 @@ fn boundaryModuleReadU32(bytes: []const u8, offset: usize) u32 {
 
 fn boundaryModuleReadU64(bytes: []const u8, offset: usize) u64 {
     return std.mem.readInt(u64, bytes[offset..][0..8], .little);
+}
+
+fn boundaryModuleWriteU16(bytes: []u8, offset: usize, value: u16) void {
+    std.mem.writeInt(u16, bytes[offset..][0..2], value, .little);
 }
 
 fn boundaryModuleWriteU32(bytes: []u8, offset: usize, value: u32) void {

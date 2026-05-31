@@ -1464,6 +1464,8 @@ pub fn program(
         pub const boundary_module_export_surface_format_version: u32 = Evidence.domains.boundary_module_export_surface.format_version.?;
         /// Stable fingerprint version for Boundary module export surfaces.
         pub const boundary_module_export_surface_fingerprint_version: u32 = Evidence.domains.boundary_module_export_surface.fingerprint_version;
+        /// Stable format version for Boundary module dependency graphs.
+        pub const boundary_module_graph_format_version: u32 = Evidence.domains.boundary_module_graph.format_version.?;
         /// Stable fingerprint version for Boundary module dependency graphs.
         pub const boundary_module_graph_fingerprint_version: u32 = Evidence.domains.boundary_module_graph.fingerprint_version;
         /// Stable format version for ProgramPlan images embedded in Boundary modules.
