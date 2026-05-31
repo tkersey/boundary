@@ -7072,6 +7072,8 @@ pub const BoundaryTargetModule = struct {
         const import_surface_fingerprint = try reader.readU64();
         const export_surface_fingerprint = try reader.readU64();
         const world_port_count = try reader.readU64();
+        if (!u64FitsUsize(world_port_count)) return error.LimitExceeded;
+        const world_port_count_usize: usize = @intCast(world_port_count);
         const normal_form = parseNormalForm(try reader.readU8()) orelse return error.MalformedManifest;
         const required_count = try reader.readU64();
         if (required_count > 128) return error.LimitExceeded;
@@ -7086,7 +7088,7 @@ pub const BoundaryTargetModule = struct {
         manifest_builder.fieldOptionalU64("normalization_certificate_fingerprint", normalization_certificate_fingerprint);
         manifest_builder.fieldU64("import_surface_fingerprint", import_surface_fingerprint);
         manifest_builder.fieldU64("export_surface_fingerprint", export_surface_fingerprint);
-        manifest_builder.fieldUsize("world_port_count", @intCast(world_port_count));
+        manifest_builder.fieldUsize("world_port_count", world_port_count_usize);
         manifest_builder.fieldBytes("normal_form", @tagName(normal_form));
         manifest_builder.fieldUsize("required_section_count", @intCast(required_count));
         var module_builder = FingerprintBuilder.init(domains.boundary_module);
@@ -7120,7 +7122,7 @@ pub const BoundaryTargetModule = struct {
             .normalization_certificate_fingerprint = normalization_certificate_fingerprint,
             .import_surface_fingerprint = import_surface_fingerprint,
             .export_surface_fingerprint = export_surface_fingerprint,
-            .world_port_count = world_port_count,
+            .world_port_count = world_port_count_usize,
             .normal_form = normal_form,
             .required_section_refs = &.{},
         };
