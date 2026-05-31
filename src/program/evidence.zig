@@ -6460,6 +6460,9 @@ pub const BoundaryTargetModule = struct {
 
         const provisional_refs = try sectionRefsFromPayloads(allocator, sections.items);
         defer allocator.free(provisional_refs);
+        const manifest_len_probe = try encodeManifestPayload(Target, allocator, kind, 0, provisional_refs);
+        defer allocator.free(manifest_len_probe);
+        populateSectionRefOffsets(provisional_refs, header_len + (sections.items.len + 1) * section_table_entry_len + manifest_len_probe.len);
         const module_fingerprint = moduleFingerprintForTarget(Target, kind, provisional_refs);
         const manifest_payload = try encodeManifestPayload(Target, allocator, kind, module_fingerprint, provisional_refs);
         defer allocator.free(manifest_payload);
@@ -6514,6 +6517,14 @@ pub const BoundaryTargetModule = struct {
             };
         }
         return refs;
+    }
+
+    fn populateSectionRefOffsets(refs: []SectionRef, first_payload_offset: usize) void {
+        var payload_offset = first_payload_offset;
+        for (refs) |*ref| {
+            ref.byte_offset = payload_offset;
+            payload_offset += @intCast(ref.byte_length);
+        }
     }
 
     fn encodeImage(allocator: std.mem.Allocator, kind: Kind, module_fingerprint: u64, sections: []const SectionPayload, section_refs: []SectionRef) ![]u8 {
@@ -7225,11 +7236,13 @@ pub const BoundaryTargetModule = struct {
             const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
             const required = bytes[entry_offset + 2] != 0;
             const format_version = readU32At(bytes, entry_offset + 4);
+            const offset = readU64At(bytes, entry_offset + 8);
             const length = readU64At(bytes, entry_offset + 16);
             const fingerprint = readU64At(bytes, entry_offset + 24);
             if (kind == expected.kind and
                 required == expected.required and
                 format_version == expected.format_version and
+                offset == expected.byte_offset and
                 length == expected.byte_length and
                 fingerprint == expected.section_fingerprint)
             {

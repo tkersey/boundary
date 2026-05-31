@@ -16478,6 +16478,10 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expectEqual(@as(usize, 1), loaded.imports.len);
     try std.testing.expectEqual(full_report.section_count - 1, loaded.manifest.required_section_refs.len);
     try std.testing.expectEqual(Target.Module.SectionKind.import_surface, loaded.manifest.required_section_refs[0].kind);
+    try std.testing.expectEqual(
+        @as(u64, @intCast(boundaryModuleSection(full, Target.Module.SectionKind.import_surface).start)),
+        loaded.manifest.required_section_refs[0].byte_offset,
+    );
     try std.testing.expectEqual(@as(u32, 0), loaded.worldPortForSite(closure_approval_request.index).?);
     try std.testing.expect(loaded.validateWorldSurfaceScope());
     try std.testing.expect(loaded.exportMain().export_surface_fingerprint != 0);
