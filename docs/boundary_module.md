@@ -94,9 +94,9 @@ refs rather than by the target certificate.
 
 `Target.Module.Graph` is the content-addressed dependency graph for the module
 root, section refs, dependency refs, external dependency refs, import/export
-refs, certificate refs, and missing dependency blockers. V1 uses it for
-validation diagnostics and partial-module preflight; future linking can build on
-the same graph without turning Boundary into a package manager.
+refs, certificate refs, and missing dependency blockers. V1 exposes it as a
+content-addressed planning artifact; future linking can build on the same graph
+without turning Boundary into a package manager.
 
 ## LoadedModule
 
@@ -107,7 +107,7 @@ surface entries, export surface, and projection helpers:
 - `matchRequest`
 - `worldPortForSite`
 - `worldPortForId`
-- `replayKeySeed`
+- `replayKeySeedForScope`
 - `sourceForPort`
 - `traceForPortRequest`
 - `evidenceForPort`
