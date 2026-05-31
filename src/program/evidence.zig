@@ -6754,7 +6754,9 @@ pub const BoundaryTargetModule = struct {
         for (0..@intCast(section_count)) |index| {
             const entry_offset = header_len + index * section_table_entry_len;
             const raw_kind = readU16At(bytes, entry_offset);
-            const required = bytes[entry_offset + 2] != 0;
+            const required_byte = bytes[entry_offset + 2];
+            if (required_byte > 1) return error.MalformedManifest;
+            const required = required_byte != 0;
             if (raw_kind <= previous_kind) return error.InvalidSectionOrder;
             previous_kind = raw_kind;
             const format_version = readU32At(bytes, entry_offset + 4);
@@ -7284,13 +7286,19 @@ pub const BoundaryTargetModule = struct {
 
         fn readSectionRef(self: *@This()) ValidationError!SectionRef {
             const kind = parseSectionKind(try self.readU16()) orelse return error.MalformedManifest;
+            const format_version = try self.readU32();
+            const byte_offset = try self.readU64();
+            const byte_length = try self.readU64();
+            const section_fingerprint = try self.readU64();
+            const required_byte = try self.readU8();
+            if (required_byte > 1) return error.MalformedManifest;
             return .{
                 .kind = kind,
-                .format_version = try self.readU32(),
-                .byte_offset = try self.readU64(),
-                .byte_length = try self.readU64(),
-                .section_fingerprint = try self.readU64(),
-                .required = (try self.readU8()) != 0,
+                .format_version = format_version,
+                .byte_offset = byte_offset,
+                .byte_length = byte_length,
+                .section_fingerprint = section_fingerprint,
+                .required = required_byte != 0,
             };
         }
 

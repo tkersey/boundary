@@ -16528,6 +16528,11 @@ test "certified boundary module reference full image and loaded module projectio
     non_required_section[boundaryModuleSection(non_required_section, Target.Module.SectionKind.manifest).entry_offset + 2] = 0;
     try std.testing.expectError(error.UnknownSection, Target.Module.validate(non_required_section, .{ .require_full_module = true }));
 
+    const noncanonical_required_flag = try allocator.dupe(u8, full);
+    defer allocator.free(noncanonical_required_flag);
+    noncanonical_required_flag[boundaryModuleSection(noncanonical_required_flag, Target.Module.SectionKind.manifest).entry_offset + 2] = 2;
+    try std.testing.expectError(error.MalformedManifest, Target.Module.validate(noncanonical_required_flag, .{ .require_full_module = true }));
+
     var bad_fingerprint = try allocator.dupe(u8, full);
     defer allocator.free(bad_fingerprint);
     bad_fingerprint[bad_fingerprint.len - 1] ^= 0x1;
