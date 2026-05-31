@@ -1480,6 +1480,16 @@ pub fn program(
         pub const boundary_loaded_module_fingerprint_version: u32 = Evidence.domains.boundary_loaded_module.fingerprint_version;
         /// Stable fingerprint version for fail-closed loaded session witnesses.
         pub const boundary_loaded_session_fingerprint_version: u32 = Evidence.domains.boundary_loaded_session.fingerprint_version;
+        /// Stable fingerprint version for Boundary module compatibility reports.
+        pub const boundary_module_compatibility_report_fingerprint_version: u32 = Evidence.domains.boundary_module_compatibility_report.fingerprint_version;
+        /// Stable fingerprint version for Boundary module validation reports.
+        pub const boundary_module_validation_report_fingerprint_version: u32 = Evidence.domains.boundary_module_validation_report.fingerprint_version;
+        /// Stable fingerprint version for Boundary module validation diagnostics.
+        pub const boundary_module_validation_diagnostic_fingerprint_version: u32 = Evidence.domains.boundary_module_validation_diagnostic.fingerprint_version;
+        /// Stable fingerprint version for Boundary module dependency reports.
+        pub const boundary_module_dependency_report_fingerprint_version: u32 = Evidence.domains.boundary_module_dependency_report.fingerprint_version;
+        /// Stable fingerprint version for Boundary module import-binding reports.
+        pub const boundary_module_import_binding_report_fingerprint_version: u32 = Evidence.domains.boundary_module_import_binding_report.fingerprint_version;
 
         /// Public result value plus outputs. Cleanup is uniform even for void outputs.
         pub const Result = struct {

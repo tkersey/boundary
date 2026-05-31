@@ -26,6 +26,12 @@ construction or arbitrary runtime code mutation APIs. Value schema image data
 uses schema-local refs and diagnostic labels only; it does not widen
 `ProgramValue` or authorize native Zig type identity.
 
+`LoadedModule` projects the ProgramPlan-facing consumption data without turning
+the image into a VM: ProgramPlan hash, normal-form kind, main export result ref,
+argument refs, import projections, validation diagnostics, compatibility, and
+dependency reports. World decides whether and how to bind and run the residual
+plan.
+
 ## Scalar body
 
 A scalar plan uses scalar locals and scalar `ProgramValue` entry arguments. If

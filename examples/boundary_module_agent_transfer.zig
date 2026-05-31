@@ -36,10 +36,10 @@ pub fn run(writer: anytype) !void {
     const final_text = try runLocalFixture(allocator);
     defer allocator.free(final_text);
 
-    try writer.print("module_fingerprint={x}\n", .{loaded.manifest.module_fingerprint});
+    try writer.print("module_fingerprint={x}\n", .{loaded.manifest().module_fingerprint});
     try writer.print("model_import_count={d}\n", .{0});
-    try writer.print("tool_import_count={d}\n", .{loaded.imports.len});
-    try writer.print("tool_import_name={s}\n", .{loaded.imports[0].suggested_symbolic_name});
+    try writer.print("tool_import_count={d}\n", .{loaded.imports().len});
+    try writer.print("tool_import_name={s}\n", .{loaded.imports()[0].suggested_symbolic_name});
     try writer.print("final_text={s}\n", .{final_text});
 }
 

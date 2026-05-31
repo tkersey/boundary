@@ -116,3 +116,9 @@ refs, and import/export surfaces. Validation checks these fingerprints without
 executing host code. Boundary still does not serialize request tokens, host
 functions, host context, runtime pointers, allocators, threads, timelines,
 transport, storage, or ABI choices. See [boundary_module.md](boundary_module.md).
+
+Consumption helpers on `LoadedModule` expose the normalized surface directly:
+inspection fields, import/export projections, WorldSurface lookups,
+compatibility reports, validation diagnostics, dependency reports, and
+target-neutral import-binding reports. These reports explain the normalized
+semantic boundary; they do not run it.

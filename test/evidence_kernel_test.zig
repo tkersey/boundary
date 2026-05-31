@@ -326,6 +326,11 @@ test "evidence domain registry is unique and mirrors public version constants" {
     try std.testing.expectEqual(Program.boundary_value_schema_image_fingerprint_version, Evidence.domains.boundary_value_schema_image.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_loaded_module_fingerprint_version, Evidence.domains.boundary_loaded_module.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_loaded_session_fingerprint_version, Evidence.domains.boundary_loaded_session.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_compatibility_report_fingerprint_version, Evidence.domains.boundary_module_compatibility_report.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_validation_report_fingerprint_version, Evidence.domains.boundary_module_validation_report.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_validation_diagnostic_fingerprint_version, Evidence.domains.boundary_module_validation_diagnostic.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_dependency_report_fingerprint_version, Evidence.domains.boundary_module_dependency_report.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_import_binding_report_fingerprint_version, Evidence.domains.boundary_module_import_binding_report.fingerprint_version);
     try std.testing.expectEqual(@as(u32, 3), Evidence.domains.treaty_authorization_legacy_v3.format_version.?);
     try std.testing.expectEqual(@as(u32, 2), Evidence.domains.treaty_authorization_legacy_v2.format_version.?);
     try std.testing.expectEqual(Program.pipeline_fingerprint_version, Evidence.domains.pipeline.fingerprint_version);
@@ -16486,46 +16491,91 @@ test "certified boundary module reference full image and loaded module projectio
     var loaded = try Target.Module.decode(allocator, full);
     defer loaded.deinit();
     try std.testing.expectError(error.ImageTooLarge, Evidence.BoundaryTargetModule.decode(allocator, full, .{ .max_image_bytes = full.len - 1 }));
-    try std.testing.expectEqual(@as(usize, 1), loaded.imports.len);
-    try std.testing.expectEqual(full_report.section_count - 1, loaded.manifest.required_section_refs.len);
-    try std.testing.expectEqual(Target.Module.SectionKind.import_surface, loaded.manifest.required_section_refs[0].kind);
+    try std.testing.expectEqual(Target.Module.Kind.full_module, loaded.kind());
+    try std.testing.expectEqual(full_report.module_fingerprint, loaded.moduleFingerprint());
+    try std.testing.expectEqual(Target.Certificate.certificate_fingerprint, loaded.targetCertificateFingerprint());
+    try std.testing.expectEqual(Target.WorldSurface.surface_fingerprint, loaded.worldSurfaceFingerprint());
+    try std.testing.expectEqual(Target.NormalForm.kind, loaded.normalFormKind());
+    try std.testing.expectEqual(Target.Program.compiled_plan.hash(), loaded.programPlanHash());
+    try std.testing.expectEqual(full_report.section_count, loaded.sectionCount());
+    try std.testing.expect(!loaded.isReferenceOnly());
+    try std.testing.expect(loaded.isFullModule());
+    try std.testing.expect(!loaded.isPartialModule());
+    try std.testing.expectEqual(@as(usize, 1), loaded.imports().len);
+    try std.testing.expectEqual(@as(usize, 1), loaded.importCount());
+    try std.testing.expectEqual(@as(usize, 1), loaded.requiredImports().len);
+    try std.testing.expectEqual(@as(usize, 0), loaded.optionalImports().len);
+    try std.testing.expectEqual(full_report.section_count - 1, loaded.manifest().required_section_refs.len);
+    try std.testing.expectEqual(Target.Module.SectionKind.import_surface, loaded.manifest().required_section_refs[0].kind);
     try std.testing.expectEqual(
         @as(u64, @intCast(boundaryModuleSection(full, Target.Module.SectionKind.import_surface).start)),
-        loaded.manifest.required_section_refs[0].byte_offset,
+        loaded.manifest().required_section_refs[0].byte_offset,
     );
     _ = boundaryModuleSection(full, Target.Module.SectionKind.replay_key_recipe);
     try std.testing.expectEqual(@as(u32, 0), loaded.worldPortForSite(closure_approval_request.index).?);
+    try std.testing.expectEqual(@as(u32, 0), loaded.dispatchForSite(closure_approval_request.index).?);
+    try std.testing.expect(loaded.worldPortForId(0).?.world_port_ref.eql(loaded.imports()[0].world_port_ref));
+    try std.testing.expect(loaded.importForWorldPortId(0).?.world_port_ref.eql(loaded.imports()[0].world_port_ref));
+    try std.testing.expect(loaded.importForResidualSite(closure_approval_request.index).?.world_port_ref.eql(loaded.imports()[0].world_port_ref));
+    try std.testing.expect(loaded.importForWorldPortRef(loaded.imports()[0].world_port_ref).?.world_port_id == 0);
+    try std.testing.expectEqualStrings(loaded.imports()[0].suggested_symbolic_name, loaded.importSymbolicName(0).?);
+    try std.testing.expect(loaded.importValueRefs(0).?.payload.eql(loaded.imports()[0].payload_ref));
+    try std.testing.expect(loaded.importSourceShapeRef(0).?.eql(loaded.imports()[0].source_effect_shape_ref));
+    try std.testing.expect(loaded.importWorldPortRef(0).?.eql(loaded.imports()[0].world_port_ref));
+    try std.testing.expect(loaded.valueDescriptor(loaded.imports()[0].payload_value_table_id).?.eql(loaded.imports()[0].payload_ref));
+    try std.testing.expect(loaded.sourceForPort(0).?.eql(loaded.imports()[0].source_effect_shape_ref));
+    try std.testing.expectEqual(loaded.imports()[0].residual_site_fingerprint, loaded.traceForWorldPort(0).?);
+    try std.testing.expect(loaded.evidenceForWorldPort(0).?.eql(loaded.imports()[0].world_port_ref));
+    try std.testing.expect(loaded.replayKeyRecipe(0).?.eql(Target.replay_key_recipe.evidenceRef()));
     try std.testing.expect(loaded.validateWorldSurfaceScope());
     try std.testing.expect(loaded.exportMain().export_surface_fingerprint != 0);
+    try std.testing.expect(loaded.mainExport().export_surface_fingerprint != 0);
+    try std.testing.expectEqual(loaded.mainExport().export_surface_fingerprint, loaded.exports()[0].export_surface_fingerprint);
+    try std.testing.expect(loaded.resultValueRef().eql(loaded.mainExport().result_ref));
+    try std.testing.expectEqual(@as(usize, 0), loaded.argumentValueRefs().len);
+    try std.testing.expectEqual(loaded.mainExport().entry_function_index, loaded.entryFunctionRef());
+    try std.testing.expectEqual(Target.NormalForm.kind, loaded.exportNormalFormKind());
     try std.testing.expect(loaded.replay_key_recipe_ref.eql(Target.replay_key_recipe.evidenceRef()));
     const request_fingerprint: u64 = 0x1234;
     const response_fingerprint: u64 = 0x5678;
     var replay_seed_builder = Evidence.FingerprintBuilder.init(Evidence.domains.boundary_world_replay_key_recipe);
     replay_seed_builder.fieldU64("world_surface_scope_fingerprint", Target.WorldSurface.replayScopeRef().fingerprint);
-    replay_seed_builder.fieldU64("world_port_id", loaded.imports[0].world_port_id);
+    replay_seed_builder.fieldU64("world_port_id", loaded.imports()[0].world_port_id);
     replay_seed_builder.fieldU64("request_fingerprint", request_fingerprint);
     replay_seed_builder.fieldU64("response_fingerprint", response_fingerprint);
     try std.testing.expectEqual(
         replay_seed_builder.finish(),
-        loaded.replayKeySeedForScope(Target.WorldSurface.replayScopeRef().fingerprint, loaded.imports[0].world_port_id, request_fingerprint, response_fingerprint).?,
+        loaded.replayKeySeedForScope(Target.WorldSurface.replayScopeRef().fingerprint, loaded.imports()[0].world_port_id, request_fingerprint, response_fingerprint).?,
     );
     try std.testing.expectEqual(null, loaded.replayKeySeedForScope(Target.WorldSurface.replayScopeRef().fingerprint, 999, request_fingerprint, response_fingerprint));
     const binding = Target.Module.ImportBinding{
-        .world_port_id = loaded.imports[0].world_port_id,
-        .world_port_ref = loaded.imports[0].world_port_ref,
-        .payload_ref = loaded.imports[0].payload_ref,
-        .response_ref = loaded.imports[0].response_ref,
+        .world_port_id = loaded.imports()[0].world_port_id,
+        .world_port_ref = loaded.imports()[0].world_port_ref,
+        .payload_ref = loaded.imports()[0].payload_ref,
+        .response_ref = loaded.imports()[0].response_ref,
     };
-    try Target.Module.validateImportBindings(loaded.imports, &.{binding}, .{});
-    try std.testing.expectError(error.MissingRequiredImport, Target.Module.validateImportBindings(loaded.imports, &.{}, .{}));
+    try Target.Module.validateImportBindings(loaded.imports(), &.{binding}, .{});
+    const valid_binding_report = loaded.checkImportBindings(&.{binding});
+    try std.testing.expect(valid_binding_report.valid);
+    try std.testing.expect(valid_binding_report.report_fingerprint != 0);
+    try std.testing.expectError(error.MissingRequiredImport, Target.Module.validateImportBindings(loaded.imports(), &.{}, .{}));
+    const invalid_binding_report = loaded.checkImportBindings(&.{});
+    try std.testing.expect(!invalid_binding_report.valid);
+    try std.testing.expectEqual(@as(usize, 1), invalid_binding_report.missing_required_count);
     const extra_binding = Target.Module.ImportBinding{
         .world_port_id = 999,
         .world_port_ref = binding.world_port_ref,
         .payload_ref = binding.payload_ref,
         .response_ref = binding.response_ref,
     };
-    try std.testing.expectError(error.ExtraImportBinding, Target.Module.validateImportBindings(loaded.imports, &.{ binding, extra_binding }, .{}));
-    try std.testing.expectError(error.ExtraImportBinding, Target.Module.validateImportBindings(loaded.imports, &.{ binding, binding }, .{}));
+    try std.testing.expectError(error.ExtraImportBinding, Target.Module.validateImportBindings(loaded.imports(), &.{ binding, extra_binding }, .{}));
+    try std.testing.expectError(error.ExtraImportBinding, Target.Module.validateImportBindings(loaded.imports(), &.{ binding, binding }, .{}));
+    try std.testing.expect(loaded.compatibilityReport().report_fingerprint != 0);
+    try std.testing.expect(loaded.dependencyReport().dependency_closure_complete);
+    try std.testing.expect(Target.Module.matchesReferenceImage(reference));
+    try std.testing.expect(Target.Module.referenceSummary().compatible());
+    try std.testing.expect(Target.Module.compatibility(reference, .{ .allow_reference_only = true }).report_fingerprint != 0);
+    try std.testing.expect(Target.Module.dependencyReport(full, &.{}).dependency_closure_complete);
     var session = Target.Module.LoadedModule.Session.start(&loaded);
     try std.testing.expectError(error.UnsupportedLoadedExecution, session.next());
 
@@ -16533,6 +16583,10 @@ test "certified boundary module reference full image and loaded module projectio
     defer allocator.free(malformed);
     malformed[0] = 'X';
     try std.testing.expectError(error.InvalidMagic, Target.Module.validate(malformed, .{}));
+    const malformed_report = Target.Module.validationReport(malformed, .{});
+    try std.testing.expect(!malformed_report.valid);
+    try std.testing.expectEqual(@as(usize, 1), malformed_report.blocker_count);
+    try std.testing.expectEqual(error.InvalidMagic, malformed_report.diagnosticSlice()[0].error_tag.?);
     try std.testing.expectError(error.TruncatedHeader, Target.Module.validate(full[0..12], .{}));
     try std.testing.expectError(error.FullModuleRequired, Target.Module.validate(reference, .{ .require_full_module = true }));
 
