@@ -16571,6 +16571,12 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expect(!wrong_ref_binding_report.valid);
     try std.testing.expectEqual(@as(usize, 1), wrong_ref_binding_report.world_port_ref_mismatch_count);
     try std.testing.expectEqual(@as(usize, 0), wrong_ref_binding_report.mode_mismatch_count);
+    var missing_ref_binding = binding;
+    missing_ref_binding.world_port_ref = null;
+    try std.testing.expectError(error.WrongImportBinding, Target.Module.validateImportBindings(loaded.imports(), &.{missing_ref_binding}, .{}));
+    const missing_ref_binding_report = loaded.checkImportBindings(&.{missing_ref_binding});
+    try std.testing.expect(!missing_ref_binding_report.valid);
+    try std.testing.expectEqual(@as(usize, 1), missing_ref_binding_report.world_port_ref_mismatch_count);
     try std.testing.expectError(error.MissingRequiredImport, Target.Module.validateImportBindings(loaded.imports(), &.{}, .{}));
     const invalid_binding_report = loaded.checkImportBindings(&.{});
     try std.testing.expect(!invalid_binding_report.valid);

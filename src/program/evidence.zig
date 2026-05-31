@@ -6784,9 +6784,8 @@ pub const BoundaryTargetModule = struct {
                 if (import.required or policy.require_optional_bindings) return error.MissingRequiredImport;
                 continue;
             }
-            if (binding.?.world_port_ref) |world_port_ref| {
-                if (!world_port_ref.eql(import.world_port_ref)) return error.WrongImportBinding;
-            }
+            const world_port_ref = binding.?.world_port_ref orelse return error.WrongImportBinding;
+            if (!world_port_ref.eql(import.world_port_ref)) return error.WrongImportBinding;
             if (!binding.?.payload_ref.eql(import.payloadValueRef())) return error.WrongImportBinding;
             if (!binding.?.response_ref.eql(import.responseValueRef())) return error.WrongImportBinding;
             if (binding.?.mode) |mode| {
@@ -6839,6 +6838,8 @@ pub const BoundaryTargetModule = struct {
             report.matched_import_count += 1;
             if (binding.?.world_port_ref) |world_port_ref| {
                 if (!world_port_ref.eql(import.world_port_ref)) report.world_port_ref_mismatch_count += 1;
+            } else {
+                report.world_port_ref_mismatch_count += 1;
             }
             if (!binding.?.payload_ref.eql(import.payloadValueRef())) report.payload_mismatch_count += 1;
             if (!binding.?.response_ref.eql(import.responseValueRef())) report.response_mismatch_count += 1;
@@ -8570,7 +8571,7 @@ pub const BoundaryTargetModule = struct {
         const schema_count = try fullModuleValueSchemaCount(bytes, section_count);
         const replay_key_recipe_ref = try fullModuleReplayKeyRecipeRef(bytes, section_count);
         try validateTargetCertificateSectionBindings(bytes, section_count, manifest, options);
-        try validateImportSurfaceReplayRecipeBinding(bytes, section_count);
+        try validateImportSurfaceReplayRecipeBinding(bytes, section_count, options);
         try validateImportSurfacePayload(
             sectionPayloadForKind(bytes, section_count, .import_surface) orelse return error.MissingRequiredSection,
             manifest,
@@ -8669,7 +8670,8 @@ pub const BoundaryTargetModule = struct {
         if (sum_variant_count != plan_sum_variant_count) return error.ModuleFingerprintMismatch;
     }
 
-    fn validateImportSurfaceReplayRecipeBinding(bytes: []const u8, section_count: u32) ValidationError!void {
+    fn validateImportSurfaceReplayRecipeBinding(bytes: []const u8, section_count: u32, options: ValidationOptions) ValidationError!void {
+        const limits = options.effectiveLimits();
         const replay_payload = sectionPayloadForKind(bytes, section_count, .replay_key_recipe) orelse return error.MissingRequiredSection;
         var replay_reader = PayloadReader.init(replay_payload);
         const expected_replay_ref = try replay_reader.readRef();
@@ -8685,7 +8687,7 @@ pub const BoundaryTargetModule = struct {
         _ = try import_reader.readBytes();
         _ = try import_reader.readRef();
         const count = try import_reader.readU64();
-        if (count > 65_536) return error.LimitExceeded;
+        if (count > limits.max_world_ports) return error.LimitExceeded;
         for (0..@intCast(count)) |_| {
             _ = try import_reader.readU32();
             _ = try import_reader.readU32();
@@ -8714,8 +8716,11 @@ pub const BoundaryTargetModule = struct {
             .manifest,
             .import_surface,
             .export_surface,
-            .metadata,
             => return,
+            .metadata => {
+                if (payload.len > limits.max_metadata_bytes) return error.LimitExceeded;
+                return;
+            },
             .program_plan_image => {
                 var reader = PayloadReader.init(payload);
                 const format_version = try reader.readU32();
@@ -9117,6 +9122,25 @@ test "boundary module dense id tracking scales past the default validation cap" 
 
     try std.testing.expect(BoundaryTargetModule.markDenseId(seen, BoundaryTargetModule.dense_world_port_cap));
     try std.testing.expect(!BoundaryTargetModule.markDenseId(seen, BoundaryTargetModule.dense_world_port_cap));
+}
+
+test "boundary module metadata payload respects validation limits" {
+    const metadata = [_]u8{ 1, 2, 3, 4, 5 };
+    try std.testing.expectError(
+        error.LimitExceeded,
+        BoundaryTargetModule.validateFullModuleSectionPayload(
+            .metadata,
+            &metadata,
+            undefined,
+            .{ .limits = .{ .max_metadata_bytes = metadata.len - 1 } },
+        ),
+    );
+    try BoundaryTargetModule.validateFullModuleSectionPayload(
+        .metadata,
+        &metadata,
+        undefined,
+        .{ .limits = .{ .max_metadata_bytes = metadata.len } },
+    );
 }
 
 test "loaded module replay key seed includes response fingerprint" {
