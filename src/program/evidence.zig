@@ -5980,7 +5980,6 @@ pub const BoundaryTargetModule = struct {
     pub const ValidationOptions = struct {
         require_full_module: bool = false,
         allow_reference_only: bool = true,
-        allow_partial_with_external_deps: bool = false,
         reject_unknown_sections: bool = true,
         allow_forward_optional_sections: bool = false,
         allow_trailing_junk: bool = false,
@@ -6691,7 +6690,7 @@ pub const BoundaryTargetModule = struct {
         const image_kind = parseKind(bytes[16]) orelse return error.InvalidVersion;
         if (options.require_full_module and image_kind != .full_module) return error.FullModuleRequired;
         if (!options.allow_reference_only and image_kind == .reference_only) return error.ReferenceOnlyRejected;
-        if (!options.allow_partial_with_external_deps and image_kind == .partial_module) return error.PartialModuleRejected;
+        if (image_kind == .partial_module) return error.PartialModuleRejected;
         const section_count = readU32At(bytes, 20);
         if (section_count == 0) return error.MissingManifest;
         if (section_count > options.max_section_count) return error.SectionCountTooLarge;
