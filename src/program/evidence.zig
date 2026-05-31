@@ -6950,7 +6950,7 @@ pub const BoundaryTargetModule = struct {
                 .response_kind = try reader.readBytes(),
                 .replay_key_recipe_ref = try reader.readRef(),
                 .suggested_symbolic_name = try reader.readBytes(),
-                .required = (try reader.readU8()) != 0,
+                .required = try reader.readBool(),
             };
         }
         if (!reader.done()) return error.MalformedImportSurface;
@@ -7004,7 +7004,7 @@ pub const BoundaryTargetModule = struct {
             const response_kind = try reader.readBytes();
             const replay_key_recipe_ref = try reader.readRef();
             const suggested_symbolic_name = try reader.readBytes();
-            const required = (try reader.readU8()) != 0;
+            const required = try reader.readBool();
             builder.fieldU64("import.import_id", import_id);
             builder.fieldU64("import.world_port_id", world_port_id);
             builder.fieldRef("import.world_port", world_port_ref);
@@ -7223,8 +7223,14 @@ pub const BoundaryTargetModule = struct {
             return value;
         }
 
+        fn readBool(self: *@This()) ValidationError!bool {
+            const value = try self.readU8();
+            if (value > 1) return error.MalformedManifest;
+            return value != 0;
+        }
+
         fn readOptionalU64(self: *@This()) ValidationError!?u64 {
-            return if ((try self.readU8()) == 0) null else try self.readU64();
+            return if (!(try self.readBool())) null else try self.readU64();
         }
 
         fn readBytes(self: *@This()) ValidationError![]const u8 {
@@ -7238,7 +7244,7 @@ pub const BoundaryTargetModule = struct {
         }
 
         fn readOptionalBytes(self: *@This()) ValidationError!?[]const u8 {
-            return if ((try self.readU8()) == 0) null else try self.readBytes();
+            return if (!(try self.readBool())) null else try self.readBytes();
         }
 
         fn readRef(self: *@This()) ValidationError!Ref {
@@ -7262,7 +7268,7 @@ pub const BoundaryTargetModule = struct {
         }
 
         fn readOptionalRef(self: *@This()) ValidationError!?Ref {
-            return if ((try self.readU8()) == 0) null else try self.readRef();
+            return if (!(try self.readBool())) null else try self.readRef();
         }
 
         fn readDependency(self: *@This()) ValidationError!Dependency {
@@ -7281,7 +7287,7 @@ pub const BoundaryTargetModule = struct {
         }
 
         fn readOptionalValueRef(self: *@This()) ValidationError!?BoundaryValueRef {
-            return if ((try self.readU8()) == 0) null else try self.readValueRef();
+            return if (!(try self.readBool())) null else try self.readValueRef();
         }
 
         fn readSectionRef(self: *@This()) ValidationError!SectionRef {
@@ -7406,6 +7412,25 @@ pub const BoundaryTargetModule = struct {
             const len: usize = @intCast(readU64At(bytes, entry_offset + 16));
             try validateFullModuleSectionPayload(kind, bytes[start .. start + len], manifest, options);
         }
+        try validateExportSurfacePlanBinding(bytes, section_count);
+    }
+
+    fn validateExportSurfacePlanBinding(bytes: []const u8, section_count: u32) ValidationError!void {
+        const program_payload = sectionPayloadForKind(bytes, section_count, .program_plan_image) orelse return error.MissingRequiredSection;
+        var program_reader = PayloadReader.init(program_payload);
+        const program_format_version = try program_reader.readU32();
+        if (program_format_version != domains.boundary_program_plan_image.format_version.?) return error.InvalidVersion;
+        _ = try program_reader.readU64();
+        _ = try program_reader.readBytes();
+        _ = try program_reader.readU64();
+        _ = try program_reader.readU64();
+        const plan_entry_index = try program_reader.readU16();
+        const function_count = try program_reader.readU64();
+        if (plan_entry_index >= function_count) return error.MalformedManifest;
+
+        const export_payload = sectionPayloadForKind(bytes, section_count, .export_surface) orelse return error.MissingRequiredSection;
+        const export_surface = try parseExportSurface(export_payload);
+        if (export_surface.entry_function_index != plan_entry_index) return error.ModuleFingerprintMismatch;
     }
 
     fn validateFullModuleSectionPayload(kind: SectionKind, payload: []const u8, manifest: Manifest, options: ValidationOptions) ValidationError!void {
