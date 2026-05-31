@@ -243,7 +243,7 @@ pub const domains = struct {
     pub const boundary_module_import_surface = Domain{ .id = .boundary_module_import_surface, .name = "boundary.evidence.target.module.import_surface", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "import surface" };
     pub const boundary_module_export_surface = Domain{ .id = .boundary_module_export_surface, .name = "boundary.evidence.target.module.export_surface", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "export surface" };
     pub const boundary_module_graph = Domain{ .id = .boundary_module_graph, .name = "boundary.evidence.target.module.graph", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "module graph" };
-    pub const boundary_program_plan_image = Domain{ .id = .boundary_program_plan_image, .name = "boundary.evidence.target.module.program_plan_image", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "program plan image" };
+    pub const boundary_program_plan_image = Domain{ .id = .boundary_program_plan_image, .name = "boundary.evidence.target.module.program_plan_image", .format_version = 2, .fingerprint_version = 2, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "program plan image" };
     pub const boundary_value_schema_image = Domain{ .id = .boundary_value_schema_image, .name = "boundary.evidence.target.module.value_schema_image", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "value schema image" };
     pub const boundary_loaded_module = Domain{ .id = .boundary_loaded_module, .name = "boundary.evidence.target.module.loaded", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "loaded module" };
     pub const boundary_loaded_session = Domain{ .id = .boundary_loaded_session, .name = "boundary.evidence.target.module.loaded_session", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "loaded session" };
@@ -1935,6 +1935,11 @@ pub const BoundaryValueRef = struct {
         return std.mem.eql(u8, self.codec, other.codec) and self.schema_index == other.schema_index;
     }
 };
+
+fn optionalBoundaryValueRefEql(left: ?BoundaryValueRef, right: ?BoundaryValueRef) bool {
+    if (left == null or right == null) return left == null and right == null;
+    return left.?.eql(right.?);
+}
 
 fn copyBoundaryValueRefs(dest: []BoundaryValueRef, refs: []const BoundaryValueRef) u8 {
     var count: u8 = 0;
@@ -5562,6 +5567,9 @@ pub const BoundaryTargetModule = struct {
         plan_hash: u64,
         ir_hash: u64,
         entry_function_index: u16,
+        entry_argument_count: u16,
+        entry_result_ref: BoundaryValueRef,
+        entry_result_schema_ref: ?BoundaryValueRef = null,
         function_count: usize,
         requirement_count: usize,
         op_count: usize,
@@ -5576,12 +5584,17 @@ pub const BoundaryTargetModule = struct {
 
         pub fn fromProgram(comptime Program: type) @This() {
             const plan = Program.compiled_plan;
+            const entry = plan.functions[plan.entry_index];
+            const result_ref = BoundaryValueRef.init(if (entry.result_codec) |codec| @tagName(codec) else "unit", entry.result_schema_index);
             var image = @This(){
                 .image_fingerprint = 0,
                 .plan_label = plan.label,
                 .plan_hash = plan.hash(),
                 .ir_hash = plan.ir_hash,
                 .entry_function_index = plan.entry_index,
+                .entry_argument_count = entry.parameter_count,
+                .entry_result_ref = result_ref,
+                .entry_result_schema_ref = if (entry.result_schema_index != null) result_ref else null,
                 .function_count = plan.functions.len,
                 .requirement_count = plan.requirements.len,
                 .op_count = plan.ops.len,
@@ -5605,6 +5618,9 @@ pub const BoundaryTargetModule = struct {
             builder.fieldU64("plan_hash", self.plan_hash);
             builder.fieldU64("ir_hash", self.ir_hash);
             builder.fieldU16("entry_function_index", self.entry_function_index);
+            builder.fieldU16("entry_argument_count", self.entry_argument_count);
+            builder.fieldValueRef("entry_result_ref", self.entry_result_ref);
+            builder.fieldOptionalValueRef("entry_result_schema_ref", self.entry_result_schema_ref);
             builder.fieldUsize("function_count", self.function_count);
             builder.fieldUsize("requirement_count", self.requirement_count);
             builder.fieldUsize("op_count", self.op_count);
@@ -6668,6 +6684,9 @@ pub const BoundaryTargetModule = struct {
         try writer.writeU64(image.plan_hash);
         try writer.writeU64(image.ir_hash);
         try writer.writeU16(image.entry_function_index);
+        try writer.writeU16(image.entry_argument_count);
+        try writer.writeValueRef(image.entry_result_ref);
+        try writer.writeOptionalValueRef(image.entry_result_schema_ref);
         try writer.writeU64(image.function_count);
         try writer.writeU64(image.requirement_count);
         try writer.writeU64(image.op_count);
@@ -7483,12 +7502,18 @@ pub const BoundaryTargetModule = struct {
         _ = try program_reader.readU64();
         _ = try program_reader.readU64();
         const plan_entry_index = try program_reader.readU16();
+        const plan_argument_count = try program_reader.readU16();
+        const plan_result_ref = try program_reader.readValueRef();
+        const plan_result_schema_ref = try program_reader.readOptionalValueRef();
         const function_count = try program_reader.readU64();
         if (plan_entry_index >= function_count) return error.MalformedManifest;
 
         const export_payload = sectionPayloadForKind(bytes, section_count, .export_surface) orelse return error.MissingRequiredSection;
         const export_surface = try parseExportSurface(export_payload);
         if (export_surface.entry_function_index != plan_entry_index) return error.ModuleFingerprintMismatch;
+        if (export_surface.argument_count != plan_argument_count) return error.ModuleFingerprintMismatch;
+        if (!export_surface.result_ref.eql(plan_result_ref)) return error.ModuleFingerprintMismatch;
+        if (!optionalBoundaryValueRefEql(export_surface.result_schema_ref, plan_result_schema_ref)) return error.ModuleFingerprintMismatch;
     }
 
     fn validateFullModuleSectionPayload(kind: SectionKind, payload: []const u8, manifest: Manifest, options: ValidationOptions) ValidationError!void {
@@ -7507,6 +7532,9 @@ pub const BoundaryTargetModule = struct {
                 const plan_hash = try reader.readU64();
                 const ir_hash = try reader.readU64();
                 const entry_function_index = try reader.readU16();
+                const entry_argument_count = try reader.readU16();
+                const entry_result_ref = try reader.readValueRef();
+                const entry_result_schema_ref = try reader.readOptionalValueRef();
                 const function_count = try reader.readU64();
                 const requirement_count = try reader.readU64();
                 const op_count = try reader.readU64();
@@ -7540,6 +7568,9 @@ pub const BoundaryTargetModule = struct {
                     .plan_hash = plan_hash,
                     .ir_hash = ir_hash,
                     .entry_function_index = entry_function_index,
+                    .entry_argument_count = entry_argument_count,
+                    .entry_result_ref = entry_result_ref,
+                    .entry_result_schema_ref = entry_result_schema_ref,
                     .function_count = @intCast(function_count),
                     .requirement_count = @intCast(requirement_count),
                     .op_count = @intCast(op_count),
