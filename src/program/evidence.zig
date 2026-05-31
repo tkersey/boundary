@@ -6282,6 +6282,7 @@ pub const BoundaryTargetModule = struct {
             .compatibility = .{
                 .can_decode = parsed.manifest.module_kind == .full_module,
                 .known_required_sections = true,
+                .ignored_optional_sections = parsed.ignored_optional_sections,
                 .requires_loaded_execution = parsed.manifest.module_kind == .full_module,
                 .module_kind = parsed.manifest.module_kind,
             },
@@ -6403,6 +6404,7 @@ pub const BoundaryTargetModule = struct {
         export_surface: ExportSurface,
         import_surface_payload: []const u8,
         section_count: usize,
+        ignored_optional_sections: usize,
     };
 
     fn sectionDomain(kind: SectionKind) Domain {
@@ -6875,6 +6877,7 @@ pub const BoundaryTargetModule = struct {
         var manifest_payload: ?[]const u8 = null;
         var import_payload: []const u8 = &.{};
         var export_payload: []const u8 = &.{};
+        var ignored_optional_sections: usize = 0;
         for (0..@intCast(section_count)) |index| {
             const entry_offset = header_len + index * section_table_entry_len;
             const raw_kind = readU16At(bytes, entry_offset);
@@ -6902,12 +6905,14 @@ pub const BoundaryTargetModule = struct {
                 if (options.reject_unknown_sections) return error.UnknownSection;
                 const payload = bytes[start..end];
                 if (unknownSectionPayloadFingerprint(raw_kind, format_version, payload) != fingerprint) return error.SectionFingerprintMismatch;
+                ignored_optional_sections += 1;
                 continue;
             };
             const payload = bytes[start..end];
             if (format_version != sectionExpectedFormatVersion(section_kind)) {
                 if (sectionHasForwardOptionalVersion(section_kind, required, format_version, options)) {
                     if (sectionPayloadFingerprint(section_kind, payload) != fingerprint) return error.SectionFingerprintMismatch;
+                    ignored_optional_sections += 1;
                     continue;
                 }
                 return error.InvalidVersion;
@@ -6957,6 +6962,7 @@ pub const BoundaryTargetModule = struct {
             .export_surface = export_surface,
             .import_surface_payload = import_payload,
             .section_count = section_count,
+            .ignored_optional_sections = ignored_optional_sections,
         };
     }
 
