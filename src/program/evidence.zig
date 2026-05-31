@@ -7953,6 +7953,10 @@ pub const BoundaryTargetModule = struct {
                 if (kind == .world_surface and semantic_fingerprint != manifest.world_surface_fingerprint) return error.ManifestFingerprintMismatch;
                 if (kind == .target_certificate and semantic_fingerprint != manifest.target_certificate_fingerprint) return error.ManifestFingerprintMismatch;
                 if (kind == .normalization_certificate and semantic_fingerprint != (manifest.normalization_certificate_fingerprint orelse return error.ManifestFingerprintMismatch)) return error.ManifestFingerprintMismatch;
+                if (kind == .normal_form) {
+                    const kind_tag = ref.kind_tag orelse return error.ManifestFingerprintMismatch;
+                    if (!std.mem.eql(u8, kind_tag, @tagName(manifest.normal_form))) return error.ManifestFingerprintMismatch;
+                }
             },
             .target_certificate => {},
         }
