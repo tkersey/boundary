@@ -16496,6 +16496,7 @@ test "certified boundary module reference full image and loaded module projectio
     var loaded = try Target.Module.decode(allocator, full);
     defer loaded.deinit();
     try std.testing.expectError(error.ImageTooLarge, Evidence.BoundaryTargetModule.decode(allocator, full, .{ .max_image_bytes = full.len - 1 }));
+    try std.testing.expectError(error.ImageTooLarge, Evidence.BoundaryTargetModule.decode(allocator, full, .{ .limits = .{ .max_image_bytes = full.len - 1 } }));
     try std.testing.expectEqual(Target.Module.Kind.full_module, loaded.kind());
     try std.testing.expectEqual(full_report.module_fingerprint, loaded.moduleFingerprint());
     try std.testing.expectEqual(Target.Certificate.certificate_fingerprint, loaded.targetCertificateFingerprint());
@@ -16563,6 +16564,13 @@ test "certified boundary module reference full image and loaded module projectio
     const valid_binding_report = loaded.checkImportBindings(&.{binding});
     try std.testing.expect(valid_binding_report.valid);
     try std.testing.expect(valid_binding_report.report_fingerprint != 0);
+    var wrong_ref_binding = binding;
+    wrong_ref_binding.world_port_ref = Evidence.refFor(Evidence.domains.boundary_world_port, binding.world_port_ref.?.fingerprint ^ 0x1, .{});
+    try std.testing.expectError(error.WrongImportBinding, Target.Module.validateImportBindings(loaded.imports(), &.{wrong_ref_binding}, .{}));
+    const wrong_ref_binding_report = loaded.checkImportBindings(&.{wrong_ref_binding});
+    try std.testing.expect(!wrong_ref_binding_report.valid);
+    try std.testing.expectEqual(@as(usize, 1), wrong_ref_binding_report.world_port_ref_mismatch_count);
+    try std.testing.expectEqual(@as(usize, 0), wrong_ref_binding_report.mode_mismatch_count);
     try std.testing.expectError(error.MissingRequiredImport, Target.Module.validateImportBindings(loaded.imports(), &.{}, .{}));
     const invalid_binding_report = loaded.checkImportBindings(&.{});
     try std.testing.expect(!invalid_binding_report.valid);
@@ -16579,8 +16587,13 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expect(loaded.dependencyReport().dependency_closure_complete);
     try std.testing.expect(Target.Module.matchesReferenceImage(reference));
     try std.testing.expect(Target.Module.referenceSummary().compatible());
+    const full_reference_summary = Target.Module.referenceSummaryForBytes(full);
+    try std.testing.expect(!full_reference_summary.compatible());
+    try std.testing.expect(!full_reference_summary.reference_kind_match);
     try std.testing.expect(Target.Module.compatibility(reference, .{ .allow_reference_only = true }).report_fingerprint != 0);
-    try std.testing.expect(Target.Module.dependencyReport(full, &.{}).dependency_closure_complete);
+    const byte_dependency_report = Target.Module.dependencyReport(full, &.{});
+    try std.testing.expect(byte_dependency_report.dependency_closure_complete);
+    try std.testing.expectEqual(loaded.manifest().required_section_refs.len, byte_dependency_report.embedded_dependency_count);
     const wrong_target_full = try OtherTarget.Module.fullImage(allocator);
     defer allocator.free(wrong_target_full);
     try std.testing.expectError(error.ModuleFingerprintMismatch, Target.Module.validate(wrong_target_full, .{ .require_full_module = true }));

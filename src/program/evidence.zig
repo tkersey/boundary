@@ -6652,6 +6652,7 @@ pub const BoundaryTargetModule = struct {
         matched_import_count: usize = 0,
         missing_required_count: usize = 0,
         extra_binding_count: usize = 0,
+        world_port_ref_mismatch_count: usize = 0,
         payload_mismatch_count: usize = 0,
         response_mismatch_count: usize = 0,
         mode_mismatch_count: usize = 0,
@@ -6661,6 +6662,7 @@ pub const BoundaryTargetModule = struct {
         pub fn finish(self: *@This()) void {
             self.blocker_count = self.missing_required_count +
                 self.extra_binding_count +
+                self.world_port_ref_mismatch_count +
                 self.payload_mismatch_count +
                 self.response_mismatch_count +
                 self.mode_mismatch_count;
@@ -6678,6 +6680,7 @@ pub const BoundaryTargetModule = struct {
             builder.fieldUsize("matched_import_count", self.matched_import_count);
             builder.fieldUsize("missing_required_count", self.missing_required_count);
             builder.fieldUsize("extra_binding_count", self.extra_binding_count);
+            builder.fieldUsize("world_port_ref_mismatch_count", self.world_port_ref_mismatch_count);
             builder.fieldUsize("payload_mismatch_count", self.payload_mismatch_count);
             builder.fieldUsize("response_mismatch_count", self.response_mismatch_count);
             builder.fieldUsize("mode_mismatch_count", self.mode_mismatch_count);
@@ -6735,6 +6738,7 @@ pub const BoundaryTargetModule = struct {
     pub const LocalTargetReferenceReport = struct {
         report_fingerprint: u64 = 0,
         module_fingerprint: u64 = 0,
+        reference_kind_match: bool = false,
         target_certificate_match: bool = false,
         world_surface_match: bool = false,
         program_plan_hash_match: bool = false,
@@ -6749,7 +6753,8 @@ pub const BoundaryTargetModule = struct {
         }
 
         pub fn finish(self: *@This()) void {
-            self.mismatch_count = @intFromBool(!self.target_certificate_match) +
+            self.mismatch_count = @intFromBool(!self.reference_kind_match) +
+                @intFromBool(!self.target_certificate_match) +
                 @intFromBool(!self.world_surface_match) +
                 @intFromBool(!self.program_plan_hash_match) +
                 @intFromBool(!self.normal_form_match) +
@@ -6758,6 +6763,7 @@ pub const BoundaryTargetModule = struct {
                 @intFromBool(!self.world_dispatch_table_match);
             var builder = FingerprintBuilder.init(domains.boundary_module_compatibility_report);
             builder.fieldU64("module_fingerprint", self.module_fingerprint);
+            builder.fieldBool("reference_kind_match", self.reference_kind_match);
             builder.fieldBool("target_certificate_match", self.target_certificate_match);
             builder.fieldBool("world_surface_match", self.world_surface_match);
             builder.fieldBool("program_plan_hash_match", self.program_plan_hash_match);
@@ -6832,7 +6838,7 @@ pub const BoundaryTargetModule = struct {
             }
             report.matched_import_count += 1;
             if (binding.?.world_port_ref) |world_port_ref| {
-                if (!world_port_ref.eql(import.world_port_ref)) report.mode_mismatch_count += 1;
+                if (!world_port_ref.eql(import.world_port_ref)) report.world_port_ref_mismatch_count += 1;
             }
             if (!binding.?.payload_ref.eql(import.payloadValueRef())) report.payload_mismatch_count += 1;
             if (!binding.?.response_ref.eql(import.responseValueRef())) report.response_mismatch_count += 1;
@@ -6914,7 +6920,10 @@ pub const BoundaryTargetModule = struct {
 
     pub fn dependencyReport(bytes: []const u8, provided_deps: []const Ref) DependencyReport {
         if (parseImage(bytes, .{ .require_full_module = false, .allow_reference_only = true })) |parsed| {
-            return DependencyReport.fromManifest(parsed.manifest, provided_deps);
+            var report = DependencyReport.fromManifest(parsed.manifest, provided_deps);
+            report.embedded_dependency_count = parseManifestRequiredSectionRefCount(parsed.manifest_payload) catch report.embedded_dependency_count;
+            report.report_fingerprint = report.computeFingerprint();
+            return report;
         } else |_| {
             var report = DependencyReport{
                 .module_fingerprint = parseModuleFingerprintForReport(bytes) orelse 0,
@@ -7278,6 +7287,7 @@ pub const BoundaryTargetModule = struct {
             fn referenceSummaryForManifest(actual: BoundaryTargetModule.Manifest) BoundaryTargetModule.LocalTargetReferenceReport {
                 var report = BoundaryTargetModule.LocalTargetReferenceReport{
                     .module_fingerprint = actual.module_fingerprint,
+                    .reference_kind_match = actual.module_kind == .reference_only,
                     .target_certificate_match = actual.target_certificate_fingerprint == Target.Certificate.certificate_fingerprint,
                     .world_surface_match = actual.world_surface_fingerprint == Target.WorldSurface.surface_fingerprint,
                     .program_plan_hash_match = actual.program_plan_hash == Target.Program.compiled_plan.hash(),
@@ -7887,6 +7897,26 @@ pub const BoundaryTargetModule = struct {
         errdefer allocator.free(refs);
         for (refs) |*ref| ref.* = try reader.readSectionRef();
         return refs;
+    }
+
+    fn parseManifestRequiredSectionRefCount(payload: []const u8) ValidationError!usize {
+        var reader = PayloadReader.init(payload);
+        _ = try reader.readU32();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU8();
+        _ = try reader.readBytes();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readOptionalU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU64();
+        _ = try reader.readU8();
+        const required_count = try reader.readU64();
+        if (required_count > 128 or !u64FitsUsize(required_count)) return error.LimitExceeded;
+        return @intCast(required_count);
     }
 
     fn parseManifest(payload: []const u8, image_bytes: []const u8, section_count: u32) ValidationError!Manifest {
