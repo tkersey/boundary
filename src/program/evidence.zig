@@ -651,7 +651,9 @@ pub fn refForBoundaryModuleExportSurface(surface: anytype) Ref {
 }
 
 pub fn refForBoundaryModuleGraph(graph: anytype) Ref {
-    return refFor(domains.boundary_module_graph, graph.graph_fingerprint, .{});
+    return refFor(domains.boundary_module_graph, graph.graph_fingerprint, .{
+        .format_version = domains.boundary_module_graph.format_version,
+    });
 }
 
 pub fn refForBoundaryProgramPlanImage(image: anytype) Ref {
@@ -7066,7 +7068,8 @@ pub const BoundaryTargetModule = struct {
         if (count > 65_536) return error.LimitExceeded;
         var seen_import_ids = [_]u64{0} ** 1024;
         var seen_world_port_ids = [_]u64{0} ** 1024;
-        var seen_residual_site_indexes: [65_536]u64 = undefined;
+        const residual_site_indexes = try options.allocator.alloc(u64, @intCast(count));
+        defer options.allocator.free(residual_site_indexes);
         var seen_residual_site_count: usize = 0;
         for (0..@intCast(count)) |_| {
             const import_id = try reader.readU32();
@@ -7081,8 +7084,7 @@ pub const BoundaryTargetModule = struct {
             const residual_site_index = try reader.readU64();
             if (!u64FitsUsize(residual_site_index)) return error.MalformedImportSurface;
             const residual_site_fingerprint = try reader.readU64();
-            if (residualSiteIndexSeen(seen_residual_site_indexes[0..seen_residual_site_count], residual_site_index)) return error.MalformedImportSurface;
-            seen_residual_site_indexes[seen_residual_site_count] = residual_site_index;
+            residual_site_indexes[seen_residual_site_count] = residual_site_index;
             seen_residual_site_count += 1;
             const payload_value_table_id = try reader.readU32();
             const response_value_table_id = try reader.readU32();
@@ -7112,6 +7114,7 @@ pub const BoundaryTargetModule = struct {
             builder.fieldBool("import.required", required);
         }
         if (!reader.done()) return error.MalformedImportSurface;
+        if (!residualSiteIndexesUnique(residual_site_indexes[0..seen_residual_site_count])) return error.MalformedImportSurface;
         const computed = builder.finish();
         if (surface_fingerprint != computed or manifest.import_surface_fingerprint != computed) return error.ManifestFingerprintMismatch;
     }
@@ -7144,11 +7147,17 @@ pub const BoundaryTargetModule = struct {
         return true;
     }
 
-    fn residualSiteIndexSeen(seen: []const u64, residual_site_index: u64) bool {
-        for (seen) |seen_index| {
-            if (seen_index == residual_site_index) return true;
+    fn residualSiteIndexesUnique(indexes: []u64) bool {
+        if (indexes.len <= 1) return true;
+        std.mem.sort(u64, indexes, {}, u64LessThan);
+        for (indexes[1..], 1..) |index, offset| {
+            if (indexes[offset - 1] == index) return false;
         }
-        return false;
+        return true;
+    }
+
+    fn u64LessThan(_: void, left: u64, right: u64) bool {
+        return left < right;
     }
 
     fn parseExportSurface(payload: []const u8) ValidationError!ExportSurface {
@@ -7987,6 +7996,20 @@ test "boundary module import refs reject foreign domains" {
     var forged_replay_key = replay_key_recipe_ref;
     forged_replay_key.domain_id = domains.boundary_world_port.id;
     try std.testing.expectError(error.MalformedImportSurface, BoundaryTargetModule.validateModuleImportRefs(world_port_ref, null, effect_shape_ref, forged_replay_key));
+}
+
+test "boundary module graph refs preserve graph format version" {
+    const ref = refForBoundaryModuleGraph(.{ .graph_fingerprint = 0xB0A7D });
+    try std.testing.expectEqual(domains.boundary_module_graph.id, ref.domain_id);
+    try std.testing.expectEqual(domains.boundary_module_graph.format_version, ref.format_version);
+}
+
+test "residual site duplicate tracking sorts once" {
+    var unique = [_]u64{ 4, 1, 9, 2 };
+    var duplicate = [_]u64{ 7, 3, 7, 1 };
+
+    try std.testing.expect(BoundaryTargetModule.residualSiteIndexesUnique(unique[0..]));
+    try std.testing.expect(!BoundaryTargetModule.residualSiteIndexesUnique(duplicate[0..]));
 }
 
 test "value schema image scalar codec count follows ValueCodec schema boundary" {
