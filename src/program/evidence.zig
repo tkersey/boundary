@@ -6188,8 +6188,9 @@ pub const BoundaryTargetModule = struct {
             .section_count = parsed.section_count,
             .world_port_count = parsed.manifest.world_port_count,
             .compatibility = .{
-                .can_decode = true,
+                .can_decode = parsed.manifest.module_kind == .full_module,
                 .known_required_sections = true,
+                .requires_loaded_execution = parsed.manifest.module_kind == .full_module,
                 .module_kind = parsed.manifest.module_kind,
             },
         };
