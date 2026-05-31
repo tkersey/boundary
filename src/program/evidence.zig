@@ -7063,7 +7063,7 @@ pub const BoundaryTargetModule = struct {
     }
 
     fn refMatchesDomain(ref: Ref, domain: Domain) bool {
-        return ref.domain_id == domain.id and ref.format_version == domain.format_version;
+        return refMatchesDomainVersion(ref, domain);
     }
 
     fn validateModuleImportRefs(world_port_ref: Ref, host_intrinsic_ref: ?Ref, source_effect_shape_ref: Ref, replay_key_recipe_ref: Ref) ValidationError!void {
@@ -7865,6 +7865,14 @@ test "target certificate dependency roles require paired module surfaces" {
     };
     try std.testing.expect(targetCertificateDependencyRolesValid(&paired_surface_dependencies, false));
     try std.testing.expect(targetCertificateDependencyRolesValid(&paired_surface_dependencies, true));
+    try std.testing.expect(!targetCertificateModuleSurfaceRefsValid(&paired_surface_dependencies));
+
+    const paired_module_surface_dependencies = base_dependencies ++ [_]Dependency{
+        .{ .role = .import_surface, .ref = refFor(domains.boundary_module_import_surface, 2, .{}) },
+        .{ .role = .export_surface, .ref = refFor(domains.boundary_module_export_surface, 3, .{}) },
+    };
+    try std.testing.expect(targetCertificateDependencyRolesValid(&paired_module_surface_dependencies, true));
+    try std.testing.expect(targetCertificateModuleSurfaceRefsValid(&paired_module_surface_dependencies));
 
     const duplicated_import_surface_dependencies = base_dependencies ++ [_]Dependency{
         .{ .role = .import_surface, .ref = ref },
@@ -8340,6 +8348,7 @@ fn targetCertificateDependenciesMatch(
     normal_form_ref: Ref,
 ) bool {
     if (!targetCertificateDependencyRolesValid(dependencies, false)) return false;
+    if (!targetCertificateModuleSurfaceRefsValid(dependencies)) return false;
     if (!targetBaseDependenciesContain(dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, residual_program_ref, elaboration_certificate_ref, trace_map_ref)) return false;
     if (!dependenciesContainRef(dependencies, .normalization_certificate, normalization_certificate_ref)) return false;
     if (!dependenciesContainRef(dependencies, .normalization_trace, normalization_trace_ref)) return false;
@@ -8358,6 +8367,15 @@ fn targetCertificateDependenciesMatch(
     }
     return dependencies.len == 14 + import_surface_count + export_surface_count + provider_mapping_count and
         providerMappingDependenciesMatch(dependencies, evidence_dependencies);
+}
+
+fn targetCertificateModuleSurfaceRefsValid(dependencies: []const Dependency) bool {
+    if (dependencyRoleCount(dependencies, .import_surface) == 0 and dependencyRoleCount(dependencies, .export_surface) == 0) return true;
+    const graph = DependencyGraph{ .dependencies = dependencies };
+    const import_surface_ref = graph.lookup(.import_surface) orelse return false;
+    const export_surface_ref = graph.lookup(.export_surface) orelse return false;
+    return refMatchesDomainVersion(import_surface_ref, domains.boundary_module_import_surface) and
+        refMatchesDomainVersion(export_surface_ref, domains.boundary_module_export_surface);
 }
 
 fn targetCertificateDependencyRolesValid(dependencies: []const Dependency, require_module_surfaces: bool) bool {
@@ -8412,6 +8430,10 @@ fn dependencyRoleCount(dependencies: []const Dependency, role: Role) usize {
         if (dependency.role == role) count += 1;
     }
     return count;
+}
+
+fn refMatchesDomainVersion(ref: Ref, domain: Domain) bool {
+    return ref.domain_id == domain.id and ref.format_version == domain.format_version;
 }
 
 fn providerMappingDependenciesMatch(target_dependencies: []const Dependency, evidence_dependencies: []const Dependency) bool {
