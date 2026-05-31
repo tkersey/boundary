@@ -7170,8 +7170,8 @@ pub const BoundaryTargetModule = struct {
             const payload_ref = try reader.readValueRef();
             const response_ref = try reader.readValueRef();
             if (full_module_bindings) |bindings| {
-                const max_import_value_ids = count * 3;
-                if (payload_value_table_id >= max_import_value_ids or response_value_table_id >= max_import_value_ids) return error.MalformedImportSurface;
+                if (payload_value_table_id != canonicalImportPayloadValueTableId(world_port_id) or
+                    response_value_table_id != canonicalImportResponseValueTableId(world_port_id)) return error.MalformedImportSurface;
                 if (!boundaryValueRefWithinSchema(payload_ref, bindings.schema_count)) return error.MalformedImportSurface;
                 if (!boundaryValueRefWithinSchema(response_ref, bindings.schema_count)) return error.MalformedImportSurface;
             }
@@ -7206,6 +7206,14 @@ pub const BoundaryTargetModule = struct {
         if (!residualSiteIndexesUnique(residual_site_indexes[0..seen_residual_site_count])) return error.MalformedImportSurface;
         const computed = builder.finish();
         if (surface_fingerprint != computed or manifest.import_surface_fingerprint != computed) return error.ManifestFingerprintMismatch;
+    }
+
+    fn canonicalImportPayloadValueTableId(world_port_id: u32) u32 {
+        return world_port_id * 3;
+    }
+
+    fn canonicalImportResponseValueTableId(world_port_id: u32) u32 {
+        return world_port_id * 3 + 1;
     }
 
     fn refMatchesDomainFingerprint(ref: Ref, domain: Domain, fingerprint: u64) bool {
