@@ -16526,7 +16526,7 @@ test "certified boundary module reference full image and loaded module projectio
     const non_required_section = try allocator.dupe(u8, full);
     defer allocator.free(non_required_section);
     non_required_section[boundaryModuleSection(non_required_section, Target.Module.SectionKind.manifest).entry_offset + 2] = 0;
-    try std.testing.expectError(error.UnknownSection, Target.Module.validate(non_required_section, .{ .require_full_module = true }));
+    try std.testing.expectError(error.ModuleFingerprintMismatch, Target.Module.validate(non_required_section, .{ .require_full_module = true }));
 
     const noncanonical_required_flag = try allocator.dupe(u8, full);
     defer allocator.free(noncanonical_required_flag);

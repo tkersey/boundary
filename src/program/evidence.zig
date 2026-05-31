@@ -6000,6 +6000,7 @@ pub const BoundaryTargetModule = struct {
         reject_unknown_sections: bool = true,
         allow_forward_optional_sections: bool = false,
         allow_trailing_junk: bool = false,
+        allocator: std.mem.Allocator = std.heap.page_allocator,
         max_image_bytes: usize = 16 * 1024 * 1024,
         max_section_count: usize = 128,
         max_plan_rows: usize = 1_000_000,
@@ -6014,6 +6015,7 @@ pub const BoundaryTargetModule = struct {
         ImageTooLarge,
         SectionCountTooLarge,
         SectionTableOutOfBounds,
+        OutOfMemory,
         UnknownRequiredSection,
         UnknownSection,
         DuplicateSection,
@@ -6217,6 +6219,7 @@ pub const BoundaryTargetModule = struct {
         var decode_options = options;
         decode_options.require_full_module = true;
         decode_options.allow_reference_only = false;
+        decode_options.allocator = allocator;
         if (bytes.len > decode_options.max_image_bytes) return error.ImageTooLarge;
         const owned = try allocator.dupe(u8, bytes);
         errdefer allocator.free(owned);
@@ -6816,7 +6819,6 @@ pub const BoundaryTargetModule = struct {
                 if (unknownSectionPayloadFingerprint(raw_kind, format_version, payload) != fingerprint) return error.SectionFingerprintMismatch;
                 continue;
             };
-            if (!required and options.reject_unknown_sections and !options.allow_forward_optional_sections) return error.UnknownSection;
             const domain = sectionDomain(section_kind);
             if (format_version != (domain.format_version orelse 1)) return error.InvalidVersion;
             const payload = bytes[start..end];
@@ -7481,7 +7483,7 @@ pub const BoundaryTargetModule = struct {
         for (required) |kind| {
             if (!sectionTableContainsKind(bytes, section_count, kind)) return error.MissingRequiredSection;
         }
-        try validateTargetCertificateSectionBindings(bytes, section_count, manifest);
+        try validateTargetCertificateSectionBindings(bytes, section_count, manifest, options);
         for (0..@intCast(section_count)) |index| {
             const entry_offset = header_len + index * section_table_entry_len;
             const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
@@ -7640,7 +7642,7 @@ pub const BoundaryTargetModule = struct {
         }
     }
 
-    fn validateTargetCertificateSectionBindings(bytes: []const u8, section_count: u32, manifest: Manifest) ValidationError!void {
+    fn validateTargetCertificateSectionBindings(bytes: []const u8, section_count: u32, manifest: Manifest, options: ValidationOptions) ValidationError!void {
         const payload = sectionPayloadForKind(bytes, section_count, .target_certificate) orelse return error.MissingRequiredSection;
         var reader = PayloadReader.init(payload);
         const format_version = try reader.readU32();
@@ -7661,13 +7663,13 @@ pub const BoundaryTargetModule = struct {
         const policy_fingerprint = try reader.readU64();
         const summary = try reader.readBytes();
         const dependency_count = try reader.readU64();
-        if (dependency_count > 128) return error.LimitExceeded;
-        var dependencies: [128]Dependency = undefined;
-        for (dependencies[0..@intCast(dependency_count)]) |*dependency| {
+        if (!u64FitsUsize(dependency_count) or dependency_count > options.max_plan_rows) return error.LimitExceeded;
+        const dependency_slice = try options.allocator.alloc(Dependency, @intCast(dependency_count));
+        defer options.allocator.free(dependency_slice);
+        for (dependency_slice) |*dependency| {
             dependency.* = try reader.readDependency();
         }
         if (!reader.done()) return error.MalformedManifest;
-        const dependency_slice = dependencies[0..@intCast(dependency_count)];
         if (!targetCertificateDependencyRolesValid(dependency_slice, true)) return error.ManifestFingerprintMismatch;
         const certificate = BoundaryTargetCertificate{
             .certificate_fingerprint = certificate_fingerprint,
