@@ -6764,9 +6764,9 @@ pub const BoundaryTargetModule = struct {
             previous_end = end;
             const section_kind = parseSectionKind(raw_kind) orelse {
                 if (required) return error.UnknownRequiredSection;
-                if (options.reject_unknown_sections and !options.allow_forward_optional_sections) return error.UnknownSection;
-                continue;
+                return error.UnknownSection;
             };
+            if (!required) return error.UnknownSection;
             const domain = sectionDomain(section_kind);
             if (format_version != (domain.format_version orelse 1)) return error.InvalidVersion;
             const payload = bytes[start..end];
