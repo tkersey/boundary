@@ -16497,6 +16497,18 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expectEqual(@as(u32, 0), loaded.worldPortForSite(closure_approval_request.index).?);
     try std.testing.expect(loaded.validateWorldSurfaceScope());
     try std.testing.expect(loaded.exportMain().export_surface_fingerprint != 0);
+    try std.testing.expect(loaded.replay_key_recipe_ref.eql(Target.replay_key_recipe.evidenceRef()));
+    const request_fingerprint: u64 = 0x1234;
+    const response_fingerprint: u64 = 0x5678;
+    var replay_seed_builder = Evidence.FingerprintBuilder.init(Evidence.domains.boundary_world_replay_key_recipe);
+    replay_seed_builder.fieldU64("world_surface_scope_fingerprint", Target.WorldSurface.replayScopeRef().fingerprint);
+    replay_seed_builder.fieldU64("world_port_id", loaded.imports[0].world_port_id);
+    replay_seed_builder.fieldU64("request_fingerprint", request_fingerprint);
+    replay_seed_builder.fieldU64("response_fingerprint", response_fingerprint);
+    try std.testing.expectEqual(
+        replay_seed_builder.finish(),
+        loaded.replayKeySeedForScope(Target.WorldSurface.replayScopeRef().fingerprint, loaded.imports[0].world_port_id, request_fingerprint, response_fingerprint),
+    );
     const binding = Target.Module.ImportBinding{
         .world_port_id = loaded.imports[0].world_port_id,
         .world_port_ref = loaded.imports[0].world_port_ref,

@@ -6123,7 +6123,7 @@ pub const BoundaryTargetModule = struct {
         validation_report: ValidationReport,
         imports: []ImportSurface.Import = &.{},
         main_export: ExportSurface,
-        replay_scope_fingerprint: u64,
+        replay_key_recipe_ref: Ref,
 
         pub fn deinit(self: *@This()) void {
             self.allocator.free(self.imports);
@@ -6157,9 +6157,10 @@ pub const BoundaryTargetModule = struct {
             return null;
         }
 
-        pub fn replayKeySeed(self: @This(), world_port_id: u32, request_fingerprint: u64, response_fingerprint: u64) u64 {
+        pub fn replayKeySeedForScope(self: @This(), world_surface_scope_fingerprint: u64, world_port_id: u32, request_fingerprint: u64, response_fingerprint: u64) u64 {
+            if (self.importForWorldPort(world_port_id)) |import| std.debug.assert(import.replay_key_recipe_ref.eql(self.replay_key_recipe_ref));
             return replayKeySeedForComponents(
-                self.replay_scope_fingerprint,
+                world_surface_scope_fingerprint,
                 world_port_id,
                 request_fingerprint,
                 response_fingerprint,
@@ -6300,7 +6301,7 @@ pub const BoundaryTargetModule = struct {
         errdefer allocator.free(required_section_refs);
         const imports = try parseImports(allocator, owned, parsed.import_surface_payload, parsed.manifest, decode_options);
         errdefer allocator.free(imports);
-        const replay_scope_ref = try fullModuleReplayKeyRecipeRef(owned, @intCast(parsed.section_count));
+        const replay_key_recipe_ref = try fullModuleReplayKeyRecipeRef(owned, @intCast(parsed.section_count));
         var manifest = parsed.manifest;
         manifest.required_section_refs = required_section_refs;
         return .{
@@ -6310,7 +6311,7 @@ pub const BoundaryTargetModule = struct {
             .validation_report = try validate(owned, decode_options),
             .imports = imports,
             .main_export = parsed.export_surface,
-            .replay_scope_fingerprint = replay_scope_ref.fingerprint,
+            .replay_key_recipe_ref = replay_key_recipe_ref,
         };
     }
 
