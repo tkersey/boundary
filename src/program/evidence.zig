@@ -6385,6 +6385,14 @@ pub const BoundaryTargetModule = struct {
         return builder.finish();
     }
 
+    fn sectionExpectedFormatVersion(kind: SectionKind) u32 {
+        return sectionDomain(kind).format_version orelse 1;
+    }
+
+    fn sectionHasForwardOptionalVersion(kind: SectionKind, required: bool, format_version: u32, options: ValidationOptions) bool {
+        return !required and options.allow_forward_optional_sections and format_version > sectionExpectedFormatVersion(kind);
+    }
+
     fn unknownSectionPayloadFingerprint(raw_kind: u16, format_version: u32, payload: []const u8) u64 {
         var builder = FingerprintBuilder.init(domains.boundary_module);
         builder.fieldU64("unknown_section.kind", raw_kind);
@@ -6836,9 +6844,14 @@ pub const BoundaryTargetModule = struct {
                 if (unknownSectionPayloadFingerprint(raw_kind, format_version, payload) != fingerprint) return error.SectionFingerprintMismatch;
                 continue;
             };
-            const domain = sectionDomain(section_kind);
-            if (format_version != (domain.format_version orelse 1)) return error.InvalidVersion;
             const payload = bytes[start..end];
+            if (format_version != sectionExpectedFormatVersion(section_kind)) {
+                if (sectionHasForwardOptionalVersion(section_kind, required, format_version, options)) {
+                    if (sectionPayloadFingerprint(section_kind, payload) != fingerprint) return error.SectionFingerprintMismatch;
+                    continue;
+                }
+                return error.InvalidVersion;
+            }
             if (sectionPayloadFingerprint(section_kind, payload) != fingerprint) return error.SectionFingerprintMismatch;
             switch (section_kind) {
                 .manifest => manifest_payload = payload,
@@ -7505,8 +7518,11 @@ pub const BoundaryTargetModule = struct {
         for (0..@intCast(section_count)) |index| {
             const entry_offset = header_len + index * section_table_entry_len;
             const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
+            const section_required = bytes[entry_offset + 2] != 0;
+            const format_version = readU32At(bytes, entry_offset + 4);
             const start: usize = @intCast(readU64At(bytes, entry_offset + 8));
             const len: usize = @intCast(readU64At(bytes, entry_offset + 16));
+            if (sectionHasForwardOptionalVersion(kind, section_required, format_version, options)) continue;
             try validateFullModuleSectionPayload(kind, bytes[start .. start + len], manifest, options);
         }
         try validateExportSurfacePlanBinding(bytes, section_count);
@@ -7992,6 +8008,17 @@ test "value schema image scalar codec count follows ValueCodec schema boundary" 
     try std.testing.expect(!BoundaryTargetModule.valueSchemaImageScalarCodec(.product));
     try std.testing.expect(!BoundaryTargetModule.valueSchemaImageScalarCodec(.sum));
     try std.testing.expectEqual(@as(usize, 6), image.scalar_codec_count);
+}
+
+test "forward optional known section versions require opt-in and newer format" {
+    const current = BoundaryTargetModule.sectionExpectedFormatVersion(.metadata);
+    const options = BoundaryTargetModule.ValidationOptions{ .allow_forward_optional_sections = true };
+
+    try std.testing.expect(BoundaryTargetModule.sectionHasForwardOptionalVersion(.metadata, false, current + 1, options));
+    try std.testing.expect(!BoundaryTargetModule.sectionHasForwardOptionalVersion(.metadata, false, current, options));
+    try std.testing.expect(!BoundaryTargetModule.sectionHasForwardOptionalVersion(.metadata, false, current - 1, options));
+    try std.testing.expect(!BoundaryTargetModule.sectionHasForwardOptionalVersion(.metadata, true, current + 1, options));
+    try std.testing.expect(!BoundaryTargetModule.sectionHasForwardOptionalVersion(.metadata, false, current + 1, .{}));
 }
 
 test "target certificate dependency roles require paired module surfaces" {
