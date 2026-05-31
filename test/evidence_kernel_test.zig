@@ -16553,6 +16553,17 @@ test "certified boundary module reference full image and loaded module projectio
     boundaryModuleRefreshModuleFingerprint(Target, forged_port_table_ref);
     try std.testing.expectError(error.ManifestFingerprintMismatch, Target.Module.validate(forged_port_table_ref, .{ .require_full_module = true }));
 
+    const forged_normalization_trace_ref = try allocator.dupe(u8, full);
+    defer allocator.free(forged_normalization_trace_ref);
+    const normalization_trace = boundaryModuleSection(forged_normalization_trace_ref, Target.Module.SectionKind.normalization_trace);
+    const forged_normalization_trace_fingerprint = Target.NormalizationTrace.trace_fingerprint ^ 0x1;
+    boundaryModuleWriteU64(forged_normalization_trace_ref, normalization_trace.start + 2, forged_normalization_trace_fingerprint);
+    boundaryModuleWriteU64(forged_normalization_trace_ref, boundaryModuleSkipRef(forged_normalization_trace_ref, normalization_trace.start), forged_normalization_trace_fingerprint);
+    boundaryModuleRefreshSectionFingerprint(forged_normalization_trace_ref, Target.Module.SectionKind.normalization_trace);
+    boundaryModuleRefreshManifestRequiredRef(forged_normalization_trace_ref, Target.Module.SectionKind.normalization_trace);
+    boundaryModuleRefreshModuleFingerprint(Target, forged_normalization_trace_ref);
+    try std.testing.expectError(error.ManifestFingerprintMismatch, Target.Module.validate(forged_normalization_trace_ref, .{ .require_full_module = true }));
+
     const duplicate_manifest_ref = try allocator.dupe(u8, full);
     defer allocator.free(duplicate_manifest_ref);
     const manifest = boundaryModuleSection(duplicate_manifest_ref, Target.Module.SectionKind.manifest);

@@ -7514,6 +7514,8 @@ pub const BoundaryTargetModule = struct {
         };
         if (certificate_fingerprint != manifest.target_certificate_fingerprint) return error.ManifestFingerprintMismatch;
         if (certificate_fingerprint != certificate.computeFingerprint()) return error.ManifestFingerprintMismatch;
+        if (!std.mem.eql(u8, target_label, manifest.target_label)) return error.ModuleFingerprintMismatch;
+        if (residual_program_ref.domain_id != domains.program_plan.id or residual_program_ref.fingerprint != manifest.program_plan_hash) return error.ModuleFingerprintMismatch;
         try validateRefSectionMatches(bytes, section_count, .world_surface, world_surface_ref);
         try validateRefSectionMatches(bytes, section_count, .world_port_table, port_table_ref);
         try validateRefSectionMatches(bytes, section_count, .world_value_table, value_table_ref);
@@ -7528,6 +7530,7 @@ pub const BoundaryTargetModule = struct {
         try validateRefSectionMatches(bytes, section_count, .source_map, dependency_graph.lookup(.elaboration_source_map) orelse return error.ManifestFingerprintMismatch);
         try validateRefSectionMatches(bytes, section_count, .effect_row, dependency_graph.lookup(.elaboration_effect_row) orelse return error.ManifestFingerprintMismatch);
         try validateRefSectionMatches(bytes, section_count, .normal_form, dependency_graph.lookup(.normal_form) orelse return error.ManifestFingerprintMismatch);
+        try validateRefSectionMatches(bytes, section_count, .normalization_trace, dependency_graph.lookup(.normalization_trace) orelse return error.ManifestFingerprintMismatch);
     }
 
     fn validateRefSectionMatches(bytes: []const u8, section_count: u32, kind: SectionKind, expected: Ref) ValidationError!void {
