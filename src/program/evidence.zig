@@ -6772,6 +6772,7 @@ pub const BoundaryTargetModule = struct {
         if (readU32At(bytes, 8) != domains.boundary_module.format_version.?) return error.InvalidVersion;
         if (readU32At(bytes, 12) != domains.boundary_module.fingerprint_version) return error.InvalidVersion;
         const image_kind = parseKind(bytes[16]) orelse return error.InvalidVersion;
+        if (bytes[17] != 0 or bytes[18] != 0 or bytes[19] != 0) return error.MalformedManifest;
         if (options.require_full_module and image_kind != .full_module) return error.FullModuleRequired;
         if (!options.allow_reference_only and image_kind == .reference_only) return error.ReferenceOnlyRejected;
         if (image_kind == .partial_module) return error.PartialModuleRejected;
@@ -6796,6 +6797,7 @@ pub const BoundaryTargetModule = struct {
             const raw_kind = readU16At(bytes, entry_offset);
             const required_byte = bytes[entry_offset + 2];
             if (required_byte > 1) return error.MalformedManifest;
+            if (bytes[entry_offset + 3] != 0) return error.MalformedManifest;
             const required = required_byte != 0;
             if (raw_kind <= previous_kind) return error.InvalidSectionOrder;
             previous_kind = raw_kind;
@@ -7484,6 +7486,7 @@ pub const BoundaryTargetModule = struct {
             if (!sectionTableContainsKind(bytes, section_count, kind)) return error.MissingRequiredSection;
         }
         try validateTargetCertificateSectionBindings(bytes, section_count, manifest, options);
+        try validateImportSurfaceReplayRecipeBinding(bytes, section_count);
         for (0..@intCast(section_count)) |index| {
             const entry_offset = header_len + index * section_table_entry_len;
             const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
@@ -7542,6 +7545,45 @@ pub const BoundaryTargetModule = struct {
         if (schema_count != plan_value_schema_count) return error.ModuleFingerprintMismatch;
         if (product_field_count != plan_product_field_count) return error.ModuleFingerprintMismatch;
         if (sum_variant_count != plan_sum_variant_count) return error.ModuleFingerprintMismatch;
+    }
+
+    fn validateImportSurfaceReplayRecipeBinding(bytes: []const u8, section_count: u32) ValidationError!void {
+        const replay_payload = sectionPayloadForKind(bytes, section_count, .replay_key_recipe) orelse return error.MissingRequiredSection;
+        var replay_reader = PayloadReader.init(replay_payload);
+        const expected_replay_ref = try replay_reader.readRef();
+        _ = try replay_reader.readU64();
+        if (!replay_reader.done()) return error.MalformedManifest;
+
+        const import_payload = sectionPayloadForKind(bytes, section_count, .import_surface) orelse return error.MissingRequiredSection;
+        var import_reader = PayloadReader.init(import_payload);
+        const format_version = try import_reader.readU32();
+        if (format_version != domains.boundary_module_import_surface.format_version.?) return error.InvalidVersion;
+        _ = try import_reader.readU64();
+        _ = try import_reader.readU64();
+        _ = try import_reader.readBytes();
+        _ = try import_reader.readRef();
+        const count = try import_reader.readU64();
+        if (count > 65_536) return error.LimitExceeded;
+        for (0..@intCast(count)) |_| {
+            _ = try import_reader.readU32();
+            _ = try import_reader.readU32();
+            _ = try import_reader.readRef();
+            _ = try import_reader.readOptionalRef();
+            _ = try import_reader.readRef();
+            _ = try import_reader.readU64();
+            _ = try import_reader.readU64();
+            _ = try import_reader.readU32();
+            _ = try import_reader.readU32();
+            _ = try import_reader.readValueRef();
+            _ = try import_reader.readValueRef();
+            _ = try import_reader.readBytes();
+            _ = try import_reader.readBytes();
+            const replay_key_recipe_ref = try import_reader.readRef();
+            if (!replay_key_recipe_ref.eql(expected_replay_ref)) return error.ManifestFingerprintMismatch;
+            _ = try import_reader.readBytes();
+            _ = try import_reader.readBool();
+        }
+        if (!import_reader.done()) return error.MalformedImportSurface;
     }
 
     fn validateFullModuleSectionPayload(kind: SectionKind, payload: []const u8, manifest: Manifest, options: ValidationOptions) ValidationError!void {
