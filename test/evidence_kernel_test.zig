@@ -310,6 +310,21 @@ test "evidence domain registry is unique and mirrors public version constants" {
     try std.testing.expectEqual(Program.boundary_normalization_certificate_fingerprint_version, Evidence.domains.boundary_normalization_certificate.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_route_lowering_fingerprint_version, Evidence.domains.boundary_route_lowering.fingerprint_version);
     try std.testing.expectEqual(Program.boundary_plan_builder_fingerprint_version, Evidence.domains.boundary_plan_builder.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_format_version, Evidence.domains.boundary_module.format_version.?);
+    try std.testing.expectEqual(Program.boundary_module_fingerprint_version, Evidence.domains.boundary_module.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_manifest_format_version, Evidence.domains.boundary_module_manifest.format_version.?);
+    try std.testing.expectEqual(Program.boundary_module_manifest_fingerprint_version, Evidence.domains.boundary_module_manifest.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_import_surface_format_version, Evidence.domains.boundary_module_import_surface.format_version.?);
+    try std.testing.expectEqual(Program.boundary_module_import_surface_fingerprint_version, Evidence.domains.boundary_module_import_surface.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_export_surface_format_version, Evidence.domains.boundary_module_export_surface.format_version.?);
+    try std.testing.expectEqual(Program.boundary_module_export_surface_fingerprint_version, Evidence.domains.boundary_module_export_surface.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_module_graph_fingerprint_version, Evidence.domains.boundary_module_graph.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_program_plan_image_format_version, Evidence.domains.boundary_program_plan_image.format_version.?);
+    try std.testing.expectEqual(Program.boundary_program_plan_image_fingerprint_version, Evidence.domains.boundary_program_plan_image.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_value_schema_image_format_version, Evidence.domains.boundary_value_schema_image.format_version.?);
+    try std.testing.expectEqual(Program.boundary_value_schema_image_fingerprint_version, Evidence.domains.boundary_value_schema_image.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_loaded_module_fingerprint_version, Evidence.domains.boundary_loaded_module.fingerprint_version);
+    try std.testing.expectEqual(Program.boundary_loaded_session_fingerprint_version, Evidence.domains.boundary_loaded_session.fingerprint_version);
     try std.testing.expectEqual(@as(u32, 3), Evidence.domains.treaty_authorization_legacy_v3.format_version.?);
     try std.testing.expectEqual(@as(u32, 2), Evidence.domains.treaty_authorization_legacy_v2.format_version.?);
     try std.testing.expectEqual(Program.pipeline_fingerprint_version, Evidence.domains.pipeline.fingerprint_version);
@@ -16382,6 +16397,114 @@ test "boundary target normalization selects provider proofs and reports fallback
     try std.testing.expectEqual(Elaboration.Target.Normalization.RouteKind.world_port, world_route.kind);
     try std.testing.expectEqual(Elaboration.Target.Normalization.FallbackReason.world_port_selected, world_route.fallback_reason);
     try std.testing.expect(world_route.world_port.?.world_port_ref.eql(world_port.evidenceRef()));
+}
+
+test "certified boundary module reference full image and loaded module projections validate" {
+    const allocator = std.testing.allocator;
+    const Closure = closure_source_program.BoundaryClosure;
+    const Elaboration = Closure.Elaboration;
+    const Target = comptime blk: {
+        @setEvalBranchQuota(2_000_000);
+        const source_ref = closure_source_program.Evidence.refFor(
+            closure_source_program.Evidence.domains.program_plan,
+            closure_source_program.compiled_plan.hash(),
+            .{ .label = closure_source_program.contract.label },
+        );
+        const source_shape = Closure.EffectShape.init(.{
+            .program_label = closure_source_program.contract.label,
+            .plan_hash = closure_source_program.compiled_plan.hash(),
+            .kind = .operation,
+            .site_index = closure_approval_request.index,
+            .protocol_label = "approval",
+            .protocol_op_fingerprint = closure_approval_request.fingerprint,
+            .semantic_label = "approval.request",
+            .name = "request",
+            .mode = "transform",
+            .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.payload_ref),
+            .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.resume_ref),
+            .result_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.result_ref),
+        });
+        const port = Closure.WorldPort.init(.{
+            .label = "module-approval-port",
+            .kind = .test_fixture,
+            .effect_shape_ref = source_shape.evidenceRef(),
+            .effect_shape_witness = source_shape,
+            .supported_protocol_labels = &.{"approval"},
+            .supported_site_indexes = &.{closure_approval_request.index},
+            .supported_protocol_op_fingerprints = &.{closure_approval_request.fingerprint},
+        });
+        const graph = Closure.Graph.init("module-world-port-graph", &.{}, &.{}, &.{});
+        const report = Closure.Report.init(.{
+            .graph_fingerprint = graph.fingerprint,
+            .root_program_refs = &.{source_ref},
+            .effect_shape_count = 1,
+            .world_port_refs = &.{port.evidenceRef()},
+            .open_world_port_count = 1,
+        });
+        const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+        const input = Elaboration.Input{
+            .closure_graph = graph,
+            .closure_report = report,
+            .closure_certificate = certificate,
+            .source_program_ref = source_ref,
+            .world_ports = &.{port},
+            .policy = Elaboration.Policy.auditOnly(),
+        };
+        break :blk Elaboration.Target.compileComptime(.{
+            .label = "module-world-port-target",
+            .input = input,
+            .residual_program = closure_source_program,
+            .policy = Elaboration.Target.Policy.auditOnly(),
+        });
+    };
+
+    try Target.Module.validateSelf();
+    const reference = try Target.Module.reference(allocator);
+    defer allocator.free(reference);
+    const reference_report = try Target.Module.validate(reference, .{ .allow_reference_only = true });
+    try std.testing.expectEqual(Target.Module.Kind.reference_only, reference_report.module_kind);
+    try Target.Module.validateReferenceAgainst(reference);
+
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    const full_report = try Target.Module.validate(full, .{ .require_full_module = true });
+    try std.testing.expectEqual(Target.Module.Kind.full_module, full_report.module_kind);
+    try std.testing.expect(full_report.manifest_fingerprint != 0);
+    var loaded = try Target.Module.decode(allocator, full);
+    defer loaded.deinit();
+    try std.testing.expectEqual(@as(usize, 1), loaded.imports.len);
+    try std.testing.expectEqual(@as(u32, 0), loaded.worldPortForSite(closure_approval_request.index).?);
+    try std.testing.expect(loaded.validateWorldSurfaceScope());
+    try std.testing.expect(loaded.exportMain().export_surface_fingerprint != 0);
+    const binding = Evidence.BoundaryTargetModule.ImportBinding{
+        .world_port_id = loaded.imports[0].world_port_id,
+        .world_port_ref = loaded.imports[0].world_port_ref,
+        .payload_ref = loaded.imports[0].payload_ref,
+        .response_ref = loaded.imports[0].response_ref,
+    };
+    try Evidence.BoundaryTargetModule.validateImportBindings(loaded.imports, &.{binding}, .{});
+    try std.testing.expectError(error.MissingRequiredImport, Evidence.BoundaryTargetModule.validateImportBindings(loaded.imports, &.{}, .{}));
+    const extra_binding = Evidence.BoundaryTargetModule.ImportBinding{
+        .world_port_id = 999,
+        .world_port_ref = binding.world_port_ref,
+        .payload_ref = binding.payload_ref,
+        .response_ref = binding.response_ref,
+    };
+    try std.testing.expectError(error.ExtraImportBinding, Evidence.BoundaryTargetModule.validateImportBindings(loaded.imports, &.{ binding, extra_binding }, .{}));
+    var session = Target.Module.LoadedModule.Session.start(&loaded);
+    try std.testing.expectError(error.UnsupportedLoadedExecution, session.next());
+
+    var malformed = try allocator.dupe(u8, full);
+    defer allocator.free(malformed);
+    malformed[0] = 'X';
+    try std.testing.expectError(error.InvalidMagic, Target.Module.validate(malformed, .{}));
+    try std.testing.expectError(error.TruncatedHeader, Target.Module.validate(full[0..12], .{}));
+    try std.testing.expectError(error.FullModuleRequired, Target.Module.validate(reference, .{ .require_full_module = true }));
+
+    var bad_fingerprint = try allocator.dupe(u8, full);
+    defer allocator.free(bad_fingerprint);
+    bad_fingerprint[bad_fingerprint.len - 1] ^= 0x1;
+    try std.testing.expectError(error.SectionFingerprintMismatch, Target.Module.validate(bad_fingerprint, .{}));
 }
 
 test "semantic body classifications expose stable evidence refs" {

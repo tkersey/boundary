@@ -89,6 +89,19 @@ Replay metadata is the evidence-backed recipe:
 Boundary emits the recipe only; journal storage and replay lookup belong to
 World.
 
+## Certified Boundary Module
+
+`Target.Module` serializes the same target-neutral semantic surface into a
+Certified Boundary Module image. Reference images identify a target already
+known to the receiver. Full images carry the manifest, import/export surfaces,
+ProgramPlan and value-schema summaries, WorldSurface sections, maps, evidence,
+normal form, and certificate refs required for validation and inspection.
+
+The module remains a Boundary semantic image, not a concrete World ABI. World
+still chooses how to bind implementations, encode host calls, store module
+bytes, and persist execution timelines. See
+[boundary_module.md](boundary_module.md).
+
 ## World v0 Contract
 
 World v0 can rely on Boundary to provide:

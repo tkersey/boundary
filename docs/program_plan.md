@@ -18,6 +18,14 @@ metadata and normalization trace/certificate evidence an adjacent World
 interpreter can use to dispatch residual world ports by dense id without
 re-running treaty or provider search.
 
+`Target.Module.ProgramPlanImage` is the canonical image summary of the validated
+residual plan used inside a Certified Boundary Module. It records the plan label,
+plan hash, IR hash, entry function, and validated row-table counts needed for
+module validation and diagnostics. It does not expose mutable instruction
+construction or arbitrary runtime code mutation APIs. Value schema image data
+uses schema-local refs and diagnostic labels only; it does not widen
+`ProgramValue` or authorize native Zig type identity.
+
 ## Scalar body
 
 A scalar plan uses scalar locals and scalar `ProgramValue` entry arguments. If

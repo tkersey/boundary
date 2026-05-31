@@ -129,6 +129,12 @@ fingerprint matches the `WorldSurface`, that each world port has payload, resume
 and result value descriptors, and that policy bounds such as `max_world_ports`
 and `max_value_descriptors` hold.
 
+`Target.Module` is the wire-transfer image namespace for the certified target.
+It can emit reference-only or full Certified Boundary Module bytes, validate
+section graphs and fingerprints, decode a `LoadedModule` for inspection, and
+check WorldPort import bindings without adding World, storage, transport, ABI,
+or host execution behavior. See [boundary_module.md](boundary_module.md).
+
 ## Source, Residual, And Evidence Maps
 
 `Elaboration.SourceMap` records source shape refs, residual refs, source and

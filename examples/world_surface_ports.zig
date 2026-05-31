@@ -34,11 +34,11 @@ const compiled = semantic.finish(.{
     }},
 }) catch |err| @compileError("invalid world surface ports residual: " ++ @errorName(err));
 
-const Program = boundary.program("world-surface-ports-residual", Handlers, struct {
+pub const Program = boundary.program("world-surface-ports-residual", Handlers, struct {
     pub const site_metadata = compiled.site_metadata;
     pub const compiled_plan = compiled.plan;
 });
-const ApprovalRequest = Program.protocol.operationSite("approval", "request", 0);
+pub const ApprovalRequest = Program.protocol.operationSite("approval", "request", 0);
 const Closure = Program.BoundaryClosure;
 const Elaboration = Closure.Elaboration;
 const program_ref = Program.Evidence.refFor(Program.Evidence.domains.program_plan, Program.compiled_plan.hash(), .{ .label = Program.contract.label });
@@ -100,7 +100,7 @@ const elaboration_input = Elaboration.Input{
     .world_ports = &.{port},
     .policy = elaboration_policy,
 };
-const Target = blk: {
+pub const Target = blk: {
     @setEvalBranchQuota(2_000_000);
     break :blk Elaboration.Target.compileComptime(.{
         .label = "world-surface-ports-target",
