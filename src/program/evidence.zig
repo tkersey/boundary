@@ -6117,6 +6117,7 @@ pub const BoundaryTargetModule = struct {
         validation_report: ValidationReport,
         imports: []ImportSurface.Import = &.{},
         main_export: ExportSurface,
+        replay_scope_fingerprint: u64,
 
         pub fn deinit(self: *@This()) void {
             self.allocator.free(self.imports);
@@ -6152,8 +6153,7 @@ pub const BoundaryTargetModule = struct {
 
         pub fn replayKeySeed(self: @This(), world_port_id: u32, request_fingerprint: u64, response_fingerprint: u64) u64 {
             return replayKeySeedForComponents(
-                self.manifest.module_fingerprint,
-                self.manifest.world_surface_fingerprint,
+                self.replay_scope_fingerprint,
                 world_port_id,
                 request_fingerprint,
                 response_fingerprint,
@@ -6197,10 +6197,9 @@ pub const BoundaryTargetModule = struct {
         };
     };
 
-    fn replayKeySeedForComponents(module_fingerprint: u64, world_surface_fingerprint: u64, world_port_id: u32, request_fingerprint: u64, response_fingerprint: u64) u64 {
+    fn replayKeySeedForComponents(world_surface_scope_fingerprint: u64, world_port_id: u32, request_fingerprint: u64, response_fingerprint: u64) u64 {
         var builder = FingerprintBuilder.init(domains.boundary_world_replay_key_recipe);
-        builder.fieldU64("module_fingerprint", module_fingerprint);
-        builder.fieldU64("world_surface_fingerprint", world_surface_fingerprint);
+        builder.fieldU64("world_surface_scope_fingerprint", world_surface_scope_fingerprint);
         builder.fieldU64("world_port_id", world_port_id);
         builder.fieldU64("request_fingerprint", request_fingerprint);
         builder.fieldU64("response_fingerprint", response_fingerprint);
@@ -6295,6 +6294,7 @@ pub const BoundaryTargetModule = struct {
         errdefer allocator.free(required_section_refs);
         const imports = try parseImports(allocator, owned, parsed.import_surface_payload, parsed.manifest, decode_options);
         errdefer allocator.free(imports);
+        const replay_scope_ref = try fullModuleReplayKeyRecipeRef(owned, @intCast(parsed.section_count));
         var manifest = parsed.manifest;
         manifest.required_section_refs = required_section_refs;
         return .{
@@ -6304,6 +6304,7 @@ pub const BoundaryTargetModule = struct {
             .validation_report = try validate(owned, decode_options),
             .imports = imports,
             .main_export = parsed.export_surface,
+            .replay_scope_fingerprint = replay_scope_ref.fingerprint,
         };
     }
 
@@ -7137,7 +7138,7 @@ pub const BoundaryTargetModule = struct {
             const payload_ref = try reader.readValueRef();
             const response_ref = try reader.readValueRef();
             if (full_module_bindings) |bindings| {
-                const max_import_value_ids = count * 2;
+                const max_import_value_ids = count * 3;
                 if (payload_value_table_id >= max_import_value_ids or response_value_table_id >= max_import_value_ids) return error.MalformedImportSurface;
                 if (!boundaryValueRefWithinSchema(payload_ref, bindings.schema_count)) return error.MalformedImportSurface;
                 if (!boundaryValueRefWithinSchema(response_ref, bindings.schema_count)) return error.MalformedImportSurface;
@@ -8118,8 +8119,8 @@ test "residual site duplicate tracking sorts once" {
 }
 
 test "loaded module replay key seed includes response fingerprint" {
-    const first = BoundaryTargetModule.replayKeySeedForComponents(1, 2, 3, 4, 5);
-    const second = BoundaryTargetModule.replayKeySeedForComponents(1, 2, 3, 4, 6);
+    const first = BoundaryTargetModule.replayKeySeedForComponents(1, 2, 3, 4);
+    const second = BoundaryTargetModule.replayKeySeedForComponents(1, 2, 3, 5);
     try std.testing.expect(first != second);
 }
 
