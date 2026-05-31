@@ -5530,6 +5530,7 @@ pub const BoundaryTargetModule = struct {
     pub const magic = "BCBMOD1\x00";
     const header_len: usize = 48;
     const section_table_entry_len: usize = 32;
+    pub const dense_world_port_cap: usize = 65_536;
 
     pub const Kind = enum(u8) {
         reference_only = 0,
@@ -6069,7 +6070,7 @@ pub const BoundaryTargetModule = struct {
         max_image_bytes: usize = 16 * 1024 * 1024,
         max_section_count: usize = 128,
         max_plan_rows: usize = 1_000_000,
-        max_world_ports: usize = 65_536,
+        max_world_ports: usize = dense_world_port_cap,
         max_schema_count: usize = 65_536,
         max_map_entries: usize = 65_536,
         max_dependency_count: usize = 256,
@@ -6127,7 +6128,7 @@ pub const BoundaryTargetModule = struct {
         max_section_count: usize = 128,
         max_plan_rows: usize = 1_000_000,
         max_dependency_count: usize = 256,
-        max_world_ports: usize = 65_536,
+        max_world_ports: usize = dense_world_port_cap,
         max_schema_count: usize = 65_536,
 
         pub fn effectiveLimits(self: @This()) ValidationLimits {
@@ -7148,20 +7149,13 @@ pub const BoundaryTargetModule = struct {
             }
 
             pub fn validationReport(bytes: []const u8, options: BoundaryTargetModule.ValidationOptions) BoundaryTargetModule.ValidationReport {
-                return BoundaryTargetModule.validationReport(bytes, options);
+                if (@This().validate(bytes, options)) |report| return report else |err| {
+                    return validationReportForTargetError(bytes, options, err);
+                }
             }
 
             pub fn compatibility(bytes: []const u8, options: BoundaryTargetModule.ValidationOptions) BoundaryTargetModule.CompatibilityReport {
-                var report = BoundaryTargetModule.compatibility(bytes, options);
-                if (report.compatible and report.module_kind == .reference_only) {
-                    const reference_report = referenceSummaryForBytes(bytes);
-                    if (!reference_report.compatible()) {
-                        report.compatible = false;
-                        report.blocker_count += reference_report.mismatch_count;
-                        report.finish();
-                    }
-                }
-                return report;
+                return @This().validationReport(bytes, options).compatibility;
             }
 
             pub fn dependencyReport(bytes: []const u8, provided_deps: []const Ref) BoundaryTargetModule.DependencyReport {
@@ -7186,6 +7180,18 @@ pub const BoundaryTargetModule = struct {
             fn validateTargetReferenceReport(report: BoundaryTargetModule.ValidationReport) ValidationError!void {
                 if (report.module_fingerprint != fingerprint) return error.ModuleFingerprintMismatch;
                 if (report.manifest_fingerprint != manifest.manifest_fingerprint) return error.ManifestFingerprintMismatch;
+            }
+
+            fn validationReportForTargetError(bytes: []const u8, options: BoundaryTargetModule.ValidationOptions, err: BoundaryTargetModule.ValidationError) BoundaryTargetModule.ValidationReport {
+                var report = BoundaryTargetModule.validationReport(bytes, options);
+                if (!report.valid) return report;
+                report.success = false;
+                report.compatibility.compatible = false;
+                report.compatibility.can_decode = false;
+                report.compatibility.blocker_count += 1;
+                report.addDiagnostic(diagnosticForValidationError(bytes, err));
+                report.finish();
+                return report;
             }
 
             fn validateTargetModuleIdentity(manifest_value: BoundaryTargetModule.Manifest, export_surface: BoundaryTargetModule.ExportSurface) ValidationError!void {
@@ -8041,9 +8047,13 @@ pub const BoundaryTargetModule = struct {
         builder.fieldRef("world_surface", world_surface_ref);
         const count = try reader.readU64();
         if (count > limits.max_world_ports or count != manifest.world_port_count) return error.LimitExceeded;
-        if (count > 65_536) return error.LimitExceeded;
-        var seen_import_ids = [_]u64{0} ** 1024;
-        var seen_world_port_ids = [_]u64{0} ** 1024;
+        const dense_word_count = try denseIdWordCount(count);
+        const seen_import_ids = try options.allocator.alloc(u64, dense_word_count);
+        defer options.allocator.free(seen_import_ids);
+        const seen_world_port_ids = try options.allocator.alloc(u64, dense_word_count);
+        defer options.allocator.free(seen_world_port_ids);
+        @memset(seen_import_ids, 0);
+        @memset(seen_world_port_ids, 0);
         const residual_site_indexes = try options.allocator.alloc(u64, @intCast(count));
         defer options.allocator.free(residual_site_indexes);
         var seen_residual_site_count: usize = 0;
@@ -8052,8 +8062,8 @@ pub const BoundaryTargetModule = struct {
             const world_port_id = try reader.readU32();
             if (world_port_id >= manifest.world_port_count) return error.MalformedImportSurface;
             if (import_id >= count) return error.MalformedImportSurface;
-            if (!markDenseId(&seen_import_ids, import_id)) return error.MalformedImportSurface;
-            if (!markDenseId(&seen_world_port_ids, world_port_id)) return error.MalformedImportSurface;
+            if (!markDenseId(seen_import_ids, import_id)) return error.MalformedImportSurface;
+            if (!markDenseId(seen_world_port_ids, world_port_id)) return error.MalformedImportSurface;
             const world_port_ref = try reader.readRef();
             const host_intrinsic_ref = try reader.readOptionalRef();
             const source_effect_shape_ref = try reader.readRef();
@@ -8132,7 +8142,13 @@ pub const BoundaryTargetModule = struct {
         if (!refMatchesDomain(replay_key_recipe_ref, domains.boundary_world_replay_key_recipe)) return error.MalformedImportSurface;
     }
 
-    fn markDenseId(seen: *[1024]u64, id: u32) bool {
+    fn denseIdWordCount(count: u64) ValidationError!usize {
+        const words = count / 64 + @intFromBool(count % 64 != 0);
+        if (!u64FitsUsize(words)) return error.LimitExceeded;
+        return @intCast(words);
+    }
+
+    fn markDenseId(seen: []u64, id: u32) bool {
         const word_index: usize = @intCast(id / 64);
         const bit_index: u6 = @intCast(id % 64);
         const bit = @as(u64, 1) << bit_index;
@@ -9060,6 +9076,17 @@ test "residual site duplicate tracking sorts once" {
 
     try std.testing.expect(BoundaryTargetModule.residualSiteIndexesUnique(unique[0..]));
     try std.testing.expect(!BoundaryTargetModule.residualSiteIndexesUnique(duplicate[0..]));
+}
+
+test "boundary module dense id tracking scales past the default validation cap" {
+    const allocator = std.testing.allocator;
+    const word_count = try BoundaryTargetModule.denseIdWordCount(BoundaryTargetModule.dense_world_port_cap + 1);
+    const seen = try allocator.alloc(u64, word_count);
+    defer allocator.free(seen);
+    @memset(seen, 0);
+
+    try std.testing.expect(BoundaryTargetModule.markDenseId(seen, BoundaryTargetModule.dense_world_port_cap));
+    try std.testing.expect(!BoundaryTargetModule.markDenseId(seen, BoundaryTargetModule.dense_world_port_cap));
 }
 
 test "loaded module replay key seed includes response fingerprint" {

@@ -16415,66 +16415,71 @@ test "boundary target normalization selects provider proofs and reports fallback
     try std.testing.expect(world_route.world_port.?.world_port_ref.eql(world_port.evidenceRef()));
 }
 
-test "certified boundary module reference full image and loaded module projections validate" {
-    const allocator = std.testing.allocator;
+fn ModuleWorldPortTarget(comptime label: []const u8) type {
     const Closure = closure_source_program.BoundaryClosure;
     const Elaboration = Closure.Elaboration;
-    const Target = comptime blk: {
-        @setEvalBranchQuota(2_000_000);
-        const source_ref = closure_source_program.Evidence.refFor(
-            closure_source_program.Evidence.domains.program_plan,
-            closure_source_program.compiled_plan.hash(),
-            .{ .label = closure_source_program.contract.label },
-        );
-        const source_shape = Closure.EffectShape.init(.{
-            .program_label = closure_source_program.contract.label,
-            .plan_hash = closure_source_program.compiled_plan.hash(),
-            .kind = .operation,
-            .site_index = closure_approval_request.index,
-            .protocol_label = "approval",
-            .protocol_op_fingerprint = closure_approval_request.fingerprint,
-            .semantic_label = "approval.request",
-            .name = "request",
-            .mode = "transform",
-            .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.payload_ref),
-            .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.resume_ref),
-            .result_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.result_ref),
-        });
-        const port = Closure.WorldPort.init(.{
-            .label = "module-approval-port",
-            .kind = .test_fixture,
-            .effect_shape_ref = source_shape.evidenceRef(),
-            .effect_shape_witness = source_shape,
-            .supported_protocol_labels = &.{"approval"},
-            .supported_site_indexes = &.{closure_approval_request.index},
-            .supported_protocol_op_fingerprints = &.{closure_approval_request.fingerprint},
-        });
-        const graph = Closure.Graph.init("module-world-port-graph", &.{}, &.{}, &.{});
-        const report = Closure.Report.init(.{
-            .graph_fingerprint = graph.fingerprint,
-            .root_program_refs = &.{source_ref},
-            .effect_shape_count = 1,
-            .world_port_refs = &.{port.evidenceRef()},
-            .open_world_port_count = 1,
-        });
-        const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
-        const input = Elaboration.Input{
-            .closure_graph = graph,
-            .closure_report = report,
-            .closure_certificate = certificate,
-            .source_program_ref = source_ref,
-            .world_ports = &.{port},
-            .policy = Elaboration.Policy.auditOnly(),
-        };
-        break :blk Elaboration.Target.compileComptime(.{
-            .label = "module-world-port-target",
-            .input = input,
-            .residual_program = closure_source_program,
-            .policy = Elaboration.Target.Policy.auditOnly(),
-        });
+    @setEvalBranchQuota(2_000_000);
+    const source_ref = closure_source_program.Evidence.refFor(
+        closure_source_program.Evidence.domains.program_plan,
+        closure_source_program.compiled_plan.hash(),
+        .{ .label = closure_source_program.contract.label },
+    );
+    const source_shape = Closure.EffectShape.init(.{
+        .program_label = closure_source_program.contract.label,
+        .plan_hash = closure_source_program.compiled_plan.hash(),
+        .kind = .operation,
+        .site_index = closure_approval_request.index,
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = closure_approval_request.fingerprint,
+        .semantic_label = "approval.request",
+        .name = "request",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.resume_ref),
+        .result_ref = Evidence.BoundaryValueRef.fromValueRef(closure_approval_request.result_ref),
+    });
+    const port = Closure.WorldPort.init(.{
+        .label = "module-approval-port",
+        .kind = .test_fixture,
+        .effect_shape_ref = source_shape.evidenceRef(),
+        .effect_shape_witness = source_shape,
+        .supported_protocol_labels = &.{"approval"},
+        .supported_site_indexes = &.{closure_approval_request.index},
+        .supported_protocol_op_fingerprints = &.{closure_approval_request.fingerprint},
+    });
+    const graph = Closure.Graph.init("module-world-port-graph", &.{}, &.{}, &.{});
+    const report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+        .effect_shape_count = 1,
+        .world_port_refs = &.{port.evidenceRef()},
+        .open_world_port_count = 1,
+    });
+    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+    const input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = report,
+        .closure_certificate = certificate,
+        .source_program_ref = source_ref,
+        .world_ports = &.{port},
+        .policy = Elaboration.Policy.auditOnly(),
     };
+    return Elaboration.Target.compileComptime(.{
+        .label = label,
+        .input = input,
+        .residual_program = closure_source_program,
+        .policy = Elaboration.Target.Policy.auditOnly(),
+    });
+}
+
+test "certified boundary module reference full image and loaded module projections validate" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleWorldPortTarget("module-world-port-target");
+    const OtherTarget = comptime ModuleWorldPortTarget("module-world-port-other-target");
 
     try Target.Module.validateSelf();
+    try std.testing.expect(Target.Module.ValidationLimits.large_local.max_world_ports > Evidence.BoundaryTargetModule.dense_world_port_cap);
+    try std.testing.expect(Target.Module.ValidationLimits.audit_only.max_world_ports > Evidence.BoundaryTargetModule.dense_world_port_cap);
     const reference = try Target.Module.reference(allocator);
     defer allocator.free(reference);
     const reference_report = try Target.Module.validate(reference, .{ .allow_reference_only = true });
@@ -16576,6 +16581,16 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expect(Target.Module.referenceSummary().compatible());
     try std.testing.expect(Target.Module.compatibility(reference, .{ .allow_reference_only = true }).report_fingerprint != 0);
     try std.testing.expect(Target.Module.dependencyReport(full, &.{}).dependency_closure_complete);
+    const wrong_target_full = try OtherTarget.Module.fullImage(allocator);
+    defer allocator.free(wrong_target_full);
+    try std.testing.expectError(error.ModuleFingerprintMismatch, Target.Module.validate(wrong_target_full, .{ .require_full_module = true }));
+    const wrong_target_report = Target.Module.validationReport(wrong_target_full, .{ .require_full_module = true });
+    try std.testing.expect(!wrong_target_report.valid);
+    try std.testing.expect(!wrong_target_report.compatibility.compatible);
+    try std.testing.expectEqual(@as(usize, 1), wrong_target_report.blocker_count);
+    try std.testing.expectEqual(error.ModuleFingerprintMismatch, wrong_target_report.diagnosticSlice()[0].error_tag.?);
+    const wrong_target_compatibility = Target.Module.compatibility(wrong_target_full, .{ .require_full_module = true });
+    try std.testing.expect(!wrong_target_compatibility.compatible);
     var session = Target.Module.LoadedModule.Session.start(&loaded);
     try std.testing.expectError(error.UnsupportedLoadedExecution, session.next());
 
