@@ -5535,6 +5535,7 @@ pub const BoundaryTargetModule = struct {
         normalization_trace = 17,
         normalization_certificate = 18,
         metadata = 19,
+        replay_key_recipe = 20,
     };
 
     pub const SectionRef = struct {
@@ -6323,6 +6324,7 @@ pub const BoundaryTargetModule = struct {
             .normalization_trace => domains.boundary_normalization_trace,
             .normalization_certificate => domains.boundary_normalization_certificate,
             .metadata => domains.boundary_module,
+            .replay_key_recipe => domains.boundary_world_replay_key_recipe,
         };
     }
 
@@ -6455,6 +6457,7 @@ pub const BoundaryTargetModule = struct {
             try appendRefSection(&sections, allocator, .target_certificate, Target.Certificate.evidenceRef(), Target.Certificate.certificate_fingerprint);
             try appendRefSection(&sections, allocator, .normalization_trace, Target.NormalizationTrace.evidenceRef(), Target.NormalizationTrace.trace_fingerprint);
             try appendRefSection(&sections, allocator, .normalization_certificate, Target.NormalizationCertificate.evidenceRef(), Target.NormalizationCertificate.certificate_fingerprint);
+            try appendRefSection(&sections, allocator, .replay_key_recipe, Target.replay_key_recipe.evidenceRef(), Target.replay_key_recipe.fingerprint);
         }
 
         const provisional_refs = try sectionRefsFromPayloads(allocator, sections.items);
@@ -6755,6 +6758,7 @@ pub const BoundaryTargetModule = struct {
                 .normalization_trace,
                 .normalization_certificate,
                 .metadata,
+                .replay_key_recipe,
                 => {},
             }
         }
@@ -7270,6 +7274,7 @@ pub const BoundaryTargetModule = struct {
             .target_certificate,
             .normalization_trace,
             .normalization_certificate,
+            .replay_key_recipe,
         };
         for (required) |kind| {
             if (!sectionTableContainsKind(bytes, section_count, kind)) return error.MissingRequiredSection;
@@ -7383,6 +7388,7 @@ pub const BoundaryTargetModule = struct {
             .target_certificate,
             .normalization_trace,
             .normalization_certificate,
+            .replay_key_recipe,
             => {
                 var reader = PayloadReader.init(payload);
                 const ref = try reader.readRef();

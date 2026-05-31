@@ -16482,6 +16482,7 @@ test "certified boundary module reference full image and loaded module projectio
         @as(u64, @intCast(boundaryModuleSection(full, Target.Module.SectionKind.import_surface).start)),
         loaded.manifest.required_section_refs[0].byte_offset,
     );
+    _ = boundaryModuleSection(full, Target.Module.SectionKind.replay_key_recipe);
     try std.testing.expectEqual(@as(u32, 0), loaded.worldPortForSite(closure_approval_request.index).?);
     try std.testing.expect(loaded.validateWorldSurfaceScope());
     try std.testing.expect(loaded.exportMain().export_surface_fingerprint != 0);
@@ -16629,6 +16630,7 @@ fn boundaryModuleSectionDomain(kind: Evidence.BoundaryTargetModule.SectionKind) 
         .normalization_trace => Evidence.domains.boundary_normalization_trace,
         .normalization_certificate => Evidence.domains.boundary_normalization_certificate,
         .metadata => Evidence.domains.boundary_module,
+        .replay_key_recipe => Evidence.domains.boundary_world_replay_key_recipe,
     };
 }
 
