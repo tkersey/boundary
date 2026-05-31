@@ -6738,7 +6738,11 @@ pub const BoundaryTargetModule = struct {
     pub const LocalTargetReferenceReport = struct {
         report_fingerprint: u64 = 0,
         module_fingerprint: u64 = 0,
+        manifest_fingerprint: u64 = 0,
+        module_fingerprint_match: bool = false,
+        manifest_fingerprint_match: bool = false,
         reference_kind_match: bool = false,
+        target_label_match: bool = false,
         target_certificate_match: bool = false,
         world_surface_match: bool = false,
         program_plan_hash_match: bool = false,
@@ -6753,17 +6757,24 @@ pub const BoundaryTargetModule = struct {
         }
 
         pub fn finish(self: *@This()) void {
-            self.mismatch_count = @intFromBool(!self.reference_kind_match) +
-                @intFromBool(!self.target_certificate_match) +
-                @intFromBool(!self.world_surface_match) +
-                @intFromBool(!self.program_plan_hash_match) +
-                @intFromBool(!self.normal_form_match) +
-                @intFromBool(!self.world_port_table_match) +
-                @intFromBool(!self.world_value_table_match) +
-                @intFromBool(!self.world_dispatch_table_match);
+            self.mismatch_count = @as(usize, @intFromBool(!self.module_fingerprint_match)) +
+                @as(usize, @intFromBool(!self.manifest_fingerprint_match)) +
+                @as(usize, @intFromBool(!self.reference_kind_match)) +
+                @as(usize, @intFromBool(!self.target_label_match)) +
+                @as(usize, @intFromBool(!self.target_certificate_match)) +
+                @as(usize, @intFromBool(!self.world_surface_match)) +
+                @as(usize, @intFromBool(!self.program_plan_hash_match)) +
+                @as(usize, @intFromBool(!self.normal_form_match)) +
+                @as(usize, @intFromBool(!self.world_port_table_match)) +
+                @as(usize, @intFromBool(!self.world_value_table_match)) +
+                @as(usize, @intFromBool(!self.world_dispatch_table_match));
             var builder = FingerprintBuilder.init(domains.boundary_module_compatibility_report);
             builder.fieldU64("module_fingerprint", self.module_fingerprint);
+            builder.fieldU64("manifest_fingerprint", self.manifest_fingerprint);
+            builder.fieldBool("module_fingerprint_match", self.module_fingerprint_match);
+            builder.fieldBool("manifest_fingerprint_match", self.manifest_fingerprint_match);
             builder.fieldBool("reference_kind_match", self.reference_kind_match);
+            builder.fieldBool("target_label_match", self.target_label_match);
             builder.fieldBool("target_certificate_match", self.target_certificate_match);
             builder.fieldBool("world_surface_match", self.world_surface_match);
             builder.fieldBool("program_plan_hash_match", self.program_plan_hash_match);
@@ -7288,7 +7299,11 @@ pub const BoundaryTargetModule = struct {
             fn referenceSummaryForManifest(actual: BoundaryTargetModule.Manifest) BoundaryTargetModule.LocalTargetReferenceReport {
                 var report = BoundaryTargetModule.LocalTargetReferenceReport{
                     .module_fingerprint = actual.module_fingerprint,
+                    .manifest_fingerprint = actual.manifest_fingerprint,
+                    .module_fingerprint_match = actual.module_fingerprint == fingerprint,
+                    .manifest_fingerprint_match = actual.manifest_fingerprint == manifest.manifest_fingerprint,
                     .reference_kind_match = actual.module_kind == .reference_only,
+                    .target_label_match = std.mem.eql(u8, actual.target_label, Target.Certificate.target_label),
                     .target_certificate_match = actual.target_certificate_fingerprint == Target.Certificate.certificate_fingerprint,
                     .world_surface_match = actual.world_surface_fingerprint == Target.WorldSurface.surface_fingerprint,
                     .program_plan_hash_match = actual.program_plan_hash == Target.Program.compiled_plan.hash(),

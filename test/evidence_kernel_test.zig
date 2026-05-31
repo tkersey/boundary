@@ -16593,9 +16593,35 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expect(loaded.dependencyReport().dependency_closure_complete);
     try std.testing.expect(Target.Module.matchesReferenceImage(reference));
     try std.testing.expect(Target.Module.referenceSummary().compatible());
+    const reference_summary = Target.Module.referenceSummaryForBytes(reference);
+    try std.testing.expect(reference_summary.compatible());
+    try std.testing.expect(reference_summary.module_fingerprint_match);
+    try std.testing.expect(reference_summary.manifest_fingerprint_match);
+    try std.testing.expect(reference_summary.target_label_match);
     const full_reference_summary = Target.Module.referenceSummaryForBytes(full);
     try std.testing.expect(!full_reference_summary.compatible());
     try std.testing.expect(!full_reference_summary.reference_kind_match);
+    const forged_reference_identity = try allocator.dupe(u8, reference);
+    defer allocator.free(forged_reference_identity);
+    const forged_reference_manifest = boundaryModuleSection(forged_reference_identity, Target.Module.SectionKind.manifest);
+    const forged_import_surface_offset = boundaryModuleManifestImportSurfaceFingerprintOffset(forged_reference_identity, forged_reference_manifest.start);
+    boundaryModuleWriteU64(
+        forged_reference_identity,
+        forged_import_surface_offset,
+        boundaryModuleReadU64(forged_reference_identity, forged_import_surface_offset) ^ 0x1,
+    );
+    boundaryModuleRefreshManifestFingerprint(Target, forged_reference_identity);
+    const forged_reference_summary = Target.Module.referenceSummaryForBytes(forged_reference_identity);
+    try std.testing.expect(!forged_reference_summary.compatible());
+    try std.testing.expect(forged_reference_summary.module_fingerprint_match);
+    try std.testing.expect(!forged_reference_summary.manifest_fingerprint_match);
+    try std.testing.expect(forged_reference_summary.reference_kind_match);
+    try std.testing.expect(forged_reference_summary.target_label_match);
+    try std.testing.expect(forged_reference_summary.target_certificate_match);
+    try std.testing.expect(forged_reference_summary.world_surface_match);
+    try std.testing.expect(forged_reference_summary.program_plan_hash_match);
+    try std.testing.expect(forged_reference_summary.normal_form_match);
+    try std.testing.expectError(error.ManifestFingerprintMismatch, Target.Module.validateReferenceAgainst(forged_reference_identity));
     try std.testing.expect(Target.Module.compatibility(reference, .{ .allow_reference_only = true }).report_fingerprint != 0);
     const byte_dependency_report = Target.Module.dependencyReport(full, &.{});
     try std.testing.expect(byte_dependency_report.dependency_closure_complete);
