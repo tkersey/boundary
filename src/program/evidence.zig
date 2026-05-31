@@ -5989,8 +5989,6 @@ pub const BoundaryTargetModule = struct {
         max_plan_rows: usize = 1_000_000,
         max_world_ports: usize = 65_536,
         max_schema_count: usize = 65_536,
-        max_map_entries: usize = 1_000_000,
-        max_dependency_count: usize = 65_536,
     };
 
     pub const ValidationError = error{
@@ -6695,11 +6693,6 @@ pub const BoundaryTargetModule = struct {
             const entry_offset = header_len + index * section_table_entry_len;
             const raw_kind = readU16At(bytes, entry_offset);
             const required = bytes[entry_offset + 2] != 0;
-            const section_kind = parseSectionKind(raw_kind) orelse {
-                if (required) return error.UnknownRequiredSection;
-                if (options.reject_unknown_sections and !options.allow_forward_optional_sections) return error.UnknownSection;
-                continue;
-            };
             if (raw_kind <= previous_kind) return error.InvalidSectionOrder;
             previous_kind = raw_kind;
             const format_version = readU32At(bytes, entry_offset + 4);
@@ -6713,6 +6706,11 @@ pub const BoundaryTargetModule = struct {
             if (end > total_len) return error.SectionOutOfBounds;
             if (start < previous_end) return error.SectionOverlap;
             previous_end = end;
+            const section_kind = parseSectionKind(raw_kind) orelse {
+                if (required) return error.UnknownRequiredSection;
+                if (options.reject_unknown_sections and !options.allow_forward_optional_sections) return error.UnknownSection;
+                continue;
+            };
             const domain = sectionDomain(section_kind);
             if (format_version != (domain.format_version orelse 1)) return error.InvalidVersion;
             const payload = bytes[start..end];
@@ -6749,7 +6747,7 @@ pub const BoundaryTargetModule = struct {
         if (manifest.module_kind != image_kind) return error.ModuleFingerprintMismatch;
         if (manifest.world_port_count > options.max_world_ports) return error.LimitExceeded;
         if (manifest.module_kind == .full_module and import_payload.len == 0) return error.MissingRequiredSection;
-        if (manifest.module_kind == .full_module) try validateFullModuleSections(bytes, section_count, manifest);
+        if (manifest.module_kind == .full_module) try validateFullModuleSections(bytes, section_count, manifest, options);
         try validateImportSurfacePayload(import_payload, manifest, options);
         const export_surface = if (export_payload.len == 0) emptyExportSurface(manifest) else try parseExportSurface(export_payload);
         try validateExportSurface(export_surface, manifest, export_payload.len != 0);
@@ -7185,7 +7183,7 @@ pub const BoundaryTargetModule = struct {
         return false;
     }
 
-    fn validateFullModuleSections(bytes: []const u8, section_count: u32, manifest: Manifest) ValidationError!void {
+    fn validateFullModuleSections(bytes: []const u8, section_count: u32, manifest: Manifest, options: ValidationOptions) ValidationError!void {
         const required = [_]SectionKind{
             .import_surface,
             .export_surface,
@@ -7213,11 +7211,11 @@ pub const BoundaryTargetModule = struct {
             const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
             const start: usize = @intCast(readU64At(bytes, entry_offset + 8));
             const len: usize = @intCast(readU64At(bytes, entry_offset + 16));
-            try validateFullModuleSectionPayload(kind, bytes[start .. start + len], manifest);
+            try validateFullModuleSectionPayload(kind, bytes[start .. start + len], manifest, options);
         }
     }
 
-    fn validateFullModuleSectionPayload(kind: SectionKind, payload: []const u8, manifest: Manifest) ValidationError!void {
+    fn validateFullModuleSectionPayload(kind: SectionKind, payload: []const u8, manifest: Manifest, options: ValidationOptions) ValidationError!void {
         switch (kind) {
             .manifest,
             .import_surface,
@@ -7246,6 +7244,17 @@ pub const BoundaryTargetModule = struct {
                 const sum_variant_count = try reader.readU64();
                 if (!reader.done()) return error.MalformedManifest;
                 if (plan_hash != manifest.program_plan_hash) return error.ManifestFingerprintMismatch;
+                if (function_count > options.max_plan_rows or
+                    requirement_count > options.max_plan_rows or
+                    op_count > options.max_plan_rows or
+                    output_count > options.max_plan_rows or
+                    local_count > options.max_plan_rows or
+                    block_count > options.max_plan_rows or
+                    terminator_count > options.max_plan_rows or
+                    instruction_count > options.max_plan_rows)
+                {
+                    return error.LimitExceeded;
+                }
                 const image = ProgramPlanImage{
                     .image_fingerprint = image_fingerprint,
                     .plan_label = plan_label,
@@ -7277,6 +7286,12 @@ pub const BoundaryTargetModule = struct {
                 const sum_variant_count = try reader.readU64();
                 const scalar_codec_count = try reader.readU64();
                 if (!reader.done()) return error.MalformedManifest;
+                if (schema_count > options.max_schema_count or
+                    product_field_count > options.max_schema_count or
+                    sum_variant_count > options.max_schema_count)
+                {
+                    return error.LimitExceeded;
+                }
                 const image = ValueSchemaImage{
                     .image_fingerprint = image_fingerprint,
                     .plan_label = plan_label,
