@@ -3791,6 +3791,8 @@ test "certified boundary target world surface tables and certificate are determi
     });
     const certificate_dependencies = dependencies ++ [_]Evidence.Dependency{
         .{ .role = .normalization_certificate, .ref = normalization_certificate.evidenceRef() },
+        .{ .role = .normalization_trace, .ref = normalization_trace.evidenceRef() },
+        .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
     };
     const certificate = Elaboration.Target.Certificate.init(.{
         .target_label = "target",
@@ -4794,6 +4796,8 @@ test "certified boundary target world surface tables and certificate are determi
     });
     const gapped_certificate_dependencies = gapped_dependencies ++ [_]Evidence.Dependency{
         .{ .role = .normalization_certificate, .ref = gapped_normalization_certificate.evidenceRef() },
+        .{ .role = .normalization_trace, .ref = gapped_normalization_trace.evidenceRef() },
+        .{ .role = .normal_form, .ref = gapped_normal_form.evidenceRef() },
     };
     const gapped_certificate = Elaboration.Target.Certificate.init(.{
         .target_label = "target.gapped",
@@ -4844,6 +4848,8 @@ test "certified boundary target world surface tables and certificate are determi
     });
     const bounded_gapped_certificate_dependencies = gapped_dependencies ++ [_]Evidence.Dependency{
         .{ .role = .normalization_certificate, .ref = bounded_gapped_normalization_certificate.evidenceRef() },
+        .{ .role = .normalization_trace, .ref = gapped_normalization_trace.evidenceRef() },
+        .{ .role = .normal_form, .ref = gapped_normal_form.evidenceRef() },
     };
     const bounded_gapped_certificate = Elaboration.Target.Certificate.init(.{
         .target_label = "target.gapped",
@@ -4959,6 +4965,8 @@ test "certified boundary target world surface tables and certificate are determi
     });
     const unbounded_gapped_certificate_dependencies = unbounded_gapped_dependencies ++ [_]Evidence.Dependency{
         .{ .role = .normalization_certificate, .ref = unbounded_gapped_normalization_certificate.evidenceRef() },
+        .{ .role = .normalization_trace, .ref = unbounded_gapped_normalization_trace.evidenceRef() },
+        .{ .role = .normal_form, .ref = gapped_normal_form.evidenceRef() },
     };
     const unbounded_gapped_certificate = Elaboration.Target.Certificate.init(.{
         .target_label = "target.gapped-unbounded",
@@ -5240,6 +5248,8 @@ test "certified boundary target world surface tables and certificate are determi
     });
     const relaxed_certificate_dependencies = relaxed_dependencies ++ [_]Evidence.Dependency{
         .{ .role = .normalization_certificate, .ref = relaxed_normalization_certificate.evidenceRef() },
+        .{ .role = .normalization_trace, .ref = relaxed_normalization_trace.evidenceRef() },
+        .{ .role = .normal_form, .ref = normal_form.evidenceRef() },
     };
     const relaxed_certificate = Elaboration.Target.Certificate.init(.{
         .target_label = "target.relaxed",
@@ -16475,6 +16485,7 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expect(full_report.manifest_fingerprint != 0);
     var loaded = try Target.Module.decode(allocator, full);
     defer loaded.deinit();
+    try std.testing.expectError(error.ImageTooLarge, Evidence.BoundaryTargetModule.decode(allocator, full, .{ .max_image_bytes = full.len - 1 }));
     try std.testing.expectEqual(@as(usize, 1), loaded.imports.len);
     try std.testing.expectEqual(full_report.section_count - 1, loaded.manifest.required_section_refs.len);
     try std.testing.expectEqual(Target.Module.SectionKind.import_surface, loaded.manifest.required_section_refs[0].kind);
@@ -16530,6 +16541,17 @@ test "certified boundary module reference full image and loaded module projectio
     boundaryModuleWriteU64(forged_export_surface, export_surface.start + 4, 0);
     boundaryModuleRefreshSectionFingerprint(forged_export_surface, Target.Module.SectionKind.export_surface);
     try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(forged_export_surface, .{ .require_full_module = true }));
+
+    const forged_port_table_ref = try allocator.dupe(u8, full);
+    defer allocator.free(forged_port_table_ref);
+    const port_table = boundaryModuleSection(forged_port_table_ref, Target.Module.SectionKind.world_port_table);
+    const forged_port_table_fingerprint = Target.WorldPortTable.fingerprint ^ 0x1;
+    boundaryModuleWriteU64(forged_port_table_ref, port_table.start + 2, forged_port_table_fingerprint);
+    boundaryModuleWriteU64(forged_port_table_ref, boundaryModuleSkipRef(forged_port_table_ref, port_table.start), forged_port_table_fingerprint);
+    boundaryModuleRefreshSectionFingerprint(forged_port_table_ref, Target.Module.SectionKind.world_port_table);
+    boundaryModuleRefreshManifestRequiredRef(forged_port_table_ref, Target.Module.SectionKind.world_port_table);
+    boundaryModuleRefreshModuleFingerprint(Target, forged_port_table_ref);
+    try std.testing.expectError(error.ManifestFingerprintMismatch, Target.Module.validate(forged_port_table_ref, .{ .require_full_module = true }));
 
     const duplicate_manifest_ref = try allocator.dupe(u8, full);
     defer allocator.free(duplicate_manifest_ref);
@@ -16599,6 +16621,56 @@ fn boundaryModuleManifestRequiredRefsOffset(bytes: []const u8, payload_start: us
     index = boundaryModuleSkipOptionalU64(bytes, index);
     index += 8 + 8 + 8 + 1;
     return index + 8;
+}
+
+fn boundaryModuleManifestRequiredRefOffset(bytes: []const u8, kind: Evidence.BoundaryTargetModule.SectionKind) usize {
+    const manifest = boundaryModuleSection(bytes, .manifest);
+    const refs_start = boundaryModuleManifestRequiredRefsOffset(bytes, manifest.start);
+    const count = boundaryModuleReadU64(bytes, refs_start - 8);
+    for (0..@intCast(count)) |index| {
+        const ref_offset = refs_start + index * 31;
+        const section_kind: Evidence.BoundaryTargetModule.SectionKind = @enumFromInt(boundaryModuleReadU16(bytes, ref_offset));
+        if (section_kind == kind) return ref_offset;
+    }
+    unreachable;
+}
+
+fn boundaryModuleRefreshManifestRequiredRef(bytes: []u8, kind: Evidence.BoundaryTargetModule.SectionKind) void {
+    const section = boundaryModuleSection(bytes, kind);
+    const ref_offset = boundaryModuleManifestRequiredRefOffset(bytes, kind);
+    boundaryModuleWriteU32(bytes, ref_offset + 2, boundaryModuleReadU32(bytes, section.entry_offset + 4));
+    boundaryModuleWriteU64(bytes, ref_offset + 6, boundaryModuleReadU64(bytes, section.entry_offset + 8));
+    boundaryModuleWriteU64(bytes, ref_offset + 14, boundaryModuleReadU64(bytes, section.entry_offset + 16));
+    boundaryModuleWriteU64(bytes, ref_offset + 22, boundaryModuleReadU64(bytes, section.entry_offset + 24));
+    bytes[ref_offset + 30] = bytes[section.entry_offset + 2];
+}
+
+fn boundaryModuleRefreshModuleFingerprint(comptime Target: type, bytes: []u8) void {
+    const manifest = boundaryModuleSection(bytes, .manifest);
+    const refs_start = boundaryModuleManifestRequiredRefsOffset(bytes, manifest.start);
+    const count = boundaryModuleReadU64(bytes, refs_start - 8);
+    var builder = Evidence.FingerprintBuilder.init(Evidence.domains.boundary_module);
+    builder.fieldU32("format_version", Evidence.domains.boundary_module.format_version.?);
+    builder.fieldBytes("module_kind", "full_module");
+    builder.fieldBytes("target_label", Target.Certificate.target_label);
+    builder.fieldU64("program_plan_hash", Target.Program.compiled_plan.hash());
+    builder.fieldU64("world_surface_fingerprint", Target.WorldSurface.surface_fingerprint);
+    builder.fieldU64("target_certificate_fingerprint", Target.Certificate.certificate_fingerprint);
+    builder.fieldU64("normalization_certificate_fingerprint", Target.NormalizationCertificate.certificate_fingerprint);
+    for (0..@intCast(count)) |index| {
+        const ref_offset = refs_start + index * 31;
+        const section_kind: Evidence.BoundaryTargetModule.SectionKind = @enumFromInt(boundaryModuleReadU16(bytes, ref_offset));
+        builder.fieldBytes("section.kind", @tagName(section_kind));
+        builder.fieldU32("section.format_version", boundaryModuleReadU32(bytes, ref_offset + 2));
+        builder.fieldU64("section.byte_offset", boundaryModuleReadU64(bytes, ref_offset + 6));
+        builder.fieldU64("section.byte_length", boundaryModuleReadU64(bytes, ref_offset + 14));
+        builder.fieldU64("section.fingerprint", boundaryModuleReadU64(bytes, ref_offset + 22));
+        builder.fieldBool("section.required", bytes[ref_offset + 30] != 0);
+    }
+    const module_fingerprint = builder.finish();
+    boundaryModuleWriteU64(bytes, 24, module_fingerprint);
+    boundaryModuleWriteU64(bytes, manifest.start + 12, module_fingerprint);
+    boundaryModuleRefreshSectionFingerprint(bytes, .manifest);
 }
 
 fn boundaryModuleRefreshSectionFingerprint(bytes: []u8, kind: Evidence.BoundaryTargetModule.SectionKind) void {

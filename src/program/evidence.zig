@@ -5437,7 +5437,7 @@ pub const BoundaryTargetCertificate = struct {
         if (!traceMapMatchesSourceMap(trace_map, source_map)) return error.BoundaryTargetCertificateMismatch;
         const normalization_ref = self.normalization_certificate_ref orelse return error.BoundaryTargetCertificateMismatch;
         if (!targetEvidenceMapDependenciesMatch(evidence_map.dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, self.residual_program_ref, self.elaboration_certificate_ref, trace_map_ref)) return error.BoundaryTargetCertificateMismatch;
-        if (!targetCertificateDependenciesMatch(self.dependencies, evidence_map.dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, self.residual_program_ref, self.elaboration_certificate_ref, trace_map_ref, normalization_ref)) return error.BoundaryTargetCertificateMismatch;
+        if (!targetCertificateDependenciesMatch(self.dependencies, evidence_map.dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, self.residual_program_ref, self.elaboration_certificate_ref, trace_map_ref, normalization_ref, normalization_trace.evidenceRef(), normal_form.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!self.world_surface_ref.eql(world_surface.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!self.port_table_ref.eql(port_table.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
         if (!self.value_table_ref.eql(value_table.evidenceRef())) return error.BoundaryTargetCertificateMismatch;
@@ -6201,6 +6201,7 @@ pub const BoundaryTargetModule = struct {
         var decode_options = options;
         decode_options.require_full_module = true;
         decode_options.allow_reference_only = false;
+        if (bytes.len > decode_options.max_image_bytes) return error.ImageTooLarge;
         const owned = try allocator.dupe(u8, bytes);
         errdefer allocator.free(owned);
         const parsed = try parseImage(owned, decode_options);
@@ -6461,7 +6462,7 @@ pub const BoundaryTargetModule = struct {
             try appendRefSection(&sections, allocator, .evidence_map, Target.EvidenceMap.evidenceRef(), Target.EvidenceMap.fingerprint);
             try appendRefSection(&sections, allocator, .effect_row, Target.EffectRow.evidenceRef(), Target.EffectRow.fingerprint);
             try appendRefSection(&sections, allocator, .normal_form, Target.NormalForm.evidenceRef(), Target.NormalForm.fingerprint);
-            try appendRefSection(&sections, allocator, .target_certificate, Target.Certificate.evidenceRef(), Target.Certificate.certificate_fingerprint);
+            try appendSection(&sections, allocator, .target_certificate, true, try encodeTargetCertificatePayload(Target, allocator));
             try appendRefSection(&sections, allocator, .normalization_trace, Target.NormalizationTrace.evidenceRef(), Target.NormalizationTrace.trace_fingerprint);
             try appendRefSection(&sections, allocator, .normalization_certificate, Target.NormalizationCertificate.evidenceRef(), Target.NormalizationCertificate.certificate_fingerprint);
             try appendRefSection(&sections, allocator, .replay_key_recipe, Target.replay_key_recipe.evidenceRef(), Target.replay_key_recipe.fingerprint);
@@ -6511,6 +6512,31 @@ pub const BoundaryTargetModule = struct {
         try writer.writeRef(ref);
         try writer.writeU64(semantic_fingerprint);
         try appendSection(sections, allocator, kind, true, try writer.toOwnedSlice());
+    }
+
+    fn encodeTargetCertificatePayload(comptime Target: type, allocator: std.mem.Allocator) ![]u8 {
+        const certificate = Target.Certificate;
+        var writer = PayloadWriter.init(allocator);
+        errdefer writer.deinit();
+        try writer.writeU32(certificate.certificate_format_version);
+        try writer.writeU64(certificate.certificate_fingerprint);
+        try writer.writeBytes(certificate.target_label);
+        try writer.writeRef(certificate.elaboration_certificate_ref);
+        try writer.writeRef(certificate.residual_program_ref);
+        try writer.writeRef(certificate.world_surface_ref);
+        try writer.writeRef(certificate.port_table_ref);
+        try writer.writeRef(certificate.value_table_ref);
+        try writer.writeRef(certificate.dispatch_table_ref);
+        try writer.writeRef(certificate.profile_ref);
+        try writer.writeRef(certificate.replay_key_recipe_ref);
+        try writer.writeRef(certificate.evidence_map_ref);
+        try writer.writeOptionalRef(certificate.trace_map_ref);
+        try writer.writeOptionalRef(certificate.normalization_certificate_ref);
+        try writer.writeU64(certificate.policy_fingerprint);
+        try writer.writeBytes(certificate.summary);
+        try writer.writeU64(certificate.dependencies.len);
+        for (certificate.dependencies) |dependency| try writer.writeDependency(dependency);
+        return writer.toOwnedSlice();
     }
 
     fn sectionRefsFromPayloads(allocator: std.mem.Allocator, sections: []const SectionPayload) ![]SectionRef {
@@ -7118,6 +7144,11 @@ pub const BoundaryTargetModule = struct {
             if (ref) |actual| try self.writeRef(actual);
         }
 
+        fn writeDependency(self: *@This(), dependency: Dependency) !void {
+            try self.writeBytes(@tagName(dependency.role));
+            try self.writeRef(dependency.ref);
+        }
+
         fn writeValueRef(self: *@This(), ref: BoundaryValueRef) !void {
             try self.writeBytes(ref.codec);
             try self.writeOptionalU64(if (ref.schema_index) |value| value else null);
@@ -7220,6 +7251,14 @@ pub const BoundaryTargetModule = struct {
             return if ((try self.readU8()) == 0) null else try self.readRef();
         }
 
+        fn readDependency(self: *@This()) ValidationError!Dependency {
+            const role_name = try self.readBytes();
+            return .{
+                .role = parseRoleName(role_name) orelse return error.MalformedManifest,
+                .ref = try self.readRef(),
+            };
+        }
+
         fn readValueRef(self: *@This()) ValidationError!BoundaryValueRef {
             const codec = try self.readBytes();
             const schema_index = try self.readOptionalU64();
@@ -7302,6 +7341,7 @@ pub const BoundaryTargetModule = struct {
         for (required) |kind| {
             if (!sectionTableContainsKind(bytes, section_count, kind)) return error.MissingRequiredSection;
         }
+        try validateTargetCertificateSectionBindings(bytes, section_count, manifest);
         for (0..@intCast(section_count)) |index| {
             const entry_offset = header_len + index * section_table_entry_len;
             const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
@@ -7408,7 +7448,6 @@ pub const BoundaryTargetModule = struct {
             .evidence_map,
             .effect_row,
             .normal_form,
-            .target_certificate,
             .normalization_trace,
             .normalization_certificate,
             .replay_key_recipe,
@@ -7423,7 +7462,94 @@ pub const BoundaryTargetModule = struct {
                 if (kind == .target_certificate and semantic_fingerprint != manifest.target_certificate_fingerprint) return error.ManifestFingerprintMismatch;
                 if (kind == .normalization_certificate and semantic_fingerprint != (manifest.normalization_certificate_fingerprint orelse return error.ManifestFingerprintMismatch)) return error.ManifestFingerprintMismatch;
             },
+            .target_certificate => {},
         }
+    }
+
+    fn validateTargetCertificateSectionBindings(bytes: []const u8, section_count: u32, manifest: Manifest) ValidationError!void {
+        const payload = sectionPayloadForKind(bytes, section_count, .target_certificate) orelse return error.MissingRequiredSection;
+        var reader = PayloadReader.init(payload);
+        const format_version = try reader.readU32();
+        if (format_version != domains.boundary_target_certificate.format_version.?) return error.InvalidVersion;
+        const certificate_fingerprint = try reader.readU64();
+        const target_label = try reader.readBytes();
+        const elaboration_certificate_ref = try reader.readRef();
+        const residual_program_ref = try reader.readRef();
+        const world_surface_ref = try reader.readRef();
+        const port_table_ref = try reader.readRef();
+        const value_table_ref = try reader.readRef();
+        const dispatch_table_ref = try reader.readRef();
+        const profile_ref = try reader.readRef();
+        const replay_key_recipe_ref = try reader.readRef();
+        const evidence_map_ref = try reader.readRef();
+        const trace_map_ref = try reader.readOptionalRef();
+        const normalization_certificate_ref = try reader.readOptionalRef();
+        const policy_fingerprint = try reader.readU64();
+        const summary = try reader.readBytes();
+        const dependency_count = try reader.readU64();
+        if (dependency_count > 128) return error.LimitExceeded;
+        var dependencies: [128]Dependency = undefined;
+        for (dependencies[0..@intCast(dependency_count)]) |*dependency| {
+            dependency.* = try reader.readDependency();
+        }
+        if (!reader.done()) return error.MalformedManifest;
+        const dependency_slice = dependencies[0..@intCast(dependency_count)];
+        const certificate = BoundaryTargetCertificate{
+            .certificate_fingerprint = certificate_fingerprint,
+            .target_label = target_label,
+            .elaboration_certificate_ref = elaboration_certificate_ref,
+            .residual_program_ref = residual_program_ref,
+            .world_surface_ref = world_surface_ref,
+            .port_table_ref = port_table_ref,
+            .value_table_ref = value_table_ref,
+            .dispatch_table_ref = dispatch_table_ref,
+            .profile_ref = profile_ref,
+            .replay_key_recipe_ref = replay_key_recipe_ref,
+            .evidence_map_ref = evidence_map_ref,
+            .trace_map_ref = trace_map_ref,
+            .normalization_certificate_ref = normalization_certificate_ref,
+            .policy_fingerprint = policy_fingerprint,
+            .dependencies = dependency_slice,
+            .summary = summary,
+        };
+        if (certificate_fingerprint != manifest.target_certificate_fingerprint) return error.ManifestFingerprintMismatch;
+        if (certificate_fingerprint != certificate.computeFingerprint()) return error.ManifestFingerprintMismatch;
+        try validateRefSectionMatches(bytes, section_count, .world_surface, world_surface_ref);
+        try validateRefSectionMatches(bytes, section_count, .world_port_table, port_table_ref);
+        try validateRefSectionMatches(bytes, section_count, .world_value_table, value_table_ref);
+        try validateRefSectionMatches(bytes, section_count, .world_dispatch_table, dispatch_table_ref);
+        try validateRefSectionMatches(bytes, section_count, .surface_profile, profile_ref);
+        try validateRefSectionMatches(bytes, section_count, .replay_key_recipe, replay_key_recipe_ref);
+        try validateRefSectionMatches(bytes, section_count, .evidence_map, evidence_map_ref);
+        try validateRefSectionMatches(bytes, section_count, .trace_map, trace_map_ref orelse return error.ManifestFingerprintMismatch);
+        try validateRefSectionMatches(bytes, section_count, .normalization_certificate, normalization_certificate_ref orelse return error.ManifestFingerprintMismatch);
+
+        const dependency_graph = DependencyGraph{ .dependencies = dependency_slice };
+        try validateRefSectionMatches(bytes, section_count, .source_map, dependency_graph.lookup(.elaboration_source_map) orelse return error.ManifestFingerprintMismatch);
+        try validateRefSectionMatches(bytes, section_count, .effect_row, dependency_graph.lookup(.elaboration_effect_row) orelse return error.ManifestFingerprintMismatch);
+        try validateRefSectionMatches(bytes, section_count, .normal_form, dependency_graph.lookup(.normal_form) orelse return error.ManifestFingerprintMismatch);
+    }
+
+    fn validateRefSectionMatches(bytes: []const u8, section_count: u32, kind: SectionKind, expected: Ref) ValidationError!void {
+        const payload = sectionPayloadForKind(bytes, section_count, kind) orelse return error.MissingRequiredSection;
+        var reader = PayloadReader.init(payload);
+        const actual = try reader.readRef();
+        const semantic_fingerprint = try reader.readU64();
+        if (!reader.done()) return error.MalformedManifest;
+        if (!actual.eql(expected)) return error.ManifestFingerprintMismatch;
+        if (semantic_fingerprint != expected.fingerprint) return error.ManifestFingerprintMismatch;
+    }
+
+    fn sectionPayloadForKind(bytes: []const u8, section_count: u32, expected: SectionKind) ?[]const u8 {
+        for (0..@intCast(section_count)) |index| {
+            const entry_offset = header_len + index * section_table_entry_len;
+            const kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
+            if (kind != expected) continue;
+            const start: usize = @intCast(readU64At(bytes, entry_offset + 8));
+            const len: usize = @intCast(readU64At(bytes, entry_offset + 16));
+            return bytes[start .. start + len];
+        }
+        return null;
     }
 
     fn sectionTableContainsKind(bytes: []const u8, section_count: u32, expected: SectionKind) bool {
@@ -7464,6 +7590,13 @@ pub const BoundaryTargetModule = struct {
     fn parseSectionKind(value: u16) ?SectionKind {
         inline for (std.meta.fields(SectionKind)) |field| {
             if (field.value == value) return @enumFromInt(field.value);
+        }
+        return null;
+    }
+
+    fn parseRoleName(name: []const u8) ?Role {
+        inline for (std.meta.fields(Role)) |field| {
+            if (std.mem.eql(u8, name, field.name)) return @enumFromInt(field.value);
         }
         return null;
     }
@@ -7956,17 +8089,23 @@ fn targetCertificateDependenciesMatch(
     elaboration_certificate_ref: Ref,
     trace_map_ref: Ref,
     normalization_certificate_ref: Ref,
+    normalization_trace_ref: Ref,
+    normal_form_ref: Ref,
 ) bool {
     if (!targetBaseDependenciesContain(dependencies, world_surface, port_table, value_table, dispatch_table, profile, replay_key_recipe, residual_program_ref, elaboration_certificate_ref, trace_map_ref)) return false;
     if (!dependenciesContainRef(dependencies, .normalization_certificate, normalization_certificate_ref)) return false;
+    if (!dependenciesContainRef(dependencies, .normalization_trace, normalization_trace_ref)) return false;
+    if (!dependenciesContainRef(dependencies, .normal_form, normal_form_ref)) return false;
     var provider_mapping_count: usize = 0;
     for (dependencies) |dependency| {
         if (targetEvidenceMapBaseRole(dependency.role)) continue;
         if (dependency.role == .normalization_certificate) continue;
+        if (dependency.role == .normalization_trace) continue;
+        if (dependency.role == .normal_form) continue;
         if (dependency.role != .provider_program_mapping) return false;
         provider_mapping_count += 1;
     }
-    return dependencies.len == 12 + provider_mapping_count and
+    return dependencies.len == 14 + provider_mapping_count and
         providerMappingDependenciesMatch(dependencies, evidence_dependencies);
 }
 
@@ -10683,6 +10822,8 @@ pub fn BoundaryElaboration(comptime ProgramType: type, comptime Closure: type) t
                     @compileError("BoundaryClosure.Elaboration.Target normalization certificate self-check failed: " ++ @errorName(err));
                 const TargetCertificateDependenciesValue = EvidenceMapDependenciesValue ++ [_]Dependency{
                     .{ .role = .normalization_certificate, .ref = NormalizationCertificateValue.evidenceRef() },
+                    .{ .role = .normalization_trace, .ref = NormalizationTraceValue.evidenceRef() },
+                    .{ .role = .normal_form, .ref = SourceBody.normal_form.evidenceRef() },
                 };
                 const CertificateValue = comptime TargetCertificate.init(.{
                     .target_label = target_label,
