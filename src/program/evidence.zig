@@ -6371,6 +6371,7 @@ pub const BoundaryTargetModule = struct {
             pub fn validate(bytes: []const u8, options: BoundaryTargetModule.ValidationOptions) !BoundaryTargetModule.ValidationReport {
                 const report = try BoundaryTargetModule.validate(bytes, options);
                 if (report.module_kind == .full_module) try validateTargetImportSurface(bytes, options);
+                if (report.module_kind == .reference_only) try validateTargetReferenceReport(report);
                 return report;
             }
 
@@ -6387,6 +6388,11 @@ pub const BoundaryTargetModule = struct {
                 const imports = try parseImports(decode_options.allocator, bytes, parsed.import_surface_payload, parsed.manifest, decode_options);
                 defer decode_options.allocator.free(imports);
                 try validateTargetImports(imports);
+            }
+
+            fn validateTargetReferenceReport(report: BoundaryTargetModule.ValidationReport) ValidationError!void {
+                if (report.module_fingerprint != fingerprint) return error.ModuleFingerprintMismatch;
+                if (report.manifest_fingerprint != manifest.manifest_fingerprint) return error.ManifestFingerprintMismatch;
             }
 
             fn validateTargetModuleIdentity(manifest_value: BoundaryTargetModule.Manifest, export_surface: BoundaryTargetModule.ExportSurface) ValidationError!void {
