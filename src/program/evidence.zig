@@ -6361,15 +6361,57 @@ pub const BoundaryTargetModule = struct {
             }
 
             pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !BoundaryTargetModule.LoadedModule {
-                return BoundaryTargetModule.decode(allocator, bytes, .{});
+                var loaded = try BoundaryTargetModule.decode(allocator, bytes, .{});
+                errdefer loaded.deinit();
+                try validateTargetImports(loaded.imports);
+                return loaded;
             }
 
             pub fn validate(bytes: []const u8, options: BoundaryTargetModule.ValidationOptions) !BoundaryTargetModule.ValidationReport {
-                return BoundaryTargetModule.validate(bytes, options);
+                const report = try BoundaryTargetModule.validate(bytes, options);
+                if (report.module_kind == .full_module) try validateTargetImportSurface(bytes, options);
+                return report;
             }
 
             pub fn validateImportBindings(imports: []const BoundaryTargetModule.ImportSurface.Import, bindings: []const BoundaryTargetModule.ImportBinding, policy: BoundaryTargetModule.ImportBindingPolicy) BoundaryTargetModule.ImportBindingError!void {
                 return BoundaryTargetModule.validateImportBindings(imports, bindings, policy);
+            }
+
+            fn validateTargetImportSurface(bytes: []const u8, options: BoundaryTargetModule.ValidationOptions) !void {
+                var decode_options = options;
+                decode_options.require_full_module = true;
+                decode_options.allow_reference_only = false;
+                const parsed = try parseImage(bytes, decode_options);
+                const imports = try parseImports(decode_options.allocator, bytes, parsed.import_surface_payload, parsed.manifest, decode_options);
+                defer decode_options.allocator.free(imports);
+                try validateTargetImports(imports);
+            }
+
+            fn validateTargetImports(imports: []const BoundaryTargetModule.ImportSurface.Import) ValidationError!void {
+                const expected = comptime importsForTarget(Target);
+                if (imports.len != expected.len) return error.MalformedImportSurface;
+                for (expected, imports) |expected_import, actual_import| {
+                    if (!targetImportMatches(expected_import, actual_import)) return error.MalformedImportSurface;
+                }
+            }
+
+            fn targetImportMatches(expected: BoundaryTargetModule.ImportSurface.Import, actual: BoundaryTargetModule.ImportSurface.Import) bool {
+                return expected.import_id == actual.import_id and
+                    expected.world_port_id == actual.world_port_id and
+                    expected.world_port_ref.eql(actual.world_port_ref) and
+                    optionalRefValuesEqual(expected.host_intrinsic_ref, actual.host_intrinsic_ref) and
+                    expected.source_effect_shape_ref.eql(actual.source_effect_shape_ref) and
+                    expected.residual_site_index == actual.residual_site_index and
+                    expected.residual_site_fingerprint == actual.residual_site_fingerprint and
+                    expected.payload_value_table_id == actual.payload_value_table_id and
+                    expected.response_value_table_id == actual.response_value_table_id and
+                    expected.payload_ref.eql(actual.payload_ref) and
+                    expected.response_ref.eql(actual.response_ref) and
+                    std.mem.eql(u8, expected.mode, actual.mode) and
+                    std.mem.eql(u8, expected.response_kind, actual.response_kind) and
+                    expected.replay_key_recipe_ref.eql(actual.replay_key_recipe_ref) and
+                    std.mem.eql(u8, expected.suggested_symbolic_name, actual.suggested_symbolic_name) and
+                    expected.required == actual.required;
             }
 
             pub fn validateSelf() !void {
