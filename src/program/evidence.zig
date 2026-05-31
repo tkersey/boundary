@@ -6111,13 +6111,14 @@ pub const BoundaryTargetModule = struct {
             return null;
         }
 
-        pub fn replayKeySeed(self: @This(), world_port_id: u32, request_fingerprint: u64) u64 {
-            var builder = FingerprintBuilder.init(domains.boundary_world_replay_key_recipe);
-            builder.fieldU64("module_fingerprint", self.manifest.module_fingerprint);
-            builder.fieldU64("world_surface_fingerprint", self.manifest.world_surface_fingerprint);
-            builder.fieldU64("world_port_id", world_port_id);
-            builder.fieldU64("request_fingerprint", request_fingerprint);
-            return builder.finish();
+        pub fn replayKeySeed(self: @This(), world_port_id: u32, request_fingerprint: u64, response_fingerprint: u64) u64 {
+            return replayKeySeedForComponents(
+                self.manifest.module_fingerprint,
+                self.manifest.world_surface_fingerprint,
+                world_port_id,
+                request_fingerprint,
+                response_fingerprint,
+            );
         }
 
         pub fn sourceForPort(self: @This(), world_port_id: u32) ?Ref {
@@ -6156,6 +6157,16 @@ pub const BoundaryTargetModule = struct {
             }
         };
     };
+
+    fn replayKeySeedForComponents(module_fingerprint: u64, world_surface_fingerprint: u64, world_port_id: u32, request_fingerprint: u64, response_fingerprint: u64) u64 {
+        var builder = FingerprintBuilder.init(domains.boundary_world_replay_key_recipe);
+        builder.fieldU64("module_fingerprint", module_fingerprint);
+        builder.fieldU64("world_surface_fingerprint", world_surface_fingerprint);
+        builder.fieldU64("world_port_id", world_port_id);
+        builder.fieldU64("request_fingerprint", request_fingerprint);
+        builder.fieldU64("response_fingerprint", response_fingerprint);
+        return builder.finish();
+    }
 
     pub const ImportBinding = struct {
         world_port_id: u32,
@@ -8010,6 +8021,12 @@ test "residual site duplicate tracking sorts once" {
 
     try std.testing.expect(BoundaryTargetModule.residualSiteIndexesUnique(unique[0..]));
     try std.testing.expect(!BoundaryTargetModule.residualSiteIndexesUnique(duplicate[0..]));
+}
+
+test "loaded module replay key seed includes response fingerprint" {
+    const first = BoundaryTargetModule.replayKeySeedForComponents(1, 2, 3, 4, 5);
+    const second = BoundaryTargetModule.replayKeySeedForComponents(1, 2, 3, 4, 6);
+    try std.testing.expect(first != second);
 }
 
 test "value schema image scalar codec count follows ValueCodec schema boundary" {
