@@ -6275,6 +6275,7 @@ pub const BoundaryTargetModule = struct {
             pub fn validateReferenceAgainst(bytes: []const u8) !void {
                 const report = try BoundaryTargetModule.validate(bytes, .{ .require_full_module = false, .allow_reference_only = true });
                 if (report.module_fingerprint != fingerprint) return error.ModuleFingerprintMismatch;
+                if (report.manifest_fingerprint != manifest.manifest_fingerprint) return error.ManifestFingerprintMismatch;
                 if (report.module_kind != .reference_only) return error.ReferenceOnlyRejected;
             }
         };
@@ -6879,10 +6880,16 @@ pub const BoundaryTargetModule = struct {
         builder.fieldRef("world_surface", world_surface_ref);
         const count = try reader.readU64();
         if (count > options.max_world_ports or count != manifest.world_port_count) return error.LimitExceeded;
+        if (count > 65_536) return error.LimitExceeded;
+        var seen_import_ids = [_]u64{0} ** 1024;
+        var seen_world_port_ids = [_]u64{0} ** 1024;
         for (0..@intCast(count)) |_| {
             const import_id = try reader.readU32();
             const world_port_id = try reader.readU32();
             if (world_port_id >= manifest.world_port_count) return error.MalformedImportSurface;
+            if (import_id >= count) return error.MalformedImportSurface;
+            if (!markDenseId(&seen_import_ids, import_id)) return error.MalformedImportSurface;
+            if (!markDenseId(&seen_world_port_ids, world_port_id)) return error.MalformedImportSurface;
             const world_port_ref = try reader.readRef();
             const host_intrinsic_ref = try reader.readOptionalRef();
             const source_effect_shape_ref = try reader.readRef();
@@ -6917,6 +6924,15 @@ pub const BoundaryTargetModule = struct {
         if (!reader.done()) return error.MalformedImportSurface;
         const computed = builder.finish();
         if (surface_fingerprint != computed or manifest.import_surface_fingerprint != computed) return error.ManifestFingerprintMismatch;
+    }
+
+    fn markDenseId(seen: *[1024]u64, id: u32) bool {
+        const word_index: usize = @intCast(id / 64);
+        const bit_index: u6 = @intCast(id % 64);
+        const bit = @as(u64, 1) << bit_index;
+        if ((seen[word_index] & bit) != 0) return false;
+        seen[word_index] |= bit;
+        return true;
     }
 
     fn parseExportSurface(payload: []const u8) ValidationError!ExportSurface {
