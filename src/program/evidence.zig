@@ -6157,8 +6157,9 @@ pub const BoundaryTargetModule = struct {
             return null;
         }
 
-        pub fn replayKeySeedForScope(self: @This(), world_surface_scope_fingerprint: u64, world_port_id: u32, request_fingerprint: u64, response_fingerprint: u64) u64 {
-            if (self.importForWorldPort(world_port_id)) |import| std.debug.assert(import.replay_key_recipe_ref.eql(self.replay_key_recipe_ref));
+        pub fn replayKeySeedForScope(self: @This(), world_surface_scope_fingerprint: u64, world_port_id: u32, request_fingerprint: u64, response_fingerprint: u64) ?u64 {
+            const import = self.importForWorldPort(world_port_id) orelse return null;
+            if (!import.replay_key_recipe_ref.eql(self.replay_key_recipe_ref)) return null;
             return replayKeySeedForComponents(
                 world_surface_scope_fingerprint,
                 world_port_id,

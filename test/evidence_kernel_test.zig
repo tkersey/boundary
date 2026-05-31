@@ -16507,8 +16507,9 @@ test "certified boundary module reference full image and loaded module projectio
     replay_seed_builder.fieldU64("response_fingerprint", response_fingerprint);
     try std.testing.expectEqual(
         replay_seed_builder.finish(),
-        loaded.replayKeySeedForScope(Target.WorldSurface.replayScopeRef().fingerprint, loaded.imports[0].world_port_id, request_fingerprint, response_fingerprint),
+        loaded.replayKeySeedForScope(Target.WorldSurface.replayScopeRef().fingerprint, loaded.imports[0].world_port_id, request_fingerprint, response_fingerprint).?,
     );
+    try std.testing.expectEqual(null, loaded.replayKeySeedForScope(Target.WorldSurface.replayScopeRef().fingerprint, 999, request_fingerprint, response_fingerprint));
     const binding = Target.Module.ImportBinding{
         .world_port_id = loaded.imports[0].world_port_id,
         .world_port_ref = loaded.imports[0].world_port_ref,
