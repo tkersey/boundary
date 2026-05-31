@@ -16561,6 +16561,8 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expect(loaded.importSourceShapeRef(0).?.eql(loaded.imports()[0].source_effect_shape_ref));
     try std.testing.expect(loaded.importWorldPortRef(0).?.eql(loaded.imports()[0].world_port_ref));
     try std.testing.expect(loaded.valueDescriptor(loaded.imports()[0].payload_value_table_id).?.eql(loaded.imports()[0].payload_ref));
+    try std.testing.expect(loaded.valueDescriptor(loaded.imports()[0].response_value_table_id).?.eql(loaded.imports()[0].response_ref));
+    try std.testing.expect(loaded.valueDescriptor(loaded.imports()[0].result_value_table_id).?.eql(loaded.imports()[0].result_ref));
     try std.testing.expect(loaded.sourceForPort(0).?.eql(loaded.imports()[0].source_effect_shape_ref));
     try std.testing.expectEqual(loaded.imports()[0].residual_site_fingerprint, loaded.traceForWorldPort(0).?);
     try std.testing.expect(loaded.evidenceForWorldPort(0).?.eql(loaded.imports()[0].world_port_ref));
@@ -16633,6 +16635,9 @@ test "certified boundary module reference full image and loaded module projectio
     const full_reference_summary = Target.Module.referenceSummaryForBytes(full);
     try std.testing.expect(!full_reference_summary.compatible());
     try std.testing.expect(!full_reference_summary.reference_kind_match);
+    try std.testing.expect(full_reference_summary.world_port_table_match);
+    try std.testing.expect(full_reference_summary.world_value_table_match);
+    try std.testing.expect(full_reference_summary.world_dispatch_table_match);
     const forged_reference_identity = try allocator.dupe(u8, reference);
     defer allocator.free(forged_reference_identity);
     const forged_reference_manifest = boundaryModuleSection(forged_reference_identity, Target.Module.SectionKind.manifest);
@@ -16660,6 +16665,11 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expectEqual(loaded.manifest().required_section_refs.len, byte_dependency_report.embedded_dependency_count);
     const wrong_target_full = try OtherTarget.Module.fullImage(allocator);
     defer allocator.free(wrong_target_full);
+    const wrong_target_summary = Target.Module.referenceSummaryForBytes(wrong_target_full);
+    try std.testing.expect(!wrong_target_summary.compatible());
+    try std.testing.expect(!wrong_target_summary.world_port_table_match);
+    try std.testing.expect(!wrong_target_summary.world_value_table_match);
+    try std.testing.expect(!wrong_target_summary.world_dispatch_table_match);
     try std.testing.expectError(error.ModuleFingerprintMismatch, Target.Module.validate(wrong_target_full, .{ .require_full_module = true }));
     const wrong_target_report = Target.Module.validationReport(wrong_target_full, .{ .require_full_module = true });
     try std.testing.expect(!wrong_target_report.valid);
@@ -16769,6 +16779,7 @@ test "certified boundary module reference full image and loaded module projectio
     boundaryModuleRefreshSectionFingerprint(forged_port_table_ref, Target.Module.SectionKind.world_port_table);
     boundaryModuleRefreshManifestRequiredRef(forged_port_table_ref, Target.Module.SectionKind.world_port_table);
     boundaryModuleRefreshModuleFingerprint(Target, forged_port_table_ref);
+    boundaryModuleRefreshManifestFingerprint(Target, forged_port_table_ref);
     try std.testing.expectError(error.ManifestFingerprintMismatch, Target.Module.validate(forged_port_table_ref, .{ .require_full_module = true }));
 
     const forged_normalization_trace_ref = try allocator.dupe(u8, full);

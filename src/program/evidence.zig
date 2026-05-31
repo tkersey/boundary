@@ -245,7 +245,7 @@ pub const domains = struct {
     pub const boundary_plan_builder = Domain{ .id = .boundary_plan_builder, .name = "boundary.evidence.target.normalization.plan_builder", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "plan builder" };
     pub const boundary_module = Domain{ .id = .boundary_module, .name = "boundary.evidence.target.module", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "certified boundary module" };
     pub const boundary_module_manifest = Domain{ .id = .boundary_module_manifest, .name = "boundary.evidence.target.module.manifest", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "module manifest" };
-    pub const boundary_module_import_surface = Domain{ .id = .boundary_module_import_surface, .name = "boundary.evidence.target.module.import_surface", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "import surface" };
+    pub const boundary_module_import_surface = Domain{ .id = .boundary_module_import_surface, .name = "boundary.evidence.target.module.import_surface", .format_version = 2, .fingerprint_version = 2, .owner = .boundary_target, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "import surface" };
     pub const boundary_module_export_surface = Domain{ .id = .boundary_module_export_surface, .name = "boundary.evidence.target.module.export_surface", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "export surface" };
     pub const boundary_module_graph = Domain{ .id = .boundary_module_graph, .name = "boundary.evidence.target.module.graph", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "module graph" };
     pub const boundary_program_plan_image = Domain{ .id = .boundary_program_plan_image, .name = "boundary.evidence.target.module.program_plan_image", .format_version = 3, .fingerprint_version = 3, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "program plan image" };
@@ -5769,8 +5769,10 @@ pub const BoundaryTargetModule = struct {
             residual_site_fingerprint: u64,
             payload_value_table_id: u32,
             response_value_table_id: u32,
+            result_value_table_id: u32,
             payload_ref: BoundaryValueRef,
             response_ref: BoundaryValueRef,
+            result_ref: BoundaryValueRef,
             mode: []const u8,
             response_kind: []const u8 = "resume",
             replay_key_recipe_ref: Ref,
@@ -5783,6 +5785,10 @@ pub const BoundaryTargetModule = struct {
 
             pub fn responseValueRef(self: @This()) BoundaryValueRef {
                 return self.response_ref;
+            }
+
+            pub fn resultValueRef(self: @This()) BoundaryValueRef {
+                return self.result_ref;
             }
         };
 
@@ -5818,8 +5824,10 @@ pub const BoundaryTargetModule = struct {
                 builder.fieldU64("import.residual_site_fingerprint", entry.residual_site_fingerprint);
                 builder.fieldU64("import.payload_value_table_id", entry.payload_value_table_id);
                 builder.fieldU64("import.response_value_table_id", entry.response_value_table_id);
+                builder.fieldU64("import.result_value_table_id", entry.result_value_table_id);
                 builder.fieldValueRef("import.payload_ref", entry.payload_ref);
                 builder.fieldValueRef("import.response_ref", entry.response_ref);
+                builder.fieldValueRef("import.result_ref", entry.result_ref);
                 builder.fieldBytes("import.mode", entry.mode);
                 builder.fieldBytes("import.response_kind", entry.response_kind);
                 builder.fieldRef("import.replay_key_recipe", entry.replay_key_recipe_ref);
@@ -6580,6 +6588,7 @@ pub const BoundaryTargetModule = struct {
             for (self.import_entries) |import| {
                 if (import.payload_value_table_id == value_table_id) return import.payload_ref;
                 if (import.response_value_table_id == value_table_id) return import.response_ref;
+                if (import.result_value_table_id == value_table_id) return import.result_ref;
             }
             return null;
         }
@@ -6925,7 +6934,7 @@ pub const BoundaryTargetModule = struct {
                 .world_port_count = 0,
                 .compatibility = compatibility_report,
             };
-            report.addDiagnostic(diagnosticForValidationError(bytes, err));
+            report.addDiagnostic(diagnosticForValidationError(bytes, options, err));
             report.finish();
             return report;
         }
@@ -7051,8 +7060,8 @@ pub const BoundaryTargetModule = struct {
         return null;
     }
 
-    fn diagnosticForValidationError(bytes: []const u8, err: ValidationError) ValidationDiagnostic {
-        const detail = sectionDiagnosticDetail(bytes, err);
+    fn diagnosticForValidationError(bytes: []const u8, options: ValidationOptions, err: ValidationError) ValidationDiagnostic {
+        const detail = sectionDiagnosticDetail(bytes, options, err);
         return ValidationDiagnostic.init(.{
             .severity = .blocker,
             .error_tag = err,
@@ -7074,7 +7083,7 @@ pub const BoundaryTargetModule = struct {
         actual_fingerprint: ?u64 = null,
     };
 
-    fn sectionDiagnosticDetail(bytes: []const u8, err: ValidationError) SectionDiagnosticDetail {
+    fn sectionDiagnosticDetail(bytes: []const u8, options: ValidationOptions, err: ValidationError) SectionDiagnosticDetail {
         if (bytes.len < header_len) return .{};
         const section_count = readU32At(bytes, 20);
         const table_end = header_len + @as(usize, @intCast(section_count)) * section_table_entry_len;
@@ -7108,6 +7117,8 @@ pub const BoundaryTargetModule = struct {
             }
             if (err == error.InvalidVersion and kind != null) {
                 const format_version = readU32At(bytes, entry_offset + 4);
+                const required = bytes[entry_offset + 2] != 0;
+                if (sectionHasForwardOptionalVersion(kind.?, required, format_version, options)) continue;
                 if (format_version != sectionExpectedFormatVersion(kind.?)) return .{
                     .section_kind = kind,
                     .section_index = index,
@@ -7267,7 +7278,7 @@ pub const BoundaryTargetModule = struct {
                 report.compatibility.can_decode = false;
                 report.compatibility.blocker_count += 1;
                 report.compatibility.finish();
-                report.addDiagnostic(diagnosticForValidationError(bytes, err));
+                report.addDiagnostic(diagnosticForValidationError(bytes, options, err));
                 report.finish();
                 return report;
             }
@@ -7307,8 +7318,10 @@ pub const BoundaryTargetModule = struct {
                     expected.residual_site_fingerprint == actual.residual_site_fingerprint and
                     expected.payload_value_table_id == actual.payload_value_table_id and
                     expected.response_value_table_id == actual.response_value_table_id and
+                    expected.result_value_table_id == actual.result_value_table_id and
                     expected.payload_ref.eql(actual.payload_ref) and
                     expected.response_ref.eql(actual.response_ref) and
+                    expected.result_ref.eql(actual.result_ref) and
                     std.mem.eql(u8, expected.mode, actual.mode) and
                     std.mem.eql(u8, expected.response_kind, actual.response_kind) and
                     expected.replay_key_recipe_ref.eql(actual.replay_key_recipe_ref) and
@@ -7350,7 +7363,15 @@ pub const BoundaryTargetModule = struct {
                     report.finish();
                     return report;
                 };
-                return referenceSummaryForManifest(parsed.manifest);
+                var report = referenceSummaryForManifest(parsed.manifest);
+                if (parsed.manifest.module_kind == .full_module) {
+                    const section_count: u32 = @intCast(parsed.section_count);
+                    report.world_port_table_match = sectionTableRefMatches(bytes, section_count, .world_port_table, Target.WorldPortTable.evidenceRef(), Target.WorldPortTable.fingerprint);
+                    report.world_value_table_match = sectionTableRefMatches(bytes, section_count, .world_value_table, Target.WorldValueTable.evidenceRef(), Target.WorldValueTable.fingerprint);
+                    report.world_dispatch_table_match = sectionTableRefMatches(bytes, section_count, .world_dispatch_table, Target.WorldDispatchTable.evidenceRef(), Target.WorldDispatchTable.fingerprint);
+                    report.finish();
+                }
+                return report;
             }
 
             fn referenceSummaryForManifest(actual: BoundaryTargetModule.Manifest) BoundaryTargetModule.LocalTargetReferenceReport {
@@ -7366,8 +7387,30 @@ pub const BoundaryTargetModule = struct {
                     .program_plan_hash_match = actual.program_plan_hash == Target.Program.compiled_plan.hash(),
                     .normal_form_match = actual.normal_form == Target.NormalForm.kind,
                 };
+                if (actual.module_kind == .full_module) {
+                    report.world_port_table_match = false;
+                    report.world_value_table_match = false;
+                    report.world_dispatch_table_match = false;
+                }
                 report.finish();
                 return report;
+            }
+
+            fn sectionTableRefMatches(bytes: []const u8, section_count: u32, kind: BoundaryTargetModule.SectionKind, ref: Ref, semantic_fingerprint: u64) bool {
+                for (0..@intCast(section_count)) |index| {
+                    const entry_offset = header_len + index * section_table_entry_len;
+                    const actual_kind = parseSectionKind(readU16At(bytes, entry_offset)) orelse continue;
+                    if (actual_kind != kind) continue;
+                    if (bytes[entry_offset + 2] == 0) return false;
+                    if (readU32At(bytes, entry_offset + 4) != sectionExpectedFormatVersion(kind)) return false;
+                    const payload = sectionPayloadForKind(bytes, section_count, kind) orelse return false;
+                    var reader = PayloadReader.init(payload);
+                    const actual_ref = reader.readRef() catch return false;
+                    const actual_semantic_fingerprint = reader.readU64() catch return false;
+                    if (!reader.done()) return false;
+                    return actual_ref.eql(ref) and actual_semantic_fingerprint == semantic_fingerprint;
+                }
+                return false;
             }
         };
     }
@@ -7517,8 +7560,10 @@ pub const BoundaryTargetModule = struct {
                 .residual_site_fingerprint = entry.residual_site_fingerprint,
                 .payload_value_table_id = valueTableId(WorldValueTable, entry.world_port_id, .payload),
                 .response_value_table_id = valueTableId(WorldValueTable, entry.world_port_id, .@"resume"),
+                .result_value_table_id = valueTableId(WorldValueTable, entry.world_port_id, .result),
                 .payload_ref = entry.payload_ref,
                 .response_ref = entry.resume_ref,
+                .result_ref = entry.result_ref,
                 .mode = entry.mode,
                 .response_kind = "resume",
                 .replay_key_recipe_ref = replay_key_recipe_ref,
@@ -7837,8 +7882,10 @@ pub const BoundaryTargetModule = struct {
             try writer.writeU64(import.residual_site_fingerprint);
             try writer.writeU32(import.payload_value_table_id);
             try writer.writeU32(import.response_value_table_id);
+            try writer.writeU32(import.result_value_table_id);
             try writer.writeValueRef(import.payload_ref);
             try writer.writeValueRef(import.response_ref);
+            try writer.writeValueRef(import.result_ref);
             try writer.writeBytes(import.mode);
             try writer.writeBytes(import.response_kind);
             try writer.writeRef(import.replay_key_recipe_ref);
@@ -8132,8 +8179,10 @@ pub const BoundaryTargetModule = struct {
             const residual_site_fingerprint = try reader.readU64();
             const payload_value_table_id = try reader.readU32();
             const response_value_table_id = try reader.readU32();
+            const result_value_table_id = try reader.readU32();
             const payload_ref = try reader.readValueRef();
             const response_ref = try reader.readValueRef();
+            const result_ref = try reader.readValueRef();
             const mode = try reader.readBytes();
             const response_kind = try reader.readBytes();
             const replay_key_recipe_ref = try reader.readRef();
@@ -8148,8 +8197,10 @@ pub const BoundaryTargetModule = struct {
                 .residual_site_fingerprint = residual_site_fingerprint,
                 .payload_value_table_id = payload_value_table_id,
                 .response_value_table_id = response_value_table_id,
+                .result_value_table_id = result_value_table_id,
                 .payload_ref = payload_ref,
                 .response_ref = response_ref,
+                .result_ref = result_ref,
                 .mode = mode,
                 .response_kind = response_kind,
                 .replay_key_recipe_ref = replay_key_recipe_ref,
@@ -8212,13 +8263,17 @@ pub const BoundaryTargetModule = struct {
             seen_residual_site_count += 1;
             const payload_value_table_id = try reader.readU32();
             const response_value_table_id = try reader.readU32();
+            const result_value_table_id = try reader.readU32();
             const payload_ref = try reader.readValueRef();
             const response_ref = try reader.readValueRef();
+            const result_ref = try reader.readValueRef();
             if (full_module_bindings) |bindings| {
                 if (payload_value_table_id != canonicalImportPayloadValueTableId(world_port_id) or
-                    response_value_table_id != canonicalImportResponseValueTableId(world_port_id)) return error.MalformedImportSurface;
+                    response_value_table_id != canonicalImportResponseValueTableId(world_port_id) or
+                    result_value_table_id != canonicalImportResultValueTableId(world_port_id)) return error.MalformedImportSurface;
                 if (!boundaryValueRefWithinSchema(payload_ref, bindings.schema_count)) return error.MalformedImportSurface;
                 if (!boundaryValueRefWithinSchema(response_ref, bindings.schema_count)) return error.MalformedImportSurface;
+                if (!boundaryValueRefWithinSchema(result_ref, bindings.schema_count)) return error.MalformedImportSurface;
             }
             const mode = try reader.readBytes();
             const response_kind = try reader.readBytes();
@@ -8239,8 +8294,10 @@ pub const BoundaryTargetModule = struct {
             builder.fieldU64("import.residual_site_fingerprint", residual_site_fingerprint);
             builder.fieldU64("import.payload_value_table_id", payload_value_table_id);
             builder.fieldU64("import.response_value_table_id", response_value_table_id);
+            builder.fieldU64("import.result_value_table_id", result_value_table_id);
             builder.fieldValueRef("import.payload_ref", payload_ref);
             builder.fieldValueRef("import.response_ref", response_ref);
+            builder.fieldValueRef("import.result_ref", result_ref);
             builder.fieldBytes("import.mode", mode);
             builder.fieldBytes("import.response_kind", response_kind);
             builder.fieldRef("import.replay_key_recipe", replay_key_recipe_ref);
@@ -8259,6 +8316,10 @@ pub const BoundaryTargetModule = struct {
 
     fn canonicalImportResponseValueTableId(world_port_id: u32) u32 {
         return world_port_id * 3 + 1;
+    }
+
+    fn canonicalImportResultValueTableId(world_port_id: u32) u32 {
+        return world_port_id * 3 + 2;
     }
 
     fn refMatchesDomainFingerprint(ref: Ref, domain: Domain, fingerprint: u64) bool {
@@ -8839,6 +8900,8 @@ pub const BoundaryTargetModule = struct {
             _ = try import_reader.readU64();
             _ = try import_reader.readU32();
             _ = try import_reader.readU32();
+            _ = try import_reader.readU32();
+            _ = try import_reader.readValueRef();
             _ = try import_reader.readValueRef();
             _ = try import_reader.readValueRef();
             _ = try import_reader.readBytes();
@@ -9329,6 +9392,38 @@ test "forward optional known section versions require opt-in and newer format" {
     try std.testing.expect(!BoundaryTargetModule.sectionHasForwardOptionalVersion(.metadata, false, current - 1, options));
     try std.testing.expect(!BoundaryTargetModule.sectionHasForwardOptionalVersion(.metadata, true, current + 1, options));
     try std.testing.expect(!BoundaryTargetModule.sectionHasForwardOptionalVersion(.metadata, false, current + 1, .{}));
+}
+
+test "forward optional known section versions are skipped in invalid version diagnostics" {
+    var bytes = [_]u8{0} ** (BoundaryTargetModule.header_len + 2 * BoundaryTargetModule.section_table_entry_len);
+    @memcpy(bytes[0..BoundaryTargetModule.magic.len], BoundaryTargetModule.magic);
+    BoundaryTargetModule.writeU32At(&bytes, 8, domains.boundary_module.format_version.?);
+    BoundaryTargetModule.writeU32At(&bytes, 12, domains.boundary_module.fingerprint_version);
+    bytes[16] = @intFromEnum(BoundaryTargetModule.Kind.full_module);
+    BoundaryTargetModule.writeU32At(&bytes, 20, 2);
+    BoundaryTargetModule.writeU64At(&bytes, 40, bytes.len);
+
+    const metadata_entry = BoundaryTargetModule.header_len;
+    BoundaryTargetModule.writeU16At(&bytes, metadata_entry, @intFromEnum(BoundaryTargetModule.SectionKind.metadata));
+    bytes[metadata_entry + 2] = 0;
+    BoundaryTargetModule.writeU32At(&bytes, metadata_entry + 4, BoundaryTargetModule.sectionExpectedFormatVersion(.metadata) + 1);
+    BoundaryTargetModule.writeU64At(&bytes, metadata_entry + 8, bytes.len);
+    BoundaryTargetModule.writeU64At(&bytes, metadata_entry + 24, BoundaryTargetModule.sectionPayloadFingerprint(.metadata, &.{}));
+
+    const replay_entry = BoundaryTargetModule.header_len + BoundaryTargetModule.section_table_entry_len;
+    BoundaryTargetModule.writeU16At(&bytes, replay_entry, @intFromEnum(BoundaryTargetModule.SectionKind.replay_key_recipe));
+    bytes[replay_entry + 2] = 1;
+    BoundaryTargetModule.writeU32At(&bytes, replay_entry + 4, BoundaryTargetModule.sectionExpectedFormatVersion(.replay_key_recipe) + 1);
+    BoundaryTargetModule.writeU64At(&bytes, replay_entry + 8, bytes.len);
+    BoundaryTargetModule.writeU64At(&bytes, replay_entry + 24, BoundaryTargetModule.sectionPayloadFingerprint(.replay_key_recipe, &.{}));
+
+    const detail = BoundaryTargetModule.sectionDiagnosticDetail(
+        &bytes,
+        .{ .allow_forward_optional_sections = true },
+        error.InvalidVersion,
+    );
+    try std.testing.expectEqual(BoundaryTargetModule.SectionKind.replay_key_recipe, detail.section_kind.?);
+    try std.testing.expectEqual(@as(usize, 1), detail.section_index.?);
 }
 
 test "target certificate dependency roles require paired module surfaces" {

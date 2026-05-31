@@ -52,11 +52,11 @@ fingerprint.
 ## ImportSurface
 
 `Target.Module.ImportSurface` lists semantic requirements the receiving World
-must supply. V1 imports are residual WorldPorts. Each import carries import id,
+must supply. V2 imports are residual WorldPorts. Each import carries import id,
 dense `world_port_id`, `WorldPort` ref, optional host-intrinsic ref, source
-effect-shape ref, residual site index/fingerprint, payload and response value
-table ids, payload/response refs, mode, response kind, replay-key recipe ref,
-symbolic name, required flag, and metadata hooks.
+effect-shape ref, residual site index/fingerprint, payload, response, and result
+value table ids, payload/response/result refs, mode, response kind, replay-key
+recipe ref, symbolic name, required flag, and metadata hooks.
 
 Imports are not implementations. They never serialize handlers, function
 pointers, credentials, URLs, model clients, files, network endpoints, runtime
@@ -142,9 +142,10 @@ helpers instead of reading section tables manually.
 World-facing binding data without requiring raw section parsing.
 
 Each import projection carries import id, dense `world_port_id`, `WorldPort`
-ref, source EffectShape ref, residual site index/fingerprint, payload and
-response value table ids, payload/response value refs, mode, response kind,
-required/optional status, symbolic name, and replay-key recipe ref when present.
+ref, source EffectShape ref, residual site index/fingerprint, payload, response,
+and result value table ids, payload/response/result value refs, mode, response
+kind, required/optional status, symbolic name, and replay-key recipe ref when
+present.
 
 ## ExportSurface Projection Helpers
 
