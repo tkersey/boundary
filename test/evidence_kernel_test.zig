@@ -208,6 +208,40 @@ const closure_bool_source_program = boundary.program("evidence-closure-bool-sour
     pub const compiled_plan = closure_bool_source_compiled.plan;
 });
 const closure_bool_request = closure_bool_source_program.protocol.operationSite("approval-bool", "request", 0);
+const closure_unit_protocol = boundary.ir.schema.Protocol(.{
+    .label = "approval-unit",
+    .ops = .{boundary.ir.schema.transform("request", void, i32)},
+});
+const closure_unit_rows = closure_unit_protocol.Rows(closure_fixture_handlers, .{ .requirement_index = 0, .first_op = 0 });
+const closure_unit_request_op = closure_unit_rows.op("request");
+const closure_unit_source_compiled = closure_fixture_semantic.finish(.{
+    .label = "evidence-closure-unit-source",
+    .ir_hash = 0xC105E50B,
+    .entry = "run",
+    .requirements = &.{closure_unit_rows.requirement},
+    .ops = &closure_unit_rows.ops,
+    .functions = .{.{
+        .symbol_name = "run",
+        .requirements = closure_fixture_semantic.span(0, 1),
+        .params = .{},
+        .locals = .{
+            closure_fixture_semantic.local("decision", i32),
+        },
+        .result = i32,
+        .blocks = .{.{
+            .name = "entry",
+            .instructions = .{
+                closure_fixture_semantic.call(closure_unit_request_op, .{ .dst = "decision", .label = "approval-unit.request" }),
+            },
+            .terminator = closure_fixture_semantic.returnValue("decision"),
+        }},
+    }},
+}) catch |err| @compileError("invalid unit closure source fixture: " ++ @errorName(err));
+const closure_unit_source_program = boundary.program("evidence-closure-unit-source", closure_fixture_handlers, struct {
+    pub const site_metadata = closure_unit_source_compiled.site_metadata;
+    pub const compiled_plan = closure_unit_source_compiled.plan;
+});
+const closure_unit_request = closure_unit_source_program.protocol.operationSite("approval-unit", "request", 0);
 const closure_dual_protocol = boundary.ir.schema.Protocol(.{
     .label = "approval-dual",
     .ops = .{
@@ -16694,6 +16728,63 @@ fn ModuleBoolWorldPortTarget(comptime label: []const u8) type {
     });
 }
 
+fn ModuleUnitWorldPortTarget(comptime label: []const u8) type {
+    const Closure = closure_unit_source_program.BoundaryClosure;
+    const Elaboration = Closure.Elaboration;
+    @setEvalBranchQuota(2_000_000);
+    const source_ref = closure_unit_source_program.Evidence.refFor(
+        closure_unit_source_program.Evidence.domains.program_plan,
+        closure_unit_source_program.compiled_plan.hash(),
+        .{ .label = closure_unit_source_program.contract.label },
+    );
+    const source_shape = Closure.EffectShape.init(.{
+        .program_label = closure_unit_source_program.contract.label,
+        .plan_hash = closure_unit_source_program.compiled_plan.hash(),
+        .kind = .operation,
+        .site_index = closure_unit_request.index,
+        .protocol_label = "approval-unit",
+        .protocol_op_fingerprint = closure_unit_request.fingerprint,
+        .semantic_label = "approval-unit.request",
+        .name = "request",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_unit_request.payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_unit_request.resume_ref),
+        .result_ref = Evidence.BoundaryValueRef.fromValueRef(closure_unit_request.result_ref),
+    });
+    const port = Closure.WorldPort.init(.{
+        .label = "module-unit-approval-port",
+        .kind = .test_fixture,
+        .effect_shape_ref = source_shape.evidenceRef(),
+        .effect_shape_witness = source_shape,
+        .supported_protocol_labels = &.{"approval-unit"},
+        .supported_site_indexes = &.{closure_unit_request.index},
+        .supported_protocol_op_fingerprints = &.{closure_unit_request.fingerprint},
+    });
+    const graph = Closure.Graph.init("module-unit-world-port-graph", &.{}, &.{}, &.{});
+    const report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+        .effect_shape_count = 1,
+        .world_port_refs = &.{port.evidenceRef()},
+        .open_world_port_count = 1,
+    });
+    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+    const input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = report,
+        .closure_certificate = certificate,
+        .source_program_ref = source_ref,
+        .world_ports = &.{port},
+        .policy = Elaboration.Policy.auditOnly(),
+    };
+    return Elaboration.Target.compileComptime(.{
+        .label = label,
+        .input = input,
+        .residual_program = closure_unit_source_program,
+        .policy = Elaboration.Target.Policy.auditOnly(),
+    });
+}
+
 fn ModuleUnitTarget(comptime label: []const u8) type {
     const Closure = Program.BoundaryClosure;
     const Elaboration = Closure.Elaboration;
@@ -16835,6 +16926,15 @@ test "certified boundary module reference full image and loaded module projectio
     const full_report = try Target.Module.validate(full, .{ .require_full_module = true });
     try std.testing.expectEqual(Target.Module.Kind.full_module, full_report.module_kind);
     try std.testing.expect(full_report.manifest_fingerprint != 0);
+    const forged_executable_plan = try allocator.dupe(u8, full);
+    defer allocator.free(forged_executable_plan);
+    var forged_executable_body = boundaryModuleExecutablePlanBody(forged_executable_plan);
+    forged_executable_body[4] ^= 0x1;
+    boundaryModuleRefreshExecutablePlanImageFingerprint(forged_executable_plan);
+    boundaryModuleRefreshManifestRequiredRef(forged_executable_plan, Target.Module.SectionKind.executable_plan_image);
+    boundaryModuleRefreshModuleFingerprint(Target, forged_executable_plan);
+    boundaryModuleRefreshManifestFingerprint(Target, forged_executable_plan);
+    try std.testing.expectError(error.ManifestFingerprintMismatch, Target.Module.validate(forged_executable_plan, .{ .require_full_module = true }));
     var loaded = try Target.Module.decode(allocator, full);
     defer loaded.deinit();
     try std.testing.expectError(error.ImageTooLarge, Evidence.BoundaryTargetModule.decode(allocator, full, .{ .max_image_bytes = full.len - 1 }));
@@ -16997,6 +17097,13 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expect(supported_profile.compatibleWith(required_profile));
     required_profile.limits.maximum_owned_value_bytes = supported_profile.limits.maximum_owned_value_bytes + 1;
     try std.testing.expect(!supported_profile.compatibleWith(required_profile));
+    var call_op_disabled_profile = Target.Module.LoadedExecutionProfile.portableV1();
+    call_op_disabled_profile.instruction_kinds.call_op = false;
+    try std.testing.expectError(error.UnsupportedLoadedExecutionProfile, Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        call_op_disabled_profile,
+    ));
 
     const encoded_word = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
         allocator,
@@ -17060,6 +17167,17 @@ test "certified boundary module reference full image and loaded module projectio
         allocator,
         &loaded,
         corrupted_parked_session,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    ));
+    var mismatched_entry_image = try Target.Module.LoadedSessionImage.decode(allocator, frozen_parked_session);
+    defer mismatched_entry_image.deinit(allocator);
+    mismatched_entry_image.entry_function +%= 1;
+    const mismatched_entry_session = try mismatched_entry_image.encode(allocator);
+    defer allocator.free(mismatched_entry_session);
+    try std.testing.expectError(error.SessionMismatch, Target.Module.LoadedModule.Session.thaw(
+        allocator,
+        &loaded,
+        mismatched_entry_session,
         Target.Module.LoadedExecutionProfile.portableV1(),
     ));
     var restored_parked_session = try Target.Module.LoadedModule.Session.thaw(
@@ -17448,6 +17566,22 @@ test "loaded executable session interprets scalar locals and branches" {
         .request => return error.UnexpectedRequest,
     };
     try std.testing.expectEqual(Target.Module.LoadedExecution.ExecutionFailureKind.execution_budget_exceeded, failure.kind);
+    const frozen_failure = try constrained_session.freeze(allocator);
+    defer allocator.free(frozen_failure);
+    var restored_failure_session = try Target.Module.LoadedModule.Session.thaw(
+        allocator,
+        &loaded,
+        frozen_failure,
+        constrained_profile,
+    );
+    defer restored_failure_session.deinit();
+    const restored_failure = switch (restored_failure_session.next()) {
+        .failed => |value| value,
+        .done => return error.UnexpectedDone,
+        .request => return error.UnexpectedRequest,
+    };
+    try std.testing.expectEqual(failure.kind, restored_failure.kind);
+    try std.testing.expectEqualStrings(failure.diagnostic_summary, restored_failure.diagnostic_summary);
 }
 
 test "loaded executable session interprets completing helper calls" {
@@ -17496,6 +17630,14 @@ test "loaded executable session interprets completing helper calls" {
         .request => return error.UnexpectedRequest,
     };
     try std.testing.expectEqual(Target.Module.LoadedExecution.ExecutionFailureKind.call_depth_exceeded, failure.kind);
+
+    var call_helper_disabled_profile = Target.Module.LoadedExecutionProfile.portableV1();
+    call_helper_disabled_profile.instruction_kinds.call_helper = false;
+    try std.testing.expectError(error.UnsupportedLoadedExecutionProfile, Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        call_helper_disabled_profile,
+    ));
 }
 
 test "generated-loaded parity canonical request bytes and i32 result" {
@@ -17664,6 +17806,68 @@ test "generated-loaded parity bool residual request and result" {
         .{},
     );
     try std.testing.expectEqual(generated_done.value, loaded_result.boolean);
+}
+
+test "loaded executable session parks unit payload residual request" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleUnitWorldPortTarget("module-unit-world-port-loaded-target");
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var loaded = try Target.Module.decode(allocator, full);
+    defer loaded.deinit();
+
+    var session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer session.deinit();
+    const loaded_request = switch (session.next()) {
+        .request => |request| request,
+        .failed => return error.UnexpectedLoadedFailure,
+        .done => return error.UnexpectedLoadedDone,
+    };
+    try std.testing.expect(loaded_request.payload_ref.eql(Evidence.BoundaryValueRef.init("unit", null)));
+    var loaded_payload_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer loaded_payload_arena.deinit();
+    const loaded_payload = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &loaded_payload_arena,
+        .{},
+        .{ .codec = .unit },
+        loaded_request.canonical_payload_image,
+        .{},
+    );
+    switch (loaded_payload) {
+        .unit => {},
+        else => return error.UnexpectedLoadedPayload,
+    }
+
+    const loaded_response = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .i32 },
+        .{ .i32 = 11 },
+        .{},
+    );
+    defer allocator.free(loaded_response);
+    try session.@"resume"(loaded_request, loaded_response);
+    const loaded_done = switch (session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedLoadedRequest,
+        .failed => return error.UnexpectedLoadedFailure,
+    };
+    var loaded_result_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer loaded_result_arena.deinit();
+    const loaded_result = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &loaded_result_arena,
+        .{},
+        .{ .codec = .i32 },
+        loaded_done.canonical_result_image,
+        .{},
+    );
+    try std.testing.expectEqual(@as(i32, 11), loaded_result.i32);
 }
 
 test "generated-loaded parity scalar branches and helper calls" {
@@ -17910,6 +18114,24 @@ fn boundaryModuleSection(bytes: []const u8, kind: Evidence.BoundaryTargetModule.
         }
     }
     unreachable;
+}
+
+fn boundaryModuleExecutablePlanBody(bytes: []u8) []u8 {
+    const section = boundaryModuleSection(bytes, .executable_plan_image);
+    const body_len_offset = section.start + 4 + 8;
+    const body_start = body_len_offset + 4;
+    const body_len: usize = @intCast(boundaryModuleReadU32(bytes, body_len_offset));
+    return bytes[body_start .. body_start + body_len];
+}
+
+fn boundaryModuleRefreshExecutablePlanImageFingerprint(bytes: []u8) void {
+    const section = boundaryModuleSection(bytes, .executable_plan_image);
+    const body = boundaryModuleExecutablePlanBody(bytes);
+    var builder = Evidence.FingerprintBuilder.init(Evidence.domains.boundary_executable_plan_image);
+    builder.fieldU32("format_version", Evidence.domains.boundary_executable_plan_image.format_version.?);
+    builder.fieldBytes("body", body);
+    boundaryModuleWriteU64(bytes, section.start + 4, builder.finish());
+    boundaryModuleRefreshSectionFingerprint(bytes, .executable_plan_image);
 }
 
 fn boundaryModuleImportCountOffset(bytes: []const u8, payload_start: usize) usize {

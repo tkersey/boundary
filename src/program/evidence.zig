@@ -6675,6 +6675,7 @@ pub const BoundaryTargetModule = struct {
             status: loaded_execution.LoadedSessionStatus = .initial,
             budget: loaded_execution.LoadedSessionBudgetLedger = .{},
             failure: ?loaded_execution.LoadedSessionFailure = null,
+            owns_failure_summary: bool = false,
             pending_request: ?PendingRequest = null,
             payload_image_bytes: []u8 = &.{},
             result_image_bytes: []u8 = &.{},
@@ -6753,6 +6754,7 @@ pub const BoundaryTargetModule = struct {
                 errdefer decoded_plan.deinit();
                 var session = startWithProfile(module, profile);
                 if (decoded_plan.program_plan.entry_index != session.entry_function) return error.ExecutablePlanMismatch;
+                if (!loadedProfileSupportsProgramPlan(profile, decoded_plan.program_plan)) return error.UnsupportedLoadedExecutionProfile;
                 session.allocator = allocator;
                 session.executable_plan = decoded_plan;
                 return session;
@@ -6762,6 +6764,9 @@ pub const BoundaryTargetModule = struct {
                 if (self.allocator) |allocator| {
                     if (self.payload_image_bytes.len != 0) allocator.free(self.payload_image_bytes);
                     if (self.result_image_bytes.len != 0) allocator.free(self.result_image_bytes);
+                    if (self.owns_failure_summary) {
+                        if (self.failure) |failure| allocator.free(failure.diagnostic_summary);
+                    }
                 }
                 if (self.executable_plan) |*decoded_plan| decoded_plan.deinit();
                 self.* = undefined;
@@ -7107,7 +7112,7 @@ pub const BoundaryTargetModule = struct {
                 {
                     return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable import value refs do not match call_op");
                 }
-                const payload = loadedLocalValue(locals, call_instruction.aux) orelse
+                const payload: LoadedValue = if (op.payload_codec == .unit) .unit else loadedLocalValue(locals, call_instruction.aux) orelse
                     return self.fail(.invalid_value, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op payload local is invalid");
                 const allocator = self.allocator orelse return self.fail(.invalid_resume, program_plan.entry_index, block_index, instruction_index, "loaded executable session has no allocator");
                 const new_payload_image = loaded_execution.encodeLoadedValueImageBytes(
@@ -7207,6 +7212,12 @@ pub const BoundaryTargetModule = struct {
             }
 
             fn fail(self: *@This(), failure_kind: loaded_execution.ExecutionFailureKind, function_index: usize, block_index: usize, instruction_index: usize, diagnostic_summary: []const u8) Next {
+                if (self.owns_failure_summary) {
+                    if (self.allocator) |allocator| {
+                        if (self.failure) |failure| allocator.free(failure.diagnostic_summary);
+                    }
+                    self.owns_failure_summary = false;
+                }
                 self.status = .failed;
                 self.failure = .{
                     .kind = failure_kind,
@@ -7260,20 +7271,25 @@ pub const BoundaryTargetModule = struct {
                 if (decoded.execution_profile_fingerprint != execution_profile_fingerprint) return error.ProfileMismatch;
                 const expected_session_fingerprint = loaded_execution.loadedSessionFingerprint(module.moduleFingerprint(), executable_plan_fingerprint, execution_profile_fingerprint, module.entryFunctionRef());
                 if (decoded.session_fingerprint != expected_session_fingerprint) return error.SessionMismatch;
+                if (decoded.entry_function != module.entryFunctionRef()) return error.SessionMismatch;
                 var session = try startExecutable(allocator, module, profile);
                 errdefer session.deinit();
                 session.session_fingerprint = decoded.session_fingerprint;
                 session.entry_function = decoded.entry_function;
                 session.status = decoded.status;
                 session.budget = decoded.budget;
-                session.failure = if (decoded.failure) |failure| .{
-                    .kind = failure.kind,
-                    .declared_error_ref = failure.declared_error_ref,
-                    .function_index = failure.function_index,
-                    .block_index = failure.block_index,
-                    .instruction_index = failure.instruction_index,
-                    .diagnostic_summary = "restored loaded session failure",
-                } else null;
+                if (decoded.failure) |failure| {
+                    const diagnostic_summary = try allocator.dupe(u8, failure.diagnostic_summary);
+                    session.failure = .{
+                        .kind = failure.kind,
+                        .declared_error_ref = failure.declared_error_ref,
+                        .function_index = failure.function_index,
+                        .block_index = failure.block_index,
+                        .instruction_index = failure.instruction_index,
+                        .diagnostic_summary = diagnostic_summary,
+                    };
+                    session.owns_failure_summary = true;
+                }
                 if (decoded.payload_image_bytes.len != 0) {
                     session.payload_image_bytes = try allocator.dupe(u8, decoded.payload_image_bytes);
                 }
@@ -7341,6 +7357,42 @@ pub const BoundaryTargetModule = struct {
             .schemas = program_plan.value_schemas,
             .fields = program_plan.value_fields,
             .variants = program_plan.value_variants,
+        };
+    }
+
+    fn loadedProfileSupportsProgramPlan(profile: LoadedExecutionProfile, program_plan: internal_program_plan.ProgramPlan) bool {
+        for (program_plan.instructions) |instruction| {
+            if (!loadedProfileSupportsInstruction(profile, instruction.kind)) return false;
+        }
+        for (program_plan.terminators) |terminator| {
+            if (!loadedProfileSupportsTerminator(profile, terminator.kind)) return false;
+        }
+        return true;
+    }
+
+    fn loadedProfileSupportsInstruction(profile: LoadedExecutionProfile, kind: internal_program_plan.InstructionKind) bool {
+        return switch (kind) {
+            .call_helper => profile.instruction_kinds.call_helper,
+            .call_nested_with => profile.instruction_kinds.call_nested_with,
+            .call_op => profile.instruction_kinds.call_op,
+            .compare_eq_zero => profile.instruction_kinds.compare,
+            .const_i32 => profile.instruction_kinds.@"const" and profile.instruction_kinds.const_i32,
+            .const_string => profile.instruction_kinds.@"const" and profile.instruction_kinds.const_string,
+            .const_usize => profile.instruction_kinds.@"const" and profile.instruction_kinds.const_usize,
+            .return_error => profile.instruction_kinds.return_error,
+            .return_value => profile.instruction_kinds.return_value,
+            .sum_extract_payload => profile.instruction_kinds.get_sum_payload,
+            .sum_variant_is => profile.instruction_kinds.match_sum_variant,
+            .add_const_i32, .add_i32, .sub_one => true,
+        };
+    }
+
+    fn loadedProfileSupportsTerminator(profile: LoadedExecutionProfile, kind: internal_program_plan.TerminatorKind) bool {
+        return switch (kind) {
+            .branch_if => profile.terminator_kinds.branch_if,
+            .jump => profile.terminator_kinds.branch,
+            .return_unit => profile.terminator_kinds.return_unit,
+            .return_value => profile.terminator_kinds.return_value,
         };
     }
 
@@ -10262,6 +10314,29 @@ pub const BoundaryTargetModule = struct {
             _ = try reader.readU16();
         }
         if (!reader.done()) return error.MalformedManifest;
+
+        var decoded_plan = loaded_execution.decodeExecutablePlanImage(
+            options.allocator,
+            payload,
+            image_fingerprint,
+            manifest.program_plan_hash,
+            .{},
+        ) catch |err| return executablePlanDecodeValidationError(err);
+        defer decoded_plan.deinit();
+    }
+
+    fn executablePlanDecodeValidationError(err: anyerror) ValidationError {
+        return switch (err) {
+            error.OutOfMemory => error.OutOfMemory,
+            error.UnsupportedVersion => error.InvalidVersion,
+            error.FingerprintMismatch => error.ManifestFingerprintMismatch,
+            error.TruncatedImage,
+            error.TrailingBytes,
+            error.MalformedPlan,
+            error.InvalidValue,
+            => error.MalformedManifest,
+            else => error.MalformedManifest,
+        };
     }
 
     fn executablePlanCountWithinLimits(count: u64, limit: usize) bool {
