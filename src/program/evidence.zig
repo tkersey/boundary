@@ -7575,8 +7575,8 @@ pub const BoundaryTargetModule = struct {
                 if (!reachability.blocks[block_index]) continue :value_block_loop;
                 const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
                 if (instruction_end > program_plan.instructions.len) return false;
-                for (program_plan.instructions[block.first_instruction..instruction_end]) |instruction| {
-                    if (instruction.kind != .call_op) continue;
+                value_instruction_loop: for (program_plan.instructions[block.first_instruction..instruction_end]) |instruction| {
+                    if (instruction.kind != .call_op) continue :value_instruction_loop;
                     if (instruction.operand >= program_plan.ops.len) return false;
                     const op = program_plan.ops[instruction.operand];
                     if (!loadedProfileSupportsValueRef(profile, program_plan, op.payload_codec, op.payload_schema_index, &visited_schemas)) return false;
