@@ -7392,35 +7392,9 @@ pub const BoundaryTargetModule = struct {
     fn loadedProfileSupportsProgramPlan(profile: LoadedExecutionProfile, program_plan: internal_program_plan.ProgramPlan) bool {
         const reachability = loadedProgramReachability(program_plan) orelse return false;
         if (!loadedProgramPlanUsesSupportedSessionShape(program_plan, reachability)) return false;
-        for (program_plan.functions) |function| {
-            if (!loadedProfileSupportsCodec(profile, function.value_codec)) return false;
-            if (function.result_codec) |result_codec| {
-                if (!loadedProfileSupportsCodec(profile, result_codec)) return false;
-            }
-        }
-        for (program_plan.ops) |op| {
-            if (!loadedProfileSupportsCodec(profile, op.payload_codec)) return false;
-            if (!loadedProfileSupportsCodec(profile, op.resume_codec)) return false;
-        }
-        for (program_plan.outputs) |output| {
-            if (!loadedProfileSupportsCodec(profile, output.codec)) return false;
-        }
-        for (program_plan.locals) |local| {
-            if (!loadedProfileSupportsCodec(profile, local.codec)) return false;
-        }
-        for (program_plan.value_schemas) |schema| {
-            if (!loadedProfileSupportsCodec(profile, schema.codec)) return false;
-        }
-        for (program_plan.value_fields) |field| {
-            if (!loadedProfileSupportsCodec(profile, field.codec)) return false;
-        }
-        for (program_plan.value_variants) |variant| {
-            if (!loadedProfileSupportsCodec(profile, variant.codec)) return false;
-        }
+        if (!loadedProfileSupportsReachableValues(profile, program_plan, reachability)) return false;
         if (!loadedProfileSupportsReachableInstructions(profile, program_plan, reachability)) return false;
-        for (program_plan.terminators) |terminator| {
-            if (!loadedProfileSupportsTerminator(profile, terminator.kind)) return false;
-        }
+        if (!loadedProfileSupportsReachableTerminators(profile, program_plan, reachability)) return false;
         return true;
     }
 
@@ -7561,6 +7535,95 @@ pub const BoundaryTargetModule = struct {
             }
         }
         return true;
+    }
+
+    fn loadedProfileSupportsReachableTerminators(profile: LoadedExecutionProfile, program_plan: internal_program_plan.ProgramPlan, reachability: LoadedProgramReachability) bool {
+        profile_function_loop: for (program_plan.functions, 0..) |function, function_index| {
+            if (!reachability.functions[function_index]) continue :profile_function_loop;
+            const block_end = @as(usize, function.first_block) + function.block_count;
+            if (block_end > program_plan.blocks.len) return false;
+            profile_block_loop: for (program_plan.blocks[function.first_block..block_end], function.first_block..) |block, block_index| {
+                if (!reachability.blocks[block_index]) continue :profile_block_loop;
+                if (block.terminator_index >= program_plan.terminators.len) return false;
+                if (!loadedProfileSupportsTerminator(profile, program_plan.terminators[block.terminator_index].kind)) return false;
+            }
+        }
+        return true;
+    }
+
+    fn loadedProfileSupportsReachableValues(profile: LoadedExecutionProfile, program_plan: internal_program_plan.ProgramPlan, reachability: LoadedProgramReachability) bool {
+        var visited_schemas = [_]bool{false} ** (std.math.maxInt(u16) + 1);
+        value_function_loop: for (program_plan.functions, 0..) |function, function_index| {
+            if (!reachability.functions[function_index]) continue :value_function_loop;
+            if (!loadedProfileSupportsValueRef(profile, program_plan, function.value_codec, function.value_schema_index, &visited_schemas)) return false;
+            if (function.result_codec) |result_codec| {
+                if (!loadedProfileSupportsValueRef(profile, program_plan, result_codec, function.result_schema_index, &visited_schemas)) return false;
+            }
+            const local_end = @as(usize, function.first_local) + function.local_count;
+            if (local_end > program_plan.locals.len) return false;
+            for (program_plan.locals[function.first_local..local_end]) |local| {
+                if (!loadedProfileSupportsValueRef(profile, program_plan, local.codec, local.schema_index, &visited_schemas)) return false;
+            }
+            const output_end = @as(usize, function.first_output) + function.output_count;
+            if (output_end > program_plan.outputs.len) return false;
+            for (program_plan.outputs[function.first_output..output_end]) |output| {
+                if (!loadedProfileSupportsValueRef(profile, program_plan, output.codec, output.schema_index, &visited_schemas)) return false;
+            }
+            const block_end = @as(usize, function.first_block) + function.block_count;
+            if (block_end > program_plan.blocks.len) return false;
+            value_block_loop: for (program_plan.blocks[function.first_block..block_end], function.first_block..) |block, block_index| {
+                if (!reachability.blocks[block_index]) continue :value_block_loop;
+                const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
+                if (instruction_end > program_plan.instructions.len) return false;
+                for (program_plan.instructions[block.first_instruction..instruction_end]) |instruction| {
+                    if (instruction.kind != .call_op) continue;
+                    if (instruction.operand >= program_plan.ops.len) return false;
+                    const op = program_plan.ops[instruction.operand];
+                    if (!loadedProfileSupportsValueRef(profile, program_plan, op.payload_codec, op.payload_schema_index, &visited_schemas)) return false;
+                    if (!loadedProfileSupportsValueRef(profile, program_plan, op.resume_codec, op.resume_schema_index, &visited_schemas)) return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    fn loadedProfileSupportsValueRef(
+        profile: LoadedExecutionProfile,
+        program_plan: internal_program_plan.ProgramPlan,
+        codec: internal_program_plan.ValueCodec,
+        schema_index: ?u16,
+        visited_schemas: *[std.math.maxInt(u16) + 1]bool,
+    ) bool {
+        if (!loadedProfileSupportsCodec(profile, codec)) return false;
+        return switch (codec) {
+            .product, .sum => {
+                const index = schema_index orelse return false;
+                if (index >= program_plan.value_schemas.len) return false;
+                if (visited_schemas[index]) return true;
+                visited_schemas[index] = true;
+                const schema = program_plan.value_schemas[index];
+                if (schema.codec != codec) return false;
+                switch (codec) {
+                    .product => {
+                        const field_end = @as(usize, schema.first_field) + schema.field_count;
+                        if (field_end > program_plan.value_fields.len) return false;
+                        for (program_plan.value_fields[schema.first_field..field_end]) |field| {
+                            if (!loadedProfileSupportsValueRef(profile, program_plan, field.codec, field.schema_index, visited_schemas)) return false;
+                        }
+                    },
+                    .sum => {
+                        const variant_end = @as(usize, schema.first_variant) + schema.variant_count;
+                        if (variant_end > program_plan.value_variants.len) return false;
+                        for (program_plan.value_variants[schema.first_variant..variant_end]) |variant| {
+                            if (!loadedProfileSupportsValueRef(profile, program_plan, variant.codec, variant.schema_index, visited_schemas)) return false;
+                        }
+                    },
+                    else => unreachable,
+                }
+                return true;
+            },
+            else => true,
+        };
     }
 
     fn loadedCallResidualSiteIndex(

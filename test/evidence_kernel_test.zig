@@ -537,44 +537,57 @@ const loaded_scalar_compiled = closure_fixture_semantic.finish(.{
     .label = "evidence-loaded-scalar",
     .ir_hash = 0xC105E509,
     .entry = "run",
-    .functions = .{.{
-        .symbol_name = "run",
-        .params = .{},
-        .locals = .{
-            closure_fixture_semantic.local("left", i32),
-            closure_fixture_semantic.local("right", i32),
-            closure_fixture_semantic.local("sum", i32),
-            closure_fixture_semantic.local("is_zero", bool),
-            closure_fixture_semantic.local("answer", i32),
+    .functions = .{
+        .{
+            .symbol_name = "run",
+            .params = .{},
+            .locals = .{
+                closure_fixture_semantic.local("left", i32),
+                closure_fixture_semantic.local("right", i32),
+                closure_fixture_semantic.local("sum", i32),
+                closure_fixture_semantic.local("is_zero", bool),
+                closure_fixture_semantic.local("answer", i32),
+            },
+            .result = i32,
+            .blocks = .{
+                .{
+                    .name = "entry",
+                    .instructions = .{
+                        closure_fixture_semantic.constI32("left", 40),
+                        closure_fixture_semantic.constI32("right", 2),
+                        closure_fixture_semantic.addI32("sum", "left", "right"),
+                        closure_fixture_semantic.compareEqZero("is_zero", "sum"),
+                    },
+                    .terminator = closure_fixture_semantic.branchIf("is_zero", .{ .then = "zero", .@"else" = "nonzero" }),
+                },
+                .{
+                    .name = "zero",
+                    .instructions = .{
+                        closure_fixture_semantic.constI32("answer", 0),
+                    },
+                    .terminator = closure_fixture_semantic.returnValue("answer"),
+                },
+                .{
+                    .name = "nonzero",
+                    .instructions = .{
+                        closure_fixture_semantic.subOne("answer", "sum"),
+                    },
+                    .terminator = closure_fixture_semantic.returnValue("answer"),
+                },
+            },
         },
-        .result = i32,
-        .blocks = .{
-            .{
+        .{
+            .symbol_name = "dead_string_helper",
+            .params = .{},
+            .locals = .{closure_fixture_semantic.local("unused", []const u8)},
+            .result = []const u8,
+            .blocks = .{.{
                 .name = "entry",
-                .instructions = .{
-                    closure_fixture_semantic.constI32("left", 40),
-                    closure_fixture_semantic.constI32("right", 2),
-                    closure_fixture_semantic.addI32("sum", "left", "right"),
-                    closure_fixture_semantic.compareEqZero("is_zero", "sum"),
-                },
-                .terminator = closure_fixture_semantic.branchIf("is_zero", .{ .then = "zero", .@"else" = "nonzero" }),
-            },
-            .{
-                .name = "zero",
-                .instructions = .{
-                    closure_fixture_semantic.constI32("answer", 0),
-                },
-                .terminator = closure_fixture_semantic.returnValue("answer"),
-            },
-            .{
-                .name = "nonzero",
-                .instructions = .{
-                    closure_fixture_semantic.subOne("answer", "sum"),
-                },
-                .terminator = closure_fixture_semantic.returnValue("answer"),
-            },
+                .instructions = .{closure_fixture_semantic.constString("unused", "dead")},
+                .terminator = closure_fixture_semantic.returnValue("unused"),
+            }},
         },
-    }},
+    },
 }) catch |err| @compileError("invalid loaded scalar fixture: " ++ @errorName(err));
 const loaded_scalar_program = boundary.program("evidence-loaded-scalar", struct {}, struct {
     pub const compiled_plan = loaded_scalar_compiled.plan;
@@ -18093,6 +18106,21 @@ test "loaded executable session interprets scalar locals and branches" {
     };
     try std.testing.expectEqual(done.result_fingerprint, restored_done.result_fingerprint);
     try std.testing.expectEqualStrings(done.canonical_result_image, restored_done.canonical_result_image);
+
+    var bytes_disabled_profile = Target.Module.LoadedExecutionProfile.portableV1();
+    bytes_disabled_profile.value_codecs.bytes = false;
+    var bytes_disabled_session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        bytes_disabled_profile,
+    );
+    defer bytes_disabled_session.deinit();
+    const bytes_disabled_done = switch (bytes_disabled_session.next()) {
+        .done => |value| value,
+        .request => return error.UnexpectedRequest,
+        .failed => return error.UnexpectedFailure,
+    };
+    try std.testing.expectEqual(done.result_fingerprint, bytes_disabled_done.result_fingerprint);
 
     var constrained_profile = Target.Module.LoadedExecutionProfile.portableV1();
     constrained_profile.limits.maximum_instructions_per_advancement = 2;
