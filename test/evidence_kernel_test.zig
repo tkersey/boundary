@@ -16929,7 +16929,7 @@ test "certified boundary module reference full image and loaded module projectio
     const forged_executable_plan = try allocator.dupe(u8, full);
     defer allocator.free(forged_executable_plan);
     var forged_executable_body = boundaryModuleExecutablePlanBody(forged_executable_plan);
-    forged_executable_body[4] ^= 0x1;
+    forged_executable_body[8] ^= 0x1;
     boundaryModuleRefreshExecutablePlanImageFingerprint(forged_executable_plan);
     boundaryModuleRefreshManifestRequiredRef(forged_executable_plan, Target.Module.SectionKind.executable_plan_image);
     boundaryModuleRefreshModuleFingerprint(Target, forged_executable_plan);
@@ -18126,8 +18126,8 @@ fn boundaryModuleSection(bytes: []const u8, kind: Evidence.BoundaryTargetModule.
 fn boundaryModuleExecutablePlanBody(bytes: []u8) []u8 {
     const section = boundaryModuleSection(bytes, .executable_plan_image);
     const body_len_offset = section.start + 4 + 8;
-    const body_start = body_len_offset + 4;
-    const body_len: usize = @intCast(boundaryModuleReadU32(bytes, body_len_offset));
+    const body_start = body_len_offset + 8;
+    const body_len: usize = @intCast(boundaryModuleReadU64(bytes, body_len_offset));
     return bytes[body_start .. body_start + body_len];
 }
 
