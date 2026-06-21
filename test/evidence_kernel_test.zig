@@ -17104,6 +17104,13 @@ test "certified boundary module reference full image and loaded module projectio
         &loaded,
         call_op_disabled_profile,
     ));
+    var i32_disabled_profile = Target.Module.LoadedExecutionProfile.portableV1();
+    i32_disabled_profile.value_codecs.i32 = false;
+    try std.testing.expectError(error.UnsupportedLoadedExecutionProfile, Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        i32_disabled_profile,
+    ));
 
     const encoded_word = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
         allocator,

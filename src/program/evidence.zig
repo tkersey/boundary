@@ -7361,6 +7361,31 @@ pub const BoundaryTargetModule = struct {
     }
 
     fn loadedProfileSupportsProgramPlan(profile: LoadedExecutionProfile, program_plan: internal_program_plan.ProgramPlan) bool {
+        for (program_plan.functions) |function| {
+            if (!loadedProfileSupportsCodec(profile, function.value_codec)) return false;
+            if (function.result_codec) |result_codec| {
+                if (!loadedProfileSupportsCodec(profile, result_codec)) return false;
+            }
+        }
+        for (program_plan.ops) |op| {
+            if (!loadedProfileSupportsCodec(profile, op.payload_codec)) return false;
+            if (!loadedProfileSupportsCodec(profile, op.resume_codec)) return false;
+        }
+        for (program_plan.outputs) |output| {
+            if (!loadedProfileSupportsCodec(profile, output.codec)) return false;
+        }
+        for (program_plan.locals) |local| {
+            if (!loadedProfileSupportsCodec(profile, local.codec)) return false;
+        }
+        for (program_plan.value_schemas) |schema| {
+            if (!loadedProfileSupportsCodec(profile, schema.codec)) return false;
+        }
+        for (program_plan.value_fields) |field| {
+            if (!loadedProfileSupportsCodec(profile, field.codec)) return false;
+        }
+        for (program_plan.value_variants) |variant| {
+            if (!loadedProfileSupportsCodec(profile, variant.codec)) return false;
+        }
         for (program_plan.instructions) |instruction| {
             if (!loadedProfileSupportsInstruction(profile, instruction.kind)) return false;
         }
@@ -7368,6 +7393,19 @@ pub const BoundaryTargetModule = struct {
             if (!loadedProfileSupportsTerminator(profile, terminator.kind)) return false;
         }
         return true;
+    }
+
+    fn loadedProfileSupportsCodec(profile: LoadedExecutionProfile, codec: internal_program_plan.ValueCodec) bool {
+        return switch (codec) {
+            .unit => profile.value_codecs.unit,
+            .bool => profile.value_codecs.bool,
+            .i32 => profile.value_codecs.i32,
+            .usize => profile.value_codecs.word_u64,
+            .string => profile.value_codecs.bytes,
+            .string_list => profile.value_codecs.byte_string_list,
+            .product => profile.value_codecs.product,
+            .sum => profile.value_codecs.sum,
+        };
     }
 
     fn loadedProfileSupportsInstruction(profile: LoadedExecutionProfile, kind: internal_program_plan.InstructionKind) bool {
