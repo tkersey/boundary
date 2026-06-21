@@ -118,11 +118,58 @@ fn helperPlan() boundary.ir.ProgramPlan {
     }) catch unreachable;
 }
 
+fn loadedUnsupportedReturnErrorPlan() boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const instructions = [_]boundary.ir.plan.Instruction{.{
+        .kind = .return_error,
+        .string_literal = "Rejected",
+    }};
+    const functions = [_]boundary.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .unit,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const blocks = [_]boundary.ir.plan.Block{.{
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+        .terminator_index = 0,
+    }};
+    const terminators = [_]boundary.ir.plan.Terminator{.{ .kind = .return_unit }};
+    return boundary.ir.builder.finish(.{
+        .label = "evidence-loaded-unsupported-return-error-plan",
+        .ir_hash = 3,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 const Program = boundary.program("evidence-test", struct {}, struct {
     pub const compiled_plan = unitPlan();
 });
 const loaded_helper_program = boundary.program("evidence-loaded-helper", struct {}, struct {
     pub const compiled_plan = helperPlan();
+});
+const loaded_unsupported_return_error_program = boundary.program("evidence-loaded-unsupported-return-error", struct {}, struct {
+    pub const Error = error{Rejected};
+    pub const compiled_plan = loadedUnsupportedReturnErrorPlan();
 });
 const nested_unit_program = boundary.program("evidence-nested-unit", struct {}, struct {
     pub const compiled_plan = unitPlan();
@@ -133,6 +180,20 @@ const nested_unit_program = boundary.program("evidence-nested-unit", struct {}, 
 });
 
 const Evidence = Program.Evidence;
+
+fn loadedRequestFingerprintForTest(module_fingerprint: u64, continuation_fingerprint: u64, import: anytype, payload_image_bytes: []const u8) u64 {
+    var builder = Evidence.FingerprintBuilder.init(Evidence.domains.boundary_loaded_session);
+    builder.fieldU64("module_fingerprint", module_fingerprint);
+    builder.fieldU64("continuation_fingerprint", continuation_fingerprint);
+    builder.fieldUsize("residual_site_index", import.residual_site_index);
+    builder.fieldU64("residual_site_fingerprint", import.residual_site_fingerprint);
+    builder.fieldU64("world_port_id", import.world_port_id);
+    builder.fieldRef("world_port_ref", import.world_port_ref);
+    builder.fieldValueRef("payload_ref", import.payload_ref);
+    builder.fieldValueRef("response_ref", import.response_ref);
+    builder.fieldBytes("payload_image_bytes", payload_image_bytes);
+    return builder.finish();
+}
 
 const closure_fixture_semantic = boundary.ir.builder.semantic;
 const closure_fixture_handlers = struct {};
@@ -172,6 +233,92 @@ const closure_source_program = boundary.program("evidence-closure-source", closu
     pub const compiled_plan = closure_source_compiled.plan;
 });
 const closure_approval_request = closure_source_program.protocol.operationSite("approval", "request", 0);
+const closure_dead_helper_compiled = closure_fixture_semantic.finish(.{
+    .label = "evidence-closure-dead-helper",
+    .ir_hash = 0xC105E50E,
+    .entry = "run",
+    .requirements = &.{closure_approval_rows.requirement},
+    .ops = &closure_approval_rows.ops,
+    .functions = .{
+        .{
+            .symbol_name = "run",
+            .requirements = closure_fixture_semantic.span(0, 1),
+            .params = .{},
+            .locals = .{
+                closure_fixture_semantic.local("payload", []const u8),
+                closure_fixture_semantic.local("decision", i32),
+            },
+            .result = i32,
+            .blocks = .{.{
+                .name = "entry",
+                .instructions = .{
+                    closure_fixture_semantic.constString("payload", "live"),
+                    closure_fixture_semantic.call(closure_approval_request_op, .{ .dst = "decision", .payload = "payload", .label = "approval.request.live" }),
+                },
+                .terminator = closure_fixture_semantic.returnValue("decision"),
+            }},
+        },
+        .{
+            .symbol_name = "dead_helper",
+            .requirements = closure_fixture_semantic.span(0, 1),
+            .params = .{},
+            .locals = .{
+                closure_fixture_semantic.local("payload", []const u8),
+                closure_fixture_semantic.local("decision", i32),
+            },
+            .result = i32,
+            .blocks = .{.{
+                .name = "entry",
+                .instructions = .{
+                    closure_fixture_semantic.constString("payload", "dead"),
+                    closure_fixture_semantic.call(closure_approval_request_op, .{ .dst = "decision", .payload = "payload", .label = "approval.request.dead" }),
+                },
+                .terminator = closure_fixture_semantic.returnValue("decision"),
+            }},
+        },
+    },
+}) catch |err| @compileError("invalid dead-helper closure fixture: " ++ @errorName(err));
+const closure_dead_helper_program = boundary.program("evidence-closure-dead-helper", closure_fixture_handlers, struct {
+    pub const site_metadata = closure_dead_helper_compiled.site_metadata;
+    pub const compiled_plan = closure_dead_helper_compiled.plan;
+});
+const closure_dead_helper_request = closure_dead_helper_program.protocol.operationSite("approval", "request", 0);
+const closure_choice_protocol = boundary.ir.schema.Protocol(.{
+    .label = "approval-choice",
+    .ops = .{boundary.ir.schema.choice("request", []const u8, i32)},
+});
+const closure_choice_rows = closure_choice_protocol.Rows(closure_fixture_handlers, .{ .requirement_index = 0, .first_op = 0 });
+const closure_choice_request_op = closure_choice_rows.op("request");
+const closure_choice_compiled = closure_fixture_semantic.finish(.{
+    .label = "evidence-closure-choice",
+    .ir_hash = 0xC105E50F,
+    .entry = "run",
+    .requirements = &.{closure_choice_rows.requirement},
+    .ops = &closure_choice_rows.ops,
+    .functions = .{.{
+        .symbol_name = "run",
+        .requirements = closure_fixture_semantic.span(0, 1),
+        .params = .{},
+        .locals = .{
+            closure_fixture_semantic.local("payload", []const u8),
+            closure_fixture_semantic.local("decision", i32),
+        },
+        .result = i32,
+        .blocks = .{.{
+            .name = "entry",
+            .instructions = .{
+                closure_fixture_semantic.constString("payload", "choice"),
+                closure_fixture_semantic.call(closure_choice_request_op, .{ .dst = "decision", .payload = "payload", .label = "approval-choice.request" }),
+            },
+            .terminator = closure_fixture_semantic.returnValue("decision"),
+        }},
+    }},
+}) catch |err| @compileError("invalid choice closure fixture: " ++ @errorName(err));
+const closure_choice_program = boundary.program("evidence-closure-choice", closure_fixture_handlers, struct {
+    pub const site_metadata = closure_choice_compiled.site_metadata;
+    pub const compiled_plan = closure_choice_compiled.plan;
+});
+const closure_choice_request = closure_choice_program.protocol.operationSite("approval-choice", "request", 0);
 const closure_bool_protocol = boundary.ir.schema.Protocol(.{
     .label = "approval-bool",
     .ops = .{boundary.ir.schema.transform("request", []const u8, bool)},
@@ -316,6 +463,57 @@ const closure_multi_yield_program = boundary.program("evidence-closure-multi-yie
     pub const site_metadata = closure_multi_yield_compiled.site_metadata;
     pub const compiled_plan = closure_multi_yield_compiled.plan;
 });
+const closure_branch_world_port_compiled = closure_fixture_semantic.finish(.{
+    .label = "evidence-closure-branch-world-port",
+    .ir_hash = 0xC105E50D,
+    .entry = "run",
+    .requirements = &.{closure_approval_rows.requirement},
+    .ops = &closure_approval_rows.ops,
+    .functions = .{.{
+        .symbol_name = "run",
+        .requirements = closure_fixture_semantic.span(0, 1),
+        .params = .{},
+        .locals = .{
+            closure_fixture_semantic.local("selector", i32),
+            closure_fixture_semantic.local("is_zero", bool),
+            closure_fixture_semantic.local("payload", []const u8),
+            closure_fixture_semantic.local("decision", i32),
+        },
+        .result = i32,
+        .blocks = .{
+            .{
+                .name = "entry",
+                .instructions = .{
+                    closure_fixture_semantic.constI32("selector", 1),
+                    closure_fixture_semantic.compareEqZero("is_zero", "selector"),
+                },
+                .terminator = closure_fixture_semantic.branchIf("is_zero", .{ .then = "first", .@"else" = "second" }),
+            },
+            .{
+                .name = "first",
+                .instructions = .{
+                    closure_fixture_semantic.constString("payload", "first"),
+                    closure_fixture_semantic.call(closure_approval_request_op, .{ .dst = "decision", .payload = "payload", .label = "approval.request.first" }),
+                },
+                .terminator = closure_fixture_semantic.returnValue("decision"),
+            },
+            .{
+                .name = "second",
+                .instructions = .{
+                    closure_fixture_semantic.constString("payload", "second"),
+                    closure_fixture_semantic.call(closure_approval_request_op, .{ .dst = "decision", .payload = "payload", .label = "approval.request.second" }),
+                },
+                .terminator = closure_fixture_semantic.returnValue("decision"),
+            },
+        },
+    }},
+}) catch |err| @compileError("invalid branch world-port closure fixture: " ++ @errorName(err));
+const closure_branch_world_port_program = boundary.program("evidence-closure-branch-world-port", closure_fixture_handlers, struct {
+    pub const site_metadata = closure_branch_world_port_compiled.site_metadata;
+    pub const compiled_plan = closure_branch_world_port_compiled.plan;
+});
+const closure_branch_first = closure_branch_world_port_program.protocol.operationSite("approval", "request", 0);
+const closure_branch_second = closure_branch_world_port_program.protocol.operationSite("approval", "request", 1);
 const closure_handler_compiled = closure_fixture_semantic.finish(.{
     .label = "evidence-closure-handler",
     .ir_hash = 0xC105E502,
@@ -16671,6 +16869,200 @@ fn ModuleWorldPortTarget(comptime label: []const u8) type {
     });
 }
 
+fn ModuleDeadHelperWorldPortTarget(comptime label: []const u8) type {
+    const Closure = closure_dead_helper_program.BoundaryClosure;
+    const Elaboration = Closure.Elaboration;
+    @setEvalBranchQuota(2_000_000);
+    const source_ref = closure_dead_helper_program.Evidence.refFor(
+        closure_dead_helper_program.Evidence.domains.program_plan,
+        closure_dead_helper_program.compiled_plan.hash(),
+        .{ .label = closure_dead_helper_program.contract.label },
+    );
+    const source_shape = Closure.EffectShape.init(.{
+        .program_label = closure_dead_helper_program.contract.label,
+        .plan_hash = closure_dead_helper_program.compiled_plan.hash(),
+        .kind = .operation,
+        .site_index = closure_dead_helper_request.index,
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = closure_dead_helper_request.fingerprint,
+        .semantic_label = "approval.request.live",
+        .name = "request",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_dead_helper_request.payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_dead_helper_request.resume_ref),
+        .result_ref = Evidence.BoundaryValueRef.fromValueRef(closure_dead_helper_request.result_ref),
+    });
+    const port = Closure.WorldPort.init(.{
+        .label = "module-dead-helper-approval-port",
+        .kind = .test_fixture,
+        .effect_shape_ref = source_shape.evidenceRef(),
+        .effect_shape_witness = source_shape,
+        .supported_protocol_labels = &.{"approval"},
+        .supported_site_indexes = &.{closure_dead_helper_request.index},
+        .supported_protocol_op_fingerprints = &.{closure_dead_helper_request.fingerprint},
+    });
+    const graph = Closure.Graph.init("module-dead-helper-world-port-graph", &.{}, &.{}, &.{});
+    const report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+        .effect_shape_count = 1,
+        .world_port_refs = &.{port.evidenceRef()},
+        .open_world_port_count = 1,
+    });
+    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+    const input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = report,
+        .closure_certificate = certificate,
+        .source_program_ref = source_ref,
+        .world_ports = &.{port},
+        .policy = Elaboration.Policy.auditOnly(),
+    };
+    return Elaboration.Target.compileComptime(.{
+        .label = label,
+        .input = input,
+        .residual_program = closure_dead_helper_program,
+        .policy = Elaboration.Target.Policy.auditOnly(),
+    });
+}
+
+fn ModuleChoiceWorldPortTarget(comptime label: []const u8) type {
+    const Closure = closure_choice_program.BoundaryClosure;
+    const Elaboration = Closure.Elaboration;
+    @setEvalBranchQuota(2_000_000);
+    const source_ref = closure_choice_program.Evidence.refFor(
+        closure_choice_program.Evidence.domains.program_plan,
+        closure_choice_program.compiled_plan.hash(),
+        .{ .label = closure_choice_program.contract.label },
+    );
+    const source_shape = Closure.EffectShape.init(.{
+        .program_label = closure_choice_program.contract.label,
+        .plan_hash = closure_choice_program.compiled_plan.hash(),
+        .kind = .operation,
+        .site_index = closure_choice_request.index,
+        .protocol_label = "approval-choice",
+        .protocol_op_fingerprint = closure_choice_request.fingerprint,
+        .semantic_label = "approval-choice.request",
+        .name = "request",
+        .mode = "choice",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_choice_request.payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_choice_request.resume_ref),
+        .result_ref = Evidence.BoundaryValueRef.fromValueRef(closure_choice_request.result_ref),
+    });
+    const port = Closure.WorldPort.init(.{
+        .label = "module-choice-approval-port",
+        .kind = .test_fixture,
+        .effect_shape_ref = source_shape.evidenceRef(),
+        .effect_shape_witness = source_shape,
+        .supported_protocol_labels = &.{"approval-choice"},
+        .supported_site_indexes = &.{closure_choice_request.index},
+        .supported_protocol_op_fingerprints = &.{closure_choice_request.fingerprint},
+    });
+    const graph = Closure.Graph.init("module-choice-world-port-graph", &.{}, &.{}, &.{});
+    const report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+        .effect_shape_count = 1,
+        .world_port_refs = &.{port.evidenceRef()},
+        .open_world_port_count = 1,
+    });
+    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+    const input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = report,
+        .closure_certificate = certificate,
+        .source_program_ref = source_ref,
+        .world_ports = &.{port},
+        .policy = Elaboration.Policy.auditOnly(),
+    };
+    return Elaboration.Target.compileComptime(.{
+        .label = label,
+        .input = input,
+        .residual_program = closure_choice_program,
+        .policy = Elaboration.Target.Policy.auditOnly(),
+    });
+}
+
+fn ModuleBranchWorldPortTarget(comptime label: []const u8) type {
+    const Closure = closure_branch_world_port_program.BoundaryClosure;
+    const Elaboration = Closure.Elaboration;
+    @setEvalBranchQuota(2_000_000);
+    const source_ref = closure_branch_world_port_program.Evidence.refFor(
+        closure_branch_world_port_program.Evidence.domains.program_plan,
+        closure_branch_world_port_program.compiled_plan.hash(),
+        .{ .label = closure_branch_world_port_program.contract.label },
+    );
+    const first_shape = Closure.EffectShape.init(.{
+        .program_label = closure_branch_world_port_program.contract.label,
+        .plan_hash = closure_branch_world_port_program.compiled_plan.hash(),
+        .kind = .operation,
+        .site_index = closure_branch_first.index,
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = closure_branch_first.fingerprint,
+        .semantic_label = "approval.request.first",
+        .name = "request",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_branch_first.payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_branch_first.resume_ref),
+        .result_ref = Evidence.BoundaryValueRef.fromValueRef(closure_branch_first.result_ref),
+    });
+    const second_shape = Closure.EffectShape.init(.{
+        .program_label = closure_branch_world_port_program.contract.label,
+        .plan_hash = closure_branch_world_port_program.compiled_plan.hash(),
+        .kind = .operation,
+        .site_index = closure_branch_second.index,
+        .protocol_label = "approval",
+        .protocol_op_fingerprint = closure_branch_second.fingerprint,
+        .semantic_label = "approval.request.second",
+        .name = "request",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_branch_second.payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_branch_second.resume_ref),
+        .result_ref = Evidence.BoundaryValueRef.fromValueRef(closure_branch_second.result_ref),
+    });
+    const first_port = Closure.WorldPort.init(.{
+        .label = "module-branch-first-port",
+        .kind = .test_fixture,
+        .effect_shape_ref = first_shape.evidenceRef(),
+        .effect_shape_witness = first_shape,
+        .supported_protocol_labels = &.{"approval"},
+        .supported_site_indexes = &.{closure_branch_first.index},
+        .supported_protocol_op_fingerprints = &.{closure_branch_first.fingerprint},
+    });
+    const second_port = Closure.WorldPort.init(.{
+        .label = "module-branch-second-port",
+        .kind = .test_fixture,
+        .effect_shape_ref = second_shape.evidenceRef(),
+        .effect_shape_witness = second_shape,
+        .supported_protocol_labels = &.{"approval"},
+        .supported_site_indexes = &.{closure_branch_second.index},
+        .supported_protocol_op_fingerprints = &.{closure_branch_second.fingerprint},
+    });
+    const graph = Closure.Graph.init("module-branch-world-port-graph", &.{}, &.{}, &.{});
+    const report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+        .effect_shape_count = 2,
+        .world_port_refs = &.{ first_port.evidenceRef(), second_port.evidenceRef() },
+        .open_world_port_count = 2,
+    });
+    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+    const input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = report,
+        .closure_certificate = certificate,
+        .source_program_ref = source_ref,
+        .world_ports = &.{ first_port, second_port },
+        .policy = Elaboration.Policy.auditOnly(),
+    };
+    return Elaboration.Target.compileComptime(.{
+        .label = label,
+        .input = input,
+        .residual_program = closure_branch_world_port_program,
+        .policy = Elaboration.Target.Policy.auditOnly(),
+    });
+}
+
 fn ModuleBoolWorldPortTarget(comptime label: []const u8) type {
     const Closure = closure_bool_source_program.BoundaryClosure;
     const Elaboration = Closure.Elaboration;
@@ -16905,6 +17297,36 @@ fn ModuleLoadedHelperTarget(comptime label: []const u8) type {
     });
 }
 
+fn ModuleLoadedUnsupportedReturnErrorTarget(comptime label: []const u8) type {
+    const Closure = loaded_unsupported_return_error_program.BoundaryClosure;
+    const Elaboration = Closure.Elaboration;
+    @setEvalBranchQuota(2_000_000);
+    const source_ref = loaded_unsupported_return_error_program.Evidence.refFor(
+        loaded_unsupported_return_error_program.Evidence.domains.program_plan,
+        loaded_unsupported_return_error_program.compiled_plan.hash(),
+        .{ .label = loaded_unsupported_return_error_program.contract.label },
+    );
+    const graph = Closure.Graph.init("module-loaded-unsupported-return-error-graph", &.{}, &.{}, &.{});
+    const report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+    });
+    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+    const input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = report,
+        .closure_certificate = certificate,
+        .source_program_ref = source_ref,
+        .policy = Elaboration.Policy.auditOnly(),
+    };
+    return Elaboration.Target.compileComptime(.{
+        .label = label,
+        .input = input,
+        .residual_program = loaded_unsupported_return_error_program,
+        .policy = Elaboration.Target.Policy.auditOnly(),
+    });
+}
+
 test "certified boundary module reference full image and loaded module projections validate" {
     const allocator = std.testing.allocator;
     const Target = comptime ModuleWorldPortTarget("module-world-port-target");
@@ -16926,6 +17348,7 @@ test "certified boundary module reference full image and loaded module projectio
     const full_report = try Target.Module.validate(full, .{ .require_full_module = true });
     try std.testing.expectEqual(Target.Module.Kind.full_module, full_report.module_kind);
     try std.testing.expect(full_report.manifest_fingerprint != 0);
+    try std.testing.expect(!full_report.compatibility.unsupported_loaded_execution_features);
     const forged_executable_plan = try allocator.dupe(u8, full);
     defer allocator.free(forged_executable_plan);
     var forged_executable_body = boundaryModuleExecutablePlanBody(forged_executable_plan);
@@ -17111,6 +17534,22 @@ test "certified boundary module reference full image and loaded module projectio
         &loaded,
         i32_disabled_profile,
     ));
+    try std.testing.expect(!Target.Module.LoadedExecutionProfile.portableV1().instruction_kinds.return_error);
+    try std.testing.expect(!Target.Module.LoadedExecutionProfile.portableV1().instruction_kinds.call_nested_with);
+    try std.testing.expect(!Target.Module.LoadedExecutionProfile.portableV1().instruction_kinds.get_sum_payload);
+    try std.testing.expect(!Target.Module.LoadedExecutionProfile.portableV1().instruction_kinds.match_sum_variant);
+    const UnsupportedReturnErrorTarget = comptime ModuleLoadedUnsupportedReturnErrorTarget("module-loaded-unsupported-return-error-target");
+    const unsupported_return_error_full = try UnsupportedReturnErrorTarget.Module.fullImage(allocator);
+    defer allocator.free(unsupported_return_error_full);
+    const unsupported_return_error_report = try UnsupportedReturnErrorTarget.Module.validate(unsupported_return_error_full, .{ .require_full_module = true });
+    try std.testing.expect(unsupported_return_error_report.compatibility.unsupported_loaded_execution_features);
+    var unsupported_return_error_loaded = try UnsupportedReturnErrorTarget.Module.decode(allocator, unsupported_return_error_full);
+    defer unsupported_return_error_loaded.deinit();
+    try std.testing.expectError(error.UnsupportedLoadedExecutionProfile, UnsupportedReturnErrorTarget.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &unsupported_return_error_loaded,
+        UnsupportedReturnErrorTarget.Module.LoadedExecutionProfile.portableV1(),
+    ));
 
     const encoded_word = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
         allocator,
@@ -17187,6 +17626,17 @@ test "certified boundary module reference full image and loaded module projectio
         mismatched_entry_session,
         Target.Module.LoadedExecutionProfile.portableV1(),
     ));
+    var mismatched_dependency_image = try Target.Module.LoadedSessionImage.decode(allocator, frozen_parked_session);
+    defer mismatched_dependency_image.deinit(allocator);
+    mismatched_dependency_image.dependency_fingerprint ^= 0x1;
+    const mismatched_dependency_session = try mismatched_dependency_image.encode(allocator);
+    defer allocator.free(mismatched_dependency_session);
+    try std.testing.expectError(error.SessionMismatch, Target.Module.LoadedModule.Session.thaw(
+        allocator,
+        &loaded,
+        mismatched_dependency_session,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    ));
     var restored_parked_session = try Target.Module.LoadedModule.Session.thaw(
         allocator,
         &loaded,
@@ -17202,6 +17652,33 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expectEqual(loaded_request.canonical_request_fingerprint, restored_parked_request.canonical_request_fingerprint);
     try std.testing.expectEqual(loaded_request.deterministic_continuation_fingerprint, restored_parked_request.deterministic_continuation_fingerprint);
     try std.testing.expectEqualStrings(loaded_request.canonical_payload_image, restored_parked_request.canonical_payload_image);
+    var forged_payload_image = try Target.Module.LoadedSessionImage.decode(allocator, frozen_parked_session);
+    defer forged_payload_image.deinit(allocator);
+    allocator.free(forged_payload_image.payload_image_bytes);
+    forged_payload_image.owns_payload_image_bytes = false;
+    forged_payload_image.payload_image_bytes = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .bool },
+        .{ .boolean = true },
+        .{},
+    );
+    forged_payload_image.owns_payload_image_bytes = true;
+    forged_payload_image.pending_request.?.canonical_request_fingerprint = 0;
+    forged_payload_image.pending_request.?.canonical_request_fingerprint = loadedRequestFingerprintForTest(
+        loaded.moduleFingerprint(),
+        forged_payload_image.pending_request.?.deterministic_continuation_fingerprint,
+        loaded.imports()[0],
+        forged_payload_image.payload_image_bytes,
+    );
+    const forged_payload_session = try forged_payload_image.encode(allocator);
+    defer allocator.free(forged_payload_session);
+    try std.testing.expectError(error.InvalidResume, Target.Module.LoadedModule.Session.thaw(
+        allocator,
+        &loaded,
+        forged_payload_session,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    ));
 
     const encoded_response = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
         allocator,
@@ -17249,6 +17726,64 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expectEqual(@as(i32, 7), loaded_result.i32);
     const frozen_loaded_session = try restored_parked_session.freeze(allocator);
     defer allocator.free(frozen_loaded_session);
+    var completed_image = try Target.Module.LoadedSessionImage.decode(allocator, frozen_loaded_session);
+    defer completed_image.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 0), completed_image.payload_image_bytes.len);
+    var zero_result_fingerprint_image = try Target.Module.LoadedSessionImage.decode(allocator, frozen_loaded_session);
+    defer zero_result_fingerprint_image.deinit(allocator);
+    const zero_fp_session = try allocator.dupe(u8, frozen_loaded_session);
+    defer allocator.free(zero_fp_session);
+    zero_result_fingerprint_image.result_fingerprint = 0;
+    const result_fingerprint_offset = 4 + 4 + 8 + 8 + 8 + 8 + 2 + 8 + 8 + 1 + 1 + 4 + 4 + completed_image.result_image_bytes.len;
+    boundaryModuleWriteU64(zero_fp_session, result_fingerprint_offset, 0);
+    boundaryModuleWriteU64(zero_fp_session, zero_fp_session.len - 8, zero_result_fingerprint_image.computeFingerprint());
+    try std.testing.expectError(error.MalformedSessionImage, Target.Module.LoadedSessionImage.decode(
+        allocator,
+        zero_fp_session,
+    ));
+    var forged_completed_payload_image = try Target.Module.LoadedSessionImage.decode(allocator, frozen_loaded_session);
+    defer forged_completed_payload_image.deinit(allocator);
+    forged_completed_payload_image.payload_image_bytes = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .i32 },
+        .{ .i32 = 7 },
+        .{},
+    );
+    forged_completed_payload_image.owns_payload_image_bytes = true;
+    try std.testing.expectError(error.MalformedSessionImage, forged_completed_payload_image.encode(allocator));
+    var forged_result_fingerprint_image = try Target.Module.LoadedSessionImage.decode(allocator, frozen_loaded_session);
+    defer forged_result_fingerprint_image.deinit(allocator);
+    forged_result_fingerprint_image.result_fingerprint ^= 0x1;
+    const forged_result_fingerprint_session = try forged_result_fingerprint_image.encode(allocator);
+    defer allocator.free(forged_result_fingerprint_session);
+    try std.testing.expectError(error.InvalidResume, Target.Module.LoadedModule.Session.thaw(
+        allocator,
+        &loaded,
+        forged_result_fingerprint_session,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    ));
+    var forged_result_ref_image = try Target.Module.LoadedSessionImage.decode(allocator, frozen_loaded_session);
+    defer forged_result_ref_image.deinit(allocator);
+    allocator.free(forged_result_ref_image.result_image_bytes);
+    forged_result_ref_image.owns_result_image_bytes = false;
+    forged_result_ref_image.result_image_bytes = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .bool },
+        .{ .boolean = true },
+        .{},
+    );
+    forged_result_ref_image.owns_result_image_bytes = true;
+    forged_result_ref_image.result_fingerprint = try Target.Module.LoadedExecution.loadedValueImageFingerprint(forged_result_ref_image.result_image_bytes);
+    const forged_result_ref_session = try forged_result_ref_image.encode(allocator);
+    defer allocator.free(forged_result_ref_session);
+    try std.testing.expectError(error.InvalidResume, Target.Module.LoadedModule.Session.thaw(
+        allocator,
+        &loaded,
+        forged_result_ref_session,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    ));
     var restored_loaded_session = try Target.Module.LoadedModule.Session.thaw(
         allocator,
         &loaded,
@@ -17815,6 +18350,101 @@ test "generated-loaded parity bool residual request and result" {
     try std.testing.expectEqual(generated_done.value, loaded_result.boolean);
 }
 
+test "loaded executable binds residual imports by site index" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleBranchWorldPortTarget("module-branch-world-port-loaded-target");
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    const report = try Target.Module.validate(full, .{ .require_full_module = true });
+    try std.testing.expect(!report.compatibility.unsupported_loaded_execution_features);
+    var loaded = try Target.Module.decode(allocator, full);
+    defer loaded.deinit();
+    try std.testing.expectEqual(@as(usize, 2), loaded.imports().len);
+
+    var session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer session.deinit();
+    const loaded_request = switch (session.next()) {
+        .request => |request| request,
+        .failed => return error.UnexpectedLoadedFailure,
+        .done => return error.UnexpectedLoadedDone,
+    };
+    try std.testing.expectEqual(closure_branch_second.index, loaded_request.residual_site_index);
+    try std.testing.expectEqual(loaded.imports()[1].world_port_id, loaded_request.world_port_id);
+    try std.testing.expectEqual(loaded.imports()[1].residual_site_fingerprint, loaded_request.residual_site_fingerprint);
+    try std.testing.expect(loaded_request.world_port_ref.?.eql(loaded.imports()[1].world_port_ref));
+
+    var loaded_payload_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer loaded_payload_arena.deinit();
+    const loaded_payload = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &loaded_payload_arena,
+        .{},
+        .{ .codec = .string },
+        loaded_request.canonical_payload_image,
+        .{},
+    );
+    try std.testing.expectEqualStrings("second", loaded_payload.bytes);
+}
+
+test "loaded executable ignores dead helper call sites for residual imports" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleDeadHelperWorldPortTarget("module-dead-helper-world-port-loaded-target");
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    const report = try Target.Module.validate(full, .{ .require_full_module = true });
+    try std.testing.expect(!report.compatibility.unsupported_loaded_execution_features);
+    var loaded = try Target.Module.decode(allocator, full);
+    defer loaded.deinit();
+    try std.testing.expectEqual(@as(usize, 1), loaded.imports().len);
+
+    var session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer session.deinit();
+    const loaded_request = switch (session.next()) {
+        .request => |request| request,
+        .failed => return error.UnexpectedLoadedFailure,
+        .done => return error.UnexpectedLoadedDone,
+    };
+    try std.testing.expectEqual(closure_dead_helper_request.index, loaded_request.residual_site_index);
+    try std.testing.expectEqual(loaded.imports()[0].world_port_id, loaded_request.world_port_id);
+    try std.testing.expectEqual(loaded.imports()[0].residual_site_fingerprint, loaded_request.residual_site_fingerprint);
+
+    var loaded_payload_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer loaded_payload_arena.deinit();
+    const loaded_payload = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &loaded_payload_arena,
+        .{},
+        .{ .codec = .string },
+        loaded_request.canonical_payload_image,
+        .{},
+    );
+    try std.testing.expectEqualStrings("live", loaded_payload.bytes);
+}
+
+test "loaded executable rejects choice operation mode" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleChoiceWorldPortTarget("module-choice-world-port-loaded-target");
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    const report = try Target.Module.validate(full, .{ .require_full_module = true });
+    try std.testing.expect(report.compatibility.unsupported_loaded_execution_features);
+    var loaded = try Target.Module.decode(allocator, full);
+    defer loaded.deinit();
+    try std.testing.expectError(error.UnsupportedLoadedExecutionProfile, Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    ));
+}
+
 test "loaded executable session parks unit payload residual request" {
     const allocator = std.testing.allocator;
     const Target = comptime ModuleUnitWorldPortTarget("module-unit-world-port-loaded-target");
@@ -18082,10 +18712,16 @@ test "certified boundary module generic decode preserves entry argument refs" {
     defer allocator.free(full);
     const full_report = try Target.Module.validate(full, .{ .require_full_module = true });
     try std.testing.expect(full_report.valid);
+    try std.testing.expect(full_report.compatibility.unsupported_loaded_execution_features);
     var generic_loaded = try Evidence.BoundaryTargetModule.decode(allocator, full, .{});
     defer generic_loaded.deinit();
     var typed_loaded = try Target.Module.decode(allocator, full);
     defer typed_loaded.deinit();
+    try std.testing.expectError(error.UnsupportedLoadedExecutionProfile, Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &typed_loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    ));
 
     const plan = Target.Program.compiled_plan;
     const entry = plan.functions[plan.entry_index];

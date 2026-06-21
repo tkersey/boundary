@@ -277,9 +277,11 @@ pub const LoadedSessionImage = struct {
         if (self.status == .request and self.pending_request == null) return error.MalformedSessionImage;
         if (self.status != .request and self.pending_request != null) return error.MalformedSessionImage;
         if (self.status == .request and self.payload_image_bytes.len == 0) return error.MalformedSessionImage;
+        if (self.status != .request and self.payload_image_bytes.len != 0) return error.MalformedSessionImage;
         if (self.status != .completed and self.result_image_bytes.len != 0) return error.MalformedSessionImage;
         if (self.status != .completed and self.result_fingerprint != 0) return error.MalformedSessionImage;
         if (self.status == .completed and self.result_image_bytes.len == 0 and self.result_fingerprint != 0) return error.MalformedSessionImage;
+        if (self.status == .completed and self.result_image_bytes.len != 0 and self.result_fingerprint == 0) return error.MalformedSessionImage;
     }
 };
 
@@ -391,10 +393,8 @@ pub const LoadedExecutionProfile = struct {
         .copy_local = true,
         .call_op = true,
         .call_helper = true,
-        .call_nested_with = true,
         .compare = true,
         .return_value = true,
-        .return_error = true,
         .const_i32 = true,
         .const_usize = true,
         .const_bool = true,
@@ -402,8 +402,6 @@ pub const LoadedExecutionProfile = struct {
         .get_product_field = true,
         .make_product = true,
         .make_sum = true,
-        .match_sum_variant = true,
-        .get_sum_payload = true,
     };
     pub const portable_v1_terminator_kinds = TerminatorFeatureSet{
         .return_unit = true,
@@ -1681,6 +1679,10 @@ test "loaded session image roundtrips failure state and rejects trailing bytes" 
     @memcpy(extended[0..encoded.len], encoded);
     extended[encoded.len] = 0;
     try std.testing.expectError(error.TrailingBytes, LoadedSessionImage.decode(allocator, extended));
+
+    var forged_payload_image = image;
+    forged_payload_image.payload_image_bytes = "not-a-request-payload";
+    try std.testing.expectError(error.MalformedSessionImage, forged_payload_image.validateState());
 }
 
 test "loaded session image binds fingerprinted identity fields" {

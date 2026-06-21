@@ -6754,7 +6754,7 @@ pub const BoundaryTargetModule = struct {
                 errdefer decoded_plan.deinit();
                 var session = startWithProfile(module, profile);
                 if (decoded_plan.program_plan.entry_index != session.entry_function) return error.ExecutablePlanMismatch;
-                if (!loadedProfileSupportsProgramPlan(profile, decoded_plan.program_plan)) return error.UnsupportedLoadedExecutionProfile;
+                if (!loadedModuleSupportsProgramPlan(module.imports(), profile, decoded_plan.program_plan)) return error.UnsupportedLoadedExecutionProfile;
                 session.allocator = allocator;
                 session.executable_plan = decoded_plan;
                 return session;
@@ -6935,7 +6935,7 @@ pub const BoundaryTargetModule = struct {
                                     _ = self.fail(.unsupported_feature, function_index, block_index, instruction_index, "loaded helper call_op continuation is not implemented yet");
                                     return error.LoadedExecutionFailed;
                                 }
-                                const parked = self.parkLoadedCall(program_plan, function, locals, block, @intCast(block_index), @intCast(instruction_index), instruction);
+                                const parked = self.parkLoadedCall(program_plan, function, function_index, locals, block, @intCast(block_index), @intCast(instruction_index), instruction);
                                 return switch (parked) {
                                     .request => error.LoadedExecutionParked,
                                     .failed => error.LoadedExecutionFailed,
@@ -7088,7 +7088,7 @@ pub const BoundaryTargetModule = struct {
                 return self.executeLoadedFunction(program_plan, instruction.operand, args, steps_remaining, depth + 1, false);
             }
 
-            fn parkLoadedCall(self: *@This(), program_plan: internal_program_plan.ProgramPlan, function: internal_program_plan.FunctionPlan, locals: []const LoadedValue, block: internal_program_plan.BlockPlan, block_index: u16, instruction_index: u16, call_instruction: internal_program_plan.Instruction) Next {
+            fn parkLoadedCall(self: *@This(), program_plan: internal_program_plan.ProgramPlan, function: internal_program_plan.FunctionPlan, function_index: usize, locals: []const LoadedValue, block: internal_program_plan.BlockPlan, block_index: u16, instruction_index: u16, call_instruction: internal_program_plan.Instruction) Next {
                 if (call_instruction.operand >= program_plan.ops.len) {
                     return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op target is out of range");
                 }
@@ -7104,11 +7104,14 @@ pub const BoundaryTargetModule = struct {
                     return self.fail(.unsupported_feature, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op result mapping is not implemented yet");
                 }
                 const op = program_plan.ops[call_instruction.operand];
-                const import = self.module.importForResidualSite(call_instruction.operand) orelse
+                const residual_site_index = loadedCallResidualSiteIndex(program_plan, function_index, block_index, instruction_index) orelse
+                    return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op has no residual site");
+                const import = self.module.importForResidualSite(residual_site_index) orelse
                     return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op has no residual import");
                 if (!import.payload_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = op.payload_codec, .schema_index = op.payload_schema_index })) or
                     !import.response_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = op.resume_codec, .schema_index = op.resume_schema_index })) or
-                    !import.response_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = function.value_codec, .schema_index = function.value_schema_index })))
+                    !import.response_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = function.value_codec, .schema_index = function.value_schema_index })) or
+                    !import.result_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = function.value_codec, .schema_index = function.value_schema_index })))
                 {
                     return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable import value refs do not match call_op");
                 }
@@ -7204,6 +7207,10 @@ pub const BoundaryTargetModule = struct {
                 if (self.result_image_bytes.len != 0) allocator.free(self.result_image_bytes);
                 self.result_image_bytes = new_result_image;
                 self.result_fingerprint = new_result_fingerprint;
+                if (self.payload_image_bytes.len != 0) {
+                    allocator.free(self.payload_image_bytes);
+                    self.payload_image_bytes = &.{};
+                }
                 self.pending_request = null;
                 self.status = .completed;
                 self.failure = null;
@@ -7272,6 +7279,7 @@ pub const BoundaryTargetModule = struct {
                 const expected_session_fingerprint = loaded_execution.loadedSessionFingerprint(module.moduleFingerprint(), executable_plan_fingerprint, execution_profile_fingerprint, module.entryFunctionRef());
                 if (decoded.session_fingerprint != expected_session_fingerprint) return error.SessionMismatch;
                 if (decoded.entry_function != module.entryFunctionRef()) return error.SessionMismatch;
+                if (decoded.dependency_fingerprint != module.worldSurfaceFingerprint()) return error.SessionMismatch;
                 var session = try startExecutable(allocator, module, profile);
                 errdefer session.deinit();
                 session.session_fingerprint = decoded.session_fingerprint;
@@ -7290,12 +7298,26 @@ pub const BoundaryTargetModule = struct {
                     };
                     session.owns_failure_summary = true;
                 }
+                const executable_plan = session.executable_plan orelse return error.InvalidResume;
+                const schema_set = loadedSchemaSet(executable_plan.program_plan);
                 if (decoded.payload_image_bytes.len != 0) {
+                    if (decoded.pending_request == null) return error.InvalidResume;
                     session.payload_image_bytes = try allocator.dupe(u8, decoded.payload_image_bytes);
                 }
                 if (decoded.result_image_bytes.len != 0) {
+                    const result_ref = loadedValueRefFromBoundary(module.resultValueRef()) orelse return error.InvalidResume;
+                    try validateLoadedSessionResultImage(
+                        allocator,
+                        schema_set,
+                        result_ref,
+                        decoded.result_image_bytes,
+                        decoded.result_fingerprint,
+                        profile.limits,
+                    );
                     session.result_image_bytes = try allocator.dupe(u8, decoded.result_image_bytes);
                     session.result_fingerprint = decoded.result_fingerprint;
+                } else if (decoded.status == .completed and !module.resultValueRef().eql(BoundaryValueRef.init("unit", null))) {
+                    return error.InvalidResume;
                 }
                 if (decoded.pending_request) |pending_request| {
                     if (pending_request.residual_site_index > std.math.maxInt(usize)) return error.InvalidResume;
@@ -7303,6 +7325,13 @@ pub const BoundaryTargetModule = struct {
                     const payload_ref = BoundaryValueRef.fromValueRef(pending_request.payload_ref);
                     const expected_response_ref = BoundaryValueRef.fromValueRef(pending_request.expected_response_ref);
                     if (!import.payload_ref.eql(payload_ref) or !import.response_ref.eql(expected_response_ref)) return error.InvalidResume;
+                    try validateLoadedSessionValueImage(
+                        allocator,
+                        schema_set,
+                        loadedValueRefFromBoundary(payload_ref) orelse return error.InvalidResume,
+                        decoded.payload_image_bytes,
+                        profile.limits,
+                    );
                     const request = Request{
                         .module_fingerprint = module.moduleFingerprint(),
                         .entry_function = decoded.entry_function,
@@ -7361,6 +7390,8 @@ pub const BoundaryTargetModule = struct {
     }
 
     fn loadedProfileSupportsProgramPlan(profile: LoadedExecutionProfile, program_plan: internal_program_plan.ProgramPlan) bool {
+        const reachability = loadedProgramReachability(program_plan) orelse return false;
+        if (!loadedProgramPlanUsesSupportedSessionShape(program_plan, reachability)) return false;
         for (program_plan.functions) |function| {
             if (!loadedProfileSupportsCodec(profile, function.value_codec)) return false;
             if (function.result_codec) |result_codec| {
@@ -7386,13 +7417,239 @@ pub const BoundaryTargetModule = struct {
         for (program_plan.value_variants) |variant| {
             if (!loadedProfileSupportsCodec(profile, variant.codec)) return false;
         }
-        for (program_plan.instructions) |instruction| {
-            if (!loadedProfileSupportsInstruction(profile, instruction.kind)) return false;
-        }
+        if (!loadedProfileSupportsReachableInstructions(profile, program_plan, reachability)) return false;
         for (program_plan.terminators) |terminator| {
             if (!loadedProfileSupportsTerminator(profile, terminator.kind)) return false;
         }
         return true;
+    }
+
+    fn loadedModuleSupportsProgramPlan(imports: []const ImportSurface.Import, profile: LoadedExecutionProfile, program_plan: internal_program_plan.ProgramPlan) bool {
+        return loadedProfileSupportsProgramPlan(profile, program_plan) and loadedImportsSupportProgramPlan(imports, program_plan);
+    }
+
+    fn loadedImportsSupportProgramPlan(imports: []const ImportSurface.Import, program_plan: internal_program_plan.ProgramPlan) bool {
+        const reachability = loadedProgramReachability(program_plan) orelse return false;
+        shape_function_loop: for (program_plan.functions, 0..) |function, function_index| {
+            if (!reachability.functions[function_index]) continue :shape_function_loop;
+            const block_end = @as(usize, function.first_block) + function.block_count;
+            if (block_end > program_plan.blocks.len) return false;
+            shape_block_loop: for (program_plan.blocks[function.first_block..block_end], function.first_block..) |block, block_index| {
+                if (!reachability.blocks[block_index]) continue :shape_block_loop;
+                const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
+                if (instruction_end > program_plan.instructions.len) return false;
+                for (program_plan.instructions[block.first_instruction..instruction_end], block.first_instruction..) |instruction, instruction_index| {
+                    if (instruction.kind == .call_op) {
+                        if (instruction.operand >= program_plan.ops.len) return false;
+                        const op = program_plan.ops[instruction.operand];
+                        const residual_site_index = loadedCallResidualSiteIndex(program_plan, function_index, block_index, instruction_index) orelse return false;
+                        const import = loadedImportForResidualSite(imports, residual_site_index) orelse return false;
+                        if (!std.mem.eql(u8, import.mode, "transform")) return false;
+                        if (!std.mem.eql(u8, import.response_kind, "resume")) return false;
+                        if (!import.payload_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = op.payload_codec, .schema_index = op.payload_schema_index }))) return false;
+                        if (!import.response_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = op.resume_codec, .schema_index = op.resume_schema_index }))) return false;
+                        if (!import.response_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = function.value_codec, .schema_index = function.value_schema_index }))) return false;
+                        if (!import.result_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = function.value_codec, .schema_index = function.value_schema_index }))) return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    fn loadedImportForResidualSite(imports: []const ImportSurface.Import, site_index: usize) ?ImportSurface.Import {
+        for (imports) |import| {
+            if (import.residual_site_index == site_index) return import;
+        }
+        return null;
+    }
+
+    const LoadedProgramReachability = struct {
+        functions: [std.math.maxInt(u16) + 1]bool,
+        blocks: [std.math.maxInt(u16) + 1]bool,
+    };
+
+    fn loadedProgramReachability(program_plan: internal_program_plan.ProgramPlan) ?LoadedProgramReachability {
+        var reachability = LoadedProgramReachability{
+            .functions = [_]bool{false} ** (std.math.maxInt(u16) + 1),
+            .blocks = [_]bool{false} ** (std.math.maxInt(u16) + 1),
+        };
+        if (program_plan.functions.len > reachability.functions.len or
+            program_plan.blocks.len > reachability.blocks.len or
+            program_plan.instructions.len > std.math.maxInt(u16) + 1 or
+            program_plan.entry_index >= program_plan.functions.len)
+        {
+            return null;
+        }
+        reachability.functions[program_plan.entry_index] = true;
+        var changed = true;
+        while (changed) {
+            changed = false;
+            reachability_function_loop: for (program_plan.functions, 0..) |function, current_function_index| {
+                if (!reachability.functions[current_function_index]) continue :reachability_function_loop;
+                const block_end = @as(usize, function.first_block) + function.block_count;
+                if (block_end > program_plan.blocks.len) return null;
+                const entry_block_index = @as(usize, function.first_block) + function.entry_block;
+                if (entry_block_index >= block_end) return null;
+                if (!reachability.blocks[entry_block_index]) {
+                    reachability.blocks[entry_block_index] = true;
+                    changed = true;
+                }
+                reachability_block_loop: for (program_plan.blocks[function.first_block..block_end], function.first_block..) |block, current_block_index| {
+                    if (!reachability.blocks[current_block_index]) continue :reachability_block_loop;
+                    const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
+                    if (instruction_end > program_plan.instructions.len or block.terminator_index >= program_plan.terminators.len) return null;
+                    for (program_plan.instructions[block.first_instruction..instruction_end]) |instruction| {
+                        if (instruction.kind == .call_helper) {
+                            if (instruction.operand >= program_plan.functions.len) return null;
+                            if (!reachability.functions[instruction.operand]) {
+                                reachability.functions[instruction.operand] = true;
+                                changed = true;
+                            }
+                        }
+                    }
+                    const terminator = program_plan.terminators[block.terminator_index];
+                    switch (terminator.kind) {
+                        .branch_if => {
+                            const primary = @as(usize, terminator.primary);
+                            const secondary = @as(usize, terminator.secondary);
+                            if (primary >= function.first_block and
+                                primary < block_end and
+                                !reachability.blocks[primary])
+                            {
+                                reachability.blocks[primary] = true;
+                                changed = true;
+                            }
+                            if (secondary >= function.first_block and
+                                secondary < block_end and
+                                !reachability.blocks[secondary])
+                            {
+                                reachability.blocks[secondary] = true;
+                                changed = true;
+                            }
+                        },
+                        .jump => {
+                            const primary = @as(usize, terminator.primary);
+                            if (primary >= function.first_block and
+                                primary < block_end and
+                                !reachability.blocks[primary])
+                            {
+                                reachability.blocks[primary] = true;
+                                changed = true;
+                            }
+                        },
+                        .return_unit, .return_value => {},
+                    }
+                }
+            }
+        }
+        return reachability;
+    }
+
+    fn loadedProfileSupportsReachableInstructions(profile: LoadedExecutionProfile, program_plan: internal_program_plan.ProgramPlan, reachability: LoadedProgramReachability) bool {
+        profile_function_loop: for (program_plan.functions, 0..) |function, function_index| {
+            if (!reachability.functions[function_index]) continue :profile_function_loop;
+            const block_end = @as(usize, function.first_block) + function.block_count;
+            if (block_end > program_plan.blocks.len) return false;
+            profile_block_loop: for (program_plan.blocks[function.first_block..block_end], function.first_block..) |block, block_index| {
+                if (!reachability.blocks[block_index]) continue :profile_block_loop;
+                const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
+                if (instruction_end > program_plan.instructions.len) return false;
+                for (program_plan.instructions[block.first_instruction..instruction_end]) |instruction| {
+                    if (!loadedProfileSupportsInstruction(profile, instruction.kind)) return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    fn loadedCallResidualSiteIndex(
+        program_plan: internal_program_plan.ProgramPlan,
+        function_index: usize,
+        block_index: usize,
+        instruction_index: usize,
+    ) ?usize {
+        const reachability = loadedProgramReachability(program_plan) orelse return null;
+        var next_site_index: usize = 0;
+        site_function_loop: for (program_plan.functions, 0..) |function, current_function_index| {
+            if (!reachability.functions[current_function_index]) continue :site_function_loop;
+            const block_end = @as(usize, function.first_block) + function.block_count;
+            if (block_end > program_plan.blocks.len) return null;
+            site_block_loop: for (program_plan.blocks[function.first_block..block_end], function.first_block..) |block, current_block_index| {
+                if (!reachability.blocks[current_block_index]) continue :site_block_loop;
+                const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
+                if (instruction_end > program_plan.instructions.len) return null;
+                instruction_loop: for (program_plan.instructions[block.first_instruction..instruction_end], block.first_instruction..) |instruction, current_instruction_index| {
+                    if (instruction.kind != .call_op) continue :instruction_loop;
+                    if (current_function_index == function_index and
+                        current_block_index == block_index and
+                        current_instruction_index == instruction_index)
+                    {
+                        return next_site_index;
+                    }
+                    next_site_index += 1;
+                }
+            }
+        }
+        return null;
+    }
+
+    fn loadedProgramPlanUsesSupportedSessionShape(program_plan: internal_program_plan.ProgramPlan, reachability: LoadedProgramReachability) bool {
+        if (program_plan.entry_index >= program_plan.functions.len) return false;
+        if (program_plan.functions[program_plan.entry_index].parameter_count != 0) return false;
+        shape_function_loop: for (program_plan.functions, 0..) |function, function_index| {
+            if (!reachability.functions[function_index]) continue :shape_function_loop;
+            const block_end = @as(usize, function.first_block) + function.block_count;
+            if (block_end > program_plan.blocks.len) return false;
+            shape_block_loop: for (program_plan.blocks[function.first_block..block_end], function.first_block..) |block, block_index| {
+                if (!reachability.blocks[block_index]) continue :shape_block_loop;
+                const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
+                if (instruction_end > program_plan.instructions.len) return false;
+                if (block.terminator_index >= program_plan.terminators.len) return false;
+                const terminator = program_plan.terminators[block.terminator_index];
+                for (program_plan.instructions[block.first_instruction..instruction_end], block.first_instruction..) |instruction, instruction_index| {
+                    switch (instruction.kind) {
+                        .call_op => {
+                            if (function_index != program_plan.entry_index) return false;
+                            if (!loadedCallOpUsesSupportedContinuationShape(program_plan, function, block, terminator, instruction, instruction_index)) return false;
+                        },
+                        .compare_eq_zero => switch ((loadedFunctionLocalRef(program_plan, function, instruction.operand) orelse return false).codec) {
+                            .bool, .i32, .usize => {},
+                            else => return false,
+                        },
+                        .sub_one => switch ((loadedFunctionLocalRef(program_plan, function, instruction.operand) orelse return false).codec) {
+                            .i32, .usize => {},
+                            else => return false,
+                        },
+                        else => {},
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    fn loadedCallOpUsesSupportedContinuationShape(
+        program_plan: internal_program_plan.ProgramPlan,
+        function: internal_program_plan.FunctionPlan,
+        block: internal_program_plan.BlockPlan,
+        terminator: internal_program_plan.Terminator,
+        call_instruction: internal_program_plan.Instruction,
+        instruction_index: usize,
+    ) bool {
+        if (call_instruction.operand >= program_plan.ops.len) return false;
+        const op = program_plan.ops[call_instruction.operand];
+        if (op.mode != .transform) return false;
+        if (op.has_after) return false;
+        if (function.result_codec) |result_codec| {
+            if (result_codec != function.value_codec or function.result_schema_index != function.value_schema_index) return false;
+        }
+        if (op.resume_codec != function.value_codec or op.resume_schema_index != function.value_schema_index) return false;
+        if (terminator.kind != .return_value or block.instruction_count == 0) return false;
+        const return_instruction_index = @as(usize, block.first_instruction) + block.instruction_count - 1;
+        if (instruction_index + 1 != return_instruction_index) return false;
+        const return_instruction = program_plan.instructions[return_instruction_index];
+        return return_instruction.kind == .return_value and return_instruction.operand == call_instruction.dst;
     }
 
     fn loadedProfileSupportsCodec(profile: LoadedExecutionProfile, codec: internal_program_plan.ValueCodec) bool {
@@ -7411,18 +7668,53 @@ pub const BoundaryTargetModule = struct {
     fn loadedProfileSupportsInstruction(profile: LoadedExecutionProfile, kind: internal_program_plan.InstructionKind) bool {
         return switch (kind) {
             .call_helper => profile.instruction_kinds.call_helper,
-            .call_nested_with => profile.instruction_kinds.call_nested_with,
+            .call_nested_with => false,
             .call_op => profile.instruction_kinds.call_op,
             .compare_eq_zero => profile.instruction_kinds.compare,
             .const_i32 => profile.instruction_kinds.@"const" and profile.instruction_kinds.const_i32,
             .const_string => profile.instruction_kinds.@"const" and profile.instruction_kinds.const_string,
             .const_usize => profile.instruction_kinds.@"const" and profile.instruction_kinds.const_usize,
-            .return_error => profile.instruction_kinds.return_error,
+            .return_error => false,
             .return_value => profile.instruction_kinds.return_value,
-            .sum_extract_payload => profile.instruction_kinds.get_sum_payload,
-            .sum_variant_is => profile.instruction_kinds.match_sum_variant,
+            .sum_extract_payload => false,
+            .sum_variant_is => false,
             .add_const_i32, .add_i32, .sub_one => true,
         };
+    }
+
+    fn validateLoadedSessionValueImage(
+        allocator: std.mem.Allocator,
+        schemas: loaded_execution.SchemaSet,
+        expected_ref: loaded_execution.LoadedValueRef,
+        bytes: []const u8,
+        limits: loaded_execution.Limits,
+    ) !void {
+        var arena = LoadedValueArena.init(allocator);
+        defer arena.deinit();
+        _ = loaded_execution.decodeLoadedValueImage(
+            allocator,
+            &arena,
+            schemas,
+            expected_ref,
+            bytes,
+            limits,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return error.InvalidResume,
+        };
+    }
+
+    fn validateLoadedSessionResultImage(
+        allocator: std.mem.Allocator,
+        schemas: loaded_execution.SchemaSet,
+        expected_ref: loaded_execution.LoadedValueRef,
+        bytes: []const u8,
+        expected_fingerprint: u64,
+        limits: loaded_execution.Limits,
+    ) !void {
+        try validateLoadedSessionValueImage(allocator, schemas, expected_ref, bytes, limits);
+        const actual_fingerprint = loadedValueImageFingerprint(bytes) orelse return error.InvalidResume;
+        if (actual_fingerprint != expected_fingerprint) return error.InvalidResume;
     }
 
     fn loadedProfileSupportsTerminator(profile: LoadedExecutionProfile, kind: internal_program_plan.TerminatorKind) bool {
@@ -7812,6 +8104,7 @@ pub const BoundaryTargetModule = struct {
 
     pub fn validate(bytes: []const u8, options: ValidationOptions) ValidationError!ValidationReport {
         const parsed = try parseImage(bytes, options);
+        const unsupported_loaded_execution_features = try parsedImageUnsupportedLoadedExecutionFeatures(bytes, parsed, options);
         var compatibility_report = CompatibilityReport{
             .module_fingerprint = parsed.manifest.module_fingerprint,
             .compatible = true,
@@ -7820,7 +8113,7 @@ pub const BoundaryTargetModule = struct {
             .ignored_optional_sections = parsed.ignored_optional_sections,
             .unknown_optional_sections = parsed.unknown_optional_sections,
             .requires_loaded_execution = parsed.manifest.module_kind == .full_module,
-            .unsupported_loaded_execution_features = parsed.manifest.module_kind == .full_module,
+            .unsupported_loaded_execution_features = unsupported_loaded_execution_features,
             .warning_count = parsed.ignored_optional_sections,
             .module_kind = parsed.manifest.module_kind,
         };
@@ -7839,6 +8132,29 @@ pub const BoundaryTargetModule = struct {
         };
         report.finish();
         return report;
+    }
+
+    fn parsedImageUnsupportedLoadedExecutionFeatures(bytes: []const u8, parsed: ParsedImage, options: ValidationOptions) ValidationError!bool {
+        if (parsed.manifest.module_kind != .full_module) return false;
+        const payload = sectionPayloadForKind(bytes, @intCast(parsed.section_count), .executable_plan_image) orelse return true;
+        const executable_plan_fingerprint = loaded_execution.executablePlanImageFingerprint(payload) catch return true;
+        var decoded_plan = loaded_execution.decodeExecutablePlanImage(
+            options.allocator,
+            payload,
+            executable_plan_fingerprint,
+            parsed.manifest.program_plan_hash,
+            LoadedExecutionProfile.portableV1().limits,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return true,
+        };
+        defer decoded_plan.deinit();
+        const imports = parseImports(options.allocator, bytes, parsed.import_surface_payload, parsed.manifest, options) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return true,
+        };
+        defer options.allocator.free(imports);
+        return !loadedModuleSupportsProgramPlan(imports, LoadedExecutionProfile.portableV1(), decoded_plan.program_plan);
     }
 
     pub fn validationReport(bytes: []const u8, options: ValidationOptions) ValidationReport {
